@@ -5,6 +5,7 @@ import os
 import site
 import sys
 import threading
+import re
 from typing import Optional
 
 import numpy as np
@@ -14,6 +15,13 @@ log = logging.getLogger(__name__)
 _WHISPER_SAMPLE_RATE = 16000  # Whisper always expects 16kHz input
 _nvidia_dll_path_handles: list[object] = []
 _nvidia_dll_paths_configured = False
+
+_KNOWN_LOW_AUDIO_HALLUCINATIONS = {
+    "thanks for watching",
+    "thank you for watching",
+    "see you next time",
+    "bye",
+}
 
 
 def _configure_nvidia_dll_paths():
@@ -228,20 +236,62 @@ class TranscriptionEngine:
 
         # Collect segments and log VAD info
         text_parts = []
+        segment_count = 0
+        first_segment_start = None
+        last_segment_end = None
+        avg_logprobs = []
+        no_speech_probs = []
         for seg in segments:
+            segment_count += 1
+            start = seg.start or 0.0
+            end = seg.end or start
+            if first_segment_start is None:
+                first_segment_start = start
+            last_segment_end = end
+            avg_logprob = getattr(seg, "avg_logprob", None)
+            no_speech_prob = getattr(seg, "no_speech_prob", None)
+            if isinstance(avg_logprob, (int, float)):
+                avg_logprobs.append(float(avg_logprob))
+            if isinstance(no_speech_prob, (int, float)):
+                no_speech_probs.append(float(no_speech_prob))
             if seg.text.strip():
                 text_parts.append(seg.text.strip())
                 log.debug(
                     "[TRANSCRIBE] Segment: [%.1fs - %.1fs] %s",
-                    seg.start or 0.0, seg.end or 0.0, seg.text.strip(),
+                    start, end, seg.text.strip(),
                 )
 
         log.info(
-            "[TRANSCRIBE] VAD result: language=%s (prob=%.2f), segments=%d",
-            info.language, info.language_probability, len(text_parts),
+            "[TRANSCRIBE] VAD result: language=%s (prob=%.2f), "
+            "segments=%d, text_segments=%d, avg_logprob=%s, no_speech_prob=%s",
+            info.language,
+            info.language_probability,
+            segment_count,
+            len(text_parts),
+            _format_optional_mean(avg_logprobs),
+            _format_optional_mean(no_speech_probs),
         )
 
         result = " ".join(text_parts).strip()
+        if self._should_reject_low_audio_hallucination(
+            result=result,
+            rms=rms,
+            peak=peak,
+            silence_pct=silence_pct,
+            duration=duration,
+            first_segment_start=first_segment_start,
+            last_segment_end=last_segment_end,
+        ):
+            log.warning(
+                "[TRANSCRIBE] Rejected likely low-audio hallucination: %r "
+                "(duration=%.1fs, RMS=%.6f, peak=%.6f, silence=%.1f%%)",
+                result[:80],
+                duration,
+                rms,
+                peak,
+                silence_pct,
+            )
+            return ""
         if result:
             log.info("[TRANSCRIBE] Result: %s", result[:200])
         else:
@@ -356,7 +406,47 @@ class TranscriptionEngine:
             ])
         )
 
+    def _should_reject_low_audio_hallucination(
+        self,
+        *,
+        result: str,
+        rms: float,
+        peak: float,
+        silence_pct: float,
+        duration: float,
+        first_segment_start: float | None,
+        last_segment_end: float | None,
+    ) -> bool:
+        key = _normalize_hallucination_key(result)
+        if key not in _KNOWN_LOW_AUDIO_HALLUCINATIONS:
+            return False
+
+        if rms < 0.001 and silence_pct > 90.0:
+            return True
+
+        if first_segment_start is None or last_segment_end is None:
+            return False
+
+        segment_span = max(0.0, last_segment_end - first_segment_start)
+        return (
+            duration >= 30.0
+            and rms < 0.005
+            and silence_pct >= 50.0
+            and first_segment_start <= 3.0
+            and segment_span <= 5.0
+        )
+
     def unload(self):
         """Free model memory."""
         with self._lock:
             self._model = None
+
+
+def _normalize_hallucination_key(text: str) -> str:
+    return re.sub(r"[^a-z0-9 ]+", "", text.lower()).strip()
+
+
+def _format_optional_mean(values: list[float]) -> str:
+    if not values:
+        return "n/a"
+    return f"{sum(values) / len(values):.2f}"

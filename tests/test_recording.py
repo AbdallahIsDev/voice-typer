@@ -180,6 +180,60 @@ class TestStopAudioPrep:
         assert config.microphone == "1"
         config.save.assert_called_once()
 
+    def test_start_falls_back_to_all_devices_when_configured_mic_fails(self, monkeypatch):
+        """When configured mic and same-name alternates all fail, try ALL input devices."""
+        from voice_typer.recording import Recorder
+        import voice_typer.recording as recording_mod
+
+        devices = [
+            {"index": 0, "name": "Microsoft Sound Mapper - Input", "max_input_channels": 2, "default_samplerate": 44100, "hostapi": 0},
+            {"index": 1, "name": "Broken Mic", "max_input_channels": 1, "default_samplerate": 44100, "hostapi": 0},
+            {"index": 2, "name": "Working Mic", "max_input_channels": 1, "default_samplerate": 44100, "hostapi": 0},
+        ]
+        host_apis = {
+            0: {"name": "MME", "default_input_device": 1},
+        }
+
+        def query_devices(device=None, kind=None):
+            if kind == "input":
+                return devices[1]
+            if device is None:
+                return devices
+            return next(dev for dev in devices if dev["index"] == device)
+
+        monkeypatch.setattr(recording_mod.sd, "query_devices", query_devices)
+        monkeypatch.setattr(recording_mod.sd, "query_hostapis", lambda idx=None: host_apis[idx])
+
+        opened_devices = []
+
+        class SelectiveStream:
+            def __init__(self, *args, **kwargs):
+                opened_devices.append(kwargs["device"])
+                if kwargs["device"] in (1, 0):
+                    raise RuntimeError("device failed")
+                self.closed = False
+                self.started = False
+
+            def start(self):
+                self.started = True
+
+            def close(self):
+                self.closed = True
+
+        monkeypatch.setattr(recording_mod.sd, "InputStream", SelectiveStream)
+
+        config = MagicMock(sample_rate=16000, microphone="1")
+        r = Recorder(config)
+
+        r.start()
+
+        # Should try device 1 (configured), then 0 (same-name fallback),
+        # then fall back to all devices and succeed with device 2
+        assert 2 in opened_devices
+        assert r.recording is True
+        assert r._stream is not None
+        assert config.microphone == "2"
+
     def test_snapshot_returns_audio_without_clearing_buffer(self):
         from voice_typer.recording import Recorder
 
@@ -239,3 +293,22 @@ class TestStopAudioPrep:
         assert len(calls) == 1
         np.testing.assert_array_equal(calls[0][0], np.ones(6, dtype=np.float32))
         assert calls[0][1:] == (1, 3)
+
+    def test_snapshot_resampling_does_not_emit_info_log_spam(self, monkeypatch, caplog):
+        from voice_typer.recording import Recorder
+
+        def fake_resample_poly(audio, up, down):
+            return np.array([0.25, 0.5], dtype=np.float32)
+
+        monkeypatch.setattr("voice_typer.recording._get_resample_poly", lambda: fake_resample_poly)
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        r._recording = True
+        r._effective_sr = 48000
+        r._buffer = [np.ones((6, 1), dtype=np.float32)]
+
+        with caplog.at_level("INFO"):
+            r.snapshot()
+
+        assert "Resampled 48000 Hz -> 16000 Hz" not in caplog.text

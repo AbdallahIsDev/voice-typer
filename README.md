@@ -1,6 +1,6 @@
 # Voice Typer
 
-Background voice-to-text utility. Runs in your system tray. Press F2, talk, press F2 — text is transcribed to your clipboard.
+Premium offline background voice-to-text utility. Runs in your system tray. Press F2, talk, press F2 again -- final text is copied to your clipboard and pasted safely when a text field is focused.
 
 ## How It Works
 
@@ -51,7 +51,11 @@ python -m voice_typer
 
 The app runs in the system tray. No terminal window is shown (on Windows, it uses `pythonw.exe` automatically when launched via autostart).
 
-## Configuration
+## Settings
+
+Open the tray menu -> Settings to change the hotkey, microphone, model, start-on-login, and notifications. The microphone tray submenu is also available for quick device switching.
+
+Settings are stored in JSON for troubleshooting:
 
 Settings are stored in a JSON file:
 
@@ -59,18 +63,19 @@ Settings are stored in a JSON file:
 - **macOS**: `~/Library/Application Support/voice-typer/config.json`
 - **Linux**: `~/.config/voice-typer/config.json`
 
-Open the tray menu → Settings to edit in your default text editor.
+Use Settings for normal changes. Use the advanced settings button to open the raw config file only when troubleshooting.
 
 | Setting               | Default     | Description                                                   |
 |-----------------------|-------------|---------------------------------------------------------------|
 | `hotkey`              | `<f2>`      | Global hotkey to toggle dictation                             |
 | `microphone`          | `null`      | Microphone device index (string), or `null` for system default|
-| `model_size`          | `small.en`  | Whisper model: `tiny.en`, `small.en`, `medium.en`, `large-v3` |
+| `model_size`          | `small.en`  | User-facing Whisper model: `small.en` or `medium.en`. `tiny.en` may be used internally only as a last-resort fallback |
 | `language`            | `en`        | Language for transcription                                    |
-| `device`              | `auto`      | `auto` (GPU if available), `cuda`, or `cpu`                   |
+| `device`              | `cuda`      | CUDA-first runtime policy. Falls back to CPU automatically if CUDA is unavailable or fails |
 | `beam_size`           | `1`         | Decode beam size. `1` is fastest; higher values can improve accuracy but slow transcription |
 | `best_of`             | `1`         | Candidate count for decoding. Keep `1` for fastest voice typing |
 | `condition_on_previous_text` | `false` | Reuse previous decoded text as context. Disabled by default for lower latency |
+| `streaming_transcription` | `true`  | Hidden streaming is enabled for faster long recordings. Emergency override: `VOICE_TYPER_STREAMING=0` |
 | `autostart`           | `true`      | Start automatically on login                                  |
 | `paste_on_stop`       | `true`      | Auto-paste into focused field after transcription             |
 | `show_notifications`  | `true`      | Show desktop notifications                                    |
@@ -94,7 +99,7 @@ python -c "import sounddevice as sd; [print(i, d['name'], sd.query_hostapis(d['h
 
 ## Autostart
 
-Enable from the tray menu: right-click the icon → **Start on Login** (checkmark when active).
+Enable or disable from **Settings -> Advanced -> Start on login**.
 
 Alternatively, set `"autostart": true` in the config file and restart.
 
@@ -112,7 +117,7 @@ When `paste_on_stop` is enabled:
 - **Windows**: The app detects whether a text input is focused (via Win32 API). Auto-paste only happens when a text field is confirmed focused. If no text input is focused, the keystroke is skipped and the text stays in your clipboard.
 - **macOS / Linux**: Focus detection is not available. The app will attempt to paste (Ctrl+V / Cmd+V) after every transcription. Set `paste_on_stop` to `false` if you prefer clipboard-only behavior.
 
-On all platforms, the clipboard always gets the transcribed text regardless of paste success.
+On all platforms, the clipboard gets the transcribed text when transcription succeeds. The app never pastes provisional streaming text.
 
 ## Platform Notes
 
@@ -152,8 +157,10 @@ voice_typer/
 
 Key design decisions:
 
-- **Session-based recording**: Records the entire session, transcribes once after stopping. No chunking, no dropped words. The resampler is warmed before stop so cold SciPy imports do not delay transcription.
+- **Hidden streaming transcription**: Records the full session while transcribing safe overlapping chunks in the background. On stop, it finalizes the unconfirmed tail and falls back to full-session batch transcription if streaming state is unsafe.
 - **Fast default decoding**: Uses the same configured model with greedy decoding (`beam_size=1`) and no timestamp decoding for lower voice-typing latency.
+- **Conservative cleanup**: Removes high-confidence adjacent Whisper duplicates while preserving common intentional repetitions such as "no no no" and "very very good".
+- **Low-audio hallucination guard**: Rejects known boilerplate phrases such as "Thanks for watching" only when audio evidence indicates near-silence or a weak mostly silent long recording.
 - **Safe auto-paste**: Paste keystrokes are only sent when a text input is focused (Windows) or when the user opted in (other platforms). Clipboard is always populated.
 - **Platform adapters**: Autostart, focus detection, and paste behavior are isolated behind platform-specific code.
 - **Tray-first**: The tray icon is the primary UI. It appears before model loading starts so you always know the app is running.
@@ -165,6 +172,69 @@ Debug logs are written to:
 - **Windows**: `%APPDATA%/voice-typer/voice-typer.log`
 - **macOS**: `~/Library/Application Support/voice-typer/voice-typer.log`
 - **Linux**: `~/.config/voice-typer/voice-typer.log`
+
+## Troubleshooting
+
+### Word drops
+
+- Keep hidden streaming enabled unless diagnosing: it finalizes the tail and falls back to batch transcription if timestamps are unsafe.
+- Check the log for `[STREAMING] Finalizing streaming transcript`, fallback messages, and transcription length.
+- For emergency batch-only mode, run with `VOICE_TYPER_STREAMING=0`.
+
+### Duplicate words
+
+- The app removes only high-confidence adjacent duplicate words/phrases.
+- Intentional short repeats like `no no no`, `very very good`, and `test test one two` are preserved.
+- If a real repeated phrase is removed, save the exact raw phrase and the log timestamp.
+
+### No speech detected
+
+- Check the selected microphone in the tray menu.
+- Watch the log line `RMS`, `peak`, and `silence_pct`. Near-zero RMS usually means the wrong mic or muted input.
+- If audio is quiet but real, move closer to the mic or choose the non-virtual physical microphone.
+
+### Wrong microphone
+
+- Use tray menu -> Microphone. Duplicate names show host APIs where needed.
+- If one host API fails, Voice Typer can fall back to another entry with the same physical microphone name and persist the working device index.
+
+### Slow stop after F2
+
+- Current logs include `Stop timing` with stream, concat, stats, resample, and total milliseconds.
+- The resampler is warmed at startup. If stop is slow, check whether `Resampler warmed up` appears before the recording.
+- CPU fallback can make transcription slower after stop, especially for long recordings.
+
+### CUDA fallback
+
+- Voice Typer tries CUDA first. If CUDA/cuBLAS/cuDNN fails during load or transcription, it falls back to CPU.
+- On Windows, NVIDIA wheel DLL paths are added automatically when installed.
+
+### Autostart
+
+- Install the package first: `pip install .`
+- Enable from Settings -> Advanced -> Start on login.
+- Windows uses `pythonw.exe -m voice_typer` when available so no console window stays open.
+
+## Manual Verification Checklist
+
+Run:
+
+```bash
+python -m voice_typer
+```
+
+Verify:
+
+- F2 starts recording and tray shows recording.
+- F2 stops recording and tray shows transcribing, then idle.
+- Short phrase copies to clipboard and pastes into focused text input.
+- Duplicate-risk phrase does not duplicate words.
+- Intentional repetition stays repeated.
+- 30-60s phrase preserves words across streaming chunks.
+- Quiet speech either transcribes or reports no speech with microphone guidance.
+- 3s silence does not copy/paste boilerplate hallucinations.
+- Settings opens and saves hotkey/microphone/model changes.
+- Quit exits cleanly with no orphan app process.
 
 ## Verification Status
 

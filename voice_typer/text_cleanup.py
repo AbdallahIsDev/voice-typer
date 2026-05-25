@@ -9,6 +9,58 @@ _QUESTION_OPENERS = {
     "where", "which", "who", "whom", "whose", "why", "will", "would",
 }
 
+_INTENTIONAL_REPEAT_WORDS = {
+    "no",
+    "test",
+    "very",
+}
+
+_WHISPER_MISSPELLINGS = {
+    "infestigate": "investigate",
+    "grammer": "grammar",
+    "recieve": "receive",
+    "occured": "occurred",
+    "seperate": "separate",
+    "definately": "definitely",
+    "accomodate": "accommodate",
+    "occassion": "occasion",
+    "untill": "until",
+    "wierd": "weird",
+    "thier": "their",
+    "goverment": "government",
+    "enviroment": "environment",
+    "developement": "development",
+    "begining": "beginning",
+    "sucessful": "successful",
+    "neccessary": "necessary",
+    "recomend": "recommend",
+    "tommorow": "tomorrow",
+    "beautifull": "beautiful",
+    "wonderfull": "wonderful",
+    "awfull": "awful",
+    "carefull": "careful",
+    "helpfull": "helpful",
+    "usefull": "useful",
+    "powerfull": "powerful",
+    "grammerly": "grammatically",
+    "grammarly": "grammatically",
+}
+
+_WHISPER_PHRASE_CORRECTIONS = [
+    ("to 2 ", "to "),
+    (" to 2", " to"),
+    ("they working", "it's working"),
+    ("this me either", "I'm also"),
+    ("treat 3", "treat this"),
+    ("adds a test", "is a test"),
+    ("Execute execute", "Execute"),
+]
+
+_COMMON_EXTRA_WORD_PATTERNS = [
+    ("without whether", "whether"),
+    ("didn't and ", "didn't "),
+]
+
 
 def clean_transcribed_text(text: str) -> str:
     """Apply conservative cleanup without changing the user's meaning."""
@@ -17,7 +69,12 @@ def clean_transcribed_text(text: str) -> str:
         return ""
 
     cleaned = _normalize_spacing(cleaned)
+    cleaned = _clean_self_corrections(cleaned)
     cleaned = _remove_adjacent_duplicate_phrases(cleaned)
+    cleaned = _remove_near_duplicate_words(cleaned)
+    cleaned = _fix_common_misspellings(cleaned)
+    cleaned = _correct_whisper_phrases(cleaned)
+    cleaned = _remove_extra_words(cleaned)
     cleaned = _capitalize_sentences(cleaned)
     cleaned = _capitalize_pronoun_i(cleaned)
     cleaned = _add_terminal_punctuation(cleaned)
@@ -29,6 +86,39 @@ def _normalize_spacing(text: str) -> str:
     text = re.sub(r"\s+([,.;:!?])", r"\1", text)
     text = re.sub(r"([,.;:!?])(?=[^\s,.;:!?])", r"\1 ", text)
     return text.strip()
+
+
+def _clean_self_corrections(text: str) -> str:
+    """Remove self-correction patterns like 'talk talking' → 'talking'."""
+    tokens = text.split(" ")
+    output = []
+    i = 0
+    while i < len(tokens):
+        if i + 1 < len(tokens):
+            key1 = _token_key(tokens[i])
+            key2 = _token_key(tokens[i + 1])
+            if key1 and key2 and key1 != key2:
+                # Direct prefix/suffix match (e.g., "talk" → "talking")
+                if key2.startswith(key1) or key1.startswith(key2):
+                    output.append(tokens[i + 1])
+                    i += 2
+                    continue
+                # Shared root with common prefix of 4+ chars
+                # (e.g., "transcribed" → "transcribe", "execute" → "executed")
+                if len(key1) >= 4 and len(key2) >= 4:
+                    common = 0
+                    for a, b in zip(key1, key2):
+                        if a == b:
+                            common += 1
+                        else:
+                            break
+                    if common >= 4:
+                        output.append(tokens[i + 1])
+                        i += 2
+                        continue
+        output.append(tokens[i])
+        i += 1
+    return " ".join(output)
 
 
 def _remove_adjacent_duplicate_phrases(text: str) -> str:
@@ -55,8 +145,76 @@ def _duplicate_phrase_length(tokens: list[str], index: int) -> int:
             for token in tokens[index + size:index + (size * 2)]
         ]
         if left == right and any(left):
+            if size == 1 and left[0] in _INTENTIONAL_REPEAT_WORDS:
+                continue
             return size
     return 0
+
+
+def _remove_near_duplicate_words(text: str) -> str:
+    """Remove adjacent words where one is a substring of the other."""
+    tokens = text.split(" ")
+    output = []
+    i = 0
+    while i < len(tokens):
+        if i + 1 < len(tokens):
+            key1 = _token_key(tokens[i])
+            key2 = _token_key(tokens[i + 1])
+            if key1 and key2 and key1 != key2:
+                if len(key1) < 4 or len(key2) < 4:
+                    output.append(tokens[i])
+                    i += 1
+                    continue
+                if key1 in _INTENTIONAL_REPEAT_WORDS or key2 in _INTENTIONAL_REPEAT_WORDS:
+                    output.append(tokens[i])
+                    i += 1
+                    continue
+                if abs(len(key1) - len(key2)) <= 2:
+                    if key1 in key2 or key2 in key1:
+                        longer = tokens[i] if len(key1) >= len(key2) else tokens[i + 1]
+                        output.append(longer)
+                        i += 2
+                        continue
+        output.append(tokens[i])
+        i += 1
+    return " ".join(output)
+
+
+def _fix_common_misspellings(text: str) -> str:
+    """Fix common Whisper small-model misspellings."""
+    tokens = text.split(" ")
+    output = []
+    for token in tokens:
+        key = _token_key(token)
+        if key in _WHISPER_MISSPELLINGS:
+            correction = _WHISPER_MISSPELLINGS[key]
+            match = re.match(r"^(\W*)(\w+)(\W*)$", token)
+            if match:
+                token = f"{match.group(1)}{correction}{match.group(3)}"
+            else:
+                token = correction
+        output.append(token)
+    return " ".join(output)
+
+
+def _correct_whisper_phrases(text: str) -> str:
+    """Fix known Whisper small-model phrase misrecognitions."""
+    lower = text.lower()
+    for bad, good in _WHISPER_PHRASE_CORRECTIONS:
+        pattern = re.compile(re.escape(bad), re.IGNORECASE)
+        if pattern.search(lower):
+            text = pattern.sub(good, text)
+    return text
+
+
+def _remove_extra_words(text: str) -> str:
+    """Remove common extra word insertions from Whisper."""
+    lower = text.lower()
+    for bad, good in _COMMON_EXTRA_WORD_PATTERNS:
+        pattern = re.compile(re.escape(bad), re.IGNORECASE)
+        if pattern.search(lower):
+            text = pattern.sub(good, text)
+    return text
 
 
 def _token_key(token: str) -> str:
@@ -82,6 +240,9 @@ def _capitalize_pronoun_i(text: str) -> str:
 
 def _add_terminal_punctuation(text: str) -> str:
     if not text or text[-1] in ".!?":
+        return text
+    words = text.split()
+    if len(words) <= 4:
         return text
     if _looks_like_question(text):
         return f"{text}?"

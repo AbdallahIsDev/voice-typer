@@ -348,6 +348,72 @@ class TestTranscribeWithFallback:
         assert result == ""
         mock_model.transcribe.assert_not_called()
 
+    def test_near_silence_known_hallucination_is_rejected(self):
+        import numpy as np
+
+        engine, mock_model = self._make_engine_with_model()
+        mock_model.transcribe.return_value = (
+            [MagicMock(text="Thanks for watching!", start=0.4, end=2.4)],
+            MagicMock(language="en", language_probability=1.0),
+        )
+
+        audio = np.zeros(16000 * 6, dtype=np.float32)
+        result = engine.transcribe_with_fallback(audio)
+
+        assert result == ""
+
+    def test_known_phrase_is_kept_when_audio_evidence_is_strong(self):
+        import numpy as np
+
+        engine, mock_model = self._make_engine_with_model()
+        mock_model.transcribe.return_value = (
+            [MagicMock(text="Thanks for watching!", start=0.4, end=2.4)],
+            MagicMock(language="en", language_probability=1.0),
+        )
+
+        audio = np.full(16000 * 3, 0.05, dtype=np.float32)
+        result = engine.transcribe_with_fallback(audio)
+
+        assert result == "Thanks for watching!"
+
+    def test_long_recording_hallucination_is_rejected(self):
+        """364.9s recording with RMS=0.004, silence=58% should reject 'Thanks for watching!'."""
+        import numpy as np
+
+        engine, mock_model = self._make_engine_with_model()
+        mock_model.transcribe.return_value = (
+            [MagicMock(text="Thanks for watching!", start=0.4, end=2.4)],
+            MagicMock(language="en", language_probability=1.0),
+        )
+
+        # Simulate: mostly silence with low-amplitude noise, ~58% below 0.001 threshold
+        audio = np.full(16000 * 30, 0.004, dtype=np.float32)
+        # Make 60% of samples below 0.001 threshold
+        silence_indices = np.random.RandomState(42).choice(
+            len(audio), size=int(len(audio) * 0.60), replace=False
+        )
+        audio[silence_indices] = 0.0
+
+        result = engine.transcribe_with_fallback(audio)
+
+        assert result == ""
+
+    def test_long_recording_real_speech_is_kept(self):
+        """Long recording with strong audio should NOT reject known phrases."""
+        import numpy as np
+
+        engine, mock_model = self._make_engine_with_model()
+        mock_model.transcribe.return_value = (
+            [MagicMock(text="Thanks for watching!", start=0.4, end=2.4)],
+            MagicMock(language="en", language_probability=1.0),
+        )
+
+        # Strong audio: RMS well above 0.005 threshold
+        audio = np.full(16000 * 30, 0.02, dtype=np.float32)
+        result = engine.transcribe_with_fallback(audio)
+
+        assert result == "Thanks for watching!"
+
 
 class TestTranscribeWords:
     def test_transcribe_words_passes_timestamp_options_and_applies_offset(self):

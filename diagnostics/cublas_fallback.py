@@ -132,7 +132,7 @@ def test_cublas_failure_then_f2_recovery():
         app.recorder.start.assert_called_once()
         print("  [OK] F2 works again after transcription failure")
 
-        print("\n  ✓ ALL CHECKS PASSED — cublas failure path is handled correctly")
+        print("\n  PASS: ALL CHECKS PASSED - cublas failure path is handled correctly")
 
 
 def test_hard_crash_watchdog_recovery():
@@ -177,7 +177,7 @@ def test_hard_crash_watchdog_recovery():
         app.recorder.start.assert_called_once()
         print("  [OK] F2 works after watchdog recovery")
 
-        print("\n  ✓ ALL CHECKS PASSED — watchdog recovery works")
+        print("\n  PASS: ALL CHECKS PASSED - watchdog recovery works")
 
 
 def test_transcribe_with_fallback_real():
@@ -238,7 +238,7 @@ def test_transcribe_with_fallback_real():
         pass  # expected
     print("  [OK] CPU model errors propagate without fallback")
 
-    print("\n  ✓ ALL CHECKS PASSED — transcribe_with_fallback works correctly")
+    print("\n  PASS: ALL CHECKS PASSED - transcribe_with_fallback works correctly")
 
 
 if __name__ == "__main__":
@@ -246,7 +246,7 @@ if __name__ == "__main__":
     print("RUNTIME INTEGRATION TEST: cublas64_12.dll failure path")
     print("=" * 60)
 
-    print("\n[Test 1] cuBLAS failure → F2 recovery cycle")
+    print("\n[Test 1] cuBLAS failure -> F2 recovery cycle")
     test_cublas_failure_then_f2_recovery()
 
     print("\n[Test 2] Hard crash watchdog recovery")

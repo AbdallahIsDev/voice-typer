@@ -48,7 +48,10 @@ def make_app(tmp_path):
          patch("voice_typer.app.disable_autostart"), \
          patch("voice_typer.app.list_microphones", return_value=[]):
 
+        import voice_typer.app as app_mod
         from voice_typer.app import VoiceTyperApp
+        from voice_typer.hotkeys import PynputHotkey
+        app_mod.create_hotkey_backend = lambda hotkey: PynputHotkey(hotkey)
         app = VoiceTyperApp()
         app.tray = MagicMock()
         return app
@@ -92,10 +95,11 @@ def test_full_f2_cycle():
     assert app.transcriber.is_loaded, "Model should be loaded"
     print("    Model loaded on cpu/int8")
 
-    print("  [STEP 4] F2 press #1 → start recording")
+    print("  [STEP 4] F2 press #1 -> start recording")
     app.recorder = MagicMock()
     app.recorder.recording = False
     app.recorder.start = MagicMock()
+    app._streaming_enabled = lambda: False
 
     callback = captured_mapping["<f2>"]
     callback()  # Simulate F2 press
@@ -104,7 +108,7 @@ def test_full_f2_cycle():
     assert not app._busy, "_busy should still be False during recording"
     print("    recorder.start() called, _busy=False")
 
-    print("  [STEP 5] F2 press #2 → stop recording + transcribe")
+    print("  [STEP 5] F2 press #2 -> stop recording + transcribe")
     app.recorder.recording = True
     audio = np.ones(16000, dtype=np.float32)  # 1s of audio
     app.recorder.stop = MagicMock(return_value=audio)
@@ -126,7 +130,7 @@ def test_full_f2_cycle():
     app.transcriber.transcribe_with_fallback.assert_called_once()
     print("    transcribe_with_fallback called, _busy=False")
 
-    print("  [STEP 6] F2 press #3 → works after previous cycle")
+    print("  [STEP 6] F2 press #3 -> works after previous cycle")
     app.recorder.reset_mock()
     app.recorder.recording = False
     app.recorder.start = MagicMock()
@@ -318,10 +322,10 @@ def test_transcription_failure_clears_busy():
 
 if __name__ == "__main__":
     print("=" * 65)
-    print("FULL DIAGNOSTIC: F2 does nothing — tracing every code path")
+    print("FULL DIAGNOSTIC: F2 does nothing - tracing every code path")
     print("=" * 65)
 
-    print("\n[Test 1] Full F2 cycle: start → stop → transcribe → recover")
+    print("\n[Test 1] Full F2 cycle: start -> stop -> transcribe -> recover")
     test_full_f2_cycle()
 
     print("\n[Test 2] If _busy is stuck True, F2 is silently ignored")

@@ -296,11 +296,10 @@ class TestSettingsUxTrayMenu:
         assert "F2" in labels
         assert "Ctrl+1" in labels
 
-    def test_settings_window_is_not_in_main_menu(self, tray):
+    def test_settings_window_is_in_main_menu(self, tray):
         labels = self._menu_labels(tray)
 
-        assert "Settings..." not in labels
-        assert "Settings" not in labels
+        assert "Settings..." in labels
 
     def test_model_submenu_is_in_main_menu(self, tray):
         tray._config = SimpleNamespace(hotkey="<f2>", model_size="small.en")

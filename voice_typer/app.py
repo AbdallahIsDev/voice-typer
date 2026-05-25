@@ -471,7 +471,7 @@ class VoiceTyperApp:
         """Return whether hidden streaming should run for the next recording."""
         if os.environ.get("VOICE_TYPER_STREAMING") == "0":
             return False
-        return True
+        return bool(self.config.streaming_transcription)
 
     def _streaming_config(self) -> StreamingConfig:
         return StreamingConfig(

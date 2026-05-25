@@ -117,12 +117,12 @@ def run_runtime_proof():
     try:
         transcriber.load()
         log.info(
-            "[STEP 2] Model loaded OK — device_info=%s, loaded_via=%s",
+            "[STEP 2] Model loaded OK - device_info=%s, loaded_via=%s",
             transcriber.device_info, transcriber.loaded_via,
         )
     except Exception as e:
         log.error("[STEP 2] Model load FAILED: %s", e)
-        log.error("[STEP 2] Cannot continue — transcription requires a loaded model")
+        log.error("[STEP 2] Cannot continue - transcription requires a loaded model")
         return False
 
     # ─── Step 3: Simulate the F2 cycle using app.py's actual logic ───────
@@ -130,7 +130,7 @@ def run_runtime_proof():
     busy = False  # mirrors VoiceTyperApp._busy
 
     # --- Simulate: F2 pressed → _start_dictation ---
-    log.info("[STEP 3] Simulating F2 press → _start_dictation")
+    log.info("[STEP 3] Simulating F2 press -> _start_dictation")
     mock_tray.set_state(AppState.RECORDING, "Recording...")
 
     # Generate synthetic audio (simulates what Recorder.stop() would return)
@@ -143,7 +143,7 @@ def run_runtime_proof():
     )
 
     # --- Simulate: F2 pressed again → _stop_dictation ---
-    log.info("[STEP 3] Simulating F2 press → _stop_dictation")
+    log.info("[STEP 3] Simulating F2 press -> _stop_dictation")
     mock_tray.set_state(AppState.TRANSCRIBING, "Transcribing...")
     busy = True
     log.info("[STEP 3] _busy set to True, transcription starting")
@@ -171,7 +171,7 @@ def run_runtime_proof():
             return
         log.warning("FORCE RECOVER: transcription watchdog fired, resetting state")
         busy = False
-        mock_tray.set_state(AppState.IDLE, "Recovered — transcription timed out")
+        mock_tray.set_state(AppState.IDLE, "Recovered - transcription timed out")
         mock_tray.notify("Voice Typer", "Transcription took too long. Press F2 to try again.")
         watchdog_fired.set()
         force_recovery_done.set()
@@ -205,7 +205,7 @@ def run_runtime_proof():
                 mock_tray.set_state(AppState.IDLE, "No speech detected")
             else:
                 log.info("[TRANSCRIBE] Got text: %r", text[:200])
-                mock_tray.set_state(AppState.IDLE, f"Done — {len(text)} chars (in clipboard)")
+                mock_tray.set_state(AppState.IDLE, f"Done - {len(text)} chars (in clipboard)")
 
         except Exception as e:
             results["transcribe_error"] = str(e)
@@ -215,7 +215,7 @@ def run_runtime_proof():
             # Check if fallback was exercised
             if "cublas" in str(e).lower() or "cuda" in str(e).lower():
                 results["fallback_exercised"] = True
-                log.info("[TRANSCRIBE] GPU error detected — fallback path was exercised")
+                log.info("[TRANSCRIBE] GPU error detected - fallback path was exercised")
 
         finally:
             watchdog.cancel()
@@ -244,7 +244,7 @@ def run_runtime_proof():
     results["tray_recovered"] = tray_ok
 
     if busy:
-        log.error("[STEP 4] FAIL: _busy is still True — stuck state!")
+        log.error("[STEP 4] FAIL: _busy is still True - stuck state!")
     else:
         log.info("[STEP 4] PASS: _busy recovered to False")
 
@@ -260,7 +260,7 @@ def run_runtime_proof():
         log.warning("[F2 BLOCKED] Busy transcribing, ignoring toggle")
         results["second_f2_works"] = False
     else:
-        log.info("[STEP 5] F2 NOT blocked — _busy is False, toggle would proceed")
+        log.info("[STEP 5] F2 NOT blocked - _busy is False, toggle would proceed")
         results["second_f2_works"] = True
 
     # ─── Step 6: Determine outcome ───────────────────────────────────────
@@ -283,7 +283,7 @@ def run_runtime_proof():
     log.info("  transcribe succeeded: %s", results["transcribe_success"])
     log.info("  transcribe text: %r", results["transcribe_text"])
     log.info("  transcribe error: %s", results["transcribe_error"])
-    log.info("  fallback exercised (GPU→CPU): %s", results["fallback_exercised"])
+    log.info("  fallback exercised (GPU->CPU): %s", results["fallback_exercised"])
     log.info("  _busy recovered to False: %s", results["busy_recovered"])
     log.info("  tray recovered (not stuck): %s", results["tray_recovered"])
     log.info("  second F2 press works: %s", results["second_f2_works"])
@@ -293,12 +293,12 @@ def run_runtime_proof():
     log.info("")
     log.info("TRAY STATE TRANSITIONS:")
     for state_name, message, ts in mock_tray.states:
-        log.info("  → %s: %r", state_name, message)
+        log.info("  -> %s: %r", state_name, message)
 
     log.info("")
     log.info("NOTIFICATIONS:")
     for title, message, ts in mock_tray.notifications:
-        log.info("  → %s: %r", title, message)
+        log.info("  -> %s: %r", title, message)
 
     # ─── Print captured log lines ─────────────────────────────────────────
     log.info("")

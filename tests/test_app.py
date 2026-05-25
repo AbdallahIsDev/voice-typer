@@ -168,7 +168,7 @@ class TestAppStateTransitions:
 
         _wait_for_busy_clear(app)
 
-        app.clipboard.copy.assert_called_with("Hello world.")
+        app.clipboard.copy.assert_called_with("Hello world")
         app.clipboard.paste.assert_called_once()
 
     def test_transcribe_cleans_text_before_clipboard(self, app, monkeypatch):
@@ -213,7 +213,7 @@ class TestAppStateTransitions:
         _wait_for_busy_clear(app)
 
         # copy was called
-        app.clipboard.copy.assert_called_once_with("Secret text.")
+        app.clipboard.copy.assert_called_once_with("Secret text")
         # paste must NOT have been called
         app.clipboard.paste.assert_not_called()
         # tray should show clipboard-unavailable status
@@ -880,7 +880,7 @@ class TestStreamingIntegration:
 
         session.finalize.assert_called_once_with(audio)
         app.transcriber.transcribe_with_fallback.assert_not_called()
-        app.clipboard.copy.assert_called_once_with("Streamed text.")
+        app.clipboard.copy.assert_called_once_with("Streamed text")
         app.clipboard.paste.assert_called_once()
 
     def test_streaming_kill_switch_forces_batch_path(self, app, monkeypatch):

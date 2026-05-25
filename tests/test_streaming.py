@@ -222,6 +222,39 @@ def test_streaming_session_finalizes_only_uncommitted_tail():
     assert second_call.kwargs["offset_seconds"] == 2.5
 
 
+def test_streaming_session_drops_final_tail_words_before_commit_boundary():
+    config = StreamingConfig(
+        min_first_chunk_seconds=5.0,
+        chunk_seconds=5.0,
+        left_overlap_seconds=1.0,
+        right_guard_seconds=1.0,
+    )
+    recorder = MagicMock()
+    recorder.snapshot.return_value = audio_seconds(5.0)
+    transcriber = MagicMock()
+    transcriber.transcribe_words.side_effect = [
+        [
+            WordTiming("alpha", start_seconds=0.2, end_seconds=0.7),
+            WordTiming("bravo", start_seconds=2.0, end_seconds=2.5),
+        ],
+        [
+            WordTiming("wrong", start_seconds=1.8, end_seconds=2.4),
+            WordTiming("charlie", start_seconds=2.7, end_seconds=3.1),
+        ],
+    ]
+
+    session = StreamingTranscriptionSession(
+        recorder=recorder,
+        transcriber=transcriber,
+        config=config,
+        sample_rate=SAMPLE_RATE,
+    )
+
+    assert session.process_available_audio_once() is True
+
+    assert session.finalize(audio_seconds(5.0)) == "alpha bravo charlie"
+
+
 def test_streaming_session_falls_back_after_chunk_failure():
     recorder = MagicMock()
     recorder.snapshot.return_value = audio_seconds(6.0)

@@ -320,8 +320,13 @@ class StreamingTranscriptionSession:
                 offset_seconds=tail_start_seconds,
             )
             self._validate_words(words)
+            merge_boundary = self.assembler.last_committed_time
+            new_tail_words = [
+                word for word in words
+                if word.end_seconds > merge_boundary
+            ]
             with self._lock:
-                self.assembler.add_words(words, commit_horizon_seconds=math.inf)
+                self.assembler.add_words(new_tail_words, commit_horizon_seconds=math.inf)
                 return self.assembler.committed_text
         except Exception as exc:
             log.exception("[STREAMING] Final tail merge failed: %s", exc)
@@ -338,3 +343,10 @@ class StreamingTranscriptionSession:
                 raise TypeError("word text must be a string")
             if word.start_seconds is None or word.end_seconds is None:
                 raise TypeError("word timestamps are required")
+            if not (
+                math.isfinite(word.start_seconds)
+                and math.isfinite(word.end_seconds)
+            ):
+                raise ValueError("word timestamps must be finite")
+            if word.end_seconds < word.start_seconds:
+                raise ValueError("word end must be >= start")

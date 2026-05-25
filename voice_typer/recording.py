@@ -217,6 +217,51 @@ class Recorder:
             log.warning("[RECORDING] Could not query device info: %s", e)
             return target_sr, dev_info_extra
 
+    def _all_input_device_candidates(self) -> list[int]:
+        """Return all available input device IDs as a last-resort fallback."""
+        candidates = []
+        try:
+            all_devices = list(sd.query_devices())
+            for fallback_index, info in enumerate(all_devices):
+                index = self._device_index(fallback_index, info)
+                if info.get("max_input_channels", 0) <= 0:
+                    continue
+                if index not in candidates:
+                    candidates.append(index)
+        except Exception as e:
+            log.debug("[RECORDING] Could not build all-device fallback list: %s", e)
+        return candidates
+
+    def _all_input_device_candidates(self) -> list[int]:
+        """Return all available input device IDs as a last-resort fallback."""
+        candidates = []
+        try:
+            all_devices = list(sd.query_devices())
+            for fallback_index, info in enumerate(all_devices):
+                index = self._device_index(fallback_index, info)
+                if info.get("max_input_channels", 0) <= 0:
+                    continue
+                if index not in candidates:
+                    candidates.append(index)
+        except Exception as e:
+            log.debug("[RECORDING] Could not build all-device fallback list: %s", e)
+        return candidates
+
+    def _all_input_device_candidates(self) -> list[int]:
+        """Return all available input device IDs as a last-resort fallback."""
+        candidates = []
+        try:
+            all_devices = list(sd.query_devices())
+            for fallback_index, info in enumerate(all_devices):
+                index = self._device_index(fallback_index, info)
+                if info.get("max_input_channels", 0) <= 0:
+                    continue
+                if index not in candidates:
+                    candidates.append(index)
+        except Exception as e:
+            log.debug("[RECORDING] Could not build all-device fallback list: %s", e)
+        return candidates
+
     def start(self):
         """Start recording audio."""
         if self._recording:
@@ -234,6 +279,7 @@ class Recorder:
         last_error = None
         selected_device = None
         effective_sr = self.config.sample_rate
+        used_fallback = False
 
         for candidate in candidates:
             candidate_sr, dev_info_extra = self._resolve_effective_sample_rate(candidate)
@@ -281,6 +327,65 @@ class Recorder:
             effective_sr = candidate_sr
             break
 
+        # If all same-name candidates failed, try ALL available input devices
+        if self._stream is None and not used_fallback:
+            log.warning(
+                "[RECORDING] All devices matching configured mic failed. "
+                "Trying all available input devices as fallback."
+            )
+            all_candidates = self._all_input_device_candidates()
+            # Remove already-tried devices
+            tried = set(str(c) for c in candidates)
+            all_candidates = [c for c in all_candidates if str(c) not in tried]
+
+            for candidate in all_candidates:
+                candidate_sr, dev_info_extra = self._resolve_effective_sample_rate(candidate)
+
+                if dev_info_extra:
+                    log.info(
+                        "[RECORDING] Fallback device: [%s] %s | host_api=%s | "
+                        "native_rate=%d | effective_rate=%d",
+                        candidate,
+                        dev_info_extra["name"],
+                        dev_info_extra["host_api_name"],
+                        dev_info_extra["native_rate"],
+                        candidate_sr,
+                    )
+
+                stream = None
+                try:
+                    stream = sd.InputStream(
+                        samplerate=candidate_sr,
+                        channels=1,
+                        dtype=np.float32,
+                        device=candidate,
+                        callback=callback,
+                    )
+                    stream.start()
+                except Exception as e:
+                    last_error = e
+                    log.warning(
+                        "[RECORDING] Fallback device [%s] also failed: %s",
+                        candidate, e,
+                    )
+                    if stream is not None:
+                        try:
+                            stream.close()
+                        except Exception:
+                            pass
+                    continue
+
+                self._stream = stream
+                self._effective_sr = candidate_sr
+                selected_device = candidate
+                effective_sr = candidate_sr
+                used_fallback = True
+                log.info(
+                    "[RECORDING] Fallback succeeded with device [%s] %s",
+                    candidate, dev_info_extra["name"],
+                )
+                break
+
         if self._stream is None:
             if last_error is not None:
                 raise last_error
@@ -288,7 +393,7 @@ class Recorder:
 
         if selected_device != device and isinstance(selected_device, int):
             log.info(
-                "[RECORDING] Selected microphone [%s] failed; using matching device [%s]",
+                "[RECORDING] Selected microphone [%s] failed; using device [%s]",
                 device,
                 selected_device,
             )
@@ -377,9 +482,14 @@ class Recorder:
             audio = np.concatenate(self._buffer, axis=0).reshape(-1)
             effective_sr = self._effective_sr
 
-        return self._prepare_audio(audio, effective_sr)
+        return self._prepare_audio(audio, effective_sr, log_resample=False)
 
-    def _prepare_audio(self, audio: np.ndarray, effective_sr: int) -> np.ndarray:
+    def _prepare_audio(
+        self,
+        audio: np.ndarray,
+        effective_sr: int,
+        log_resample: bool = True,
+    ) -> np.ndarray:
         """Convert captured audio to the configured sample rate."""
         target_sr = self.config.sample_rate  # 16000 for Whisper
         if effective_sr != target_sr and len(audio) > 0:
@@ -391,10 +501,11 @@ class Recorder:
                 up = target_sr // gcd
                 down = effective_sr // gcd
                 audio = resample_poly(audio, up, down).astype(np.float32)
-                log.info(
-                    "[RECORDING] Resampled %d Hz -> %d Hz (%d -> %d samples)",
-                    effective_sr, target_sr, orig_len, len(audio),
-                )
+                if log_resample:
+                    log.info(
+                        "[RECORDING] Resampled %d Hz -> %d Hz (%d -> %d samples)",
+                        effective_sr, target_sr, orig_len, len(audio),
+                    )
                 resampled = True
             except ImportError:
                 log.warning(
@@ -412,11 +523,12 @@ class Recorder:
                     audio = np.interp(
                         indices, np.arange(len(audio)), audio,
                     ).astype(np.float32)
-                    log.info(
-                        "[RECORDING] Resampled (linear interp) %d Hz -> %d Hz "
-                        "(%d -> %d samples)",
-                        effective_sr, target_sr, orig_len, len(audio),
-                    )
+                    if log_resample:
+                        log.info(
+                            "[RECORDING] Resampled (linear interp) %d Hz -> %d Hz "
+                            "(%d -> %d samples)",
+                            effective_sr, target_sr, orig_len, len(audio),
+                        )
                     resampled = True
                 except Exception as e:
                     log.error(
