@@ -1,7 +1,6 @@
 .venv/
 .pytest_cache/
 .playwright-mcp/
-.omx/
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -10,6 +9,8 @@ __pycache__/
 *.log
 runtime_log*.txt
 voice_typer_stderr.log
+Complete-Code-Review.md
+PROBLEMS.md
 nul
 
 # Local editor/OS files

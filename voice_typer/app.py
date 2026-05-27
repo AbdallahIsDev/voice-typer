@@ -114,9 +114,9 @@ class VoiceTyperApp:
     def start(self):
         """Initialize and run the application.
 
-        The tray icon is created and its event loop runs on the main thread
-        (required by macOS / Linux).  Model loading, hotkey registration,
-        etc. happen in a background thread managed by the tray.
+        The tray icon is created and its event loop runs on the main thread.
+        Model loading, hotkey registration, etc. happen in a background thread
+        managed by the tray.
         """
         log.info(
             "Voice Typer starting -- model=%s, hotkey=%s, mic=%s, sample_rate=%s",

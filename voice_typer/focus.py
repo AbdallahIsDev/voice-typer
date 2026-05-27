@@ -1,4 +1,4 @@
-"""Platform-aware text input focus detection.
+"""Windows text input focus detection.
 
 On Windows, uses multiple heuristics to detect whether the focused
 control accepts text input:
@@ -15,8 +15,7 @@ control accepts text input:
    cannot be matched by class name alone.  Checking the owning
    process name (e.g. WindowsTerminal.exe) resolves this.
 
-On macOS and Linux there is no reliable way to do this without
-elevated permissions, so detection returns None (unknown).
+On other platforms returns None (unknown).
 """
 
 import ctypes
@@ -30,7 +29,6 @@ def is_text_input_focused() -> bool | None:
     """Return True if a text input is focused, False if not, None if unknown."""
     if sys.platform == "win32":
         return _windows_is_text_focused()
-    # macOS / Linux — no reliable detection available
     return None
 
 

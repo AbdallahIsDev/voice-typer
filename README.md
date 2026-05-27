@@ -1,10 +1,10 @@
 # Voice Typer
 
-Premium offline background voice-to-text utility. Runs in your system tray. Press F2, talk, press F2 again -- final text is copied to your clipboard and pasted safely when a text field is focused.
+Premium offline background voice-to-text utility for Windows. Runs in your system tray. Press F2, talk, press F2 again — final text is copied to your clipboard and pasted safely when a text field is focused.
 
 ## How It Works
 
-1. App starts in the system tray (or menu bar on macOS)
+1. App starts in the system tray
 2. Press **F2** anywhere to start recording
 3. Talk freely — switch apps, browse, do whatever
 4. Press **F2** again to stop
@@ -17,7 +17,7 @@ No cloud. No API keys. No rate limits. Fully offline after first model download.
 ## Requirements
 
 - Python 3.10 or later
-- A microphone (built-in, USB, or WO Mic on Windows)
+- A microphone
 
 ## Install
 
@@ -57,11 +57,7 @@ Open the tray menu -> Settings to change the hotkey, microphone, model, start-on
 
 Settings are stored in JSON for troubleshooting:
 
-Settings are stored in a JSON file:
-
-- **Windows**: `%APPDATA%/voice-typer/config.json`
-- **macOS**: `~/Library/Application Support/voice-typer/config.json`
-- **Linux**: `~/.config/voice-typer/config.json`
+Settings are stored in `%APPDATA%/voice-typer/config.json`.
 
 Use Settings for normal changes. Use the advanced settings button to open the raw config file only when troubleshooting.
 
@@ -103,21 +99,13 @@ Enable or disable from **Settings -> Advanced -> Start on login**.
 
 Alternatively, set `"autostart": true` in the config file and restart.
 
-Platform behavior:
-- **Windows**: Registry key in `HKCU\...\Run` (uses `pythonw.exe` for background execution, no console window). Hotkey uses Win32 RegisterHotKey with GetAsyncKeyState polling for reliable detection.
-- **macOS**: LaunchAgent plist in `~/Library/LaunchAgents/com.voicetyper.plist`
-- **Linux**: Desktop entry in `~/.config/autostart/voice-typer.desktop`
-
-All platforms use `python -m voice_typer` with the full path to the current Python interpreter. The package must be installed (`pip install .`) for autostart to work.
+The app registers itself in `HKCU\...\Run` (uses `pythonw.exe` for background execution, no console window). Hotkey uses Win32 RegisterHotKey with GetAsyncKeyState polling for reliable detection. The package must be installed (`pip install .`) for autostart to work.
 
 ## Auto-Paste Behavior
 
-When `paste_on_stop` is enabled:
+When `paste_on_stop` is enabled, the app detects whether a text input is focused (via Win32 API). Auto-paste only happens when a text field is confirmed focused. If no text input is focused, the keystroke is skipped and the text stays in your clipboard.
 
-- **Windows**: The app detects whether a text input is focused (via Win32 API). Auto-paste only happens when a text field is confirmed focused. If no text input is focused, the keystroke is skipped and the text stays in your clipboard.
-- **macOS / Linux**: Focus detection is not available. The app will attempt to paste (Ctrl+V / Cmd+V) after every transcription. Set `paste_on_stop` to `false` if you prefer clipboard-only behavior.
-
-On all platforms, the clipboard gets the transcribed text when transcription succeeds. The app never pastes provisional streaming text.
+The clipboard always gets the transcribed text when transcription succeeds. The app never pastes provisional streaming text.
 
 ## Platform Notes
 
@@ -127,17 +115,6 @@ On all platforms, the clipboard gets the transcribed text when transcription suc
 - Global hotkey uses Win32 RegisterHotKey via ctypes (no admin required, no pynput dependency)
 - Focus detection for safe auto-paste
 - GPU acceleration via CUDA if available
-
-### macOS
-- Requires Python installed (Homebrew recommended: `brew install python`)
-- Requires Accessibility permissions for global hotkey (System Preferences → Privacy → Accessibility)
-- Cmd+V for auto-paste
-- Tested on macOS 12+
-
-### Linux
-- Global hotkey works on X11; Wayland support depends on compositor
-- Ctrl+V for auto-paste
-- Tested on Ubuntu 22.04+ and Fedora 38+
 
 ## Architecture
 
@@ -161,17 +138,14 @@ Key design decisions:
 - **Fast default decoding**: Uses the same configured model with greedy decoding (`beam_size=1`) and no timestamp decoding for lower voice-typing latency.
 - **Conservative cleanup**: Removes high-confidence adjacent Whisper duplicates while preserving common intentional repetitions such as "no no no" and "very very good".
 - **Low-audio hallucination guard**: Rejects known boilerplate phrases such as "Thanks for watching" only when audio evidence indicates near-silence or a weak mostly silent long recording.
-- **Safe auto-paste**: Paste keystrokes are only sent when a text input is focused (Windows) or when the user opted in (other platforms). Clipboard is always populated.
+- **Safe auto-paste**: Paste keystrokes are only sent when a text input is focused. Clipboard is always populated.
 - **Platform adapters**: Autostart, focus detection, and paste behavior are isolated behind platform-specific code.
 - **Tray-first**: The tray icon is the primary UI. It appears before model loading starts so you always know the app is running.
 - **Graceful degradation**: If GPU not available, falls back to CPU. If MKL int8 allocation fails, falls back to float32 with tiny.en. If auto-paste fails, clipboard still has the text. If hotkey fails, tray menu still works. If model loading fails entirely, the app stays alive and F2 retries loading.
 
 ## Log File
 
-Debug logs are written to:
-- **Windows**: `%APPDATA%/voice-typer/voice-typer.log`
-- **macOS**: `~/Library/Application Support/voice-typer/voice-typer.log`
-- **Linux**: `~/.config/voice-typer/voice-typer.log`
+Debug logs are written to `%APPDATA%/voice-typer/voice-typer.log`.
 
 ## Troubleshooting
 
@@ -252,8 +226,7 @@ To verify reboot autostart: reboot, confirm the tray icon appears automatically,
 
 ## Known Limitations
 
-- Wayland global hotkey support depends on the compositor
-- Focus detection (for safe auto-paste) only works on Windows; on macOS/Linux the app cannot tell if a text field is focused
+- Focus detection (for safe auto-paste) only works on Windows
 - First model download requires internet (~466MB)
 - Very long recordings (>10 min) may use significant RAM during transcription
 - No `.bat` files or setup scripts — the app is installed via `pip install .` and run as `voice-typer` or `python -m voice_typer`

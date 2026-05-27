@@ -1,12 +1,12 @@
-"""Clipboard management and safe auto-paste, cross-platform.
+"""Clipboard management and safe auto-paste.
 
 Key behavior:
 - copy() ALWAYS puts text on the clipboard.
 - paste() only sends a paste keystroke when it is safe to do so:
     * If focus detection is available (Windows): only paste when a text
       input is confirmed focused.  If not, silently skip.
-    * If focus detection is NOT available (macOS / Linux): paste only
-      when the caller explicitly opted in (paste_on_stop config).
+    * If focus detection is not available: paste only when the caller
+      explicitly opted in (paste_on_stop config).
 - On any failure the clipboard text is preserved.
 """
 

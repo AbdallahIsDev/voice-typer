@@ -3,11 +3,10 @@
 Threading model:
 - ``start()`` creates the icon and launches background work (model loading,
   hotkey registration, etc.) in a daemon thread.  It does NOT block.
-- ``run()`` blocks the **main** thread with ``pystray.Icon.run()``.  This is
-  required on macOS (NSApplication) and Linux (Gtk.main).  Call it from the
-  main thread after ``start()``.
+- ``run()`` blocks the **main** thread with ``pystray.Icon.run()``.
+  Call it from the main thread after ``start()``.
 - State updates (icon, title, notifications) from the background thread are
-  dispatched safely by pystray on every platform.
+  dispatched safely by pystray.
 - Before ``run()`` starts, state / notification calls are queued and flushed
   once the event loop is live.
 """
@@ -135,7 +134,6 @@ class TrayIcon:
     def run(self):
         """Block the main thread with pystray's event loop.
 
-        MUST be called from the main thread on macOS / Linux.
         Flushes any pending state / notifications that were queued before
         the event loop was live.
         """
