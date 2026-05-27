@@ -80,8 +80,8 @@ def test_settings_controller_applies_config_values_and_callbacks():
     assert config.microphone == "mic-1"
     assert config.autostart is True
     assert config.show_notifications is False
-    assert config.paste_on_stop is True
-    assert config.streaming_transcription is True
+    assert config.paste_on_stop is False  # User value now preserved
+    assert config.streaming_transcription is False  # User value now preserved
     config.save.assert_called_once_with()
     callbacks["hotkey"].assert_called_once_with("<f3>")
     callbacks["model"].assert_called_once_with("medium.en")

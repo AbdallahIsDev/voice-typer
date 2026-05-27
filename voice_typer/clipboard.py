@@ -7,6 +7,7 @@ Key behavior:
       input is confirmed focused.  If not, silently skip.
     * If focus detection is not available: paste only when the caller
       explicitly opted in (paste_on_stop config).
+    * Terminal emulators use Shift+Insert instead of Ctrl+V.
 - On any failure the clipboard text is preserved.
 """
 
@@ -17,9 +18,35 @@ import time
 import pyperclip
 from pynput.keyboard import Key, Controller
 
-from voice_typer.focus import is_text_input_focused
+from voice_typer.focus import is_text_input_focused, _TEXT_PROCESS_NAMES
 
 log = logging.getLogger(__name__)
+
+
+# Terminal process names (lowercase, with extension) that require
+# Shift+Insert instead of Ctrl+V for paste.
+_TERMINAL_PROCESS_NAMES: set[str] = {
+    "windowsterminal.exe",
+    "warp.exe",
+    "alacritty.exe",
+    "wezterm-gui.exe",
+    "conemu64.exe",
+    "conemu.exe",
+    "cmd.exe",
+    "powershell.exe",
+    "pwsh.exe",
+    "gnome-terminal",
+    "konsole",
+    "xfce4-terminal",
+    "alacritty",
+    "kitty",
+    "xterm",
+    "rxvt",
+    "tilix",
+    "terminator",
+    "foot",
+    "wezterm",
+}
 
 
 class ClipboardManager:
@@ -28,6 +55,42 @@ class ClipboardManager:
     def __init__(self, paste_enabled: bool = True):
         self.paste_enabled = paste_enabled
         self._keyboard = Controller()
+        self._focused_process: str | None = None
+
+    @staticmethod
+    def _is_terminal_process(process_name: str | None) -> bool:
+        """Return True if the process name looks like a terminal emulator."""
+        if not process_name:
+            return False
+        return process_name.lower().strip() in _TERMINAL_PROCESS_NAMES
+
+    def _detect_focused_process(self) -> str | None:
+        """Best-effort detection of the focused process name (Windows only)."""
+        if sys.platform != "win32":
+            return None
+        try:
+            import ctypes
+            from ctypes import wintypes
+            user32 = ctypes.windll.user32
+            kernel32 = ctypes.windll.kernel32
+            hwnd = user32.GetForegroundWindow()
+            if not hwnd:
+                return None
+            pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            if not pid.value:
+                return None
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            h_process = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value)
+            if not h_process:
+                return None
+            try:
+                from voice_typer.focus import _get_process_name
+                return _get_process_name(user32, kernel32, hwnd)
+            finally:
+                kernel32.CloseHandle(h_process)
+        except Exception:
+            return None
 
     def copy(self, text: str) -> bool:
         """Copy text to clipboard.  Returns True on success."""
@@ -81,7 +144,27 @@ class ClipboardManager:
 
         try:
             time.sleep(0.1)  # let focused app settle
-            if sys.platform == "darwin":
+            # Detect if focused process is a terminal
+            process_name = self._detect_focused_process()
+            is_terminal = self._is_terminal_process(process_name)
+
+            if is_terminal:
+                # Terminals use Shift+Insert for paste
+                if sys.platform == "darwin":
+                    # macOS terminals: Cmd+Shift+V
+                    self._keyboard.press(Key.cmd)
+                    self._keyboard.press(Key.shift)
+                    self._keyboard.press("v")
+                    self._keyboard.release("v")
+                    self._keyboard.release(Key.shift)
+                    self._keyboard.release(Key.cmd)
+                else:
+                    # Linux/Windows terminals: Shift+Insert
+                    self._keyboard.press(Key.shift)
+                    self._keyboard.press(Key.insert)
+                    self._keyboard.release(Key.insert)
+                    self._keyboard.release(Key.shift)
+            elif sys.platform == "darwin":
                 self._keyboard.press(Key.cmd)
                 self._keyboard.press("v")
                 self._keyboard.release("v")

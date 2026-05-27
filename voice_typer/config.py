@@ -1,11 +1,14 @@
 """Configuration management with platform-aware storage."""
 
 import json
+import logging
 import os
 import sys
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
 from typing import Optional
+
+log = logging.getLogger("voice_typer.config")
 
 
 ALLOWED_USER_MODELS = {"small.en", "medium.en"}
@@ -55,6 +58,16 @@ class Config:
     paste_on_stop: bool = True
     show_notifications: bool = True
 
+    # ASR backend selection
+    asr_backend: str = "whisper"  # "whisper" or "qwen"
+    qwen_model_path: Optional[str] = None  # local path to Qwen3-ASR weights
+
+    # Text cleanup
+    text_cleanup_enabled: bool = True
+
+    # External corrections file
+    corrections_path: Optional[str] = None
+
     def save(self):
         """Save config to disk."""
         path = _config_dir()
@@ -72,9 +85,6 @@ class Config:
                 with open(config_file) as f:
                     data = json.load(f)
                 data = {k: v for k, v in data.items() if k in cls.__dataclass_fields__}
-                data["device"] = "cuda"
-                data["streaming_transcription"] = True
-                data["paste_on_stop"] = True
                 data["streaming_left_overlap_seconds"] = max(
                     float(data.get("streaming_left_overlap_seconds", 3.0)),
                     3.0,
@@ -86,7 +96,11 @@ class Config:
                 if data.get("model_size") not in ALLOWED_USER_MODELS:
                     data["model_size"] = "small.en"
                 return cls(**data)
-            except Exception:
+            except json.JSONDecodeError as e:
+                log.error("Config file corrupted: %s. Using defaults.", e)
+                return cls()
+            except Exception as e:
+                log.error("Failed to load config: %s. Using defaults.", e)
                 return cls()
         return cls()
 

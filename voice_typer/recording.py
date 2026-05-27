@@ -232,36 +232,6 @@ class Recorder:
             log.debug("[RECORDING] Could not build all-device fallback list: %s", e)
         return candidates
 
-    def _all_input_device_candidates(self) -> list[int]:
-        """Return all available input device IDs as a last-resort fallback."""
-        candidates = []
-        try:
-            all_devices = list(sd.query_devices())
-            for fallback_index, info in enumerate(all_devices):
-                index = self._device_index(fallback_index, info)
-                if info.get("max_input_channels", 0) <= 0:
-                    continue
-                if index not in candidates:
-                    candidates.append(index)
-        except Exception as e:
-            log.debug("[RECORDING] Could not build all-device fallback list: %s", e)
-        return candidates
-
-    def _all_input_device_candidates(self) -> list[int]:
-        """Return all available input device IDs as a last-resort fallback."""
-        candidates = []
-        try:
-            all_devices = list(sd.query_devices())
-            for fallback_index, info in enumerate(all_devices):
-                index = self._device_index(fallback_index, info)
-                if info.get("max_input_channels", 0) <= 0:
-                    continue
-                if index not in candidates:
-                    candidates.append(index)
-        except Exception as e:
-            log.debug("[RECORDING] Could not build all-device fallback list: %s", e)
-        return candidates
-
     def start(self):
         """Start recording audio."""
         if self._recording:
@@ -407,11 +377,8 @@ class Recorder:
 
         target_sr = self.config.sample_rate
         if effective_sr != target_sr and _resample_poly is None and _resample_poly_error is None:
-            threading.Thread(
-                target=self.warm_up_resampler,
-                name="ResamplerWarmup",
-                daemon=True,
-            ).start()
+            # Warm up synchronously to avoid racing with stop()
+            self.warm_up_resampler()
 
     def stop(self) -> np.ndarray:
         """Stop recording and return the complete audio array."""

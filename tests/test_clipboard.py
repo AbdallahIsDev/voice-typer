@@ -1,14 +1,22 @@
 """Tests for clipboard copy and safe-paste logic."""
 
+import sys
 import pytest
 from unittest.mock import patch, MagicMock
+
+# Mock pynput BEFORE any import of voice_typer.clipboard
+# pynput requires a display on Linux which isn't available in CI/headless
+mock_pynput = MagicMock()
+mock_pynput_kb = MagicMock()
+sys.modules.setdefault("pynput", mock_pynput)
+sys.modules.setdefault("pynput.keyboard", mock_pynput_kb)
+sys.modules.setdefault("pyperclip", MagicMock())
 
 from voice_typer.clipboard import ClipboardManager
 
 
 class TestCopy:
     def test_copy_puts_text_on_clipboard(self, monkeypatch):
-        copied = []
         monkeypatch.setattr("voice_typer.clipboard.pyperclip", MagicMock())
         import voice_typer.clipboard as mod
         mod.pyperclip = MagicMock()
@@ -91,7 +99,6 @@ class TestPaste:
         import voice_typer.clipboard as mod
         mod.time = MagicMock()
         monkeypatch.setattr("voice_typer.clipboard.sys.platform", "win32")
-        # Simulate: first check False (disrupted), second check True (recovered)
         mock_focus.side_effect = [False, True]
 
         cm = ClipboardManager(paste_enabled=True)
@@ -109,8 +116,6 @@ class TestPaste:
         import voice_typer.clipboard as mod
         mod.time = MagicMock()
         monkeypatch.setattr("voice_typer.clipboard.sys.platform", "linux")
-        # Even though the second call would return True, on non-Windows
-        # we never retry, so paste is skipped.
         mock_focus.side_effect = [False, True]
 
         cm = ClipboardManager(paste_enabled=True)
@@ -134,3 +139,11 @@ class TestPaste:
         result = cm.paste()
 
         assert result is False
+
+    def test_is_terminal_process(self):
+        """Test terminal process detection."""
+        assert ClipboardManager._is_terminal_process("windowsterminal.exe") is True
+        assert ClipboardManager._is_terminal_process("cmd.exe") is True
+        assert ClipboardManager._is_terminal_process("notepad.exe") is False
+        assert ClipboardManager._is_terminal_process(None) is False
+        assert ClipboardManager._is_terminal_process("") is False

@@ -14,7 +14,7 @@ Threading model:
 import logging
 import threading
 from enum import Enum
-from typing import Optional, Callable
+from typing import Optional, Callable, Protocol
 
 import pystray
 from PIL import Image, ImageDraw
@@ -30,29 +30,28 @@ class AppState(Enum):
     ERROR = "error"
 
 
+class TrayController(Protocol):
+    """Protocol that the tray controller (typically VoiceTyperApp) must implement."""
+
+    def toggle_dictation(self) -> None: ...
+    def change_microphone(self, mic_id: str | None) -> None: ...
+    def change_model(self, model: str) -> None: ...
+    def change_hotkey(self, hotkey: str) -> None: ...
+    def open_settings(self) -> None: ...
+    def quit_app(self) -> None: ...
+    def toggle_autostart(self) -> None: ...
+    def set_notifications(self, enabled: bool) -> None: ...
+
+
 class TrayIcon:
     """Cross-platform system tray icon with dynamic menu and state indication."""
 
     def __init__(
         self,
-        on_toggle: Callable,
-        on_settings: Callable,
-        on_quit: Callable,
-        on_toggle_autostart: Optional[Callable] = None,
-        on_select_mic: Optional[Callable[[Optional[str]], None]] = None,
-        on_select_hotkey: Optional[Callable[[str], None]] = None,
-        on_select_model: Optional[Callable[[str], None]] = None,
-        on_toggle_notifications: Optional[Callable[[bool], None]] = None,
+        controller: TrayController,
         config=None,
     ):
-        self.on_toggle = on_toggle
-        self.on_settings = on_settings
-        self.on_quit = on_quit
-        self.on_toggle_autostart = on_toggle_autostart
-        self.on_select_mic = on_select_mic
-        self.on_select_hotkey = on_select_hotkey
-        self.on_select_model = on_select_model
-        self.on_toggle_notifications = on_toggle_notifications
+        self._controller = controller
         self._config = config  # reference to live Config object
 
         self._icon: Optional[pystray.Icon] = None
@@ -67,6 +66,7 @@ class TrayIcon:
         self._pending_notifications: list[tuple[str, str]] = []
         self._bg_work_fn: Optional[Callable] = None
         self._bg_thread: Optional[threading.Thread] = None
+        self._hotkey: str = getattr(config, 'hotkey', '<f2>') or '<f2>'  # P3: stored for menu rebuild
 
     # ─── Public API ─────────────────────────────────────────────────────
 
@@ -97,6 +97,10 @@ class TrayIcon:
 
     def set_notifications_enabled(self, enabled: bool):
         self._notifications_enabled = enabled
+
+    def set_hotkey(self, hotkey: str):
+        """Update the stored hotkey string for the next menu rebuild."""
+        self._hotkey = hotkey
 
     def start(self, bg_work: Optional[Callable] = None):
         """Create the tray icon and start background work.
@@ -201,31 +205,22 @@ class TrayIcon:
         items.append(
             pystray.MenuItem(
                 f"Toggle Dictation ({hotkey})",
-                self._wrap(self.on_toggle),
+                self._wrap(self._controller.toggle_dictation),
                 default=True,
             )
         )
 
         items.append(pystray.Menu.SEPARATOR)
 
-        if self.on_select_hotkey:
-            items.append(
-                pystray.MenuItem(
-                    "Hotkey",
-                    pystray.Menu(*self._build_hotkey_menu_items()),
-                )
+        items.append(
+            pystray.MenuItem(
+                "Hotkey",
+                pystray.Menu(*self._build_hotkey_menu_items()),
             )
-        else:
-            items.append(
-                pystray.MenuItem(
-                    f"Hotkey: {hotkey}",
-                    None,
-                    enabled=False,
-                )
-            )
+        )
 
         # Microphone submenu
-        if self.on_select_mic and self._microphones:
+        if self._microphones:
             mic_items = self._build_mic_menu_items()
             items.append(
                 pystray.MenuItem(
@@ -234,15 +229,14 @@ class TrayIcon:
                 )
             )
 
-        if self.on_select_model:
-            items.append(
-                pystray.MenuItem(
-                    "Model",
-                    pystray.Menu(*self._build_model_menu_items()),
-                )
+        items.append(
+            pystray.MenuItem(
+                "Model",
+                pystray.Menu(*self._build_model_menu_items()),
             )
+        )
 
-        items.append(pystray.MenuItem("Settings...", self._wrap(self.on_settings)))
+        items.append(pystray.MenuItem("Settings...", self._wrap(self._controller.open_settings)))
 
         advanced_items = self._build_advanced_menu_items()
         if advanced_items:
@@ -256,17 +250,17 @@ class TrayIcon:
         items.append(pystray.Menu.SEPARATOR)
 
         # Quit
-        items.append(pystray.MenuItem("Quit", self._wrap(self.on_quit)))
+        items.append(pystray.MenuItem("Quit", self._wrap(self._controller.quit_app)))
 
         return tuple(items)
 
     def _display_hotkey(self) -> str:
         """Return the configured hotkey in a user-facing form."""
-        hotkey = getattr(self._config, "hotkey", "<f2>") or "<f2>"
+        hotkey = self._hotkey or getattr(self._config, "hotkey", "<f2>") or "<f2>"
         return self._format_hotkey_label(hotkey)
 
     def _build_hotkey_menu_items(self):
-        current = getattr(self._config, "hotkey", "<f2>") or "<f2>"
+        current = self._hotkey or getattr(self._config, "hotkey", "<f2>") or "<f2>"
         presets = [
             "<f2>", "<f3>", "<f4>", "<f5>", "<f6>", "<f7>", "<f8>",
             "<f9>", "<f10>", "<f11>", "<f12>",
@@ -275,7 +269,7 @@ class TrayIcon:
         return [
             pystray.MenuItem(
                 self._format_hotkey_label(hotkey),
-                self._wrap(lambda hk=hotkey: self.on_select_hotkey(hk)),
+                self._wrap(lambda hk=hotkey: self._controller.change_hotkey(hk)),
                 checked=lambda item, hk=hotkey: current == hk,
                 radio=True,
             )
@@ -287,7 +281,7 @@ class TrayIcon:
         return [
             pystray.MenuItem(
                 model,
-                self._wrap(lambda model_size=model: self.on_select_model(model_size)),
+                self._wrap(lambda model_size=model: self._controller.change_model(model_size)),
                 checked=lambda item, model_size=model: current == model_size,
                 radio=True,
             )
@@ -296,28 +290,26 @@ class TrayIcon:
 
     def _build_advanced_menu_items(self):
         items = []
-        if self.on_toggle_autostart:
-            items.append(
-                pystray.MenuItem(
-                    "Start on Login",
-                    self._wrap(self.on_toggle_autostart),
-                    checked=lambda item: bool(getattr(self._config, "autostart", False)),
-                )
+        items.append(
+            pystray.MenuItem(
+                "Start on Login",
+                self._wrap(self._controller.toggle_autostart),
+                checked=lambda item: bool(getattr(self._config, "autostart", False)),
             )
-        if self.on_toggle_notifications:
-            items.append(
-                pystray.MenuItem(
-                    "Notifications",
-                    self._wrap(
-                        lambda: self.on_toggle_notifications(
-                            not bool(getattr(self._config, "show_notifications", True))
-                        )
-                    ),
-                    checked=lambda item: bool(
-                        getattr(self._config, "show_notifications", True)
-                    ),
-                )
+        )
+        items.append(
+            pystray.MenuItem(
+                "Notifications",
+                self._wrap(
+                    lambda: self._controller.set_notifications(
+                        not bool(getattr(self._config, "show_notifications", True))
+                    )
+                ),
+                checked=lambda item: bool(
+                    getattr(self._config, "show_notifications", True)
+                ),
             )
+        )
         return items
 
     @staticmethod
@@ -346,7 +338,7 @@ class TrayIcon:
         mic_items.append(
             pystray.MenuItem(
                 "System Default",
-                self._wrap(lambda: self.on_select_mic(None)),
+                self._wrap(lambda: self._controller.change_microphone(None)),
                 checked=lambda item: current is None,
                 radio=True,
             )
@@ -376,7 +368,7 @@ class TrayIcon:
             mic_items.append(
                 pystray.MenuItem(
                     display,
-                    self._wrap(lambda mid=mic_id: self.on_select_mic(mid)),
+                    self._wrap(lambda mid=mic_id: self._controller.change_microphone(mid)),
                     checked=lambda item, mid=mic_id: current == mid,
                     radio=True,
                 )

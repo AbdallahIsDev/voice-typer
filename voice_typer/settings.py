@@ -78,8 +78,6 @@ class SettingsController:
         self.config.microphone = microphone
         self.config.autostart = bool(autostart)
         self.config.show_notifications = bool(show_notifications)
-        self.config.paste_on_stop = True
-        self.config.streaming_transcription = True
         self.config.save()
 
         if changes["hotkey"] and self.on_hotkey_changed:

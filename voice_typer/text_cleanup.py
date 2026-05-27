@@ -1,7 +1,12 @@
 """Lightweight cleanup for raw speech-to-text output."""
 
+import json
+import logging
 import re
+from pathlib import Path
+from typing import Optional
 
+log = logging.getLogger(__name__)
 
 _QUESTION_OPENERS = {
     "am", "are", "can", "could", "did", "do", "does", "has", "have",
@@ -62,18 +67,65 @@ _COMMON_EXTRA_WORD_PATTERNS = [
 ]
 
 
-def clean_transcribed_text(text: str) -> str:
-    """Apply conservative cleanup without changing the user's meaning."""
+def _load_external_corrections(config_dir: Optional[Path] = None, corrections_path: Optional[str] = None):
+    """Load corrections from an external JSON file if available.
+
+    Returns (misspellings, phrase_corrections) — either from the external
+    file or the built-in defaults.
+
+    P3: External corrections file support.
+    """
+    misspellings = dict(_WHISPER_MISSPELLINGS)
+    phrase_corrections = list(_WHISPER_PHRASE_CORRECTIONS)
+
+    # Determine the file path
+    file_path = None
+    if corrections_path:
+        file_path = Path(corrections_path)
+    elif config_dir is not None:
+        file_path = config_dir / "voice-typer-corrections.json"
+
+    if file_path is None or not file_path.exists():
+        return misspellings, phrase_corrections
+
+    try:
+        data = json.loads(file_path.read_text(encoding="utf-8"))
+        if "misspellings" in data and isinstance(data["misspellings"], dict):
+            misspellings.update(data["misspellings"])
+        if "phrase_corrections" in data and isinstance(data["phrase_corrections"], list):
+            phrase_corrections.extend(
+                tuple(item) for item in data["phrase_corrections"]
+                if isinstance(item, (list, tuple)) and len(item) == 2
+            )
+        log.info("[CLEANUP] Loaded external corrections from %s", file_path)
+    except Exception as exc:
+        log.warning("[CLEANUP] Failed to load external corrections from %s: %s", file_path, exc)
+
+    return misspellings, phrase_corrections
+
+
+def clean_transcribed_text(text: str, enabled: bool = True, config_dir: Optional[Path] = None, corrections_path: Optional[str] = None) -> str:
+    """Apply conservative cleanup without changing the user's meaning.
+
+    P2: If enabled=False, skip all cleanup and return raw text (just stripped).
+    P3: If config_dir or corrections_path provided, load external corrections.
+    """
     cleaned = text.strip()
     if not cleaned:
         return ""
+
+    if not enabled:
+        return cleaned
+
+    # Load corrections (built-in + external if available)
+    misspellings, phrase_corrections = _load_external_corrections(config_dir, corrections_path)
 
     cleaned = _normalize_spacing(cleaned)
     cleaned = _clean_self_corrections(cleaned)
     cleaned = _remove_adjacent_duplicate_phrases(cleaned)
     cleaned = _remove_near_duplicate_words(cleaned)
-    cleaned = _fix_common_misspellings(cleaned)
-    cleaned = _correct_whisper_phrases(cleaned)
+    cleaned = _fix_common_misspellings(cleaned, misspellings)
+    cleaned = _correct_whisper_phrases(cleaned, phrase_corrections)
     cleaned = _remove_extra_words(cleaned)
     cleaned = _capitalize_sentences(cleaned)
     cleaned = _capitalize_pronoun_i(cleaned)
@@ -104,7 +156,6 @@ def _clean_self_corrections(text: str) -> str:
                     i += 2
                     continue
                 # Shared root with common prefix of 4+ chars
-                # (e.g., "transcribed" → "transcribe", "execute" → "executed")
                 if len(key1) >= 4 and len(key2) >= 4:
                     common = 0
                     for a, b in zip(key1, key2):
@@ -180,14 +231,16 @@ def _remove_near_duplicate_words(text: str) -> str:
     return " ".join(output)
 
 
-def _fix_common_misspellings(text: str) -> str:
+def _fix_common_misspellings(text: str, misspellings: Optional[dict] = None) -> str:
     """Fix common Whisper small-model misspellings."""
+    if misspellings is None:
+        misspellings = _WHISPER_MISSPELLINGS
     tokens = text.split(" ")
     output = []
     for token in tokens:
         key = _token_key(token)
-        if key in _WHISPER_MISSPELLINGS:
-            correction = _WHISPER_MISSPELLINGS[key]
+        if key in misspellings:
+            correction = misspellings[key]
             match = re.match(r"^(\W*)(\w+)(\W*)$", token)
             if match:
                 token = f"{match.group(1)}{correction}{match.group(3)}"
@@ -197,10 +250,12 @@ def _fix_common_misspellings(text: str) -> str:
     return " ".join(output)
 
 
-def _correct_whisper_phrases(text: str) -> str:
+def _correct_whisper_phrases(text: str, phrase_corrections: Optional[list] = None) -> str:
     """Fix known Whisper small-model phrase misrecognitions."""
+    if phrase_corrections is None:
+        phrase_corrections = _WHISPER_PHRASE_CORRECTIONS
     lower = text.lower()
-    for bad, good in _WHISPER_PHRASE_CORRECTIONS:
+    for bad, good in phrase_corrections:
         pattern = re.compile(re.escape(bad), re.IGNORECASE)
         if pattern.search(lower):
             text = pattern.sub(good, text)

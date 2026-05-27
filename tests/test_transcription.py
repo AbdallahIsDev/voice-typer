@@ -17,6 +17,11 @@ def mock_faster_whisper(monkeypatch):
     monkeypatch.setitem(sys.modules, "faster_whisper", mock_fw)
     monkeypatch.setitem(sys.modules, "faster_whisper.WhisperModel", MagicMock())
 
+    # Mock ctranslate2 CUDA detection so device="cuda" resolves correctly
+    mock_ct2 = MagicMock()
+    mock_ct2.get_cuda_device_count.return_value = 1
+    monkeypatch.setitem(sys.modules, "ctranslate2", mock_ct2)
+
 
 class TestFallbackChain:
     """Verify the fallback chain tries the right device/compute combinations."""
@@ -187,7 +192,8 @@ class TestNvidiaDllPaths:
         monkeypatch.setattr(sys, "platform", "win32")
         monkeypatch.setattr(mod.site, "getsitepackages", lambda: [str(tmp_path)])
         monkeypatch.setattr(mod.site, "getusersitepackages", lambda: str(tmp_path / "user"))
-        monkeypatch.setattr(mod.os, "add_dll_directory", lambda path: added.append(path))
+        # os.add_dll_directory is Windows-only; add a mock attribute for testing
+        monkeypatch.setattr(mod.os, "add_dll_directory", lambda path: added.append(path), raising=False)
         monkeypatch.setenv("PATH", "C:\\Windows")
         mod._nvidia_dll_path_handles.clear()
         mod._nvidia_dll_paths_configured = False

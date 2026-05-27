@@ -90,14 +90,49 @@ def mock_heavy_imports(monkeypatch):
     monkeypatch.setitem(sys.modules, "PIL.ImageDraw", MagicMock())
 
 
+class _MockController:
+    """Mock controller implementing the TrayController protocol."""
+
+    def toggle_dictation(self) -> None:
+        pass
+
+    def change_microphone(self, mic_id: str | None) -> None:
+        pass
+
+    def change_model(self, model: str) -> None:
+        pass
+
+    def change_hotkey(self, hotkey: str) -> None:
+        pass
+
+    def open_settings(self) -> None:
+        pass
+
+    def quit_app(self) -> None:
+        pass
+
+    def toggle_autostart(self) -> None:
+        pass
+
+    def set_notifications(self, enabled: bool) -> None:
+        pass
+
+
 @pytest.fixture
 def tray():
     from voice_typer.tray import TrayIcon
     _FakeIcon.last_kwargs = {}
+    controller = _MockController()
+    # Wrap methods with MagicMock for tracking
+    for method_name in [
+        "toggle_dictation", "change_microphone", "change_model",
+        "change_hotkey", "open_settings", "quit_app",
+        "toggle_autostart", "set_notifications",
+    ]:
+        setattr(controller, method_name, MagicMock())
     t = TrayIcon(
-        on_toggle=MagicMock(),
-        on_settings=MagicMock(),
-        on_quit=MagicMock(),
+        controller=controller,
+        config=SimpleNamespace(hotkey="<f2>", model_size="small.en", autostart=True, show_notifications=True, microphone=None),
     )
     yield t
     # Suppress unraisable destructor warnings from pystray Icon objects
@@ -256,11 +291,10 @@ class TestSettingsUxTrayMenu:
     def test_main_menu_does_not_include_start_on_login(self):
         from voice_typer.tray import TrayIcon
 
+        controller = _MockController()
         tray = TrayIcon(
-            on_toggle=MagicMock(),
-            on_settings=MagicMock(),
-            on_quit=MagicMock(),
-            on_toggle_autostart=MagicMock(),
+            controller=controller,
+            config=SimpleNamespace(hotkey="<f2>", model_size="small.en", autostart=True, show_notifications=True),
         )
 
         labels = self._menu_labels(tray)
@@ -270,11 +304,10 @@ class TestSettingsUxTrayMenu:
     def test_toggle_label_includes_current_hotkey(self):
         from voice_typer.tray import TrayIcon
 
+        controller = _MockController()
         tray = TrayIcon(
-            on_toggle=MagicMock(),
-            on_settings=MagicMock(),
-            on_quit=MagicMock(),
-            config=SimpleNamespace(hotkey="<f9>"),
+            controller=controller,
+            config=SimpleNamespace(hotkey="<f9>", model_size="small.en", autostart=True, show_notifications=True),
         )
 
         labels = self._menu_labels(tray)
@@ -283,7 +316,6 @@ class TestSettingsUxTrayMenu:
 
     def test_menu_includes_hotkey_submenu(self, tray):
         tray._config = SimpleNamespace(hotkey="<f2>", model_size="small.en")
-        tray.on_select_hotkey = MagicMock()
 
         tray.start(bg_work=None)
         hotkey_menu = next(
@@ -303,7 +335,6 @@ class TestSettingsUxTrayMenu:
 
     def test_model_submenu_is_in_main_menu(self, tray):
         tray._config = SimpleNamespace(hotkey="<f2>", model_size="small.en")
-        tray.on_select_model = MagicMock()
 
         tray.start(bg_work=None)
         model_menu = next(
@@ -322,8 +353,6 @@ class TestSettingsUxTrayMenu:
             autostart=True,
             show_notifications=True,
         )
-        tray.on_toggle_autostart = MagicMock()
-        tray.on_toggle_notifications = MagicMock()
 
         tray.start(bg_work=None)
         advanced_menu = next(
@@ -337,7 +366,6 @@ class TestSettingsUxTrayMenu:
         assert "Notifications" in labels
 
     def test_microphone_submenu_remains_when_mics_are_present(self, tray):
-        tray.on_select_mic = MagicMock()
         tray._config = SimpleNamespace(microphone=None, hotkey="<f2>")
         tray.set_microphones([
             {"id": "mic-1", "name": "Built-in Mic", "host_api": "WASAPI"},
@@ -543,10 +571,10 @@ class TestRealPystrayIntegration:
             from voice_typer.tray import TrayIcon
             from unittest.mock import MagicMock
 
+            controller = _MockController()
             tray = TrayIcon(
-                on_toggle=MagicMock(),
-                on_settings=MagicMock(),
-                on_quit=MagicMock(),
+                controller=controller,
+                config=SimpleNamespace(hotkey="<f2>", model_size="small.en", autostart=True, show_notifications=True),
             )
             # This should NOT raise TypeError — the fix wraps _build_menu in pystray.Menu()
             tray.start(bg_work=None)

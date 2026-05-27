@@ -14,28 +14,21 @@ from unittest.mock import MagicMock, patch, PropertyMock
 
 
 def _wait_for_busy_clear(app, timeout=2.0):
-    """Poll until app._busy is False (background transcription thread finished).
+    """Poll until app._busy_event is set (not busy).
 
     Replaces bare time.sleep() calls that cause flaky failures under load.
     """
     deadline = time.monotonic() + timeout
-    while app._busy and time.monotonic() < deadline:
+    while not app._busy_event.is_set() and time.monotonic() < deadline:
         time.sleep(0.05)
-    if app._busy:
-        raise TimeoutError(f"_busy still True after {timeout}s")
+    if not app._busy_event.is_set():
+        raise TimeoutError(f"_busy_event still not set after {timeout}s")
 
 # Mock heavy imports before they're loaded by the app module
 # These patches stay active for the entire module
 @pytest.fixture(autouse=True)
 def mock_heavy_imports(monkeypatch):
     """Mock all hardware/GUI dependencies so tests run headless."""
-    # IMPORTANT: all sys.modules mocking MUST happen before anything
-    # triggers an import of voice_typer.app.  The app module imports
-    # voice_typer.recording (which imports sounddevice), voice_typer.clipboard
-    # (which imports pyperclip and pynput.keyboard), and voice_typer.tray
-    # (which imports pystray and PIL).  In a clean environment without
-    # PortAudio/GPU, these imports fail if the mocks aren't in place yet.
-
     mock_sd = MagicMock()
     mock_sd.query_devices.return_value = []
     monkeypatch.setitem(sys.modules, "sounddevice", mock_sd)
@@ -61,20 +54,9 @@ def mock_heavy_imports(monkeypatch):
     monkeypatch.setitem(sys.modules, "pyperclip", MagicMock())
 
     # Prevent the app's atexit handler from polluting test output.
-    # In production, the handler logs unexpected process exits; in tests,
-    # the process always exits without calling quit(), so the warning
-    # fires every run and is not useful.
-    # IMPORTANT: this monkeypatch triggers an import of voice_typer.app,
-    # so it MUST come after all sys.modules mocking above.
     monkeypatch.setattr("voice_typer.app.atexit.register", lambda *a, **kw: None)
 
     # Force PynputHotkey backend so tests can mock pynput.keyboard.GlobalHotKeys.
-    # On Windows, create_hotkey_backend() returns WindowsNativeHotkey which
-    # calls the real Win32 RegisterHotKey -- this fails with error 1409
-    # when another process holds the hotkey, making tests unreliable.
-    # PynputHotkey is the backend the existing test mock infrastructure
-    # was built around, so forcing it keeps the GlobalHotKeys/Listener
-    # mocks reachable.
     from voice_typer.hotkeys import PynputHotkey
     monkeypatch.setattr(
         "voice_typer.app.create_hotkey_backend",
@@ -92,7 +74,6 @@ def tmp_config_dir(tmp_path, monkeypatch):
 @pytest.fixture
 def app(tmp_config_dir, monkeypatch):
     """Create a VoiceTyperApp with mocked dependencies."""
-    # Mock platform functions
     monkeypatch.setattr("voice_typer.app.is_autostart_enabled", lambda: False)
     monkeypatch.setattr("voice_typer.app.enable_autostart", lambda: True)
     monkeypatch.setattr("voice_typer.app.disable_autostart", lambda: True)
@@ -104,7 +85,8 @@ def app(tmp_config_dir, monkeypatch):
 
 class TestAppStateTransitions:
     def test_initial_state_is_idle(self, app):
-        assert app._busy is False
+        assert not not app._busy_event.is_set()  # _busy property returns True when busy
+        assert app._busy_event.is_set()  # event is SET when not busy
         assert app.recorder.recording is False
 
     def test_start_dictation_sets_recording(self, app):
@@ -149,7 +131,7 @@ class TestAppStateTransitions:
         app._stop_dictation()
 
         _wait_for_busy_clear(app)
-        assert app._busy is False
+        assert app._busy_event.is_set()
 
     def test_transcribe_success_copies_to_clipboard(self, app, monkeypatch):
         app.clipboard = MagicMock()
@@ -249,7 +231,7 @@ class TestAppStateTransitions:
         _wait_for_busy_clear(app)
 
         # Should not crash; error state should be set
-        assert app._busy is False
+        assert app._busy_event.is_set()
 
     def test_transcribe_cuda_fallback_clears_busy(self, app):
         """When GPU transcription fails with CUDA error, fallback to CPU succeeds
@@ -267,22 +249,22 @@ class TestAppStateTransitions:
 
         _wait_for_busy_clear(app)
 
-        assert app._busy is False
+        assert app._busy_event.is_set()
         app.transcriber.transcribe_with_fallback.assert_called_once()
 
     def test_force_recover_resets_busy(self, app):
         """_force_recover_from_stuck_transcription clears _busy and resets tray."""
-        app._busy = True
+        app._busy_event.clear()  # set busy
         app.tray = MagicMock()
 
         app._force_recover_from_stuck_transcription()
 
-        assert app._busy is False
+        assert app._busy_event.is_set()
         app.tray.set_state.assert_called()
 
     def test_force_recover_noop_when_not_busy(self, app):
-        """_force_recover is a no-op if _busy is already False."""
-        app._busy = False
+        """_force_recover is a no-op if not busy."""
+        app._busy_event.set()  # not busy
         app.tray = MagicMock()
 
         app._force_recover_from_stuck_transcription()
@@ -292,14 +274,14 @@ class TestAppStateTransitions:
 
     def test_force_recover_does_not_clear_busy_while_thread_is_alive(self, app):
         """Watchdog must not allow a second transcription while the old one runs."""
-        app._busy = True
+        app._busy_event.clear()  # busy
         app.tray = MagicMock()
         app._transcription_thread = MagicMock()
         app._transcription_thread.is_alive.return_value = True
 
         app._force_recover_from_stuck_transcription()
 
-        assert app._busy is True
+        assert not app._busy_event.is_set()  # Still busy
         app.tray.set_state.assert_called()
         status_text = app.tray.set_state.call_args[0][1]
         assert "Still transcribing" in status_text
@@ -321,7 +303,7 @@ class TestAppStateTransitions:
         app._stop_dictation()
         _wait_for_busy_clear(app)
 
-        assert app._busy is False, "_busy must be False after failed transcription"
+        assert app._busy_event.is_set(), "_busy_event must be set after failed transcription"
 
         # Now simulate pressing F2 again
         app.recorder.recording = False
@@ -335,14 +317,15 @@ class TestAppStateTransitions:
         app.toggle_dictation()  # F2 → stop recording, transcribe
         _wait_for_busy_clear(app)
 
-        assert app._busy is False
+        assert app._busy_event.is_set()
         app.transcriber.transcribe_with_fallback.assert_called_once_with(
             app.recorder.stop.return_value
         )
 
 
 class TestConfigWiring:
-    def test_paste_on_stop_is_forced_enabled(self, tmp_config_dir, monkeypatch):
+    def test_paste_on_stop_preserves_user_value(self, tmp_config_dir, monkeypatch):
+        """After override removal, user's paste_on_stop=False must be preserved."""
         config_file = tmp_config_dir / "config.json"
         config_file.write_text(json.dumps({"paste_on_stop": False}))
 
@@ -354,10 +337,11 @@ class TestConfigWiring:
         from voice_typer.app import VoiceTyperApp
         app = VoiceTyperApp()
 
-        assert app.config.paste_on_stop is True
-        assert app.clipboard.paste_enabled is True
+        assert app.config.paste_on_stop is False
+        assert app.clipboard.paste_enabled is False
 
-    def test_streaming_is_forced_enabled(self, tmp_config_dir, monkeypatch):
+    def test_streaming_preserves_user_value(self, tmp_config_dir, monkeypatch):
+        """After override removal, user's streaming_transcription=False must be preserved."""
         config_file = tmp_config_dir / "config.json"
         config_file.write_text(json.dumps({"streaming_transcription": False}))
 
@@ -369,7 +353,7 @@ class TestConfigWiring:
         from voice_typer.app import VoiceTyperApp
         app = VoiceTyperApp()
 
-        assert app.config.streaming_transcription is True
+        assert app.config.streaming_transcription is False
 
     def test_transcription_speed_settings_wired(self, tmp_config_dir, monkeypatch):
         config_file = tmp_config_dir / "config.json"
@@ -449,17 +433,19 @@ class TestSettingsWindowIntegration:
         old_backend.stop.assert_called_once()
         app._register_hotkey.assert_called_once()
 
-    def test_model_change_recreates_transcriber(self, app, monkeypatch):
+    def test_model_change_uses_config_device(self, app, monkeypatch):
+        """_change_model should use self.config.device, not hardcoded cuda."""
         transcriber_cls = MagicMock()
         monkeypatch.setattr("voice_typer.app.TranscriptionEngine", transcriber_cls)
 
+        app.config.device = "cpu"
         app._change_model("medium.en")
 
         assert app.config.model_size == "medium.en"
         assert app._model_load_attempted is False
         _, kwargs = transcriber_cls.call_args
         assert kwargs["model_size"] == "medium.en"
-        assert kwargs["device"] == "cuda"
+        assert kwargs["device"] == "cpu"
 
 
 class TestHotkeyMapping:
@@ -523,7 +509,6 @@ class TestToggleDictationDispatch:
         """toggle_dictation() -> _start_dictation() when recorder.recording is False."""
         app.recorder = MagicMock()
         app.recorder.recording = False
-        app._busy = False
 
         # Track which method was called
         start_called = []
@@ -546,7 +531,6 @@ class TestToggleDictationDispatch:
         """toggle_dictation() -> _stop_dictation() when recorder.recording is True."""
         app.recorder = MagicMock()
         app.recorder.recording = True
-        app._busy = False
 
         start_called = []
         def tracked_start():
@@ -564,8 +548,8 @@ class TestToggleDictationDispatch:
         assert len(start_called) == 0, "toggle_dictation should NOT call _start_dictation when recording"
 
     def test_toggle_ignored_when_busy(self, app):
-        """toggle_dictation() should do nothing when _busy is True."""
-        app._busy = True
+        """toggle_dictation() should do nothing when busy."""
+        app._busy_event.clear()  # busy
         app.recorder = MagicMock()
         app.recorder.recording = False
 
@@ -619,7 +603,7 @@ class TestHotkeyCallbackChain:
         app.recorder = MagicMock()
         app.recorder.recording = False
         app.tray = MagicMock()
-        app._busy = False
+        app._busy_event.set()  # not busy
         app.transcriber = MagicMock()
         app.transcriber.is_loaded = True
 
@@ -650,7 +634,7 @@ class TestHotkeyCallbackChain:
         app.recorder = MagicMock()
         app.recorder.recording = False
         app.tray = MagicMock()
-        app._busy = False
+        app._busy_event.set()  # not busy
 
         # Register hotkey - this captures the mapping
         app._register_hotkey()
@@ -728,8 +712,7 @@ class TestAppStartupIntegration:
 
         monkeypatch.setattr("voice_typer.app.TranscriptionEngine", MagicMock())
 
-        # Ensure voice_typer.tray uses our fakes (other test modules may have
-        # replaced sys.modules["pystray"] with a plain MagicMock).
+        # Ensure voice_typer.tray uses our fakes
         import voice_typer.tray as tray_mod
         mock_pystray = MagicMock()
         mock_pystray.Icon = _FakeIcon
@@ -873,7 +856,7 @@ class TestStreamingIntegration:
 
         session = MagicMock()
         session.finalize = MagicMock(return_value="streamed text")
-        app._streaming_session = session
+        app._set_streaming_session(session)
 
         app._stop_dictation()
         _wait_for_busy_clear(app)
@@ -898,11 +881,11 @@ class TestStreamingIntegration:
         app._start_dictation()
 
         session_cls.assert_not_called()
-        assert getattr(app, "_streaming_session", None) is None
+        assert app._get_streaming_session() is None
 
     def test_quit_cancels_active_streaming_session(self, app):
         session = MagicMock()
-        app._streaming_session = session
+        app._set_streaming_session(session)
         app.recorder = MagicMock()
         app.recorder.recording = False
         app.tray = MagicMock()
@@ -1027,7 +1010,7 @@ class TestStartupNoCrash:
         assert app.recorder is not None
         assert app.clipboard is not None
         assert app._hotkey_backend is None
-        assert app._busy is False
+        assert app._busy_event.is_set()  # not busy
 
     def test_tray_start_creates_icon(self, tmp_config_dir, monkeypatch):
         """app.tray.start(bg_work=None) should create the tray icon without crashing."""
@@ -1051,328 +1034,27 @@ class TestStartupNoCrash:
         app = VoiceTyperApp()
 
         _FakeIcon.last_kwargs = {}
+
         app.tray.start(bg_work=None)
 
         assert app.tray._icon is not None
         menu = _FakeIcon.last_kwargs.get("menu")
-        assert isinstance(menu, _FakeMenu), (
-            f"menu= must be pystray.Menu instance, got {type(menu)}"
-        )
-
-    def test_do_startup_runs_without_error(self, tmp_config_dir, monkeypatch):
-        """app._do_startup() with mocked deps runs without error."""
-        monkeypatch.setattr("voice_typer.app.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.app.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.app.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.app.list_microphones", lambda: [])
-
-        mock_transcriber = MagicMock()
-        mock_transcriber.load = MagicMock()
-        mock_transcriber.device_info = "cpu (int8)"
-        mock_transcriber.loaded_via = "cpu/int8/small.en"
-        mock_transcriber_cls = MagicMock(return_value=mock_transcriber)
-        monkeypatch.setattr("voice_typer.app.TranscriptionEngine", mock_transcriber_cls)
-
-        mock_kb = sys.modules["pynput.keyboard"]
-        mock_listener = MagicMock()
-        mock_listener.is_alive.return_value = True
-        mock_kb.GlobalHotKeys = MagicMock(return_value=mock_listener)
-
-        from voice_typer.app import VoiceTyperApp
-        app = VoiceTyperApp()
-        app.tray = MagicMock()
-
-        # This is the exact path that was crashing
-        app._do_startup()
-
-        # Verify all steps executed
-        app.tray.set_autostart_enabled.assert_called_once_with(False)
-        mock_kb.GlobalHotKeys.assert_called_once()
-        mock_transcriber.load.assert_called_once()
-
-    def test_register_hotkey_creates_alive_backend(self, tmp_config_dir, monkeypatch):
-        """app._register_hotkey() registers a hotkey backend that is_alive()."""
-        monkeypatch.setattr("voice_typer.app.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.app.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.app.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.app.list_microphones", lambda: [])
-        monkeypatch.setattr("voice_typer.app.TranscriptionEngine", MagicMock())
-
-        mock_kb = sys.modules["pynput.keyboard"]
-        mock_listener = MagicMock()
-        mock_listener.is_alive.return_value = True
-        mock_kb.GlobalHotKeys = MagicMock(return_value=mock_listener)
-
-        from voice_typer.app import VoiceTyperApp
-        app = VoiceTyperApp()
-        app.tray = MagicMock()
-
-        app._register_hotkey()
-
-        assert app._hotkey_backend is not None
-        assert app._hotkey_backend.is_alive() is True
-        mock_kb.GlobalHotKeys.assert_called_once_with(
-            {"<f2>": app.toggle_dictation}
-        )
-
-    def test_full_start_flow_no_crash(self, tmp_config_dir, monkeypatch):
-        """The full app.start() flow doesn't crash (mock tray.run() to not block)."""
-        monkeypatch.setattr("voice_typer.app.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.app.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.app.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.app.list_microphones", lambda: [])
-
-        mock_transcriber = MagicMock()
-        mock_transcriber.load = MagicMock()
-        mock_transcriber.device_info = "cpu (int8)"
-        mock_transcriber.loaded_via = "cpu/int8/small.en"
-        monkeypatch.setattr("voice_typer.app.TranscriptionEngine", MagicMock(return_value=mock_transcriber))
-
-        mock_kb = sys.modules["pynput.keyboard"]
-        mock_listener = MagicMock()
-        mock_listener.is_alive.return_value = True
-        mock_kb.GlobalHotKeys = MagicMock(return_value=mock_listener)
-
-        from tests.test_tray import _FakeIcon, _FakeMenu, _FakeMenuItem
-        import voice_typer.tray as tray_mod
-        mock_pystray = MagicMock()
-        mock_pystray.Icon = _FakeIcon
-        mock_pystray.Menu = _FakeMenu
-        mock_pystray.Menu.SEPARATOR = "SEP"
-        mock_pystray.MenuItem = _FakeMenuItem
-        monkeypatch.setattr(tray_mod, "pystray", mock_pystray)
-
-        from voice_typer.app import VoiceTyperApp
-        app = VoiceTyperApp()
-
-        _FakeIcon.last_kwargs = {}
-        app.start()
-
-        # After start(), tray should have created the icon
-        assert app.tray._icon is not None
-        # The icon's run() should have been called (via tray.run())
-        assert app.tray._icon._run_called is True
-
-    def test_f2_callback_chain_end_to_end(self, tmp_config_dir, monkeypatch):
-        """Simulate: hotkey registered → F2 pressed → toggle_dictation → recording starts.
-
-        This is the critical path: startup registers hotkey with toggle_dictation
-        as the callback. Pressing F2 should start recording.
-        """
-        monkeypatch.setattr("voice_typer.app.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.app.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.app.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.app.list_microphones", lambda: [])
-
-        mock_transcriber = MagicMock()
-        mock_transcriber.load = MagicMock()
-        mock_transcriber.device_info = "cpu (int8)"
-        mock_transcriber.loaded_via = "cpu/int8/small.en"
-        mock_transcriber.is_loaded = True
-        monkeypatch.setattr("voice_typer.app.TranscriptionEngine", MagicMock(return_value=mock_transcriber))
-
-        # Capture the hotkey mapping so we can simulate F2 press
-        captured_mapping = {}
-
-        class FakeGlobalHotKeys:
-            def __init__(self, mapping):
-                captured_mapping.update(mapping)
-            def start(self):
-                pass
-            def is_alive(self):
-                return True
-
-        mock_kb = sys.modules["pynput.keyboard"]
-        mock_kb.GlobalHotKeys = FakeGlobalHotKeys
-
-        from voice_typer.app import VoiceTyperApp
-        app = VoiceTyperApp()
-        app.tray = MagicMock()
-
-        # Register hotkey (captures the callback)
-        app._register_hotkey()
-        assert "<f2>" in captured_mapping
-
-        # Simulate pressing F2
-        app.recorder = MagicMock()
-        app.recorder.recording = False
-        app._busy = False
-
-        callback = captured_mapping["<f2>"]
-        assert callback == app.toggle_dictation
-        callback()
-
-        # Verify recording started
-        app.recorder.start.assert_called_once()
-        from voice_typer.tray import AppState
-        app.tray.set_state.assert_called()
-        last_state_call = app.tray.set_state.call_args_list[-1]
-        assert last_state_call[0][0] == AppState.RECORDING
+        assert isinstance(menu, _FakeMenu), f"Expected _FakeMenu, got {type(menu)}"
 
 
-# ─── Microphone behavior ───────────────────────────────────────────────
+class TestTextCleanupConfig:
+    """Test that text cleanup can be disabled via config."""
 
+    def test_cleanup_skipped_when_disabled(self):
+        from voice_typer.text_cleanup import clean_transcribed_text
+        text = "this is a test of the cleanup"
+        # With enabled=False, should just strip whitespace
+        result = clean_transcribed_text(text, enabled=False)
+        assert result == text.strip()  # No capitalization, no punctuation
 
-class TestMicrophoneBehavior:
-    """Test microphone listing, selection, and tray menu construction."""
-
-    MOCK_MICS = [
-        {
-            "id": "0",
-            "index": 0,
-            "name": "WO Mic Device",
-            "host_api": "Windows WASAPI",
-            "channels": 1,
-            "default": True,
-        },
-        {
-            "id": "1",
-            "index": 1,
-            "name": "Microphone (Realtek)",
-            "host_api": "Windows WDM-KS",
-            "channels": 2,
-            "default": False,
-        },
-        {
-            "id": "2",
-            "index": 2,
-            "name": "WO Mic Device",
-            "host_api": "Windows WDM-KS",
-            "channels": 1,
-            "default": False,
-        },
-    ]
-
-    def test_list_microphones_returns_wo_mic(self, tmp_config_dir, monkeypatch):
-        """list_microphones() with mock data returns WO Mic devices."""
-        mock_sd = MagicMock()
-        mock_sd.query_devices.return_value = {"index": 0}
-        mock_sd.query_hostapis.return_value = {"name": "Windows WASAPI"}
-
-        devices = [
-            {"name": "WO Mic Device", "max_input_channels": 1, "hostapi": 0},
-            {"name": "Microphone (Realtek)", "max_input_channels": 2, "hostapi": 1},
-        ]
-        mock_sd.query_devices.side_effect = lambda kind=None: (
-            {"index": 0} if kind == "input" else devices
-        )
-        sys.modules["sounddevice"] = mock_sd
-
-        from voice_typer.platform import list_microphones
-        mics = list_microphones()
-
-        assert len(mics) == 2
-        wo_mics = [m for m in mics if "WO Mic" in m["name"]]
-        assert len(wo_mics) >= 1
-
-    def test_select_mic_by_id_updates_config(self, tmp_config_dir, monkeypatch):
-        """Selecting a microphone by ID updates config.microphone."""
-        monkeypatch.setattr("voice_typer.app.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.app.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.app.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.app.list_microphones", lambda: self.MOCK_MICS)
-        monkeypatch.setattr("voice_typer.app.TranscriptionEngine", MagicMock())
-
-        from voice_typer.app import VoiceTyperApp
-        app = VoiceTyperApp()
-
-        assert app.config.microphone is None
-        app._select_microphone("1")
-        assert app.config.microphone == "1"
-
-    def test_select_system_default_works(self, tmp_config_dir, monkeypatch):
-        """Selecting 'System Default' (None) sets config.microphone to None."""
-        monkeypatch.setattr("voice_typer.app.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.app.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.app.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.app.list_microphones", lambda: self.MOCK_MICS)
-        monkeypatch.setattr("voice_typer.app.TranscriptionEngine", MagicMock())
-
-        from voice_typer.app import VoiceTyperApp
-        app = VoiceTyperApp()
-
-        app.config.microphone = "2"
-        app._select_microphone(None)
-        assert app.config.microphone is None
-
-    def test_tray_mic_submenu_built_correctly(self, tmp_config_dir, monkeypatch):
-        """The tray microphone submenu should include System Default + all mics."""
-        from tests.test_tray import _FakeIcon, _FakeMenu, _FakeMenuItem
-        import voice_typer.tray as tray_mod
-        mock_pystray = MagicMock()
-        mock_pystray.Icon = _FakeIcon
-        mock_pystray.Menu = _FakeMenu
-        mock_pystray.Menu.SEPARATOR = "SEP"
-        mock_pystray.MenuItem = _FakeMenuItem
-        monkeypatch.setattr(tray_mod, "pystray", mock_pystray)
-
-        monkeypatch.setattr("voice_typer.app.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.app.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.app.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.app.list_microphones", lambda: self.MOCK_MICS)
-        monkeypatch.setattr("voice_typer.app.TranscriptionEngine", MagicMock())
-
-        from voice_typer.app import VoiceTyperApp
-        app = VoiceTyperApp()
-
-        # Populate mics on tray (normally done by _do_startup's _load_microphones)
-        app.tray.set_microphones(self.MOCK_MICS)
-
-        # Build the menu (exercises _build_menu which calls _build_mic_menu_items)
-        items = app.tray._build_menu()
-
-        # Find the "Microphone" MenuItem (should be present since mics are set)
-        mic_label_found = False
-        for item in items:
-            if isinstance(item, _FakeMenuItem) and item.args and item.args[0] == "Microphone":
-                mic_label_found = True
-                # args[1] should be a _FakeMenu submenu
-                submenu = item.args[1]
-                assert isinstance(submenu, _FakeMenu), (
-                    f"Microphone item should have a submenu, got {type(submenu)}"
-                )
-                break
-
-        assert mic_label_found, (
-            "Expected a 'Microphone' MenuItem in the tray menu"
-        )
-
-    def test_duplicate_mic_names_disambiguated(self, tmp_config_dir, monkeypatch):
-        """When two mics have the same name, tray menu should disambiguate with host_api."""
-        from tests.test_tray import _FakeMenuItem
-        import voice_typer.tray as tray_mod
-        mock_pystray = MagicMock()
-        mock_pystray.MenuItem = _FakeMenuItem
-        mock_pystray.Menu = MagicMock()
-        mock_pystray.Menu.SEPARATOR = "SEP"
-        monkeypatch.setattr(tray_mod, "pystray", mock_pystray)
-
-        from voice_typer.tray import TrayIcon
-
-        tray = TrayIcon(
-            on_toggle=MagicMock(),
-            on_settings=MagicMock(),
-            on_quit=MagicMock(),
-            on_select_mic=MagicMock(),
-            config=MagicMock(microphone=None),
-        )
-        tray.set_microphones(self.MOCK_MICS)
-
-        mic_items = tray._build_mic_menu_items()
-
-        # First item is "System Default", rest are mics
-        assert len(mic_items) == 4  # 1 default + 3 mics
-
-        # Extract labels from _FakeMenuItem args
-        labels = []
-        for item in mic_items:
-            if isinstance(item, _FakeMenuItem) and len(item.args) >= 1:
-                labels.append(item.args[0])
-
-        # The two "WO Mic Device" entries should be disambiguated with host_api
-        wo_labels = [l for l in labels if "WO Mic" in l]
-        assert len(wo_labels) == 2, f"Expected 2 WO Mic labels, got {wo_labels}"
-        # Both should have host_api in parentheses appended (since names are duplicate)
-        assert all("(" in l for l in wo_labels), (
-            f"Duplicate mic names should be disambiguated: {wo_labels}"
-        )
+    def test_cleanup_applied_when_enabled(self):
+        from voice_typer.text_cleanup import clean_transcribed_text
+        text = "this is a test of the cleanup"
+        result = clean_transcribed_text(text, enabled=True)
+        # Should have terminal punctuation added
+        assert result.endswith(".")

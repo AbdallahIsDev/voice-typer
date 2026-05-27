@@ -8,6 +8,7 @@ import signal
 import sys
 import threading
 import time
+import uuid
 from typing import Optional
 
 from voice_typer.config import Config, _config_dir
@@ -33,9 +34,25 @@ log = logging.getLogger("voice_typer")
 # Closed explicitly in VoiceTyperApp.quit() for clean shutdown.
 _devnull_files: list = []
 
+# Session ID for structured logging (P5)
+_session_id: str = ""
+
+
+class _SessionFilter(logging.Filter):
+    """Inject session_id and component into every log record."""
+
+    def filter(self, record):
+        if not hasattr(record, "session_id"):
+            record.session_id = _session_id
+        if not hasattr(record, "component"):
+            record.component = record.name
+        return True
+
 
 def _setup_logging():
     """Configure logging to file (not console, since we run as tray app)."""
+    global _session_id
+
     # Under pythonw.exe (e.g. Windows autostart), sys.stderr/stdout/stdin
     # are None.  Redirect them to devnull immediately so any accidental
     # writes don't crash the process.
@@ -49,6 +66,9 @@ def _setup_logging():
         sys.stdin = open(os.devnull, "r", encoding="utf-8")
         _devnull_files.append(sys.stdin)
 
+    # Generate session ID for structured logging (P5)
+    _session_id = uuid.uuid4().hex[:8]
+
     config_dir = _config_dir()
     config_dir.mkdir(parents=True, exist_ok=True)
     log_file = config_dir / "voice-typer.log"
@@ -57,17 +77,25 @@ def _setup_logging():
         log_file, maxBytes=1_000_000, backupCount=2,
     )
     handler.setFormatter(
-        logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+        logging.Formatter(
+            "%(asctime)s [%(levelname)s] [%(session_id)s] %(component)s: %(message)s"
+        )
     )
 
     root = logging.getLogger("voice_typer")
     root.setLevel(logging.DEBUG)
     root.addHandler(handler)
+    root.addFilter(_SessionFilter())
 
     # Also log to stderr when running interactively (debugging)
     if sys.stderr.isatty():
         stream = logging.StreamHandler()
         stream.setLevel(logging.INFO)
+        stream.setFormatter(
+            logging.Formatter(
+                "%(asctime)s [%(levelname)s] [%(session_id)s] %(component)s: %(message)s"
+            )
+        )
         root.addHandler(stream)
 
 
@@ -76,9 +104,7 @@ class VoiceTyperApp:
 
     def __init__(self):
         self.config = Config.load()
-        self.config.device = "cuda"
-        self.config.paste_on_stop = True
-        self.config.streaming_transcription = True
+        # P1 fix: Removed forced config overrides — user's JSON values are now respected
         self.recorder = Recorder(self.config)
         self.transcriber = TranscriptionEngine(
             model_size=self.config.model_size,
@@ -88,16 +114,15 @@ class VoiceTyperApp:
             best_of=self.config.best_of,
             condition_on_previous_text=self.config.condition_on_previous_text,
         )
-        self.clipboard = ClipboardManager(paste_enabled=True)
+
+        # P0: Qwen engine (lazy-loaded, optional)
+        self._qwen_engine = None
+        if self.config.asr_backend == "qwen" and self.config.qwen_model_path:
+            self._init_qwen_engine()
+
+        self.clipboard = ClipboardManager(paste_enabled=self.config.paste_on_stop)
         self.tray = TrayIcon(
-            on_toggle=self.toggle_dictation,
-            on_settings=self.show_settings,
-            on_quit=self.quit,
-            on_toggle_autostart=self._toggle_autostart,
-            on_select_mic=self._select_microphone,
-            on_select_hotkey=self._restart_hotkey,
-            on_select_model=self._change_model,
-            on_toggle_notifications=self._set_notifications,
+            controller=self,
             config=self.config,
         )
 
@@ -105,19 +130,85 @@ class VoiceTyperApp:
         self._streaming_session: Optional[StreamingTranscriptionSession] = None
         self._transcription_thread: Optional[threading.Thread] = None
         self._microphones: list[dict] = []
-        self._busy = False  # True during transcription
+
+        # P2: Thread safety — replace plain bool with Event
+        self._busy_event = threading.Event()
+        self._busy_event.set()  # SET = not busy
+        self._lock = threading.Lock()
+
         self._model_load_attempted = False  # True after first load() call
         self._shutting_down = False  # True once quit() starts
+
+        # P1: Timer tracking
+        self._pending_timers: list[threading.Timer] = []
+
+        # P2: Settings window guard
+        self._settings_window = None
+
+    # ─── Qwen Engine (P0) ────────────────────────────────────────────
+
+    def _init_qwen_engine(self):
+        """Conditionally initialise the Qwen ASR engine."""
+        try:
+            from voice_typer.qwen_engine import QwenEngine
+
+            self._qwen_engine = QwenEngine(
+                model_path=self.config.qwen_model_path,
+                device=self.config.device,
+                language=self.config.language,
+            )
+            log.info("[QWEN] QwenEngine created (will load on first use)")
+        except ImportError:
+            log.warning(
+                "[QWEN] qwen-asr package not installed, Qwen backend unavailable"
+            )
+            self._qwen_engine = None
+        except Exception as exc:
+            log.error("[QWEN] Failed to initialise QwenEngine: %s", exc)
+            self._qwen_engine = None
+
+    def _get_active_transcriber(self):
+        """Return the Qwen engine (if active) or Whisper engine."""
+        if (
+            self.config.asr_backend == "qwen"
+            and self._qwen_engine is not None
+            and self._qwen_engine.is_loaded
+        ):
+            return self._qwen_engine
+        return self.transcriber
+
+    # ─── Timer Tracking (P1) ─────────────────────────────────────────
+
+    def _schedule_timer(self, delay: float, func) -> threading.Timer:
+        """Create, track, and start a timer. Replaces fire-and-forget timers."""
+        timer = threading.Timer(delay, func)
+        timer.daemon = True
+        self._pending_timers.append(timer)
+        timer.start()
+        return timer
+
+    def _cancel_pending_timers(self):
+        """Cancel and clear all pending scheduled timers."""
+        for timer in self._pending_timers:
+            timer.cancel()
+        self._pending_timers.clear()
+
+    # ─── Thread-Safe Streaming Session Access (P2) ───────────────────
+
+    def _get_streaming_session(self):
+        """Thread-safe read of _streaming_session."""
+        with self._lock:
+            return self._streaming_session
+
+    def _set_streaming_session(self, session_or_none):
+        """Thread-safe write of _streaming_session."""
+        with self._lock:
+            self._streaming_session = session_or_none
 
     # ─── Startup ───────────────────────────────────────────────────────
 
     def start(self):
-        """Initialize and run the application.
-
-        The tray icon is created and its event loop runs on the main thread.
-        Model loading, hotkey registration, etc. happen in a background thread
-        managed by the tray.
-        """
+        """Initialize and run the application."""
         log.info(
             "Voice Typer starting -- model=%s, hotkey=%s, mic=%s, sample_rate=%s",
             self.config.model_size, self.config.hotkey,
@@ -141,9 +232,7 @@ class VoiceTyperApp:
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
 
-        # On Windows: install a console control handler so that closing the
-        # terminal window (CTRL_CLOSE_EVENT) or logging off/shutting down
-        # triggers a graceful shutdown instead of silently killing the process.
+        # On Windows: install a console control handler
         self._install_win32_console_handler()
 
         # Register atexit handler to log any unexpected process exit
@@ -181,6 +270,11 @@ class VoiceTyperApp:
         log.info("[STARTUP] Step 4: load model")
         self._try_load_model(notify_on_failure=True)
 
+        # 5. Load Qwen model if backend is qwen (P0)
+        if self.config.asr_backend == "qwen" and self._qwen_engine is not None:
+            log.info("[STARTUP] Step 5: load Qwen model")
+            self._qwen_engine.load()
+
         log.info("[STARTUP] _do_startup complete")
 
     def _sync_autostart(self):
@@ -207,15 +301,7 @@ class VoiceTyperApp:
             log.warning("Could not enumerate microphones: %s", e)
 
     def _try_load_model(self, notify_on_failure: bool = False):
-        """Attempt to load the transcription model.
-
-        Runs the full fallback chain (preferred device -> CPU int8 ->
-        tiny.en -> float32).  If loading succeeds, sets tray to IDLE with
-        device info.  If it fails, sets ERROR state with a friendly message
-        and optionally sends a desktop notification.
-
-        The hotkey (F2) remains active regardless so the user can retry.
-        """
+        """Attempt to load the transcription model."""
         self._model_load_attempted = True
         try:
             log.info("[MODEL] Loading model (size=%s, device=%s)...",
@@ -268,10 +354,10 @@ class VoiceTyperApp:
         log.info(
             "[HOTKEY FIRED] toggle_dictation called "
             "(recording=%s, busy=%s, model_loaded=%s, thread=%s)",
-            self.recorder.recording, self._busy,
+            self.recorder.recording, self._busy_event.is_set(),
             self.transcriber.is_loaded, threading.current_thread().name,
         )
-        if self._busy:
+        if not self._busy_event.is_set():  # busy
             log.warning("[F2 BLOCKED] Busy transcribing, ignoring toggle")
             return
 
@@ -286,15 +372,20 @@ class VoiceTyperApp:
             log.info("[DICTATION] _start_dictation: already recording, no-op")
             return
 
+        # Cancel any stale pending timers from previous sessions
+        self._cancel_pending_timers()
+
         # Guard: refuse to record if the model never loaded
         if not self.transcriber.is_loaded:
             log.warning("[DICTATION] Model not loaded, attempting reload")
             self._try_load_model(notify_on_failure=True)
             if not self.transcriber.is_loaded:
                 log.error("[DICTATION] Model reload failed, cannot record")
-                threading.Timer(3.0, lambda: self.tray.set_state(
-                    AppState.ERROR, "Model failed to load — press F2 to retry"
-                )).start()
+                self._schedule_timer(
+                    3.0, lambda: self.tray.set_state(
+                        AppState.ERROR, "Model failed to load — press F2 to retry"
+                    )
+                )
                 return
 
         log.info("[DICTATION] Starting recording...")
@@ -312,7 +403,7 @@ class VoiceTyperApp:
                 f"Could not start recording.\n{e}\n\n"
                 "Check voice-typer.log for traceback.",
             )
-            threading.Timer(3.0, lambda: self.tray.set_state(AppState.IDLE)).start()
+            self._schedule_timer(3.0, lambda: self.tray.set_state(AppState.IDLE))
 
     def _stop_dictation(self):
         """Stop recording and transcribe in background."""
@@ -320,8 +411,11 @@ class VoiceTyperApp:
             log.info("[DICTATION] _stop_dictation: not recording, no-op")
             return
 
+        # Cancel any stale pending timers
+        self._cancel_pending_timers()
+
         log.info("[DICTATION] Stopping recording...")
-        self._busy = True
+        self._busy_event.clear()  # busy = True
 
         try:
             audio = self.recorder.stop()
@@ -330,30 +424,28 @@ class VoiceTyperApp:
             self._cancel_streaming_session()
             self.tray.set_state(AppState.ERROR, "Stop failed")
             self.tray.notify("Voice Typer", f"Could not stop recording.\n{e}")
-            self._busy = False
-            threading.Timer(3.0, lambda: self.tray.set_state(AppState.IDLE)).start()
+            self._busy_event.set()  # busy = False
+            self._schedule_timer(3.0, lambda: self.tray.set_state(AppState.IDLE))
             return
 
         # Audio has already been resampled to config.sample_rate by Recorder.stop()
         duration = len(audio) / self.config.sample_rate if len(audio) > 0 else 0
         # Capture RMS before starting transcription thread (race-safe)
         recorded_rms = self.recorder.last_rms
-        log.info("[DICTATION] Recording stopped -- %.1fs of audio, _busy=True", duration)
+        log.info("[DICTATION] Recording stopped -- %.1fs of audio, busy=True", duration)
 
         if duration < 0.5:
             log.info("[DICTATION] Audio too short, skipping transcription")
             self._cancel_streaming_session()
             self.tray.set_state(AppState.IDLE, "Too short — ignored")
-            self._busy = False
-            threading.Timer(2.0, lambda: self.tray.set_state(AppState.IDLE)).start()
+            self._busy_event.set()  # busy = False
+            self._schedule_timer(2.0, lambda: self.tray.set_state(AppState.IDLE))
             return
 
         log.info("[DICTATION] Starting transcription thread...")
         self.tray.set_state(AppState.TRANSCRIBING, "Transcribing...")
 
         # Safety watchdog: if transcription hangs for >60s, force-recover.
-        # This prevents the app from being permanently stuck if a C-level
-        # crash or deadlock kills the thread before the finally block runs.
         watchdog = threading.Timer(
             60.0,
             lambda: self._force_recover_from_stuck_transcription(),
@@ -364,18 +456,19 @@ class VoiceTyperApp:
         def transcribe_thread():
             try:
                 log.info("[TRANSCRIBE] Starting transcription...")
-                session = self._streaming_session
+                session = self._get_streaming_session()
                 if session is not None:
                     log.info("[STREAMING] Finalizing streaming transcript")
                     text = session.finalize(audio)
-                    self._streaming_session = None
+                    self._set_streaming_session(None)
                 else:
-                    text = self.transcriber.transcribe_with_fallback(audio)
+                    # P0: Use active transcriber (Qwen or Whisper)
+                    active = self._get_active_transcriber()
+                    text = active.transcribe_with_fallback(audio) if hasattr(active, 'transcribe_with_fallback') else active.transcribe(audio)
                 log.info("[TRANSCRIBE] Transcription complete (len=%d)", len(text) if text else 0)
 
                 if not text:
                     log.info("[TRANSCRIBE] No speech detected")
-                    # If audio was near-silence, warn the user about mic issues
                     if recorded_rms < 0.005:
                         self.tray.set_state(
                             AppState.IDLE,
@@ -389,12 +482,13 @@ class VoiceTyperApp:
                         )
                     else:
                         self.tray.set_state(AppState.IDLE, "No speech detected")
-                    self._busy = False
-                    threading.Timer(2.0, lambda: self.tray.set_state(AppState.IDLE)).start()
+                    self._busy_event.set()  # busy = False
+                    self._schedule_timer(2.0, lambda: self.tray.set_state(AppState.IDLE))
                     return
 
                 raw_text = text
-                text = clean_transcribed_text(text)
+                # P2: text_cleanup_enabled config
+                text = clean_transcribed_text(text, enabled=self.config.text_cleanup_enabled)
                 if text != raw_text:
                     log.info(
                         "[CLEANUP] Text cleaned: len %d -> %d",
@@ -405,7 +499,6 @@ class VoiceTyperApp:
                 log.info("Transcription: %s...", text[:100])
 
                 # Copy to clipboard — only attempt paste if copy succeeded.
-                # Otherwise we risk pasting stale clipboard contents.
                 if not self.clipboard.copy(text):
                     log.error("Clipboard copy failed -- not attempting paste")
                     self.tray.set_state(AppState.IDLE, "Done — clipboard unavailable")
@@ -414,14 +507,14 @@ class VoiceTyperApp:
                         "Transcription complete, but clipboard was unavailable.\n"
                         "Text was not pasted. Check the log for details.",
                     )
-                    self._busy = False
-                    threading.Timer(
+                    self._busy_event.set()  # busy = False
+                    self._schedule_timer(
                         3.0,
                         lambda: self.tray.set_state(
                             AppState.IDLE,
                             f"Ready — {self.transcriber.device_info}",
                         ),
-                    ).start()
+                    )
                     return
 
                 # Attempt safe paste (only if paste_on_stop AND a text input is focused)
@@ -438,27 +531,28 @@ class VoiceTyperApp:
                 self.tray.notify("Voice Typer", f"Transcribed {len(text)} characters")
 
                 # Reset to plain "Ready" after a few seconds
-                threading.Timer(
+                self._schedule_timer(
                     3.0,
                     lambda: self.tray.set_state(
                         AppState.IDLE,
                         f"Ready — {self.transcriber.device_info}",
                     ),
-                ).start()
+                )
 
             except Exception as e:
                 log.exception("[TRANSCRIBE] Transcription FAILED")
                 self.tray.set_state(AppState.ERROR, "Transcription failed")
                 self.tray.notify("Voice Typer Error", f"Transcription failed.\n{e}")
-                threading.Timer(3.0, lambda: self.tray.set_state(AppState.IDLE)).start()
+                self._schedule_timer(3.0, lambda: self.tray.set_state(AppState.IDLE))
 
             finally:
                 watchdog.cancel()
-                if self._streaming_session is not None and not self.recorder.recording:
-                    self._streaming_session = None
-                self._busy = False
+                session = self._get_streaming_session()
+                if session is not None and not self.recorder.recording:
+                    self._set_streaming_session(None)
+                self._busy_event.set()  # busy = False
                 self._transcription_thread = None
-                log.info("[TRANSCRIBE] _busy reset to False")
+                log.info("[TRANSCRIBE] busy reset to False")
 
         self._transcription_thread = threading.Thread(
             target=transcribe_thread,
@@ -474,8 +568,9 @@ class VoiceTyperApp:
         return bool(self.config.streaming_transcription)
 
     def _streaming_config(self) -> StreamingConfig:
+        # P4 fix: Use _streaming_enabled() instead of hardcoded True
         return StreamingConfig(
-            enabled=True,
+            enabled=self._streaming_enabled(),
             chunk_seconds=self.config.streaming_chunk_seconds,
             step_seconds=self.config.streaming_step_seconds,
             left_overlap_seconds=self.config.streaming_left_overlap_seconds,
@@ -486,7 +581,7 @@ class VoiceTyperApp:
 
     def _start_streaming_session_if_enabled(self):
         """Start hidden streaming work for the active recording if enabled."""
-        self._streaming_session = None
+        self._set_streaming_session(None)
         if not self._streaming_enabled():
             return
 
@@ -498,16 +593,16 @@ class VoiceTyperApp:
                 sample_rate=self.config.sample_rate,
             )
             session.start()
-            self._streaming_session = session
+            self._set_streaming_session(session)
             log.info("[STREAMING] Hidden streaming session started")
         except Exception as e:
             log.exception("[STREAMING] Failed to start streaming session: %s", e)
-            self._streaming_session = None
+            self._set_streaming_session(None)
 
     def _cancel_streaming_session(self):
         """Cancel any active hidden streaming session."""
-        session = self._streaming_session
-        self._streaming_session = None
+        session = self._get_streaming_session()
+        self._set_streaming_session(None)
         if session is not None:
             try:
                 session.cancel()
@@ -515,12 +610,8 @@ class VoiceTyperApp:
                 log.exception("[STREAMING] Failed to cancel streaming session")
 
     def _force_recover_from_stuck_transcription(self):
-        """Safety net: recover from stuck transcription state.
-
-        Called by the watchdog timer if transcription takes >60s or if
-        the transcribe thread dies before the finally block runs.
-        """
-        if not self._busy:
+        """Safety net: recover from stuck transcription state."""
+        if self._busy_event.is_set():  # not busy
             return  # Already recovered, nothing to do
         if (
             self._transcription_thread is not None
@@ -539,35 +630,23 @@ class VoiceTyperApp:
             return
 
         log.warning("FORCE RECOVER: transcription watchdog fired, resetting state")
-        self._busy = False
+        self._busy_event.set()  # busy = False
         self.tray.set_state(AppState.IDLE, "Recovered — transcription timed out")
         self.tray.notify(
             "Voice Typer",
             "Transcription took too long and was cancelled.\n"
             "Press F2 to try again.",
         )
-        threading.Timer(5.0, lambda: self.tray.set_state(AppState.IDLE)).start()
+        self._schedule_timer(5.0, lambda: self.tray.set_state(AppState.IDLE))
 
     # ─── Settings / Microphone ─────────────────────────────────────────
 
     def _toggle_autostart(self):
-        """Toggle autostart on/off from the tray menu."""
-        try:
-            if is_autostart_enabled():
-                disable_autostart()
-                self.config.autostart = False
-            else:
-                enable_autostart()
-                self.config.autostart = True
-            self.config.save()
-            self.tray.set_autostart_enabled(self.config.autostart)
-            log.info("Autostart set to %s", self.config.autostart)
-        except Exception as e:
-            log.exception("Failed to toggle autostart")
-            self.tray.notify("Voice Typer", f"Could not change autostart setting.\n{e}")
+        """Toggle autostart on/off from the tray menu. Delegates to _set_autostart (P2 dedup)."""
+        self._set_autostart(not is_autostart_enabled())
 
     def _set_autostart(self, enabled: bool):
-        """Set autostart from the advanced settings window."""
+        """Set autostart from the advanced settings window or tray toggle."""
         try:
             if enabled:
                 enable_autostart()
@@ -604,7 +683,14 @@ class VoiceTyperApp:
         self.tray.notify("Voice Typer", f"Microphone: {label}")
 
     def show_settings(self):
-        """Open the native settings window."""
+        """Open the native settings window. Guarded against duplicates (P2)."""
+        if self._settings_window is not None:
+            try:
+                self._settings_window.root.lift()
+                return
+            except Exception:
+                pass  # window was closed, fall through to create new
+
         controller = SettingsController(
             self.config,
             on_hotkey_changed=self._restart_hotkey,
@@ -613,11 +699,12 @@ class VoiceTyperApp:
             on_autostart_changed=self._set_autostart,
             on_notifications_changed=self._set_notifications,
         )
-        SettingsWindow(
+        self._settings_window = SettingsWindow(
             controller,
             microphones=self._microphones,
             on_open_config=self._open_config_file,
-        ).show()
+        )
+        self._settings_window.show()
 
     def _open_config_file(self):
         """Open raw settings file for troubleshooting."""
@@ -648,21 +735,25 @@ class VoiceTyperApp:
                 log.exception("[HOTKEY] Failed to stop previous backend")
             self._hotkey_backend = None
         self._register_hotkey()
+        # P3 fix: Update tray hotkey label immediately
+        if hasattr(self.tray, 'set_hotkey'):
+            self.tray.set_hotkey(self.config.hotkey)
 
     def _change_model(self, model_size: str):
         """Apply a model change for future dictation sessions."""
         self.config.model_size = model_size
         self.config.save()
-        if self.recorder.recording or self._busy:
+        if self.recorder.recording or not self._busy_event.is_set():  # busy
             log.info("Model changed to %s; applying after active work", model_size)
             return
         try:
             self.transcriber.unload()
         except Exception:
             log.exception("[MODEL] Failed to unload previous model")
+        # P1 fix: Use self.config.device instead of hardcoded "cuda"
         self.transcriber = TranscriptionEngine(
             model_size=self.config.model_size,
-            device="cuda",
+            device=self.config.device,
             language=self.config.language,
             beam_size=self.config.beam_size,
             best_of=self.config.best_of,
@@ -671,17 +762,32 @@ class VoiceTyperApp:
         self._model_load_attempted = False
         self.tray.set_state(AppState.IDLE, "Model changed — press F2 to load")
 
+    # ─── TrayController Protocol Methods (P3) ────────────────────────
+
+    def change_microphone(self, mic_id: str | None) -> None:
+        """TrayController protocol: select microphone."""
+        self._select_microphone(mic_id)
+
+    def change_model(self, model_size: str) -> None:
+        """TrayController protocol: change transcription model."""
+        self._change_model(model_size)
+
+    def change_hotkey(self, hotkey: str) -> None:
+        """TrayController protocol: change hotkey."""
+        self._restart_hotkey(hotkey)
+
+    def open_settings(self) -> None:
+        """TrayController protocol: open settings window."""
+        self.show_settings()
+
+    def quit_app(self) -> None:
+        """TrayController protocol: quit the app."""
+        self.quit()
+
     # ─── Shutdown ──────────────────────────────────────────────────────
 
     def quit(self):
-        """Shut down the application cleanly.
-
-        Safe to call from any thread.  When called from the main thread
-        (tray menu, signal handler), sys.exit(0) terminates the process.
-        When called from a background thread, tray.stop() wakes the
-        main pystray loop which then returns, and the process exits
-        naturally from main().
-        """
+        """Shut down the application cleanly."""
         if self._shutting_down:
             log.info("quit() already in progress, ignoring duplicate call")
             return
@@ -690,6 +796,9 @@ class VoiceTyperApp:
         log.info("Shutting down (quit() called from thread=%s, is_main=%s)",
                  threading.current_thread().name, is_main)
         self._shutting_down = True
+
+        # Cancel all pending timers
+        self._cancel_pending_timers()
 
         self._cancel_streaming_session()
 
@@ -702,9 +811,7 @@ class VoiceTyperApp:
         self.tray.stop()
         log.info("Shutdown complete, exiting")
 
-        # Close devnull streams that were opened for pythonw.exe in
-        # _setup_logging().  Not strictly required (OS closes at exit),
-        # but cleaner than relying on process teardown.
+        # Close devnull streams
         for f in _devnull_files:
             try:
                 f.close()
@@ -714,10 +821,6 @@ class VoiceTyperApp:
 
         if is_main:
             sys.exit(0)
-        # From non-main thread: tray.stop() wakes the pystray loop,
-        # the main thread will exit naturally.  Do NOT call sys.exit()
-        # from a non-main thread — it only kills that thread, not the
-        # process.
 
     def _atexit_log(self):
         """Log when the process exits, even if quit() was not called."""
@@ -726,16 +829,7 @@ class VoiceTyperApp:
                         "likely killed externally (console close, task manager, etc.)")
 
     def _install_win32_console_handler(self):
-        """On Windows, install a console control handler to survive console closure.
-
-        Without this, closing the terminal window that launched the app sends
-        CTRL_CLOSE_EVENT which terminates the process immediately — the tray
-        icon vanishes and no 'Shutting down' log appears.
-
-        The handler intercepts CTRL_CLOSE_EVENT, CTRL_LOGOFF_EVENT, and
-        CTRL_SHUTDOWN_EVENT and calls quit() for a clean shutdown.
-        It returns TRUE for these events so the OS does not kill the process.
-        """
+        """On Windows, install a console control handler to survive console closure."""
         if sys.platform != "win32":
             return
 
@@ -743,24 +837,19 @@ class VoiceTyperApp:
             import ctypes
             from ctypes import wintypes
 
-            # Console event type constants
             CTRL_C_EVENT = 0
             CTRL_BREAK_EVENT = 1
             CTRL_CLOSE_EVENT = 2
             CTRL_LOGOFF_EVENT = 5
             CTRL_SHUTDOWN_EVENT = 6
 
-            # HandlerRoutine callback type
             HANDLER_ROUTINE = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.DWORD)
 
-            # Keep references to prevent GC and for use in the handler callback
             self._console_handler = HANDLER_ROUTINE(self._win32_console_handler)
             self._kernel32 = ctypes.windll.kernel32
             kernel32 = self._kernel32
             kernel32.SetConsoleCtrlHandler.argtypes = [HANDLER_ROUTINE, wintypes.BOOL]
             kernel32.SetConsoleCtrlHandler.restype = wintypes.BOOL
-
-            # Set argtypes for FreeConsole so the callback can call it safely
             kernel32.FreeConsole.argtypes = []
             kernel32.FreeConsole.restype = wintypes.BOOL
 
@@ -773,20 +862,7 @@ class VoiceTyperApp:
             log.exception("[WIN32] Failed to install console control handler")
 
     def _win32_console_handler(self, ctrl_type):
-        """Callback for Windows console control events.
-
-        CTRL_CLOSE_EVENT (user closes the console window):
-          Return TRUE to prevent the OS from killing the process.  The app
-          keeps running in the tray.  Also call FreeConsole() to fully
-          detach from the now-destroyed console so future writes to stderr
-          don't fail.
-
-        CTRL_C_EVENT / CTRL_BREAK_EVENT (user presses Ctrl+C):
-          Graceful shutdown — the user explicitly asked to stop.
-
-        CTRL_LOGOFF_EVENT / CTRL_SHUTDOWN_EVENT:
-          Graceful shutdown — the system is going down.
-        """
+        """Callback for Windows console control events."""
         CTRL_C_EVENT = 0
         CTRL_BREAK_EVENT = 1
         CTRL_CLOSE_EVENT = 2
@@ -798,10 +874,6 @@ class VoiceTyperApp:
                 "[WIN32] Console window closing -- "
                 "keeping process alive (tray app survives)"
             )
-            # Detach from the dying console so stderr/stdout don't fail.
-            # After FreeConsole, stderr/stdout file descriptors are invalid,
-            # so redirect them to devnull to prevent OSError on writes.
-            # Store the devnull file object to prevent GC from closing it.
             try:
                 self._kernel32.FreeConsole()
                 self._devnull = open(os.devnull, 'w')
@@ -810,7 +882,7 @@ class VoiceTyperApp:
                 log.info("[WIN32] Detached from console (FreeConsole)")
             except Exception:
                 log.warning("[WIN32] FreeConsole() failed")
-            return True  # TRUE = handled; don't kill the process
+            return True
 
         if ctrl_type in (CTRL_LOGOFF_EVENT, CTRL_SHUTDOWN_EVENT):
             log.info("[WIN32] System event %d received, shutting down", ctrl_type)
@@ -822,7 +894,7 @@ class VoiceTyperApp:
             threading.Thread(target=self.quit, daemon=False).start()
             return True
 
-        return False  # Let the next handler deal with it
+        return False
 
 
 def main():
@@ -833,8 +905,6 @@ def main():
         app = VoiceTyperApp()
     except Exception as e:
         log.exception("Fatal error during initialization")
-        # Defensive: _setup_logging replaces None with devnull, but guard
-        # in case it fails before the replacement happens.
         if sys.stderr is not None:
             print(f"Voice Typer failed to start: {e}", file=sys.stderr)
         sys.exit(1)

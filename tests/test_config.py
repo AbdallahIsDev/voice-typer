@@ -30,6 +30,11 @@ class TestConfigDefaults:
         assert c.autostart is True
         assert c.paste_on_stop is True
         assert c.show_notifications is True
+        # New config keys
+        assert c.asr_backend == "whisper"
+        assert c.qwen_model_path is None
+        assert c.text_cleanup_enabled is True
+        assert c.corrections_path is None
 
 
 class TestConfigLoadSave:
@@ -66,10 +71,13 @@ class TestConfigLoadSave:
         assert c.hotkey == "<f9>"
         assert c.microphone == "WO Mic"
         assert c.autostart is True
-        assert c.paste_on_stop is True
+        # P1 fix: User values are now preserved (no longer overridden)
+        assert c.paste_on_stop is False
         assert c.show_notifications is False
 
-    def test_load_normalizes_legacy_streaming_and_paste_settings(self, tmp_path, monkeypatch):
+    def test_load_preserves_user_device_and_paste_settings(self, tmp_path, monkeypatch):
+        """P1 fix: User's device, paste_on_stop, and streaming_transcription
+        values in config.json must survive load() without being overridden."""
         monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({
@@ -79,9 +87,10 @@ class TestConfigLoadSave:
         }))
 
         c = Config.load()
-        assert c.streaming_transcription is True
-        assert c.paste_on_stop is True
-        assert c.device == "cuda"
+        # User values must be preserved — no more forced overrides
+        assert c.streaming_transcription is False
+        assert c.paste_on_stop is False
+        assert c.device == "cpu"
 
     def test_load_raises_streaming_overlap_and_guard_to_safer_minimums(self, tmp_path, monkeypatch):
         monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
@@ -135,6 +144,19 @@ class TestConfigLoadSave:
         c = Config.load()
         assert c.hotkey == "<f2>"  # defaults
 
+    def test_load_logs_error_on_corrupt_file(self, tmp_path, monkeypatch, caplog):
+        """P1 fix: Config.load() must log errors instead of silently swallowing them."""
+        import logging
+        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        config_file = tmp_path / "config.json"
+        config_file.write_text("NOT VALID JSON {{{")
+
+        with caplog.at_level(logging.ERROR, logger="voice_typer.config"):
+            c = Config.load()
+
+        assert any("corrupted" in r.message.lower() or "failed to load" in r.message.lower()
+                    for r in caplog.records)
+
     def test_round_trip(self, tmp_path, monkeypatch):
         monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
         c1 = Config(
@@ -145,7 +167,7 @@ class TestConfigLoadSave:
             beam_size=3,
             best_of=2,
             condition_on_previous_text=True,
-            streaming_transcription=True,
+            streaming_transcription=False,
             streaming_chunk_seconds=10.0,
             streaming_step_seconds=4.0,
             streaming_left_overlap_seconds=3.5,
@@ -161,11 +183,13 @@ class TestConfigLoadSave:
         assert c1.hotkey == c2.hotkey
         assert c1.microphone == c2.microphone
         assert c1.model_size == c2.model_size
-        assert c2.device == "cuda"
+        # P1 fix: device, paste_on_stop, streaming_transcription survive round-trip
+        assert c2.device == "cpu"
+        assert c2.paste_on_stop is False
+        assert c2.streaming_transcription is False
         assert c1.beam_size == c2.beam_size
         assert c1.best_of == c2.best_of
         assert c1.condition_on_previous_text == c2.condition_on_previous_text
-        assert c2.streaming_transcription is True
         assert c1.streaming_chunk_seconds == c2.streaming_chunk_seconds
         assert c1.streaming_step_seconds == c2.streaming_step_seconds
         assert c1.streaming_left_overlap_seconds == c2.streaming_left_overlap_seconds
@@ -173,5 +197,4 @@ class TestConfigLoadSave:
         assert c1.streaming_min_first_chunk_seconds == c2.streaming_min_first_chunk_seconds
         assert c1.streaming_silence_threshold == c2.streaming_silence_threshold
         assert c1.autostart == c2.autostart
-        assert c2.paste_on_stop is True
         assert c1.show_notifications == c2.show_notifications

@@ -116,3 +116,16 @@ class TestCleanTranscribedText:
         assert clean_transcribed_text("got it") == "Got it"
         assert clean_transcribed_text("works fine") == "Works fine"
         assert clean_transcribed_text("this is a test") == "This is a test"
+
+    def test_cleanup_skipped_when_disabled(self):
+        """When enabled=False, text should only be stripped."""
+        text = "this is a test of the cleanup"
+        result = clean_transcribed_text(text, enabled=False)
+        # No capitalization, no punctuation added
+        assert result == "this is a test of the cleanup"
+
+    def test_cleanup_enabled_is_default(self):
+        """By default, cleanup should be enabled."""
+        text = "can we make this faster"
+        result = clean_transcribed_text(text)
+        assert result == "Can we make this faster?"

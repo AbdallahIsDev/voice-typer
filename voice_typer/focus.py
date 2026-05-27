@@ -26,7 +26,19 @@ log = logging.getLogger(__name__)
 
 
 def is_text_input_focused() -> bool | None:
-    """Return True if a text input is focused, False if not, None if unknown."""
+    """Return True if a text input is focused, False if not, None if unknown.
+
+    Known limitation: on macOS and Linux, this function always returns None
+    (unknown) because there is no reliable way to detect text-input focus
+    without elevated permissions or accessibility API access.  On macOS,
+    the Accessibility API (kAXFocusedUIElementAttribute) could be used but
+    requires the user to grant accessibility permissions to the app.  On
+    Linux, X11's _NET_ACTIVE_WINDOW via xdotool or similar tools could
+    provide focus info, but Wayland does not expose this information to
+    client applications by design.  Until platform-specific focus detection
+    is implemented, the paste path treats None as "proceed with paste"
+    when paste_on_stop is enabled.
+    """
     if sys.platform == "win32":
         return _windows_is_text_focused()
     return None
