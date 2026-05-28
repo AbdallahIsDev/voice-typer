@@ -1058,3 +1058,134 @@ class TestTextCleanupConfig:
         result = clean_transcribed_text(text, enabled=True)
         # Should have terminal punctuation added
         assert result.endswith(".")
+
+
+class TestTrayControllerProtocolCompliance:
+    """Verify VoiceTyperApp implements all TrayController protocol methods."""
+
+    REQUIRED_PUBLIC_METHODS = [
+        "toggle_dictation",
+        "show_settings",
+        "quit",
+        "toggle_autostart",
+        "set_notifications",
+    ]
+
+    REQUIRED_CALLBACK_METHODS = [
+        "_toggle_autostart",
+        "_set_notifications",
+        "_select_microphone",
+        "_change_model",
+        "_restart_hotkey",
+    ]
+
+    def test_app_has_all_traycontroller_public_methods(self, app):
+        """VoiceTyperApp must expose public methods for the TrayController protocol."""
+        for method in self.REQUIRED_PUBLIC_METHODS:
+            assert hasattr(app, method), f"Missing public method: {method}"
+            assert callable(getattr(app, method)), (
+                f"Attribute '{method}' exists but is not callable"
+            )
+
+    def test_app_has_all_tray_callback_methods(self, app):
+        """VoiceTyperApp must have the private methods wired as TrayIcon callbacks."""
+        for method in self.REQUIRED_CALLBACK_METHODS:
+            assert hasattr(app, method), f"Missing callback method: {method}"
+            assert callable(getattr(app, method)), (
+                f"Attribute '{method}' exists but is not callable"
+            )
+
+    def test_toggle_autostart_delegates_to_private(self, app):
+        """Public toggle_autostart() must delegate to _toggle_autostart()."""
+        called = []
+        app._toggle_autostart = lambda: called.append(True)
+        app.toggle_autostart()
+        assert len(called) == 1, "toggle_autostart() should call _toggle_autostart()"
+
+    def test_set_notifications_delegates_to_private(self, app):
+        """Public set_notifications() must delegate to _set_notifications()."""
+        called = []
+        app._set_notifications = lambda enabled: called.append(enabled)
+        app.set_notifications(False)
+        assert called == [False], (
+            f"set_notifications(False) should forward to _set_notifications(False), got {called}"
+        )
+        app.set_notifications(True)
+        assert called == [False, True], (
+            f"set_notifications(True) should forward to _set_notifications(True), got {called}"
+        )
+
+
+class TestExternalCorrectionsWiring:
+    """Verify clean_transcribed_text receives config_dir and corrections_path."""
+
+    def test_clean_transcribed_text_signature_has_config_params(self):
+        """clean_transcribed_text must accept config_dir and corrections_path."""
+        import inspect
+        from voice_typer.text_cleanup import clean_transcribed_text
+        sig = inspect.signature(clean_transcribed_text)
+        assert "enabled" in sig.parameters, (
+            "clean_transcribed_text must accept 'enabled' parameter"
+        )
+        assert "config_dir" in sig.parameters, (
+            "clean_transcribed_text must accept 'config_dir' parameter"
+        )
+        assert "corrections_path" in sig.parameters, (
+            "clean_transcribed_text must accept 'corrections_path' parameter"
+        )
+
+    def test_config_has_text_cleanup_enabled_field(self, app):
+        """Config must have text_cleanup_enabled field."""
+        assert hasattr(app.config, "text_cleanup_enabled"), (
+            "Config missing 'text_cleanup_enabled' field"
+        )
+
+    def test_config_has_corrections_path_field(self, app):
+        """Config must have corrections_path field."""
+        assert hasattr(app.config, "corrections_path"), (
+            "Config missing 'corrections_path' field"
+        )
+
+    def test_clean_transcribed_text_called_with_config_paths(self, app, monkeypatch):
+        """Verify clean_transcribed_text is called with config_dir and corrections_path."""
+        from voice_typer import text_cleanup
+        captured = {}
+        original = text_cleanup.clean_transcribed_text
+
+        def spy_clean(text, enabled=True, config_dir=None, corrections_path=None):
+            captured["enabled"] = enabled
+            captured["config_dir"] = config_dir
+            captured["corrections_path"] = corrections_path
+            return original(text, enabled=enabled, config_dir=config_dir,
+                            corrections_path=corrections_path)
+
+        monkeypatch.setattr("voice_typer.app.clean_transcribed_text", spy_clean)
+
+        app.clipboard = MagicMock()
+        app.clipboard.copy = MagicMock(return_value=True)
+        app.clipboard.paste = MagicMock(return_value=False)
+        app.transcriber = MagicMock()
+        app.transcriber.transcribe_with_fallback = MagicMock(
+            return_value="hello world"
+        )
+        app.transcriber.device_info = "cpu (int8)"
+        app.recorder = MagicMock()
+        app.recorder.recording = True
+        app.recorder.stop = MagicMock(return_value=np.ones(16000, dtype=np.float32))
+        app.recorder.last_rms = 0.5
+
+        app._stop_dictation()
+        _wait_for_busy_clear(app)
+
+        assert captured.get("enabled") == app.config.text_cleanup_enabled, (
+            f"enabled should be config.text_cleanup_enabled={app.config.text_cleanup_enabled}, "
+            f"got {captured.get('enabled')}"
+        )
+        assert captured.get("config_dir") == app.config.config_dir, (
+            f"config_dir should be config.config_dir={app.config.config_dir}, "
+            f"got {captured.get('config_dir')}"
+        )
+        assert captured.get("corrections_path") == app.config.corrections_path, (
+            f"corrections_path should be config.corrections_path={app.config.corrections_path}, "
+            f"got {captured.get('corrections_path')}"
+        )

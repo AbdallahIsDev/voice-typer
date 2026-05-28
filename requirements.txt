@@ -1,8 +1,0 @@
-faster-whisper>=1.0
-sounddevice>=0.5
-numpy
-scipy
-pyperclip
-pystray
-Pillow
-pynput

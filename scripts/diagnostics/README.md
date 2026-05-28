@@ -13,9 +13,9 @@ microphone, display) or print diagnostic output instead of making assertions.
 Run individually:
 
 ```bash
-python diagnostics/diagnose_f2.py
-python diagnostics/runtime_proof.py
-python diagnostics/cublas_fallback.py
+python scripts/diagnostics/diagnose_f2.py
+python scripts/diagnostics/runtime_proof.py
+python scripts/diagnostics/cublas_fallback.py
 ```
 
 All unique test coverage from these scripts is already captured in the

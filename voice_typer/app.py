@@ -488,7 +488,12 @@ class VoiceTyperApp:
 
                 raw_text = text
                 # P2: text_cleanup_enabled config
-                text = clean_transcribed_text(text, enabled=self.config.text_cleanup_enabled)
+                text = clean_transcribed_text(
+                    text,
+                    enabled=self.config.text_cleanup_enabled,
+                    config_dir=self.config.config_dir,
+                    corrections_path=self.config.corrections_path,
+                )
                 if text != raw_text:
                     log.info(
                         "[CLEANUP] Text cleaned: len %d -> %d",
@@ -783,6 +788,14 @@ class VoiceTyperApp:
     def quit_app(self) -> None:
         """TrayController protocol: quit the app."""
         self.quit()
+
+    def toggle_autostart(self) -> None:
+        """TrayController protocol: toggle autostart on/off."""
+        self._toggle_autostart()
+
+    def set_notifications(self, enabled: bool) -> None:
+        """TrayController protocol: enable/disable notifications."""
+        self._set_notifications(enabled)
 
     # ─── Shutdown ──────────────────────────────────────────────────────
 
