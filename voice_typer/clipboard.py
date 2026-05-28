@@ -52,8 +52,9 @@ _TERMINAL_PROCESS_NAMES: set[str] = {
 class ClipboardManager:
     """Handles copying text to clipboard and safely pasting into the focused app."""
 
-    def __init__(self, paste_enabled: bool = True):
+    def __init__(self, paste_enabled: bool = True, unsafe_paste_on_unknown_focus: bool = False):
         self.paste_enabled = paste_enabled
+        self.unsafe_paste_on_unknown_focus = unsafe_paste_on_unknown_focus
         self._keyboard = Controller()
         self._focused_process: str | None = None
 
@@ -136,11 +137,18 @@ class ClipboardManager:
             log.info("No text input focused -- skipping paste (clipboard has the text)")
             return False
         if focused is None:
-            log.info(
-                "Focus detection unavailable -- attempting paste "
-                "(set paste_on_stop=false to disable)"
-            )
-        # focused is True or None -> attempt paste
+            if self.unsafe_paste_on_unknown_focus:
+                log.info(
+                    "Focus detection unavailable -- attempting paste "
+                    "(unsafe_paste_on_unknown_focus=True)"
+                )
+            else:
+                log.info(
+                    "Focus detection unavailable -- skipping paste "
+                    "(set unsafe_paste_on_unknown_focus=True to override)"
+                )
+                return False
+        # focused is True, or None with opt-in -> attempt paste
 
         try:
             time.sleep(0.1)  # let focused app settle

@@ -8,9 +8,14 @@ from typing import Optional
 
 log = logging.getLogger(__name__)
 
+
+# Question openers used by _looks_like_question().
+# "how" and "what" are EXCLUDED because they frequently start
+# declarative sentences (e.g. "How to install Python",
+# "What I did yesterday") where a question mark would be wrong.
 _QUESTION_OPENERS = {
     "am", "are", "can", "could", "did", "do", "does", "has", "have",
-    "how", "is", "may", "should", "was", "were", "what", "when",
+    "is", "may", "should", "was", "were", "when",
     "where", "which", "who", "whom", "whose", "why", "will", "would",
 }
 
@@ -20,7 +25,13 @@ _INTENTIONAL_REPEAT_WORDS = {
     "very",
 }
 
-_WHISPER_MISSPELLINGS = {
+# ─── Built-in corrections (used when no external corrections file exists) ──
+#
+# These are Whisper small.en specific misspellings and phrase corrections.
+# Users can override them by placing a corrections.json in the config
+# directory (see _load_external_corrections below).
+
+_WHISPER_MISSPELLINGS: dict[str, str] = {
     "infestigate": "investigate",
     "grammer": "grammar",
     "recieve": "receive",
@@ -51,7 +62,7 @@ _WHISPER_MISSPELLINGS = {
     "grammarly": "grammatically",
 }
 
-_WHISPER_PHRASE_CORRECTIONS = [
+_WHISPER_PHRASE_CORRECTIONS: list[tuple[str, str]] = [
     ("to 2 ", "to "),
     (" to 2", " to"),
     ("they working", "it's working"),
@@ -61,75 +72,136 @@ _WHISPER_PHRASE_CORRECTIONS = [
     ("Execute execute", "Execute"),
 ]
 
-_COMMON_EXTRA_WORD_PATTERNS = [
+_COMMON_EXTRA_WORD_PATTERNS: list[tuple[str, str]] = [
     ("without whether", "whether"),
     ("didn't and ", "didn't "),
 ]
 
+# ─── External corrections loader ─────────────────────────────────────────
+# When a corrections.json exists in the config directory (or at the path
+# specified by config.corrections_path), its entries OVERRIDE the built-in
+# defaults.  This allows users to tailor corrections for their model/version
+# without editing source code.
 
-def _load_external_corrections(config_dir: Optional[Path] = None, corrections_path: Optional[str] = None):
-    """Load corrections from an external JSON file if available.
+_BUNDLED_CORRECTIONS_PATH = Path(__file__).parent / "corrections.json"
 
-    Returns (misspellings, phrase_corrections) — either from the external
-    file or the built-in defaults.
 
-    P3: External corrections file support.
+def _load_external_corrections(
+    config_dir: Path | None = None,
+    corrections_path: str | None = None,
+):
+    """Load corrections from an external JSON file.
+
+    Loads bundled corrections.json first, then merges user-provided
+    file on top.  Returns (misspellings, phrase_corrections, extra_word_patterns).
     """
-    misspellings = dict(_WHISPER_MISSPELLINGS)
-    phrase_corrections = list(_WHISPER_PHRASE_CORRECTIONS)
+    # Start with bundled corrections
+    misspellings: dict[str, str] = {}
+    phrase_corrections: list[tuple[str, str]] = []
+    extra_word_patterns: list[tuple[str, str]] = []
 
-    # Determine the file path
-    file_path = None
-    if corrections_path:
-        file_path = Path(corrections_path)
-    elif config_dir is not None:
-        file_path = config_dir / "voice-typer-corrections.json"
-
-    if file_path is None or not file_path.exists():
-        return misspellings, phrase_corrections
-
-    try:
-        data = json.loads(file_path.read_text(encoding="utf-8"))
-        if "misspellings" in data and isinstance(data["misspellings"], dict):
-            misspellings.update(data["misspellings"])
-        if "phrase_corrections" in data and isinstance(data["phrase_corrections"], list):
-            phrase_corrections.extend(
-                tuple(item) for item in data["phrase_corrections"]
+    if _BUNDLED_CORRECTIONS_PATH.exists():
+        try:
+            data = json.loads(_BUNDLED_CORRECTIONS_PATH.read_text(encoding="utf-8"))
+            misspellings = dict(data.get("misspellings", {}))
+            phrase_corrections = [
+                tuple(item) for item in data.get("phrase_corrections", [])
                 if isinstance(item, (list, tuple)) and len(item) == 2
-            )
-        log.info("[CLEANUP] Loaded external corrections from %s", file_path)
-    except Exception as exc:
-        log.warning("[CLEANUP] Failed to load external corrections from %s: %s", file_path, exc)
+            ]
+            extra_word_patterns = [
+                tuple(item) for item in data.get("extra_word_patterns", [])
+                if isinstance(item, (list, tuple)) and len(item) == 2
+            ]
+        except Exception as exc:
+            log.warning("[CLEANUP] Failed to load bundled corrections: %s", exc)
 
-    return misspellings, phrase_corrections
+    # Merge user-provided corrections on top
+    path = None
+    if corrections_path:
+        path = Path(corrections_path)
+    elif config_dir is not None:
+        path = config_dir / "voice-typer-corrections.json"
+
+    if path is not None and path.exists():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if "misspellings" in data and isinstance(data["misspellings"], dict):
+                misspellings.update(data["misspellings"])
+            if "phrase_corrections" in data and isinstance(data["phrase_corrections"], list):
+                phrase_corrections.extend(
+                    tuple(item) for item in data["phrase_corrections"]
+                    if isinstance(item, (list, tuple)) and len(item) == 2
+                )
+            if "extra_word_patterns" in data and isinstance(data["extra_word_patterns"], list):
+                extra_word_patterns.extend(
+                    tuple(item) for item in data["extra_word_patterns"]
+                    if isinstance(item, (list, tuple)) and len(item) == 2
+                )
+            log.info("[CLEANUP] Loaded user corrections from %s (%d misspellings, "
+                     "%d phrases, %d extra-word patterns)",
+                     path, len(misspellings), len(phrase_corrections), len(extra_word_patterns))
+        except Exception as e:
+            log.warning("[CLEANUP] Failed to load corrections from %s: %s", path, e)
+
+    return misspellings, phrase_corrections, extra_word_patterns
 
 
-def clean_transcribed_text(text: str, enabled: bool = True, config_dir: Optional[Path] = None, corrections_path: Optional[str] = None) -> str:
-    """Apply conservative cleanup without changing the user's meaning.
+def _active_corrections(
+    config_dir: Path | None = None,
+    corrections_path: str | None = None,
+):
+    """Return the active corrections, preferring external file over built-in."""
+    external = _load_external_corrections(config_dir, corrections_path)
+    if external is not None:
+        return external
+    return _WHISPER_MISSPELLINGS, _WHISPER_PHRASE_CORRECTIONS, _COMMON_EXTRA_WORD_PATTERNS
 
-    P2: If enabled=False, skip all cleanup and return raw text (just stripped).
-    P3: If config_dir or corrections_path provided, load external corrections.
+
+# ─── Active corrections (initialized to built-in defaults) ──────────────
+# Updated by configure_corrections() when an external corrections file
+# is available.  The cleanup functions below read from these instead of
+# the built-in dicts directly.
+
+_active_misspellings: dict[str, str] = _WHISPER_MISSPELLINGS
+_active_phrases: list[tuple[str, str]] = _WHISPER_PHRASE_CORRECTIONS
+_active_extra_words: list[tuple[str, str]] = _COMMON_EXTRA_WORD_PATTERNS
+
+
+def configure_corrections(
+    config_dir: Path | None = None,
+    corrections_path: str | None = None,
+):
+    """Load corrections from external JSON (if present).
+
+    When an external file exists and is valid, its entries replace the
+    built-in defaults.  Otherwise the built-in dicts are restored.
+    Call this once at startup so that ``clean_transcribed_text`` uses
+    the user-provided corrections.
     """
+    global _active_misspellings, _active_phrases, _active_extra_words
+    result = _active_corrections(config_dir, corrections_path)
+    _active_misspellings, _active_phrases, _active_extra_words = result
+
+
+def clean_transcribed_text(text: str) -> str:
+    """Apply conservative cleanup without changing the user's meaning."""
     cleaned = text.strip()
     if not cleaned:
         return ""
-
-    if not enabled:
-        return cleaned
-
-    # Load corrections (built-in + external if available)
-    misspellings, phrase_corrections = _load_external_corrections(config_dir, corrections_path)
-
     cleaned = _normalize_spacing(cleaned)
     cleaned = _clean_self_corrections(cleaned)
     cleaned = _remove_adjacent_duplicate_phrases(cleaned)
     cleaned = _remove_near_duplicate_words(cleaned)
-    cleaned = _fix_common_misspellings(cleaned, misspellings)
-    cleaned = _correct_whisper_phrases(cleaned, phrase_corrections)
+    cleaned = _fix_common_misspellings(cleaned)
+    cleaned = _correct_whisper_phrases(cleaned)
     cleaned = _remove_extra_words(cleaned)
     cleaned = _capitalize_sentences(cleaned)
     cleaned = _capitalize_pronoun_i(cleaned)
-    cleaned = _add_terminal_punctuation(cleaned)
+    # NOTE: _add_terminal_punctuation() removed from the pipeline.
+    # It forced '.' or '?' onto speech without terminal punctuation,
+    # which corrupted URLs (example.com.), commands (open settings.),
+    # file paths, and code snippets.  Users who want auto-punctuation
+    # can re-enable it in a future version with a config toggle.
     return cleaned
 
 
@@ -231,16 +303,14 @@ def _remove_near_duplicate_words(text: str) -> str:
     return " ".join(output)
 
 
-def _fix_common_misspellings(text: str, misspellings: Optional[dict] = None) -> str:
+def _fix_common_misspellings(text: str) -> str:
     """Fix common Whisper small-model misspellings."""
-    if misspellings is None:
-        misspellings = _WHISPER_MISSPELLINGS
     tokens = text.split(" ")
     output = []
     for token in tokens:
         key = _token_key(token)
-        if key in misspellings:
-            correction = misspellings[key]
+        if key in _active_misspellings:
+            correction = _active_misspellings[key]
             match = re.match(r"^(\W*)(\w+)(\W*)$", token)
             if match:
                 token = f"{match.group(1)}{correction}{match.group(3)}"
@@ -250,12 +320,10 @@ def _fix_common_misspellings(text: str, misspellings: Optional[dict] = None) -> 
     return " ".join(output)
 
 
-def _correct_whisper_phrases(text: str, phrase_corrections: Optional[list] = None) -> str:
+def _correct_whisper_phrases(text: str) -> str:
     """Fix known Whisper small-model phrase misrecognitions."""
-    if phrase_corrections is None:
-        phrase_corrections = _WHISPER_PHRASE_CORRECTIONS
     lower = text.lower()
-    for bad, good in phrase_corrections:
+    for bad, good in _active_phrases:
         pattern = re.compile(re.escape(bad), re.IGNORECASE)
         if pattern.search(lower):
             text = pattern.sub(good, text)
@@ -265,7 +333,7 @@ def _correct_whisper_phrases(text: str, phrase_corrections: Optional[list] = Non
 def _remove_extra_words(text: str) -> str:
     """Remove common extra word insertions from Whisper."""
     lower = text.lower()
-    for bad, good in _COMMON_EXTRA_WORD_PATTERNS:
+    for bad, good in _active_extra_words:
         pattern = re.compile(re.escape(bad), re.IGNORECASE)
         if pattern.search(lower):
             text = pattern.sub(good, text)
@@ -294,6 +362,11 @@ def _capitalize_pronoun_i(text: str) -> str:
 
 
 def _add_terminal_punctuation(text: str) -> str:
+    """Add terminal punctuation to sentences that lack it.
+
+    REMOVED from the cleanup pipeline by default.  Still available
+    for callers who explicitly want auto-punctuation.
+    """
     if not text or text[-1] in ".!?":
         return text
     words = text.split()
@@ -305,6 +378,11 @@ def _add_terminal_punctuation(text: str) -> str:
 
 
 def _looks_like_question(text: str) -> bool:
+    """Detect whether the final sentence looks like a question.
+
+    Uses a conservative set of question openers that excludes "how"
+    and "what" to avoid false positives on declarative sentences.
+    """
     sentence = re.split(r"[.!?]\s+", text.strip())[-1]
     words = re.findall(r"[A-Za-z']+", sentence.lower())
     if not words:

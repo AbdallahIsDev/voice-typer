@@ -15,7 +15,7 @@ from voice_typer.config import Config, _config_dir
 from voice_typer.recording import Recorder
 from voice_typer.transcription import TranscriptionEngine
 from voice_typer.streaming import StreamingConfig, StreamingTranscriptionSession
-from voice_typer.text_cleanup import clean_transcribed_text
+from voice_typer.text_cleanup import clean_transcribed_text, configure_corrections
 from voice_typer.clipboard import ClipboardManager
 from voice_typer.settings import SettingsController, SettingsWindow
 from voice_typer.tray import TrayIcon, AppState
@@ -120,7 +120,10 @@ class VoiceTyperApp:
         if self.config.asr_backend == "qwen" and self.config.qwen_model_path:
             self._init_qwen_engine()
 
-        self.clipboard = ClipboardManager(paste_enabled=self.config.paste_on_stop)
+        self.clipboard = ClipboardManager(
+            paste_enabled=self.config.paste_on_stop,
+            unsafe_paste_on_unknown_focus=self.config.unsafe_paste_on_unknown_focus,
+        )
         self.tray = TrayIcon(
             controller=self,
             config=self.config,
@@ -129,6 +132,7 @@ class VoiceTyperApp:
         self._hotkey_backend: Optional[HotkeyBackend] = None
         self._streaming_session: Optional[StreamingTranscriptionSession] = None
         self._transcription_thread: Optional[threading.Thread] = None
+        self._settings_window: Optional[SettingsWindow] = None
         self._microphones: list[dict] = []
 
         # P2: Thread safety — replace plain bool with Event
@@ -141,9 +145,6 @@ class VoiceTyperApp:
 
         # P1: Timer tracking
         self._pending_timers: list[threading.Timer] = []
-
-        # P2: Settings window guard
-        self._settings_window = None
 
     # ─── Qwen Engine (P0) ────────────────────────────────────────────
 
@@ -246,6 +247,12 @@ class VoiceTyperApp:
         """Background work: sync autostart, load mics, load model, register hotkey."""
         log.info("[STARTUP] _do_startup begin")
 
+        # Load external text corrections (if available) before any transcription
+        try:
+            configure_corrections(config_dir=self.config.config_dir)
+        except Exception:
+            log.debug("[STARTUP] External corrections load failed, using built-in defaults")
+
         # 1. Sync autostart config with platform
         log.info("[STARTUP] Step 1: sync autostart")
         self._sync_autostart()
@@ -259,12 +266,7 @@ class VoiceTyperApp:
         log.info("[STARTUP] Step 3: register hotkey")
         self._register_hotkey()
 
-        # Warm expensive audio helpers off the F2 stop path while the model loads.
-        threading.Thread(
-            target=self.recorder.warm_up_resampler,
-            name="ResamplerWarmup",
-            daemon=True,
-        ).start()
+        # Warmup handled synchronously in recording.py on first recording start.
 
         # 4. Load the Whisper model (may fail — hotkey already registered)
         log.info("[STARTUP] Step 4: load model")
@@ -487,19 +489,16 @@ class VoiceTyperApp:
                     return
 
                 raw_text = text
-                # P2: text_cleanup_enabled config
-                text = clean_transcribed_text(
-                    text,
-                    enabled=self.config.text_cleanup_enabled,
-                    config_dir=self.config.config_dir,
-                    corrections_path=self.config.corrections_path,
-                )
-                if text != raw_text:
-                    log.info(
-                        "[CLEANUP] Text cleaned: len %d -> %d",
-                        len(raw_text),
-                        len(text),
-                    )
+                if self.config.text_cleanup_enabled:
+                    text = clean_transcribed_text(text)
+                    if text != raw_text:
+                        log.info(
+                            "[CLEANUP] Text cleaned: len %d -> %d",
+                            len(raw_text),
+                            len(text),
+                        )
+                else:
+                    log.info("[CLEANUP] Text cleanup disabled (raw mode)")
 
                 log.info("Transcription: %s...", text[:100])
 
@@ -688,13 +687,16 @@ class VoiceTyperApp:
         self.tray.notify("Voice Typer", f"Microphone: {label}")
 
     def show_settings(self):
-        """Open the native settings window. Guarded against duplicates (P2)."""
+        """Open the native settings window."""
+        # If a settings window is already open, bring it to front instead of
+        # creating a duplicate.
         if self._settings_window is not None:
             try:
                 self._settings_window.root.lift()
                 return
             except Exception:
-                pass  # window was closed, fall through to create new
+                # Window was destroyed (e.g. user closed via title bar X)
+                self._settings_window = None
 
         controller = SettingsController(
             self.config,
@@ -704,12 +706,14 @@ class VoiceTyperApp:
             on_autostart_changed=self._set_autostart,
             on_notifications_changed=self._set_notifications,
         )
-        self._settings_window = SettingsWindow(
+        window = SettingsWindow(
             controller,
             microphones=self._microphones,
             on_open_config=self._open_config_file,
         )
-        self._settings_window.show()
+        window.on_destroy = lambda: setattr(self, '_settings_window', None)
+        self._settings_window = window
+        window.show()
 
     def _open_config_file(self):
         """Open raw settings file for troubleshooting."""

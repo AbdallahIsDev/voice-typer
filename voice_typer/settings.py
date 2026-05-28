@@ -113,10 +113,12 @@ class SettingsWindow:
         self.microphones = microphones or []
         self._messagebox = messagebox
         self._on_open_config = on_open_config
+        self.on_destroy: Optional[Callable[[], None]] = None
 
         self.root = tk.Toplevel(parent) if parent is not None else tk.Tk()
         self.root.title("Voice Typer Settings")
         self.root.resizable(False, False)
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self.hotkey_var = tk.StringVar(
             self.root, value=display_hotkey(controller.config.hotkey)
@@ -192,10 +194,15 @@ class SettingsWindow:
 
         buttons = ttk.Frame(frame)
         buttons.grid(row=5, column=0, columnspan=2, sticky="e", pady=(12, 0))
-        ttk.Button(buttons, text="Cancel", command=self.root.destroy).grid(
+        ttk.Button(buttons, text="Cancel", command=self._on_close).grid(
             row=0, column=0, padx=(0, 6)
         )
         ttk.Button(buttons, text="Save", command=self._save).grid(row=0, column=1)
+
+    def _on_close(self):
+        self.root.destroy()
+        if self.on_destroy is not None:
+            self.on_destroy()
 
     def show(self):
         self.root.deiconify()
@@ -260,4 +267,4 @@ class SettingsWindow:
         except ValueError as exc:
             self._messagebox.showerror("Voice Typer Settings", str(exc))
             return
-        self.root.destroy()
+        self._on_close()

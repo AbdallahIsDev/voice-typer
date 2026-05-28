@@ -172,7 +172,8 @@ class TestAppStateTransitions:
 
         _wait_for_busy_clear(app)
 
-        app.clipboard.copy.assert_called_once_with("Can we test this now?")
+        # Forced terminal punctuation was removed from the pipeline
+        app.clipboard.copy.assert_called_once_with("Can we test this now")
 
     def test_clipboard_copy_failure_prevents_paste(self, app):
         """Regression test for Finding 1: stale clipboard must not be pasted."""
@@ -1045,19 +1046,51 @@ class TestStartupNoCrash:
 class TestTextCleanupConfig:
     """Test that text cleanup can be disabled via config."""
 
-    def test_cleanup_skipped_when_disabled(self):
-        from voice_typer.text_cleanup import clean_transcribed_text
-        text = "this is a test of the cleanup"
-        # With enabled=False, should just strip whitespace
-        result = clean_transcribed_text(text, enabled=False)
-        assert result == text.strip()  # No capitalization, no punctuation
+    def test_cleanup_skipped_when_disabled(self, app):
+        """When config.text_cleanup_enabled=False, should not call cleanup."""
+        from voice_typer import text_cleanup as tc_mod
+        original = tc_mod.clean_transcribed_text
+        called = False
+
+        def spy(text, **kw):
+            nonlocal called
+            called = True
+            return original(text)
+
+        app.config.text_cleanup_enabled = False
+        app.clipboard = MagicMock()
+        app.clipboard.copy = MagicMock(return_value=True)
+        app.clipboard.paste = MagicMock(return_value=False)
+        app.transcriber = MagicMock()
+        app.transcriber.transcribe_with_fallback = MagicMock(return_value="hello world")
+        app.recorder = MagicMock()
+        app.recorder.recording = True
+        app.recorder.stop = MagicMock(return_value=np.ones(16000, dtype=np.float32))
+        app.recorder.last_rms = 0.5
+
+        import voice_typer.app as app_mod
+        monkeypatch = pytest.MonkeyPatch()
+        monkeypatch.setattr(app_mod, "clean_transcribed_text", spy)
+        try:
+            app._stop_dictation()
+            _wait_for_busy_clear(app)
+        finally:
+            monkeypatch.undo()
+        assert not called, "clean_transcribed_text should NOT be called when disabled"
 
     def test_cleanup_applied_when_enabled(self):
         from voice_typer.text_cleanup import clean_transcribed_text
         text = "this is a test of the cleanup"
-        result = clean_transcribed_text(text, enabled=True)
-        # Should have terminal punctuation added
-        assert result.endswith(".")
+        result = clean_transcribed_text(text)
+        # Cleanup applies capitalization and other transforms
+        assert result == "This is a test of the cleanup"
+
+    def test_cleanup_applied_when_enabled(self):
+        from voice_typer.text_cleanup import clean_transcribed_text
+        text = "this is a test of the cleanup"
+        result = clean_transcribed_text(text)
+        # Cleanup applies capitalization and other transforms
+        assert result == "This is a test of the cleanup"
 
 
 class TestTrayControllerProtocolCompliance:
@@ -1117,75 +1150,21 @@ class TestTrayControllerProtocolCompliance:
 
 
 class TestExternalCorrectionsWiring:
-    """Verify clean_transcribed_text receives config_dir and corrections_path."""
+    """Verify configure_corrections is called at startup."""
 
-    def test_clean_transcribed_text_signature_has_config_params(self):
-        """clean_transcribed_text must accept config_dir and corrections_path."""
-        import inspect
-        from voice_typer.text_cleanup import clean_transcribed_text
-        sig = inspect.signature(clean_transcribed_text)
-        assert "enabled" in sig.parameters, (
-            "clean_transcribed_text must accept 'enabled' parameter"
-        )
-        assert "config_dir" in sig.parameters, (
-            "clean_transcribed_text must accept 'config_dir' parameter"
-        )
-        assert "corrections_path" in sig.parameters, (
-            "clean_transcribed_text must accept 'corrections_path' parameter"
-        )
-
-    def test_config_has_text_cleanup_enabled_field(self, app):
-        """Config must have text_cleanup_enabled field."""
-        assert hasattr(app.config, "text_cleanup_enabled"), (
-            "Config missing 'text_cleanup_enabled' field"
-        )
-
-    def test_config_has_corrections_path_field(self, app):
-        """Config must have corrections_path field."""
-        assert hasattr(app.config, "corrections_path"), (
-            "Config missing 'corrections_path' field"
-        )
-
-    def test_clean_transcribed_text_called_with_config_paths(self, app, monkeypatch):
-        """Verify clean_transcribed_text is called with config_dir and corrections_path."""
+    def test_configure_corrections_called_at_startup(self, app, monkeypatch):
+        """_do_startup should call configure_corrections with config_dir."""
         from voice_typer import text_cleanup
-        captured = {}
-        original = text_cleanup.clean_transcribed_text
+        called_with = {}
 
-        def spy_clean(text, enabled=True, config_dir=None, corrections_path=None):
-            captured["enabled"] = enabled
-            captured["config_dir"] = config_dir
-            captured["corrections_path"] = corrections_path
-            return original(text, enabled=enabled, config_dir=config_dir,
-                            corrections_path=corrections_path)
+        def spy(config_dir=None, corrections_path=None):
+            called_with["config_dir"] = config_dir
 
-        monkeypatch.setattr("voice_typer.app.clean_transcribed_text", spy_clean)
-
-        app.clipboard = MagicMock()
-        app.clipboard.copy = MagicMock(return_value=True)
-        app.clipboard.paste = MagicMock(return_value=False)
-        app.transcriber = MagicMock()
-        app.transcriber.transcribe_with_fallback = MagicMock(
-            return_value="hello world"
-        )
-        app.transcriber.device_info = "cpu (int8)"
-        app.recorder = MagicMock()
-        app.recorder.recording = True
-        app.recorder.stop = MagicMock(return_value=np.ones(16000, dtype=np.float32))
-        app.recorder.last_rms = 0.5
-
-        app._stop_dictation()
-        _wait_for_busy_clear(app)
-
-        assert captured.get("enabled") == app.config.text_cleanup_enabled, (
-            f"enabled should be config.text_cleanup_enabled={app.config.text_cleanup_enabled}, "
-            f"got {captured.get('enabled')}"
-        )
-        assert captured.get("config_dir") == app.config.config_dir, (
-            f"config_dir should be config.config_dir={app.config.config_dir}, "
-            f"got {captured.get('config_dir')}"
-        )
-        assert captured.get("corrections_path") == app.config.corrections_path, (
-            f"corrections_path should be config.corrections_path={app.config.corrections_path}, "
-            f"got {captured.get('corrections_path')}"
+        # Patch the name in app's namespace (from X import Y creates local ref)
+        monkeypatch.setattr("voice_typer.app.configure_corrections", spy)
+        app._settings_window = None
+        app._do_startup()
+        assert called_with.get("config_dir") == app.config.config_dir, (
+            f"configure_corrections should receive config_dir={app.config.config_dir}, "
+            f"got {called_with.get('config_dir')}"
         )

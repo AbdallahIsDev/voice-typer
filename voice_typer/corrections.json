@@ -1,0 +1,45 @@
+{
+	"misspellings": {
+		"infestigate": "investigate",
+		"grammer": "grammar",
+		"recieve": "receive",
+		"occured": "occurred",
+		"seperate": "separate",
+		"definately": "definitely",
+		"accomodate": "accommodate",
+		"occassion": "occasion",
+		"untill": "until",
+		"wierd": "weird",
+		"thier": "their",
+		"goverment": "government",
+		"enviroment": "environment",
+		"developement": "development",
+		"begining": "beginning",
+		"sucessful": "successful",
+		"neccessary": "necessary",
+		"recomend": "recommend",
+		"tommorow": "tomorrow",
+		"beautifull": "beautiful",
+		"wonderfull": "wonderful",
+		"awfull": "awful",
+		"carefull": "careful",
+		"helpfull": "helpful",
+		"usefull": "useful",
+		"powerfull": "powerful",
+		"grammerly": "grammatically",
+		"grammarly": "grammatically"
+	},
+	"phrase_corrections": [
+		["to 2 ", "to "],
+		[" to 2", " to"],
+		["they working", "it's working"],
+		["this me either", "I'm also"],
+		["treat 3", "treat this"],
+		["adds a test", "is a test"],
+		["Execute execute", "Execute"]
+	],
+	"extra_word_patterns": [
+		["without whether", "whether"],
+		["didn't and ", "didn't "]
+	]
+}

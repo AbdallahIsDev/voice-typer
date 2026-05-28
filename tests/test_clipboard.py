@@ -81,7 +81,8 @@ class TestPaste:
         cm._keyboard.press.assert_not_called()
 
     @patch("voice_typer.clipboard.is_text_input_focused", return_value=None)
-    def test_paste_attempts_when_focus_unknown(self, mock_focus, monkeypatch):
+    def test_paste_skipped_when_focus_unknown_by_default(self, mock_focus, monkeypatch):
+        """When focus is unknown (None) and unsafe_paste_on_unknown_focus is False, skip."""
         import voice_typer.clipboard as mod
         mod.time = MagicMock()
 
@@ -90,7 +91,20 @@ class TestPaste:
 
         result = cm.paste()
 
-        # When focus is unknown (None), we still attempt paste
+        # Default: unsafe_paste_on_unknown_focus=False -> skip paste
+        assert result is False
+
+    @patch("voice_typer.clipboard.is_text_input_focused", return_value=None)
+    def test_paste_attempts_when_focus_unknown_and_opted_in(self, mock_focus, monkeypatch):
+        """When focus is unknown (None) and unsafe_paste_on_unknown_focus is True, attempt."""
+        import voice_typer.clipboard as mod
+        mod.time = MagicMock()
+
+        cm = ClipboardManager(paste_enabled=True, unsafe_paste_on_unknown_focus=True)
+        cm._keyboard = MagicMock()
+
+        result = cm.paste()
+
         assert result is True
 
     @patch("voice_typer.clipboard.is_text_input_focused")

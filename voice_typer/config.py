@@ -63,7 +63,13 @@ class Config:
     qwen_model_path: Optional[str] = None  # local path to Qwen3-ASR weights
 
     # Text cleanup
-    text_cleanup_enabled: bool = True
+    text_cleanup_enabled: bool = True  # Set False for raw (uncorrected) output
+
+    # Safety: paste when focus detection is unavailable (macOS / Linux)
+    # When False (default), paste is skipped if the app cannot determine
+    # whether a text input is focused — prevents keystrokes reaching
+    # non-text windows (games, media players, etc.).
+    unsafe_paste_on_unknown_focus: bool = False
 
     # External corrections file
     corrections_path: Optional[str] = None
