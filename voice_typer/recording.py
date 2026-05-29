@@ -4,6 +4,7 @@ import logging
 import math
 import threading
 import time
+from collections import deque
 from typing import Optional, List, Any
 
 import numpy as np
@@ -46,7 +47,7 @@ class Recorder:
     def __init__(self, config: Config):
         self.config = config
         self._stream: Optional[sd.InputStream] = None
-        self._buffer: List[np.ndarray] = []
+        self._buffer: deque[np.ndarray] = deque()
         self._lock = threading.Lock()
         self._recording = False
         self._effective_sr: int = config.sample_rate
@@ -252,7 +253,7 @@ class Recorder:
                             "[RECORDING] Buffer hard cap reached (30k chunks, ~30 min). "
                             "Dropping oldest chunks."
                         )
-                    self._buffer.pop(0)
+                    self._buffer.popleft()
                 self._buffer.append(indata.copy())
                 self._chunk_count += 1
                 if self._chunk_count == 5000:

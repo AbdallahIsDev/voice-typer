@@ -28,13 +28,8 @@ _INTENTIONAL_REPEAT_WORDS = {
 # ─── Corrections loaded from corrections.json ──────────────────────────
 #
 # The bundled corrections.json is the canonical source of corrections.
-# The built-in dicts below have been removed to avoid duplication (P4 #29).
 # A minimal fallback is provided in _active_corrections() if corrections.json
 # is somehow missing.
-
-_WHISPER_MISSPELLINGS: dict[str, str] = {}
-_WHISPER_PHRASE_CORRECTIONS: list[tuple[str, str]] = []
-_COMMON_EXTRA_WORD_PATTERNS: list[tuple[str, str]] = []
 
 # ─── External corrections loader ─────────────────────────────────────────
 # When a corrections.json exists in the config directory (or at the path
@@ -143,7 +138,7 @@ _active_extra_words: list[tuple[str, str]] = []
 def configure_corrections(
     config_dir: Path | None = None,
     corrections_path: str | None = None,
-):
+) -> None:
     """Load corrections from external JSON (if present).
 
     When an external file exists and is valid, its entries replace the

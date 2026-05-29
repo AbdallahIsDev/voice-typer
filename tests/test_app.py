@@ -1192,6 +1192,37 @@ class TestWin32ConsoleHandler:
         assert result is True
         app._kernel32.FreeConsole.assert_called_once()
 
+    def test_ctrl_close_event_tracks_devnull_in_devnull_files(self, app):
+        """P0 #1: devnull handle opened by console handler must be tracked for cleanup."""
+        from voice_typer.app import _devnull_files
+        app._kernel32 = MagicMock()
+        app._kernel32.FreeConsole.return_value = 1
+        initial_count = len(_devnull_files)
+
+        with patch('builtins.open', MagicMock()) as mock_open:
+            mock_file = MagicMock()
+            mock_open.return_value = mock_file
+            app._win32_console_handler(2)  # CTRL_CLOSE_EVENT
+
+        assert len(_devnull_files) == initial_count + 1
+        assert _devnull_files[-1] is mock_file
+        _devnull_files.pop()
+
+    def test_ctrl_close_event_starts_orphan_guard(self, app):
+        """P0 #1: CTRL_CLOSE_EVENT must start an orphan guard thread."""
+        app._kernel32 = MagicMock()
+        app._kernel32.FreeConsole.return_value = 1
+
+        with patch('builtins.open', MagicMock(return_value=MagicMock())):
+            with patch('voice_typer.app.threading.Thread') as mock_thread:
+                mock_thread_instance = MagicMock()
+                mock_thread.return_value = mock_thread_instance
+                app._win32_console_handler(2)  # CTRL_CLOSE_EVENT
+
+        thread_calls = mock_thread.call_args_list
+        assert len(thread_calls) == 1
+        assert thread_calls[0][1].get('name') == 'OrphanGuard' or thread_calls[0][1].get('daemon') is True
+
     def test_ctrl_logoff_event_starts_quit_thread(self, app):
         """CTRL_LOGOFF_EVENT should start a quit thread."""
         with patch('voice_typer.app.threading.Thread') as mock_thread:

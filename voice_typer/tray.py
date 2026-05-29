@@ -145,7 +145,7 @@ class TrayIcon:
 
         log.info("Tray icon created, background work started")
 
-    def run(self):
+    def run(self) -> None:
         """Block the main thread with pystray's event loop.
 
         Flushes any pending state / notifications that were queued before
@@ -206,7 +206,7 @@ class TrayIcon:
         except Exception as e:
             log.warning("Notification failed: %s", e)
 
-    def invalidate_menu_cache(self):
+    def invalidate_menu_cache(self) -> None:
         """Mark the menu cache as stale so it rebuilds on next right-click."""
         self._menu_cache_valid = False
 
@@ -297,9 +297,13 @@ class TrayIcon:
 
     def _build_model_menu_items(self):
         current = getattr(self._config, "model_size", "small.en") or "small.en"
+        model_labels = {
+            "small.en": "small.en (fast, ~466MB)",
+            "medium.en": "medium.en (slow, ~1.5GB)",
+        }
         return [
             pystray.MenuItem(
-                model,
+                model_labels.get(model, model),
                 self._wrap(lambda model_size=model: self._controller.change_model(model_size)),
                 checked=lambda item, model_size=model: current == model_size,
                 radio=True,

@@ -254,7 +254,7 @@ class StreamingTranscriptionSession:
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
-    def start(self):
+    def start(self) -> None:
         """Start the background streaming worker."""
         if self.is_running:
             return
@@ -266,7 +266,7 @@ class StreamingTranscriptionSession:
         )
         self._thread.start()
 
-    def cancel(self):
+    def cancel(self) -> None:
         """Stop background streaming work and wait briefly for the worker."""
         self._cancel_event.set()
         thread = self._thread

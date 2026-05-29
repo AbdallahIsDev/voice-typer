@@ -344,7 +344,8 @@ class TestSettingsUxTrayMenu:
         )
 
         labels = [item.args[0] for item in model_menu.args[1]()]
-        assert labels == ["small.en", "medium.en"]
+        assert "small.en" in labels[0]
+        assert "medium.en" in labels[1]
 
     def test_advanced_submenu_has_autostart_and_notifications(self, tray):
         tray._config = SimpleNamespace(

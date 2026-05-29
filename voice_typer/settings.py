@@ -56,7 +56,7 @@ class SettingsController:
         microphone: Optional[str],
         autostart: bool,
         show_notifications: bool,
-    ):
+    ) -> None:
         if model_size not in ALLOWED_MODELS:
             raise ValueError(f"Unsupported model: {model_size}")
         if not _HOTKEY_RE.match(hotkey.strip()):
@@ -154,10 +154,11 @@ class SettingsWindow:
         ).grid(row=0, column=1, sticky="ew", pady=4)
 
         ttk.Label(frame, text="Model").grid(row=1, column=0, sticky="w", pady=4)
+        model_display = [f"{m} (fast)" if m == "small.en" else f"{m} (slow)" for m in ALLOWED_MODELS]
         ttk.Combobox(
             frame,
             textvariable=self.model_var,
-            values=ALLOWED_MODELS,
+            values=model_display,
             state="readonly",
             width=18,
         ).grid(row=1, column=1, sticky="ew", pady=4)

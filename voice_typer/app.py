@@ -215,7 +215,7 @@ class VoiceTyperApp:
 
     # ─── Startup ───────────────────────────────────────────────────────
 
-    def start(self):
+    def start(self) -> None:
         """Initialize and run the application."""
         log.info(
             "Voice Typer starting -- model=%s, hotkey=%s, mic=%s, sample_rate=%s",
@@ -366,7 +366,7 @@ class VoiceTyperApp:
 
     # ─── Dictation ─────────────────────────────────────────────────────
 
-    def toggle_dictation(self):
+    def toggle_dictation(self) -> None:
         """Toggle recording on/off."""
         log.info(
             "[HOTKEY FIRED] toggle_dictation called "
@@ -736,7 +736,7 @@ class VoiceTyperApp:
         log.info("Microphone changed to: %s", label)
         self.tray.notify("Voice Typer", f"Microphone: {label}")
 
-    def show_settings(self):
+    def show_settings(self) -> None:
         """Open the native settings window."""
         # If a settings window is already open, bring it to front instead of
         # creating a duplicate.
@@ -805,7 +805,8 @@ class VoiceTyperApp:
         """Apply a model change for future dictation sessions."""
         self.config.model_size = model_size
         self.config.save()
-        if self.recorder.recording or not self._busy_event.is_set():  # busy
+        is_busy = not self._busy_event.is_set()
+        if self.recorder.recording or is_busy:
             log.info("Model changed to %s; applying after active work", model_size)
             self.tray.notify(
                 "Voice Typer",
@@ -860,7 +861,7 @@ class VoiceTyperApp:
 
     # ─── Shutdown ──────────────────────────────────────────────────────
 
-    def quit(self):
+    def quit(self) -> None:
         """Shut down the application cleanly."""
         if self._shutting_down:
             log.info("quit() already in progress, ignoring duplicate call")
@@ -950,12 +951,24 @@ class VoiceTyperApp:
             )
             try:
                 self._kernel32.FreeConsole()
-                self._devnull = open(os.devnull, 'w')
-                sys.stdout = self._devnull
-                sys.stderr = self._devnull
+                devnull = open(os.devnull, 'w')
+                _devnull_files.append(devnull)
+                sys.stdout = devnull
+                sys.stderr = devnull
                 log.info("[WIN32] Detached from console (FreeConsole)")
             except Exception:
                 log.warning("[WIN32] FreeConsole() failed")
+
+            def _orphan_guard():
+                time.sleep(60)
+                if not self._shutting_down:
+                    log.warning(
+                        "[WIN32] Orphan guard: tray still alive 60s after "
+                        "console close, forcing exit"
+                    )
+                    os._exit(0)
+
+            threading.Thread(target=_orphan_guard, daemon=True, name="OrphanGuard").start()
             return True
 
         if ctrl_type in (CTRL_LOGOFF_EVENT, CTRL_SHUTDOWN_EVENT):

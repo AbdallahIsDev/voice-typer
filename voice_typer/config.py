@@ -77,7 +77,7 @@ class Config:
     # Logging
     log_transcriptions: bool = False
 
-    def save(self):
+    def save(self) -> None:
         """Save config to disk atomically via temp file + os.replace."""
         path = _config_dir()
         path.mkdir(parents=True, exist_ok=True)

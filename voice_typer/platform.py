@@ -236,6 +236,7 @@ def _is_autostart_macos() -> bool:
 # ─── Linux ─────────────────────────────────────────────────────────────
 
 def _enable_autostart_linux() -> bool:
+    from xml.sax.saxutils import escape
     autostart_dir = get_autostart_dir()
     autostart_dir.mkdir(parents=True, exist_ok=True)
     desktop_path = autostart_dir / "voice-typer.desktop"
@@ -244,7 +245,7 @@ def _enable_autostart_linux() -> bool:
 Type=Application
 Name=Voice Typer
 Comment=Background voice-to-text utility
-Exec={sys.executable} -m voice_typer
+Exec="{escape(sys.executable)}" -m voice_typer
 Icon=audio-input-microphone
 Hidden=false
 NoDisplay=true

@@ -127,7 +127,7 @@ class TranscriptionEngine:
         """Return a description of the device/model combo that was successfully loaded."""
         return f"{self._device}/{self._compute_type}/{self.model_size}"
 
-    def load(self, progress_callback=None):
+    def load(self, progress_callback=None) -> None:
         """Load the Whisper model. Downloads on first run.
 
         Fallback chain:
@@ -479,7 +479,7 @@ class TranscriptionEngine:
             and segment_span <= 5.0
         )
 
-    def unload(self):
+    def unload(self) -> None:
         """Free model memory."""
         with self._lock:
             self._model = None

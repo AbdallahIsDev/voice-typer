@@ -117,3 +117,96 @@ class TestDuplicateMicrophoneDisambiguation:
         assert mic1["name"] == mic2["name"]  # same display name
         assert mic1["id"] != mic2["id"]      # different IDs
         assert mic1["host_api"] != mic2["host_api"]  # different host APIs
+
+
+class TestLinuxAutostartEscaping:
+    """P1 #4: Linux .desktop Exec line must escape special characters in the Python path."""
+
+    def test_exec_line_quotes_and_escapes_path(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("voice_typer.platform.SYSTEM", "linux")
+        monkeypatch.setattr("voice_typer.platform.get_autostart_dir", lambda: tmp_path)
+        monkeypatch.setattr(sys, "executable", "/usr/bin/python3")
+
+        from voice_typer.platform import _enable_autostart_linux
+        _enable_autostart_linux()
+
+        desktop_path = tmp_path / "voice-typer.desktop"
+        assert desktop_path.exists()
+        content = desktop_path.read_text()
+        assert 'Exec="/usr/bin/python3" -m voice_typer' in content
+
+    def test_exec_line_escapes_ampersand_in_path(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("voice_typer.platform.SYSTEM", "linux")
+        monkeypatch.setattr("voice_typer.platform.get_autostart_dir", lambda: tmp_path)
+        monkeypatch.setattr(sys, "executable", "/home/user & test/bin/python")
+
+        from voice_typer.platform import _enable_autostart_linux
+        _enable_autostart_linux()
+
+        desktop_path = tmp_path / "voice-typer.desktop"
+        content = desktop_path.read_text()
+        assert "&amp;" in content
+        assert "user &amp; test" in content
+
+    def test_disable_removes_desktop_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("voice_typer.platform.SYSTEM", "linux")
+        monkeypatch.setattr("voice_typer.platform.get_autostart_dir", lambda: tmp_path)
+        monkeypatch.setattr(sys, "executable", "/usr/bin/python3")
+
+        from voice_typer.platform import _enable_autostart_linux, _disable_autostart_linux
+        _enable_autostart_linux()
+        assert (tmp_path / "voice-typer.desktop").exists()
+
+        _disable_autostart_linux()
+        assert not (tmp_path / "voice-typer.desktop").exists()
+
+    def test_is_autostart_enabled_checks_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("voice_typer.platform.SYSTEM", "linux")
+        monkeypatch.setattr("voice_typer.platform.get_autostart_dir", lambda: tmp_path)
+
+        from voice_typer.platform import is_autostart_enabled, _enable_autostart_linux
+        assert not is_autostart_enabled()
+        _enable_autostart_linux()
+        assert is_autostart_enabled()
+
+
+class TestMacOSAutostartEscaping:
+    """P1 #4: macOS plist must escape special characters in the Python path."""
+
+    def test_plist_escapes_ampersand_in_path(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("voice_typer.platform.SYSTEM", "darwin")
+        monkeypatch.setattr("voice_typer.platform.get_autostart_dir", lambda: tmp_path)
+        monkeypatch.setattr(sys, "executable", "/home/user & test/bin/python")
+
+        from voice_typer.platform import _enable_autostart_macos
+        _enable_autostart_macos()
+
+        plist_path = tmp_path / "com.voicetyper.plist"
+        assert plist_path.exists()
+        content = plist_path.read_text()
+        assert "&amp;" in content
+
+    def test_plist_contains_keep_alive(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("voice_typer.platform.SYSTEM", "darwin")
+        monkeypatch.setattr("voice_typer.platform.get_autostart_dir", lambda: tmp_path)
+        monkeypatch.setattr(sys, "executable", "/usr/bin/python3")
+
+        from voice_typer.platform import _enable_autostart_macos
+        _enable_autostart_macos()
+
+        plist_path = tmp_path / "com.voicetyper.plist"
+        content = plist_path.read_text()
+        assert "<key>KeepAlive</key>" in content
+        assert "<true/>" in content
+
+    def test_disable_removes_plist(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("voice_typer.platform.SYSTEM", "darwin")
+        monkeypatch.setattr("voice_typer.platform.get_autostart_dir", lambda: tmp_path)
+        monkeypatch.setattr(sys, "executable", "/usr/bin/python3")
+
+        from voice_typer.platform import _enable_autostart_macos, _disable_autostart_macos
+        _enable_autostart_macos()
+        assert (tmp_path / "com.voicetyper.plist").exists()
+
+        _disable_autostart_macos()
+        assert not (tmp_path / "com.voicetyper.plist").exists()

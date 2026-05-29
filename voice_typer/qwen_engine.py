@@ -42,7 +42,7 @@ class QwenEngine:
         """Return True if the model has been loaded successfully."""
         return self._model is not None
 
-    def load(self):
+    def load(self) -> None:
         """Load the Qwen ASR model from the local ``model_path``.
 
         All ``qwen_asr`` imports happen inside this method so that the
@@ -110,7 +110,7 @@ class QwenEngine:
         text = result[0].text if hasattr(result[0], "text") else str(result[0])
         return text.strip()
 
-    def unload(self):
+    def unload(self) -> None:
         """Free model memory."""
         self._model = None
         log.info("[QWEN] Model unloaded")

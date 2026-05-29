@@ -1,6 +1,13 @@
 """Tests for lightweight post-transcription text cleanup."""
 
-from voice_typer.text_cleanup import clean_transcribed_text
+import pytest
+from voice_typer.text_cleanup import clean_transcribed_text, configure_corrections
+
+
+@pytest.fixture(autouse=True)
+def _load_bundled_corrections():
+    """Ensure bundled corrections.json is loaded before each test."""
+    configure_corrections()
 
 
 class TestCleanTranscribedText:

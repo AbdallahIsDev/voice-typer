@@ -107,22 +107,35 @@ class PynputHotkey(HotkeyBackend):
                 f"Cannot parse hotkey {self.hotkey_str!r} for fallback"
             )
 
-        # For composite hotkeys (tuple), extract the target key only
+        modifier_keys = target[0] if isinstance(target, tuple) else ()
         match_key = target[1] if isinstance(target, tuple) else target
+        _pressed_modifiers: set = set()
+
+        def _is_modifier(key) -> bool:
+            return key in modifier_keys
 
         def on_press(key):
+            if _is_modifier(key):
+                _pressed_modifiers.add(key)
+                return
             if key == match_key:
+                if modifier_keys and not all(m in _pressed_modifiers for m in modifier_keys):
+                    return
                 log.info("[HOTKEY FALLBACK] Matched key: %s", key)
                 callback()
 
-        self._listener = Listener(on_press=on_press)
+        def on_release(key):
+            _pressed_modifiers.discard(key)
+
+        self._listener = Listener(on_press=on_press, on_release=on_release)
         self._listener.start()
         time.sleep(0.5)
         self._fallback = True
         log.info(
-            "Fallback listener started, watching for %s (alive=%s)",
+            "Fallback listener started, watching for %s (alive=%s, modifiers=%s)",
             match_key,
             self._listener.is_alive(),
+            modifier_keys,
         )
 
     def _stop_listener(self) -> None:
@@ -292,10 +305,9 @@ def parse_hotkey_to_win32(hotkey_str: str) -> Optional[tuple[int, int]]:
 class WindowsNativeHotkey(HotkeyBackend):
     """Hotkey backend using Win32 RegisterHotKey via ctypes.
 
-    Creates a hidden message-only window (HWND_MESSAGE) and runs a message
-    loop in a daemon thread.  Falls back to GetAsyncKeyState polling if
-    RegisterHotKey succeeds but WM_HOTKEY is never delivered (can happen
-    on some Windows configurations with HWND_MESSAGE windows).
+    Registers the hotkey via RegisterHotKey(NULL, ...) which binds it to
+    the calling thread's message queue, then uses GetAsyncKeyState polling
+    for reliable hotkey detection across all Windows configurations.
     """
 
     def __init__(self, hotkey_str: str):
@@ -307,11 +319,10 @@ class WindowsNativeHotkey(HotkeyBackend):
         self._registered = False
         self._user32 = None
         self._kernel32 = None
-        self._success = False  # True only when both CreateWindowExW AND RegisterHotKey succeed
+        self._success = False  # True when RegisterHotKey succeeds
         self._vk: Optional[int] = None
         self._modifiers = 0
-        self._hwnd = None  # message-only window handle
-        self._using_polling = False  # True if falling back to GetAsyncKeyState
+        self._using_polling = False  # True when using GetAsyncKeyState polling
 
     def start(self, callback: Callable[[], None]) -> None:
         import ctypes
@@ -354,7 +365,7 @@ class WindowsNativeHotkey(HotkeyBackend):
         self._kernel32.GetLastError.restype = DWORD
 
         def run():
-            """Message loop thread: registers hotkey, runs polling loop."""
+            """Worker thread: registers hotkey, runs polling loop."""
             try:
                 # Register the hotkey.  Pass NULL (0) as hWnd.
                 # RegisterHotKey(NULL, ...) binds the hotkey to the calling
