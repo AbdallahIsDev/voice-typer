@@ -17,7 +17,6 @@ from voice_typer.transcription import TranscriptionEngine
 from voice_typer.streaming import StreamingConfig, StreamingTranscriptionSession
 from voice_typer.text_cleanup import clean_transcribed_text, configure_corrections
 from voice_typer.clipboard import ClipboardManager
-from voice_typer.settings import SettingsController, SettingsWindow
 from voice_typer.tray import TrayIcon, AppState
 from voice_typer.platform import (
     enable_autostart,
@@ -137,7 +136,6 @@ class VoiceTyperApp:
         self._hotkey_backend: Optional[HotkeyBackend] = None
         self._streaming_session: Optional[StreamingTranscriptionSession] = None
         self._transcription_thread: Optional[threading.Thread] = None
-        self._settings_window: Optional[SettingsWindow] = None
         self._microphones: list[dict] = []
 
         # P2: Thread safety — replace plain bool with Event
@@ -741,34 +739,7 @@ class VoiceTyperApp:
         log.info("Microphone changed to: %s", label)
         self.tray.notify("Voice Typer", f"Microphone: {label}")
 
-    def show_settings(self) -> None:
-        """Open the native settings window."""
-        # If a settings window is already open, bring it to front instead of
-        # creating a duplicate.
-        if self._settings_window is not None:
-            try:
-                self._settings_window.root.lift()
-                return
-            except Exception:
-                # Window was destroyed (e.g. user closed via title bar X)
-                self._settings_window = None
 
-        controller = SettingsController(
-            self.config,
-            on_hotkey_changed=self._restart_hotkey,
-            on_model_changed=self._change_model,
-            on_microphone_changed=self._select_microphone,
-            on_autostart_changed=self._set_autostart,
-            on_notifications_changed=self._set_notifications,
-        )
-        window = SettingsWindow(
-            controller,
-            microphones=self._microphones,
-            on_open_config=self._open_config_file,
-        )
-        window.on_destroy = lambda: setattr(self, '_settings_window', None)
-        self._settings_window = window
-        window.show()
 
     def _open_config_file(self) -> None:
         """Open raw settings file for troubleshooting."""
@@ -851,10 +822,6 @@ class VoiceTyperApp:
     def change_hotkey(self, hotkey: str) -> None:
         """TrayController protocol: change hotkey."""
         self._restart_hotkey(hotkey)
-
-    def open_settings(self) -> None:
-        """TrayController protocol: open settings window."""
-        self.show_settings()
 
     def quit_app(self) -> None:
         """TrayController protocol: quit the app."""

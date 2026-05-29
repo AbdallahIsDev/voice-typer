@@ -44,31 +44,10 @@ All problems from the original forensic audit (commit `adc80c3`) and the subsequ
 - `scripts/build/voice-typer.spec` — PyInstaller spec
 - `scripts/build/installer.iss:9` — `#define MyBuildDir "dist\VoiceTyper"` (or `..\..\dist\VoiceTyper`)
 
-**Attempted fixes:**
-1. Changed `MyBuildDir` from `dist\VoiceTyper` → `..\..\dist\VoiceTyper` → failed
-2. Changed back to `dist\VoiceTyper` → failed
-3. Added explicit `--distpath dist --workpath build` → failed
-4. Used `sys.argv` instead of `__file__`/`Path.cwd()` in spec → PyInstaller succeeded but InnoSetup still failed
-5. Tried both `.parent.parent` and `.parent.parent.parent` in spec → both gave the same result
-
-**The core puzzle:** PyInstaller step exits 0 (success) in every run, yet the EXE is never found by InnoSetup at either `repo-root/dist/VoiceTyper/` or `spec-dir/dist/VoiceTyper/`.
-
-**Recommended fix approach:** Add a `dir` step after PyInstaller in the workflow to print the actual file tree, so the exact output location is visible. Then fix `MyBuildDir` to match.
+**What's known:** PyInstaller step exits 0 (success) in every run, yet the EXE is never found by InnoSetup at either `repo-root/dist/VoiceTyper/` or `spec-dir/dist/VoiceTyper/`.
 
 ---
 
 ### B2: Redundant "Settings..." button in tray menu
 
-**Status:** UNRESOLVED — needs deletion
-
-**Problem:** The tray context menu has a "Settings..." button (tray.py:255) that opens a tkinter SettingsWindow. This window is:
-- **Completely redundant** — every setting it contains (hotkey, model, microphone, autostart, notifications) is already accessible via submenus in the tray (Hotkey, Model, Microphone, Advanced)
-- **Buggy** — dropdown comboboxes require many clicks to register, and the overall click behavior is unresponsive
-- **Bad UX** — duplicates the same controls in a second popup with worse interaction
-
-**Fix:** Delete line 255 from `voice_typer/tray.py`:
-```python
-items.append(pystray.MenuItem("Settings...", self._wrap(self._controller.open_settings)))
-```
-
-Also consider removing `open_settings` from `app.py` (method `open_settings` at line 855) and removing the `settings.py` imports if nothing else uses them.
+**Status:** FIXED (line 255 removed from tray.py in commit b4fbecc)
