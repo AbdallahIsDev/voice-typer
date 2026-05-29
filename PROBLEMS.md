@@ -29,6 +29,9 @@
 - Add a grace period (e.g. `threading.Timer(30.0, os._exit, [0]).start()`) after `FreeConsole()` succeeds.
 - Append `self._devnull` to the module-level `_devnull_files` list so `quit()` closes it.
 
+**Not sure. Require verification first.**
+Brainstorm yourself and use the best practices to solve this problem.
+
 ---
 
 ## P1 — High
@@ -48,6 +51,9 @@
 **Remaining work:**
 - Replace with positive naming, e.g. `_idle_event = threading.Event(); _idle_event.set()  # SET = idle` and check `if self.recorder.recording or not self._idle_event.is_set()`.
 
+**Not sure. Require verification first.**
+Brainstorm yourself and use the best practices to solve this problem.
+
 ---
 
 ### 3. HWND_MESSAGE dead code paths not fully cleaned up
@@ -66,6 +72,9 @@
 - Remove `self._hwnd` field entirely.
 - Update `run()` docstring.
 
+**Not sure. Require verification first.**
+Brainstorm yourself and use the best practices to solve this problem.
+
 ---
 
 ### 4. macOS/Linux autostart paths still unescaped on Linux, zero test coverage
@@ -82,6 +91,9 @@
 **Fix:**
 - Escape `sys.executable` with `shlex.quote()` for the Linux `.desktop` file.
 - Add mock-based tests for macOS and Linux autostart paths.
+
+**Not sure. Require verification first.**
+Brainstorm yourself and use the best practices to solve this problem.
 
 ---
 
@@ -103,6 +115,9 @@
 - Add a latency/size indication next to the model label in the tray menu or settings window (e.g. "small.en (fast)", "medium.en (~3GB, slower)").
 - Alternatively, remove medium.en from the tray menu and make it config-file-only.
 
+**Not sure. Require verification first.**
+Brainstorm yourself and use the best practices to solve this problem.
+
 ---
 
 ### 6. Composite hotkey fallback ignores modifiers
@@ -122,11 +137,17 @@
 - Track pressed modifier keys in the fallback `Listener` and require them to match.
 - Or document that the fallback mode only matches the primary key.
 
+**Not sure. Require verification first.**
+Brainstorm yourself and use the best practices to solve this problem.
+
 ---
 
 ### 7. Missing return type annotations — most still missing
 
 **Status:** ⚠️ PARTIALLY FIXED — 12 methods annotated; ~29 remain.
+
+**Not sure. Require verification first.**
+Brainstorm yourself and use the best practices to solve this problem.
 
 **Evidence from `app.py` (methods without `->` hint):**
 - `filter(self, record)` (line 44), `_setup_logging()` (52), `__init__(self)` (105), `_init_qwen_engine()` (153), `_get_active_transcriber()` (173), `_cancel_pending_timers()` (197), `_get_streaming_session()` (206), `_set_streaming_session()` (211), `start()` (218), `_do_startup()` (253), `_try_load_model()` (317), `_register_hotkey()` (346), `toggle_dictation()` (369), `_start_dictation()` (386), `_stop_dictation()` (448), `_start_streaming_session_if_enabled()` (636), `_cancel_streaming_session()` (656), `_force_recover_from_stuck_transcription()` (666), `_toggle_autostart()` (698), `_set_autostart()` (702), `_set_notifications()` (717), `_select_microphone()` (724), `show_settings()` (739), `_open_config_file()` (768), `_restart_hotkey()` (790), `_change_model()` (804), `quit()` (863), `_install_win32_console_handler()` (905), `_win32_console_handler()` (938), `main()` (974).
@@ -153,6 +174,9 @@ Also in **`tray.py`**: `__init__`, `run()`, `invalidate_menu_cache()`, `_build_m
 - Replace `list.pop(0)` with `collections.deque.popleft()` for O(1) removal.
 - Document the ~30-min upper bound in README.
 
+**Not sure. Require verification first.**
+Brainstorm yourself and use the best practices to solve this problem.
+
 ---
 
 ## P4 — Low
@@ -164,17 +188,26 @@ Also in **`tray.py`**: `__init__`, `run()`, `invalidate_menu_cache()`, `_build_m
 **Evidence:**
 - `hotkeys.py:293-298` — class docstring describes HWND_MESSAGE window and message-loop approach that no longer exists.
 
+**Not sure. Require verification first.**
+Brainstorm yourself and use the best practices to solve this problem.
+
 ---
 
 ### 10. `self._hwnd` unused field
 
 **Status:** 🆕 INTRODUCED — `hotkeys.py:313` initializes `self._hwnd = None` but no method reads or writes it.
 
+**Not sure. Require verification first.**
+Brainstorm yourself and use the best practices to solve this problem.
+
 ---
 
 ### 11. `self._devnull` untracked in console handler
 
 **Status:** 🆕 INTRODUCED — `app.py:953` opens a devnull file handle that is never closed or tracked in `_devnull_files`.
+
+**Not sure. Require verification first.**
+Brainstorm yourself and use the best practices to solve this problem.
 
 ---
 
@@ -185,6 +218,9 @@ Also in **`tray.py`**: `__init__`, `run()`, `invalidate_menu_cache()`, `_build_m
 **Evidence:**
 - The three variables are only defined at lines 35-37. A grep across the entire `voice_typer/` package shows zero reads of these names.
 - The actual active pipelines read from `_active_misspellings`, `_active_phrases`, `_active_extra_words`.
+
+**Not sure. Require verification first.**
+Brainstorm yourself and use the best practices to solve this problem.
 
 ---
 
