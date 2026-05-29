@@ -13,7 +13,7 @@ from pathlib import Path
 block_cipher = None
 
 # The spec file lives at <project>/scripts/build/voice-typer.spec
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+_PROJECT_ROOT = Path.cwd().resolve().parent.parent
 
 # Locate the corrections.json data file relative to project root
 _corrections_json = str(_PROJECT_ROOT / "voice_typer" / "corrections.json")
