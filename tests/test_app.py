@@ -1181,14 +1181,17 @@ class TestWin32ConsoleHandler:
 
     def test_ctrl_close_event_frees_console(self, app):
         """CTRL_CLOSE_EVENT should call FreeConsole and redirect stdout."""
+        from voice_typer.app import _devnull_files
         app._kernel32 = MagicMock()
         app._kernel32.FreeConsole.return_value = 1
 
-        with patch('builtins.open', MagicMock()) as mock_open:
-            mock_file = MagicMock()
-            mock_open.return_value = mock_file
-            result = app._win32_console_handler(2)  # CTRL_CLOSE_EVENT
+        with patch('builtins.open', MagicMock()), \
+             patch('voice_typer.app.threading.Thread'):
+            result = app._win32_console_handler(2)
 
+        sys.stdout = sys.__stdout__
+        sys.stderr = sys.__stderr__
+        _devnull_files.clear()
         assert result is True
         app._kernel32.FreeConsole.assert_called_once()
 
@@ -1199,27 +1202,33 @@ class TestWin32ConsoleHandler:
         app._kernel32.FreeConsole.return_value = 1
         initial_count = len(_devnull_files)
 
-        with patch('builtins.open', MagicMock()) as mock_open:
+        with patch('builtins.open', MagicMock()) as mock_open, \
+             patch('voice_typer.app.threading.Thread'):
             mock_file = MagicMock()
             mock_open.return_value = mock_file
-            app._win32_console_handler(2)  # CTRL_CLOSE_EVENT
+            app._win32_console_handler(2)
 
+        sys.stdout = sys.__stdout__
+        sys.stderr = sys.__stderr__
         assert len(_devnull_files) == initial_count + 1
         assert _devnull_files[-1] is mock_file
-        _devnull_files.pop()
+        _devnull_files[:] = _devnull_files[:initial_count]
 
     def test_ctrl_close_event_starts_orphan_guard(self, app):
         """P0 #1: CTRL_CLOSE_EVENT must start an orphan guard thread."""
+        from voice_typer.app import _devnull_files
         app._kernel32 = MagicMock()
         app._kernel32.FreeConsole.return_value = 1
 
-        with patch('builtins.open', MagicMock(return_value=MagicMock())):
-            with patch('voice_typer.app.threading.Thread') as mock_thread:
-                mock_thread_instance = MagicMock()
-                mock_thread.return_value = mock_thread_instance
-                app._win32_console_handler(2)  # CTRL_CLOSE_EVENT
+        with patch('voice_typer.app.threading.Thread') as mock_thread:
+            mock_thread_instance = MagicMock()
+            mock_thread.return_value = mock_thread_instance
+            app._win32_console_handler(2)
 
         thread_calls = mock_thread.call_args_list
+        sys.stdout = sys.__stdout__
+        sys.stderr = sys.__stderr__
+        _devnull_files.clear()
         assert len(thread_calls) == 1
         assert thread_calls[0][1].get('name') == 'OrphanGuard' or thread_calls[0][1].get('daemon') is True
 

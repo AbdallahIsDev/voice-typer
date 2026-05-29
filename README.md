@@ -31,21 +31,37 @@ No Python, no terminal, no commands needed.
 - A microphone
 - Internet on first run (downloads the Whisper model ~466MB)
 
-## Manual Install (from source)
+## For Developers (from source)
 
-```bash
-pip install .
-```
+Requires **Python 3.10+**. Install from [python.org](https://python.org).
 
-This installs the `voice-typer` command and all dependencies. The package
-must be installed (not just run from source) for autostart to work.
-
-### Development install
+### Editable install (recommended for development)
 
 ```bash
 pip install -e ".[test]"
 pytest
 ```
+
+### Production install (simulates end-user setup)
+
+```bash
+pip install .
+```
+
+The package must be installed (not just run from source) for autostart to work.
+
+### Optional: Qwen ASR backend
+
+Voice Typer ships with Whisper by default. To also enable the experimental
+Qwen3-ASR-0.6B backend, install the additional dependencies:
+
+```bash
+pip install qwen-asr torch --index-url https://download.pytorch.org/whl/cpu
+```
+
+For CUDA support, replace `cpu` with `cu118` or `cu121` matching your
+NVIDIA driver version. Then set `asr_backend: "qwen"` and `qwen_model_path`
+in the config file.
 
 ## Run
 
