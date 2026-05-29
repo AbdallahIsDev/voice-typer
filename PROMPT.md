@@ -2,7 +2,7 @@ You are implementing fixes in the existing **Voice Typer** codebase — a premiu
 
 This is NOT a greenfield project. You must first understand the current architecture and then add each fix in a way that fits what already exists.
 
-**CRITICAL: The GitHub repo has been updated since the last commit.** You MUST re-clone the repo fresh before starting any work. The latest commit is `adc80c3`. Your local clone must match the exact state at that commit before you make any changes. Do not work from a stale clone.
+**CRITICAL: The GitHub repo has been updated since the last commit.** You MUST re-clone the repo fresh before starting any work. The latest commit is `3a9a1fc`. Your local clone must match the exact state at that commit before you make any changes. Do not work from a stale clone.
 
 ==================================================
 PERSISTENT GOAL MODE
@@ -17,6 +17,8 @@ PERSISTENT GOAL MODE
 3. Read every file in the required reading order. Do not skip files because they look unrelated.
 4. Do not restart from scratch. Extend the current architecture and reuse completed work.
 5. Execute the implementation. Do not stop at a plan.
+6. **Not sure. Require verification first.** — Verify claims against actual code before accepting them. Do not trust previous reports or comments without evidence.
+7. **Brainstorm yourself and use the best practices to solve this problem.** — Think through the design before coding. Consider edge cases, the existing architecture, and standard patterns for the language/framework.
 6. If a command fails, diagnose the cause, fix it, and rerun the command.
 7. Do not silently delete user data.
 8. Do not claim complete while any required gate fails or any required verification is missing.
