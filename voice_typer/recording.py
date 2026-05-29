@@ -120,8 +120,8 @@ class Recorder:
             return candidates
 
         alternates = []
-        for fallback_index, info in enumerate(all_devices):
-            index = self._device_index(fallback_index, info)
+        for counter, info in enumerate(all_devices):
+            index = self._device_index(counter, info)
             if index == device:
                 continue
             if info.get("max_input_channels", 0) <= 0:
@@ -224,8 +224,8 @@ class Recorder:
         candidates = []
         try:
             all_devices = list(sd.query_devices())
-            for fallback_index, info in enumerate(all_devices):
-                index = self._device_index(fallback_index, info)
+            for counter, info in enumerate(all_devices):
+                index = self._device_index(counter, info)
                 if info.get("max_input_channels", 0) <= 0:
                     continue
                 if index not in candidates:
@@ -246,27 +246,30 @@ class Recorder:
         candidates = self._same_physical_microphone_candidates(device)
 
         def callback(indata, frames, time_info, status):
-            with self._lock:
-                if self._chunk_count >= 30000:
-                    if self._chunk_count == 30000:
+            try:
+                with self._lock:
+                    if self._chunk_count >= 30000:
+                        if self._chunk_count == 30000:
+                            log.warning(
+                                "[RECORDING] Buffer hard cap reached (30k chunks, ~30 min). "
+                                "Dropping oldest chunks."
+                            )
+                        self._buffer.popleft()
+                    self._buffer.append(indata.copy())
+                    self._chunk_count += 1
+                    if self._chunk_count == 5000:
                         log.warning(
-                            "[RECORDING] Buffer hard cap reached (30k chunks, ~30 min). "
-                            "Dropping oldest chunks."
+                            "[RECORDING] Buffer is large (5k chunks, ~5 min). "
+                            "Consider stopping recording."
                         )
-                    self._buffer.popleft()
-                self._buffer.append(indata.copy())
-                self._chunk_count += 1
-                if self._chunk_count == 5000:
-                    log.warning(
-                        "[RECORDING] Buffer is large (5k chunks, ~5 min). "
-                        "Consider stopping recording."
-                    )
-                if self._chunk_count % 1000 == 0:
-                    log.info(
-                        "[RECORDING] Buffer telemetry: chunks=%d, buffer_count=%d",
-                        self._chunk_count,
-                        len(self._buffer),
-                    )
+                    if self._chunk_count % 1000 == 0:
+                        log.info(
+                            "[RECORDING] Buffer telemetry: chunks=%d, buffer_count=%d",
+                            self._chunk_count,
+                            len(self._buffer),
+                        )
+            except Exception:
+                log.exception("[RECORDING] Audio callback error")
 
         last_error = None
         selected_device = None

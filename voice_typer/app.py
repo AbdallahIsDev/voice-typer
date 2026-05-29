@@ -34,6 +34,8 @@ log = logging.getLogger("voice_typer")
 # Closed explicitly in VoiceTyperApp.quit() for clean shutdown.
 _devnull_files: list = []
 
+_logging_initialized = False
+
 # Session ID for structured logging (P5)
 _session_id: str = ""
 
@@ -41,7 +43,7 @@ _session_id: str = ""
 class _SessionFilter(logging.Filter):
     """Inject session_id and component into every log record."""
 
-    def filter(self, record):
+    def filter(self, record) -> bool:
         if not hasattr(record, "session_id"):
             record.session_id = _session_id
         if not hasattr(record, "component"):
@@ -49,9 +51,12 @@ class _SessionFilter(logging.Filter):
         return True
 
 
-def _setup_logging():
+def _setup_logging() -> None:
     """Configure logging to file (not console, since we run as tray app)."""
-    global _session_id
+    global _session_id, _logging_initialized
+    if _logging_initialized:
+        return
+    _logging_initialized = True
 
     # Under pythonw.exe (e.g. Windows autostart), sys.stderr/stdout/stdin
     # are None.  Redirect them to devnull immediately so any accidental
@@ -102,7 +107,7 @@ def _setup_logging():
 class VoiceTyperApp:
     """The main application."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.config = Config.load()
         # P1 fix: Removed forced config overrides — user's JSON values are now respected
         self.recorder = Recorder(self.config)
@@ -150,7 +155,7 @@ class VoiceTyperApp:
 
     # ─── Qwen Engine (P0) ────────────────────────────────────────────
 
-    def _init_qwen_engine(self):
+    def _init_qwen_engine(self) -> None:
         """Conditionally initialise the Qwen ASR engine."""
         try:
             from voice_typer.qwen_engine import QwenEngine
@@ -170,7 +175,7 @@ class VoiceTyperApp:
             log.error("[QWEN] Failed to initialise QwenEngine: %s", exc)
             self._qwen_engine = None
 
-    def _get_active_transcriber(self):
+    def _get_active_transcriber(self):  # pyrefly: ignore[return-type]
         """Return the Qwen engine (if active) or Whisper engine."""
         if (
             self.config.asr_backend == "qwen"
@@ -194,7 +199,7 @@ class VoiceTyperApp:
         timer.start()
         return timer
 
-    def _cancel_pending_timers(self):
+    def _cancel_pending_timers(self) -> None:
         """Cancel and clear all pending scheduled timers."""
         for timer in self._pending_timers:
             timer.cancel()
@@ -203,12 +208,12 @@ class VoiceTyperApp:
 
     # ─── Thread-Safe Streaming Session Access (P2) ───────────────────
 
-    def _get_streaming_session(self):
+    def _get_streaming_session(self) -> Optional[StreamingTranscriptionSession]:
         """Thread-safe read of _streaming_session."""
         with self._lock:
             return self._streaming_session
 
-    def _set_streaming_session(self, session_or_none):
+    def _set_streaming_session(self, session_or_none: Optional[StreamingTranscriptionSession]) -> None:
         """Thread-safe write of _streaming_session."""
         with self._lock:
             self._streaming_session = session_or_none
@@ -250,7 +255,7 @@ class VoiceTyperApp:
         log.info("Entering tray event loop on main thread")
         self.tray.run()
 
-    def _do_startup(self):
+    def _do_startup(self) -> None:
         """Background work: sync autostart, load mics, load model, register hotkey."""
         log.info("[STARTUP] _do_startup begin")
 
@@ -314,7 +319,7 @@ class VoiceTyperApp:
         except Exception as e:
             log.warning("Could not enumerate microphones: %s", e)
 
-    def _try_load_model(self, notify_on_failure: bool = False):
+    def _try_load_model(self, notify_on_failure: bool = False) -> None:
         """Attempt to load the transcription model."""
         self._model_load_attempted = True
         try:
@@ -343,7 +348,7 @@ class VoiceTyperApp:
 
     # ─── Hotkey ────────────────────────────────────────────────────────
 
-    def _register_hotkey(self):
+    def _register_hotkey(self) -> None:
         """Register global hotkey using the platform-appropriate backend."""
         hotkey_str = self.config.hotkey
         log.info("[HOTKEY] Registering: %r -> toggle_dictation", hotkey_str)
@@ -383,7 +388,7 @@ class VoiceTyperApp:
         else:
             self._start_dictation()
 
-    def _start_dictation(self):
+    def _start_dictation(self) -> None:
         """Start a recording session."""
         if self.recorder.recording:
             log.info("[DICTATION] _start_dictation: already recording, no-op")
@@ -445,7 +450,7 @@ class VoiceTyperApp:
             )
             self._schedule_timer(3.0, lambda: self.tray.set_state(AppState.IDLE))
 
-    def _stop_dictation(self):
+    def _stop_dictation(self) -> None:
         """Stop recording and transcribe in background."""
         if not self.recorder.recording:
             log.info("[DICTATION] _stop_dictation: not recording, no-op")
@@ -633,7 +638,7 @@ class VoiceTyperApp:
             silence_threshold=self.config.streaming_silence_threshold,
         )
 
-    def _start_streaming_session_if_enabled(self):
+    def _start_streaming_session_if_enabled(self) -> None:
         """Start hidden streaming work for the active recording if enabled."""
         self._set_streaming_session(None)
         if not self._streaming_enabled():
@@ -653,7 +658,7 @@ class VoiceTyperApp:
             log.exception("[STREAMING] Failed to start streaming session: %s", e)
             self._set_streaming_session(None)
 
-    def _cancel_streaming_session(self):
+    def _cancel_streaming_session(self) -> None:
         """Cancel any active hidden streaming session."""
         session = self._get_streaming_session()
         self._set_streaming_session(None)
@@ -663,7 +668,7 @@ class VoiceTyperApp:
             except Exception:
                 log.exception("[STREAMING] Failed to cancel streaming session")
 
-    def _force_recover_from_stuck_transcription(self):
+    def _force_recover_from_stuck_transcription(self) -> None:
         """Safety net: recover from stuck transcription state."""
         if self._busy_event.is_set():  # not busy
             return  # Already recovered, nothing to do
@@ -695,11 +700,11 @@ class VoiceTyperApp:
 
     # ─── Settings / Microphone ─────────────────────────────────────────
 
-    def _toggle_autostart(self):
+    def _toggle_autostart(self) -> None:
         """Toggle autostart on/off from the tray menu. Delegates to _set_autostart (P2 dedup)."""
         self._set_autostart(not is_autostart_enabled())
 
-    def _set_autostart(self, enabled: bool):
+    def _set_autostart(self, enabled: bool) -> None:
         """Set autostart from the advanced settings window or tray toggle."""
         try:
             if enabled:
@@ -714,14 +719,14 @@ class VoiceTyperApp:
             log.exception("Failed to set autostart")
             self.tray.notify("Voice Typer", f"Could not change autostart setting.\n{e}")
 
-    def _set_notifications(self, enabled: bool):
+    def _set_notifications(self, enabled: bool) -> None:
         """Set notification behavior from the settings window."""
         self.config.show_notifications = enabled
         self.config.save()
         self.tray.set_notifications_enabled(enabled)
         log.info("Notifications set to %s", enabled)
 
-    def _select_microphone(self, mic_name: str | None):
+    def _select_microphone(self, mic_name: str | None) -> None:
         """Handle microphone selection from tray menu."""
         self.config.microphone = mic_name
         self.config.save()
@@ -765,7 +770,7 @@ class VoiceTyperApp:
         self._settings_window = window
         window.show()
 
-    def _open_config_file(self):
+    def _open_config_file(self) -> None:
         """Open raw settings file for troubleshooting."""
         config_file = self.config.config_dir / "config.json"
         if not config_file.exists():
@@ -776,18 +781,22 @@ class VoiceTyperApp:
         try:
             if sys.platform == "win32":
                 editor = shutil.which("notepad") or "notepad"
-                subprocess.Popen([editor, str(config_file)])
+                proc = subprocess.Popen([editor, str(config_file)])
             elif sys.platform == "darwin":
                 editor = shutil.which("open") or "open"
-                subprocess.Popen([editor, str(config_file)])
+                proc = subprocess.Popen([editor, str(config_file)])
             else:
                 editor = shutil.which("xdg-open") or "xdg-open"
-                subprocess.Popen([editor, str(config_file)])
+                proc = subprocess.Popen([editor, str(config_file)])
+            ret = proc.poll()
+            if ret is not None and ret != 0:
+                log.warning("Editor exited with code %d", ret)
+                self.tray.notify("Voice Typer", f"Config file:\n{config_file}")
         except Exception as e:
             log.warning("Could not open editor: %s", e)
             self.tray.notify("Voice Typer", f"Config file:\n{config_file}")
 
-    def _restart_hotkey(self, hotkey: str):
+    def _restart_hotkey(self, hotkey: str) -> None:
         """Re-register the global hotkey after settings change."""
         self.config.hotkey = hotkey
         self.config.save()
@@ -801,7 +810,7 @@ class VoiceTyperApp:
         # P3 fix: Update tray hotkey label immediately
         self.tray.set_hotkey(self.config.hotkey)
 
-    def _change_model(self, model_size: str):
+    def _change_model(self, model_size: str) -> None:
         """Apply a model change for future dictation sessions."""
         self.config.model_size = model_size
         self.config.save()
@@ -903,7 +912,7 @@ class VoiceTyperApp:
             log.warning("[ATEXIT] Process exiting without quit() -- "
                         "likely killed externally (console close, task manager, etc.)")
 
-    def _install_win32_console_handler(self):
+    def _install_win32_console_handler(self) -> None:
         """On Windows, install a console control handler to survive console closure."""
         if sys.platform != "win32":
             return
@@ -936,7 +945,7 @@ class VoiceTyperApp:
         except Exception:
             log.exception("[WIN32] Failed to install console control handler")
 
-    def _win32_console_handler(self, ctrl_type):
+    def _win32_console_handler(self, ctrl_type) -> bool:
         """Callback for Windows console control events."""
         CTRL_C_EVENT = 0
         CTRL_BREAK_EVENT = 1
@@ -971,20 +980,22 @@ class VoiceTyperApp:
             threading.Thread(target=_orphan_guard, daemon=True, name="OrphanGuard").start()
             return True
 
+        self._daemon_quit_and_exit = lambda: (self.quit(), os._exit(0))
+
         if ctrl_type in (CTRL_LOGOFF_EVENT, CTRL_SHUTDOWN_EVENT):
             log.info("[WIN32] System event %d received, shutting down", ctrl_type)
-            threading.Thread(target=self.quit, daemon=True).start()
+            threading.Thread(target=self._daemon_quit_and_exit, daemon=True).start()
             return True
 
         if ctrl_type in (CTRL_C_EVENT, CTRL_BREAK_EVENT):
             log.info("[WIN32] Ctrl+C received, shutting down")
-            threading.Thread(target=self.quit, daemon=True).start()
+            threading.Thread(target=self._daemon_quit_and_exit, daemon=True).start()
             return True
 
         return False
 
 
-def main():
+def main() -> None:
     """Entry point."""
     _setup_logging()
 

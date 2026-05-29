@@ -264,9 +264,11 @@ class SettingsWindow:
 
     def _save(self):
         try:
+            raw_model = self.model_var.get()
+            model_size = raw_model.split(" (")[0] if " (" in raw_model else raw_model
             self.controller.apply(
                 hotkey=format_function_hotkey(self.hotkey_var.get()),
-                model_size=self.model_var.get(),
+                model_size=model_size,
                 microphone=self._microphone_id(),
                 autostart=self.autostart_var.get(),
                 show_notifications=self.notifications_var.get(),

@@ -349,7 +349,7 @@ class StreamingTranscriptionSession:
             self.process_available_audio_once()
             self._cancel_event.wait(self.poll_interval_seconds)
 
-    def _validate_words(self, words: Iterable[WordTiming]):
+    def _validate_words(self, words: Iterable[WordTiming]) -> None:
         for word in words:
             if not isinstance(word.word, str):
                 raise TypeError("word text must be a string")

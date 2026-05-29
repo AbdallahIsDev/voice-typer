@@ -36,10 +36,10 @@
 		["this me either", "I'm also"],
 		["treat 3", "treat this"],
 		["adds a test", "is a test"],
-		["Execute execute", "Execute"]
+		["Execute execute", "Execute"],
+		["without whether", "whether"]
 	],
 	"extra_word_patterns": [
-		["without whether", "whether"],
 		["didn't and ", "didn't "]
 	]
 }

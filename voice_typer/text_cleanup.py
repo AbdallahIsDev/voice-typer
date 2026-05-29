@@ -3,10 +3,13 @@
 import json
 import logging
 import re
+import threading
 from pathlib import Path
 from typing import Optional
 
 log = logging.getLogger(__name__)
+
+_corrections_lock = threading.Lock()
 
 
 # Question openers used by _looks_like_question().
@@ -148,7 +151,8 @@ def configure_corrections(
     """
     global _active_misspellings, _active_phrases, _active_extra_words
     result = _active_corrections(config_dir, corrections_path)
-    _active_misspellings, _active_phrases, _active_extra_words = result
+    with _corrections_lock:
+        _active_misspellings, _active_phrases, _active_extra_words = result
 
 
 def clean_transcribed_text(text: str) -> str:
@@ -273,12 +277,14 @@ def _remove_near_duplicate_words(text: str) -> str:
 
 def _fix_common_misspellings(text: str) -> str:
     """Fix common Whisper small-model misspellings."""
+    with _corrections_lock:
+        misspellings = dict(_active_misspellings)
     tokens = text.split(" ")
     output = []
     for token in tokens:
         key = _token_key(token)
-        if key in _active_misspellings:
-            correction = _active_misspellings[key]
+        if key in misspellings:
+            correction = misspellings[key]
             match = re.match(r"^(\W*)(\w+)(\W*)$", token)
             if match:
                 token = f"{match.group(1)}{correction}{match.group(3)}"
@@ -290,8 +296,10 @@ def _fix_common_misspellings(text: str) -> str:
 
 def _correct_whisper_phrases(text: str) -> str:
     """Fix known Whisper small-model phrase misrecognitions."""
+    with _corrections_lock:
+        phrases = list(_active_phrases)
     lower = text.lower()
-    for bad, good in _active_phrases:
+    for bad, good in phrases:
         pattern = re.compile(re.escape(bad), re.IGNORECASE)
         if pattern.search(lower):
             text = pattern.sub(good, text)
@@ -300,8 +308,10 @@ def _correct_whisper_phrases(text: str) -> str:
 
 def _remove_extra_words(text: str) -> str:
     """Remove common extra word insertions from Whisper."""
+    with _corrections_lock:
+        extra_words = list(_active_extra_words)
     lower = text.lower()
-    for bad, good in _active_extra_words:
+    for bad, good in extra_words:
         pattern = re.compile(re.escape(bad), re.IGNORECASE)
         if pattern.search(lower):
             text = pattern.sub(good, text)

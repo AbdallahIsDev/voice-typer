@@ -97,6 +97,11 @@ class PynputHotkey(HotkeyBackend):
                 self._start_fallback(callback, Listener, Key, KeyCode)
             except Exception:
                 log.exception("Fallback Listener also failed")
+                self._fallback = False
+                log.warning(
+                    "[HOTKEY] Both GlobalHotKeys and fallback Listener failed. "
+                    "Hotkey will not work."
+                )
 
     # --- internal helpers ---------------------------------------------------
 

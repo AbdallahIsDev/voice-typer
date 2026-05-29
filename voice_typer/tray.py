@@ -51,7 +51,7 @@ class TrayIcon:
         self,
         controller: TrayController,
         config=None,
-    ):
+    ) -> None:
         self._controller = controller
         self._config = config  # reference to live Config object
 
@@ -210,7 +210,7 @@ class TrayIcon:
         """Mark the menu cache as stale so it rebuilds on next right-click."""
         self._menu_cache_valid = False
 
-    def _build_menu(self):
+    def _build_menu(self) -> tuple:
         """Build the tray menu dynamically, with caching for unchanged state."""
         if self._menu_cache_valid and self._cached_menu is not None:
             return self._cached_menu
@@ -278,7 +278,7 @@ class TrayIcon:
         hotkey = self._hotkey or getattr(self._config, "hotkey", "<f2>") or "<f2>"
         return self._format_hotkey_label(hotkey)
 
-    def _build_hotkey_menu_items(self):
+    def _build_hotkey_menu_items(self) -> list:
         current = self._hotkey or getattr(self._config, "hotkey", "<f2>") or "<f2>"
         presets = [
             "<f2>", "<f3>", "<f4>", "<f5>", "<f6>", "<f7>", "<f8>",
@@ -295,7 +295,7 @@ class TrayIcon:
             for hotkey in presets
         ]
 
-    def _build_model_menu_items(self):
+    def _build_model_menu_items(self) -> list:
         current = getattr(self._config, "model_size", "small.en") or "small.en"
         model_labels = {
             "small.en": "small.en (fast, ~466MB)",
@@ -311,7 +311,7 @@ class TrayIcon:
             for model in ("small.en", "medium.en")
         ]
 
-    def _build_advanced_menu_items(self):
+    def _build_advanced_menu_items(self) -> list:
         items = []
         items.append(
             pystray.MenuItem(
@@ -352,7 +352,7 @@ class TrayIcon:
                 parts.append(clean.upper())
         return "+".join(parts)
 
-    def _build_mic_menu_items(self):
+    def _build_mic_menu_items(self) -> list:
         """Build microphone radio items with duplicate-name disambiguation."""
         mic_items = []
         current = self._config.microphone if self._config else None
