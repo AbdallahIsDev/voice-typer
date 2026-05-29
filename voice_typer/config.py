@@ -101,6 +101,29 @@ class Config:
                 )
                 if data.get("model_size") not in ALLOWED_USER_MODELS:
                     data["model_size"] = "small.en"
+
+                # Validate qwen_model_path: must be an existing directory if set
+                qwen_path = data.get("qwen_model_path")
+                if qwen_path is not None:
+                    p = Path(qwen_path)
+                    if not p.exists() or not p.is_dir():
+                        log.warning(
+                            "Config qwen_model_path=%s does not exist or is not a directory, resetting to None",
+                            qwen_path,
+                        )
+                        data["qwen_model_path"] = None
+
+                # Validate corrections_path: must be an existing file if set
+                corrections = data.get("corrections_path")
+                if corrections is not None:
+                    cp = Path(corrections)
+                    if not cp.exists() or not cp.is_file():
+                        log.warning(
+                            "Config corrections_path=%s does not exist or is not a file, resetting to None",
+                            corrections,
+                        )
+                        data["corrections_path"] = None
+
                 return cls(**data)
             except json.JSONDecodeError as e:
                 log.error("Config file corrupted: %s. Using defaults.", e)

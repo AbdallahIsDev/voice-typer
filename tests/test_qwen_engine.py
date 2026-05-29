@@ -120,11 +120,13 @@ class TestQwenConfigKeys:
     def test_asr_backend_persists(self, tmp_path, monkeypatch):
         from voice_typer.config import Config
         monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
-        c = Config(asr_backend="qwen", qwen_model_path="/path/to/model")
+        model_dir = tmp_path / "qwen_model"
+        model_dir.mkdir()
+        c = Config(asr_backend="qwen", qwen_model_path=str(model_dir))
         c.save()
         loaded = Config.load()
         assert loaded.asr_backend == "qwen"
-        assert loaded.qwen_model_path == "/path/to/model"
+        assert loaded.qwen_model_path == str(model_dir)
 
 
 class TestQwenBackendSelection:
@@ -160,3 +162,136 @@ class TestQwenIntegration:
         audio = np.zeros(16000, dtype=np.float32)
         result = engine.transcribe(audio)
         assert isinstance(result, str)
+
+
+class TestP1WhisperSkipWhenQwenActive:
+    """P1 fix: Skip Whisper load when Qwen is active, with lazy Whisper fallback."""
+
+    def _make_app_with_qwen(self, monkeypatch, tmp_path, qwen_loaded=True):
+        """Create a VoiceTyperApp with Qwen backend configured."""
+        import sys
+        from unittest.mock import MagicMock
+
+        # Mock heavy imports BEFORE importing the app module
+        mock_sd = MagicMock()
+        mock_sd.query_devices.return_value = []
+        monkeypatch.setitem(sys.modules, "sounddevice", mock_sd)
+        mock_whisper = MagicMock()
+        monkeypatch.setitem(sys.modules, "faster_whisper", mock_whisper)
+        monkeypatch.setitem(sys.modules, "faster_whisper.WhisperModel", MagicMock())
+        mock_pynput = MagicMock()
+        mock_pynput_kb = MagicMock()
+        monkeypatch.setitem(sys.modules, "pynput", mock_pynput)
+        monkeypatch.setitem(sys.modules, "pynput.keyboard", mock_pynput_kb)
+        mock_pystray = MagicMock()
+        monkeypatch.setitem(sys.modules, "pystray", mock_pystray)
+        mock_pil = MagicMock()
+        monkeypatch.setitem(sys.modules, "PIL", mock_pil)
+        monkeypatch.setitem(sys.modules, "PIL.Image", MagicMock())
+        monkeypatch.setitem(sys.modules, "PIL.ImageDraw", MagicMock())
+        monkeypatch.setitem(sys.modules, "pyperclip", MagicMock())
+
+        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.app.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.app.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.app.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.app.list_microphones", lambda: [])
+        monkeypatch.setattr("voice_typer.app.atexit.register", lambda *a, **kw: None)
+        from voice_typer.hotkeys import PynputHotkey
+        monkeypatch.setattr(
+            "voice_typer.app.create_hotkey_backend",
+            lambda hotkey_str: PynputHotkey(hotkey_str),
+        )
+
+        # Write a config with Qwen backend
+        import json
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({
+            "asr_backend": "qwen",
+            "qwen_model_path": str(tmp_path / "qwen_model"),
+        }))
+
+        # Create the Qwen model dir so path validation passes
+        (tmp_path / "qwen_model").mkdir(exist_ok=True)
+
+        from voice_typer.app import VoiceTyperApp
+        app = VoiceTyperApp()
+
+        # Mock the Qwen engine
+        app._qwen_engine = MagicMock()
+        app._qwen_engine.is_loaded = qwen_loaded
+        app._qwen_engine.load = MagicMock()
+
+        return app
+
+    def test_startup_skips_whisper_when_qwen_active(self, monkeypatch, tmp_path):
+        """When Qwen backend is active and loaded, Whisper should NOT be loaded during startup."""
+        app = self._make_app_with_qwen(monkeypatch, tmp_path, qwen_loaded=True)
+        app._sync_autostart = MagicMock()
+        app._load_microphones = MagicMock()
+        app._register_hotkey = MagicMock()
+        app.recorder.warm_up_resampler = MagicMock()
+
+        # Track if Whisper load was attempted
+        whisper_load_called = []
+        original_try_load = app._try_load_model
+        def track_try_load(*args, **kwargs):
+            whisper_load_called.append(True)
+            # Simulate successful load so it doesn't loop
+            app.transcriber.is_loaded = True
+            app.transcriber.device_info = "cpu (int8)"
+            app.transcriber.loaded_via = "cpu/int8/small.en"
+            original_try_load(*args, **kwargs)
+
+        app._try_load_model = track_try_load
+
+        app._do_startup()
+
+        # Qwen engine should have been loaded
+        app._qwen_engine.load.assert_called_once()
+        # Whisper should NOT have been loaded since Qwen succeeded
+        assert len(whisper_load_called) == 0, "Whisper should not be loaded when Qwen is active and loaded"
+
+    def test_startup_falls_back_to_whisper_when_qwen_fails(self, monkeypatch, tmp_path):
+        """When Qwen backend fails to load, Whisper should be loaded as fallback."""
+        app = self._make_app_with_qwen(monkeypatch, tmp_path, qwen_loaded=False)
+        app._sync_autostart = MagicMock()
+        app._load_microphones = MagicMock()
+        app._register_hotkey = MagicMock()
+        app.recorder.warm_up_resampler = MagicMock()
+        app.transcriber = MagicMock()
+        app.transcriber.is_loaded = False
+        app.transcriber.load = MagicMock()
+        app.transcriber.device_info = "cpu (int8)"
+        app.transcriber.loaded_via = "cpu/int8/small.en"
+
+        # Make Qwen load() fail (is_loaded stays False)
+        app._qwen_engine.load = MagicMock()  # load does nothing, is_loaded stays False
+
+        app._do_startup()
+
+        # Qwen engine should have been attempted
+        app._qwen_engine.load.assert_called_once()
+        # Whisper should have been loaded as fallback
+        app.transcriber.load.assert_called_once()
+
+    def test_start_dictation_lazy_loads_whisper_when_qwen_unavailable(self, monkeypatch, tmp_path):
+        """When Qwen is configured but not loaded, _start_dictation should lazy-load Whisper."""
+        app = self._make_app_with_qwen(monkeypatch, tmp_path, qwen_loaded=False)
+        app.recorder = MagicMock()
+        app.recorder.recording = False
+        app.tray = MagicMock()
+        app.transcriber = MagicMock()
+        app.transcriber.is_loaded = False
+        app.transcriber.load = MagicMock()
+        app.transcriber.device_info = "cpu (int8)"
+        app.transcriber.loaded_via = "cpu/int8/small.en"
+
+        def mock_load():
+            app.transcriber.is_loaded = True
+        app.transcriber.load = mock_load
+
+        app._start_dictation()
+
+        # Should have attempted to start recording (Whisper was lazy-loaded)
+        app.recorder.start.assert_called_once()

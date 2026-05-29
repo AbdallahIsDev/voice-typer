@@ -131,3 +131,63 @@ class TestCleanTranscribedText:
         # Cleanup still applies capitalization, spacing, misspellings etc.
         # Forced terminal punctuation was removed from the pipeline.
         assert result == "Can we make this faster"
+
+
+class TestExternalCorrectionsFallback:
+    """P2 fix: _load_external_corrections returns None when no file exists,
+    and clean_transcribed_text falls back to built-in defaults."""
+
+    def test_load_external_corrections_returns_none_when_no_file(self, tmp_path, monkeypatch):
+        """When no corrections file exists, _load_external_corrections returns None."""
+        from voice_typer import text_cleanup
+        monkeypatch.setattr(text_cleanup, "_BUNDLED_CORRECTIONS_PATH", tmp_path / "nonexistent.json")
+        result = text_cleanup._load_external_corrections(config_dir=tmp_path)
+        assert result is None
+
+    def test_load_external_corrections_returns_none_when_no_config_dir(self, monkeypatch):
+        """When config_dir is None and corrections_path is None, returns None."""
+        from voice_typer import text_cleanup
+        monkeypatch.setattr(text_cleanup, "_BUNDLED_CORRECTIONS_PATH", text_cleanup.Path("/nonexistent.json"))
+        result = text_cleanup._load_external_corrections(config_dir=None, corrections_path=None)
+        assert result is None
+
+    def test_load_external_corrections_returns_corrections_when_file_exists(self, tmp_path, monkeypatch):
+        """When corrections file exists, returns merged corrections."""
+        from voice_typer import text_cleanup
+        import json
+        monkeypatch.setattr(text_cleanup, "_BUNDLED_CORRECTIONS_PATH", tmp_path / "nonexistent.json")
+        corrections_file = tmp_path / "voice-typer-corrections.json"
+        corrections_file.write_text(json.dumps({
+            "misspellings": {"fakespeling": "realword"},
+            "phrase_corrections": [["bad phrase", "good phrase"]],
+        }))
+        result = text_cleanup._load_external_corrections(config_dir=tmp_path)
+        assert result is not None
+        misspellings, phrase_corrections, extra_word_patterns = result
+        assert "fakespeling" in misspellings
+
+    def test_load_external_corrections_returns_none_on_invalid_path(self, tmp_path, monkeypatch):
+        """When corrections_path points to a non-existent file, returns None."""
+        from voice_typer import text_cleanup
+        monkeypatch.setattr(text_cleanup, "_BUNDLED_CORRECTIONS_PATH", tmp_path / "nonexistent.json")
+        result = text_cleanup._load_external_corrections(corrections_path="/nonexistent/file.json")
+        assert result is None
+
+    def test_cleanup_uses_builtins_when_no_external_file(self):
+        """When no external corrections file, cleanup still works with built-in defaults."""
+        result = clean_transcribed_text("infestigate this")
+        assert result == "Investigate this"
+
+    def test_cleanup_merges_external_corrections(self, tmp_path):
+        """External corrections are merged with built-in defaults."""
+        import json
+        from voice_typer.text_cleanup import configure_corrections
+        corrections_file = tmp_path / "voice-typer-corrections.json"
+        corrections_file.write_text(json.dumps({
+            "misspellings": {"customerr": "customer"},
+        }))
+        configure_corrections(config_dir=tmp_path)
+        result = clean_transcribed_text("customerr infestigate this")
+        # Both custom and built-in corrections should be applied
+        assert "customer" in result.lower()
+        assert "investigate" in result.lower()

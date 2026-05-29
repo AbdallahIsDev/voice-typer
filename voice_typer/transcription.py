@@ -105,7 +105,7 @@ class TranscriptionEngine:
                     log.info("Using CUDA device for transcription")
                     return "cuda", "float16"
             except Exception:
-                pass
+                log.warning("CUDA detection failed, falling back to CPU", exc_info=True)
 
             if device == "cuda":
                 log.warning("CUDA requested but not available, falling back to CPU")

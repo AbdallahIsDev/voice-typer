@@ -268,14 +268,19 @@ class VoiceTyperApp:
 
         # Warmup handled synchronously in recording.py on first recording start.
 
-        # 4. Load the Whisper model (may fail — hotkey already registered)
-        log.info("[STARTUP] Step 4: load model")
-        self._try_load_model(notify_on_failure=True)
-
-        # 5. Load Qwen model if backend is qwen (P0)
+        # 4. Load the appropriate model
+        # P1 fix: Skip Whisper load when Qwen is the active backend
         if self.config.asr_backend == "qwen" and self._qwen_engine is not None:
-            log.info("[STARTUP] Step 5: load Qwen model")
+            log.info("[STARTUP] Step 4: Qwen backend active, loading Qwen model")
             self._qwen_engine.load()
+            if self._qwen_engine.is_loaded:
+                self.tray.set_state(AppState.IDLE, "Ready — Qwen ASR")
+            else:
+                log.warning("[STARTUP] Qwen load failed, falling back to Whisper")
+                self._try_load_model(notify_on_failure=False)
+        else:
+            log.info("[STARTUP] Step 4: load Whisper model")
+            self._try_load_model(notify_on_failure=True)
 
         log.info("[STARTUP] _do_startup complete")
 
@@ -377,18 +382,39 @@ class VoiceTyperApp:
         # Cancel any stale pending timers from previous sessions
         self._cancel_pending_timers()
 
-        # Guard: refuse to record if the model never loaded
-        if not self.transcriber.is_loaded:
-            log.warning("[DICTATION] Model not loaded, attempting reload")
-            self._try_load_model(notify_on_failure=True)
-            if not self.transcriber.is_loaded:
-                log.error("[DICTATION] Model reload failed, cannot record")
-                self._schedule_timer(
-                    3.0, lambda: self.tray.set_state(
-                        AppState.ERROR, "Model failed to load — press F2 to retry"
+        # Guard: refuse to record if no model is loaded
+        # P1 fix: Check active backend (Qwen or Whisper), lazy-load Whisper if Qwen is unavailable
+        qwen_active = (
+            self.config.asr_backend == "qwen"
+            and self._qwen_engine is not None
+            and self._qwen_engine.is_loaded
+        )
+        whisper_loaded = self.transcriber.is_loaded
+
+        if not qwen_active and not whisper_loaded:
+            # P1 fix: If Qwen was supposed to be active but failed, try Whisper as fallback
+            if self.config.asr_backend == "qwen" and self._qwen_engine is not None:
+                log.warning("[DICTATION] Qwen not loaded, lazy-loading Whisper as fallback")
+                self._try_load_model(notify_on_failure=True)
+                if not self.transcriber.is_loaded:
+                    log.error("[DICTATION] Whisper fallback also failed, cannot record")
+                    self._schedule_timer(
+                        3.0, lambda: self.tray.set_state(
+                            AppState.ERROR, "Model failed to load — press F2 to retry"
+                        )
                     )
-                )
-                return
+                    return
+            elif not self.transcriber.is_loaded:
+                log.warning("[DICTATION] Model not loaded, attempting reload")
+                self._try_load_model(notify_on_failure=True)
+                if not self.transcriber.is_loaded:
+                    log.error("[DICTATION] Model reload failed, cannot record")
+                    self._schedule_timer(
+                        3.0, lambda: self.tray.set_state(
+                            AppState.ERROR, "Model failed to load — press F2 to retry"
+                        )
+                    )
+                    return
 
         log.info("[DICTATION] Starting recording...")
         try:
@@ -721,14 +747,18 @@ class VoiceTyperApp:
         if not config_file.exists():
             self.config.save()
 
+        import shutil
         import subprocess
         try:
             if sys.platform == "win32":
-                subprocess.Popen(["notepad", str(config_file)])
+                editor = shutil.which("notepad") or "notepad"
+                subprocess.Popen([editor, str(config_file)])
             elif sys.platform == "darwin":
-                subprocess.Popen(["open", str(config_file)])
+                editor = shutil.which("open") or "open"
+                subprocess.Popen([editor, str(config_file)])
             else:
-                subprocess.Popen(["xdg-open", str(config_file)])
+                editor = shutil.which("xdg-open") or "xdg-open"
+                subprocess.Popen([editor, str(config_file)])
         except Exception as e:
             log.warning("Could not open editor: %s", e)
             self.tray.notify("Voice Typer", f"Config file:\n{config_file}")
@@ -903,12 +933,12 @@ class VoiceTyperApp:
 
         if ctrl_type in (CTRL_LOGOFF_EVENT, CTRL_SHUTDOWN_EVENT):
             log.info("[WIN32] System event %d received, shutting down", ctrl_type)
-            threading.Thread(target=self.quit, daemon=False).start()
+            threading.Thread(target=self.quit, daemon=True).start()
             return True
 
         if ctrl_type in (CTRL_C_EVENT, CTRL_BREAK_EVENT):
             log.info("[WIN32] Ctrl+C received, shutting down")
-            threading.Thread(target=self.quit, daemon=False).start()
+            threading.Thread(target=self.quit, daemon=True).start()
             return True
 
         return False

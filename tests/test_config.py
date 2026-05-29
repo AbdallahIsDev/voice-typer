@@ -198,3 +198,96 @@ class TestConfigLoadSave:
         assert c1.streaming_silence_threshold == c2.streaming_silence_threshold
         assert c1.autostart == c2.autostart
         assert c1.show_notifications == c2.show_notifications
+
+
+class TestConfigPathValidation:
+    """P5 fix: qwen_model_path and corrections_path are validated on load."""
+
+    def test_qwen_model_path_invalid_resets_to_none(self, tmp_path, monkeypatch):
+        """If qwen_model_path points to a non-existent directory, reset to None."""
+        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({
+            "asr_backend": "qwen",
+            "qwen_model_path": "/nonexistent/path/to/model",
+        }))
+
+        c = Config.load()
+        assert c.qwen_model_path is None
+
+    def test_qwen_model_path_file_not_dir_resets_to_none(self, tmp_path, monkeypatch):
+        """If qwen_model_path points to a file (not a directory), reset to None."""
+        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        # Create a file (not a directory) at the path
+        fake_model = tmp_path / "model_file"
+        fake_model.write_text("not a directory")
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({
+            "qwen_model_path": str(fake_model),
+        }))
+
+        c = Config.load()
+        assert c.qwen_model_path is None
+
+    def test_qwen_model_path_valid_dir_preserved(self, tmp_path, monkeypatch):
+        """If qwen_model_path points to an existing directory, preserve it."""
+        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        model_dir = tmp_path / "qwen_model"
+        model_dir.mkdir()
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({
+            "qwen_model_path": str(model_dir),
+        }))
+
+        c = Config.load()
+        assert c.qwen_model_path == str(model_dir)
+
+    def test_corrections_path_invalid_resets_to_none(self, tmp_path, monkeypatch):
+        """If corrections_path points to a non-existent file, reset to None."""
+        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({
+            "corrections_path": "/nonexistent/corrections.json",
+        }))
+
+        c = Config.load()
+        assert c.corrections_path is None
+
+    def test_corrections_path_dir_not_file_resets_to_none(self, tmp_path, monkeypatch):
+        """If corrections_path points to a directory (not a file), reset to None."""
+        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        corrections_dir = tmp_path / "corrections_dir"
+        corrections_dir.mkdir()
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({
+            "corrections_path": str(corrections_dir),
+        }))
+
+        c = Config.load()
+        assert c.corrections_path is None
+
+    def test_corrections_path_valid_file_preserved(self, tmp_path, monkeypatch):
+        """If corrections_path points to an existing file, preserve it."""
+        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        corrections_file = tmp_path / "corrections.json"
+        corrections_file.write_text('{"misspellings": {}}')
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({
+            "corrections_path": str(corrections_file),
+        }))
+
+        c = Config.load()
+        assert c.corrections_path == str(corrections_file)
+
+    def test_none_paths_pass_validation(self, tmp_path, monkeypatch):
+        """None values for qwen_model_path and corrections_path are valid."""
+        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({
+            "qwen_model_path": None,
+            "corrections_path": None,
+        }))
+
+        c = Config.load()
+        assert c.qwen_model_path is None
+        assert c.corrections_path is None

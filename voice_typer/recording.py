@@ -51,6 +51,7 @@ class Recorder:
         self._recording = False
         self._effective_sr: int = config.sample_rate
         self._last_rms: float = 0.0
+        self._chunk_count: int = 0
 
     @property
     def recording(self) -> bool:
@@ -238,6 +239,7 @@ class Recorder:
             return
 
         self._buffer.clear()
+        self._chunk_count = 0
 
         device = self._resolve_device()
         candidates = self._same_physical_microphone_candidates(device)
@@ -245,6 +247,13 @@ class Recorder:
         def callback(indata, frames, time_info, status):
             with self._lock:
                 self._buffer.append(indata.copy())
+                self._chunk_count += 1
+                if self._chunk_count % 1000 == 0:
+                    log.info(
+                        "[RECORDING] Buffer telemetry: chunks=%d, buffer_count=%d",
+                        self._chunk_count,
+                        len(self._buffer),
+                    )
 
         last_error = None
         selected_device = None

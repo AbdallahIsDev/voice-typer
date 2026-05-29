@@ -93,8 +93,16 @@ def _load_external_corrections(
     """Load corrections from an external JSON file.
 
     Loads bundled corrections.json first, then merges user-provided
-    file on top.  Returns (misspellings, phrase_corrections, extra_word_patterns).
+    file on top.  Returns (misspellings, phrase_corrections, extra_word_patterns)
+    from the external file, or None if no corrections file exists or could
+    not be loaded.  Callers should fall back to built-in defaults when None
+    is returned.
+
+    P2 fix: Returns None when no file exists, so callers can distinguish
+    "no external file" from "external file loaded successfully".
     """
+    loaded_any = False
+
     # Start with bundled corrections
     misspellings: dict[str, str] = {}
     phrase_corrections: list[tuple[str, str]] = []
@@ -112,6 +120,7 @@ def _load_external_corrections(
                 tuple(item) for item in data.get("extra_word_patterns", [])
                 if isinstance(item, (list, tuple)) and len(item) == 2
             ]
+            loaded_any = True
         except Exception as exc:
             log.warning("[CLEANUP] Failed to load bundled corrections: %s", exc)
 
@@ -140,8 +149,12 @@ def _load_external_corrections(
             log.info("[CLEANUP] Loaded user corrections from %s (%d misspellings, "
                      "%d phrases, %d extra-word patterns)",
                      path, len(misspellings), len(phrase_corrections), len(extra_word_patterns))
+            loaded_any = True
         except Exception as e:
             log.warning("[CLEANUP] Failed to load corrections from %s: %s", path, e)
+
+    if not loaded_any:
+        return None
 
     return misspellings, phrase_corrections, extra_word_patterns
 
