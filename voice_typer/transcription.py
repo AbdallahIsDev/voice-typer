@@ -127,7 +127,7 @@ class TranscriptionEngine:
         """Return a description of the device/model combo that was successfully loaded."""
         return f"{self._device}/{self._compute_type}/{self.model_size}"
 
-    def load(self):
+    def load(self, progress_callback=None):
         """Load the Whisper model. Downloads on first run.
 
         Fallback chain:
@@ -137,11 +137,13 @@ class TranscriptionEngine:
           4. CPU / float32 with tiny.en (last resort — avoids MKL int8 path)
 
         Stores which path succeeded via loaded_via property.
+
+        progress_callback: optional callable(message: str) for download/load status.
         """
         with self._lock:
-            self._load_unlocked()
+            self._load_unlocked(progress_callback=progress_callback)
 
-    def _load_unlocked(self):
+    def _load_unlocked(self, progress_callback=None):
         if self._model is not None:
             return
 
@@ -165,6 +167,11 @@ class TranscriptionEngine:
                     "Loading Whisper model '%s' on %s (%s)...",
                     model_size, device, compute_type,
                 )
+                if progress_callback:
+                    progress_callback(f"Downloading model '{model_size}'...")
+                self._pre_download_model(model_size, progress_callback)
+                if progress_callback:
+                    progress_callback(f"Loading model '{model_size}'...")
                 self._model = WhisperModel(
                     model_size,
                     device=device,
@@ -189,6 +196,42 @@ class TranscriptionEngine:
             f"Failed to load Whisper model on any device/model. "
             f"Last error: {last_error}"
         ) from last_error
+
+    def _pre_download_model(self, model_size: str, progress_callback=None):
+        """Pre-download model files via huggingface_hub if not already cached.
+
+        This ensures the user sees download progress before WhisperModel blocks
+        on the download internally.
+        """
+        try:
+            from huggingface_hub import snapshot_download
+
+            repo_id = f"Systran/faster-whisper-{model_size}"
+            if progress_callback:
+                progress_callback(f"Checking model cache for '{model_size}'...")
+            try:
+                snapshot_download(
+                    repo_id=repo_id,
+                    local_files_only=True,
+                )
+                log.info("[MODEL] Model '%s' already cached", model_size)
+                return
+            except Exception:
+                pass
+
+            log.info("[MODEL] Model '%s' not cached, downloading...", model_size)
+            if progress_callback:
+                progress_callback(f"Downloading model '{model_size}' (~466MB)...")
+
+            snapshot_download(
+                repo_id=repo_id,
+                resume_download=True,
+            )
+            log.info("[MODEL] Model '%s' download complete", model_size)
+        except ImportError:
+            log.debug("[MODEL] huggingface_hub not available, skipping pre-download")
+        except Exception as exc:
+            log.warning("[MODEL] Pre-download failed (WhisperModel will retry): %s", exc)
 
     def transcribe(self, audio: np.ndarray) -> str:
         """Transcribe audio array. Returns cleaned text string."""
@@ -293,7 +336,7 @@ class TranscriptionEngine:
             )
             return ""
         if result:
-            log.info("[TRANSCRIBE] Result: %s", result[:200])
+            log.info("[TRANSCRIBE] Result: %d chars", len(result))
         else:
             log.info(
                 "[TRANSCRIBE] No speech detected (RMS=%.6f, silence=%.1f%%)",

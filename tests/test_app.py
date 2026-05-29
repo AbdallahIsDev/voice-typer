@@ -967,7 +967,7 @@ class TestStartupResilience:
         app.recorder.recording = False
 
         # After _try_load_model, is_loaded becomes True
-        def mock_load():
+        def mock_load(**kwargs):
             app.transcriber.is_loaded = True
         app.transcriber.load = mock_load
 
@@ -1091,7 +1091,7 @@ class TestTextCleanupConfig:
         # Cleanup applies capitalization and other transforms
         assert result == "This is a test of the cleanup"
 
-    def test_cleanup_applied_when_enabled(self):
+    def test_cleanup_applied_when_enabled_streaming(self):
         from voice_typer.text_cleanup import clean_transcribed_text
         text = "this is a test of the cleanup"
         result = clean_transcribed_text(text)
@@ -1174,3 +1174,52 @@ class TestExternalCorrectionsWiring:
             f"configure_corrections should receive config_dir={app.config.config_dir}, "
             f"got {called_with.get('config_dir')}"
         )
+
+
+class TestWin32ConsoleHandler:
+    """P2 fix: Test the Win32 console control handler."""
+
+    def test_ctrl_close_event_frees_console(self, app):
+        """CTRL_CLOSE_EVENT should call FreeConsole and redirect stdout."""
+        app._kernel32 = MagicMock()
+        app._kernel32.FreeConsole.return_value = 1
+
+        with patch('builtins.open', MagicMock()) as mock_open:
+            mock_file = MagicMock()
+            mock_open.return_value = mock_file
+            result = app._win32_console_handler(2)  # CTRL_CLOSE_EVENT
+
+        assert result is True
+        app._kernel32.FreeConsole.assert_called_once()
+
+    def test_ctrl_logoff_event_starts_quit_thread(self, app):
+        """CTRL_LOGOFF_EVENT should start a quit thread."""
+        with patch('voice_typer.app.threading.Thread') as mock_thread:
+            mock_thread_instance = MagicMock()
+            mock_thread.return_value = mock_thread_instance
+            result = app._win32_console_handler(5)  # CTRL_LOGOFF_EVENT
+
+        assert result is True
+
+    def test_ctrl_shutdown_event_starts_quit_thread(self, app):
+        """CTRL_SHUTDOWN_EVENT should start a quit thread."""
+        with patch('voice_typer.app.threading.Thread') as mock_thread:
+            mock_thread_instance = MagicMock()
+            mock_thread.return_value = mock_thread_instance
+            result = app._win32_console_handler(6)  # CTRL_SHUTDOWN_EVENT
+
+        assert result is True
+
+    def test_ctrl_c_event_starts_quit_thread(self, app):
+        """CTRL_C_EVENT should start a quit thread."""
+        with patch('voice_typer.app.threading.Thread') as mock_thread:
+            mock_thread_instance = MagicMock()
+            mock_thread.return_value = mock_thread_instance
+            result = app._win32_console_handler(0)  # CTRL_C_EVENT
+
+        assert result is True
+
+    def test_unknown_event_returns_false(self, app):
+        """Unknown event types should return False."""
+        result = app._win32_console_handler(99)
+        assert result is False

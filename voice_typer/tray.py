@@ -41,6 +41,7 @@ class TrayController(Protocol):
     def quit_app(self) -> None: ...
     def toggle_autostart(self) -> None: ...
     def set_notifications(self, enabled: bool) -> None: ...
+    def set_hotkey(self, hotkey: str) -> None: ...
 
 
 class TrayIcon:
@@ -68,13 +69,17 @@ class TrayIcon:
         self._bg_thread: Optional[threading.Thread] = None
         self._hotkey: str = getattr(config, 'hotkey', '<f2>') or '<f2>'  # P3: stored for menu rebuild
 
+        # P4 #30: Menu cache
+        self._cached_menu = None
+        self._menu_cache_valid = False
+
     # ─── Public API ─────────────────────────────────────────────────────
 
     @property
     def state(self) -> AppState:
         return self._state
 
-    def set_state(self, state: AppState, message: str = ""):
+    def set_state(self, state: AppState, message: str = "") -> None:
         """Update tray icon state and tooltip.
 
         If the event loop is not yet running the update is queued and applied
@@ -82,27 +87,32 @@ class TrayIcon:
         """
         self._state = state
         self._message = message
+        self._menu_cache_valid = False
         if self._icon:
             self._apply_state(state, message)
         else:
             self._pending_states.append((state, message))
 
-    def set_microphones(self, mics: list[dict]):
+    def set_microphones(self, mics: list[dict]) -> None:
         """Update the cached microphone list."""
         self._microphones = mics
+        self._menu_cache_valid = False
 
-    def set_autostart_enabled(self, enabled: bool):
+    def set_autostart_enabled(self, enabled: bool) -> None:
         """Update the cached autostart state."""
         self._autostart_enabled = enabled
+        self._menu_cache_valid = False
 
-    def set_notifications_enabled(self, enabled: bool):
+    def set_notifications_enabled(self, enabled: bool) -> None:
         self._notifications_enabled = enabled
+        self._menu_cache_valid = False
 
-    def set_hotkey(self, hotkey: str):
+    def set_hotkey(self, hotkey: str) -> None:
         """Update the stored hotkey string for the next menu rebuild."""
         self._hotkey = hotkey
+        self._menu_cache_valid = False
 
-    def start(self, bg_work: Optional[Callable] = None):
+    def start(self, bg_work: Optional[Callable] = None) -> None:
         """Create the tray icon and start background work.
 
         Does **not** block — call ``run()`` afterwards to enter the main loop.
@@ -156,14 +166,14 @@ class TrayIcon:
         log.info("Tray event loop starting (main thread)")
         self._icon.run()  # blocks until stop() is called
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop the tray icon and exit the event loop."""
         if self._icon:
             self._icon.stop()
             self._icon = None
         log.info("Tray icon stopped")
 
-    def notify(self, title: str, message: str):
+    def notify(self, title: str, message: str) -> None:
         """Show a notification if notifications are enabled.
 
         If the event loop is not yet running the notification is queued.
@@ -177,7 +187,7 @@ class TrayIcon:
 
     # ─── Internals ──────────────────────────────────────────────────────
 
-    def _apply_state(self, state: AppState, message: str):
+    def _apply_state(self, state: AppState, message: str) -> None:
         """Apply state to the live icon (safe from any thread)."""
         if not self._icon:
             return
@@ -189,15 +199,21 @@ class TrayIcon:
             title += f" — {state.value}"
         self._icon.title = title
 
-    def _do_notify(self, title: str, message: str):
+    def _do_notify(self, title: str, message: str) -> None:
         """Send a notification through the icon."""
         try:
             self._icon.notify(message, title)  # pyrefly: ignore[missing-attribute]
         except Exception as e:
             log.warning("Notification failed: %s", e)
 
+    def invalidate_menu_cache(self):
+        """Mark the menu cache as stale so it rebuilds on next right-click."""
+        self._menu_cache_valid = False
+
     def _build_menu(self):
-        """Build the tray menu dynamically on each right-click."""
+        """Build the tray menu dynamically, with caching for unchanged state."""
+        if self._menu_cache_valid and self._cached_menu is not None:
+            return self._cached_menu
         items = []
         hotkey = self._display_hotkey()
 
@@ -252,7 +268,10 @@ class TrayIcon:
         # Quit
         items.append(pystray.MenuItem("Quit", self._wrap(self._controller.quit_app)))
 
-        return tuple(items)
+        result = tuple(items)
+        self._cached_menu = result
+        self._menu_cache_valid = True
+        return result
 
     def _display_hotkey(self) -> str:
         """Return the configured hotkey in a user-facing form."""

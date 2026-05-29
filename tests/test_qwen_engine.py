@@ -294,7 +294,7 @@ class TestP1WhisperSkipWhenQwenActive:
         app.transcriber.device_info = "cpu (int8)"
         app.transcriber.loaded_via = "cpu/int8/small.en"
 
-        def mock_load():
+        def mock_load(**kwargs):
             # pyrefly: ignore [read-only]
             app.transcriber.is_loaded = True
         app.transcriber.load = mock_load

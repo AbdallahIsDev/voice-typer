@@ -74,13 +74,18 @@ class Config:
     # External corrections file
     corrections_path: Optional[str] = None
 
+    # Logging
+    log_transcriptions: bool = False
+
     def save(self):
-        """Save config to disk."""
+        """Save config to disk atomically via temp file + os.replace."""
         path = _config_dir()
         path.mkdir(parents=True, exist_ok=True)
         config_file = path / "config.json"
-        with open(config_file, "w") as f:
+        tmp_file = config_file.with_suffix(".tmp")
+        with open(tmp_file, "w") as f:
             json.dump(asdict(self), f, indent=2)
+        os.replace(str(tmp_file), str(config_file))
 
     @classmethod
     def load(cls) -> "Config":

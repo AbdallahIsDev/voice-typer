@@ -77,19 +77,11 @@ class ClipboardManager:
             hwnd = user32.GetForegroundWindow()
             if not hwnd:
                 return None
-            pid = wintypes.DWORD()
-            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-            if not pid.value:
-                return None
-            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-            h_process = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value)
-            if not h_process:
-                return None
             try:
                 from voice_typer.focus import _get_process_name
                 return _get_process_name(user32, kernel32, hwnd)
-            finally:
-                kernel32.CloseHandle(h_process)
+            except Exception:
+                return None
         except Exception:
             return None
 
@@ -152,6 +144,9 @@ class ClipboardManager:
 
         try:
             time.sleep(0.1)  # let focused app settle
+            if not is_text_input_focused() and not self.unsafe_paste_on_unknown_focus:
+                log.info("Focus lost during paste delay — skipping")
+                return False
             # Detect if focused process is a terminal
             process_name = self._detect_focused_process()
             is_terminal = self._is_terminal_process(process_name)

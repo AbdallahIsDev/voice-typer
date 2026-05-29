@@ -145,6 +145,8 @@ class VoiceTyperApp:
 
         # P1: Timer tracking
         self._pending_timers: list[threading.Timer] = []
+        self._timer_generation: int = 0
+        self._non_windows_paste_notified = False
 
     # ─── Qwen Engine (P0) ────────────────────────────────────────────
 
@@ -182,7 +184,11 @@ class VoiceTyperApp:
 
     def _schedule_timer(self, delay: float, func) -> threading.Timer:
         """Create, track, and start a timer. Replaces fire-and-forget timers."""
-        timer = threading.Timer(delay, func)
+        gen = self._timer_generation
+        def guarded_func():
+            if gen == self._timer_generation:
+                func()
+        timer = threading.Timer(delay, guarded_func)
         timer.daemon = True
         self._pending_timers.append(timer)
         timer.start()
@@ -193,6 +199,7 @@ class VoiceTyperApp:
         for timer in self._pending_timers:
             timer.cancel()
         self._pending_timers.clear()
+        self._timer_generation += 1
 
     # ─── Thread-Safe Streaming Session Access (P2) ───────────────────
 
@@ -284,7 +291,7 @@ class VoiceTyperApp:
 
         log.info("[STARTUP] _do_startup complete")
 
-    def _sync_autostart(self):
+    def _sync_autostart(self) -> None:
         """Ensure config.autostart matches the actual platform autostart state."""
         try:
             actual = is_autostart_enabled()
@@ -297,7 +304,7 @@ class VoiceTyperApp:
         except Exception as e:
             log.warning("Autostart sync failed: %s", e)
 
-    def _load_microphones(self):
+    def _load_microphones(self) -> None:
         """Enumerate microphones and update the tray menu."""
         try:
             mics = list_microphones()
@@ -313,8 +320,11 @@ class VoiceTyperApp:
         try:
             log.info("[MODEL] Loading model (size=%s, device=%s)...",
                      self.config.model_size, self.config.device)
-            self.tray.set_state(AppState.LOADING, "Loading model...")
-            self.transcriber.load()
+
+            def on_progress(message: str):
+                self.tray.set_state(AppState.LOADING, message)
+
+            self.transcriber.load(progress_callback=on_progress)
             self.tray.set_state(
                 AppState.IDLE, f"Ready — {self.transcriber.device_info}"
             )
@@ -395,6 +405,7 @@ class VoiceTyperApp:
             # P1 fix: If Qwen was supposed to be active but failed, try Whisper as fallback
             if self.config.asr_backend == "qwen" and self._qwen_engine is not None:
                 log.warning("[DICTATION] Qwen not loaded, lazy-loading Whisper as fallback")
+                self.tray.set_state(AppState.LOADING, "Retrying model load (may take 30s)...")
                 self._try_load_model(notify_on_failure=True)
                 if not self.transcriber.is_loaded:
                     log.error("[DICTATION] Whisper fallback also failed, cannot record")
@@ -406,6 +417,7 @@ class VoiceTyperApp:
                     return
             elif not self.transcriber.is_loaded:
                 log.warning("[DICTATION] Model not loaded, attempting reload")
+                self.tray.set_state(AppState.LOADING, "Retrying model load (may take 30s)...")
                 self._try_load_model(notify_on_failure=True)
                 if not self.transcriber.is_loaded:
                     log.error("[DICTATION] Model reload failed, cannot record")
@@ -526,7 +538,10 @@ class VoiceTyperApp:
                 else:
                     log.info("[CLEANUP] Text cleanup disabled (raw mode)")
 
-                log.info("Transcription: %s...", text[:100])
+                if self.config.log_transcriptions:
+                    log.info("Transcription: %s", text[:200])
+                else:
+                    log.info("Transcription: %d chars", len(text))
 
                 # Copy to clipboard — only attempt paste if copy succeeded.
                 if not self.clipboard.copy(text):
@@ -540,9 +555,9 @@ class VoiceTyperApp:
                     self._busy_event.set()  # busy = False
                     self._schedule_timer(
                         3.0,
-                        lambda: self.tray.set_state(
+                        lambda di=self.transcriber.device_info: self.tray.set_state(
                             AppState.IDLE,
-                            f"Ready — {self.transcriber.device_info}",
+                            f"Ready — {di}",
                         ),
                     )
                     return
@@ -556,6 +571,14 @@ class VoiceTyperApp:
                     status = f"Done — {len(text)} chars (pasted)"
                 else:
                     status = f"Done — {len(text)} chars (in clipboard)"
+                    if sys.platform != "win32" and self.config.paste_on_stop and not self._non_windows_paste_notified:
+                        if not self.config.unsafe_paste_on_unknown_focus:
+                            self._non_windows_paste_notified = True
+                            self.tray.notify(
+                                "Voice Typer",
+                                "Auto-paste skipped (focus detection unavailable).\n"
+                                "Enable 'unsafe_paste_on_unknown_focus' in config to paste anyway.",
+                            )
 
                 self.tray.set_state(AppState.IDLE, status)
                 self.tray.notify("Voice Typer", f"Transcribed {len(text)} characters")
@@ -563,9 +586,9 @@ class VoiceTyperApp:
                 # Reset to plain "Ready" after a few seconds
                 self._schedule_timer(
                     3.0,
-                    lambda: self.tray.set_state(
+                    lambda di=self.transcriber.device_info: self.tray.set_state(
                         AppState.IDLE,
-                        f"Ready — {self.transcriber.device_info}",
+                        f"Ready — {di}",
                     ),
                 )
 
@@ -776,8 +799,7 @@ class VoiceTyperApp:
             self._hotkey_backend = None
         self._register_hotkey()
         # P3 fix: Update tray hotkey label immediately
-        if hasattr(self.tray, 'set_hotkey'):
-            self.tray.set_hotkey(self.config.hotkey)
+        self.tray.set_hotkey(self.config.hotkey)
 
     def _change_model(self, model_size: str):
         """Apply a model change for future dictation sessions."""
@@ -785,6 +807,10 @@ class VoiceTyperApp:
         self.config.save()
         if self.recorder.recording or not self._busy_event.is_set():  # busy
             log.info("Model changed to %s; applying after active work", model_size)
+            self.tray.notify(
+                "Voice Typer",
+                f"Model will change to {model_size} after current recording",
+            )
             return
         try:
             self.transcriber.unload()
@@ -870,7 +896,7 @@ class VoiceTyperApp:
         if is_main:
             sys.exit(0)
 
-    def _atexit_log(self):
+    def _atexit_log(self) -> None:
         """Log when the process exits, even if quit() was not called."""
         if not self._shutting_down:
             log.warning("[ATEXIT] Process exiting without quit() -- "
@@ -891,7 +917,7 @@ class VoiceTyperApp:
             CTRL_LOGOFF_EVENT = 5
             CTRL_SHUTDOWN_EVENT = 6
 
-            HANDLER_ROUTINE = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.DWORD)
+            HANDLER_ROUTINE = ctypes.CFUNCTYPE(wintypes.BOOL, wintypes.DWORD)
 
             self._console_handler = HANDLER_ROUTINE(self._win32_console_handler)
             self._kernel32 = ctypes.windll.kernel32

@@ -192,6 +192,7 @@ def _is_autostart_windows() -> bool:
 # ─── macOS ─────────────────────────────────────────────────────────────
 
 def _enable_autostart_macos() -> bool:
+    from xml.sax.saxutils import escape
     plist_dir = get_autostart_dir()
     plist_dir.mkdir(parents=True, exist_ok=True)
     plist_path = plist_dir / "com.voicetyper.plist"
@@ -205,11 +206,13 @@ def _enable_autostart_macos() -> bool:
     <string>com.voicetyper</string>
     <key>ProgramArguments</key>
     <array>
-        <string>{sys.executable}</string>
+        <string>{escape(sys.executable)}</string>
         <string>-m</string>
         <string>voice_typer</string>
     </array>
     <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
     <true/>
 </dict>
 </plist>"""
@@ -245,7 +248,6 @@ Exec={sys.executable} -m voice_typer
 Icon=audio-input-microphone
 Hidden=false
 NoDisplay=true
-X-GNOME-Autostart-enabled=true
 """
     desktop_path.write_text(desktop_content)
     log.info("Autostart enabled (Linux): %s", desktop_path)

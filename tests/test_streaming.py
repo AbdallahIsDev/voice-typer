@@ -312,3 +312,48 @@ def test_streaming_session_start_and_cancel_stop_worker():
     session.cancel()
 
     assert session.is_running is False
+
+
+class TestConcurrentAccess:
+    """P2 fix: Verify streaming session handles concurrent access safely."""
+
+    def test_concurrent_process_calls_dont_corrupt_assembler(self):
+        """Multiple threads calling process_available_audio_once should not corrupt data."""
+        import threading
+
+        from voice_typer.streaming import (
+            StreamingTranscriptionSession, StreamingConfig, WordTiming,
+        )
+
+        config = StreamingConfig(enabled=True, min_first_chunk_seconds=0.0)
+        mock_recorder = MagicMock()
+        mock_transcriber = MagicMock()
+
+        session = StreamingTranscriptionSession(
+            recorder=mock_recorder,
+            transcriber=mock_transcriber,
+            config=config,
+            sample_rate=16000,
+        )
+
+        # Return some audio and words
+        mock_recorder.snapshot.return_value = np.zeros(16000 * 10, dtype=np.float32)
+        mock_transcriber.transcribe_words.return_value = [
+            WordTiming(word="hello", start_seconds=0.0, end_seconds=0.5),
+        ]
+
+        errors = []
+        def worker():
+            try:
+                for _ in range(20):
+                    session.process_available_audio_once()
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=worker, daemon=True) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5.0)
+
+        assert len(errors) == 0, f"Concurrent access errors: {errors}"

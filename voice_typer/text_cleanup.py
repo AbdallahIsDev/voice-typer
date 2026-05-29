@@ -25,57 +25,16 @@ _INTENTIONAL_REPEAT_WORDS = {
     "very",
 }
 
-# ─── Built-in corrections (used when no external corrections file exists) ──
+# ─── Corrections loaded from corrections.json ──────────────────────────
 #
-# These are Whisper small.en specific misspellings and phrase corrections.
-# Users can override them by placing a corrections.json in the config
-# directory (see _load_external_corrections below).
+# The bundled corrections.json is the canonical source of corrections.
+# The built-in dicts below have been removed to avoid duplication (P4 #29).
+# A minimal fallback is provided in _active_corrections() if corrections.json
+# is somehow missing.
 
-_WHISPER_MISSPELLINGS: dict[str, str] = {
-    "infestigate": "investigate",
-    "grammer": "grammar",
-    "recieve": "receive",
-    "occured": "occurred",
-    "seperate": "separate",
-    "definately": "definitely",
-    "accomodate": "accommodate",
-    "occassion": "occasion",
-    "untill": "until",
-    "wierd": "weird",
-    "thier": "their",
-    "goverment": "government",
-    "enviroment": "environment",
-    "developement": "development",
-    "begining": "beginning",
-    "sucessful": "successful",
-    "neccessary": "necessary",
-    "recomend": "recommend",
-    "tommorow": "tomorrow",
-    "beautifull": "beautiful",
-    "wonderfull": "wonderful",
-    "awfull": "awful",
-    "carefull": "careful",
-    "helpfull": "helpful",
-    "usefull": "useful",
-    "powerfull": "powerful",
-    "grammerly": "grammatically",
-    "grammarly": "grammatically",
-}
-
-_WHISPER_PHRASE_CORRECTIONS: list[tuple[str, str]] = [
-    ("to 2 ", "to "),
-    (" to 2", " to"),
-    ("they working", "it's working"),
-    ("this me either", "I'm also"),
-    ("treat 3", "treat this"),
-    ("adds a test", "is a test"),
-    ("Execute execute", "Execute"),
-]
-
-_COMMON_EXTRA_WORD_PATTERNS: list[tuple[str, str]] = [
-    ("without whether", "whether"),
-    ("didn't and ", "didn't "),
-]
+_WHISPER_MISSPELLINGS: dict[str, str] = {}
+_WHISPER_PHRASE_CORRECTIONS: list[tuple[str, str]] = []
+_COMMON_EXTRA_WORD_PATTERNS: list[tuple[str, str]] = []
 
 # ─── External corrections loader ─────────────────────────────────────────
 # When a corrections.json exists in the config directory (or at the path
@@ -163,11 +122,12 @@ def _active_corrections(
     config_dir: Path | None = None,
     corrections_path: str | None = None,
 ):
-    """Return the active corrections, preferring external file over built-in."""
+    """Return the active corrections, loading from bundled corrections.json."""
     external = _load_external_corrections(config_dir, corrections_path)
     if external is not None:
         return external
-    return _WHISPER_MISSPELLINGS, _WHISPER_PHRASE_CORRECTIONS, _COMMON_EXTRA_WORD_PATTERNS
+    # Minimal fallback if corrections.json is somehow missing
+    return {}, [], []
 
 
 # ─── Active corrections (initialized to built-in defaults) ──────────────
@@ -175,9 +135,9 @@ def _active_corrections(
 # is available.  The cleanup functions below read from these instead of
 # the built-in dicts directly.
 
-_active_misspellings: dict[str, str] = _WHISPER_MISSPELLINGS
-_active_phrases: list[tuple[str, str]] = _WHISPER_PHRASE_CORRECTIONS
-_active_extra_words: list[tuple[str, str]] = _COMMON_EXTRA_WORD_PATTERNS
+_active_misspellings: dict[str, str] = {}
+_active_phrases: list[tuple[str, str]] = []
+_active_extra_words: list[tuple[str, str]] = []
 
 
 def configure_corrections(

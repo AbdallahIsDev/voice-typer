@@ -68,10 +68,10 @@ class SettingsController:
             "model_size": self.config.model_size != model_size,
             "microphone": self.config.microphone != microphone,
             # pyrefly: ignore [unnecessary-type-conversion]
-            "autostart": self.config.autostart is not bool(autostart),
+            "autostart": self.config.autostart != bool(autostart),
             "show_notifications": (
                 # pyrefly: ignore [unnecessary-type-conversion]
-                self.config.show_notifications is not bool(show_notifications)
+                self.config.show_notifications != bool(show_notifications)
             ),
         }
 

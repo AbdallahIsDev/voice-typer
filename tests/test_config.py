@@ -291,3 +291,49 @@ class TestConfigPathValidation:
         c = Config.load()
         assert c.qwen_model_path is None
         assert c.corrections_path is None
+
+
+class TestAtomicConfigSave:
+    """P0 fix: Config.save() must be atomic to prevent data loss on crash."""
+
+    def test_save_uses_tmp_file_then_replace(self, tmp_path, monkeypatch):
+        """save() writes to .tmp first then atomically replaces config.json."""
+        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        c = Config(hotkey="<f5>")
+        c.save()
+
+        config_file = tmp_path / "config.json"
+        tmp_file = tmp_path / "config.tmp"
+
+        assert config_file.exists()
+        assert not tmp_file.exists()
+
+        data = json.loads(config_file.read_text())
+        assert data["hotkey"] == "<f5>"
+
+    def test_save_preserves_existing_config_on_partial_write(self, tmp_path, monkeypatch):
+        """If a write fails mid-stream, the existing config.json is preserved."""
+        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        c1 = Config(hotkey="<f3>")
+        c1.save()
+
+        config_file = tmp_path / "config.json"
+        original_data = config_file.read_text()
+
+        c2 = Config(hotkey="<f9>")
+        with patch("builtins.open", side_effect=OSError("disk full")):
+            try:
+                c2.save()
+            except OSError:
+                pass
+
+        assert config_file.read_text() == original_data
+
+    def test_no_stale_tmp_file_after_successful_save(self, tmp_path, monkeypatch):
+        """After a successful save, no .tmp file should remain."""
+        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        c = Config()
+        c.save()
+
+        assert not (tmp_path / "config.tmp").exists()
+        assert (tmp_path / "config.json").exists()

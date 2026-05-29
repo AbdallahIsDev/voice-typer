@@ -62,7 +62,7 @@ class Recorder:
         """RMS level of the most recently captured audio (0.0 if never recorded)."""
         return self._last_rms
 
-    def warm_up_resampler(self):
+    def warm_up_resampler(self) -> None:
         """Import and initialize the high-quality resampler before recording stops."""
         try:
             resample_poly = _get_resample_poly()
@@ -233,7 +233,7 @@ class Recorder:
             log.debug("[RECORDING] Could not build all-device fallback list: %s", e)
         return candidates
 
-    def start(self):
+    def start(self) -> None:
         """Start recording audio."""
         if self._recording:
             return
@@ -246,8 +246,20 @@ class Recorder:
 
         def callback(indata, frames, time_info, status):
             with self._lock:
+                if self._chunk_count >= 30000:
+                    if self._chunk_count == 30000:
+                        log.warning(
+                            "[RECORDING] Buffer hard cap reached (30k chunks, ~30 min). "
+                            "Dropping oldest chunks."
+                        )
+                    self._buffer.pop(0)
                 self._buffer.append(indata.copy())
                 self._chunk_count += 1
+                if self._chunk_count == 5000:
+                    log.warning(
+                        "[RECORDING] Buffer is large (5k chunks, ~5 min). "
+                        "Consider stopping recording."
+                    )
                 if self._chunk_count % 1000 == 0:
                     log.info(
                         "[RECORDING] Buffer telemetry: chunks=%d, buffer_count=%d",
@@ -523,7 +535,7 @@ class Recorder:
 
         return audio
 
-    def discard(self):
+    def discard(self) -> None:
         """Discard current recording without processing."""
         self._recording = False
         self._effective_sr = self.config.sample_rate

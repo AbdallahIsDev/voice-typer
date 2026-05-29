@@ -243,6 +243,7 @@ class StreamingTranscriptionSession:
         self._cancel_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._fallback_required = False
+        self._finalizing = False
         self._lock = threading.Lock()
 
     @property
@@ -272,8 +273,16 @@ class StreamingTranscriptionSession:
         if thread is not None and thread.is_alive():
             thread.join(timeout=2.0)
 
+    def finalize(self, full_audio: np.ndarray) -> str:
+        """Return final transcript, using batch fallback if streaming is unsafe."""
+        self._finalizing = True
+        self.cancel()
+        return self._finalize_impl(full_audio)
+
     def process_available_audio_once(self) -> bool:
         """Process one planned window if enough audio is available."""
+        if self._finalizing:
+            return False
         if self._fallback_required:
             return False
 
@@ -300,9 +309,7 @@ class StreamingTranscriptionSession:
             self._fallback_required = True
             return False
 
-    def finalize(self, full_audio: np.ndarray) -> str:
-        """Return final transcript, using batch fallback if streaming is unsafe."""
-        self.cancel()
+    def _finalize_impl(self, full_audio: np.ndarray) -> str:
         if not self.assembler.committed_text:
             return self.transcriber.transcribe_with_fallback(full_audio)
         if self._fallback_required:

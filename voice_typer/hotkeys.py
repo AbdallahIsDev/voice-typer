@@ -107,8 +107,11 @@ class PynputHotkey(HotkeyBackend):
                 f"Cannot parse hotkey {self.hotkey_str!r} for fallback"
             )
 
+        # For composite hotkeys (tuple), extract the target key only
+        match_key = target[1] if isinstance(target, tuple) else target
+
         def on_press(key):
-            if key == target:
+            if key == match_key:
                 log.info("[HOTKEY FALLBACK] Matched key: %s", key)
                 callback()
 
@@ -118,7 +121,7 @@ class PynputHotkey(HotkeyBackend):
         self._fallback = True
         log.info(
             "Fallback listener started, watching for %s (alive=%s)",
-            target,
+            match_key,
             self._listener.is_alive(),
         )
 
@@ -157,17 +160,52 @@ class PynputHotkey(HotkeyBackend):
 
 
 def _parse_hotkey_to_pynput(hotkey_str, Key, KeyCode):
-    """Parse '<f2>' -> pynput Key or KeyCode for fallback matching."""
-    clean = hotkey_str.strip("<>").lower()
-    if hasattr(Key, clean):
-        return getattr(Key, clean)
-    if clean.startswith("f") and clean[1:].isdigit():
-        fnum = int(clean[1:])
-        if 1 <= fnum <= 24:
-            return KeyCode.from_vk(0x6F + fnum)
-    if len(clean) == 1:
-        return KeyCode.from_char(clean)
-    return None
+    """Parse '<f2>' or '<ctrl>+1' -> pynput Key/KeyCode for fallback matching.
+
+    Handles composite hotkeys with modifiers (ctrl, alt, shift, cmd/win).
+    Returns a tuple of (modifier_keys, target_key) for composite hotkeys,
+    or a single Key/KeyCode for simple hotkeys.
+    """
+    parts = hotkey_str.strip("<>").split("+")
+    parts = [p.strip().strip("<>") for p in parts]
+
+    if len(parts) == 1:
+        clean = parts[0].lower()
+        if hasattr(Key, clean):
+            return getattr(Key, clean)
+        if clean.startswith("f") and clean[1:].isdigit():
+            fnum = int(clean[1:])
+            if 1 <= fnum <= 24:
+                return KeyCode.from_vk(0x6F + fnum)
+        if len(clean) == 1:
+            return KeyCode.from_char(clean)
+        return None
+
+    # Composite hotkey: return tuple of (modifiers_tuple, target_key)
+    modifier_keys = []
+    target = None
+    modifier_names = {"ctrl": Key.ctrl, "alt": Key.alt, "shift": Key.shift, "cmd": Key.cmd, "win": Key.cmd, "super": Key.cmd}
+
+    for part in parts:
+        clean = part.lower()
+        if clean in modifier_names:
+            modifier_keys.append(modifier_names[clean])
+        elif target is None:
+            if hasattr(Key, clean):
+                target = getattr(Key, clean)
+            elif clean.startswith("f") and clean[1:].isdigit():
+                fnum = int(clean[1:])
+                if 1 <= fnum <= 24:
+                    target = KeyCode.from_vk(0x6F + fnum)
+            elif len(clean) == 1:
+                target = KeyCode.from_char(clean)
+
+    if target is None:
+        return None
+
+    if modifier_keys:
+        return (tuple(modifier_keys), target)
+    return target
 
 
 # ─── Windows native backend ──────────────────────────────────────────────────
@@ -180,7 +218,6 @@ _MOD_CONTROL = 0x0002
 _MOD_SHIFT = 0x0004
 _MOD_WIN = 0x0008
 _MOD_NOREPEAT = 0x4000
-_HWND_MESSAGE = -3  # HWND_MESSAGE: creates a message-only window
 _GWLP_USERDATA = -21
 
 # Common virtual-key code mappings for function keys and printable keys.
@@ -297,17 +334,8 @@ class WindowsNativeHotkey(HotkeyBackend):
         # ── Set proper argtypes BEFORE any Win32 call ──
         # Without these, ctypes defaults to c_int which truncates 64-bit pointers.
         from ctypes.wintypes import (
-            BOOL, DWORD, HINSTANCE, HMENU, HWND, INT, LPCWSTR, LPARAM, LPMSG,
-            MSG, UINT, WPARAM,
+            BOOL, DWORD, HWND, INT, LPARAM, UINT, WPARAM,
         )
-
-        # HWND CreateWindowExW(...)
-        self._user32.CreateWindowExW.argtypes = [
-            DWORD, LPCWSTR, LPCWSTR, DWORD,
-            INT, INT, INT, INT,
-            HWND, HMENU, HINSTANCE, ctypes.c_void_p,
-        ]
-        self._user32.CreateWindowExW.restype = HWND
 
         # BOOL RegisterHotKey(HWND, int, UINT, UINT)
         self._user32.RegisterHotKey.argtypes = [HWND, INT, UINT, UINT]
@@ -317,72 +345,20 @@ class WindowsNativeHotkey(HotkeyBackend):
         self._user32.UnregisterHotKey.argtypes = [HWND, INT]
         self._user32.UnregisterHotKey.restype = BOOL
 
-        # BOOL GetMessageW(LPMSG, HWND, UINT, UINT)
-        self._user32.GetMessageW.argtypes = [LPMSG, HWND, UINT, UINT]
-        self._user32.GetMessageW.restype = BOOL  # actually int, but BOOL works for 0/-1 check
-
-        # BOOL PostMessageW(HWND, UINT, WPARAM, LPARAM)
-        self._user32.PostMessageW.argtypes = [HWND, UINT, WPARAM, LPARAM]
-        self._user32.PostMessageW.restype = BOOL
-
         # BOOL PostThreadMessageW(DWORD threadId, UINT msg, WPARAM, LPARAM)
         self._user32.PostThreadMessageW.argtypes = [DWORD, UINT, WPARAM, LPARAM]
         self._user32.PostThreadMessageW.restype = BOOL
-
-        # BOOL TranslateMessage(const MSG*)
-        self._user32.TranslateMessage.argtypes = [ctypes.POINTER(MSG)]
-        self._user32.TranslateMessage.restype = BOOL
-
-        # LRESULT DispatchMessageW(const MSG*)
-        self._user32.DispatchMessageW.argtypes = [ctypes.POINTER(MSG)]
-        self._user32.DispatchMessageW.restype = LPARAM
-
-        # BOOL DestroyWindow(HWND)
-        self._user32.DestroyWindow.argtypes = [HWND]
-        self._user32.DestroyWindow.restype = BOOL
 
         # DWORD GetLastError(void)
         self._kernel32.GetLastError.argtypes = []
         self._kernel32.GetLastError.restype = DWORD
 
-        # HANDLE GetModuleHandleW(LPCWSTR)
-        self._kernel32.GetModuleHandleW.argtypes = [LPCWSTR]
-        self._kernel32.GetModuleHandleW.restype = HINSTANCE
-
         def run():
-            """Message loop thread: creates HWND_MESSAGE, registers hotkey, runs GetMessage."""
+            """Message loop thread: registers hotkey, runs polling loop."""
             try:
-                # Create a message-only window to receive WM_HOTKEY
-                # pyrefly: ignore [missing-attribute]
-                self._hwnd = self._user32.CreateWindowExW(
-                    0,                     # dwExStyle
-                    "STATIC",              # lpClassName (simple class)
-                    None,                  # lpWindowName
-                    0,                     # dwStyle
-                    0, 0, 0, 0,            # x, y, width, height
-                    _HWND_MESSAGE,         # hWndParent = HWND_MESSAGE
-                    None,                  # hMenu
-                    # pyrefly: ignore [missing-attribute]
-                    self._kernel32.GetModuleHandleW(None),  # hInstance
-                    None,                  # lpParam
-                )
-                if not self._hwnd:
-                    # pyrefly: ignore [missing-attribute]
-                    err = self._kernel32.GetLastError()
-                    self._last_error = err
-                    log.error(
-                        "CreateWindowExW failed (hwnd is NULL), GetLastError=%d (0x%X)",
-                        err, err,
-                    )
-                    self._ready_event.set()
-                    return
-                log.info("Created message-only window hwnd=0x%X", self._hwnd)
-
-                # Register the hotkey.  IMPORTANT: pass NULL (0) as hWnd.
+                # Register the hotkey.  Pass NULL (0) as hWnd.
                 # RegisterHotKey(NULL, ...) binds the hotkey to the calling
                 # thread so WM_HOTKEY is posted to the thread message queue.
-                # Using an HWND (even HWND_MESSAGE) causes GetMessageW to
-                # silently miss the message on some Windows configurations.
                 # pyrefly: ignore [missing-attribute]
                 result = self._user32.RegisterHotKey(
                     0, self._hotkey_id, _MOD_NOREPEAT | self._modifiers, self._vk
@@ -411,8 +387,8 @@ class WindowsNativeHotkey(HotkeyBackend):
                 # ── Hotkey detection ──
                 # Use GetAsyncKeyState polling for reliable hotkey detection.
                 # RegisterHotKey + GetMessageW does not reliably deliver WM_HOTKEY
-                # on all Windows configurations (especially with HWND_MESSAGE windows).
-                # Polling at 30Hz uses negligible CPU and works universally.
+                # on all Windows configurations.  Polling at 20Hz uses negligible
+                # CPU and works universally.
                 log.info("Starting hotkey detection via GetAsyncKeyState polling")
                 self._using_polling = True
                 self._run_polling_loop(callback)
@@ -426,10 +402,6 @@ class WindowsNativeHotkey(HotkeyBackend):
                     self._user32.UnregisterHotKey(0, self._hotkey_id)
                     self._registered = False
                     log.info("UnregisterHotKey done")
-                if self._hwnd:
-                    # pyrefly: ignore [missing-attribute]
-                    self._user32.DestroyWindow(self._hwnd)
-                    self._hwnd = None
 
         # Also set GetAsyncKeyState argtypes for the polling fallback
         self._user32.GetAsyncKeyState.argtypes = [INT]
@@ -474,7 +446,7 @@ class WindowsNativeHotkey(HotkeyBackend):
                 callback()
             was_pressed = is_pressed
             # pyrefly: ignore [missing-attribute]
-            self._kernel32.Sleep(33)  # ~30Hz polling rate
+            self._kernel32.Sleep(50)  # ~20Hz polling rate
 
     def _modifiers_pressed(self) -> bool:
         if self._modifiers & _MOD_CONTROL:
