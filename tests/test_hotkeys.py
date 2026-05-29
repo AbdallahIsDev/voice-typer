@@ -314,7 +314,7 @@ class TestHotkeyBackendABC:
         from voice_typer.hotkeys import HotkeyBackend
 
         with pytest.raises(TypeError):
-            HotkeyBackend()
+            HotkeyBackend("<f2>")  # pyrefly: ignore[bad-instantiation,missing-argument]
 
 
 # ─── Integration: real start/stop on current platform ───────────────────────

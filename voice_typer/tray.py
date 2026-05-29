@@ -192,7 +192,7 @@ class TrayIcon:
     def _do_notify(self, title: str, message: str):
         """Send a notification through the icon."""
         try:
-            self._icon.notify(message, title)
+            self._icon.notify(message, title)  # pyrefly: ignore[missing-attribute]
         except Exception as e:
             log.warning("Notification failed: %s", e)
 

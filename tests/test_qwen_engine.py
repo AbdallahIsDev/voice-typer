@@ -81,6 +81,7 @@ class TestQwenEngineUnit:
         assert engine.is_loaded is True
 
         engine.unload()
+        # pyrefly: ignore [unnecessary-comparison]
         assert engine.is_loaded is False
 
     def test_transcribe_strips_whitespace(self):
@@ -238,8 +239,11 @@ class TestP1WhisperSkipWhenQwenActive:
         def track_try_load(*args, **kwargs):
             whisper_load_called.append(True)
             # Simulate successful load so it doesn't loop
+            # pyrefly: ignore [read-only]
             app.transcriber.is_loaded = True
+            # pyrefly: ignore [read-only]
             app.transcriber.device_info = "cpu (int8)"
+            # pyrefly: ignore [read-only]
             app.transcriber.loaded_via = "cpu/int8/small.en"
             original_try_load(*args, **kwargs)
 
@@ -248,6 +252,7 @@ class TestP1WhisperSkipWhenQwenActive:
         app._do_startup()
 
         # Qwen engine should have been loaded
+        # pyrefly: ignore [missing-attribute]
         app._qwen_engine.load.assert_called_once()
         # Whisper should NOT have been loaded since Qwen succeeded
         assert len(whisper_load_called) == 0, "Whisper should not be loaded when Qwen is active and loaded"
@@ -266,11 +271,13 @@ class TestP1WhisperSkipWhenQwenActive:
         app.transcriber.loaded_via = "cpu/int8/small.en"
 
         # Make Qwen load() fail (is_loaded stays False)
+        # pyrefly: ignore [missing-attribute]
         app._qwen_engine.load = MagicMock()  # load does nothing, is_loaded stays False
 
         app._do_startup()
 
         # Qwen engine should have been attempted
+        # pyrefly: ignore [missing-attribute]
         app._qwen_engine.load.assert_called_once()
         # Whisper should have been loaded as fallback
         app.transcriber.load.assert_called_once()
@@ -288,6 +295,7 @@ class TestP1WhisperSkipWhenQwenActive:
         app.transcriber.loaded_via = "cpu/int8/small.en"
 
         def mock_load():
+            # pyrefly: ignore [read-only]
             app.transcriber.is_loaded = True
         app.transcriber.load = mock_load
 

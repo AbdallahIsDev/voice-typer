@@ -154,7 +154,7 @@ class VoiceTyperApp:
             from voice_typer.qwen_engine import QwenEngine
 
             self._qwen_engine = QwenEngine(
-                model_path=self.config.qwen_model_path,
+                model_path=self.config.qwen_model_path,  # pyrefly: ignore[bad-argument-type]
                 device=self.config.device,
                 language=self.config.language,
             )
@@ -595,6 +595,7 @@ class VoiceTyperApp:
         """Return whether hidden streaming should run for the next recording."""
         if os.environ.get("VOICE_TYPER_STREAMING") == "0":
             return False
+        # pyrefly: ignore [unnecessary-type-conversion]
         return bool(self.config.streaming_transcription)
 
     def _streaming_config(self) -> StreamingConfig:
@@ -807,9 +808,9 @@ class VoiceTyperApp:
         """TrayController protocol: select microphone."""
         self._select_microphone(mic_id)
 
-    def change_model(self, model_size: str) -> None:
+    def change_model(self, model: str) -> None:
         """TrayController protocol: change transcription model."""
-        self._change_model(model_size)
+        self._change_model(model)
 
     def change_hotkey(self, hotkey: str) -> None:
         """TrayController protocol: change hotkey."""

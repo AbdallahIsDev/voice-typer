@@ -30,6 +30,9 @@ log = logging.getLogger("voice_typer")
 class HotkeyBackend(ABC):
     """Abstract base for hotkey backends."""
 
+    def __init__(self, hotkey_str: str):
+        self.hotkey_str = hotkey_str
+
     @abstractmethod
     def start(self, callback: Callable[[], None]) -> None:
         """Start listening for the hotkey. Calls *callback* when pressed."""
@@ -58,7 +61,7 @@ class PynputHotkey(HotkeyBackend):
     """
 
     def __init__(self, hotkey_str: str):
-        self.hotkey_str = hotkey_str
+        super().__init__(hotkey_str)
         self._listener = None
         self._fallback = False
 
@@ -259,7 +262,7 @@ class WindowsNativeHotkey(HotkeyBackend):
     """
 
     def __init__(self, hotkey_str: str):
-        self.hotkey_str = hotkey_str
+        super().__init__(hotkey_str)
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._ready_event = threading.Event()  # signalled when registration completes
@@ -350,6 +353,7 @@ class WindowsNativeHotkey(HotkeyBackend):
             """Message loop thread: creates HWND_MESSAGE, registers hotkey, runs GetMessage."""
             try:
                 # Create a message-only window to receive WM_HOTKEY
+                # pyrefly: ignore [missing-attribute]
                 self._hwnd = self._user32.CreateWindowExW(
                     0,                     # dwExStyle
                     "STATIC",              # lpClassName (simple class)
@@ -358,10 +362,12 @@ class WindowsNativeHotkey(HotkeyBackend):
                     0, 0, 0, 0,            # x, y, width, height
                     _HWND_MESSAGE,         # hWndParent = HWND_MESSAGE
                     None,                  # hMenu
+                    # pyrefly: ignore [missing-attribute]
                     self._kernel32.GetModuleHandleW(None),  # hInstance
                     None,                  # lpParam
                 )
                 if not self._hwnd:
+                    # pyrefly: ignore [missing-attribute]
                     err = self._kernel32.GetLastError()
                     self._last_error = err
                     log.error(
@@ -377,10 +383,12 @@ class WindowsNativeHotkey(HotkeyBackend):
                 # thread so WM_HOTKEY is posted to the thread message queue.
                 # Using an HWND (even HWND_MESSAGE) causes GetMessageW to
                 # silently miss the message on some Windows configurations.
+                # pyrefly: ignore [missing-attribute]
                 result = self._user32.RegisterHotKey(
                     0, self._hotkey_id, _MOD_NOREPEAT | self._modifiers, self._vk
                 )
                 if not result:
+                    # pyrefly: ignore [missing-attribute]
                     err = self._kernel32.GetLastError()
                     self._last_error = err
                     log.error(
@@ -414,10 +422,12 @@ class WindowsNativeHotkey(HotkeyBackend):
             finally:
                 # Cleanup
                 if self._registered:
+                    # pyrefly: ignore [missing-attribute]
                     self._user32.UnregisterHotKey(0, self._hotkey_id)
                     self._registered = False
                     log.info("UnregisterHotKey done")
                 if self._hwnd:
+                    # pyrefly: ignore [missing-attribute]
                     self._user32.DestroyWindow(self._hwnd)
                     self._hwnd = None
 
@@ -456,12 +466,14 @@ class WindowsNativeHotkey(HotkeyBackend):
         was_pressed = False
         log.info("Polling loop started for VK=0x%X modifiers=0x%X", vk, self._modifiers)
         while not self._stop_event.is_set():
+            # pyrefly: ignore [missing-attribute]
             state = self._user32.GetAsyncKeyState(vk)
             is_pressed = bool(state & 0x8000) and self._modifiers_pressed()
             if is_pressed and not was_pressed:
                 log.info("[HOTKEY FIRED] GetAsyncKeyState detected key-down")
                 callback()
             was_pressed = is_pressed
+            # pyrefly: ignore [missing-attribute]
             self._kernel32.Sleep(33)  # ~30Hz polling rate
 
     def _modifiers_pressed(self) -> bool:
@@ -480,6 +492,7 @@ class WindowsNativeHotkey(HotkeyBackend):
         return True
 
     def _key_pressed(self, vk: int) -> bool:
+        # pyrefly: ignore [missing-attribute]
         return bool(self._user32.GetAsyncKeyState(vk) & 0x8000)
 
     def stop(self) -> None:

@@ -34,12 +34,14 @@ class TestFallbackChain:
         # Force all WhisperModel calls to fail
         import voice_typer.transcription as mod
         mod_obj = sys.modules.get("faster_whisper")
+        # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.side_effect = RuntimeError("mkl_malloc: failed to allocate memory")
 
         with pytest.raises(RuntimeError, match="Failed to load Whisper model"):
             engine.load()
 
         # Verify the last call was with float32
+        # pyrefly: ignore [missing-attribute]
         calls = mod_obj.WhisperModel.call_args_list
         assert len(calls) >= 1
         last_call = calls[-1]
@@ -55,11 +57,13 @@ class TestFallbackChain:
         engine = TranscriptionEngine(model_size="small.en", device="cuda")
         import voice_typer.transcription as mod
         mod_obj = sys.modules.get("faster_whisper")
+        # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.side_effect = RuntimeError("fail")
 
         with pytest.raises(RuntimeError):
             engine.load()
 
+        # pyrefly: ignore [missing-attribute]
         first_call = mod_obj.WhisperModel.call_args_list[0]
         args, kwargs = first_call[0], first_call[1] if len(first_call) > 1 else {}
         assert kwargs["device"] == "cuda"
@@ -72,11 +76,13 @@ class TestFallbackChain:
         engine = TranscriptionEngine(model_size="small.en", device="cuda")
         import voice_typer.transcription as mod
         mod_obj = sys.modules.get("faster_whisper")
+        # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.side_effect = RuntimeError("fail")
 
         with pytest.raises(RuntimeError):
             engine.load()
 
+        # pyrefly: ignore [missing-attribute]
         calls = mod_obj.WhisperModel.call_args_list
         # Second call should be CPU/int8/small.en
         second = calls[1]
@@ -92,11 +98,13 @@ class TestFallbackChain:
         engine = TranscriptionEngine(model_size="medium.en", device="cuda")
         import voice_typer.transcription as mod
         mod_obj = sys.modules.get("faster_whisper")
+        # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.side_effect = RuntimeError("fail")
 
         with pytest.raises(RuntimeError):
             engine.load()
 
+        # pyrefly: ignore [missing-attribute]
         calls = mod_obj.WhisperModel.call_args_list
         # Should have 4 calls: cuda/float16/medium.en, cpu/int8/medium.en,
         # cpu/int8/tiny.en, cpu/float32/tiny.en
@@ -117,6 +125,7 @@ class TestFallbackChain:
         mod_obj = sys.modules.get("faster_whisper")
 
         # First call (CUDA) fails, second call (CPU/int8) succeeds
+        # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.side_effect = [
             RuntimeError("CUDA OOM"),
             mock_model,
@@ -139,6 +148,7 @@ class TestFallbackChain:
         mod_obj = sys.modules.get("faster_whisper")
 
         # All fail except the last (float32/tiny.en)
+        # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.side_effect = [
             RuntimeError("CUDA fail"),
             RuntimeError("int8 fail"),
@@ -168,6 +178,7 @@ class TestFallbackChain:
         engine._compute_type = "int8"
 
         # First try (cpu/int8/small.en) succeeds
+        # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.return_value = mock_model
 
         engine.load()
@@ -216,12 +227,15 @@ class TestLoadIdempotent:
         mock_model = MagicMock()
         import voice_typer.transcription as mod
         mod_obj = sys.modules.get("faster_whisper")
+        # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.return_value = mock_model
 
         engine.load()
+        # pyrefly: ignore [missing-attribute]
         first_call_count = mod_obj.WhisperModel.call_count
 
         engine.load()
+        # pyrefly: ignore [missing-attribute]
         assert mod_obj.WhisperModel.call_count == first_call_count
 
 
@@ -296,6 +310,7 @@ class TestTranscribeWithFallback:
         cpu_model.transcribe.return_value = (
             [MagicMock(text="fallback text")], MagicMock()
         )
+        # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.return_value = cpu_model
 
         result = engine.transcribe_with_fallback(np.zeros(16000, dtype=np.float32))
@@ -319,6 +334,7 @@ class TestTranscribeWithFallback:
         segment = MagicMock()
         segment.words = [MagicMock(word=" fixed", start=0.1, end=0.4)]
         cpu_model.transcribe.return_value = ([segment], MagicMock())
+        # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.return_value = cpu_model
 
         result = engine.transcribe_words(np.zeros(16000, dtype=np.float32))
@@ -480,6 +496,7 @@ class TestTranscribeWords:
 
         engine = TranscriptionEngine(model_size="small.en", device="cpu")
         lock = TrackingLock()
+        # pyrefly: ignore [bad-assignment]
         engine._lock = lock
 
         mock_model = MagicMock()

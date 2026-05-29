@@ -113,6 +113,7 @@ class TestDuplicateMicrophoneDisambiguation:
         from voice_typer.platform import find_microphone_by_id
         mic1 = find_microphone_by_id("3")
         mic2 = find_microphone_by_id("7")
+        assert mic1 is not None and mic2 is not None
         assert mic1["name"] == mic2["name"]  # same display name
         assert mic1["id"] != mic2["id"]      # different IDs
         assert mic1["host_api"] != mic2["host_api"]  # different host APIs

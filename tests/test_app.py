@@ -463,6 +463,7 @@ class TestHotkeyMapping:
         mock_ghk_cls = MagicMock(return_value=mock_listener)
 
         mock_kb = sys.modules['pynput.keyboard']
+        # pyrefly: ignore [missing-attribute]
         mock_kb.GlobalHotKeys = mock_ghk_cls
 
         app._register_hotkey()
@@ -474,7 +475,9 @@ class TestHotkeyMapping:
     def test_register_hotkey_failure_does_not_crash(self, app):
         """If both GlobalHotKeys AND fallback Listener raise, app should not crash."""
         mock_kb = sys.modules['pynput.keyboard']
+        # pyrefly: ignore [missing-attribute]
         mock_kb.GlobalHotKeys = MagicMock(side_effect=Exception("no display"))
+        # pyrefly: ignore [missing-attribute]
         mock_kb.Listener = MagicMock(side_effect=Exception("no input"))
 
         # Should not raise
@@ -630,6 +633,7 @@ class TestHotkeyCallbackChain:
                 pass
 
         mock_kb = sys.modules['pynput.keyboard']
+        # pyrefly: ignore [missing-attribute]
         mock_kb.GlobalHotKeys = FakeGlobalHotKeys
 
         app.recorder = MagicMock()
@@ -661,6 +665,7 @@ class TestMicrophoneSelection:
     def test_select_none_resets_to_default(self, app):
         app.config.microphone = "5"
         app._select_microphone(None)
+        # pyrefly: ignore [unnecessary-comparison]
         assert app.config.microphone is None
 
     def test_select_mic_saves_config(self, app, tmp_config_dir):
@@ -815,6 +820,7 @@ class TestTryLoadModel:
 
         assert app._model_load_attempted is False
         app._try_load_model()
+        # pyrefly: ignore [unnecessary-comparison]
         assert app._model_load_attempted is True
 
 

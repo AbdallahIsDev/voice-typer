@@ -30,6 +30,7 @@ class TestCopy:
     def test_copy_returns_false_for_empty_text(self):
         cm = ClipboardManager(paste_enabled=False)
         assert cm.copy("") is False
+        # pyrefly: ignore [bad-argument-type]
         assert cm.copy(None) is False
 
     def test_copy_returns_false_on_exception(self, monkeypatch):

@@ -67,8 +67,10 @@ class SettingsController:
             "hotkey": self.config.hotkey != hotkey,
             "model_size": self.config.model_size != model_size,
             "microphone": self.config.microphone != microphone,
+            # pyrefly: ignore [unnecessary-type-conversion]
             "autostart": self.config.autostart is not bool(autostart),
             "show_notifications": (
+                # pyrefly: ignore [unnecessary-type-conversion]
                 self.config.show_notifications is not bool(show_notifications)
             ),
         }
@@ -76,7 +78,9 @@ class SettingsController:
         self.config.hotkey = hotkey
         self.config.model_size = model_size
         self.config.microphone = microphone
+        # pyrefly: ignore [unnecessary-type-conversion]
         self.config.autostart = bool(autostart)
+        # pyrefly: ignore [unnecessary-type-conversion]
         self.config.show_notifications = bool(show_notifications)
         self.config.save()
 
@@ -87,8 +91,10 @@ class SettingsController:
         if changes["microphone"] and self.on_microphone_changed:
             self.on_microphone_changed(microphone)
         if changes["autostart"] and self.on_autostart_changed:
+            # pyrefly: ignore [unnecessary-type-conversion]
             self.on_autostart_changed(bool(autostart))
         if changes["show_notifications"] and self.on_notifications_changed:
+            # pyrefly: ignore [unnecessary-type-conversion]
             self.on_notifications_changed(bool(show_notifications))
 
 

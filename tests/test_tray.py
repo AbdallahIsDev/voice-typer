@@ -534,7 +534,7 @@ class TestRealPystrayIntegration:
             )
 
         with pytest.raises(TypeError, match="argument after \\* must be an iterable"):
-            pystray.Menu(*build_items)
+            pystray.Menu(*build_items)  # pyrefly: ignore[not-iterable]
 
     def test_tray_code_uses_menu_wrapper(self):
         """Verify tray.py explicitly wraps the callable in pystray.Menu().
