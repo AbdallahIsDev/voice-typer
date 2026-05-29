@@ -15,13 +15,23 @@ Premium offline background voice-to-text utility for Windows. Runs in your syste
 
 No cloud. No API keys. No rate limits. Fully offline after first model download.
 
+## Quick Install (Windows — Easiest)
+
+1. Go to **[Releases](https://github.com/AbdallahIsDev/voice-typer/releases)**
+2. Download `VoiceTyper-Setup-1.0.0.exe`
+3. Double-click the installer
+4. Click Next → Install → Finish
+5. Voice Typer starts automatically — look for the microphone icon in your system tray
+
+No Python, no terminal, no commands needed.
+
 ## Requirements
 
-- Python 3.10 or later
 - Windows 10/11 (primary target; platform.py has stubs for macOS/Linux autostart but the app is not tested on those platforms)
 - A microphone
+- Internet on first run (downloads the Whisper model ~466MB)
 
-## Install
+## Manual Install (from source)
 
 ```bash
 pip install .
@@ -29,8 +39,6 @@ pip install .
 
 This installs the `voice-typer` command and all dependencies. The package
 must be installed (not just run from source) for autostart to work.
-
-First run downloads the Whisper model (~466MB for small.en). Subsequent runs are instant.
 
 ### Development install
 
@@ -40,6 +48,10 @@ pytest
 ```
 
 ## Run
+
+**If you used the installer:** find "Voice Typer" in your Start Menu and click it.
+
+**If you installed from source:**
 
 ```bash
 voice-typer
@@ -51,7 +63,7 @@ Or:
 python -m voice_typer
 ```
 
-The app runs in the system tray. No terminal window is shown (on Windows, it uses `pythonw.exe` automatically when launched via autostart).
+The app runs in the system tray — look for the microphone icon. No terminal window stays open.
 
 ## Settings
 
@@ -272,11 +284,11 @@ To verify reboot autostart: reboot, confirm the tray icon appears automatically,
 - Focus detection (for safe auto-paste) only works on Windows
 - First model download requires internet (~466MB)
 - Very long recordings (>10 min) may use significant RAM during transcription
-- No `.bat` files or setup scripts -- the app is installed via `pip install .` and run as `voice-typer` or `python -m voice_typer`
+- The standalone installer bundles Python + dependencies (no Python installation needed)
 
 ## Project Status
 
-Actively maintained. Uses proper type checking via Pyrefly. ~4000 lines of tests across 14 test files.
+Actively maintained. Uses proper type checking via Pyrefly. ~4000 lines of tests across 14 test files. Standalone Windows installer available.
 
 ## License
 
