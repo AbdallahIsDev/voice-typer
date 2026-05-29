@@ -10,8 +10,7 @@ __pycache__/
 runtime_log*.txt
 voice_typer_stderr.log
 Complete-Code-Review.md
-PROBLEMS.md
-PROMPT.md
+# PROBLEMS.md and PROMPT.md intentionally tracked now
 nul
 
 # Local editor/OS files
