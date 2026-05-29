@@ -252,8 +252,6 @@ class TrayIcon:
             )
         )
 
-        items.append(pystray.MenuItem("Settings...", self._wrap(self._controller.open_settings)))
-
         advanced_items = self._build_advanced_menu_items()
         if advanced_items:
             items.append(
