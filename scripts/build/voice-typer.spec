@@ -12,13 +12,16 @@ from pathlib import Path
 
 block_cipher = None
 
-# Locate the corrections.json data file
-_corrections_json = str(Path("voice_typer") / "corrections.json")
-_icon_path = str(Path("scripts") / "build" / "voice-typer.ico")
+# The spec file lives at <project>/scripts/build/voice-typer.spec
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+# Locate the corrections.json data file relative to project root
+_corrections_json = str(_PROJECT_ROOT / "voice_typer" / "corrections.json")
+_icon_path = _PROJECT_ROOT / "scripts" / "build" / "voice-typer.ico"
 
 a = Analysis(
-    ["voice_typer/__main__.py"],
-    pathex=["."],
+    [str(_PROJECT_ROOT / "voice_typer" / "__main__.py")],
+    pathex=[str(_PROJECT_ROOT)],
     binaries=[],
     datas=[(_corrections_json, "voice_typer")],
     hiddenimports=[
@@ -70,5 +73,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=_icon_path if Path(_icon_path).exists() else None,
+    icon=str(_icon_path) if _icon_path.exists() else None,
 )
