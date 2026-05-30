@@ -389,3 +389,54 @@ class TestH1NonNumericFieldValidation:
         assert c.silence_auto_stop_seconds == 120.0
         assert c.max_recording_seconds_gpu == 1200
         assert c.max_recording_seconds_cpu == 600
+
+
+class TestM3ConfigSchemaVersion:
+    """M3: No config schema versioning."""
+
+    def test_config_has_schema_version_field(self):
+        from voice_typer.config import Config
+        c = Config()
+        assert hasattr(c, "schema_version")
+        assert c.schema_version == 1
+
+    def test_config_save_load_preserves_schema_version(self, tmp_path, monkeypatch):
+        from voice_typer.config import Config
+        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        c = Config()
+        c.save()
+        loaded = Config.load()
+        assert loaded.schema_version == 1
+
+    def test_config_migration_from_version_0(self, tmp_path, monkeypatch):
+        from voice_typer.config import Config
+        import json
+        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"hotkey": "<f3>", "model_size": "small.en"}))
+        loaded = Config.load()
+        assert loaded.schema_version == 1
+        assert loaded.hotkey == "<f3>"
+
+
+class TestM4SaveErrorHandling:
+    """M4: save() has no error handling."""
+
+    def test_save_returns_false_on_permission_error(self, tmp_path, monkeypatch):
+        from voice_typer.config import Config
+        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        c = Config()
+        import json
+        original_dump = json.dump
+        def failing_dump(*args, **kwargs):
+            raise OSError("disk full")
+        monkeypatch.setattr("json.dump", failing_dump)
+        result = c.save()
+        assert result is False
+
+    def test_save_returns_true_on_success(self, tmp_path, monkeypatch):
+        from voice_typer.config import Config
+        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        c = Config()
+        result = c.save()
+        assert result is True

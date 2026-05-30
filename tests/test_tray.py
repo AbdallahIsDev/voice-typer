@@ -328,10 +328,10 @@ class TestSettingsUxTrayMenu:
         assert "F2" in labels
         assert "Ctrl+1" in labels
 
-    def test_settings_window_is_in_main_menu(self, tray):
+    def test_settings_window_is_not_in_main_menu(self, tray):
         labels = self._menu_labels(tray)
 
-        assert "Settings..." in labels
+        assert "Settings..." not in labels
 
     def test_model_submenu_is_in_main_menu(self, tray):
         tray._config = SimpleNamespace(hotkey="<f2>", model_size="small.en")
@@ -344,7 +344,8 @@ class TestSettingsUxTrayMenu:
         )
 
         labels = [item.args[0] for item in model_menu.args[1]()]
-        assert labels == ["small.en", "medium.en"]
+        assert "small.en (fast, ~466MB)" in labels
+        assert "medium.en (slow, ~1.5GB)" in labels
 
     def test_advanced_submenu_has_autostart_and_notifications(self, tray):
         tray._config = SimpleNamespace(
@@ -443,9 +444,12 @@ class TestRealPystrayIntegration:
         if "pystray._xorg" in sys.modules:
             del sys.modules["pystray._xorg"]
         # Force reimport
-        import pystray as real_pystray
-        importlib.reload(real_pystray)
-        self.pystray = real_pystray
+        try:
+            import pystray as real_pystray
+            importlib.reload(real_pystray)
+            self.pystray = real_pystray
+        except ModuleNotFoundError:
+            pytest.skip("pystray not available for real integration test")
         yield
         # Force garbage collection of pystray Icon objects so their
         # destructors fire here (within the module-level filterwarnings

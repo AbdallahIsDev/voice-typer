@@ -25,9 +25,16 @@ def _config_dir() -> Path:
     return Path(base) / "voice-typer"
 
 
+_CURRENT_SCHEMA_VERSION = 1
+
+_MIGRATIONS = {}
+
+
 @dataclass
 class Config:
     """Application configuration."""
+
+    schema_version: int = _CURRENT_SCHEMA_VERSION
 
     # Hotkey
     hotkey: str = "<f2>"
@@ -83,15 +90,23 @@ class Config:
     max_recording_seconds_gpu: int = 1200
     max_recording_seconds_cpu: int = 600
 
-    def save(self):
-        """Save config to disk atomically via temp file + os.replace."""
-        path = _config_dir()
-        path.mkdir(parents=True, exist_ok=True)
-        config_file = path / "config.json"
-        tmp_file = config_file.with_suffix(".tmp")
-        with open(tmp_file, "w") as f:
-            json.dump(asdict(self), f, indent=2)
-        os.replace(str(tmp_file), str(config_file))
+    def save(self) -> bool:
+        """Save config to disk atomically via temp file + os.replace.
+
+        Returns True on success, False on failure. Errors are logged but not raised.
+        """
+        try:
+            path = _config_dir()
+            path.mkdir(parents=True, exist_ok=True)
+            config_file = path / "config.json"
+            tmp_file = config_file.with_suffix(".tmp")
+            with open(tmp_file, "w") as f:
+                json.dump(asdict(self), f, indent=2)
+            os.replace(str(tmp_file), str(config_file))
+            return True
+        except (OSError, PermissionError) as e:
+            log.error("Failed to save config: %s", e)
+            return False
 
     @classmethod
     def load(cls) -> "Config":
@@ -102,6 +117,15 @@ class Config:
                 with open(config_file) as f:
                     data = json.load(f)
                 data = {k: v for k, v in data.items() if k in cls.__dataclass_fields__}
+
+                # M3: Schema versioning and migration
+                loaded_version = data.get("schema_version", 0)
+                for version in range(loaded_version + 1, _CURRENT_SCHEMA_VERSION + 1):
+                    migrator = _MIGRATIONS.get(version)
+                    if migrator is not None:
+                        data = migrator(data)
+                data["schema_version"] = _CURRENT_SCHEMA_VERSION
+
                 data["streaming_left_overlap_seconds"] = max(
                     float(data.get("streaming_left_overlap_seconds", 3.0)),
                     3.0,

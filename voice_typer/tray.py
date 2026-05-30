@@ -420,11 +420,14 @@ class TrayIcon:
         return wrapper
 
 
+_icon_cache: dict = {}
+
+
 def _make_icon(state: AppState, size: int = 64) -> Image.Image:
     """Generate a colored microphone icon based on state."""
     cache_key = (state, size)
-    if cache_key in _make_icon._icon_cache:
-        return _make_icon._icon_cache[cache_key]
+    if cache_key in _icon_cache:
+        return _icon_cache[cache_key]
     colors = {
         AppState.IDLE: (120, 120, 120, 255),
         AppState.RECORDING: (235, 64, 52, 255),
@@ -462,8 +465,5 @@ def _make_icon(state: AppState, size: int = 64) -> Image.Image:
         fill=color, width=max(2, size // 20),
     )
 
-    _make_icon._icon_cache[cache_key] = img
+    _icon_cache[cache_key] = img
     return img
-
-
-_make_icon._icon_cache: dict = {}

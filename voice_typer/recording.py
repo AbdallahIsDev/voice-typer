@@ -13,6 +13,10 @@ from voice_typer.config import Config
 
 log = logging.getLogger(__name__)
 
+MAX_BUFFER_CHUNKS = 30000
+BUFFER_WARNING_THRESHOLD = 5000
+TELEMETRY_LOG_INTERVAL = 1000
+
 _resample_poly = None
 _resample_poly_error: Exception | None = None
 _resample_poly_lock = threading.Lock()
@@ -48,7 +52,7 @@ class Recorder:
         self._stream: Optional[sd.InputStream] = None
         self._buffer: List[np.ndarray] = []
         self._lock = threading.Lock()
-        self._recording = False
+        self._recording_event = threading.Event()
         self._effective_sr: int = config.sample_rate
         self._last_rms: float = 0.0
         self._chunk_count: int = 0
@@ -69,12 +73,13 @@ class Recorder:
 
     @property
     def recording(self) -> bool:
-        return self._recording
+        return self._recording_event.is_set()
 
     @property
     def last_rms(self) -> float:
         """RMS level of the most recently captured audio (0.0 if never recorded)."""
-        return self._last_rms
+        with self._lock:
+            return self._last_rms
 
     def warm_up_resampler(self) -> None:
         """Import and initialize the high-quality resampler before recording stops."""
@@ -249,7 +254,7 @@ class Recorder:
 
     def start(self) -> None:
         """Start recording audio."""
-        if self._recording:
+        if self._recording_event.is_set():
             return
 
         self._buffer.clear()
@@ -265,8 +270,8 @@ class Recorder:
 
         def callback(indata, frames, time_info, status):
             with self._lock:
-                if self._chunk_count >= 30000:
-                    if self._chunk_count == 30000:
+                if self._chunk_count >= MAX_BUFFER_CHUNKS:
+                    if self._chunk_count == MAX_BUFFER_CHUNKS:
                         log.warning(
                             "[RECORDING] Buffer hard cap reached (30k chunks, ~30 min). "
                             "Dropping oldest chunks."
@@ -322,12 +327,12 @@ class Recorder:
                         except Exception:
                             pass
 
-                if self._chunk_count == 5000:
+                if self._chunk_count == BUFFER_WARNING_THRESHOLD:
                     log.warning(
                         "[RECORDING] Buffer is large (5k chunks, ~5 min). "
                         "Consider stopping recording."
                     )
-                if self._chunk_count % 1000 == 0:
+                if self._chunk_count % TELEMETRY_LOG_INTERVAL == 0:
                     log.info(
                         "[RECORDING] Buffer telemetry: chunks=%d, buffer_count=%d",
                         self._chunk_count,
@@ -376,7 +381,6 @@ class Recorder:
                     except Exception:
                         pass
                 self._stream = None
-                self._recording = False
                 continue
 
             self._stream = stream
@@ -462,7 +466,7 @@ class Recorder:
             except Exception as e:
                 log.debug("[RECORDING] Could not persist microphone fallback: %s", e)
 
-        self._recording = True
+        self._recording_event.set()
 
         target_sr = self.config.sample_rate
         if effective_sr != target_sr and _resample_poly is None and _resample_poly_error is None:
@@ -471,11 +475,11 @@ class Recorder:
 
     def stop(self) -> np.ndarray:
         """Stop recording and return the complete audio array."""
-        if not self._recording:
+        if not self._recording_event.is_set():
             return np.array([], dtype=np.float32)
 
         stop_started = time.perf_counter()
-        self._recording = False
+        self._recording_event.clear()
 
         stream_started = time.perf_counter()
         if self._stream:
@@ -666,7 +670,7 @@ class Recorder:
 
     def discard(self) -> None:
         """Discard current recording without processing."""
-        self._recording = False
+        self._recording_event.clear()
         self._effective_sr = self.config.sample_rate
         self._last_rms = 0.0
         self._silence_timer = 0.0

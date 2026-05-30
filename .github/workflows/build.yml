@@ -31,7 +31,10 @@ jobs:
         run: python scripts/build/generate_icon.py scripts/build/voice-typer.ico
 
       - name: Build with PyInstaller
-        run: pyinstaller scripts/build/voice-typer.spec --noconfirm --distpath dist --workpath build
+        run: |
+          pyinstaller scripts/build/voice-typer.spec --noconfirm --distpath dist --workpath build
+          echo "PyInstaller output:"
+          dir dist /s /b
 
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y

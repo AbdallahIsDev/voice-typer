@@ -165,25 +165,17 @@ class TranscriptionEngine:
         progress_callback: optional callable(message: str) for download/load status.
         """
         self._pre_download_model(self.model_size, progress_callback)
-        with self._lock:
-            self._load_unlocked(progress_callback=progress_callback)
+        self._load_model_outside_lock(progress_callback=progress_callback)
 
-    def _load_unlocked(self, progress_callback=None):
-        if self._model is not None:
-            return
+    def _load_model_outside_lock(self, progress_callback=None):
+        """Load model outside the lock so downloads don't block other threads."""
+        with self._lock:
+            if self._model is not None:
+                return
+            chain = self._build_fallback_chain()
 
         _configure_nvidia_dll_paths()
         from faster_whisper import WhisperModel
-
-        # Build fallback chain
-        chain: list[tuple[str, str, str]] = []  # (device, compute_type, model_size)
-        chain.append((self._device, self._compute_type, self.model_size))
-        if self._device != "cpu" or self._compute_type != "int8":
-            chain.append(("cpu", "int8", self.model_size))
-        if self.model_size != "tiny.en":
-            chain.append(("cpu", "int8", "tiny.en"))
-        # Last resort: float32 avoids MKL int8 memory allocation entirely
-        chain.append(("cpu", "float32", "tiny.en"))
 
         last_error = None
         for device, compute_type, model_size in chain:
@@ -194,16 +186,19 @@ class TranscriptionEngine:
                 )
                 if progress_callback:
                     progress_callback(f"Loading model '{model_size}'...")
-                self._model = WhisperModel(
+                model = WhisperModel(
                     model_size,
                     device=device,
                     compute_type=compute_type,
                 )
-                # Update stored device info on success
-                self._device = device
-                self._compute_type = compute_type
-                self._loaded_model_size = model_size
-                self.model_size = self._configured_model_size
+                with self._lock:
+                    if self._model is not None:
+                        return
+                    self._model = model
+                    self._device = device
+                    self._compute_type = compute_type
+                    self._loaded_model_size = model_size
+                    self.model_size = self._configured_model_size
                 log.info("Model loaded via %s", self.loaded_via)
                 return
             except Exception as exc:
@@ -212,11 +207,62 @@ class TranscriptionEngine:
                     "Model load failed on %s (%s) model=%s: %s",
                     device, compute_type, model_size, exc,
                 )
-                self._model = None
 
-        # All paths exhausted
         raise RuntimeError(
             f"Failed to load Whisper model on any device/model. "
+            f"Last error: {last_error}"
+        ) from last_error
+
+    def _build_fallback_chain(self) -> list[tuple[str, str, str]]:
+        """Build the fallback chain for model loading."""
+        chain: list[tuple[str, str, str]] = []
+        chain.append((self._device, self._compute_type, self.model_size))
+        if self._device != "cpu" or self._compute_type != "int8":
+            chain.append(("cpu", "int8", self.model_size))
+        if self.model_size != "tiny.en":
+            chain.append(("cpu", "int8", "tiny.en"))
+        chain.append(("cpu", "float32", "tiny.en"))
+        return chain
+
+    def _reload_under_lock(self):
+        """Reload the model while already holding the lock (for GPU fallback).
+
+        This is used when the lock is already held by the calling method
+        (e.g. transcribe_with_fallback). Constructs the model under the
+        lock since we're already in a locked context.
+        """
+        _configure_nvidia_dll_paths()
+        from faster_whisper import WhisperModel
+
+        chain = self._build_fallback_chain()
+        last_error = None
+        for device, compute_type, model_size in chain:
+            try:
+                log.info(
+                    "Reloading Whisper model '%s' on %s (%s)...",
+                    model_size, device, compute_type,
+                )
+                self._model = WhisperModel(
+                    model_size,
+                    device=device,
+                    compute_type=compute_type,
+                )
+                self._device = device
+                self._compute_type = compute_type
+                self._loaded_model_size = model_size
+                self.model_size = self._configured_model_size
+                log.info("Model reloaded via %s", self.loaded_via)
+                return
+            except Exception as exc:
+                last_error = exc
+                log.warning(
+                    "Model reload failed on %s (%s) model=%s: %s",
+                    device, compute_type, model_size, exc,
+                )
+                self._model = None
+
+        raise RuntimeError(
+            f"Failed to reload Whisper model on any device/model. "
             f"Last error: {last_error}"
         ) from last_error
 
@@ -398,7 +444,7 @@ class TranscriptionEngine:
             self._model = None
             self._device = "cpu"
             self._compute_type = "int8"
-            self._load_unlocked()  # reloads with the new CPU config
+            self._reload_under_lock()
             return self._transcribe_unlocked(audio)
 
     def transcribe_words(self, audio: np.ndarray, offset_seconds: float = 0.0):
@@ -431,7 +477,7 @@ class TranscriptionEngine:
             self._model = None
             self._device = "cpu"
             self._compute_type = "int8"
-            self._load_unlocked()
+            self._reload_under_lock()
             return self._transcribe_words_unlocked(audio, offset_seconds)
 
     def _transcribe_words_unlocked(self, audio: np.ndarray, offset_seconds: float):
@@ -479,10 +525,14 @@ class TranscriptionEngine:
     def _is_gpu_runtime_error(self, exc: Exception) -> bool:
         if self._device == "cpu":
             return False
-        # M11: Check exception type hierarchy first
-        exc_type = type(exc).__name__.lower()
-        if any(kw in exc_type for kw in ["cudnn", "cublas", "cuda", "ctranslate2"]):
-            return True
+        # M11: Check exception type hierarchy first via MRO
+        for cls in type(exc).__mro__:
+            cls_name = cls.__name__.lower()
+            if any(kw in cls_name for kw in ["cudnn", "cublas", "cuda", "ctranslate2"]):
+                return True
+            cls_module = getattr(cls, "__module__", "") or ""
+            if any(kw in cls_module.lower() for kw in ["ctranslate2", "cudnn", "cublas"]):
+                return True
         # Fallback to string matching for wrapped/re-raised errors
         error_str = str(exc).lower()
         return any(kw in error_str for kw in [

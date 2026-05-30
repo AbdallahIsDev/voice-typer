@@ -215,10 +215,13 @@ def _enable_autostart_macos() -> bool:
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
-    <true/>
+    <false/>
+    <key>WorkingDirectory</key>
+    <string>~</string>
 </dict>
 </plist>"""
     plist_path.write_text(plist_content)
+    plist_path.chmod(0o644)
     try:
         import subprocess
         subprocess.run(["launchctl", "load", str(plist_path)], check=False, capture_output=True)
@@ -243,6 +246,7 @@ def _is_autostart_macos() -> bool:
 # ─── Linux ─────────────────────────────────────────────────────────────
 
 def _enable_autostart_linux() -> bool:
+    import shlex
     autostart_dir = get_autostart_dir()
     autostart_dir.mkdir(parents=True, exist_ok=True)
     desktop_path = autostart_dir / "voice-typer.desktop"
@@ -251,7 +255,7 @@ def _enable_autostart_linux() -> bool:
 Type=Application
 Name=Voice Typer
 Comment=Background voice-to-text utility
-Exec={sys.executable} -m voice_typer
+Exec={shlex.quote(sys.executable)} -m voice_typer
 Icon=audio-input-microphone
 Hidden=false
 NoDisplay=true

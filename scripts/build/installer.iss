@@ -6,7 +6,7 @@
 #define MyAppPublisher "AbdallahIsDev"
 #define MyAppURL "https://github.com/AbdallahIsDev/voice-typer"
 #define MyAppExeName "VoiceTyper.exe"
-#define MyBuildDir "dist\VoiceTyper"
+#define MyBuildDir "..\..\dist"
 
 [Setup]
 AppId={{8E6F5B1A-2C3D-4A5E-9B7C-1D2E3F4A5B6C}

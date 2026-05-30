@@ -307,8 +307,15 @@ def _correct_whisper_phrases(text: str) -> str:
                 if original.isupper():
                     return replacement.upper()
                 elif original[0].isupper() and not original[1:].isupper():
-                    # Title case
+                    # Title case: first letter upper, rest lower
                     return replacement[0].upper() + replacement[1:]
+                elif any(c.isupper() for c in original[1:]):
+                    # Mixed case: try to map uppercase positions from original to replacement
+                    result = list(replacement.lower())
+                    for i, c in enumerate(original):
+                        if i < len(result) and c.isupper():
+                            result[i] = result[i].upper()
+                    return "".join(result)
                 else:
                     return replacement
             text = pattern.sub(_apply_case_preserving_replacement, text)
@@ -346,29 +353,42 @@ def _capitalize_sentences(text: str) -> str:
 _ROMAN_NUMERAL_CONTEXT_WORDS = {
     "section", "chapter", "part", "book", "henry", "louis",
     "richard", "king", "pope", "volume", "page",
+    "act", "scene", "title", "appendix", "amendment",
+    "article", "rule", "step", "phase", "stage",
+}
+
+_ROMAN_NUMERAL_FOLLOWING_WORDS = {
+    "through", "to", "and", "or", "through", "thru", "vs",
+    "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x",
 }
 
 
 def _capitalize_pronoun_i(text: str) -> str:
     """Capitalize the pronoun 'i' but not Roman numeral 'i'."""
-    # Split text into tokens, identify 'i' that should be capitalized
-    # We process the text looking for standalone 'i' surrounded by word boundaries
     result = []
     i = 0
     while i < len(text):
-        # Check for standalone 'i'
         if (
             text[i] == 'i'
             and (i == 0 or not text[i - 1].isalpha())
             and (i + 1 >= len(text) or not text[i + 1].isalpha())
         ):
-            # Check if preceded by a Roman numeral context word
             preceding = text[:i].rstrip()
             last_word = preceding.rsplit(None, 1)[-1] if preceding and preceding[-1].isalpha() else ""
             if last_word.lower() in _ROMAN_NUMERAL_CONTEXT_WORDS:
                 result.append('i')
             else:
-                result.append('I')
+                following = text[i + 1:].lstrip()
+                next_word = ""
+                for ch in following:
+                    if ch.isalpha():
+                        next_word += ch
+                    else:
+                        break
+                if next_word.lower() in _ROMAN_NUMERAL_FOLLOWING_WORDS:
+                    result.append('i')
+                else:
+                    result.append('I')
         else:
             result.append(text[i])
         i += 1

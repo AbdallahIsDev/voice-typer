@@ -867,6 +867,10 @@ class VoiceTyperApp:
         """TrayController protocol: change hotkey."""
         self._restart_hotkey(hotkey)
 
+    def set_hotkey(self, hotkey: str) -> None:
+        """TrayController protocol: set hotkey (alias for change_hotkey)."""
+        self._restart_hotkey(hotkey)
+
     def open_settings(self) -> None:
         """TrayController protocol: open settings window."""
         self.show_settings()

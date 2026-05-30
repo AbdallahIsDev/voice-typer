@@ -298,6 +298,8 @@ class StreamingTranscriptionSession:
         self._stopped_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._fallback_required = False
+        self._consecutive_failures = 0
+        self._max_consecutive_failures = 3
         self._finalizing = False
 
     @property
@@ -361,10 +363,17 @@ class StreamingTranscriptionSession:
                 words,
                 right_guard_seconds=self.config.right_guard_seconds,
             )
+            self._consecutive_failures = 0
             return True
         except Exception as exc:
             log.exception("[STREAMING] Chunk transcription failed: %s", exc)
-            self._fallback_required = True
+            self._consecutive_failures += 1
+            if self._consecutive_failures >= self._max_consecutive_failures:
+                log.warning(
+                    "[STREAMING] %d consecutive failures, requiring fallback",
+                    self._consecutive_failures,
+                )
+                self._fallback_required = True
             return False
 
     def _finalize_impl(self, full_audio: np.ndarray) -> str:

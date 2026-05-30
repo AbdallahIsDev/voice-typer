@@ -503,3 +503,81 @@ class TestM18AssemblerLock:
             t.join(timeout=5.0)
 
         assert len(errors) == 0
+
+
+class TestM17TransientErrorRetry:
+    """M17: Transient errors permanently disable streaming — now uses retry counter."""
+
+    def test_single_failure_does_not_require_fallback(self):
+        """A single transient error should NOT set _fallback_required."""
+        recorder = MagicMock()
+        recorder.snapshot.return_value = audio_seconds(6.0)
+        transcriber = MagicMock()
+        transcriber.transcribe_words.side_effect = RuntimeError("transient CUDA error")
+
+        session = StreamingTranscriptionSession(
+            recorder=recorder,
+            transcriber=transcriber,
+            config=StreamingConfig(min_first_chunk_seconds=5.0, chunk_seconds=5.0),
+            sample_rate=SAMPLE_RATE,
+        )
+
+        session.process_available_audio_once()
+
+        assert session._fallback_required is False
+        assert session._consecutive_failures == 1
+
+    def test_repeated_failures_set_fallback(self):
+        """After N consecutive failures, _fallback_required should be True."""
+        for max_fails in [2, 3]:
+            recorder = MagicMock()
+            recorder.snapshot.return_value = audio_seconds(6.0)
+            transcriber = MagicMock()
+            transcriber.transcribe_words.side_effect = RuntimeError("transient CUDA error")
+
+            session = StreamingTranscriptionSession(
+                recorder=recorder,
+                transcriber=transcriber,
+                config=StreamingConfig(min_first_chunk_seconds=5.0, chunk_seconds=5.0),
+                sample_rate=SAMPLE_RATE,
+            )
+            session._max_consecutive_failures = max_fails
+
+            for i in range(max_fails):
+                session.process_available_audio_once()
+                # Reset planner to allow re-processing same audio
+                session.planner = AudioWindowPlanner(session.config)
+
+            assert session._fallback_required is True
+
+    def test_success_resets_consecutive_failure_counter(self):
+        """A successful transcription should reset the consecutive failure counter."""
+        recorder = MagicMock()
+        transcriber = MagicMock()
+
+        fail = [True]
+        def conditional_failure(*args, **kwargs):
+            if fail[0]:
+                fail[0] = False
+                raise RuntimeError("transient CUDA error")
+            return [WordTiming("word", start_seconds=1.0, end_seconds=1.5)]
+
+        transcriber.transcribe_words.side_effect = conditional_failure
+
+        session = StreamingTranscriptionSession(
+            recorder=recorder,
+            transcriber=transcriber,
+            config=StreamingConfig(min_first_chunk_seconds=5.0, chunk_seconds=5.0),
+            sample_rate=SAMPLE_RATE,
+        )
+
+        recorder.snapshot.return_value = audio_seconds(6.0)
+        session.process_available_audio_once()
+        assert session._consecutive_failures == 1
+        assert session._fallback_required is False
+
+        # Reset planner for next call
+        session.planner = AudioWindowPlanner(session.config)
+        session.process_available_audio_once()
+        assert session._consecutive_failures == 0
+        assert session._fallback_required is False

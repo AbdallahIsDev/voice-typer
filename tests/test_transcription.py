@@ -161,7 +161,8 @@ class TestFallbackChain:
         assert engine.is_loaded
         assert engine._device == "cpu"
         assert engine._compute_type == "float32"
-        assert engine.model_size == "tiny.en"
+        assert engine.model_size == "small.en"
+        assert engine._loaded_model_size == "tiny.en"
         assert "float32" in engine.device_info
 
     def test_loaded_via_reflects_actual_path(self):

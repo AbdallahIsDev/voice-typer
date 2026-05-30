@@ -33,10 +33,15 @@ def test_format_function_hotkey_accepts_f1_through_f12(number):
     assert format_function_hotkey(f"F{number}") == f"<f{number}>"
 
 
-@pytest.mark.parametrize("value", ["F0", "F13", "A", "<f2>", "", "Ctrl+F2"])
+@pytest.mark.parametrize("value", ["F0", "F13", "A", "<f2>", ""])
 def test_format_function_hotkey_rejects_unsupported_values(value):
     with pytest.raises(ValueError):
         format_function_hotkey(value)
+
+
+def test_format_function_hotkey_accepts_composite_hotkeys():
+    """Composite hotkeys like Ctrl+F2 should be accepted."""
+    assert format_function_hotkey("Ctrl+F2") == "<ctrl>+<f2>"
 
 
 def test_settings_controller_applies_config_values_and_callbacks():

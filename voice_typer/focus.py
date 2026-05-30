@@ -341,19 +341,28 @@ def _get_process_name(user32, kernel32, hwnd: int) -> str | None:
 def _class_matches(class_name: str, known_classes: set[str]) -> bool:
     """Check if *class_name* contains any entry from *known_classes*.
 
-    Uses word-boundary matching (case-insensitive, since class_name is
-    already lowered) to avoid false positives from substring matches.
-    Underscores are treated as word separators by replacing them with
-    spaces before matching, so that patterns like ``chrome_widgetwin_``
-    correctly match ``chrome_widgetwin_1``.
+    For patterns that end with an underscore (e.g. ``chrome_widgetwin_``),
+    uses word-boundary matching after replacing underscores with spaces,
+    so that the trailing underscore acts as a prefix boundary.
+
+    For patterns without a trailing underscore (e.g. ``richedit``,
+    ``renderwidgethost``), uses simple case-insensitive substring matching,
+    since these patterns need to match compound names like ``richedit20w``
+    and ``chrome_renderwidgethosthwnd``.
     """
-    normalized = class_name.replace('_', ' ')
+    class_lower = class_name.lower()
     for pattern in known_classes:
-        normalized_pattern = pattern.replace('_', ' ')
-        if re.search(
-            r'\b' + re.escape(normalized_pattern) + r'\b',
-            normalized,
-            re.IGNORECASE,
-        ):
-            return True
+        pattern_lower = pattern.lower()
+        if pattern_lower.endswith('_'):
+            normalized = class_lower.replace('_', ' ')
+            normalized_pattern = pattern_lower.rstrip('_').replace('_', ' ')
+            if re.search(
+                r'\b' + re.escape(normalized_pattern) + r'\b',
+                normalized,
+                re.IGNORECASE,
+            ):
+                return True
+        else:
+            if pattern_lower in class_lower:
+                return True
     return False

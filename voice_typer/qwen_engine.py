@@ -11,6 +11,7 @@ Key constraints:
 
 import logging
 import re
+import threading
 from typing import Optional
 
 import numpy as np
@@ -46,13 +47,15 @@ class QwenEngine:
         self.device = device
         self.language = language
         self._model = None
+        self._lock = threading.RLock()
 
     # ── Public interface ──────────────────────────────────────────────
 
     @property
     def is_loaded(self) -> bool:
         """Return True if the model has been loaded successfully."""
-        return self._model is not None
+        with self._lock:
+            return self._model is not None
 
     def load(self) -> bool:
         """Load the Qwen ASR model from the local ``model_path``.
@@ -66,72 +69,74 @@ class QwenEngine:
         ``transcribe()``.
 
         Returns True on success, False on failure.
+        Raises RuntimeError if the qwen-asr package is missing (distinct
+        from other load failures so callers can distinguish them).
         """
-        if self._model is not None:
-            return True
+        with self._lock:
+            if self._model is not None:
+                return True
 
-        try:
-            import qwen_asr  # type: ignore[import-untyped]
+            try:
+                import qwen_asr  # type: ignore[import-untyped]
 
-            log.info(
-                "[QWEN] Loading Qwen3-ASR model from %s (device=%s)...",
-                self.model_path,
-                self.device,
-            )
-            self._model = qwen_asr.Qwen3ASRModel.from_pretrained(
-                self.model_path,
-            )
-            log.info("[QWEN] Model loaded successfully from %s", self.model_path)
-            return True
-        except ImportError:
-            log.error(
-                "[QWEN] qwen-asr package is not installed. "
-                "Install it with: pip install qwen-asr"
-            )
-            self._model = None
-            return False
-        except Exception as exc:
-            log.error(
-                "[QWEN] Failed to load Qwen3-ASR model from %s: %s",
-                self.model_path,
-                exc,
-            )
-            self._model = None
-            return False
+                log.info(
+                    "[QWEN] Loading Qwen3-ASR model from %s (device=%s)...",
+                    self.model_path,
+                    self.device,
+                )
+                self._model = qwen_asr.Qwen3ASRModel.from_pretrained(
+                    self.model_path,
+                )
+                log.info("[QWEN] Model loaded successfully from %s", self.model_path)
+                return True
+            except ImportError as exc:
+                raise RuntimeError(
+                    "qwen-asr package is not installed. "
+                    "Install it with: pip install qwen-asr"
+                ) from exc
+            except Exception as exc:
+                log.error(
+                    "[QWEN] Failed to load Qwen3-ASR model from %s: %s",
+                    self.model_path,
+                    exc,
+                )
+                self._model = None
+                return False
 
     def transcribe(self, audio: np.ndarray) -> str:
         """Transcribe audio array. Returns cleaned text string.
 
         Raises ``RuntimeError`` if the model is not loaded.
         """
-        if self._model is None:
-            raise RuntimeError(
-                "Qwen model not loaded. Call load() first or check logs for errors."
+        with self._lock:
+            if self._model is None:
+                raise RuntimeError(
+                    "Qwen model not loaded. Call load() first or check logs for errors."
+                )
+
+            if len(audio) == 0:
+                return ""
+
+            # Qwen transcribe() expects (np.ndarray, sample_rate) tuples
+            sample_rate = 16000
+            result = self._model.transcribe(
+                (audio, sample_rate),
+                language=self.language,
             )
 
-        if len(audio) == 0:
-            return ""
+            # result is a list of ASRTranscription objects
+            if not result:
+                return ""
 
-        # Qwen transcribe() expects (np.ndarray, sample_rate) tuples
-        sample_rate = 16000
-        result = self._model.transcribe(
-            (audio, sample_rate),
-            language=self.language,
-        )
+            # Extract text from the first (and usually only) transcription
+            text = result[0].text if hasattr(result[0], "text") else str(result[0])
+            text = text.strip()
 
-        # result is a list of ASRTranscription objects
-        if not result:
-            return ""
+            # M13: Reject low-audio hallucinations
+            if self._should_reject_low_audio_hallucination(audio, text):
+                return ""
 
-        # Extract text from the first (and usually only) transcription
-        text = result[0].text if hasattr(result[0], "text") else str(result[0])
-        text = text.strip()
-
-        # M13: Reject low-audio hallucinations
-        if self._should_reject_low_audio_hallucination(audio, text):
-            return ""
-
-        return text
+            return text
 
     def _should_reject_low_audio_hallucination(
         self, audio: np.ndarray, text: str
@@ -149,5 +154,6 @@ class QwenEngine:
 
     def unload(self):
         """Free model memory."""
-        self._model = None
+        with self._lock:
+            self._model = None
         log.info("[QWEN] Model unloaded")

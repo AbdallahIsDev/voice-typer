@@ -47,7 +47,7 @@ class TestStopAudioPrep:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        r._recording = True
+        r._recording_event.set()
         r._effective_sr = 16000
         r._stream = MagicMock()
         r._buffer = [
@@ -74,7 +74,7 @@ class TestStopAudioPrep:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        r._recording = True
+        r._recording_event.set()
         r._effective_sr = 48000
         r._stream = MagicMock()
         r._buffer = [np.ones((6, 1), dtype=np.float32)]
@@ -92,7 +92,7 @@ class TestStopAudioPrep:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        r._recording = True
+        r._recording_event.set()
         r._effective_sr = 16000
         r._stream = MagicMock()
         r._buffer = [np.ones((4, 1), dtype=np.float32)]
@@ -239,7 +239,7 @@ class TestStopAudioPrep:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        r._recording = True
+        r._recording_event.set()
         r._effective_sr = 16000
         r._stream = MagicMock()
         r._buffer = [
@@ -260,7 +260,7 @@ class TestStopAudioPrep:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        r._recording = True
+        r._recording_event.set()
         r._effective_sr = 16000
         r._buffer = []
 
@@ -282,7 +282,7 @@ class TestStopAudioPrep:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        r._recording = True
+        r._recording_event.set()
         r._effective_sr = 48000
         r._buffer = [np.ones((6, 1), dtype=np.float32)]
 
@@ -304,7 +304,7 @@ class TestStopAudioPrep:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        r._recording = True
+        r._recording_event.set()
         r._effective_sr = 48000
         r._buffer = [np.ones((6, 1), dtype=np.float32)]
 
@@ -332,7 +332,7 @@ class TestH15CachedResampling:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        r._recording = True
+        r._recording_event.set()
         r._effective_sr = 48000
         r._stream = MagicMock()
         r._buffer = [np.ones((6, 1), dtype=np.float32)]
@@ -356,7 +356,7 @@ class TestH15CachedResampling:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        r._recording = True
+        r._recording_event.set()
         r._effective_sr = 16000
         r._stream = MagicMock()
         r._buffer = [np.ones((4, 1), dtype=np.float32)]
@@ -413,7 +413,7 @@ class TestH12SilenceDetection:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        r._recording = True
+        r._recording_event.set()
         r._effective_sr = 16000
         r._stream = MagicMock()
         r._buffer = [np.ones((4, 1), dtype=np.float32)]
@@ -431,7 +431,7 @@ class TestH12SilenceDetection:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        r._recording = True
+        r._recording_event.set()
         r._stream = MagicMock()
         r._cached_resampled = np.ones(10, dtype=np.float32)
         r._cached_native_chunk_count = 5
