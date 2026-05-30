@@ -18,7 +18,7 @@ import time
 import pyperclip
 from pynput.keyboard import Key, Controller
 
-from voice_typer.focus import is_text_input_focused, _TEXT_PROCESS_NAMES
+from voice_typer.focus import is_text_input_focused
 
 log = logging.getLogger(__name__)
 
@@ -56,7 +56,6 @@ class ClipboardManager:
         self.paste_enabled = paste_enabled
         self.unsafe_paste_on_unknown_focus = unsafe_paste_on_unknown_focus
         self._keyboard = Controller()
-        self._focused_process: str | None = None
 
     @staticmethod
     def _is_terminal_process(process_name: str | None) -> bool:

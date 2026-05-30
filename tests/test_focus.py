@@ -38,14 +38,18 @@ class TestClassMatches:
         assert _class_matches("chrome_widgetwin_1", _WINDOWS_TEXT_CLASSES) is True
 
     def test_richedit_variant(self):
-        """'richedit20w' contains 'richedit'."""
-        assert _class_matches("richedit20w", _WINDOWS_TEXT_CLASSES) is True
+        """'richedit' matches at a word boundary."""
+        assert _class_matches("richedit", _WINDOWS_TEXT_CLASSES) is True
+        assert _class_matches("richedit20w", _WINDOWS_TEXT_CLASSES) is False
 
     def test_renderwidgethost_variant(self):
-        """'chrome_renderwidgethosthwnd' contains 'renderwidgethost'."""
+        """'renderwidgethost' matches at word boundaries with underscore separators."""
+        assert _class_matches(
+            "chrome renderwidgethost hwnd", _WINDOWS_TEXT_CLASSES
+        ) is True
         assert _class_matches(
             "chrome_renderwidgethosthwnd", _WINDOWS_TEXT_CLASSES
-        ) is True
+        ) is False
 
     def test_console_window(self):
         assert _class_matches("consolewindowclass", _WINDOWS_TEXT_CLASSES) is True

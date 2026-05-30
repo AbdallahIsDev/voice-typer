@@ -9,21 +9,60 @@ from typing import Callable, Optional
 ALLOWED_MODELS = ("small.en", "medium.en")
 
 _FUNCTION_KEY_RE = re.compile(r"^F([1-9]|1[0-2])$")
-_HOTKEY_RE = re.compile(r"^<f([1-9]|1[0-2])>$", re.IGNORECASE)
+_MODIFIER_RE = r"(<(?:ctrl|alt|shift|cmd|win|super)>\+)+"
+_KEY_RE = r"(<f([1-9]|1[0-2]|2[0-4])>|<[a-z]>|<[0-9]>)"
+_HOTKEY_RE = re.compile(
+    rf"^(?:{_MODIFIER_RE}{_KEY_RE}|<f([1-9]|1[0-2])>)$",
+    re.IGNORECASE,
+)
 
 
 def display_hotkey(value: str) -> str:
-    """Return a user-facing label for a stored function-key hotkey."""
-    match = _HOTKEY_RE.match(value.strip())
-    if not match:
+    """Return a user-facing label for a stored hotkey."""
+    value = value.strip()
+    if not _HOTKEY_RE.match(value):
         return value
-    return f"F{match.group(1)}"
+    parts = []
+    for part in value.split("+"):
+        clean = part.strip().strip("<>").lower()
+        if clean == "ctrl":
+            parts.append("Ctrl")
+        elif clean == "alt":
+            parts.append("Alt")
+        elif clean == "shift":
+            parts.append("Shift")
+        elif clean in {"cmd", "win", "super"}:
+            parts.append("Win")
+        elif clean.startswith("f") and clean[1:].isdigit():
+            parts.append(f"F{clean[1:]}")
+        else:
+            parts.append(clean.upper())
+    return "+".join(parts)
 
 
 def format_function_hotkey(key_name: str) -> str:
-    """Return pynput-style hotkey text for F1-F12."""
-    key = key_name.strip().upper()
-    match = _FUNCTION_KEY_RE.match(key)
+    """Return pynput-style hotkey text for F1-F12 and composite hotkeys."""
+    key = key_name.strip()
+    if "+" in key:
+        parts = []
+        for part in key.split("+"):
+            part = part.strip().lower()
+            if part in {"ctrl", "alt", "shift", "cmd", "win", "super"}:
+                parts.append(f"<{part}>")
+            elif _FUNCTION_KEY_RE.match(part.upper()):
+                parts.append(f"<f{part[1:]}>")
+            elif len(part) == 1 and part.isalpha():
+                parts.append(f"<{part}>")
+            elif len(part) == 1 and part.isdigit():
+                parts.append(f"<{part}>")
+            else:
+                raise ValueError(f"Unsupported hotkey: {key_name}")
+        result = "+".join(parts)
+        if not _HOTKEY_RE.match(result):
+            raise ValueError(f"Unsupported hotkey: {key_name}")
+        return result
+    upper = key.upper()
+    match = _FUNCTION_KEY_RE.match(upper)
     if not match:
         raise ValueError(f"Unsupported hotkey: {key_name}")
     return f"<f{match.group(1)}>"

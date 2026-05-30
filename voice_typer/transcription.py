@@ -6,11 +6,33 @@ import site
 import sys
 import threading
 import re
-from typing import Optional
+from typing import Optional, Protocol, runtime_checkable
 
 import numpy as np
 
 log = logging.getLogger(__name__)
+
+
+@runtime_checkable
+class TranscriberProtocol(Protocol):
+    """Protocol that any transcription engine must implement."""
+
+    @property
+    def is_loaded(self) -> bool: ...
+
+    def load(self, progress_callback=None) -> None: ...
+
+    def transcribe(self, audio: np.ndarray) -> str: ...
+
+    def transcribe_with_fallback(self, audio: np.ndarray) -> str: ...
+
+    def unload(self) -> None: ...
+
+    @property
+    def device_info(self) -> str: ...
+
+    @property
+    def loaded_via(self) -> str: ...
 
 _WHISPER_SAMPLE_RATE = 16000  # Whisper always expects 16kHz input
 _nvidia_dll_path_handles: list[object] = []
@@ -83,6 +105,8 @@ class TranscriptionEngine:
         condition_on_previous_text: bool = False,
     ):
         self.model_size = model_size
+        self._configured_model_size = model_size
+        self._loaded_model_size: str | None = None
         self.language = language
         self.beam_size = beam_size
         self.best_of = best_of
@@ -180,7 +204,8 @@ class TranscriptionEngine:
                 # Update stored device info on success
                 self._device = device
                 self._compute_type = compute_type
-                self.model_size = model_size
+                self._loaded_model_size = model_size
+                self.model_size = self._configured_model_size
                 log.info("Model loaded via %s", self.loaded_via)
                 return
             except Exception as exc:

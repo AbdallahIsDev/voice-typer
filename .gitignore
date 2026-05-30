@@ -11,6 +11,7 @@ runtime_log*.txt
 voice_typer_stderr.log
 PROBLEMS.md
 PROMPT.md
+REPORT.md
 nul
 
 # Local editor/OS files

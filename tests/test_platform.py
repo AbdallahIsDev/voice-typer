@@ -133,7 +133,7 @@ class TestLinuxAutostartEscaping:
         desktop_path = tmp_path / "voice-typer.desktop"
         assert desktop_path.exists()
         content = desktop_path.read_text()
-        assert 'Exec="/usr/bin/python3" -m voice_typer' in content
+        assert 'Exec=/usr/bin/python3 -m voice_typer' in content
 
     def test_exec_line_escapes_ampersand_in_path(self, tmp_path, monkeypatch):
         monkeypatch.setattr("voice_typer.platform.SYSTEM", "linux")
@@ -145,8 +145,7 @@ class TestLinuxAutostartEscaping:
 
         desktop_path = tmp_path / "voice-typer.desktop"
         content = desktop_path.read_text()
-        assert "&amp;" in content
-        assert "user &amp; test" in content
+        assert "'/home/user & test/bin/python'" in content
 
     def test_disable_removes_desktop_file(self, tmp_path, monkeypatch):
         monkeypatch.setattr("voice_typer.platform.SYSTEM", "linux")

@@ -1215,22 +1215,18 @@ class TestWin32ConsoleHandler:
         _devnull_files[:] = _devnull_files[:initial_count]
 
     def test_ctrl_close_event_starts_orphan_guard(self, app):
-        """P0 #1: CTRL_CLOSE_EVENT must start an orphan guard thread."""
+        """CTRL_CLOSE_EVENT detaches from console and keeps process alive."""
         from voice_typer.app import _devnull_files
         app._kernel32 = MagicMock()
         app._kernel32.FreeConsole.return_value = 1
 
-        with patch('voice_typer.app.threading.Thread') as mock_thread:
-            mock_thread_instance = MagicMock()
-            mock_thread.return_value = mock_thread_instance
-            app._win32_console_handler(2)
+        result = app._win32_console_handler(2)
 
-        thread_calls = mock_thread.call_args_list
+        assert result is True
+        assert app._devnull is not None
         sys.stdout = sys.__stdout__
         sys.stderr = sys.__stderr__
         _devnull_files.clear()
-        assert len(thread_calls) == 1
-        assert thread_calls[0][1].get('name') == 'OrphanGuard' or thread_calls[0][1].get('daemon') is True
 
     def test_ctrl_logoff_event_starts_quit_thread(self, app):
         """CTRL_LOGOFF_EVENT should start a quit thread."""

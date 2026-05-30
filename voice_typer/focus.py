@@ -20,6 +20,7 @@ On other platforms returns None (unknown).
 
 import ctypes
 import logging
+import re
 import sys
 
 log = logging.getLogger(__name__)
@@ -340,8 +341,19 @@ def _get_process_name(user32, kernel32, hwnd: int) -> str | None:
 def _class_matches(class_name: str, known_classes: set[str]) -> bool:
     """Check if *class_name* contains any entry from *known_classes*.
 
-    Uses substring matching (case-insensitive, since class_name is
-    already lowered).  For example, "chrome_renderwidgethosthwnd"
-    contains "renderwidgethost".
+    Uses word-boundary matching (case-insensitive, since class_name is
+    already lowered) to avoid false positives from substring matches.
+    Underscores are treated as word separators by replacing them with
+    spaces before matching, so that patterns like ``chrome_widgetwin_``
+    correctly match ``chrome_widgetwin_1``.
     """
-    return any(pattern in class_name for pattern in known_classes)
+    normalized = class_name.replace('_', ' ')
+    for pattern in known_classes:
+        normalized_pattern = pattern.replace('_', ' ')
+        if re.search(
+            r'\b' + re.escape(normalized_pattern) + r'\b',
+            normalized,
+            re.IGNORECASE,
+        ):
+            return True
+    return False

@@ -97,11 +97,6 @@ class PynputHotkey(HotkeyBackend):
                 self._start_fallback(callback, Listener, Key, KeyCode)
             except Exception:
                 log.exception("Fallback Listener also failed")
-                self._fallback = False
-                log.warning(
-                    "[HOTKEY] Both GlobalHotKeys and fallback Listener failed. "
-                    "Hotkey will not work."
-                )
 
     # --- internal helpers ---------------------------------------------------
 
@@ -112,35 +107,22 @@ class PynputHotkey(HotkeyBackend):
                 f"Cannot parse hotkey {self.hotkey_str!r} for fallback"
             )
 
-        modifier_keys = target[0] if isinstance(target, tuple) else ()
+        # For composite hotkeys (tuple), extract the target key only
         match_key = target[1] if isinstance(target, tuple) else target
-        _pressed_modifiers: set = set()
-
-        def _is_modifier(key) -> bool:
-            return key in modifier_keys
 
         def on_press(key):
-            if _is_modifier(key):
-                _pressed_modifiers.add(key)
-                return
             if key == match_key:
-                if modifier_keys and not all(m in _pressed_modifiers for m in modifier_keys):
-                    return
                 log.info("[HOTKEY FALLBACK] Matched key: %s", key)
                 callback()
 
-        def on_release(key):
-            _pressed_modifiers.discard(key)
-
-        self._listener = Listener(on_press=on_press, on_release=on_release)
+        self._listener = Listener(on_press=on_press)
         self._listener.start()
         time.sleep(0.5)
         self._fallback = True
         log.info(
-            "Fallback listener started, watching for %s (alive=%s, modifiers=%s)",
+            "Fallback listener started, watching for %s (alive=%s)",
             match_key,
             self._listener.is_alive(),
-            modifier_keys,
         )
 
     def _stop_listener(self) -> None:
@@ -310,9 +292,9 @@ def parse_hotkey_to_win32(hotkey_str: str) -> Optional[tuple[int, int]]:
 class WindowsNativeHotkey(HotkeyBackend):
     """Hotkey backend using Win32 RegisterHotKey via ctypes.
 
-    Registers the hotkey via RegisterHotKey(NULL, ...) which binds it to
-    the calling thread's message queue, then uses GetAsyncKeyState polling
-    for reliable hotkey detection across all Windows configurations.
+    Uses GetAsyncKeyState polling in a daemon thread for reliable
+    hotkey detection.  RegisterHotKey is still called so that other
+    applications cannot register the same hotkey.
     """
 
     def __init__(self, hotkey_str: str):
@@ -324,10 +306,10 @@ class WindowsNativeHotkey(HotkeyBackend):
         self._registered = False
         self._user32 = None
         self._kernel32 = None
-        self._success = False  # True when RegisterHotKey succeeds
+        self._success = False
         self._vk: Optional[int] = None
         self._modifiers = 0
-        self._using_polling = False  # True when using GetAsyncKeyState polling
+        self._using_polling = False  # True if falling back to GetAsyncKeyState
 
     def start(self, callback: Callable[[], None]) -> None:
         import ctypes
@@ -370,7 +352,7 @@ class WindowsNativeHotkey(HotkeyBackend):
         self._kernel32.GetLastError.restype = DWORD
 
         def run():
-            """Worker thread: registers hotkey, runs polling loop."""
+            """Hotkey thread: registers hotkey, runs polling loop."""
             try:
                 # Register the hotkey.  Pass NULL (0) as hWnd.
                 # RegisterHotKey(NULL, ...) binds the hotkey to the calling

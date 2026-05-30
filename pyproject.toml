@@ -25,7 +25,6 @@ voice-typer = "voice_typer.app:main"
 test = ["pytest>=7", "pytest-mock"]
 
 [tool.pyrefly]
-python-interpreter = "C:\\Users\\11\\AppData\\Local\\Programs\\Python\\Python312\\python.exe"
 python-version = "3.12"
 project-includes = ["voice_typer", "tests"]
 

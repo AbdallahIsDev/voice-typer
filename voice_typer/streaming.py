@@ -141,7 +141,7 @@ class StreamingTextAssembler:
 
     @property
     def committed_text(self) -> str:
-        return " ".join(word.word for word in self._words)
+        return " ".join(word.word for word in list(self._words))
 
     def add_window(
         self,
@@ -188,7 +188,24 @@ class StreamingTextAssembler:
                 self.last_committed_time,
                 word.end_seconds,
             )
+        self._prune_committed_words()
         return " ".join(committed)
+
+    def _prune_committed_words(self):
+        cutoff = self.last_committed_time - 5.0
+        if cutoff <= 0:
+            return
+        kept = []
+        for word in self._words:
+            if word.end_seconds <= cutoff:
+                ts_key = (
+                    round(word.start_seconds, 3),
+                    round(word.end_seconds, 3),
+                )
+                self._seen_timestamps.discard(ts_key)
+            else:
+                kept.append(word)
+        self._words = kept
 
     def _insert_word(self, word: WordTiming):
         for index, existing in enumerate(self._words):
@@ -225,6 +242,8 @@ def _word_key(word: str) -> str:
 class StreamingTranscriptionSession:
     """Hidden streaming worker for one recording session."""
 
+    _MAX_CONSECUTIVE_FAILURES = 3
+
     def __init__(
         self,
         recorder,
@@ -242,6 +261,7 @@ class StreamingTranscriptionSession:
         self.assembler = StreamingTextAssembler()
         self._cancel_event = threading.Event()
         self._thread: threading.Thread | None = None
+        self._consecutive_failures = 0
         self._fallback_required = False
         self._finalizing = False
         self._lock = threading.Lock()
@@ -303,10 +323,13 @@ class StreamingTranscriptionSession:
                     words,
                     right_guard_seconds=self.config.right_guard_seconds,
                 )
+            self._consecutive_failures = 0
             return True
         except Exception as exc:
             log.exception("[STREAMING] Chunk transcription failed: %s", exc)
-            self._fallback_required = True
+            self._consecutive_failures += 1
+            if self._consecutive_failures >= self._MAX_CONSECUTIVE_FAILURES:
+                self._fallback_required = True
             return False
 
     def _finalize_impl(self, full_audio: np.ndarray) -> str:

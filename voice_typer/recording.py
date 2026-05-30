@@ -1,10 +1,10 @@
 """Session-based audio recording."""
 
+import collections
 import logging
 import math
 import threading
 import time
-from collections import deque
 from typing import Optional, List, Any
 
 import numpy as np
@@ -41,27 +41,33 @@ def _get_resample_poly():
         return _resample_poly
 
 
+_BUFFER_HARD_CAP = 30000
+_BUFFER_WARNING_THRESHOLD = 5000
+_BUFFER_TELEMETRY_INTERVAL = 1000
+
+
 class Recorder:
     """Records audio from microphone into a buffer. Session-based: start, accumulate, stop, get data."""
 
     def __init__(self, config: Config):
         self.config = config
         self._stream: Optional[sd.InputStream] = None
-        self._buffer: deque[np.ndarray] = deque()
+        self._buffer: collections.deque[np.ndarray] = collections.deque()
         self._lock = threading.Lock()
-        self._recording = False
+        self._recording_event = threading.Event()
         self._effective_sr: int = config.sample_rate
         self._last_rms: float = 0.0
         self._chunk_count: int = 0
 
     @property
     def recording(self) -> bool:
-        return self._recording
+        return self._recording_event.is_set()
 
     @property
     def last_rms(self) -> float:
         """RMS level of the most recently captured audio (0.0 if never recorded)."""
-        return self._last_rms
+        with self._lock:
+            return self._last_rms
 
     def warm_up_resampler(self) -> None:
         """Import and initialize the high-quality resampler before recording stops."""
@@ -120,8 +126,8 @@ class Recorder:
             return candidates
 
         alternates = []
-        for counter, info in enumerate(all_devices):
-            index = self._device_index(counter, info)
+        for fallback_index, info in enumerate(all_devices):
+            index = self._device_index(fallback_index, info)
             if index == device:
                 continue
             if info.get("max_input_channels", 0) <= 0:
@@ -224,8 +230,8 @@ class Recorder:
         candidates = []
         try:
             all_devices = list(sd.query_devices())
-            for counter, info in enumerate(all_devices):
-                index = self._device_index(counter, info)
+            for fallback_index, info in enumerate(all_devices):
+                index = self._device_index(fallback_index, info)
                 if info.get("max_input_channels", 0) <= 0:
                     continue
                 if index not in candidates:
@@ -236,40 +242,39 @@ class Recorder:
 
     def start(self) -> None:
         """Start recording audio."""
-        if self._recording:
+        if self._recording_event.is_set():
             return
 
-        self._buffer.clear()
-        self._chunk_count = 0
+        with self._lock:
+            self._buffer.clear()
+            self._chunk_count = 0
 
         device = self._resolve_device()
         candidates = self._same_physical_microphone_candidates(device)
 
         def callback(indata, frames, time_info, status):
-            try:
-                with self._lock:
-                    if self._chunk_count >= 30000:
-                        if self._chunk_count == 30000:
-                            log.warning(
-                                "[RECORDING] Buffer hard cap reached (30k chunks, ~30 min). "
-                                "Dropping oldest chunks."
-                            )
-                        self._buffer.popleft()
-                    self._buffer.append(indata.copy())
-                    self._chunk_count += 1
-                    if self._chunk_count == 5000:
+            chunk = indata.copy()
+            with self._lock:
+                if len(self._buffer) >= _BUFFER_HARD_CAP:
+                    if len(self._buffer) == _BUFFER_HARD_CAP:
                         log.warning(
-                            "[RECORDING] Buffer is large (5k chunks, ~5 min). "
-                            "Consider stopping recording."
+                            "[RECORDING] Buffer hard cap reached (30k chunks, ~30 min). "
+                            "Dropping oldest chunks."
                         )
-                    if self._chunk_count % 1000 == 0:
-                        log.info(
-                            "[RECORDING] Buffer telemetry: chunks=%d, buffer_count=%d",
-                            self._chunk_count,
-                            len(self._buffer),
-                        )
-            except Exception:
-                log.exception("[RECORDING] Audio callback error")
+                    self._buffer.popleft()
+                self._buffer.append(chunk)
+                self._chunk_count += 1
+                if self._chunk_count == _BUFFER_WARNING_THRESHOLD:
+                    log.warning(
+                        "[RECORDING] Buffer is large (5k chunks, ~5 min). "
+                        "Consider stopping recording."
+                    )
+                if self._chunk_count % _BUFFER_TELEMETRY_INTERVAL == 0:
+                    log.info(
+                        "[RECORDING] Buffer telemetry: chunks=%d, buffer_count=%d",
+                        self._chunk_count,
+                        len(self._buffer),
+                    )
 
         last_error = None
         selected_device = None
@@ -313,7 +318,7 @@ class Recorder:
                     except Exception:
                         pass
                 self._stream = None
-                self._recording = False
+                self._recording_event.clear()
                 continue
 
             self._stream = stream
@@ -393,13 +398,12 @@ class Recorder:
                 device,
                 selected_device,
             )
-            self.config.microphone = str(selected_device)
-            try:
-                self.config.save()
-            except Exception as e:
-                log.debug("[RECORDING] Could not persist microphone fallback: %s", e)
+            log.info(
+                "[RECORDING] Microphone fallback applied for this session only "
+                "(config not mutated)"
+            )
 
-        self._recording = True
+        self._recording_event.set()
 
         target_sr = self.config.sample_rate
         if effective_sr != target_sr and _resample_poly is None and _resample_poly_error is None:
@@ -408,11 +412,11 @@ class Recorder:
 
     def stop(self) -> np.ndarray:
         """Stop recording and return the complete audio array."""
-        if not self._recording:
+        if not self._recording_event.is_set():
             return np.array([], dtype=np.float32)
 
         stop_started = time.perf_counter()
-        self._recording = False
+        self._recording_event.clear()
 
         stream_started = time.perf_counter()
         if self._stream:
@@ -425,7 +429,7 @@ class Recorder:
         with self._lock:
             if not self._buffer:
                 return np.array([], dtype=np.float32)
-            audio = np.concatenate(self._buffer, axis=0).reshape(-1)
+            audio = np.concatenate(list(self._buffer), axis=0).reshape(-1)
             self._buffer.clear()
         concat_ms = (time.perf_counter() - concat_started) * 1000
 
@@ -437,7 +441,8 @@ class Recorder:
             rms = float(np.sqrt(np.mean(np.square(audio), dtype=np.float64)))
             peak = float(np.max(np.abs(audio)))
             silence_pct = float(np.sum(np.abs(audio) < 0.001) / audio.size * 100)
-            self._last_rms = rms
+            with self._lock:
+                self._last_rms = rms
             log.info(
                 "[RECORDING] Audio captured: duration=%.1fs, effective_sr=%d, "
                 "samples=%d, RMS=%.6f, peak=%.6f, silence_pct=%.1f%%",
@@ -450,7 +455,8 @@ class Recorder:
                     rms,
                 )
         else:
-            self._last_rms = 0.0
+            with self._lock:
+                self._last_rms = 0.0
             log.warning("[RECORDING] No audio data captured!")
         stats_ms = (time.perf_counter() - stats_started) * 1000
 
@@ -472,7 +478,7 @@ class Recorder:
         with self._lock:
             if not self._buffer:
                 return np.array([], dtype=np.float32)
-            audio = np.concatenate(self._buffer, axis=0).reshape(-1)
+            audio = np.concatenate(list(self._buffer), axis=0).reshape(-1)
             effective_sr = self._effective_sr
 
         return self._prepare_audio(audio, effective_sr, log_resample=False)
@@ -541,9 +547,11 @@ class Recorder:
 
     def discard(self) -> None:
         """Discard current recording without processing."""
-        self._recording = False
+        self._recording_event.clear()
         self._effective_sr = self.config.sample_rate
-        self._last_rms = 0.0
+        with self._lock:
+            self._last_rms = 0.0
+            self._chunk_count = 0
         if self._stream:
             self._stream.stop()
             self._stream.close()

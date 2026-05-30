@@ -142,30 +142,28 @@ def is_autostart_enabled() -> bool:
 
 def _enable_autostart_windows() -> bool:
     import winreg
-    key = winreg.OpenKey(
+    with winreg.OpenKey(
         winreg.HKEY_CURRENT_USER,
         r"Software\Microsoft\Windows\CurrentVersion\Run",
         0, winreg.KEY_SET_VALUE,
-    )
-    cmd = _autostart_command()
-    winreg.SetValueEx(key, "VoiceTyper", 0, winreg.REG_SZ, cmd)
-    winreg.CloseKey(key)
+    ) as key:
+        cmd = _autostart_command()
+        winreg.SetValueEx(key, "VoiceTyper", 0, winreg.REG_SZ, cmd)
     log.info("Autostart enabled (Windows): %s", cmd)
     return True
 
 
 def _disable_autostart_windows() -> bool:
     import winreg
-    key = winreg.OpenKey(
+    with winreg.OpenKey(
         winreg.HKEY_CURRENT_USER,
         r"Software\Microsoft\Windows\CurrentVersion\Run",
         0, winreg.KEY_SET_VALUE,
-    )
-    try:
-        winreg.DeleteValue(key, "VoiceTyper")
-    except FileNotFoundError:
-        pass
-    winreg.CloseKey(key)
+    ) as key:
+        try:
+            winreg.DeleteValue(key, "VoiceTyper")
+        except FileNotFoundError:
+            pass
     log.info("Autostart disabled (Windows)")
     return True
 
@@ -193,6 +191,7 @@ def _is_autostart_windows() -> bool:
 
 def _enable_autostart_macos() -> bool:
     from xml.sax.saxutils import escape
+    import subprocess
     plist_dir = get_autostart_dir()
     plist_dir.mkdir(parents=True, exist_ok=True)
     plist_path = plist_dir / "com.voicetyper.plist"
@@ -213,11 +212,24 @@ def _enable_autostart_macos() -> bool:
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
-    <true/>
+    <false/>
+    <key>WorkingDirectory</key>
+    <string>{escape(str(Path.home()))}</string>
 </dict>
 </plist>"""
     plist_path.write_text(plist_content)
-    log.info("Autostart enabled (macOS): %s", plist_path)
+    try:
+        plist_path.chmod(0o644)
+    except Exception:
+        pass
+    try:
+        subprocess.run(
+            ["launchctl", "load", str(plist_path)],
+            capture_output=True, timeout=5,
+        )
+        log.info("Autostart enabled (macOS): %s (loaded)", plist_path)
+    except Exception as e:
+        log.warning("Autostart plist written but launchctl load failed: %s", e)
     return True
 
 
@@ -236,7 +248,7 @@ def _is_autostart_macos() -> bool:
 # ─── Linux ─────────────────────────────────────────────────────────────
 
 def _enable_autostart_linux() -> bool:
-    from xml.sax.saxutils import escape
+    import shlex
     autostart_dir = get_autostart_dir()
     autostart_dir.mkdir(parents=True, exist_ok=True)
     desktop_path = autostart_dir / "voice-typer.desktop"
@@ -245,7 +257,7 @@ def _enable_autostart_linux() -> bool:
 Type=Application
 Name=Voice Typer
 Comment=Background voice-to-text utility
-Exec="{escape(sys.executable)}" -m voice_typer
+Exec={shlex.quote(sys.executable)} -m voice_typer
 Icon=audio-input-microphone
 Hidden=false
 NoDisplay=true

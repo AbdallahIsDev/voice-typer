@@ -64,6 +64,7 @@ class TrayIcon:
         # Pre-run state queue — flushed once pystray event loop is live
         self._pending_states: list[tuple[AppState, str]] = []
         self._pending_notifications: list[tuple[str, str]] = []
+        self._queue_lock = threading.Lock()
         self._bg_work_fn: Optional[Callable] = None
         self._bg_thread: Optional[threading.Thread] = None
         self._hotkey: str = getattr(config, 'hotkey', '<f2>') or '<f2>'  # P3: stored for menu rebuild
@@ -90,7 +91,8 @@ class TrayIcon:
         if self._icon:
             self._apply_state(state, message)
         else:
-            self._pending_states.append((state, message))
+            with self._queue_lock:
+                self._pending_states.append((state, message))
 
     def set_microphones(self, mics: list[dict]) -> None:
         """Update the cached microphone list."""
@@ -154,13 +156,15 @@ class TrayIcon:
             raise RuntimeError("call start() before run()")
 
         # Flush queued state while the icon exists
-        for state, msg in self._pending_states:
-            self._apply_state(state, msg)
-        self._pending_states.clear()
+        with self._queue_lock:
+            for state, msg in self._pending_states:
+                self._apply_state(state, msg)
+            self._pending_states.clear()
 
-        for title, message in self._pending_notifications:
-            self._do_notify(title, message)
-        self._pending_notifications.clear()
+        with self._queue_lock:
+            for title, message in self._pending_notifications:
+                self._do_notify(title, message)
+            self._pending_notifications.clear()
 
         log.info("Tray event loop starting (main thread)")
         self._icon.run()  # blocks until stop() is called
@@ -182,7 +186,8 @@ class TrayIcon:
         if self._icon:
             self._do_notify(title, message)
         else:
-            self._pending_notifications.append((title, message))
+            with self._queue_lock:
+                self._pending_notifications.append((title, message))
 
     # ─── Internals ──────────────────────────────────────────────────────
 
@@ -406,6 +411,9 @@ class TrayIcon:
 
 def _make_icon(state: AppState, size: int = 64) -> Image.Image:
     """Generate a colored microphone icon based on state."""
+    cache_key = (state, size)
+    if cache_key in _make_icon._icon_cache:
+        return _make_icon._icon_cache[cache_key]
     colors = {
         AppState.IDLE: (120, 120, 120, 255),
         AppState.RECORDING: (235, 64, 52, 255),
@@ -443,4 +451,8 @@ def _make_icon(state: AppState, size: int = 64) -> Image.Image:
         fill=color, width=max(2, size // 20),
     )
 
+    _make_icon._icon_cache[cache_key] = img
     return img
+
+
+_make_icon._icon_cache: dict = {}

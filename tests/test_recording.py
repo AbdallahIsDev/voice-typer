@@ -1,5 +1,7 @@
 """Tests for recording module — device resolution."""
 
+import collections
+import collections
 import pytest
 import numpy as np
 from unittest.mock import MagicMock, patch
@@ -47,18 +49,18 @@ class TestStopAudioPrep:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        r._recording = True
+        r._recording_event.set()
         r._effective_sr = 16000
         r._stream = MagicMock()
-        r._buffer = [
+        r._buffer = collections.deque([
             np.array([[1.0], [2.0]], dtype=np.float32),
             np.array([[3.0]], dtype=np.float32),
-        ]
+        ])
 
         audio = r.stop()
 
         np.testing.assert_array_equal(audio, np.array([1.0, 2.0, 3.0], dtype=np.float32))
-        assert r._buffer == []
+        assert len(r._buffer) == 0
         assert r._stream is None
 
     def test_stop_resamples_when_effective_rate_differs(self, monkeypatch):
@@ -74,10 +76,10 @@ class TestStopAudioPrep:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        r._recording = True
+        r._recording_event.set()
         r._effective_sr = 48000
         r._stream = MagicMock()
-        r._buffer = [np.ones((6, 1), dtype=np.float32)]
+        r._buffer = collections.deque([np.ones((6, 1), dtype=np.float32)])
 
         audio = r.stop()
 
@@ -92,10 +94,10 @@ class TestStopAudioPrep:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        r._recording = True
+        r._recording_event.set()
         r._effective_sr = 16000
         r._stream = MagicMock()
-        r._buffer = [np.ones((4, 1), dtype=np.float32)]
+        r._buffer = collections.deque([np.ones((4, 1), dtype=np.float32)])
 
         r.stop()
 
@@ -177,8 +179,7 @@ class TestStopAudioPrep:
         assert opened_devices == [9, 1]
         assert r.recording is True
         assert r._stream is not None
-        assert config.microphone == "1"
-        config.save.assert_called_once()
+        # Microphone fallback no longer mutates config (M6 fix)
 
     def test_start_falls_back_to_all_devices_when_configured_mic_fails(self, monkeypatch):
         """When configured mic and same-name alternates all fail, try ALL input devices."""
@@ -232,20 +233,20 @@ class TestStopAudioPrep:
         assert 2 in opened_devices
         assert r.recording is True
         assert r._stream is not None
-        assert config.microphone == "2"
+        # Microphone fallback no longer mutates config (M6 fix)
 
     def test_snapshot_returns_audio_without_clearing_buffer(self):
         from voice_typer.recording import Recorder
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        r._recording = True
+        r._recording_event.set()
         r._effective_sr = 16000
         r._stream = MagicMock()
-        r._buffer = [
+        r._buffer = collections.deque([
             np.array([[1.0], [2.0]], dtype=np.float32),
             np.array([[3.0]], dtype=np.float32),
-        ]
+        ])
 
         snapshot = r.snapshot()
 
@@ -260,9 +261,9 @@ class TestStopAudioPrep:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        r._recording = True
+        r._recording_event.set()
         r._effective_sr = 16000
-        r._buffer = []
+        r._buffer = collections.deque()
 
         snapshot = r.snapshot()
 
@@ -282,9 +283,9 @@ class TestStopAudioPrep:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        r._recording = True
+        r._recording_event.set()
         r._effective_sr = 48000
-        r._buffer = [np.ones((6, 1), dtype=np.float32)]
+        r._buffer = collections.deque([np.ones((6, 1), dtype=np.float32)])
 
         snapshot = r.snapshot()
 
@@ -304,9 +305,9 @@ class TestStopAudioPrep:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        r._recording = True
+        r._recording_event.set()
         r._effective_sr = 48000
-        r._buffer = [np.ones((6, 1), dtype=np.float32)]
+        r._buffer = collections.deque([np.ones((6, 1), dtype=np.float32)])
 
         with caplog.at_level("INFO"):
             r.snapshot()

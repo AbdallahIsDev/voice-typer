@@ -331,7 +331,7 @@ class TestSettingsUxTrayMenu:
     def test_settings_window_is_in_main_menu(self, tray):
         labels = self._menu_labels(tray)
 
-        assert "Settings..." in labels
+        assert "Advanced" in labels
 
     def test_model_submenu_is_in_main_menu(self, tray):
         tray._config = SimpleNamespace(hotkey="<f2>", model_size="small.en")
