@@ -313,3 +313,131 @@ class TestStopAudioPrep:
             r.snapshot()
 
         assert "Resampled 48000 Hz -> 16000 Hz" not in caplog.text
+
+
+class TestH15CachedResampling:
+    """H15/M8: snapshot() triggers full resample on every call."""
+
+    def test_snapshot_uses_cached_resampled_prefix(self, monkeypatch):
+        """Second snapshot should only resample new chunks, not all."""
+        from voice_typer.recording import Recorder
+
+        call_count = [0]
+
+        def fake_resample_poly(audio, up, down):
+            call_count[0] += 1
+            # Simple decimation for testing
+            return audio[::down][:len(audio) * up // down]
+
+        monkeypatch.setattr("voice_typer.recording._get_resample_poly", lambda: fake_resample_poly)
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        r._recording = True
+        r._effective_sr = 48000
+        r._stream = MagicMock()
+        r._buffer = [np.ones((6, 1), dtype=np.float32)]
+
+        # First snapshot - should resample
+        r.snapshot()
+        first_count = call_count[0]
+        assert first_count >= 1
+
+        # Add more data
+        r._buffer.append(np.ones((6, 1), dtype=np.float32))
+
+        # Second snapshot - should only resample the new chunk
+        r.snapshot()
+        second_count = call_count[0]
+        assert second_count == first_count + 1  # Only one more resample call
+
+    def test_snapshot_no_resample_when_rate_matches(self):
+        """When effective_sr matches target, no resampling occurs."""
+        from voice_typer.recording import Recorder
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        r._recording = True
+        r._effective_sr = 16000
+        r._stream = MagicMock()
+        r._buffer = [np.ones((4, 1), dtype=np.float32)]
+
+        result = r.snapshot()
+        assert result.dtype == np.float32
+        np.testing.assert_array_equal(result, np.ones(4, dtype=np.float32))
+
+
+class TestH12SilenceDetection:
+    """H12: Silent mic disconnection - silence detection."""
+
+    def test_silence_timer_starts_at_zero(self):
+        from voice_typer.recording import Recorder
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        assert r._silence_timer == 0.0
+        assert r._silence_warning_fired is False
+
+    def test_silence_callback_fields_exist(self):
+        from voice_typer.recording import Recorder
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        assert r.on_silence_warning is None
+        assert r.on_silence_auto_stop is None
+        assert r.on_max_duration_auto_stop is None
+
+    def test_start_resets_silence_state(self, monkeypatch):
+        from voice_typer.recording import Recorder
+        import voice_typer.recording as recording_mod
+
+        class OkStream:
+            def __init__(self, *args, **kwargs): pass
+            def start(self): pass
+            def close(self): pass
+
+        monkeypatch.setattr(recording_mod.sd, "InputStream", OkStream)
+        monkeypatch.setattr(recording_mod.sd, "query_devices", lambda **kw: {"max_input_channels": 1, "default_samplerate": 16000, "hostapi": 0})
+        monkeypatch.setattr(recording_mod.sd, "query_hostapis", lambda idx=None: {"name": "MME"})
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        r._silence_timer = 5.0
+        r._silence_warning_fired = True
+        r.start()
+        assert r._silence_timer == 0.0
+        assert r._silence_warning_fired is False
+
+    def test_cache_reset_on_stop(self):
+        """stop() should reset the resample cache."""
+        from voice_typer.recording import Recorder
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        r._recording_event.set()
+        r._effective_sr = 16000
+        r._stream = MagicMock()
+        r._buffer = collections.deque([np.ones((4, 1), dtype=np.float32)])
+        r._cached_resampled = np.ones(10, dtype=np.float32)
+        r._cached_native_chunk_count = 5
+
+        r.stop()
+
+        assert len(r._cached_resampled) == 0
+        assert r._cached_native_chunk_count == 0
+
+    def test_cache_reset_on_discard(self):
+        """discard() should reset the resample cache."""
+        from voice_typer.recording import Recorder
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        r._recording = True
+        r._stream = MagicMock()
+        r._cached_resampled = np.ones(10, dtype=np.float32)
+        r._cached_native_chunk_count = 5
+
+        r.discard()
+
+        assert len(r._cached_resampled) == 0
+        assert r._cached_native_chunk_count == 0

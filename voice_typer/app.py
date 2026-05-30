@@ -76,10 +76,9 @@ def _setup_logging():
     handler = logging.handlers.RotatingFileHandler(
         log_file, maxBytes=1_000_000, backupCount=2,
     )
+    fmt = "%(asctime)s [%(levelname)s] [%(session_id)s] %(component)s: %(message)s"
     handler.setFormatter(
-        logging.Formatter(
-            "%(asctime)s [%(levelname)s] [%(session_id)s] %(component)s: %(message)s"
-        )
+        logging.Formatter(fmt, defaults={"session_id": ""})
     )
 
     root = logging.getLogger("voice_typer")
@@ -92,9 +91,7 @@ def _setup_logging():
         stream = logging.StreamHandler()
         stream.setLevel(logging.INFO)
         stream.setFormatter(
-            logging.Formatter(
-                "%(asctime)s [%(levelname)s] [%(session_id)s] %(component)s: %(message)s"
-            )
+            logging.Formatter(fmt, defaults={"session_id": ""})
         )
         root.addHandler(stream)
 
@@ -420,6 +417,11 @@ class VoiceTyperApp:
 
         log.info("[DICTATION] Starting recording...")
         try:
+            # H12: Wire silence detection callbacks
+            self.recorder.on_silence_warning = self._on_silence_warning
+            self.recorder.on_silence_auto_stop = self._on_silence_auto_stop
+            self.recorder.on_max_duration_auto_stop = self._on_max_duration_auto_stop
+
             self.recorder.start()
             self._start_streaming_session_if_enabled()
             self.tray.set_state(AppState.RECORDING, "Recording...")
@@ -680,6 +682,43 @@ class VoiceTyperApp:
             "Press F2 to try again.",
         )
         self._schedule_timer(5.0, lambda: self.tray.set_state(AppState.IDLE))
+
+    # ─── Silence Detection Callbacks (H12) ────────────────────────────────
+
+    def _on_silence_warning(self):
+        """Handle silence warning from recorder."""
+        log.warning("[DICTATION] Silence warning: no audio detected for a while")
+        try:
+            self.tray.notify_safety(
+                "Voice Typer",
+                "No audio detected. Check your microphone is connected and working.",
+            )
+        except Exception:
+            pass
+
+    def _on_silence_auto_stop(self):
+        """Handle silence auto-stop from recorder."""
+        log.warning("[DICTATION] Silence auto-stop: stopping recording due to prolonged silence")
+        try:
+            self.tray.notify_safety(
+                "Voice Typer",
+                "Recording stopped: no audio detected for an extended period.",
+            )
+            self._stop_dictation()
+        except Exception:
+            pass
+
+    def _on_max_duration_auto_stop(self):
+        """Handle max duration auto-stop from recorder."""
+        log.warning("[DICTATION] Max duration auto-stop: stopping recording")
+        try:
+            self.tray.notify_safety(
+                "Voice Typer",
+                "Recording stopped: maximum recording duration reached.",
+            )
+            self._stop_dictation()
+        except Exception:
+            pass
 
     # ─── Settings / Microphone ─────────────────────────────────────────
 

@@ -337,3 +337,55 @@ class TestAtomicConfigSave:
 
         assert not (tmp_path / "config.tmp").exists()
         assert (tmp_path / "config.json").exists()
+
+
+class TestH1NonNumericFieldValidation:
+    """H1: No type validation on loaded JSON config values."""
+
+    def test_bool_field_coerces_truthy_string(self, tmp_path, monkeypatch):
+        """Non-bool truthy value for bool field should be coerced."""
+        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"autostart": "true"}))
+        c = Config.load()
+        assert c.autostart is True
+
+    def test_bool_field_coerces_zero(self, tmp_path, monkeypatch):
+        """Zero for bool field should be coerced to False."""
+        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"paste_on_stop": 0}))
+        c = Config.load()
+        assert c.paste_on_stop is False
+
+    def test_bool_field_resets_invalid_value(self, tmp_path, monkeypatch):
+        """Invalid value for bool field should reset to default."""
+        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"autostart": [1, 2]}))
+        c = Config.load()
+        assert c.autostart is True  # default
+
+    def test_str_field_resets_non_string(self, tmp_path, monkeypatch):
+        """Non-string value for str field should reset to default."""
+        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"hotkey": 42}))
+        c = Config.load()
+        assert c.hotkey == "<f2>"  # default
+
+    def test_str_field_keeps_valid_string(self, tmp_path, monkeypatch):
+        """Valid string value for str field should be preserved."""
+        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"language": "fr"}))
+        c = Config.load()
+        assert c.language == "fr"
+
+    def test_silence_warning_seconds_default(self):
+        """H12 config fields should have correct defaults."""
+        c = Config()
+        assert c.silence_warning_seconds == 20.0
+        assert c.silence_auto_stop_seconds == 120.0
+        assert c.max_recording_seconds_gpu == 1200
+        assert c.max_recording_seconds_cpu == 600

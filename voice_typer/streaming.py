@@ -137,11 +137,14 @@ class StreamingTextAssembler:
 
     _words: list[WordTiming] = field(default_factory=list)
     _seen_timestamps: set[tuple[float, float]] = field(default_factory=set)
+    _word_key_index: dict[str, list[int]] = field(default_factory=dict)
     last_committed_time: float = 0.0
+    _lock: threading.RLock = field(default_factory=threading.RLock)
 
     @property
     def committed_text(self) -> str:
-        return " ".join(word.word for word in list(self._words))
+        with self._lock:
+            return " ".join(word.word for word in self._words)
 
     def add_window(
         self,
@@ -155,6 +158,14 @@ class StreamingTextAssembler:
         )
 
     def add_words(
+        self,
+        words: Iterable[WordTiming],
+        commit_horizon_seconds: float,
+    ) -> str:
+        with self._lock:
+            return self._add_words_unlocked(words, commit_horizon_seconds)
+
+    def _add_words_unlocked(
         self,
         words: Iterable[WordTiming],
         commit_horizon_seconds: float,
@@ -178,36 +189,51 @@ class StreamingTextAssembler:
                 start_seconds=word.start_seconds,
                 end_seconds=word.end_seconds,
             )
-            if self._has_near_duplicate(candidate):
+            if self._has_near_duplicate_unlocked(candidate):
                 self._seen_timestamps.add(timestamp_key)
                 continue
             self._seen_timestamps.add(timestamp_key)
-            self._insert_word(candidate)
+            self._insert_word_unlocked(candidate)
             committed.append(text)
             self.last_committed_time = max(
                 self.last_committed_time,
                 word.end_seconds,
             )
-        self._prune_committed_words()
+        # H8: Prune committed words that are well before the commit horizon
+        # Only prune when commit_horizon is finite (not inf from finalize)
+        if math.isfinite(commit_horizon_seconds):
+            prune_threshold = commit_horizon_seconds - 5.0
+            if prune_threshold > 0:
+                self._prune_old_entries(prune_threshold)
         return " ".join(committed)
 
-    def _prune_committed_words(self):
-        cutoff = self.last_committed_time - 5.0
-        if cutoff <= 0:
-            return
-        kept = []
-        for word in self._words:
-            if word.end_seconds <= cutoff:
-                ts_key = (
-                    round(word.start_seconds, 3),
-                    round(word.end_seconds, 3),
-                )
-                self._seen_timestamps.discard(ts_key)
+    def _prune_old_entries(self, threshold: float) -> None:
+        """Remove words and their timestamps that ended before threshold."""
+        pruned_indices = set()
+        new_words = []
+        for i, word in enumerate(self._words):
+            if word.end_seconds < threshold:
+                pruned_indices.add(i)
             else:
-                kept.append(word)
-        self._words = kept
+                new_words.append(word)
+        if not pruned_indices:
+            return
+        # Prune matching timestamps
+        new_timestamps: set[tuple[float, float]] = set()
+        for ts in self._seen_timestamps:
+            if ts[1] >= threshold:
+                new_timestamps.add(ts)
+        self._words = new_words
+        self._seen_timestamps = new_timestamps
+        # Rebuild _word_key_index
+        self._word_key_index.clear()
+        for i, word in enumerate(self._words):
+            key = _word_key(word.word)
+            if key:
+                self._word_key_index.setdefault(key, []).append(i)
 
-    def _insert_word(self, word: WordTiming):
+    def _insert_word_unlocked(self, word: WordTiming):
+        key = _word_key(word.word)
         for index, existing in enumerate(self._words):
             if (
                 word.start_seconds < existing.start_seconds
@@ -217,16 +243,27 @@ class StreamingTextAssembler:
                 )
             ):
                 self._words.insert(index, word)
+                # Update index: shift all entries >= index by 1
+                for k, indices in self._word_key_index.items():
+                    self._word_key_index[k] = [
+                        (i + 1 if i >= index else i) for i in indices
+                    ]
+                if key:
+                    self._word_key_index.setdefault(key, []).append(index)
                 return
         self._words.append(word)
+        if key:
+            self._word_key_index.setdefault(key, []).append(len(self._words) - 1)
 
-    def _has_near_duplicate(self, word: WordTiming) -> bool:
+    def _has_near_duplicate_unlocked(self, word: WordTiming) -> bool:
         key = _word_key(word.word)
         if not key:
             return False
-        for existing in self._words:
-            if _word_key(existing.word) != key:
+        matching_indices = self._word_key_index.get(key, [])
+        for idx in matching_indices:
+            if idx >= len(self._words):
                 continue
+            existing = self._words[idx]
             if (
                 abs(existing.start_seconds - word.start_seconds) <= 0.25
                 and abs(existing.end_seconds - word.end_seconds) <= 0.25
@@ -260,6 +297,7 @@ class StreamingTranscriptionSession:
         self.planner = AudioWindowPlanner(config)
         self.assembler = StreamingTextAssembler()
         self._cancel_event = threading.Event()
+        self._stopped_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._consecutive_failures = 0
         self._fallback_required = False
@@ -279,6 +317,7 @@ class StreamingTranscriptionSession:
         if self.is_running:
             return
         self._cancel_event.clear()
+        self._stopped_event.clear()
         self._thread = threading.Thread(
             target=self._run,
             name="StreamingTranscription",
@@ -286,17 +325,21 @@ class StreamingTranscriptionSession:
         )
         self._thread.start()
 
-    def cancel(self) -> None:
-        """Stop background streaming work and wait briefly for the worker."""
+    def cancel(self):
+        """Stop background streaming work and wait for the worker."""
         self._cancel_event.set()
         thread = self._thread
         if thread is not None and thread.is_alive():
-            thread.join(timeout=2.0)
+            thread.join(timeout=10.0)
 
     def finalize(self, full_audio: np.ndarray) -> str:
         """Return final transcript, using batch fallback if streaming is unsafe."""
         self._finalizing = True
         self.cancel()
+        # H14: If thread still alive after cancel, wait for stopped event
+        thread = self._thread
+        if thread is not None and thread.is_alive():
+            self._stopped_event.wait(timeout=10.0)
         return self._finalize_impl(full_audio)
 
     def process_available_audio_once(self) -> bool:
@@ -333,7 +376,12 @@ class StreamingTranscriptionSession:
             return False
 
     def _finalize_impl(self, full_audio: np.ndarray) -> str:
-        if not self.assembler.committed_text:
+        # H16: Snapshot assembler state under lock at the beginning
+        with self.assembler._lock:
+            snapshot_committed_text = self.assembler.committed_text
+            snapshot_last_committed_time = self.assembler.last_committed_time
+
+        if not snapshot_committed_text:
             return self.transcriber.transcribe_with_fallback(full_audio)
         if self._fallback_required:
             return self.transcriber.transcribe_with_fallback(full_audio)
@@ -341,7 +389,7 @@ class StreamingTranscriptionSession:
         try:
             tail_start_seconds = max(
                 0.0,
-                self.assembler.last_committed_time
+                snapshot_last_committed_time
                 - self.config.left_overlap_seconds,
             )
             start_sample = min(
@@ -355,22 +403,24 @@ class StreamingTranscriptionSession:
                 offset_seconds=tail_start_seconds,
             )
             self._validate_words(words)
-            merge_boundary = self.assembler.last_committed_time
+            merge_boundary = snapshot_last_committed_time
             new_tail_words = [
                 word for word in words
                 if word.end_seconds > merge_boundary
             ]
-            with self._lock:
-                self.assembler.add_words(new_tail_words, commit_horizon_seconds=math.inf)
-                return self.assembler.committed_text
+            self.assembler.add_words(new_tail_words, commit_horizon_seconds=math.inf)
+            return self.assembler.committed_text
         except Exception as exc:
             log.exception("[STREAMING] Final tail merge failed: %s", exc)
             return self.transcriber.transcribe_with_fallback(full_audio)
 
     def _run(self):
-        while not self._cancel_event.is_set():
-            self.process_available_audio_once()
-            self._cancel_event.wait(self.poll_interval_seconds)
+        try:
+            while not self._cancel_event.is_set():
+                self.process_available_audio_once()
+                self._cancel_event.wait(self.poll_interval_seconds)
+        finally:
+            self._stopped_event.set()
 
     def _validate_words(self, words: Iterable[WordTiming]) -> None:
         for word in words:

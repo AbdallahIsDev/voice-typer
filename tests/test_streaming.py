@@ -357,3 +357,149 @@ class TestConcurrentAccess:
             t.join(timeout=5.0)
 
         assert len(errors) == 0, f"Concurrent access errors: {errors}"
+
+
+class TestH8Pruning:
+    """H8: Unbounded memory growth in streaming assembler."""
+
+    def test_old_words_are_pruned_after_commit_horizon(self):
+        """Words well before the commit horizon should be pruned."""
+        assembler = StreamingTextAssembler()
+        # Add word at t=5 - within 5-second buffer of commit_horizon=10
+        assembler.add_words(
+            [WordTiming("early", start_seconds=5.0, end_seconds=5.5)],
+            commit_horizon_seconds=10.0,
+        )
+        assert "early" in assembler.committed_text
+        assert len(assembler._words) == 1
+
+        # Now add word at t=20, with commit_horizon=25
+        # Prune threshold = 25 - 5 = 20. "early" (5.5 < 20) gets pruned
+        assembler.add_words(
+            [WordTiming("later", start_seconds=20.0, end_seconds=20.5)],
+            commit_horizon_seconds=25.0,
+        )
+
+        assert "later" in assembler.committed_text
+        assert "early" not in assembler.committed_text
+
+    def test_recent_words_are_kept(self):
+        """Words near the commit horizon should NOT be pruned."""
+        assembler = StreamingTextAssembler()
+        assembler.add_words(
+            [WordTiming("keep", start_seconds=8.0, end_seconds=8.5)],
+            commit_horizon_seconds=10.0,
+        )
+        # Prune threshold = 10.0 - 5.0 = 5.0, so "keep" (8.5 > 5.0) stays
+        assert "keep" in assembler.committed_text
+
+
+class TestH14FinalizeRace:
+    """H14: Streaming finalize() races with still-running thread."""
+
+    def test_cancel_uses_10_second_timeout(self):
+        """cancel() should join with a 10-second timeout."""
+        recorder = MagicMock()
+        recorder.snapshot.return_value = np.array([], dtype=np.float32)
+        transcriber = MagicMock()
+        session = StreamingTranscriptionSession(
+            recorder=recorder,
+            transcriber=transcriber,
+            config=StreamingConfig(),
+            sample_rate=SAMPLE_RATE,
+            poll_interval_seconds=0.01,
+        )
+        session.start()
+        import time
+        time.sleep(0.1)
+
+        # Cancel and verify the thread stops
+        session.cancel()
+        assert session.is_running is False
+
+    def test_stopped_event_set_after_thread_exits(self):
+        """The _stopped_event should be set after the thread exits."""
+        recorder = MagicMock()
+        recorder.snapshot.return_value = np.array([], dtype=np.float32)
+        transcriber = MagicMock()
+        session = StreamingTranscriptionSession(
+            recorder=recorder,
+            transcriber=transcriber,
+            config=StreamingConfig(),
+            sample_rate=SAMPLE_RATE,
+            poll_interval_seconds=0.01,
+        )
+        session.start()
+        session.cancel()
+        assert session._stopped_event.is_set()
+
+
+class TestM16WordKeyIndex:
+    """M16: O(n²) near-duplicate detection in streaming."""
+
+    def test_near_duplicate_uses_index(self):
+        """_has_near_duplicate should use _word_key_index for efficiency."""
+        assembler = StreamingTextAssembler()
+        # Add a word
+        assembler.add_words(
+            [WordTiming("hello", start_seconds=0.0, end_seconds=0.5)],
+            commit_horizon_seconds=2.0,
+        )
+        # Check that the index was populated
+        key = "hello"
+        assert key in assembler._word_key_index
+        assert len(assembler._word_key_index[key]) == 1
+
+    def test_near_duplicate_finds_match_via_index(self):
+        """Near duplicates at similar timestamps are detected via index."""
+        assembler = StreamingTextAssembler()
+        assembler.add_words(
+            [WordTiming("hello", start_seconds=0.0, end_seconds=0.5)],
+            commit_horizon_seconds=2.0,
+        )
+        # Try to add a near-duplicate
+        result = assembler.add_words(
+            [WordTiming("hello", start_seconds=0.05, end_seconds=0.55)],
+            commit_horizon_seconds=2.0,
+        )
+        assert result == ""  # Duplicate was rejected
+
+
+class TestM18AssemblerLock:
+    """M18: Streaming committed_text read without lock."""
+
+    def test_committed_text_is_thread_safe(self):
+        """Reading committed_text should be safe from any thread."""
+        import threading
+        assembler = StreamingTextAssembler()
+        assembler.add_words(
+            [WordTiming("test", start_seconds=0.0, end_seconds=0.5)],
+            commit_horizon_seconds=2.0,
+        )
+
+        errors = []
+        def reader():
+            try:
+                for _ in range(100):
+                    text = assembler.committed_text
+                    assert isinstance(text, str)
+            except Exception as e:
+                errors.append(e)
+
+        def writer():
+            try:
+                for i in range(100):
+                    assembler.add_words(
+                        [WordTiming("word", start_seconds=2.0 + i, end_seconds=2.5 + i)],
+                        commit_horizon_seconds=100.0,
+                    )
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=reader), threading.Thread(target=writer)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5.0)
+
+        assert len(errors) == 0

@@ -59,6 +59,20 @@ class Recorder:
         self._last_rms: float = 0.0
         self._chunk_count: int = 0
 
+        # H15/M8: Cached resampled prefix for snapshot() to avoid O(n²) resampling
+        self._cached_resampled: np.ndarray = np.array([], dtype=np.float32)
+        self._cached_native_chunk_count: int = 0
+
+        # H12: Silent mic disconnection detection
+        self._silence_timer: float = 0.0
+        self._silence_warning_fired: bool = False
+        self._recording_start_time: float = 0.0
+
+        # H12 callbacks (wired by app.py)
+        self.on_silence_warning = None  # type: Optional[callable]
+        self.on_silence_auto_stop = None  # type: Optional[callable]
+        self.on_max_duration_auto_stop = None  # type: Optional[callable]
+
     @property
     def recording(self) -> bool:
         return self._recording_event.is_set()
@@ -248,6 +262,11 @@ class Recorder:
         with self._lock:
             self._buffer.clear()
             self._chunk_count = 0
+            self._cached_resampled = np.array([], dtype=np.float32)
+            self._cached_native_chunk_count = 0
+            self._silence_timer = 0.0
+            self._silence_warning_fired = False
+        self._recording_start_time = time.perf_counter()
 
         device = self._resolve_device()
         candidates = self._same_physical_microphone_candidates(device)
@@ -265,10 +284,59 @@ class Recorder:
                 self._buffer.append(chunk)
                 self._chunk_count += 1
                 if self._chunk_count == _BUFFER_WARNING_THRESHOLD:
-                    log.warning(
-                        "[RECORDING] Buffer is large (5k chunks, ~5 min). "
-                        "Consider stopping recording."
+
+                    # H12: Silence detection in audio callback
+                    chunk_rms = float(np.sqrt(np.mean(np.square(indata), dtype=np.float64)))
+                    chunk_peak = float(np.max(np.abs(indata)))
+                    chunk_duration = len(indata) / self._effective_sr
+
+                    if chunk_rms > 0.005 or chunk_peak > 0.01:
+                        self._silence_timer = 0.0
+                    else:
+                        self._silence_timer += chunk_duration
+
+                    silence_warning_seconds = getattr(
+                        self.config, 'silence_warning_seconds', 20.0
                     )
+                    silence_auto_stop_seconds = getattr(
+                        self.config, 'silence_auto_stop_seconds', 120.0
+                    )
+
+                    if (
+                        not self._silence_warning_fired
+                        and self._silence_timer >= silence_warning_seconds
+                    ):
+                        self._silence_warning_fired = True
+                        if self.on_silence_warning is not None:
+                            try:
+                                self.on_silence_warning()
+                            except Exception:
+                                pass
+
+                    if self._silence_timer >= silence_auto_stop_seconds:
+                        if self.on_silence_auto_stop is not None:
+                            try:
+                                self.on_silence_auto_stop()
+                            except Exception:
+                                pass
+
+                    # H12b: Maximum recording duration auto-stop
+                    recording_duration = time.perf_counter() - self._recording_start_time
+                    max_recording_seconds = getattr(
+                        self.config, 'max_recording_seconds_gpu', 1200
+                    )
+                    if recording_duration >= max_recording_seconds:
+                        if self.on_max_duration_auto_stop is not None:
+                            try:
+                                self.on_max_duration_auto_stop()
+                            except Exception:
+                                pass
+
+                    if self._chunk_count == 5000:
+                        log.warning(
+                            "[RECORDING] Buffer is large (5k chunks, ~5 min). "
+                            "Consider stopping recording."
+                        )
                 if self._chunk_count % _BUFFER_TELEMETRY_INTERVAL == 0:
                     log.info(
                         "[RECORDING] Buffer telemetry: chunks=%d, buffer_count=%d",
@@ -428,9 +496,15 @@ class Recorder:
         concat_started = time.perf_counter()
         with self._lock:
             if not self._buffer:
+                # Reset cache
+                self._cached_resampled = np.array([], dtype=np.float32)
+                self._cached_native_chunk_count = 0
                 return np.array([], dtype=np.float32)
             audio = np.concatenate(list(self._buffer), axis=0).reshape(-1)
             self._buffer.clear()
+            # Reset cache on stop
+            self._cached_resampled = np.array([], dtype=np.float32)
+            self._cached_native_chunk_count = 0
         concat_ms = (time.perf_counter() - concat_started) * 1000
 
         # Log audio statistics for diagnostics
@@ -460,6 +534,7 @@ class Recorder:
             log.warning("[RECORDING] No audio data captured!")
         stats_ms = (time.perf_counter() - stats_started) * 1000
 
+        # H15: stop() should NOT use cache - resample from scratch for full audio
         resample_started = time.perf_counter()
         audio = self._prepare_audio(audio, effective_sr)
         resample_ms = (time.perf_counter() - resample_started) * 1000
@@ -474,14 +549,70 @@ class Recorder:
         return audio
 
     def snapshot(self) -> np.ndarray:
-        """Return current recorded audio without clearing the active buffer."""
+        """Return current recorded audio without clearing the active buffer.
+
+        Uses a cached resampled prefix to avoid O(n²) resampling on every call.
+        Only new chunks since the last snapshot are resampled, then concatenated
+        with the cached prefix.
+        """
         with self._lock:
             if not self._buffer:
                 return np.array([], dtype=np.float32)
             audio = np.concatenate(list(self._buffer), axis=0).reshape(-1)
             effective_sr = self._effective_sr
+            target_sr = self.config.sample_rate
 
-        return self._prepare_audio(audio, effective_sr, log_resample=False)
+            if effective_sr != target_sr and len(self._buffer) > self._cached_native_chunk_count:
+                # Resample only the new chunks since last snapshot
+                new_chunks = list(self._buffer)[self._cached_native_chunk_count:]
+                if new_chunks:
+                    new_audio = np.concatenate(new_chunks, axis=0).reshape(-1)
+                    new_resampled = self._resample_chunk(new_audio, effective_sr, target_sr)
+                    self._cached_resampled = np.concatenate(
+                        [self._cached_resampled, new_resampled]
+                    ) if len(self._cached_resampled) > 0 else new_resampled
+                    self._cached_native_chunk_count = len(self._buffer)
+                return self._cached_resampled.copy()
+            elif effective_sr == target_sr:
+                # No resampling needed, just concatenate all
+                audio = np.concatenate(self._buffer, axis=0).reshape(-1)
+                return audio
+            else:
+                # No new chunks, return cached
+                return self._cached_resampled.copy()
+
+    def _resample_chunk(self, audio: np.ndarray, effective_sr: int, target_sr: int) -> np.ndarray:
+        """Resample a single chunk of audio."""
+        if len(audio) == 0:
+            return np.array([], dtype=np.float32)
+        resampled = False
+        try:
+            resample_poly = _get_resample_poly()
+            gcd = math.gcd(effective_sr, target_sr)
+            up = target_sr // gcd
+            down = effective_sr // gcd
+            audio = resample_poly(audio, up, down).astype(np.float32)
+            resampled = True
+        except ImportError:
+            pass
+        except Exception:
+            pass
+
+        if not resampled:
+            try:
+                ratio = target_sr / effective_sr
+                new_len = int(len(audio) * ratio)
+                indices = np.linspace(0, len(audio) - 1, new_len)
+                audio = np.interp(
+                    indices, np.arange(len(audio)), audio,
+                ).astype(np.float32)
+                resampled = True
+            except Exception:
+                pass
+
+        if not resampled:
+            return audio  # Return as-is, will be caught later
+        return audio
 
     def _prepare_audio(
         self,
@@ -552,6 +683,10 @@ class Recorder:
         with self._lock:
             self._last_rms = 0.0
             self._chunk_count = 0
+            self._silence_timer = 0.0
+            self._silence_warning_fired = False
+            self._cached_resampled = np.array([], dtype=np.float32)
+            self._cached_native_chunk_count = 0
         if self._stream:
             self._stream.stop()
             self._stream.close()

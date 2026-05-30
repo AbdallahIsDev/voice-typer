@@ -76,6 +76,12 @@ class Config:
     # Logging
     log_transcriptions: bool = False
 
+    # Silent mic disconnection (H12)
+    silence_warning_seconds: float = 20.0
+    silence_auto_stop_seconds: float = 120.0
+    max_recording_seconds_gpu: int = 1200
+    max_recording_seconds_cpu: int = 600
+
     def save(self) -> bool:
         """Save config to disk atomically via temp file + os.replace.
 
@@ -137,6 +143,9 @@ class Config:
                         )
                         data["corrections_path"] = None
 
+                # H1: Validate non-numeric fields before construction
+                data = cls._validate_non_numeric_fields(data)
+
                 return cls(**data)
             except json.JSONDecodeError as e:
                 log.error("Config file corrupted: %s. Using defaults.", e)
@@ -145,6 +154,58 @@ class Config:
                 log.error("Failed to load config: %s. Using defaults.", e)
                 return cls()
         return cls()
+
+    @classmethod
+    def _validate_non_numeric_fields(cls, data: dict) -> dict:
+        """Validate and coerce bool and str fields in loaded config data."""
+        bool_fields = {
+            "autostart", "paste_on_stop", "show_notifications",
+            "text_cleanup_enabled", "unsafe_paste_on_unknown_focus",
+            "streaming_transcription", "log_transcriptions",
+            "condition_on_previous_text",
+        }
+        str_fields = {"hotkey", "language", "device", "asr_backend"}
+        defaults = cls()
+
+        for field_name in bool_fields:
+            if field_name not in data:
+                continue
+            val = data[field_name]
+            if isinstance(val, bool):
+                continue
+            # Coerce truthy/falsy values
+            if val in (1, "1", "true", "True", "yes"):
+                log.warning(
+                    "Config field '%s' had non-bool value %r, coercing to True",
+                    field_name, val,
+                )
+                data[field_name] = True
+            elif val in (0, "0", "false", "False", "no", ""):
+                log.warning(
+                    "Config field '%s' had non-bool value %r, coercing to False",
+                    field_name, val,
+                )
+                data[field_name] = False
+            else:
+                log.warning(
+                    "Config field '%s' had invalid value %r, resetting to default %r",
+                    field_name, val, getattr(defaults, field_name),
+                )
+                data[field_name] = getattr(defaults, field_name)
+
+        for field_name in str_fields:
+            if field_name not in data:
+                continue
+            val = data[field_name]
+            if isinstance(val, str):
+                continue
+            log.warning(
+                "Config field '%s' had non-string value %r, resetting to default %r",
+                field_name, val, getattr(defaults, field_name),
+            )
+            data[field_name] = getattr(defaults, field_name)
+
+        return data
 
     @property
     def config_dir(self) -> Path:

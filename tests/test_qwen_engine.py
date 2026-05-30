@@ -303,3 +303,87 @@ class TestP1WhisperSkipWhenQwenActive:
 
         # Should have attempted to start recording (Whisper was lazy-loaded)
         app.recorder.start.assert_called_once()
+
+
+class TestM23LoadReturnValues:
+    """M23: QwenEngine load() silently eats errors."""
+
+    def _make_engine(self, model_path="/fake/qwen/model", **kwargs):
+        from voice_typer.qwen_engine import QwenEngine
+        return QwenEngine(model_path=model_path, **kwargs)
+
+    def test_load_returns_true_on_success(self):
+        engine = self._make_engine()
+        mock_qwen_module = MagicMock()
+        mock_model = MagicMock()
+        mock_qwen_module.Qwen3ASRModel.from_pretrained.return_value = mock_model
+        with patch.dict("sys.modules", {"qwen_asr": mock_qwen_module}):
+            result = engine.load()
+        assert result is True
+        assert engine.is_loaded is True
+
+    def test_load_returns_false_on_import_error(self):
+        engine = self._make_engine()
+        with patch.dict("sys.modules", {"qwen_asr": None}):
+            result = engine.load()
+        assert result is False
+        assert engine.is_loaded is False
+
+    def test_load_returns_false_on_runtime_error(self):
+        engine = self._make_engine()
+        mock_qwen_module = MagicMock()
+        mock_qwen_module.Qwen3ASRModel.from_pretrained.side_effect = RuntimeError("fail")
+        with patch.dict("sys.modules", {"qwen_asr": mock_qwen_module}):
+            result = engine.load()
+        assert result is False
+        assert engine.is_loaded is False
+
+    def test_load_returns_true_on_already_loaded(self):
+        engine = self._make_engine()
+        engine._model = MagicMock()
+        result = engine.load()
+        assert result is True
+
+
+class TestM13HallucinationDetection:
+    """M13: QwenEngine no hallucination detection."""
+
+    def _make_engine(self, model_path="/fake/qwen/model", **kwargs):
+        from voice_typer.qwen_engine import QwenEngine
+        return QwenEngine(model_path=model_path, **kwargs)
+
+    def test_rejects_hallucination_on_silence(self):
+        engine = self._make_engine()
+        engine._model = MagicMock()
+        mock_transcription = MagicMock()
+        mock_transcription.text = "Thanks for watching"
+        engine._model.transcribe.return_value = [mock_transcription]
+
+        # Near-silence audio (RMS < 0.001)
+        audio = np.zeros(16000, dtype=np.float32)
+        result = engine.transcribe(audio)
+        assert result == ""
+
+    def test_keeps_hallucination_phrase_with_audio(self):
+        engine = self._make_engine()
+        engine._model = MagicMock()
+        mock_transcription = MagicMock()
+        mock_transcription.text = "Thanks for watching"
+        engine._model.transcribe.return_value = [mock_transcription]
+
+        # Audio with real speech (RMS > 0.001)
+        audio = np.full(16000, 0.05, dtype=np.float32)
+        result = engine.transcribe(audio)
+        assert result == "Thanks for watching"
+
+    def test_keeps_non_hallucination_on_silence(self):
+        engine = self._make_engine()
+        engine._model = MagicMock()
+        mock_transcription = MagicMock()
+        mock_transcription.text = "Hello world"
+        engine._model.transcribe.return_value = [mock_transcription]
+
+        # Audio with RMS above silence threshold but text is not a known hallucination
+        audio = np.ones(16000, dtype=np.float32) * 0.01  # RMS = 0.01 > 0.005
+        result = engine.transcribe(audio)
+        assert result == "Hello world"

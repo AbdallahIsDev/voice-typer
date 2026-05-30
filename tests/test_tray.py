@@ -364,7 +364,7 @@ class TestSettingsUxTrayMenu:
 
         labels = [item.args[0] for item in advanced_menu.args[1]()]
         assert "Start on Login" in labels
-        assert "Notifications" in labels
+        assert "Dictation Notifications" in labels
 
     def test_microphone_submenu_remains_when_mics_are_present(self, tray):
         tray._config = SimpleNamespace(microphone=None, hotkey="<f2>")

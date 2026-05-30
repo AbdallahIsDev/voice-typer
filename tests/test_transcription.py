@@ -514,3 +514,105 @@ class TestTranscribeWords:
 
         assert lock.entries >= 2
         assert engine._model is None
+
+
+class TestM9GpuMemoryFree:
+    """M9: GPU fallback doesn't explicitly free GPU memory."""
+
+    def test_transcribe_with_fallback_frees_gpu_memory(self):
+        """GPU fallback should del model and gc.collect before reload."""
+        import gc as real_gc
+        import numpy as np
+        from voice_typer.transcription import TranscriptionEngine
+        import voice_typer.transcription as mod
+
+        engine = TranscriptionEngine(model_size="small.en", device="cuda")
+        engine._device = "cuda"
+        engine._compute_type = "float16"
+        mock_model = MagicMock()
+        engine._model = mock_model
+
+        # First call raises CUDA error
+        mock_model.transcribe.side_effect = RuntimeError(
+            "Library cublas64_12.dll is not found or cannot be loaded"
+        )
+
+        # After fallback, load() creates a new CPU model
+        cpu_model = MagicMock()
+        cpu_model.transcribe.return_value = (
+            [MagicMock(text="fallback text")], MagicMock()
+        )
+        mod_obj = sys.modules.get("faster_whisper")
+        mod_obj.WhisperModel.return_value = cpu_model
+
+        with patch.object(real_gc, "collect") as mock_gc:
+            result = engine.transcribe_with_fallback(np.zeros(16000, dtype=np.float32))
+
+        assert result == "fallback text"
+        # gc.collect should have been called
+        mock_gc.assert_called()
+
+    def test_transcribe_words_with_fallback_frees_gpu_memory(self):
+        """GPU words fallback should del model and gc.collect before reload."""
+        import gc as real_gc
+        import numpy as np
+        from voice_typer.transcription import TranscriptionEngine
+        import voice_typer.transcription as mod
+
+        engine = TranscriptionEngine(model_size="small.en", device="cuda")
+        engine._device = "cuda"
+        engine._compute_type = "float16"
+        mock_model = MagicMock()
+        engine._model = mock_model
+
+        mock_model.transcribe.side_effect = RuntimeError(
+            "Library cublas64_12.dll is not found or cannot be loaded"
+        )
+
+        cpu_model = MagicMock()
+        segment = MagicMock()
+        segment.words = [MagicMock(word=" fixed", start=0.1, end=0.4)]
+        cpu_model.transcribe.return_value = ([segment], MagicMock())
+        mod_obj = sys.modules.get("faster_whisper")
+        mod_obj.WhisperModel.return_value = cpu_model
+
+        with patch.object(real_gc, "collect") as mock_gc:
+            engine.transcribe_words(np.zeros(16000, dtype=np.float32))
+
+        mock_gc.assert_called()
+
+
+class TestM11GpuRuntimeErrorTypeCheck:
+    """M11: _is_gpu_runtime_error uses fragile string matching."""
+
+    def test_detects_cublas_exception_type(self):
+        """Exceptions with cuBLAS in their type name should be detected."""
+        from voice_typer.transcription import TranscriptionEngine
+
+        engine = TranscriptionEngine(model_size="small.en", device="cuda")
+        engine._device = "cuda"
+
+        class CUBLASRuntimeError(RuntimeError):
+            pass
+
+        assert engine._is_gpu_runtime_error(CUBLASRuntimeError("failed")) is True
+
+    def test_detects_cuda_string_in_message(self):
+        """String 'cuda' in error message should still be detected."""
+        from voice_typer.transcription import TranscriptionEngine
+
+        engine = TranscriptionEngine(model_size="small.en", device="cuda")
+        engine._device = "cuda"
+
+        assert engine._is_gpu_runtime_error(RuntimeError("cuda OOM")) is True
+
+    def test_cpu_device_never_gpu_error(self):
+        """When device is CPU, no error should be treated as GPU error."""
+        from voice_typer.transcription import TranscriptionEngine
+
+        engine = TranscriptionEngine(model_size="small.en", device="cpu")
+
+        class CUBLASRuntimeError(RuntimeError):
+            pass
+
+        assert engine._is_gpu_runtime_error(CUBLASRuntimeError("failed")) is False

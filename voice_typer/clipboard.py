@@ -121,7 +121,7 @@ class ClipboardManager:
                 "No text input focused on first check -- "
                 "retrying after 200 ms (focus may be briefly disrupted)"
             )
-            time.sleep(0.2)
+            time.sleep(0.1)
             focused = is_text_input_focused()
 
         if focused is False:
@@ -142,7 +142,7 @@ class ClipboardManager:
         # focused is True, or None with opt-in -> attempt paste
 
         try:
-            time.sleep(0.1)  # let focused app settle
+            time.sleep(0.05)  # let focused app settle
             if not is_text_input_focused() and not self.unsafe_paste_on_unknown_focus:
                 log.info("Focus lost during paste delay — skipping")
                 return False

@@ -203,6 +203,17 @@ class TrayIcon:
             title += f" — {state.value}"
         self._icon.title = title
 
+    def notify_safety(self, title: str, message: str) -> None:
+        """Show a notification that bypasses the notification toggle.
+
+        Used for safety-critical alerts (silence detection, max duration) that
+        should always be shown regardless of user notification preferences.
+        """
+        if self._icon:
+            self._do_notify(title, message)
+        else:
+            self._pending_notifications.append((title, message))
+
     def _do_notify(self, title: str, message: str) -> None:
         """Send a notification through the icon."""
         try:
@@ -324,7 +335,7 @@ class TrayIcon:
         )
         items.append(
             pystray.MenuItem(
-                "Notifications",
+                "Dictation Notifications",
                 self._wrap(
                     lambda: self._controller.set_notifications(
                         not bool(getattr(self._config, "show_notifications", True))

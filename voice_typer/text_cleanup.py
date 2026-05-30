@@ -303,11 +303,19 @@ def _correct_whisper_phrases(text: str) -> str:
     lower = text.lower()
     for pattern, bad, good in patterns:
         if pattern.search(lower):
-            original_first_upper = text[0].isupper() if text else False
-            text = pattern.sub(good, text)
-            if original_first_upper and text and text[0].islower():
-                text = text[0].upper() + text[1:]
-            lower = text.lower()
+            # L19: Preserve original casing pattern
+            def _apply_case_preserving_replacement(match):
+                original = match.group(0)
+                replacement = good
+                # Apply same casing pattern as original
+                if original.isupper():
+                    return replacement.upper()
+                elif original[0].isupper() and not original[1:].isupper():
+                    # Title case
+                    return replacement[0].upper() + replacement[1:]
+                else:
+                    return replacement
+            text = pattern.sub(_apply_case_preserving_replacement, text)
     return text
 
 
@@ -344,8 +352,37 @@ def _capitalize_sentences(text: str) -> str:
     return "".join(chars)
 
 
+# Roman numeral context words that precede lowercase 'i'
+_ROMAN_NUMERAL_CONTEXT_WORDS = {
+    "section", "chapter", "part", "book", "henry", "louis",
+    "richard", "king", "pope", "volume", "page",
+}
+
+
 def _capitalize_pronoun_i(text: str) -> str:
-    return re.sub(r"\bi\b(?!\.)", "I", text)
+    """Capitalize the pronoun 'i' but not Roman numeral 'i'."""
+    # Split text into tokens, identify 'i' that should be capitalized
+    # We process the text looking for standalone 'i' surrounded by word boundaries
+    result = []
+    i = 0
+    while i < len(text):
+        # Check for standalone 'i'
+        if (
+            text[i] == 'i'
+            and (i == 0 or not text[i - 1].isalpha())
+            and (i + 1 >= len(text) or not text[i + 1].isalpha())
+        ):
+            # Check if preceded by a Roman numeral context word
+            preceding = text[:i].rstrip()
+            last_word = preceding.rsplit(None, 1)[-1] if preceding and preceding[-1].isalpha() else ""
+            if last_word.lower() in _ROMAN_NUMERAL_CONTEXT_WORDS:
+                result.append('i')
+            else:
+                result.append('I')
+        else:
+            result.append(text[i])
+        i += 1
+    return ''.join(result)
 
 
 configure_corrections()

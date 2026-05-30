@@ -10,12 +10,24 @@ Key constraints:
 """
 
 import logging
+import re
 import threading
 from typing import Optional
 
 import numpy as np
 
 log = logging.getLogger(__name__)
+
+_KNOWN_LOW_AUDIO_HALLUCINATIONS = {
+    "thanks for watching",
+    "thank you for watching",
+    "see you next time",
+    "bye",
+}
+
+
+def _normalize_hallucination_key(text: str) -> str:
+    return re.sub(r"[^a-z0-9 ]+", "", text.lower()).strip()
 
 
 class QwenEngine:
@@ -148,7 +160,27 @@ class QwenEngine:
                 return ""
 
             text = result[0].text if hasattr(result[0], "text") else str(result[0])
-            return text.strip()
+            text = text.strip()
+
+            # M13: Reject low-audio hallucinations
+            if self._should_reject_low_audio_hallucination(audio, text):
+                return ""
+
+            return text
+
+    def _should_reject_low_audio_hallucination(
+        self, audio: np.ndarray, text: str
+    ) -> bool:
+        """Check if transcription is likely a hallucination from near-silence."""
+        if not text:
+            return False
+        key = _normalize_hallucination_key(text)
+        if key not in _KNOWN_LOW_AUDIO_HALLUCINATIONS:
+            return False
+        rms = float(np.sqrt(np.mean(np.square(audio), dtype=np.float64)))
+        if rms < 0.001:
+            return True
+        return False
 
     def unload(self):
         """Free model memory."""

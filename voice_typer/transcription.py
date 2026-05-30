@@ -164,6 +164,7 @@ class TranscriptionEngine:
 
         progress_callback: optional callable(message: str) for download/load status.
         """
+        self._pre_download_model(self.model_size, progress_callback)
         with self._lock:
             self._load_unlocked(progress_callback=progress_callback)
 
@@ -191,9 +192,6 @@ class TranscriptionEngine:
                     "Loading Whisper model '%s' on %s (%s)...",
                     model_size, device, compute_type,
                 )
-                if progress_callback:
-                    progress_callback(f"Downloading model '{model_size}'...")
-                self._pre_download_model(model_size, progress_callback)
                 if progress_callback:
                     progress_callback(f"Loading model '{model_size}'...")
                 self._model = WhisperModel(
@@ -390,6 +388,13 @@ class TranscriptionEngine:
                 first_err,
             )
             # Tear down GPU model, reload on CPU
+            # M9: Explicitly free GPU memory before reload
+            try:
+                del self._model
+                import gc
+                gc.collect()
+            except Exception:
+                pass
             self._model = None
             self._device = "cpu"
             self._compute_type = "int8"
@@ -416,6 +421,13 @@ class TranscriptionEngine:
                 "GPU timestamped transcription failed (%s), falling back to CPU",
                 first_err,
             )
+            # M9: Explicitly free GPU memory before reload
+            try:
+                del self._model
+                import gc
+                gc.collect()
+            except Exception:
+                pass
             self._model = None
             self._device = "cpu"
             self._compute_type = "int8"
@@ -465,14 +477,18 @@ class TranscriptionEngine:
         return words
 
     def _is_gpu_runtime_error(self, exc: Exception) -> bool:
+        if self._device == "cpu":
+            return False
+        # M11: Check exception type hierarchy first
+        exc_type = type(exc).__name__.lower()
+        if any(kw in exc_type for kw in ["cudnn", "cublas", "cuda", "ctranslate2"]):
+            return True
+        # Fallback to string matching for wrapped/re-raised errors
         error_str = str(exc).lower()
-        return (
-            self._device != "cpu"
-            and any(kw in error_str for kw in [
-                "cublas", "cuda", "cudnn", "gpu",
-                "not found or cannot be loaded",
-            ])
-        )
+        return any(kw in error_str for kw in [
+            "cublas", "cuda", "cudnn", "gpu",
+            "not found or cannot be loaded",
+        ])
 
     def _should_reject_low_audio_hallucination(
         self,
