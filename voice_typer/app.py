@@ -78,7 +78,7 @@ def _setup_logging():
     )
     fmt = "%(asctime)s [%(levelname)s] [%(session_id)s] %(component)s: %(message)s"
     handler.setFormatter(
-        logging.Formatter(fmt, defaults={"session_id": ""})
+        logging.Formatter(fmt, defaults={"session_id": "", "component": ""})
     )
 
     root = logging.getLogger("voice_typer")
@@ -91,7 +91,7 @@ def _setup_logging():
         stream = logging.StreamHandler()
         stream.setLevel(logging.INFO)
         stream.setFormatter(
-            logging.Formatter(fmt, defaults={"session_id": ""})
+            logging.Formatter(fmt, defaults={"session_id": "", "component": ""})
         )
         root.addHandler(stream)
 
