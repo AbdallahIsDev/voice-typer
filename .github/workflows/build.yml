@@ -41,21 +41,21 @@ jobs:
 
       - name: Build installer
         run: |
-          iscc scripts/build/installer.iss
+          iscc scripts/build/installer.iss /O"${{ github.workspace }}"
           echo "Installer output:"
-          Get-ChildItem -Path . -Filter "VoiceTyper-Setup-*.exe" -Recurse | Select-Object FullName
+          Get-ChildItem -Path "${{ github.workspace }}" -Filter "*.exe" | Select-Object FullName, Length
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: VoiceTyper-Setup
-          path: ./VoiceTyper-Setup-*.exe
+          path: ${{ github.workspace }}/VoiceTyper-Setup-*.exe
 
       - name: Upload to release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: ./VoiceTyper-Setup-*.exe
+          file: ${{ github.workspace }}/VoiceTyper-Setup-*.exe
           tag: ${{ github.ref_name }}
           overwrite: true
