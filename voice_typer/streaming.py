@@ -279,8 +279,6 @@ def _word_key(word: str) -> str:
 class StreamingTranscriptionSession:
     """Hidden streaming worker for one recording session."""
 
-    _MAX_CONSECUTIVE_FAILURES = 3
-
     def __init__(
         self,
         recorder,
@@ -299,10 +297,8 @@ class StreamingTranscriptionSession:
         self._cancel_event = threading.Event()
         self._stopped_event = threading.Event()
         self._thread: threading.Thread | None = None
-        self._consecutive_failures = 0
         self._fallback_required = False
         self._finalizing = False
-        self._lock = threading.Lock()
 
     @property
     def confirmed_text(self) -> str:
@@ -312,7 +308,7 @@ class StreamingTranscriptionSession:
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
-    def start(self) -> None:
+    def start(self):
         """Start the background streaming worker."""
         if self.is_running:
             return
@@ -360,19 +356,15 @@ class StreamingTranscriptionSession:
                 offset_seconds=window.start_seconds,
             )
             self._validate_words(words)
-            with self._lock:
-                self.assembler.add_window(
-                    window,
-                    words,
-                    right_guard_seconds=self.config.right_guard_seconds,
-                )
-            self._consecutive_failures = 0
+            self.assembler.add_window(
+                window,
+                words,
+                right_guard_seconds=self.config.right_guard_seconds,
+            )
             return True
         except Exception as exc:
             log.exception("[STREAMING] Chunk transcription failed: %s", exc)
-            self._consecutive_failures += 1
-            if self._consecutive_failures >= self._MAX_CONSECUTIVE_FAILURES:
-                self._fallback_required = True
+            self._fallback_required = True
             return False
 
     def _finalize_impl(self, full_audio: np.ndarray) -> str:
@@ -422,7 +414,7 @@ class StreamingTranscriptionSession:
         finally:
             self._stopped_event.set()
 
-    def _validate_words(self, words: Iterable[WordTiming]) -> None:
+    def _validate_words(self, words: Iterable[WordTiming]):
         for word in words:
             if not isinstance(word.word, str):
                 raise TypeError("word text must be a string")

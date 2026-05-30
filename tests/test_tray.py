@@ -331,7 +331,7 @@ class TestSettingsUxTrayMenu:
     def test_settings_window_is_in_main_menu(self, tray):
         labels = self._menu_labels(tray)
 
-        assert "Advanced" in labels
+        assert "Settings..." in labels
 
     def test_model_submenu_is_in_main_menu(self, tray):
         tray._config = SimpleNamespace(hotkey="<f2>", model_size="small.en")
@@ -344,8 +344,7 @@ class TestSettingsUxTrayMenu:
         )
 
         labels = [item.args[0] for item in model_menu.args[1]()]
-        assert "small.en" in labels[0]
-        assert "medium.en" in labels[1]
+        assert labels == ["small.en", "medium.en"]
 
     def test_advanced_submenu_has_autostart_and_notifications(self, tray):
         tray._config = SimpleNamespace(

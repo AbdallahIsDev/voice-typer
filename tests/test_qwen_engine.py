@@ -383,7 +383,7 @@ class TestM13HallucinationDetection:
         mock_transcription.text = "Hello world"
         engine._model.transcribe.return_value = [mock_transcription]
 
-        # Audio with RMS above silence threshold but text is not a known hallucination
-        audio = np.ones(16000, dtype=np.float32) * 0.01  # RMS = 0.01 > 0.005
+        # Near-silence audio but text is not a known hallucination
+        audio = np.zeros(16000, dtype=np.float32)
         result = engine.transcribe(audio)
         assert result == "Hello world"
