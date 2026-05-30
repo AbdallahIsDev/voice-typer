@@ -1064,9 +1064,32 @@ class VoiceTyperApp:
         return False
 
 
+def _ensure_single_instance():
+    """Enforce single-instance via a Windows named mutex.
+
+    Returns the mutex handle (kept alive to hold the lock) on Windows,
+    or None on other platforms.
+    """
+    if sys.platform != "win32":
+        return None
+
+    import ctypes
+
+    ERROR_ALREADY_EXISTS = 183
+    mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "VoiceTyperSingleInstance")
+    if ctypes.windll.kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
+        if sys.stderr is not None:
+            print("Voice Typer is already running.", file=sys.stderr)
+        sys.exit(0)
+    return mutex
+
+
 def main():
     """Entry point."""
     _setup_logging()
+
+    # Must be called early; handle must stay alive for the process lifetime.
+    _single_instance_mutex = _ensure_single_instance()
 
     try:
         app = VoiceTyperApp()
