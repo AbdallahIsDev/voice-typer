@@ -123,6 +123,9 @@ class _MockController:
     def set_silence_auto_stop_seconds(self, seconds: float) -> None:
         pass
 
+    def create_desktop_shortcut(self) -> None:
+        pass
+
 
 @pytest.fixture
 def tray():

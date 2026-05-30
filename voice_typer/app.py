@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 import uuid
+from pathlib import Path
 from typing import Optional
 
 from voice_typer.config import Config, _config_dir
@@ -20,6 +21,7 @@ from voice_typer.clipboard import ClipboardManager
 from voice_typer.settings import SettingsController, SettingsWindow
 from voice_typer.tray import TrayIcon, AppState
 from voice_typer.platform import (
+    create_launcher_shortcut,
     enable_autostart,
     disable_autostart,
     is_autostart_enabled,
@@ -255,6 +257,9 @@ class VoiceTyperApp:
         self._sync_autostart()
         self.tray.set_autostart_enabled(is_autostart_enabled())
 
+        # 1b. Create desktop launcher shortcut on first run (if absent)
+        self._ensure_desktop_shortcut()
+
         # 2. Enumerate microphones for the tray menu
         log.info("[STARTUP] Step 2: load microphones")
         self._load_microphones()
@@ -292,6 +297,20 @@ class VoiceTyperApp:
                 disable_autostart()
         except Exception as e:
             log.warning("Autostart sync failed: %s", e)
+
+    def _ensure_desktop_shortcut(self) -> None:
+        """Create desktop .bat launcher on first run if it doesn't exist."""
+        if sys.platform != "win32":
+            return
+        bat_path = Path.home() / "Desktop" / "Voice Typer.bat"
+        if bat_path.exists():
+            return
+        try:
+            result = create_launcher_shortcut()
+            if result:
+                log.info("[STARTUP] Desktop shortcut created: %s", result)
+        except Exception as e:
+            log.debug("[STARTUP] Desktop shortcut creation skipped: %s", e)
 
     def _load_microphones(self) -> None:
         """Enumerate microphones and update the tray menu."""
@@ -887,6 +906,17 @@ class VoiceTyperApp:
     def toggle_autostart(self) -> None:
         """TrayController protocol: toggle autostart on/off."""
         self._toggle_autostart()
+
+    def create_desktop_shortcut(self) -> None:
+        """Create (or overwrite) the desktop launcher .bat shortcut."""
+        result = create_launcher_shortcut()
+        if result:
+            self.tray.notify("Voice Typer", f"Desktop shortcut created:\n{result}")
+        else:
+            self.tray.notify(
+                "Voice Typer",
+                "Could not create desktop shortcut.\nCheck the log for details.",
+            )
 
     def set_notifications(self, enabled: bool) -> None:
         """TrayController protocol: enable/disable notifications."""

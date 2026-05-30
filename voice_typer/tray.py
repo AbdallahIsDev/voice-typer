@@ -12,6 +12,7 @@ Threading model:
 """
 
 import logging
+import sys
 import threading
 from enum import Enum
 from typing import Optional, Callable, Protocol
@@ -43,6 +44,7 @@ class TrayController(Protocol):
     def set_hotkey(self, hotkey: str) -> None: ...
     def set_silence_warning_seconds(self, seconds: float) -> None: ...
     def set_silence_auto_stop_seconds(self, seconds: float) -> None: ...
+    def create_desktop_shortcut(self) -> None: ...
 
 
 class TrayIcon:
@@ -366,6 +368,15 @@ class TrayIcon:
                 pystray.Menu(*self._build_auto_stop_menu_items()),
             )
         )
+
+        # Create Desktop Shortcut (Windows only)
+        if sys.platform == "win32":
+            items.append(
+                pystray.MenuItem(
+                    "Create Desktop Shortcut",
+                    self._wrap(self._controller.create_desktop_shortcut),
+                )
+            )
 
         return items
 
