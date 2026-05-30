@@ -105,7 +105,7 @@ class TestConfigLoadSave:
         assert c.streaming_left_overlap_seconds == 3.0
         assert c.streaming_right_guard_seconds == 1.5
 
-    @pytest.mark.parametrize("legacy_model", ["tiny.en", "large-v3", "base.en", "unsupported"])
+    @pytest.mark.parametrize("legacy_model", ["large-v3", "base.en", "unsupported"])
     def test_load_normalizes_legacy_or_unsupported_model_to_small_en(
         self, tmp_path, monkeypatch, legacy_model
     ):

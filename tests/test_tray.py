@@ -117,6 +117,12 @@ class _MockController:
     def set_notifications(self, enabled: bool) -> None:
         pass
 
+    def set_silence_warning_seconds(self, seconds: float) -> None:
+        pass
+
+    def set_silence_auto_stop_seconds(self, seconds: float) -> None:
+        pass
+
 
 @pytest.fixture
 def tray():
@@ -128,11 +134,12 @@ def tray():
         "toggle_dictation", "change_microphone", "change_model",
         "change_hotkey", "open_settings", "quit_app",
         "toggle_autostart", "set_notifications",
+        "set_silence_warning_seconds", "set_silence_auto_stop_seconds",
     ]:
         setattr(controller, method_name, MagicMock())
     t = TrayIcon(
         controller=controller,
-        config=SimpleNamespace(hotkey="<f2>", model_size="small.en", autostart=True, show_notifications=True, microphone=None),
+        config=SimpleNamespace(hotkey="<f2>", model_size="small.en", autostart=True, show_notifications=True, microphone=None, silence_warning_seconds=20.0, silence_auto_stop_seconds=120.0),
     )
     yield t
     # Suppress unraisable destructor warnings from pystray Icon objects
@@ -344,15 +351,19 @@ class TestSettingsUxTrayMenu:
         )
 
         labels = [item.args[0] for item in model_menu.args[1]()]
+        assert "tiny.en (fastest, ~75MB)" in labels
         assert "small.en (fast, ~466MB)" in labels
         assert "medium.en (slow, ~1.5GB)" in labels
+        assert "qwen (Qwen3-ASR)" in labels
 
-    def test_advanced_submenu_has_autostart_and_notifications(self, tray):
+    def test_advanced_submenu_has_autostart_notifications_and_silence(self, tray):
         tray._config = SimpleNamespace(
             hotkey="<f2>",
             model_size="small.en",
             autostart=True,
             show_notifications=True,
+            silence_warning_seconds=20.0,
+            silence_auto_stop_seconds=120.0,
         )
 
         tray.start(bg_work=None)
@@ -365,6 +376,8 @@ class TestSettingsUxTrayMenu:
         labels = [item.args[0] for item in advanced_menu.args[1]()]
         assert "Start on Login" in labels
         assert "Dictation Notifications" in labels
+        assert "Silence Warning" in labels
+        assert "Auto-Stop Timeout" in labels
 
     def test_microphone_submenu_remains_when_mics_are_present(self, tray):
         tray._config = SimpleNamespace(microphone=None, hotkey="<f2>")

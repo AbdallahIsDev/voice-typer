@@ -7,6 +7,7 @@ from unittest.mock import patch, MagicMock
 
 from voice_typer.platform import (
     _autostart_command,
+    create_launcher_shortcut,
     list_microphones,
     find_microphone_by_name,
     enable_autostart,
@@ -117,3 +118,42 @@ class TestDuplicateMicrophoneDisambiguation:
         assert mic1["name"] == mic2["name"]  # same display name
         assert mic1["id"] != mic2["id"]      # different IDs
         assert mic1["host_api"] != mic2["host_api"]  # different host APIs
+
+
+class TestCreateLauncherShortcut:
+    @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only test")
+    def test_creates_bat_on_desktop(self, tmp_path, monkeypatch):
+        """Should write a .bat file referencing pythonw."""
+        pythonw = tmp_path / "pythonw.exe"
+        pythonw.touch()
+        monkeypatch.setattr(sys, "executable", str(tmp_path / "python.exe"))
+
+        import voice_typer.platform as mod
+        monkeypatch.setattr(mod, "SYSTEM", "win32")
+
+        # Create Desktop dir in tmp and patch Path.home()
+        desktop = tmp_path / "Desktop"
+        desktop.mkdir()
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+
+        result = create_launcher_shortcut()
+        assert result is not None
+        assert result.exists()
+        assert result.name == "Voice Typer.bat"
+        content = result.read_text(encoding="utf-8")
+        assert "pythonw" in content
+        assert "-m voice_typer" in content
+
+    def test_returns_none_on_non_windows(self, monkeypatch):
+        import voice_typer.platform as mod
+        monkeypatch.setattr(mod, "SYSTEM", "linux")
+        assert create_launcher_shortcut() is None
+
+    @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only test")
+    def test_returns_none_when_pythonw_missing(self, tmp_path, monkeypatch):
+        """If pythonw.exe doesn't exist next to the interpreter, returns None."""
+        monkeypatch.setattr(sys, "executable", str(tmp_path / "python.exe"))
+        # No pythonw.exe in tmp_path
+        import voice_typer.platform as mod
+        monkeypatch.setattr(mod, "SYSTEM", "win32")
+        assert create_launcher_shortcut() is None

@@ -704,9 +704,13 @@ class VoiceTyperApp:
                 "Voice Typer",
                 "Recording stopped: no audio detected for an extended period.",
             )
-            self._stop_dictation()
         except Exception:
             pass
+        # Must NOT call _stop_dictation() directly here — this callback runs
+        # inside the audio callback while Recorder._lock is held.  Calling
+        # recorder.stop() would deadlock on the same lock.  Schedule it on a
+        # separate thread instead.
+        self._schedule_timer(0, self._stop_dictation)
 
     def _on_max_duration_auto_stop(self):
         """Handle max duration auto-stop from recorder."""
@@ -716,9 +720,10 @@ class VoiceTyperApp:
                 "Voice Typer",
                 "Recording stopped: maximum recording duration reached.",
             )
-            self._stop_dictation()
         except Exception:
             pass
+        # Same reason as _on_silence_auto_stop: avoid deadlock on Recorder._lock.
+        self._schedule_timer(0, self._stop_dictation)
 
     # ─── Settings / Microphone ─────────────────────────────────────────
 
@@ -887,6 +892,18 @@ class VoiceTyperApp:
         """TrayController protocol: enable/disable notifications."""
         self._set_notifications(enabled)
 
+    def set_silence_warning_seconds(self, seconds: float) -> None:
+        """TrayController protocol: set silence warning timeout."""
+        self.config.silence_warning_seconds = seconds
+        self.config.save()
+        self.tray.invalidate_menu_cache()
+
+    def set_silence_auto_stop_seconds(self, seconds: float) -> None:
+        """TrayController protocol: set silence auto-stop timeout."""
+        self.config.silence_auto_stop_seconds = seconds
+        self.config.save()
+        self.tray.invalidate_menu_cache()
+
     # ─── Shutdown ──────────────────────────────────────────────────────
 
     def quit(self):
@@ -903,10 +920,26 @@ class VoiceTyperApp:
         # Cancel all pending timers
         self._cancel_pending_timers()
 
-        self._cancel_streaming_session()
+        # Signal streaming session to cancel without blocking on join.
+        # The old code called _cancel_streaming_session() → session.cancel()
+        # → thread.join(timeout=10) which blocked quit for up to 10 seconds.
+        # Instead, just signal the cancel event; the daemon thread will die
+        # when the process exits.
+        session = self._get_streaming_session()
+        self._set_streaming_session(None)
+        if session is not None:
+            session._cancel_event.set()
 
         if self.recorder.recording:
             self.recorder.discard()
+
+        # Wait for any running transcription thread to finish (short timeout).
+        t = self._transcription_thread
+        if t is not None and t.is_alive():
+            log.info("Waiting for transcription thread to finish...")
+            t.join(timeout=3.0)
+            if t.is_alive():
+                log.warning("Transcription thread did not finish in time, continuing shutdown")
 
         if self._hotkey_backend:
             self._hotkey_backend.stop()

@@ -900,7 +900,7 @@ class TestStreamingIntegration:
         with pytest.raises(SystemExit):
             app.quit()
 
-        session.cancel.assert_called_once()
+        session._cancel_event.set.assert_called_once()
 
     def test_select_microphone_during_recording_defers_recorder_recreation(self, app):
         app.recorder = MagicMock()
@@ -1108,6 +1108,8 @@ class TestTrayControllerProtocolCompliance:
         "quit",
         "toggle_autostart",
         "set_notifications",
+        "set_silence_warning_seconds",
+        "set_silence_auto_stop_seconds",
     ]
 
     REQUIRED_CALLBACK_METHODS = [

@@ -13,8 +13,8 @@ from voice_typer.settings import (
 )
 
 
-def test_allowed_models_are_small_and_medium_english():
-    assert ALLOWED_MODELS == ("small.en", "medium.en")
+def test_allowed_models_include_all_options():
+    assert ALLOWED_MODELS == ("tiny.en", "small.en", "medium.en", "qwen")
 
 
 @pytest.mark.parametrize(
@@ -101,7 +101,7 @@ def test_settings_controller_rejects_invalid_model():
     with pytest.raises(ValueError):
         controller.apply(
             hotkey="<f2>",
-            model_size="tiny.en",
+            model_size="large-v3",
             microphone=None,
             autostart=True,
             show_notifications=True,

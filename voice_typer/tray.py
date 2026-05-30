@@ -41,6 +41,8 @@ class TrayController(Protocol):
     def toggle_autostart(self) -> None: ...
     def set_notifications(self, enabled: bool) -> None: ...
     def set_hotkey(self, hotkey: str) -> None: ...
+    def set_silence_warning_seconds(self, seconds: float) -> None: ...
+    def set_silence_auto_stop_seconds(self, seconds: float) -> None: ...
 
 
 class TrayIcon:
@@ -311,8 +313,10 @@ class TrayIcon:
     def _build_model_menu_items(self) -> list:
         current = getattr(self._config, "model_size", "small.en") or "small.en"
         model_labels = {
+            "tiny.en": "tiny.en (fastest, ~75MB)",
             "small.en": "small.en (fast, ~466MB)",
             "medium.en": "medium.en (slow, ~1.5GB)",
+            "qwen": "qwen (Qwen3-ASR)",
         }
         return [
             pystray.MenuItem(
@@ -321,7 +325,7 @@ class TrayIcon:
                 checked=lambda item, model_size=model: current == model_size,
                 radio=True,
             )
-            for model in ("small.en", "medium.en")
+            for model in ("tiny.en", "small.en", "medium.en", "qwen")
         ]
 
     def _build_advanced_menu_items(self) -> list:
@@ -346,7 +350,50 @@ class TrayIcon:
                 ),
             )
         )
+
+        # Silence Warning Timeout submenu
+        items.append(
+            pystray.MenuItem(
+                "Silence Warning",
+                pystray.Menu(*self._build_silence_warning_menu_items()),
+            )
+        )
+
+        # Auto-Stop Timeout submenu
+        items.append(
+            pystray.MenuItem(
+                "Auto-Stop Timeout",
+                pystray.Menu(*self._build_auto_stop_menu_items()),
+            )
+        )
+
         return items
+
+    def _build_silence_warning_menu_items(self) -> list:
+        current = getattr(self._config, "silence_warning_seconds", 20.0) or 20.0
+        presets = [10.0, 20.0, 30.0, 60.0]
+        return [
+            pystray.MenuItem(
+                f"{int(s)}s",
+                self._wrap(lambda s=s: self._controller.set_silence_warning_seconds(s)),
+                checked=lambda item, s=s: current == s,
+                radio=True,
+            )
+            for s in presets
+        ]
+
+    def _build_auto_stop_menu_items(self) -> list:
+        current = getattr(self._config, "silence_auto_stop_seconds", 120.0) or 120.0
+        presets = [60.0, 120.0, 180.0, 300.0]
+        return [
+            pystray.MenuItem(
+                f"{int(s // 60)} min" if s >= 60 else f"{int(s)}s",
+                self._wrap(lambda s=s: self._controller.set_silence_auto_stop_seconds(s)),
+                checked=lambda item, s=s: current == s,
+                radio=True,
+            )
+            for s in presets
+        ]
 
     @staticmethod
     def _format_hotkey_label(hotkey: str) -> str:

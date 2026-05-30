@@ -363,7 +363,7 @@ class TestH8Pruning:
     """H8: Unbounded memory growth in streaming assembler."""
 
     def test_old_words_are_pruned_after_commit_horizon(self):
-        """Words well before the commit horizon should be pruned."""
+        """Dedup structures are pruned but _words (output accumulator) is kept."""
         assembler = StreamingTextAssembler()
         # Add word at t=5 - within 5-second buffer of commit_horizon=10
         assembler.add_words(
@@ -374,14 +374,16 @@ class TestH8Pruning:
         assert len(assembler._words) == 1
 
         # Now add word at t=20, with commit_horizon=25
-        # Prune threshold = 25 - 5 = 20. "early" (5.5 < 20) gets pruned
+        # Prune threshold = 25 - 5 = 20. Dedup timestamps for "early" (5.5 < 20)
+        # are pruned, but _words keeps all committed entries.
         assembler.add_words(
             [WordTiming("later", start_seconds=20.0, end_seconds=20.5)],
             commit_horizon_seconds=25.0,
         )
 
         assert "later" in assembler.committed_text
-        assert "early" not in assembler.committed_text
+        assert "early" in assembler.committed_text
+        assert len(assembler._words) == 2
 
     def test_recent_words_are_kept(self):
         """Words near the commit horizon should NOT be pruned."""

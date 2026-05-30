@@ -275,3 +275,31 @@ def _disable_autostart_linux() -> bool:
 
 def _is_autostart_linux() -> bool:
     return (get_autostart_dir() / "voice-typer.desktop").exists()
+
+
+# ─── Launcher shortcut ────────────────────────────────────────────────
+
+def create_launcher_shortcut() -> Optional[Path]:
+    """Create a .bat launcher that uses pythonw (no console window).
+
+    Returns the path to the created .bat file, or None on unsupported
+    platforms / failure.
+    """
+    if SYSTEM != "win32":
+        log.info("Launcher shortcut only supported on Windows")
+        return None
+
+    pythonw = Path(sys.executable).parent / "pythonw.exe"
+    if not pythonw.exists():
+        log.warning("pythonw.exe not found at %s — cannot create console-free launcher", pythonw)
+        return None
+
+    bat_path = Path.home() / "Desktop" / "Voice Typer.bat"
+    bat_content = f'@echo off\r\nstart "" "{pythonw}" -m voice_typer\r\n'
+    try:
+        bat_path.write_text(bat_content, encoding="utf-8")
+        log.info("Launcher shortcut created: %s", bat_path)
+        return bat_path
+    except OSError as e:
+        log.error("Failed to create launcher shortcut: %s", e)
+        return None

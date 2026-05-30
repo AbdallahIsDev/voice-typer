@@ -6,7 +6,7 @@ import re
 from typing import Callable, Optional
 
 
-ALLOWED_MODELS = ("small.en", "medium.en")
+ALLOWED_MODELS = ("tiny.en", "small.en", "medium.en", "qwen")
 
 _FUNCTION_KEY_RE = re.compile(r"^F([1-9]|1[0-2])$")
 _MODIFIER_RE = r"(<(?:ctrl|alt|shift|cmd|win|super)>\+)+"

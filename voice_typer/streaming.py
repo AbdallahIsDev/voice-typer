@@ -208,24 +208,20 @@ class StreamingTextAssembler:
         return " ".join(committed)
 
     def _prune_old_entries(self, threshold: float) -> None:
-        """Remove words and their timestamps that ended before threshold."""
-        pruned_indices = set()
-        new_words = []
-        for i, word in enumerate(self._words):
-            if word.end_seconds < threshold:
-                pruned_indices.add(i)
-            else:
-                new_words.append(word)
-        if not pruned_indices:
-            return
-        # Prune matching timestamps
+        """Prune dedup structures for old entries; never remove from _words.
+
+        _words is the output accumulator and must keep all committed entries.
+        Only _seen_timestamps and _word_key_index are pruned to limit memory.
+        """
+        # Prune old timestamps from dedup set
         new_timestamps: set[tuple[float, float]] = set()
         for ts in self._seen_timestamps:
             if ts[1] >= threshold:
                 new_timestamps.add(ts)
-        self._words = new_words
+        if len(new_timestamps) == len(self._seen_timestamps):
+            return
         self._seen_timestamps = new_timestamps
-        # Rebuild _word_key_index
+        # Rebuild _word_key_index from current _words (keep all words)
         self._word_key_index.clear()
         for i, word in enumerate(self._words):
             key = _word_key(word.word)

@@ -11,7 +11,7 @@ from typing import Optional
 log = logging.getLogger("voice_typer.config")
 
 
-ALLOWED_USER_MODELS = {"small.en", "medium.en"}
+ALLOWED_USER_MODELS = {"tiny.en", "small.en", "medium.en", "qwen"}
 
 
 def _config_dir() -> Path:
