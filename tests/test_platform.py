@@ -7,6 +7,7 @@ from unittest.mock import patch, MagicMock
 
 from voice_typer.platform import (
     _autostart_command,
+    _generate_icon_ico,
     create_launcher_shortcut,
     list_microphones,
     find_microphone_by_name,
@@ -122,8 +123,8 @@ class TestDuplicateMicrophoneDisambiguation:
 
 class TestCreateLauncherShortcut:
     @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only test")
-    def test_creates_bat_on_desktop(self, tmp_path, monkeypatch):
-        """Should write a .bat file referencing pythonw."""
+    def test_creates_lnk_on_desktop(self, tmp_path, monkeypatch):
+        """Should create a .lnk shortcut when win32com is available."""
         pythonw = tmp_path / "pythonw.exe"
         pythonw.touch()
         monkeypatch.setattr(sys, "executable", str(tmp_path / "python.exe"))
@@ -131,10 +132,52 @@ class TestCreateLauncherShortcut:
         import voice_typer.platform as mod
         monkeypatch.setattr(mod, "SYSTEM", "win32")
 
-        # Create Desktop dir in tmp and patch Path.home()
         desktop = tmp_path / "Desktop"
         desktop.mkdir()
         monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+
+        # Patch APPDATA so icon goes into tmp
+        monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+
+        mock_shell = MagicMock()
+        mock_shortcut = MagicMock()
+        mock_shell.CreateShortCut.return_value = mock_shortcut
+        mock_win32com = MagicMock()
+        mock_win32com.client.Dispatch.return_value = mock_shell
+
+        monkeypatch.setitem(sys.modules, "win32com", mock_win32com)
+        monkeypatch.setitem(sys.modules, "win32com.client", mock_win32com.client)
+
+        result = create_launcher_shortcut()
+        assert result is not None
+        assert result.name == "Voice Typer.lnk"
+        assert str(result) == str(desktop / "Voice Typer.lnk")
+        mock_shortcut.save.assert_called_once()
+        assert str(pythonw) == mock_shortcut.Targetpath
+        assert "-m voice_typer" in mock_shortcut.Arguments
+
+    @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only test")
+    def test_falls_back_to_bat_when_win32com_missing(self, tmp_path, monkeypatch):
+        """Should create a .bat file when win32com is not importable."""
+        pythonw = tmp_path / "pythonw.exe"
+        pythonw.touch()
+        monkeypatch.setattr(sys, "executable", str(tmp_path / "python.exe"))
+
+        import voice_typer.platform as mod
+        monkeypatch.setattr(mod, "SYSTEM", "win32")
+
+        desktop = tmp_path / "Desktop"
+        desktop.mkdir()
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+
+        # Make win32com raise ImportError
+        import builtins
+        real_import = builtins.__import__
+        def mock_import(name, *args, **kwargs):
+            if name == "win32com" or name.startswith("win32com."):
+                raise ImportError("no win32com")
+            return real_import(name, *args, **kwargs)
+        monkeypatch.setattr(builtins, "__import__", mock_import)
 
         result = create_launcher_shortcut()
         assert result is not None
@@ -153,7 +196,18 @@ class TestCreateLauncherShortcut:
     def test_returns_none_when_pythonw_missing(self, tmp_path, monkeypatch):
         """If pythonw.exe doesn't exist next to the interpreter, returns None."""
         monkeypatch.setattr(sys, "executable", str(tmp_path / "python.exe"))
-        # No pythonw.exe in tmp_path
         import voice_typer.platform as mod
         monkeypatch.setattr(mod, "SYSTEM", "win32")
         assert create_launcher_shortcut() is None
+
+
+class TestGenerateIconIco:
+    def test_generates_ico_file(self, tmp_path, monkeypatch):
+        """Should create an icon.ico file using PIL."""
+        monkeypatch.setenv("APPDATA", str(tmp_path))
+
+        result = _generate_icon_ico()
+        assert result is not None
+        assert result.exists()
+        assert result.name == "icon.ico"
+        assert result.parent.name == "voice-typer"

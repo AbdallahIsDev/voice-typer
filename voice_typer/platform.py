@@ -279,10 +279,72 @@ def _is_autostart_linux() -> bool:
 
 # ─── Launcher shortcut ────────────────────────────────────────────────
 
-def create_launcher_shortcut() -> Optional[Path]:
-    """Create a .bat launcher that uses pythonw (no console window).
+def _generate_icon_ico() -> Optional[Path]:
+    """Generate a microphone .ico file for the shortcut icon.
 
-    Returns the path to the created .bat file, or None on unsupported
+    Uses the same PIL drawing logic as the tray icon.  Saves to
+    ``%APPDATA%/voice-typer/icon.ico`` and returns the path, or None
+    on failure.
+    """
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError:
+        log.debug("PIL not available — cannot generate icon")
+        return None
+
+    appdata = Path(os.environ.get("APPDATA", Path.home()))
+    icon_dir = appdata / "voice-typer"
+    icon_dir.mkdir(parents=True, exist_ok=True)
+    ico_path = icon_dir / "icon.ico"
+
+    size = 256
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    cx, cy = size // 2, size // 2
+    color = (52, 152, 219, 255)  # blue — matches TRANSCRIBING state
+
+    # Microphone body (rounded rect)
+    mic_w, mic_h = size // 5, size // 3
+    draw.rounded_rectangle(
+        [cx - mic_w, cy - mic_h, cx + mic_w, cy + mic_h // 3],
+        radius=mic_w // 2,
+        fill=color,
+    )
+
+    # Stand arc
+    stand_radius = size // 3
+    draw.arc(
+        [cx - stand_radius, cy - stand_radius + mic_h // 4,
+         cx + stand_radius, cy + stand_radius],
+        start=0, end=180,
+        fill=color, width=max(2, size // 20),
+    )
+
+    # Base line
+    base_y = cy + stand_radius
+    draw.line(
+        [cx - stand_radius // 2, base_y, cx + stand_radius // 2, base_y],
+        fill=color, width=max(2, size // 20),
+    )
+
+    try:
+        img.save(str(ico_path), format="ICO", sizes=[(256, 256)])
+        log.info("Shortcut icon saved: %s", ico_path)
+        return ico_path
+    except OSError as e:
+        log.warning("Failed to save icon: %s", e)
+        return None
+
+
+def create_launcher_shortcut() -> Optional[Path]:
+    """Create a desktop shortcut for Voice Typer.
+
+    On Windows, attempts to create a ``.lnk`` shortcut via ``win32com``
+    with a custom microphone icon.  Falls back to a ``.bat`` launcher
+    if ``win32com`` is unavailable.
+
+    Returns the path to the created shortcut, or None on unsupported
     platforms / failure.
     """
     if SYSTEM != "win32":
@@ -294,11 +356,38 @@ def create_launcher_shortcut() -> Optional[Path]:
         log.warning("pythonw.exe not found at %s — cannot create console-free launcher", pythonw)
         return None
 
-    bat_path = Path.home() / "Desktop" / "Voice Typer.bat"
+    desktop = Path.home() / "Desktop"
+
+    # Try .lnk shortcut via win32com
+    try:
+        import win32com.client  # noqa: F811
+
+        lnk_path = desktop / "Voice Typer.lnk"
+        shell = win32com.client.Dispatch("WScript.Shell")
+        shortcut = shell.CreateShortCut(str(lnk_path))
+        shortcut.Targetpath = str(pythonw)
+        shortcut.Arguments = "-m voice_typer"
+        shortcut.WorkingDirectory = str(Path.home())
+        shortcut.Description = "Voice Typer — background voice-to-text"
+
+        icon_ico = _generate_icon_ico()
+        if icon_ico:
+            shortcut.IconLocation = str(icon_ico)
+        shortcut.save()
+
+        log.info("Launcher shortcut created: %s", lnk_path)
+        return lnk_path
+    except ImportError:
+        log.info("win32com not available — falling back to .bat launcher")
+    except OSError as e:
+        log.warning("Failed to create .lnk shortcut: %s — falling back to .bat", e)
+
+    # Fallback: .bat launcher
+    bat_path = desktop / "Voice Typer.bat"
     bat_content = f'@echo off\r\nstart "" "{pythonw}" -m voice_typer\r\n'
     try:
         bat_path.write_text(bat_content, encoding="utf-8")
-        log.info("Launcher shortcut created: %s", bat_path)
+        log.info("Launcher shortcut created (fallback .bat): %s", bat_path)
         return bat_path
     except OSError as e:
         log.error("Failed to create launcher shortcut: %s", e)
