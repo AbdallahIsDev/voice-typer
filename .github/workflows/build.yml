@@ -34,7 +34,7 @@ jobs:
         run: |
           pyinstaller scripts/build/voice-typer.spec --noconfirm --distpath dist --workpath build
           echo "PyInstaller output:"
-          dir dist /s /b
+          Get-ChildItem -Path dist -Recurse | Select-Object FullName
 
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
