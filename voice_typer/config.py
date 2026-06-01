@@ -89,6 +89,7 @@ class Config:
     silence_auto_stop_seconds: float = 120.0
     max_recording_seconds_gpu: int = 1200
     max_recording_seconds_cpu: int = 600
+    max_recording_seconds: int = 0  # 0 = use device-specific default (gpu/cpu)
 
     def save(self) -> bool:
         """Save config to disk atomically via temp file + os.replace.

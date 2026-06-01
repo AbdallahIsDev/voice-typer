@@ -991,6 +991,12 @@ class VoiceTyperApp:
         self.config.save()
         self.tray.invalidate_menu_cache()
 
+    def set_max_recording_seconds(self, seconds: int) -> None:
+        """TrayController protocol: set max recording duration override."""
+        self.config.max_recording_seconds = seconds
+        self.config.save()
+        self.tray.invalidate_menu_cache()
+
     # ─── Shutdown ──────────────────────────────────────────────────────
 
     def quit(self):

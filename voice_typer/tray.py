@@ -46,6 +46,7 @@ class TrayController(Protocol):
     def set_hotkey(self, hotkey: str) -> None: ...
     def set_silence_warning_seconds(self, seconds: float) -> None: ...
     def set_silence_auto_stop_seconds(self, seconds: float) -> None: ...
+    def set_max_recording_seconds(self, seconds: int) -> None: ...
     def create_desktop_shortcut(self) -> None: ...
     def restart_app(self) -> None: ...
 
@@ -415,6 +416,14 @@ class TrayIcon:
             )
         )
 
+        # Max Recording Duration submenu
+        items.append(
+            pystray.MenuItem(
+                "Max Recording",
+                pystray.Menu(*self._build_max_recording_menu_items()),
+            )
+        )
+
         # Create Desktop Shortcut (Windows only)
         if sys.platform == "win32":
             items.append(
@@ -500,6 +509,48 @@ class TrayIcon:
             threading.Thread(target=_dialog, daemon=True).start()
 
         is_custom = not any(current == s for s in presets)
+        items.append(
+            pystray.MenuItem(
+                "Custom",
+                self._wrap(ask_custom),
+                checked=lambda item: is_custom,
+                radio=True,
+            )
+        )
+        return items
+
+    def _build_max_recording_menu_items(self) -> list:
+        current = getattr(self._config, "max_recording_seconds", 0) or 0
+        presets = [300, 600, 900, 1200]  # 5, 10, 15, 20 min
+        items = [
+            pystray.MenuItem(
+                f"{s // 60} min",
+                self._wrap(lambda s=s: self._controller.set_max_recording_seconds(s)),
+                checked=lambda item, s=s: current == s,
+                radio=True,
+            )
+            for s in presets
+        ]
+
+        def ask_custom():
+            def _dialog():
+                root = tk.Tk()
+                root.withdraw()
+                try:
+                    value = simpledialog.askinteger(
+                        "Max Recording",
+                        "Max recording duration (minutes):",
+                        minvalue=1,
+                        maxvalue=120,
+                        parent=root,
+                    )
+                    if value is not None:
+                        self._controller.set_max_recording_seconds(value * 60)
+                finally:
+                    root.destroy()
+            threading.Thread(target=_dialog, daemon=True).start()
+
+        is_custom = current > 0 and current not in presets
         items.append(
             pystray.MenuItem(
                 "Custom",
