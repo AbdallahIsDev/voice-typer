@@ -386,7 +386,7 @@ class TrayIcon:
 
     def _build_silence_warning_menu_items(self) -> list:
         current = getattr(self._config, "silence_warning_seconds", 20.0) or 20.0
-        presets = [10.0, 20.0, 30.0, 60.0]
+        presets = [5.0, 10.0, 15.0, 20.0]
         return [
             pystray.MenuItem(
                 f"{int(s)}s",

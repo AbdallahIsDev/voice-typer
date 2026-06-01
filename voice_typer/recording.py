@@ -1,5 +1,6 @@
 """Session-based audio recording."""
 
+import collections
 import logging
 import math
 import threading
@@ -65,6 +66,7 @@ class Recorder:
         self._silence_timer: float = 0.0
         self._silence_warning_fired: bool = False
         self._recording_start_time: float = 0.0
+        self._recent_rms_values: collections.deque = collections.deque(maxlen=50)
 
         # H12 callbacks (wired by app.py)
         self.on_silence_warning = None  # type: Optional[callable]
@@ -263,6 +265,7 @@ class Recorder:
         self._cached_native_chunk_count = 0
         self._silence_timer = 0.0
         self._silence_warning_fired = False
+        self._recent_rms_values.clear()
         self._recording_start_time = time.perf_counter()
 
         device = self._resolve_device()
@@ -281,14 +284,32 @@ class Recorder:
                 self._chunk_count += 1
 
                 # H12: Silence detection in audio callback
+                # Uses signal VARIANCE to distinguish mic disconnect from user pause:
+                # - Disconnected mic: flat signal, near-zero variance
+                # - User pause: room noise, breathing → some variance
                 chunk_rms = float(np.sqrt(np.mean(np.square(indata), dtype=np.float64)))
                 chunk_peak = float(np.max(np.abs(indata)))
                 chunk_duration = len(indata) / self._effective_sr
 
+                self._recent_rms_values.append(chunk_rms)
+
+                # Voice detected by loudness → reset
                 if chunk_rms > 0.005 or chunk_peak > 0.01:
                     self._silence_timer = 0.0
+                    self._recent_rms_values.clear()
                 else:
-                    self._silence_timer += chunk_duration
+                    # Check signal variance: flat signal = mic disconnected
+                    if len(self._recent_rms_values) >= 10:
+                        rms_std = float(np.std(list(self._recent_rms_values)))
+                        if rms_std < 0.001:
+                            # Very flat signal — likely mic disconnected
+                            self._silence_timer += chunk_duration
+                        else:
+                            # Signal has variance — user paused, not disconnected
+                            self._silence_timer = 0.0
+                    else:
+                        # Not enough samples yet, accumulate cautiously
+                        self._silence_timer += chunk_duration
 
                 silence_warning_seconds = getattr(
                     self.config, 'silence_warning_seconds', 20.0
