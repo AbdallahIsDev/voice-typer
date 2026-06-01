@@ -375,7 +375,7 @@ class TestH12SilenceDetection:
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
         assert r._silence_timer == 0.0
-        assert r._silence_warning_fired is False
+        assert r._silence_warning_count == 0
 
     def test_silence_callback_fields_exist(self):
         from voice_typer.recording import Recorder
@@ -402,10 +402,10 @@ class TestH12SilenceDetection:
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
         r._silence_timer = 5.0
-        r._silence_warning_fired = True
+        r._silence_warning_count = 3
         r.start()
         assert r._silence_timer == 0.0
-        assert r._silence_warning_fired is False
+        assert r._silence_warning_count == 0
 
     def test_cache_reset_on_stop(self):
         """stop() should reset the resample cache."""

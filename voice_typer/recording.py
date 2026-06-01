@@ -64,7 +64,8 @@ class Recorder:
 
         # H12: Silent mic disconnection detection
         self._silence_timer: float = 0.0
-        self._silence_warning_fired: bool = False
+        self._silence_warning_count: int = 0
+        self._silence_next_warning_wait: float = 10.0
         self._recording_start_time: float = 0.0
         self._recent_rms_values: collections.deque = collections.deque(maxlen=50)
 
@@ -264,7 +265,8 @@ class Recorder:
         self._cached_resampled = np.array([], dtype=np.float32)
         self._cached_native_chunk_count = 0
         self._silence_timer = 0.0
-        self._silence_warning_fired = False
+        self._silence_warning_count = 0
+        self._silence_next_warning_wait = 10.0
         self._recent_rms_values.clear()
         self._recording_start_time = time.perf_counter()
 
@@ -318,16 +320,25 @@ class Recorder:
                     self.config, 'silence_auto_stop_seconds', 120.0
                 )
 
-                if (
-                    not self._silence_warning_fired
-                    and self._silence_timer >= silence_warning_seconds
-                ):
-                    self._silence_warning_fired = True
-                    if self.on_silence_warning is not None:
-                        try:
-                            self.on_silence_warning()
-                        except Exception:
-                            pass
+                # H12a: Repeating silence warnings with exponential backoff
+                # First warning at threshold, then +10s, +20s, +40s, +80s...
+                if self._silence_timer >= silence_warning_seconds:
+                    time_since_first_warning = self._silence_timer - silence_warning_seconds
+                    # Check if it's time for the next warning
+                    expected_warnings = 0
+                    cumulative = 0.0
+                    wait = 10.0
+                    while cumulative <= time_since_first_warning:
+                        expected_warnings += 1
+                        cumulative += wait
+                        wait *= 2
+                    if expected_warnings > self._silence_warning_count:
+                        self._silence_warning_count = expected_warnings
+                        if self.on_silence_warning is not None:
+                            try:
+                                self.on_silence_warning()
+                            except Exception:
+                                pass
 
                 if self._silence_timer >= silence_auto_stop_seconds:
                     if self.on_silence_auto_stop is not None:
@@ -695,7 +706,8 @@ class Recorder:
         self._effective_sr = self.config.sample_rate
         self._last_rms = 0.0
         self._silence_timer = 0.0
-        self._silence_warning_fired = False
+        self._silence_warning_count = 0
+        self._silence_next_warning_wait = 10.0
         # Reset cache on discard
         self._cached_resampled = np.array([], dtype=np.float32)
         self._cached_native_chunk_count = 0
