@@ -14,7 +14,9 @@ Threading model:
 import logging
 import sys
 import threading
+import tkinter as tk
 from enum import Enum
+from tkinter import simpledialog, messagebox
 from typing import Optional, Callable, Protocol
 
 import pystray
@@ -306,7 +308,7 @@ class TrayIcon:
             "<f9>", "<f10>", "<f11>", "<f12>",
             "<ctrl>+1", "<ctrl>+2", "<ctrl>+3", "<ctrl>+4", "<ctrl>+5",
         ]
-        return [
+        items = [
             pystray.MenuItem(
                 self._format_hotkey_label(hotkey),
                 self._wrap(lambda hk=hotkey: self._controller.change_hotkey(hk)),
@@ -315,6 +317,46 @@ class TrayIcon:
             )
             for hotkey in presets
         ]
+        items.append(
+            pystray.MenuItem(
+                "Custom\u2026",
+                self._wrap(self._open_custom_hotkey_dialog),
+                checked=lambda item: current not in presets,
+                radio=True,
+            )
+        )
+        return items
+
+    def _open_custom_hotkey_dialog(self) -> None:
+        """Open a tkinter dialog to capture a custom hotkey combination."""
+        threading.Thread(target=self._custom_hotkey_dialog_thread, daemon=True).start()
+
+    def _custom_hotkey_dialog_thread(self) -> None:
+        """Run the custom hotkey dialog in a separate thread."""
+        import tkinter as tk
+        from tkinter import simpledialog, messagebox
+
+        try:
+            root = tk.Tk()
+            root.withdraw()
+
+            hotkey_str = simpledialog.askstring(
+                "Custom Hotkey",
+                "Enter hotkey (e.g., Ctrl+Shift+K, F5, Alt+Q):",
+                parent=root,
+            )
+
+            if hotkey_str and hotkey_str.strip():
+                from voice_typer.settings import format_function_hotkey
+                try:
+                    formatted = format_function_hotkey(hotkey_str)
+                    self._controller.change_hotkey(formatted)
+                except ValueError as exc:
+                    messagebox.showerror("Invalid Hotkey", str(exc), parent=root)
+
+            root.destroy()
+        except Exception as exc:
+            log.warning("Custom hotkey dialog error: %s", exc)
 
     def _build_model_menu_items(self) -> list:
         current = getattr(self._config, "model_size", "small.en") or "small.en"
@@ -387,7 +429,7 @@ class TrayIcon:
     def _build_silence_warning_menu_items(self) -> list:
         current = getattr(self._config, "silence_warning_seconds", 20.0) or 20.0
         presets = [5.0, 10.0, 15.0, 20.0]
-        return [
+        items = [
             pystray.MenuItem(
                 f"{int(s)}s",
                 self._wrap(lambda s=s: self._controller.set_silence_warning_seconds(s)),
@@ -397,10 +439,39 @@ class TrayIcon:
             for s in presets
         ]
 
+        def ask_custom():
+            def _dialog():
+                root = tk.Tk()
+                root.withdraw()
+                try:
+                    value = simpledialog.askfloat(
+                        "Silence Warning",
+                        "Silence warning (seconds):",
+                        minvalue=3,
+                        maxvalue=30,
+                        parent=root,
+                    )
+                    if value is not None:
+                        self._controller.set_silence_warning_seconds(value)
+                finally:
+                    root.destroy()
+            threading.Thread(target=_dialog, daemon=True).start()
+
+        is_custom = not any(current == s for s in presets)
+        items.append(
+            pystray.MenuItem(
+                "Custom...",
+                self._wrap(ask_custom),
+                checked=lambda item: is_custom,
+                radio=True,
+            )
+        )
+        return items
+
     def _build_auto_stop_menu_items(self) -> list:
         current = getattr(self._config, "silence_auto_stop_seconds", 120.0) or 120.0
         presets = [60.0, 120.0, 180.0, 300.0]
-        return [
+        items = [
             pystray.MenuItem(
                 f"{int(s // 60)} min" if s >= 60 else f"{int(s)}s",
                 self._wrap(lambda s=s: self._controller.set_silence_auto_stop_seconds(s)),
@@ -409,6 +480,35 @@ class TrayIcon:
             )
             for s in presets
         ]
+
+        def ask_custom():
+            def _dialog():
+                root = tk.Tk()
+                root.withdraw()
+                try:
+                    value = simpledialog.askfloat(
+                        "Auto-Stop Timeout",
+                        "Auto-stop timeout (seconds):",
+                        minvalue=30,
+                        maxvalue=600,
+                        parent=root,
+                    )
+                    if value is not None:
+                        self._controller.set_silence_auto_stop_seconds(value)
+                finally:
+                    root.destroy()
+            threading.Thread(target=_dialog, daemon=True).start()
+
+        is_custom = not any(current == s for s in presets)
+        items.append(
+            pystray.MenuItem(
+                "Custom...",
+                self._wrap(ask_custom),
+                checked=lambda item: is_custom,
+                radio=True,
+            )
+        )
+        return items
 
     @staticmethod
     def _format_hotkey_label(hotkey: str) -> str:
