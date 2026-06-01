@@ -118,6 +118,13 @@ class VoiceTyperApp:
             config=self.config,
         )
 
+        # Load microphones synchronously so tray menu has them from the start
+        try:
+            self._microphones = list_microphones()
+            self.tray.set_microphones(self._microphones)
+        except Exception:
+            self._microphones = []
+
         self._hotkey_backend: Optional[HotkeyBackend] = None
         self._streaming_session: Optional[StreamingTranscriptionSession] = None
         self._transcription_thread: Optional[threading.Thread] = None
