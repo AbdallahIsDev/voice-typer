@@ -521,6 +521,13 @@ class TrayIcon:
 
     def _build_max_recording_menu_items(self) -> list:
         current = getattr(self._config, "max_recording_seconds", 0) or 0
+        # If no override set, resolve device-specific default
+        if current <= 0:
+            device = getattr(self._config, "device", "cuda")
+            if device == "cuda":
+                current = getattr(self._config, "max_recording_seconds_gpu", 1200)
+            else:
+                current = getattr(self._config, "max_recording_seconds_cpu", 600)
         presets = [300, 600, 900, 1200]  # 5, 10, 15, 20 min
         items = [
             pystray.MenuItem(
