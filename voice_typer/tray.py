@@ -45,6 +45,7 @@ class TrayController(Protocol):
     def set_silence_warning_seconds(self, seconds: float) -> None: ...
     def set_silence_auto_stop_seconds(self, seconds: float) -> None: ...
     def create_desktop_shortcut(self) -> None: ...
+    def restart_app(self) -> None: ...
 
 
 class TrayIcon:
@@ -281,6 +282,9 @@ class TrayIcon:
             )
 
         items.append(pystray.Menu.SEPARATOR)
+
+        # Restart
+        items.append(pystray.MenuItem("Restart", self._wrap(self._controller.restart_app)))
 
         # Quit
         items.append(pystray.MenuItem("Quit", self._wrap(self._controller.quit_app)))

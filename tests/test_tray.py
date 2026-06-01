@@ -126,6 +126,9 @@ class _MockController:
     def create_desktop_shortcut(self) -> None:
         pass
 
+    def restart_app(self) -> None:
+        pass
+
 
 @pytest.fixture
 def tray():

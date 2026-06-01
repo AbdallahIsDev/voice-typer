@@ -917,6 +917,18 @@ class VoiceTyperApp:
         """TrayController protocol: quit the app."""
         self.quit()
 
+    def restart_app(self) -> None:
+        """TrayController protocol: restart the app."""
+        log.info("[RESTART] Restarting Voice Typer...")
+        import subprocess
+        # Launch a new instance before killing this one
+        subprocess.Popen(
+            [sys.executable, "-m", "voice_typer"],
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        )
+        # Quit this instance
+        self.quit()
+
     def toggle_autostart(self) -> None:
         """TrayController protocol: toggle autostart on/off."""
         self._toggle_autostart()
