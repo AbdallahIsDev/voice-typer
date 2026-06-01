@@ -80,7 +80,12 @@ def app(tmp_config_dir, monkeypatch):
     monkeypatch.setattr("voice_typer.app.list_microphones", lambda: [])
 
     from voice_typer.app import VoiceTyperApp
-    return VoiceTyperApp()
+    instance = VoiceTyperApp()
+    # TranscriptionEngine is now created in _do_startup (background), not __init__
+    # Set a mock transcriber for tests that need it
+    instance.transcriber = MagicMock()
+    instance.transcriber.is_loaded = True
+    return instance
 
 
 class TestAppStateTransitions:
@@ -373,7 +378,13 @@ class TestConfigWiring:
         monkeypatch.setattr("voice_typer.app.TranscriptionEngine", transcriber_cls)
 
         from voice_typer.app import VoiceTyperApp
-        VoiceTyperApp()
+        app = VoiceTyperApp()
+        # TranscriptionEngine is now created in _do_startup, not __init__
+        app._sync_autostart = MagicMock()
+        app._load_microphones = MagicMock()
+        app._register_hotkey = MagicMock()
+        app._try_load_model = MagicMock()
+        app._do_startup()
 
         _, kwargs = transcriber_cls.call_args
         assert kwargs["beam_size"] == 2

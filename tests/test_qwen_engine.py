@@ -265,11 +265,18 @@ class TestP1WhisperSkipWhenQwenActive:
         app._load_microphones = MagicMock()
         app._register_hotkey = MagicMock()
         app.recorder.warm_up_resampler = MagicMock()
-        app.transcriber = MagicMock()
-        app.transcriber.is_loaded = False
-        app.transcriber.load = MagicMock()
-        app.transcriber.device_info = "cpu (int8)"
-        app.transcriber.loaded_via = "cpu/int8/small.en"
+
+        # Mock TranscriptionEngine so _do_startup creates a mock
+        mock_transcriber = MagicMock()
+        mock_transcriber.is_loaded = False
+        mock_transcriber.load = MagicMock()
+        mock_transcriber.device_info = "cpu (int8)"
+        mock_transcriber.loaded_via = "cpu/int8/small.en"
+        monkeypatch.setattr(
+            "voice_typer.app.TranscriptionEngine",
+            MagicMock(return_value=mock_transcriber),
+        )
+        app.transcriber = mock_transcriber
 
         # Make Qwen load() fail (is_loaded stays False)
         # pyrefly: ignore [missing-attribute]

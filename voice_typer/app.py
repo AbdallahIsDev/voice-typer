@@ -104,14 +104,7 @@ class VoiceTyperApp:
     def __init__(self):
         self.config = Config.load()
         self.recorder = Recorder(self.config)
-        self.transcriber = TranscriptionEngine(
-            model_size=self.config.model_size,
-            device=self.config.device,
-            language=self.config.language,
-            beam_size=self.config.beam_size,
-            best_of=self.config.best_of,
-            condition_on_previous_text=self.config.condition_on_previous_text,
-        )
+        self.transcriber: Optional[TranscriptionEngine] = None
         self._qwen_engine = None
         if self.config.asr_backend == "qwen" and self.config.qwen_model_path:
             self._init_qwen_engine()
@@ -270,7 +263,16 @@ class VoiceTyperApp:
 
         # Warmup handled synchronously in recording.py on first recording start.
 
-        # 4. Load the appropriate model
+        # 4. Create transcription engine and load model
+        log.info("[STARTUP] Step 4: create transcription engine")
+        self.transcriber = TranscriptionEngine(
+            model_size=self.config.model_size,
+            device=self.config.device,
+            language=self.config.language,
+            beam_size=self.config.beam_size,
+            best_of=self.config.best_of,
+            condition_on_previous_text=self.config.condition_on_previous_text,
+        )
         if self.config.asr_backend == "qwen" and self._qwen_engine is not None:
             log.info("[STARTUP] Step 4: Qwen backend active, loading Qwen model")
             self._qwen_engine.load()
@@ -376,14 +378,20 @@ class VoiceTyperApp:
 
     def toggle_dictation(self):
         """Toggle recording on/off."""
+        transcriber_ready = self.transcriber is not None
         log.info(
             "[HOTKEY FIRED] toggle_dictation called "
             "(recording=%s, busy=%s, model_loaded=%s, thread=%s)",
             self.recorder.recording, self._busy_event.is_set(),
-            self.transcriber.is_loaded, threading.current_thread().name,
+            transcriber_ready and self.transcriber.is_loaded,
+            threading.current_thread().name,
         )
         if not self._busy_event.is_set():  # busy
             log.warning("[F2 BLOCKED] Busy transcribing, ignoring toggle")
+            return
+
+        if self.transcriber is None:
+            self.tray.set_state(AppState.LOADING, "Starting up — please wait...")
             return
 
         if self.recorder.recording:
@@ -399,6 +407,11 @@ class VoiceTyperApp:
 
         # Cancel any stale pending timers from previous sessions
         self._cancel_pending_timers()
+
+        # Guard: refuse to record if transcriber not created yet
+        if self.transcriber is None:
+            self.tray.set_state(AppState.LOADING, "Starting up — please wait...")
+            return
 
         # Guard: refuse to record if no model is loaded
         qwen_active = (
@@ -863,7 +876,8 @@ class VoiceTyperApp:
             )
             return
         try:
-            self.transcriber.unload()
+            if self.transcriber is not None:
+                self.transcriber.unload()
         except Exception:
             log.exception("[MODEL] Failed to unload previous model")
         self.transcriber = TranscriptionEngine(
