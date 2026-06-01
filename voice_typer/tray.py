@@ -319,7 +319,7 @@ class TrayIcon:
         ]
         items.append(
             pystray.MenuItem(
-                "Custom\u2026",
+                "Custom",
                 self._wrap(self._open_custom_hotkey_dialog),
                 checked=lambda item: current not in presets,
                 radio=True,
@@ -460,7 +460,7 @@ class TrayIcon:
         is_custom = not any(current == s for s in presets)
         items.append(
             pystray.MenuItem(
-                "Custom...",
+                "Custom",
                 self._wrap(ask_custom),
                 checked=lambda item: is_custom,
                 radio=True,
@@ -502,7 +502,7 @@ class TrayIcon:
         is_custom = not any(current == s for s in presets)
         items.append(
             pystray.MenuItem(
-                "Custom...",
+                "Custom",
                 self._wrap(ask_custom),
                 checked=lambda item: is_custom,
                 radio=True,

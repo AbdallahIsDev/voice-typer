@@ -349,9 +349,15 @@ class Recorder:
 
                 # H12b: Maximum recording duration auto-stop
                 recording_duration = time.perf_counter() - self._recording_start_time
-                max_recording_seconds = getattr(
-                    self.config, 'max_recording_seconds_gpu', 1200
-                )
+                device = getattr(self.config, 'device', 'cuda')
+                if device == 'cuda':
+                    max_recording_seconds = getattr(
+                        self.config, 'max_recording_seconds_gpu', 1200
+                    )
+                else:
+                    max_recording_seconds = getattr(
+                        self.config, 'max_recording_seconds_cpu', 600
+                    )
                 if recording_duration >= max_recording_seconds:
                     if self.on_max_duration_auto_stop is not None:
                         try:
