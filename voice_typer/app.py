@@ -921,12 +921,17 @@ class VoiceTyperApp:
         """TrayController protocol: restart the app."""
         log.info("[RESTART] Restarting Voice Typer...")
         import subprocess
-        # Launch a new instance before killing this one
+        # Pass env var so new instance skips single-instance check
+        env = os.environ.copy()
+        env["VOICE_TYPER_RESTART"] = "1"
+        # Small delay so old process releases mutex before new one starts
         subprocess.Popen(
             [sys.executable, "-m", "voice_typer"],
             cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            env=env,
+            start_new_session=True,
         )
-        # Quit this instance
+        # Quit this instance (releases mutex)
         self.quit()
 
     def toggle_autostart(self) -> None:
@@ -1095,8 +1100,13 @@ def _ensure_single_instance():
 
     Returns the mutex handle (kept alive to hold the lock) on Windows,
     or None on other platforms.
+    Skipped when VOICE_TYPER_RESTART env var is set (restart flow).
     """
     if sys.platform != "win32":
+        return None
+
+    # Skip mutex check during restart — old instance releases mutex on quit
+    if os.environ.get("VOICE_TYPER_RESTART"):
         return None
 
     import ctypes
