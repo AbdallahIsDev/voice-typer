@@ -572,8 +572,10 @@ class TranscriptionEngine:
 
     def unload(self) -> None:
         """Free model memory."""
+        import gc
         with self._lock:
             self._model = None
+            gc.collect()
 
 
 def _normalize_hallucination_key(text: str) -> str:

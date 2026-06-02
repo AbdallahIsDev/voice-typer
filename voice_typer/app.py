@@ -654,6 +654,9 @@ class VoiceTyperApp:
                     self._set_streaming_session(None)
                 self._busy_event.set()  # busy = False
                 self._transcription_thread = None
+                # Force garbage collection to release audio arrays and inference buffers
+                import gc
+                gc.collect()
                 log.info("[TRANSCRIBE] busy reset to False")
 
         self._transcription_thread = threading.Thread(
