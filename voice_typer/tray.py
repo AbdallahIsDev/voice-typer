@@ -81,6 +81,9 @@ class TrayIcon:
         self._cached_menu = None
         self._menu_cache_valid = False
 
+        # Flet window reference
+        self._flet_window = None
+
     # ─── Public API ─────────────────────────────────────────────────────
 
     @property
@@ -145,6 +148,9 @@ class TrayIcon:
             raise RuntimeError(
                 f"Failed to create tray icon (pystray Menu construction error): {e}"
             ) from e
+
+        # Add left-click handler to open Flet window
+        self._icon.on_click = self._on_icon_click
 
         # Start background work immediately so it runs in parallel with the
         # (not-yet-started) event loop.
@@ -228,6 +234,30 @@ class TrayIcon:
             self._icon.notify(message, title)  # pyrefly: ignore[missing-attribute]
         except Exception as e:
             log.warning("Notification failed: %s", e)
+
+    def open_flet_window(self) -> None:
+        """Open the Flet desktop window."""
+        if self._flet_window is not None:
+            try:
+                self._flet_window.lift()
+                return
+            except Exception:
+                self._flet_window = None
+
+        try:
+            import flet as ft
+            from voice_typer.ui.app import VoiceTyperApp
+
+            def run_flet():
+                app = VoiceTyperApp()
+                ft.app(target=app.main)
+
+            # Run Flet in a separate thread
+            flet_thread = threading.Thread(target=run_flet, daemon=True)
+            flet_thread.start()
+            log.info("Flet window opened")
+        except Exception as e:
+            log.error("Failed to open Flet window: %s", e)
 
     def invalidate_menu_cache(self) -> None:
         """Mark the menu cache as stale so it rebuilds on next right-click."""
@@ -381,7 +411,7 @@ class TrayIcon:
         items = []
         items.append(
             pystray.MenuItem(
-                "Start on Login",
+                "Launch at Startup",
                 self._wrap(self._controller.toggle_autostart),
                 checked=lambda item: bool(getattr(self._config, "autostart", False)),
             )
@@ -403,7 +433,7 @@ class TrayIcon:
         # Silence Warning Timeout submenu
         items.append(
             pystray.MenuItem(
-                "Silence Warning",
+                "Silence Warning Timeout",
                 pystray.Menu(*self._build_silence_warning_menu_items()),
             )
         )
@@ -416,10 +446,10 @@ class TrayIcon:
             )
         )
 
-        # Max Recording Duration submenu
+        # Max Recording Timeout submenu
         items.append(
             pystray.MenuItem(
-                "Max Recording",
+                "Max Recording Timeout",
                 pystray.Menu(*self._build_max_recording_menu_items()),
             )
         )
@@ -454,8 +484,8 @@ class TrayIcon:
                 root.withdraw()
                 try:
                     value = simpledialog.askfloat(
-                        "Silence Warning",
-                        "Silence warning (seconds):",
+                        "Silence Warning Timeout",
+                        "Silence warning timeout (seconds):",
                         minvalue=3,
                         maxvalue=30,
                         parent=root,
@@ -545,8 +575,8 @@ class TrayIcon:
                 root.withdraw()
                 try:
                     value = simpledialog.askinteger(
-                        "Max Recording",
-                        "Max recording duration (minutes):",
+                        "Max Recording Timeout",
+                        "Max recording timeout (minutes):",
                         minvalue=1,
                         maxvalue=120,
                         parent=root,
@@ -631,6 +661,11 @@ class TrayIcon:
             )
 
         return mic_items
+
+    def _on_icon_click(self, icon, item):
+        """Handle left-click on tray icon to open Flet window."""
+        log.info("Tray icon left-clicked, opening Flet window")
+        self.open_flet_window()
 
     @staticmethod
     def _wrap(fn):
