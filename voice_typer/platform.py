@@ -13,6 +13,30 @@ SYSTEM = sys.platform  # "win32", "darwin", "linux"
 
 # ─── Microphone helpers ────────────────────────────────────────────────
 
+def _is_non_mic_device(name: str) -> bool:
+    """Return True if the device name matches a known non-microphone input pattern."""
+    lower = name.lower().strip()
+
+    # Loopback / what-u-hear devices (captures speaker output, useless for voice)
+    if any(p in lower for p in ["stereo mix", "what u hear", "wave out mix", "mono mix"]):
+        return True
+
+    # Physical line input jacks (silent unless something is plugged in)
+    if any(p in lower for p in ["line in", "line input"]):
+        return True
+
+    # Auxiliary input
+    if lower in ("aux", "auxiliary") or lower.startswith("aux ") or lower.startswith("auxiliary "):
+        return True
+
+    # System virtual devices that just mirror the default device
+    # (redundant with "System Default" menu option)
+    if any(p in lower for p in ["microsoft sound mapper", "primary sound capture driver"]):
+        return True
+
+    return False
+
+
 def list_microphones() -> list[dict]:
     """Return available input devices with stable identifiers.
 
@@ -33,21 +57,24 @@ def list_microphones() -> list[dict]:
         default_index = default_input["index"] if default_input else -1
         devices = []
         for i, dev in enumerate(sd.query_devices()):
-            if dev["max_input_channels"] > 0:
-                host_api = ""
-                try:
-                    host_api_idx = dev.get("hostapi", 0)
-                    host_api = sd.query_hostapis(host_api_idx)["name"]
-                except Exception:
-                    pass
-                devices.append({
-                    "id": str(i),
-                    "index": i,
-                    "name": dev["name"],
-                    "host_api": host_api,
-                    "channels": dev["max_input_channels"],
-                    "default": i == default_index,
-                })
+            if dev["max_input_channels"] <= 0:
+                continue
+            if _is_non_mic_device(dev["name"]):
+                continue
+            host_api = ""
+            try:
+                host_api_idx = dev.get("hostapi", 0)
+                host_api = sd.query_hostapis(host_api_idx)["name"]
+            except Exception:
+                pass
+            devices.append({
+                "id": str(i),
+                "index": i,
+                "name": dev["name"],
+                "host_api": host_api,
+                "channels": dev["max_input_channels"],
+                "default": i == default_index,
+            })
         return devices
     except Exception:
         log.debug("Could not enumerate microphones", exc_info=True)

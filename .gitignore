@@ -20,4 +20,6 @@ nul
 .DS_Store
 Thumbs.db
 artifacts/
+audit/
 FEATURES.md
+FORENSIC_REVIEW.md
