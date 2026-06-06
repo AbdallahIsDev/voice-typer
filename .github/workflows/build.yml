@@ -7,7 +7,33 @@ on:
   workflow_dispatch:
 
 jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        python-version: ["3.12"]
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install ".[test]"
+          pip list
+
+      - name: Run tests
+        run: python -m pytest tests/ -v --tb=short -q
+
   build:
+    needs: test
     runs-on: windows-latest
     permissions:
       contents: write
