@@ -157,16 +157,6 @@ class VoiceTyperApp:
         self._llm_polisher = None  # Lazy-init on first use
         self._cloud_engine = None  # Lazy-init if cloud backend selected
 
-        # IPC server for Flet subprocess communication
-        from voice_typer.ipc import IPCServer
-        self._ipc_server = IPCServer(self._handle_ipc_command)
-        self._ipc_server.start()
-
-        # IPC server for Flet subprocess communication
-        from voice_typer.ipc import IPCServer
-        self._ipc_server = IPCServer(self._handle_ipc_command)
-        self._ipc_server.start()
-
     # ─── Qwen Engine (P0) ────────────────────────────────────────────
 
     def _init_qwen_engine(self):
@@ -1223,8 +1213,6 @@ class VoiceTyperApp:
             self._hotkey_backend.stop()
 
         self.tray.stop()
-        if self._ipc_server:
-            self._ipc_server.stop()
         log.info("Shutdown complete, exiting")
 
         # Close devnull streams

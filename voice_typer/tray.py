@@ -98,8 +98,8 @@ class TrayIcon:
         self._cached_menu = None
         self._menu_cache_valid = False
 
-        # Flet process tracking (runs in subprocess to avoid threading issues)
-        self._flet_process = None
+        # Flet window tracking (runs in a daemon thread so pystray keeps the main thread)
+        self._flet_thread: Optional[threading.Thread] = None
 
     # ─── Public API ─────────────────────────────────────────────────────
 
@@ -186,20 +186,11 @@ class TrayIcon:
         self._icon.run()
 
     def stop(self) -> None:
-        """Stop the tray icon, kill the Flet subprocess, and exit the event loop."""
-        # Kill the Flet subprocess first (prevents orphaned processes)
-        if self._flet_process is not None:
-            if self._flet_process.poll() is None:
-                try:
-                    self._flet_process.terminate()
-                    self._flet_process.wait(timeout=3)
-                except Exception:
-                    try:
-                        self._flet_process.kill()
-                    except Exception:
-                        pass
-            self._flet_process = None
+        """Stop the tray icon and exit the event loop.
 
+        The Flet daemon thread is marked ``daemon=True`` so it is terminated
+        automatically when the main process exits — no explicit join needed.
+        """
         if self._icon:
             self._icon.stop()
             self._icon = None
@@ -252,31 +243,32 @@ class TrayIcon:
             log.warning("Notification failed: %s", e)
 
     def open_flet_window(self) -> None:
-        """Open the Flet desktop window in a separate process.
+        """Open the Flet desktop window in a daemon thread.
 
-        Flet internally calls ``signal.signal(signal.SIGINT, ...)`` which only
-        works in the main thread.  Since pystray's event loop blocks the main
-        thread, we cannot run Flet in the same process.  Instead we launch a
-        subprocess — this avoids all threading issues completely.
+        pystray blocks the main thread with its event loop; Flet is started in a
+        daemon thread so the two UIs coexist.  ``app_controller`` (the main
+        ``VoiceTyperApp`` instance) is passed by direct reference — no IPC,
+        no serialization, no port allocation.
         """
-        # Check if Flet process is already running
-        if self._flet_process is not None and self._flet_process.poll() is None:
-            log.info("Flet window already open (PID=%d)", self._flet_process.pid)
+        if self._flet_thread is not None and self._flet_thread.is_alive():
+            log.info("Flet window already open")
             return
 
         try:
-            import subprocess
-            import sys
+            from voice_typer.ui.app import main
 
-            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            self._flet_process = subprocess.Popen(
-                [sys.executable, "-m", "voice_typer.ui.app"],
-                cwd=project_root,
+            def _run_flet():
+                try:
+                    main(app_controller=self._controller)
+                finally:
+                    log.info("Flet window closed")
+
+            self._flet_thread = threading.Thread(
+                target=_run_flet,
+                daemon=True,
             )
-            log.info(
-                "Flet window opened in subprocess (PID=%d)",
-                self._flet_process.pid,
-            )
+            self._flet_thread.start()
+            log.info("Flet window opened in daemon thread")
         except Exception as e:
             log.error("Failed to open Flet window: %s", e)
 

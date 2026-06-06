@@ -195,7 +195,7 @@ class VoiceTyperApp:
 
         page.padding = 0
 
-        # Allow the Flet subprocess window to close normally when X is clicked.
+        # Allow the Flet window to close normally when X is clicked.
         # The main Voice Typer tray app continues running independently.
 
         # Initialize screens
@@ -394,9 +394,15 @@ class VoiceTyperApp:
         self.page.update()
 
 
-def main():
-    """Entry point for the Flet application."""
-    app = VoiceTyperApp()
+def main(app_controller=None):
+    """Entry point for the Flet application.
+
+    ``app_controller`` is the main ``VoiceTyperApp`` instance from
+    ``voice_typer.app``.  When provided, the Flet UI can invoke backend
+    actions (record, stop, history, models) through a direct in-process
+    reference — no IPC, no subprocess, no serialization.
+    """
+    app = VoiceTyperApp(app_controller=app_controller)
     ft.run(app.main)
 
 
