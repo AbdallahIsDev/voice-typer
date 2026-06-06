@@ -1,5 +1,6 @@
 import flet as ft
 import json
+import pyperclip
 import sys
 from .styles import Colors
 from .icons import icon
@@ -201,7 +202,7 @@ class PrivacyScreen:
                 export_json = json.dumps(entries, indent=2, ensure_ascii=False, default=str)
                 # In a real app, this would save to a file
                 # For now, copy to clipboard
-                self.page.set_clipboard(export_json)
+                pyperclip.copy(export_json)
                 self.page.snack_bar = ft.SnackBar(
                     content=ft.Text(f"Exported {len(entries)} transcriptions to clipboard"),
                     bgcolor=Colors.SUCCESS,
@@ -226,7 +227,7 @@ class PrivacyScreen:
                 from voice_typer.vocabulary import VocabularyManager
                 self._vocab_manager = VocabularyManager()
             export_json = self._vocab_manager.export_json()
-            self.page.set_clipboard(export_json)
+            pyperclip.copy(export_json)
             self.page.snack_bar = ft.SnackBar(
                 content=ft.Text("Vocabulary exported to clipboard"),
                 bgcolor=Colors.SUCCESS,
@@ -240,19 +241,36 @@ class PrivacyScreen:
         self.page.update()
 
     def _clear_data(self, e):
-        """Clear all data (history + vocabulary + templates)."""
-        try:
-            db = self._get_history_db()
-            if db:
-                db.clear_all()
-            self.page.snack_bar = ft.SnackBar(
-                content=ft.Text("All data cleared"),
-                bgcolor=Colors.WARNING,
-            )
-        except Exception as exc:
-            self.page.snack_bar = ft.SnackBar(
-                content=ft.Text(f"Clear failed: {exc}"),
-                bgcolor=Colors.ERROR,
-            )
-        self.page.snack_bar.open = True
+        """UX-005: Clear all data with confirmation dialog."""
+        def _do_clear(dialog_e):
+            self.page.dialog.open = False
+            try:
+                db = self._get_history_db()
+                if db:
+                    db.clear_all()
+                self.page.snack_bar = ft.SnackBar(
+                    content=ft.Text("All data cleared"),
+                    bgcolor=Colors.WARNING,
+                )
+            except Exception as exc:
+                self.page.snack_bar = ft.SnackBar(
+                    content=ft.Text(f"Clear failed: {exc}"),
+                    bgcolor=Colors.ERROR,
+                )
+            self.page.snack_bar.open = True
+            self.page.update()
+
+        def _cancel(dialog_e):
+            self.page.dialog.open = False
+            self.page.update()
+
+        self.page.dialog = ft.AlertDialog(
+            title=ft.Text("Clear All Data"),
+            content=ft.Text("Are you sure you want to clear all data (history, vocabulary, templates)? This cannot be undone."),
+            actions=[
+                ft.TextButton("Cancel", on_click=_cancel),
+                ft.TextButton("Clear All Data", on_click=_do_clear),
+            ],
+        )
+        self.page.dialog.open = True
         self.page.update()

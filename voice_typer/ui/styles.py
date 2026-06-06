@@ -7,6 +7,7 @@ SIDEBAR_WIDTH = 200
 WINDOW_WIDTH = 800
 WINDOW_HEIGHT = 500
 
+
 # Color constants for easy access
 class Colors:
     PRIMARY = ft.Colors.BLUE_600
@@ -28,6 +29,7 @@ class Colors:
     DIVIDER_DARK = ft.Colors.GREY_700
     CARD_BG = ft.Colors.WHITE
     CARD_BG_DARK = ft.Colors.GREY_800
+
 
 # Navigation items configuration
 NAV_ITEMS = {
@@ -74,14 +76,29 @@ STATUS_COLORS = {
     "transcribing": ft.Colors.BLUE_500,
     "loading": ft.Colors.AMBER_500,
     "error": ft.Colors.RED_700,
+    "paused": ft.Colors.PURPLE_500,
+    "warming_up": ft.Colors.ORANGE_500,
+    "downloading": ft.Colors.BLUE_GREY_500,
+    "processing": ft.Colors.TEAL_500,
+    "cancelling": ft.Colors.RED_300,
+    "setup": ft.Colors.BLUE_700,
+    "not_configured": ft.Colors.GREY_400,
 }
 
+# UX-040: Expanded STATUS_LABELS from 5 to 12 states
 STATUS_LABELS = {
     "idle": "Ready",
     "recording": "Recording...",
     "transcribing": "Transcribing...",
     "loading": "Loading model...",
     "error": "Error",
+    "paused": "Paused",
+    "warming_up": "Warming up...",
+    "downloading": "Downloading...",
+    "processing": "Processing...",
+    "cancelling": "Cancelling...",
+    "setup": "Setting up...",
+    "not_configured": "Not configured",
 }
 
 RECORD_BUTTON_SIZE = 100
@@ -90,9 +107,76 @@ RECORD_BUTTON_STOP_COLOR = ft.Colors.GREY_600
 
 
 def get_theme(dark: bool = False) -> ft.Theme:
-    """Return a Material 3 theme for the app."""
+    """UX-002: Return a Material 3 theme for the app.
+
+    Now wired into the Flet page via ui/app.py.
+    """
+    if dark:
+        return ft.Theme(
+            color_scheme_seed=Colors.PRIMARY,
+            visual_density=ft.VisualDensity.COMFORTABLE,
+            brightness=ft.Brightness.DARK,
+        )
     return ft.Theme(
         color_scheme_seed=Colors.PRIMARY,
         visual_density=ft.VisualDensity.COMFORTABLE,
     )
 
+
+# UX-036: High-contrast theme
+def get_high_contrast_theme(dark: bool = False) -> ft.Theme:
+    """Return a high-contrast accessibility theme."""
+    if dark:
+        return ft.Theme(
+            color_scheme_seed=ft.Colors.WHITE,
+            visual_density=ft.VisualDensity.COMFORTABLE,
+            brightness=ft.Brightness.DARK,
+        )
+    return ft.Theme(
+        color_scheme_seed=ft.Colors.BLACK,
+        visual_density=ft.VisualDensity.COMFORTABLE,
+    )
+
+
+# UX-027: Relative time formatter
+def format_relative_time(timestamp_str: str) -> str:
+    """Convert ISO timestamp to relative time string.
+
+    Returns strings like 'just now', '3 min ago', '2 hours ago',
+    'yesterday', or the original date for older entries.
+    """
+    if not timestamp_str:
+        return ""
+    try:
+        from datetime import datetime, timedelta, timezone
+        # Parse ISO timestamp
+        ts = timestamp_str
+        if 'T' in ts:
+            dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+        else:
+            dt = datetime.fromisoformat(ts)
+        # If naive, assume local time
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        diff = now - dt
+        seconds = diff.total_seconds()
+        if seconds < 0:
+            return "just now"
+        if seconds < 60:
+            return "just now"
+        if seconds < 3600:
+            mins = int(seconds / 60)
+            return f"{mins} min ago"
+        if seconds < 86400:
+            hours = int(seconds / 3600)
+            return f"{hours} hour{'s' if hours != 1 else ''} ago"
+        if seconds < 172800:
+            return "yesterday"
+        if seconds < 604800:
+            days = int(seconds / 86400)
+            return f"{days} days ago"
+        # Older than a week — show date
+        return dt.strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return timestamp_str

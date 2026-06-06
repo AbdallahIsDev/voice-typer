@@ -1,4 +1,5 @@
 import flet as ft
+import threading
 from .styles import Colors
 from .icons import icon
 
@@ -10,11 +11,12 @@ class MicrophoneScreen:
         self.page = page
         self.config = config
         self.microphones = self._load_microphones()
-        # Use config.microphone (ID string) or None for System Default
         self.active_microphone_id = config.microphone if config else None
-    
+        self._test_running = False
+        self._level_bar = None
+        self._level_text = None
+
     def _load_microphones(self) -> list[dict]:
-        """Load available microphones from the platform."""
         try:
             from voice_typer.platform import list_microphones
             return list_microphones()
@@ -22,6 +24,10 @@ class MicrophoneScreen:
             return []
 
     def build(self) -> ft.Control:
+        # UX-013: Real level bar and text for microphone test
+        self._level_bar = ft.ProgressBar(value=0, color=ft.Colors.GREEN_600, width=400)
+        self._level_text = ft.Text("Level: 0%", size=12, color=ft.Colors.GREY_600)
+
         return ft.Container(
             padding=40,
             content=ft.Column(
@@ -34,6 +40,7 @@ class MicrophoneScreen:
                                 content=ft.Row([icon("refresh", color=ft.Colors.WHITE, size=16), ft.Text("Refresh", color=ft.Colors.WHITE)], spacing=8),
                                 on_click=self._refresh,
                                 bgcolor=ft.Colors.BLUE_600,
+                                tooltip="Refresh microphone list",
                             ),
                         ],
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -45,7 +52,6 @@ class MicrophoneScreen:
                         color=ft.Colors.GREY_600,
                     ),
                     ft.Container(height=10),
-                    # System Default option
                     self._build_system_default(),
                     ft.Container(height=10),
                     self._build_microphone_list(),
@@ -57,7 +63,6 @@ class MicrophoneScreen:
         )
 
     def _build_system_default(self) -> ft.Control:
-        """Build the System Default microphone option."""
         is_active = self.active_microphone_id is None
         return ft.Card(
             content=ft.Container(
@@ -72,16 +77,8 @@ class MicrophoneScreen:
                                 ),
                                 ft.Column(
                                     [
-                                        ft.Text(
-                                            "System Default",
-                                            size=14,
-                                            weight=ft.FontWeight.W_500,
-                                        ),
-                                        ft.Text(
-                                            "Use the operating system's default input device",
-                                            size=12,
-                                            color=ft.Colors.GREY_600,
-                                        ),
+                                        ft.Text("System Default", size=14, weight=ft.FontWeight.W_500),
+                                        ft.Text("Use the operating system's default input device", size=12, color=ft.Colors.GREY_600),
                                     ],
                                     spacing=2,
                                 ),
@@ -95,11 +92,12 @@ class MicrophoneScreen:
                             bgcolor=ft.Colors.GREEN_600 if is_active else None,
                             color=ft.Colors.WHITE if is_active else None,
                             disabled=is_active,
+                            tooltip="Use system default microphone",
                         ),
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
-            )
+            ),
         )
 
     def _build_microphone_list(self) -> ft.Control:
@@ -110,16 +108,8 @@ class MicrophoneScreen:
                 content=ft.Column(
                     [
                         icon("mic-off", size=48, color=ft.Colors.GREY_400),
-                        ft.Text(
-                            "No microphones found",
-                            size=16,
-                            color=ft.Colors.GREY_600,
-                        ),
-                        ft.Text(
-                            "Connect a microphone and click Refresh",
-                            size=14,
-                            color=ft.Colors.GREY_500,
-                        ),
+                        ft.Text("No microphones found", size=16, color=ft.Colors.GREY_600),
+                        ft.Text("Connect a microphone and click Refresh", size=14, color=ft.Colors.GREY_500),
                     ],
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
@@ -135,7 +125,6 @@ class MicrophoneScreen:
         )
 
     def _microphone_item(self, mic: dict) -> ft.Control:
-        # Fix ID comparison: compare mic["id"] (str) with config.microphone (str or None)
         is_active = mic.get("id") == self.active_microphone_id
         is_system_default = mic.get("default", False)
         return ft.Card(
@@ -145,25 +134,15 @@ class MicrophoneScreen:
                     [
                         ft.Row(
                             [
-                                icon(
-                                    "microphone" if is_active else "mic-outlined",
-                                    color=ft.Colors.GREEN_600 if is_active else ft.Colors.GREY_600,
-                                ),
+                                icon("microphone" if is_active else "mic-outlined",
+                                     color=ft.Colors.GREEN_600 if is_active else ft.Colors.GREY_600),
                                 ft.Column(
                                     [
                                         ft.Row(
                                             [
-                                                ft.Text(
-                                                    mic.get("name", "Unknown"),
-                                                    size=14,
-                                                    weight=ft.FontWeight.W_500,
-                                                ),
+                                                ft.Text(mic.get("name", "Unknown"), size=14, weight=ft.FontWeight.W_500),
                                                 ft.Container(
-                                                    content=ft.Text(
-                                                        "Default" if is_system_default else "",
-                                                        size=10,
-                                                        color=ft.Colors.WHITE,
-                                                    ),
+                                                    content=ft.Text("Default" if is_system_default else "", size=10, color=ft.Colors.WHITE),
                                                     bgcolor=ft.Colors.BLUE_600 if is_system_default else ft.Colors.TRANSPARENT,
                                                     padding=ft.Padding.symmetric(horizontal=6, vertical=1),
                                                     border_radius=6,
@@ -190,11 +169,12 @@ class MicrophoneScreen:
                             bgcolor=ft.Colors.GREEN_600 if is_active else None,
                             color=ft.Colors.WHITE if is_active else None,
                             disabled=is_active,
+                            tooltip=f"Use {mic.get('name', 'microphone')}",
                         ),
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
-            )
+            ),
         )
 
     def _build_test_area(self) -> ft.Control:
@@ -215,21 +195,19 @@ class MicrophoneScreen:
                                 ft.ElevatedButton(
                                     content=ft.Row([icon("play-arrow", size=16), ft.Text("Start Test")], spacing=8),
                                     on_click=self._start_test,
+                                    tooltip="Start microphone test",
                                 ),
                                 ft.ElevatedButton(
                                     content=ft.Row([icon("stop", size=16), ft.Text("Stop Test")], spacing=8),
                                     on_click=self._stop_test,
+                                    tooltip="Stop microphone test",
                                 ),
                             ],
                             spacing=10,
                         ),
                         ft.Container(height=10),
-                        ft.ProgressBar(value=0, color=ft.Colors.GREEN_600),
-                        ft.Text(
-                            "Level: 0%",
-                            size=12,
-                            color=ft.Colors.GREY_600,
-                        ),
+                        self._level_bar,
+                        self._level_text,
                     ],
                     spacing=8,
                 ),
@@ -237,7 +215,6 @@ class MicrophoneScreen:
         )
 
     def _refresh(self, e):
-        """Refresh the list of available microphones."""
         self.microphones = self._load_microphones()
         self.page.snack_bar = ft.SnackBar(
             content=ft.Text(f"Found {len(self.microphones)} microphone(s)"),
@@ -247,13 +224,10 @@ class MicrophoneScreen:
         self.page.update()
 
     def _use_microphone(self, mic: dict | None):
-        """Select a microphone for use. None means System Default."""
         if mic is None:
-            # System Default
             self.active_microphone_id = None
             self.config.microphone = None
         else:
-            # Compare by ID (string), not by name
             self.active_microphone_id = mic.get("id")
             self.config.microphone = mic.get("id")
         self.config.save()
@@ -266,16 +240,68 @@ class MicrophoneScreen:
         self.page.update()
 
     def _start_test(self, e):
+        """UX-013: Real microphone test with audio level meter."""
+        self._test_running = True
         self.page.snack_bar = ft.SnackBar(
-            content=ft.Text("Testing microphone..."),
+            content=ft.Text("Microphone test started — speak into your mic"),
             bgcolor=Colors.INFO,
         )
         self.page.snack_bar.open = True
         self.page.update()
 
+        def _capture_levels():
+            """Capture audio levels in background and update the level meter."""
+            try:
+                import numpy as np
+                import sounddevice as sd
+
+                def _callback(indata, frames, time_info, status):
+                    if not self._test_running:
+                        raise sd.CallbackStop
+                    rms = float(np.sqrt(np.mean(np.square(indata))))
+                    level = min(1.0, rms * 10)
+                    try:
+                        self._level_bar.value = level
+                        self._level_text.value = f"Level: {int(level * 100)}%"
+                        if level > 0.7:
+                            self._level_bar.color = ft.Colors.RED_600
+                        elif level > 0.3:
+                            self._level_bar.color = ft.Colors.AMBER_600
+                        else:
+                            self._level_bar.color = ft.Colors.GREEN_600
+                        self.page.update()
+                    except Exception:
+                        pass
+
+                with sd.InputStream(
+                    callback=_callback,
+                    channels=1,
+                    samplerate=16000,
+                    blocksize=1024,
+                    device=self.active_microphone_id,
+                ):
+                    while self._test_running:
+                        import time
+                        time.sleep(0.1)
+            except Exception as exc:
+                try:
+                    self._level_text.value = f"Test error: {exc}"
+                    self.page.update()
+                except Exception:
+                    pass
+
+        t = threading.Thread(target=_capture_levels, daemon=True)
+        t.start()
+
     def _stop_test(self, e):
+        """Stop the microphone test."""
+        self._test_running = False
+        if self._level_bar:
+            self._level_bar.value = 0
+        if self._level_text:
+            self._level_text.value = "Level: 0%"
         self.page.snack_bar = ft.SnackBar(
-            content=ft.Text("Test stopped"),
+            content=ft.Text("Microphone test stopped"),
             bgcolor=Colors.WARNING,
         )
         self.page.snack_bar.open = True

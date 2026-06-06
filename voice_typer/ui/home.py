@@ -26,6 +26,7 @@ def build_home_page(
     on_repaste_last=None,
     on_start_dictation=None,
     on_stop_dictation=None,
+    hotkey_hint: str = "Press F2 or click to dictate",
 ) -> ft.Column:
     """Build the Home screen content."""
 
@@ -64,6 +65,7 @@ def build_home_page(
             color=ft.Colors.WHITE,
             size=48,
         ),
+        tooltip="Stop recording" if is_recording else "Start recording",
     )
 
     status_indicator = ft.Row(
@@ -145,16 +147,19 @@ def build_home_page(
                 content=ft.Row([icon("history", size=16), ft.Text("History")], spacing=8),
                 on_click=lambda e: on_open_history() if on_open_history else None,
                 style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+                tooltip="View transcription history",
             ),
             ft.ElevatedButton(
                 content=ft.Row([icon("microphone", size=16), ft.Text("Test Mic")], spacing=8),
                 on_click=lambda e: on_test_mic() if on_test_mic else None,
                 style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+                tooltip="Test your microphone",
             ),
             ft.ElevatedButton(
                 content=ft.Row([icon("ai-brain", size=16), ft.Text("Models")], spacing=8),
                 on_click=lambda e: on_manage_models() if on_manage_models else None,
                 style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+                tooltip="Manage transcription models",
             ),
         ],
     )
@@ -165,6 +170,7 @@ def build_home_page(
         on_click=lambda e: on_repaste_last() if on_repaste_last else None,
         visible=bool(last_text),
         style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+        tooltip="Repaste last transcription",
     )
 
     return ft.Column(
@@ -175,7 +181,7 @@ def build_home_page(
             ft.Text("Home", size=24, weight=ft.FontWeight.BOLD),
             status_indicator,
             record_button,
-            ft.Text("Press F2 or click to dictate", size=12, color=ft.Colors.GREY_500),
+            ft.Text(hotkey_hint, size=12, color=ft.Colors.GREY_500),
             last_text_preview,
             repaste_button,
             stats_row,

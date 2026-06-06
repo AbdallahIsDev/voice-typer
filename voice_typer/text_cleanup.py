@@ -162,7 +162,6 @@ def clean_transcribed_text(text: str, *, auto_punctuation: bool = False) -> str:
     if not cleaned:
         return ""
     cleaned = _normalize_spacing(cleaned)
-    cleaned = _fix_file_extensions(cleaned)
     cleaned = _clean_self_corrections(cleaned)
     cleaned = _remove_adjacent_duplicate_phrases(cleaned)
     cleaned = _remove_near_duplicate_words(cleaned)
@@ -170,6 +169,8 @@ def clean_transcribed_text(text: str, *, auto_punctuation: bool = False) -> str:
     cleaned = _correct_whisper_phrases(cleaned)
     cleaned = _remove_extra_words(cleaned)
     cleaned = _capitalize_sentences(cleaned)
+    # M2: Fix file extensions AFTER capitalization to prevent "features.Md" bug
+    cleaned = _fix_file_extensions(cleaned)
     cleaned = _capitalize_pronoun_i(cleaned)
     # NOTE: Auto-punctuation is OFF by default. Enable via config.
     # It runs AFTER template matching in the pipeline.

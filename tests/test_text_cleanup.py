@@ -1,6 +1,10 @@
 """Tests for lightweight post-transcription text cleanup."""
 
-from voice_typer.text_cleanup import clean_transcribed_text
+from voice_typer.text_cleanup import clean_transcribed_text, configure_corrections
+
+# Initialize corrections from bundled corrections.json so _active_misspellings,
+# _active_phrases, and _active_extra_words are populated.
+configure_corrections()
 
 
 class TestCleanTranscribedText:
@@ -191,3 +195,36 @@ class TestExternalCorrectionsFallback:
         # Both custom and built-in corrections should be applied
         assert "customer" in result.lower()
         assert "investigate" in result.lower()
+
+
+class TestFileExtensionFix:
+    """M2: Verify that _fix_file_extensions runs AFTER _capitalize_sentences."""
+
+    def test_file_extension_not_mangled(self):
+        """'features. md' should become 'Features.md', NOT 'features.Md'.
+        
+        The key bug was _capitalize_sentences capitalizing after the dot,
+        producing 'features.Md'. Now _fix_file_extensions runs after
+        capitalization and correctly collapses to lowercase extension.
+        """
+        result = clean_transcribed_text("features. md")
+        assert result == "Features.md"
+        assert result != "features.Md"
+
+    def test_file_extension_py(self):
+        """'script. py' should become 'Script.py' (capital S, lowercase py)."""
+        result = clean_transcribed_text("script. py")
+        assert result == "Script.py"
+        assert ".Py" not in result
+
+    def test_file_extension_pdf(self):
+        """'document. pdf' should become 'Document.pdf' (capital D, lowercase pdf)."""
+        result = clean_transcribed_text("document. pdf")
+        assert result == "Document.pdf"
+        assert ".Pdf" not in result
+
+    def test_normal_sentence_not_affected(self):
+        """Normal sentences should not be mangled by file extension fix."""
+        result = clean_transcribed_text("Hello world. This is a test.")
+        assert "Hello" in result
+        assert "test" in result

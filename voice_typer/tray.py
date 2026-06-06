@@ -40,6 +40,13 @@ class AppState(Enum):
     TRANSCRIBING = "transcribing"
     LOADING = "loading"
     ERROR = "error"
+    PAUSED = "paused"
+    WARMING_UP = "warming_up"
+    DOWNLOADING = "downloading"
+    PROCESSING = "processing"
+    CANCELLING = "cancelling"
+    SETUP = "setup"
+    NOT_CONFIGURED = "not_configured"
 
 
 class TrayController(Protocol):
@@ -58,6 +65,7 @@ class TrayController(Protocol):
     def set_max_recording_seconds(self, seconds: int) -> None: ...
     def create_desktop_shortcut(self) -> None: ...
     def restart_app(self) -> None: ...
+    def repaste_last(self) -> None: ...
 
 
 class TrayIcon:
@@ -90,9 +98,8 @@ class TrayIcon:
         self._cached_menu = None
         self._menu_cache_valid = False
 
-        # Flet window reference — properly tracked now (TRAY-001 fix)
-        self._flet_window = None
-        self._flet_thread = None
+        # Flet process tracking (runs in subprocess to avoid threading issues)
+        self._flet_process = None
 
     # ─── Public API ─────────────────────────────────────────────────────
 
@@ -179,7 +186,20 @@ class TrayIcon:
         self._icon.run()
 
     def stop(self) -> None:
-        """Stop the tray icon and exit the event loop."""
+        """Stop the tray icon, kill the Flet subprocess, and exit the event loop."""
+        # Kill the Flet subprocess first (prevents orphaned processes)
+        if self._flet_process is not None:
+            if self._flet_process.poll() is None:
+                try:
+                    self._flet_process.terminate()
+                    self._flet_process.wait(timeout=3)
+                except Exception:
+                    try:
+                        self._flet_process.kill()
+                    except Exception:
+                        pass
+            self._flet_process = None
+
         if self._icon:
             self._icon.stop()
             self._icon = None
@@ -207,6 +227,14 @@ class TrayIcon:
             title += f" — {message}"
         elif state != AppState.IDLE:
             title += f" — {state.value}"
+        # TRAY-022: Include model name and hotkey in tooltip
+        if self._config:
+            model = getattr(self._config, 'model_size', '')
+            if model:
+                title += f" [{model}]"
+        hotkey = self._display_hotkey()
+        if hotkey:
+            title += f" ({hotkey})"
         self._icon.title = title
 
     def notify_safety(self, title: str, message: str) -> None:
@@ -224,24 +252,31 @@ class TrayIcon:
             log.warning("Notification failed: %s", e)
 
     def open_flet_window(self) -> None:
-        """Open the Flet desktop window (TRAY-001 fix: track window reference)."""
-        # Check if Flet thread is still alive
-        if self._flet_thread is not None and self._flet_thread.is_alive():
-            log.info("Flet window already open")
+        """Open the Flet desktop window in a separate process.
+
+        Flet internally calls ``signal.signal(signal.SIGINT, ...)`` which only
+        works in the main thread.  Since pystray's event loop blocks the main
+        thread, we cannot run Flet in the same process.  Instead we launch a
+        subprocess — this avoids all threading issues completely.
+        """
+        # Check if Flet process is already running
+        if self._flet_process is not None and self._flet_process.poll() is None:
+            log.info("Flet window already open (PID=%d)", self._flet_process.pid)
             return
 
         try:
-            import flet as ft
-            from voice_typer.ui.app import VoiceTyperApp
+            import subprocess
+            import sys
 
-            app_instance = VoiceTyperApp()
-
-            def run_flet():
-                ft.app(target=app_instance.main)
-
-            self._flet_thread = threading.Thread(target=run_flet, daemon=True)
-            self._flet_thread.start()
-            log.info("Flet window opened")
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            self._flet_process = subprocess.Popen(
+                [sys.executable, "-m", "voice_typer.ui.app"],
+                cwd=project_root,
+            )
+            log.info(
+                "Flet window opened in subprocess (PID=%d)",
+                self._flet_process.pid,
+            )
         except Exception as e:
             log.error("Failed to open Flet window: %s", e)
 
@@ -265,6 +300,14 @@ class TrayIcon:
                 default=True,
             )
         )
+
+        # Settings (TRAY-002)
+        items.append(pystray.MenuItem("Settings", self._wrap(self.open_flet_window)))
+
+        items.append(pystray.Menu.SEPARATOR)
+
+        # Repaste Last (Feature)
+        items.append(pystray.MenuItem("Repaste Last", self._wrap(self._controller.repaste_last if hasattr(self._controller, 'repaste_last') else lambda: None)))
 
         items.append(pystray.Menu.SEPARATOR)
 
@@ -308,17 +351,47 @@ class TrayIcon:
 
     @staticmethod
     def _wrap(fn):
-        """Wrap callback so pystray doesn't break on extra args."""
+        """Wrap callback so pystray doesn't break on extra args.
+
+        Catches ``SystemExit`` raised by ``quit()`` / ``restart_app()``
+        so pystray doesn't log it as an unhandled error.
+        """
         def wrapper(icon, item):
-            fn()
+            try:
+                fn()
+            except SystemExit:
+                pass
         return wrapper
 
 
 _icon_cache: dict = {}
 
 
-def _make_icon(state: AppState, size: int = 64) -> Image.Image:
-    """Generate a colored microphone icon based on state."""
+def _get_dpi_aware_icon_size() -> int:
+    """TRAY-020: Query DPI scaling and adjust icon size accordingly."""
+    base_size = 64
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            hdc = ctypes.windll.user32.GetDC(0)
+            if hdc:
+                dpi = ctypes.windll.gdi32.GetDeviceCaps(hdc, 88)  # LOGPIXELSX
+                ctypes.windll.user32.ReleaseDC(0, hdc)
+                if dpi > 96:
+                    scale = dpi / 96.0
+                    return int(base_size * scale)
+        except Exception:
+            pass
+    return base_size
+
+
+def _make_icon(state: AppState, size: int = 0) -> Image.Image:
+    """Generate a colored microphone icon based on state.
+    
+    TRAY-020: If size is 0, auto-detect DPI scaling on Windows.
+    """
+    if size == 0:
+        size = _get_dpi_aware_icon_size()
     cache_key = (state, size)
     if cache_key in _icon_cache:
         return _icon_cache[cache_key]
@@ -326,8 +399,15 @@ def _make_icon(state: AppState, size: int = 64) -> Image.Image:
         AppState.IDLE: (120, 120, 120, 255),
         AppState.RECORDING: (235, 64, 52, 255),
         AppState.TRANSCRIBING: (52, 152, 219, 255),
-        AppState.LOADING: (243, 156, 18, 255),  # yellow/orange
+        AppState.LOADING: (243, 156, 18, 255),
         AppState.ERROR: (231, 76, 60, 255),
+        AppState.PAUSED: (155, 89, 182, 255),
+        AppState.WARMING_UP: (230, 126, 34, 255),
+        AppState.DOWNLOADING: (52, 73, 94, 255),
+        AppState.PROCESSING: (22, 160, 133, 255),
+        AppState.CANCELLING: (192, 57, 43, 255),
+        AppState.SETUP: (41, 128, 185, 255),
+        AppState.NOT_CONFIGURED: (149, 165, 166, 255),
     }
     color = colors.get(state, (120, 120, 120, 255))
 

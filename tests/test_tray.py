@@ -173,12 +173,17 @@ class TestPhase2MinimalMenu:
         labels = _menu_labels(tray)
         assert "Quit" in labels
 
-    def test_menu_has_exactly_three_items(self, tray):
-        """Phase 2 menu should have exactly 3 items (+ separator)."""
+    def test_menu_has_required_items(self, tray):
+        """Phase 2 menu should have Toggle Dictation, Settings, Repaste, Restart, Quit."""
         tray.start(bg_work=None)
         items = _FakeIcon.last_kwargs["menu"]()
         menu_items = [i for i in items if isinstance(i, _FakeMenuItem)]
-        assert len(menu_items) == 3
+        labels = [m.args[0] for m in menu_items]
+        assert len(menu_items) >= 5
+        assert any("Toggle Dictation" in l for l in labels)
+        assert any("Settings" in l for l in labels)
+        assert any("Restart" in l for l in labels)
+        assert any("Quit" in l for l in labels)
 
     def test_toggle_label_includes_current_hotkey(self):
         from voice_typer.tray import TrayIcon
@@ -190,10 +195,10 @@ class TestPhase2MinimalMenu:
         labels = _menu_labels(tray)
         assert "Toggle Dictation (F9)" in labels
 
-    def test_no_settings_in_menu(self, tray):
+    def test_settings_in_menu(self, tray):
+        """TRAY-002: Settings entry is now in the tray menu."""
         labels = _menu_labels(tray)
-        assert "Settings" not in labels
-        assert "Settings..." not in labels
+        assert any("Settings" in l for l in labels)
 
     def test_no_model_submenu(self, tray):
         """Phase 2: Model selection is in Flet window, not tray menu."""

@@ -144,6 +144,13 @@ class Config:
     # Onboarding
     onboarding_completed: bool = False
 
+    # UX-008: Theme mode (system/light/dark)
+    theme_mode: str = "system"
+
+    # UX-036: Accessibility
+    high_contrast: bool = False
+    text_size: int = 14
+
     # Wayland hotkey fallback warning
     wayland_warned: bool = False
 

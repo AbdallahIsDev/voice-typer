@@ -1,6 +1,8 @@
 import flet as ft
+import json
+import pyperclip
 import threading
-from .styles import Colors
+from .styles import Colors, format_relative_time
 from voice_typer.history_db import HistoryDB
 from .icons import icon
 
@@ -14,7 +16,8 @@ class HistoryScreen:
         self.history_db = HistoryDB()
         self.history_items = []
         self._search_timer = None
-        self._search_delay = 0.3  # debounce delay in seconds
+        self._search_delay = 0.3
+        self._last_deleted = None
         self._load_history()
 
     def build(self) -> ft.Control:
@@ -27,13 +30,20 @@ class HistoryScreen:
                             ft.Text("History", size=24, weight=ft.FontWeight.BOLD),
                             ft.Container(expand=True),
                             ft.ElevatedButton(
+                                content=ft.Row([icon("import-export", size=16), ft.Text("Export")], spacing=8),
+                                on_click=self._export_history,
+                                tooltip="Export transcription history",
+                            ),
+                            ft.ElevatedButton(
                                 content=ft.Row([icon("filter", color=ft.Colors.GREY_700, size=16), ft.Text("Favorites")], spacing=8),
                                 on_click=self._show_favorites,
+                                tooltip="Show favorited transcriptions only",
                             ),
                             ft.ElevatedButton(
                                 content=ft.Row([icon("delete-sweep", color=ft.Colors.RED_900, size=16), ft.Text("Clear All", color=ft.Colors.RED_900)], spacing=8),
-                                on_click=self._clear_all,
+                                on_click=self._clear_all_confirm,
                                 bgcolor=ft.Colors.RED_100,
+                                tooltip="Delete all transcriptions",
                             ),
                         ],
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -88,6 +98,9 @@ class HistoryScreen:
 
     def _history_item(self, item: dict) -> ft.Control:
         is_fav = bool(item.get("favorite", 0))
+        # UX-027: Use relative time formatter
+        timestamp = item.get("timestamp", "")
+        display_time = format_relative_time(timestamp)
         return ft.Card(
             content=ft.Container(
                 padding=16,
@@ -103,9 +116,10 @@ class HistoryScreen:
                                     overflow=ft.TextOverflow.ELLIPSIS,
                                 ),
                                 ft.Text(
-                                    item.get("timestamp", ""),
+                                    display_time,
                                     size=12,
                                     color=ft.Colors.GREY_600,
+                                    tooltip=timestamp,
                                 ),
                             ],
                             spacing=4,
@@ -133,11 +147,11 @@ class HistoryScreen:
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
-            )
+            ),
         )
 
     def _copy_text(self, text: str):
-        self.page.set_clipboard(text)
+        pyperclip.copy(text)
         self.page.snack_bar = ft.SnackBar(
             content=ft.Text("Copied to clipboard"),
             bgcolor=Colors.SUCCESS,
@@ -146,21 +160,45 @@ class HistoryScreen:
         self.page.update()
 
     def _delete_item(self, item: dict):
-        """Delete a transcription from database."""
-        if self.history_db.delete(item.get("id")):
+        """UX-010: Delete with undo support."""
+        item_id = item.get("id")
+        if self.history_db.delete(item_id):
+            # Store for undo
+            self._last_deleted = item
             if item in self.history_items:
                 self.history_items.remove(item)
             self.page.snack_bar = ft.SnackBar(
                 content=ft.Text("Item deleted"),
                 bgcolor=Colors.WARNING,
+                action="Undo",
+                on_action=lambda e: self._undo_delete(),
             )
             self.page.snack_bar.open = True
             self.page.update()
 
+    def _undo_delete(self):
+        """UX-010: Undo last delete."""
+        if self._last_deleted:
+            try:
+                self.history_db.add_transcription(
+                    self._last_deleted.get("text", ""),
+                    duration=self._last_deleted.get("duration", 0),
+                    model=self._last_deleted.get("model", ""),
+                    device=self._last_deleted.get("device", ""),
+                )
+                self._load_history()
+                self._last_deleted = None
+                self.page.snack_bar = ft.SnackBar(
+                    content=ft.Text("Item restored"),
+                    bgcolor=Colors.SUCCESS,
+                )
+                self.page.snack_bar.open = True
+                self.page.update()
+            except Exception:
+                pass
+
     def _toggle_favorite(self, item: dict):
-        """Toggle the favorite status of a transcription."""
         if self.history_db.toggle_favorite(item.get("id")):
-            # Update local item state
             item["favorite"] = 0 if item.get("favorite", 0) else 1
             self.page.snack_bar = ft.SnackBar(
                 content=ft.Text("Favorite toggled"),
@@ -170,12 +208,39 @@ class HistoryScreen:
             self.page.update()
 
     def _show_favorites(self, e):
-        """Show only favorited transcriptions."""
         self.history_items = self.history_db.get_favorites()
         self.page.update()
 
+    def _clear_all_confirm(self, e):
+        """UX-005: Confirm before clearing all history."""
+        def _do_clear(dialog_e):
+            self.page.dialog.open = False
+            if self.history_db.clear_all():
+                self.history_items.clear()
+                self.page.snack_bar = ft.SnackBar(
+                    content=ft.Text("History cleared"),
+                    bgcolor=Colors.WARNING,
+                )
+                self.page.snack_bar.open = True
+            self.page.update()
+
+        def _cancel(dialog_e):
+            self.page.dialog.open = False
+            self.page.update()
+
+        self.page.dialog = ft.AlertDialog(
+            title=ft.Text("Clear All History"),
+            content=ft.Text("Are you sure you want to delete all transcriptions? This cannot be undone."),
+            actions=[
+                ft.TextButton("Cancel", on_click=_cancel),
+                ft.TextButton("Clear All", on_click=_do_clear),
+            ],
+        )
+        self.page.dialog.open = True
+        self.page.update()
+
     def _clear_all(self, e):
-        """Clear all transcriptions from database."""
+        """Direct clear without confirm (legacy, kept for compatibility)."""
         if self.history_db.clear_all():
             self.history_items.clear()
             self.page.snack_bar = ft.SnackBar(
@@ -185,8 +250,25 @@ class HistoryScreen:
             self.page.snack_bar.open = True
             self.page.update()
 
+    def _export_history(self, e):
+        """UX-010: Export transcription history as JSON."""
+        try:
+            entries = self.history_db.get_recent(limit=10000)
+            export_json = json.dumps(entries, indent=2, ensure_ascii=False, default=str)
+            pyperclip.copy(export_json)
+            self.page.snack_bar = ft.SnackBar(
+                content=ft.Text(f"Exported {len(entries)} transcriptions to clipboard"),
+                bgcolor=Colors.SUCCESS,
+            )
+        except Exception as exc:
+            self.page.snack_bar = ft.SnackBar(
+                content=ft.Text(f"Export failed: {exc}"),
+                bgcolor=Colors.ERROR,
+            )
+        self.page.snack_bar.open = True
+        self.page.update()
+
     def _search_history_debounced(self, e):
-        """Search transcriptions with debounce."""
         if self._search_timer is not None:
             self._search_timer.cancel()
 
@@ -202,15 +284,5 @@ class HistoryScreen:
         self._search_timer = threading.Timer(self._search_delay, _do_search)
         self._search_timer.start()
 
-    def _search_history(self, e):
-        """Search transcriptions by text (immediate, used internally)."""
-        query = e.control.value if e.control else ""
-        if query:
-            self.history_items = self.history_db.search(query)
-        else:
-            self.history_items = self.history_db.get_recent()
-        self.page.update()
-    
     def _load_history(self):
-        """Load recent transcriptions from database."""
         self.history_items = self.history_db.get_recent()

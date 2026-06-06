@@ -59,6 +59,17 @@ class HistoryDB:
         conn = self._get_conn()
         cursor = conn.cursor()
 
+        # ═══ FIXED ORDER: schema/metadata BEFORE indexes that depend on migrated columns ═══
+        #
+        # BUG: The original code ran CREATE INDEX idx_favorite ON transcriptions(favorite)
+        # BEFORE the migration code. On an existing database created without the 'favorite'
+        # column, CREATE INDEX would fail with "no such column: favorite" because the
+        # column didn't exist yet.
+        #
+        # FIX: Create the table first, then run schema versioning + migrations, then
+        # create indexes. This ensures 'favorite' column exists before idx_favorite
+        # tries to reference it.
+
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS transcriptions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,16 +84,8 @@ class HistoryDB:
                 language TEXT DEFAULT ''
             )
         """)
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_timestamp
-            ON transcriptions(timestamp DESC)
-        """)
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_favorite
-            ON transcriptions(favorite)
-        """)
 
-        # Schema version tracking
+        # Schema version tracking (must run BEFORE CREATE INDEX that references 'favorite')
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS schema_meta (
                 key TEXT PRIMARY KEY,
@@ -95,24 +98,48 @@ class HistoryDB:
         row = cursor.fetchone()
         current_version = int(row[0]) if row else 1
 
-        # Run migrations
+        # Run migrations BEFORE creating indexes that depend on migrated columns
+        cursor.execute("PRAGMA table_info(transcriptions)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
         for version in range(current_version + 1, _CURRENT_SCHEMA_VERSION + 1):
             migration_sql = _MIGRATIONS.get(version)
             if migration_sql:
-                try:
-                    for stmt in migration_sql.strip().split(";"):
-                        stmt = stmt.strip()
-                        if stmt:
-                            cursor.execute(stmt)
-                    log.info("[HISTORY_DB] Migrated schema to version %d", version)
-                except Exception as e:
-                    log.warning("[HISTORY_DB] Migration to v%d failed (may already exist): %s", version, e)
+                for stmt in migration_sql.strip().split(";"):
+                    stmt = stmt.strip()
+                    if not stmt:
+                        continue
+                    # Skip ALTER TABLE ADD COLUMN if column already exists
+                    # Must extract the column name (word after ADD COLUMN), not the last token
+                    if stmt.upper().startswith("ALTER TABLE") and "ADD COLUMN" in stmt.upper():
+                        idx = stmt.upper().find("ADD COLUMN")
+                        if idx >= 0:
+                            parts_after = stmt[idx + 10:].lstrip().split()
+                            col_name = parts_after[0] if parts_after else ""
+                            if col_name in existing_columns:
+                                continue
+                    try:
+                        cursor.execute(stmt)
+                        log.info("[HISTORY_DB] Applied migration: %s...", stmt[:60])
+                    except Exception as e:
+                        log.warning("[HISTORY_DB] Migration statement failed: %s", e)
+                log.info("[HISTORY_DB] Migrated schema to version %d", version)
 
         cursor.execute(
             "INSERT OR REPLACE INTO schema_meta (key, value) VALUES (?, ?)",
             ("version", str(_CURRENT_SCHEMA_VERSION)),
         )
         conn.commit()
+
+        # Create indexes AFTER migration so 'favorite' column exists
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_timestamp
+            ON transcriptions(timestamp DESC)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_favorite
+            ON transcriptions(favorite)
+        """)
         log.info("History database initialized: %s (schema v%d)", self.db_path, _CURRENT_SCHEMA_VERSION)
 
     def close(self):

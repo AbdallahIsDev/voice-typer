@@ -482,8 +482,9 @@ class TestHotkeyMapping:
         app._register_hotkey()
 
         assert app._hotkey_backend is not None
-        mock_ghk_cls.assert_called_once()
-        mock_listener.start.assert_called_once()
+        # Main hotkey + repaste hotkey both call GlobalHotKeys.start
+        assert mock_ghk_cls.call_count >= 1
+        assert mock_listener.start.call_count >= 1
 
     def test_register_hotkey_failure_does_not_crash(self, app):
         """If both GlobalHotKeys AND fallback Listener raise, app should not crash."""

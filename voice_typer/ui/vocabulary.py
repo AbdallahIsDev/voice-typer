@@ -111,10 +111,9 @@ class VocabularyScreen:
             is_active = cat == self._active_category
             tabs.append(
                 ft.ElevatedButton(
-                    text=self.CATEGORY_LABELS.get(cat, cat),
+                    content=ft.Text(self.CATEGORY_LABELS.get(cat, cat), color=ft.Colors.WHITE if is_active else ft.Colors.GREY_700),
                     on_click=lambda e, c=cat: self._select_category(c),
                     bgcolor=ft.Colors.BLUE_600 if is_active else ft.Colors.GREY_100,
-                    color=ft.Colors.WHITE if is_active else ft.Colors.GREY_700,
                     style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=16)),
                 )
             )

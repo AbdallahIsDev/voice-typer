@@ -130,6 +130,8 @@ class VoiceTyperApp:
             self._microphones = []
 
         self._hotkey_backend: Optional[HotkeyBackend] = None
+        self._esc_backend: Optional[HotkeyBackend] = None
+        self._repaste_backend: Optional[HotkeyBackend] = None
         self._streaming_session: Optional[StreamingTranscriptionSession] = None
         self._transcription_thread: Optional[threading.Thread] = None
         self._settings_window: Optional[SettingsWindow] = None
@@ -154,6 +156,16 @@ class VoiceTyperApp:
         self._vocabulary_manager = None  # Lazy-init on first use
         self._llm_polisher = None  # Lazy-init on first use
         self._cloud_engine = None  # Lazy-init if cloud backend selected
+
+        # IPC server for Flet subprocess communication
+        from voice_typer.ipc import IPCServer
+        self._ipc_server = IPCServer(self._handle_ipc_command)
+        self._ipc_server.start()
+
+        # IPC server for Flet subprocess communication
+        from voice_typer.ipc import IPCServer
+        self._ipc_server = IPCServer(self._handle_ipc_command)
+        self._ipc_server.start()
 
     # ─── Qwen Engine (P0) ────────────────────────────────────────────
 
@@ -260,6 +272,23 @@ class VoiceTyperApp:
     def _do_startup(self):
         """Background work: sync autostart, load mics, load model, register hotkey."""
         log.info("[STARTUP] _do_startup begin")
+
+        # UX-006: Onboarding — check if this is first run
+        if not self.config.onboarding_completed:
+            try:
+                from voice_typer.onboarding import OnboardingController
+                onboarding = OnboardingController()
+                if onboarding.is_first_run():
+                    log.info("[STARTUP] First run detected — opening Flet for onboarding")
+                    self.tray.open_flet_window()
+                    # Mark onboarding as complete after a brief delay
+                    # (The Flet onboarding UI would handle steps; here we just mark it)
+                    onboarding.apply_settings(self.config)
+                    onboarding.mark_complete()
+                    self.config.onboarding_completed = True
+                    self.config.save()
+            except Exception as e:
+                log.debug("[STARTUP] Onboarding check failed: %s", e)
 
         # Load external text corrections (if available) before any transcription
         try:
@@ -437,6 +466,24 @@ class VoiceTyperApp:
                 "Voice Typer",
                 "Hotkey registration failed. Use the tray menu to toggle dictation.",
             )
+
+        # Feature: ESC to cancel — register ESC hotkey when enabled
+        if self.config.esc_cancel_enabled:
+            try:
+                self._esc_backend = create_hotkey_backend("<esc>")
+                self._esc_backend.start(self._cancel_dictation)
+                log.info("[HOTKEY] ESC cancel hotkey registered")
+            except Exception:
+                log.warning("[HOTKEY] ESC cancel hotkey registration failed")
+
+        # Feature: Repaste hotkey
+        if self.config.repaste_hotkey:
+            try:
+                self._repaste_backend = create_hotkey_backend(self.config.repaste_hotkey)
+                self._repaste_backend.start(self.repaste_last)
+                log.info("[HOTKEY] Repaste hotkey registered: %s", self.config.repaste_hotkey)
+            except Exception:
+                log.warning("[HOTKEY] Repaste hotkey registration failed")
 
     # ─── Dictation ─────────────────────────────────────────────────────
 
@@ -895,6 +942,34 @@ class VoiceTyperApp:
 
     # ─── Settings / Microphone ─────────────────────────────────────────
 
+    def repaste_last(self) -> None:
+        """Feature: Repaste last transcription (tray menu + hotkey)."""
+        if self._last_transcription:
+            try:
+                self.clipboard.copy(self._last_transcription)
+                self.clipboard.paste()
+                log.info("[REPASTE] Repasted last transcription (%d chars)", len(self._last_transcription))
+                self.tray.notify("Voice Typer", "Last transcription re-pasted")
+            except Exception as e:
+                log.warning("[REPASTE] Failed: %s", e)
+                self.tray.notify("Voice Typer", "Could not re-paste. Check clipboard.")
+        else:
+            self.tray.notify("Voice Typer", "No previous transcription to re-paste.")
+
+    def _cancel_dictation(self):
+        """Feature: ESC to cancel — cancel current recording/transcription."""
+        log.info("[CANCEL] Cancelling current dictation")
+        self._cancel_pending_timers()
+        if self.recorder.recording:
+            try:
+                self.recorder.discard()
+                log.info("[CANCEL] Recording discarded")
+            except Exception as e:
+                log.warning("[CANCEL] Failed to discard recording: %s", e)
+        self._cancel_streaming_session()
+        self.tray.set_state(AppState.IDLE, "Cancelled")
+        self._busy_event.set()
+
     def _toggle_autostart(self):
         """Toggle autostart on/off from the tray menu. Delegates to _set_autostart (P2 dedup)."""
         self._set_autostart(not is_autostart_enabled())
@@ -1148,6 +1223,8 @@ class VoiceTyperApp:
             self._hotkey_backend.stop()
 
         self.tray.stop()
+        if self._ipc_server:
+            self._ipc_server.stop()
         log.info("Shutdown complete, exiting")
 
         # Close devnull streams
