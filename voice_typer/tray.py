@@ -98,7 +98,8 @@ class TrayIcon:
         self._cached_menu = None
         self._menu_cache_valid = False
 
-        # Flet window tracking (runs in a daemon thread so pystray keeps the main thread)
+        # Flet window tracking (runs in a daemon thread; signal.signal stubbed
+        # inside the thread to satisfy Flet's main-thread requirement)
         self._flet_thread: Optional[threading.Thread] = None
 
     # ─── Public API ─────────────────────────────────────────────────────
@@ -186,11 +187,7 @@ class TrayIcon:
         self._icon.run()
 
     def stop(self) -> None:
-        """Stop the tray icon and exit the event loop.
-
-        The Flet daemon thread is marked ``daemon=True`` so it is terminated
-        automatically when the main process exits — no explicit join needed.
-        """
+        """Stop the tray icon and exit the event loop."""
         if self._icon:
             self._icon.stop()
             self._icon = None
@@ -246,9 +243,15 @@ class TrayIcon:
         """Open the Flet desktop window in a daemon thread.
 
         pystray blocks the main thread with its event loop; Flet is started in a
-        daemon thread so the two UIs coexist.  ``app_controller`` (the main
-        ``VoiceTyperApp`` instance) is passed by direct reference — no IPC,
-        no serialization, no port allocation.
+        daemon thread so the two UIs coexist in one process.  ``app_controller``
+        (the main ``VoiceTyperApp`` instance) is passed by direct reference —
+        no IPC, no serialization, no port allocation, no subprocess.
+
+        Flet's event-loop bootstrap calls ``signal.signal(signal.SIGINT, ...)``
+        which raises ``ValueError`` in any non-main thread.  We stub
+        ``signal.signal`` for the lifetime of the Flet thread so the launch
+        succeeds.  This is a no-op for Flet (it never fires on Windows desktop
+        apps) and restores the real handler on thread exit.
         """
         if self._flet_thread is not None and self._flet_thread.is_alive():
             log.info("Flet window already open")
@@ -258,9 +261,13 @@ class TrayIcon:
             from voice_typer.ui.app import main
 
             def _run_flet():
+                import signal as _signal
+                _orig_signal = _signal.signal
+                _signal.signal = lambda *a, **kw: None
                 try:
                     main(app_controller=self._controller)
                 finally:
+                    _signal.signal = _orig_signal
                     log.info("Flet window closed")
 
             self._flet_thread = threading.Thread(

@@ -181,6 +181,17 @@ class VoiceTyperApp:
         page.window.min_width = 800
         page.window.min_height = 600
 
+        # Set window position BEFORE page.add() so it opens centered from the start
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32
+            sw = user32.GetSystemMetrics(0)
+            sh = user32.GetSystemMetrics(1)
+            page.window.left = max(0, (sw - page.window.width) // 2)
+            page.window.top = max(0, (sh - page.window.height) // 2)
+        except Exception:
+            pass
+
         # UX-008/031: Theme from config instead of hardcoded LIGHT
         theme_mode = getattr(self.config, 'theme_mode', 'system')
         if theme_mode == 'light':
@@ -215,6 +226,18 @@ class VoiceTyperApp:
 
         # Set initial view
         self._set_view("home")
+
+        # Center the window AFTER page.add() ensures the window exists
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32
+            sw = user32.GetSystemMetrics(0)
+            sh = user32.GetSystemMetrics(1)
+            page.window.left = max(0, (sw - page.window.width) // 2)
+            page.window.top = max(0, (sh - page.window.height) // 2)
+            page.update()
+        except Exception:
+            pass
 
         # UX-014: Start live status polling
         self._start_status_polling()
