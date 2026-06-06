@@ -1,5 +1,13 @@
 """System tray icon using pystray, with dynamic state and menu.
 
+Phase 2: Minimal 3-item right-click menu:
+- Toggle Dictation (hotkey)
+- Restart
+- Quit
+
+Left-click opens Flet window.
+All settings, history, templates, etc. live in the Flet window only.
+
 Threading model:
 - ``start()`` creates the icon and launches background work (model loading,
   hotkey registration, etc.) in a daemon thread.  It does NOT block.
@@ -9,14 +17,15 @@ Threading model:
   dispatched safely by pystray.
 - Before ``run()`` starts, state / notification calls are queued and flushed
   once the event loop is live.
+
+CQ-005: No tkinter imports — all dialogs moved to Flet window.
 """
 
 import logging
+import os
 import sys
 import threading
-import tkinter as tk
 from enum import Enum
-from tkinter import simpledialog, messagebox
 from typing import Optional, Callable, Protocol
 
 import pystray
@@ -52,7 +61,7 @@ class TrayController(Protocol):
 
 
 class TrayIcon:
-    """Cross-platform system tray icon with dynamic menu and state indication."""
+    """Cross-platform system tray icon with Phase 2 minimal menu."""
 
     def __init__(
         self,
@@ -75,14 +84,15 @@ class TrayIcon:
         self._queue_lock = threading.Lock()
         self._bg_work_fn: Optional[Callable] = None
         self._bg_thread: Optional[threading.Thread] = None
-        self._hotkey: str = getattr(config, 'hotkey', '<f2>') or '<f2>'  # P3: stored for menu rebuild
+        self._hotkey: str = getattr(config, 'hotkey', '<f2>') or '<f2>'
 
         # P4 #30: Menu cache
         self._cached_menu = None
         self._menu_cache_valid = False
 
-        # Flet window reference
+        # Flet window reference — properly tracked now (TRAY-001 fix)
         self._flet_window = None
+        self._flet_thread = None
 
     # ─── Public API ─────────────────────────────────────────────────────
 
@@ -91,11 +101,7 @@ class TrayIcon:
         return self._state
 
     def set_state(self, state: AppState, message: str = "") -> None:
-        """Update tray icon state and tooltip.
-
-        If the event loop is not yet running the update is queued and applied
-        once ``run()`` starts.
-        """
+        """Update tray icon state and tooltip."""
         self._state = state
         self._message = message
         self._menu_cache_valid = False
@@ -125,16 +131,10 @@ class TrayIcon:
         self._menu_cache_valid = False
 
     def start(self, bg_work: Optional[Callable] = None) -> None:
-        """Create the tray icon and start background work.
-
-        Does **not** block — call ``run()`` afterwards to enter the main loop.
-        *bg_work* is called in a daemon thread; it should do model loading,
-        hotkey registration, etc. and update state via ``set_state()``.
-        """
+        """Create the tray icon and start background work."""
         self._bg_work_fn = bg_work
 
-        # Build menu — always wrap in pystray.Menu to prevent
-        # "argument after * must be an iterable" TypeError
+        # Phase 2: Build minimal menu
         menu = pystray.Menu(self._build_menu)
 
         try:
@@ -152,8 +152,7 @@ class TrayIcon:
         # Add left-click handler to open Flet window
         self._icon.on_click = self._on_icon_click
 
-        # Start background work immediately so it runs in parallel with the
-        # (not-yet-started) event loop.
+        # Start background work
         if self._bg_work_fn:
             self._bg_thread = threading.Thread(target=self._bg_work_fn, daemon=True)
             self._bg_thread.start()
@@ -161,15 +160,11 @@ class TrayIcon:
         log.info("Tray icon created, background work started")
 
     def run(self) -> None:
-        """Block the main thread with pystray's event loop.
-
-        Flushes any pending state / notifications that were queued before
-        the event loop was live.
-        """
+        """Block the main thread with pystray's event loop."""
         if self._icon is None:
             raise RuntimeError("call start() before run()")
 
-        # Flush queued state while the icon exists
+        # Flush queued state
         with self._queue_lock:
             for state, msg in self._pending_states:
                 self._apply_state(state, msg)
@@ -181,7 +176,7 @@ class TrayIcon:
             self._pending_notifications.clear()
 
         log.info("Tray event loop starting (main thread)")
-        self._icon.run()  # blocks until stop() is called
+        self._icon.run()
 
     def stop(self) -> None:
         """Stop the tray icon and exit the event loop."""
@@ -191,10 +186,7 @@ class TrayIcon:
         log.info("Tray icon stopped")
 
     def notify(self, title: str, message: str) -> None:
-        """Show a notification if notifications are enabled.
-
-        If the event loop is not yet running the notification is queued.
-        """
+        """Show a notification if notifications are enabled."""
         if not self._notifications_enabled:
             return
         if self._icon:
@@ -218,11 +210,7 @@ class TrayIcon:
         self._icon.title = title
 
     def notify_safety(self, title: str, message: str) -> None:
-        """Show a notification that bypasses the notification toggle.
-
-        Used for safety-critical alerts (silence detection, max duration) that
-        should always be shown regardless of user notification preferences.
-        """
+        """Show a notification that bypasses the notification toggle."""
         if self._icon:
             self._do_notify(title, message)
         else:
@@ -231,30 +219,28 @@ class TrayIcon:
     def _do_notify(self, title: str, message: str) -> None:
         """Send a notification through the icon."""
         try:
-            self._icon.notify(message, title)  # pyrefly: ignore[missing-attribute]
+            self._icon.notify(message, title)
         except Exception as e:
             log.warning("Notification failed: %s", e)
 
     def open_flet_window(self) -> None:
-        """Open the Flet desktop window."""
-        if self._flet_window is not None:
-            try:
-                self._flet_window.lift()
-                return
-            except Exception:
-                self._flet_window = None
+        """Open the Flet desktop window (TRAY-001 fix: track window reference)."""
+        # Check if Flet thread is still alive
+        if self._flet_thread is not None and self._flet_thread.is_alive():
+            log.info("Flet window already open")
+            return
 
         try:
             import flet as ft
             from voice_typer.ui.app import VoiceTyperApp
 
-            def run_flet():
-                app = VoiceTyperApp()
-                ft.app(target=app.main)
+            app_instance = VoiceTyperApp()
 
-            # Run Flet in a separate thread
-            flet_thread = threading.Thread(target=run_flet, daemon=True)
-            flet_thread.start()
+            def run_flet():
+                ft.app(target=app_instance.main)
+
+            self._flet_thread = threading.Thread(target=run_flet, daemon=True)
+            self._flet_thread.start()
             log.info("Flet window opened")
         except Exception as e:
             log.error("Failed to open Flet window: %s", e)
@@ -264,9 +250,10 @@ class TrayIcon:
         self._menu_cache_valid = False
 
     def _build_menu(self) -> tuple:
-        """Build the tray menu dynamically, with caching for unchanged state."""
+        """Build the Phase 2 minimal tray menu."""
         if self._menu_cache_valid and self._cached_menu is not None:
             return self._cached_menu
+
         items = []
         hotkey = self._display_hotkey()
 
@@ -278,41 +265,6 @@ class TrayIcon:
                 default=True,
             )
         )
-
-        items.append(pystray.Menu.SEPARATOR)
-
-        items.append(
-            pystray.MenuItem(
-                "Hotkey",
-                pystray.Menu(*self._build_hotkey_menu_items()),
-            )
-        )
-
-        # Microphone submenu
-        if self._microphones:
-            mic_items = self._build_mic_menu_items()
-            items.append(
-                pystray.MenuItem(
-                    "Microphone",
-                    pystray.Menu(*mic_items),
-                )
-            )
-
-        items.append(
-            pystray.MenuItem(
-                "Model",
-                pystray.Menu(*self._build_model_menu_items()),
-            )
-        )
-
-        advanced_items = self._build_advanced_menu_items()
-        if advanced_items:
-            items.append(
-                pystray.MenuItem(
-                    "Advanced",
-                    pystray.Menu(*advanced_items),
-                )
-            )
 
         items.append(pystray.Menu.SEPARATOR)
 
@@ -332,272 +284,6 @@ class TrayIcon:
         hotkey = self._hotkey or getattr(self._config, "hotkey", "<f2>") or "<f2>"
         return self._format_hotkey_label(hotkey)
 
-    def _build_hotkey_menu_items(self) -> list:
-        current = self._hotkey or getattr(self._config, "hotkey", "<f2>") or "<f2>"
-        presets = [
-            "<f2>", "<f3>", "<f4>", "<f5>", "<f6>", "<f7>", "<f8>",
-            "<f9>", "<f10>", "<f11>", "<f12>",
-            "<ctrl>+1", "<ctrl>+2", "<ctrl>+3", "<ctrl>+4", "<ctrl>+5",
-        ]
-        items = [
-            pystray.MenuItem(
-                self._format_hotkey_label(hotkey),
-                self._wrap(lambda hk=hotkey: self._controller.change_hotkey(hk)),
-                checked=lambda item, hk=hotkey: current == hk,
-                radio=True,
-            )
-            for hotkey in presets
-        ]
-        items.append(
-            pystray.MenuItem(
-                "Custom",
-                self._wrap(self._open_custom_hotkey_dialog),
-                checked=lambda item: current not in presets,
-                radio=True,
-            )
-        )
-        return items
-
-    def _open_custom_hotkey_dialog(self) -> None:
-        """Open a tkinter dialog to capture a custom hotkey combination."""
-        threading.Thread(target=self._custom_hotkey_dialog_thread, daemon=True).start()
-
-    def _custom_hotkey_dialog_thread(self) -> None:
-        """Run the custom hotkey dialog in a separate thread."""
-        import tkinter as tk
-        from tkinter import simpledialog, messagebox
-
-        try:
-            root = tk.Tk()
-            root.withdraw()
-
-            hotkey_str = simpledialog.askstring(
-                "Custom Hotkey",
-                "Enter hotkey (e.g., Ctrl+Shift+K, F5, Alt+Q):",
-                parent=root,
-            )
-
-            if hotkey_str and hotkey_str.strip():
-                from voice_typer.settings import format_function_hotkey
-                try:
-                    formatted = format_function_hotkey(hotkey_str)
-                    self._controller.change_hotkey(formatted)
-                except ValueError as exc:
-                    messagebox.showerror("Invalid Hotkey", str(exc), parent=root)
-
-            root.destroy()
-        except Exception as exc:
-            log.warning("Custom hotkey dialog error: %s", exc)
-
-    def _build_model_menu_items(self) -> list:
-        current = getattr(self._config, "model_size", "small.en") or "small.en"
-        model_labels = {
-            "tiny.en": "tiny.en (fastest, ~75MB)",
-            "small.en": "small.en (fast, ~466MB)",
-            "medium.en": "medium.en (slow, ~1.5GB)",
-            "qwen": "qwen (Qwen3-ASR)",
-        }
-        return [
-            pystray.MenuItem(
-                model_labels.get(model, model),
-                self._wrap(lambda model_size=model: self._controller.change_model(model_size)),
-                checked=lambda item, model_size=model: current == model_size,
-                radio=True,
-            )
-            for model in ("tiny.en", "small.en", "medium.en", "qwen")
-        ]
-
-    def _build_advanced_menu_items(self) -> list:
-        items = []
-        items.append(
-            pystray.MenuItem(
-                "Launch at Startup",
-                self._wrap(self._controller.toggle_autostart),
-                checked=lambda item: bool(getattr(self._config, "autostart", False)),
-            )
-        )
-        items.append(
-            pystray.MenuItem(
-                "Dictation Notifications",
-                self._wrap(
-                    lambda: self._controller.set_notifications(
-                        not bool(getattr(self._config, "show_notifications", True))
-                    )
-                ),
-                checked=lambda item: bool(
-                    getattr(self._config, "show_notifications", True)
-                ),
-            )
-        )
-
-        # Silence Warning Timeout submenu
-        items.append(
-            pystray.MenuItem(
-                "Silence Warning Timeout",
-                pystray.Menu(*self._build_silence_warning_menu_items()),
-            )
-        )
-
-        # Auto-Stop Timeout submenu
-        items.append(
-            pystray.MenuItem(
-                "Auto-Stop Timeout",
-                pystray.Menu(*self._build_auto_stop_menu_items()),
-            )
-        )
-
-        # Max Recording Timeout submenu
-        items.append(
-            pystray.MenuItem(
-                "Max Recording Timeout",
-                pystray.Menu(*self._build_max_recording_menu_items()),
-            )
-        )
-
-        # Create Desktop Shortcut (Windows only)
-        if sys.platform == "win32":
-            items.append(
-                pystray.MenuItem(
-                    "Create Desktop Shortcut",
-                    self._wrap(self._controller.create_desktop_shortcut),
-                )
-            )
-
-        return items
-
-    def _build_silence_warning_menu_items(self) -> list:
-        current = getattr(self._config, "silence_warning_seconds", 20.0) or 20.0
-        presets = [5.0, 10.0, 15.0, 20.0]
-        items = [
-            pystray.MenuItem(
-                f"{int(s)}s",
-                self._wrap(lambda s=s: self._controller.set_silence_warning_seconds(s)),
-                checked=lambda item, s=s: current == s,
-                radio=True,
-            )
-            for s in presets
-        ]
-
-        def ask_custom():
-            def _dialog():
-                root = tk.Tk()
-                root.withdraw()
-                try:
-                    value = simpledialog.askfloat(
-                        "Silence Warning Timeout",
-                        "Silence warning timeout (seconds):",
-                        minvalue=3,
-                        maxvalue=30,
-                        parent=root,
-                    )
-                    if value is not None:
-                        self._controller.set_silence_warning_seconds(value)
-                finally:
-                    root.destroy()
-            threading.Thread(target=_dialog, daemon=True).start()
-
-        is_custom = not any(current == s for s in presets)
-        items.append(
-            pystray.MenuItem(
-                "Custom",
-                self._wrap(ask_custom),
-                checked=lambda item: is_custom,
-                radio=True,
-            )
-        )
-        return items
-
-    def _build_auto_stop_menu_items(self) -> list:
-        current = getattr(self._config, "silence_auto_stop_seconds", 120.0) or 120.0
-        presets = [60.0, 120.0, 180.0, 300.0]
-        items = [
-            pystray.MenuItem(
-                f"{int(s // 60)} min" if s >= 60 else f"{int(s)}s",
-                self._wrap(lambda s=s: self._controller.set_silence_auto_stop_seconds(s)),
-                checked=lambda item, s=s: current == s,
-                radio=True,
-            )
-            for s in presets
-        ]
-
-        def ask_custom():
-            def _dialog():
-                root = tk.Tk()
-                root.withdraw()
-                try:
-                    value = simpledialog.askfloat(
-                        "Auto-Stop Timeout",
-                        "Auto-stop timeout (seconds):",
-                        minvalue=30,
-                        maxvalue=600,
-                        parent=root,
-                    )
-                    if value is not None:
-                        self._controller.set_silence_auto_stop_seconds(value)
-                finally:
-                    root.destroy()
-            threading.Thread(target=_dialog, daemon=True).start()
-
-        is_custom = not any(current == s for s in presets)
-        items.append(
-            pystray.MenuItem(
-                "Custom",
-                self._wrap(ask_custom),
-                checked=lambda item: is_custom,
-                radio=True,
-            )
-        )
-        return items
-
-    def _build_max_recording_menu_items(self) -> list:
-        current = getattr(self._config, "max_recording_seconds", 0) or 0
-        # If no override set, resolve device-specific default
-        if current <= 0:
-            device = getattr(self._config, "device", "cuda")
-            if device == "cuda":
-                current = getattr(self._config, "max_recording_seconds_gpu", 1200)
-            else:
-                current = getattr(self._config, "max_recording_seconds_cpu", 600)
-        presets = [300, 600, 900, 1200]  # 5, 10, 15, 20 min
-        items = [
-            pystray.MenuItem(
-                f"{s // 60} min",
-                self._wrap(lambda s=s: self._controller.set_max_recording_seconds(s)),
-                checked=lambda item, s=s: current == s,
-                radio=True,
-            )
-            for s in presets
-        ]
-
-        def ask_custom():
-            def _dialog():
-                root = tk.Tk()
-                root.withdraw()
-                try:
-                    value = simpledialog.askinteger(
-                        "Max Recording Timeout",
-                        "Max recording timeout (minutes):",
-                        minvalue=1,
-                        maxvalue=120,
-                        parent=root,
-                    )
-                    if value is not None:
-                        self._controller.set_max_recording_seconds(value * 60)
-                finally:
-                    root.destroy()
-            threading.Thread(target=_dialog, daemon=True).start()
-
-        is_custom = current > 0 and current not in presets
-        items.append(
-            pystray.MenuItem(
-                "Custom",
-                self._wrap(ask_custom),
-                checked=lambda item: is_custom,
-                radio=True,
-            )
-        )
-        return items
-
     @staticmethod
     def _format_hotkey_label(hotkey: str) -> str:
         parts = []
@@ -614,53 +300,6 @@ class TrayIcon:
             else:
                 parts.append(clean.upper())
         return "+".join(parts)
-
-    def _build_mic_menu_items(self) -> list:
-        """Build microphone radio items with duplicate-name disambiguation."""
-        mic_items = []
-        current = self._config.microphone if self._config else None
-
-        # "System Default" option
-        mic_items.append(
-            pystray.MenuItem(
-                "System Default",
-                self._wrap(lambda: self._controller.change_microphone(None)),
-                checked=lambda item: current is None,
-                radio=True,
-            )
-        )
-
-        # Detect duplicate names for disambiguation
-        names_seen: dict[str, int] = {}
-        for mic in self._microphones:
-            n = mic["name"]
-            names_seen[n] = names_seen.get(n, 0) + 1
-        has_duplicates = any(c > 1 for c in names_seen.values())
-
-        for mic in self._microphones:
-            name = mic["name"]
-            mic_id = mic["id"]
-            display = name
-
-            # Disambiguate duplicate names with host API
-            if has_duplicates and names_seen.get(name, 0) > 1:
-                host_api = mic.get("host_api", "")
-                if host_api:
-                    display = f"{name} ({host_api})"
-
-            if len(display) > 50:
-                display = display[:47] + "..."
-
-            mic_items.append(
-                pystray.MenuItem(
-                    display,
-                    self._wrap(lambda mid=mic_id: self._controller.change_microphone(mid)),
-                    checked=lambda item, mid=mic_id: current == mid,
-                    radio=True,
-                )
-            )
-
-        return mic_items
 
     def _on_icon_click(self, icon, item):
         """Handle left-click on tray icon to open Flet window."""

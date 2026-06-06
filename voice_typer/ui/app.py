@@ -18,11 +18,12 @@ from voice_typer.settings import SettingsController
 class VoiceTyperApp:
     """Main Flet application for Voice Typer."""
 
-    def __init__(self):
+    def __init__(self, app_controller=None):
         self.page = None
         self.current_view = "home"
         self.screens = {}
         self.nav_buttons = {}
+        self.app_controller = app_controller  # Reference to VoiceTyperApp from app.py
         
         # Backend components
         self.config = Config.load()
@@ -59,6 +60,58 @@ class VoiceTyperApp:
         """Handle notifications change from settings."""
         self.config.show_notifications = enabled
         self.config.save()
+
+    def _get_status(self) -> str:
+        """Get current app status from app_controller if available."""
+        if self.app_controller and hasattr(self.app_controller, 'tray'):
+            try:
+                state = self.app_controller.tray._state
+                if hasattr(state, 'name'):
+                    state_name = state.name.lower()
+                    # Map AppState to UI status
+                    mapping = {
+                        "idle": "idle",
+                        "recording": "recording",
+                        "transcribing": "transcribing",
+                        "loading": "loading",
+                        "error": "error",
+                    }
+                    return mapping.get(state_name, "idle")
+            except Exception:
+                pass
+        return "idle"
+
+    def _get_last_transcription(self) -> str:
+        """Get last transcription from app_controller if available."""
+        if self.app_controller and hasattr(self.app_controller, '_last_transcription'):
+            return self.app_controller._last_transcription or ""
+        return ""
+
+    def _on_toggle_dictation(self):
+        """Toggle dictation via app_controller."""
+        if self.app_controller and hasattr(self.app_controller, 'toggle_dictation'):
+            self.app_controller.toggle_dictation()
+
+    def _on_start_dictation(self):
+        """Start dictation via app_controller."""
+        if self.app_controller and hasattr(self.app_controller, '_start_dictation'):
+            self.app_controller._start_dictation()
+
+    def _on_stop_dictation(self):
+        """Stop dictation via app_controller."""
+        if self.app_controller and hasattr(self.app_controller, '_stop_dictation'):
+            self.app_controller._stop_dictation()
+
+    def _on_repaste_last(self):
+        """Repaste last transcription via app_controller."""
+        if self.app_controller and hasattr(self.app_controller, '_last_transcription'):
+            last_text = self.app_controller._last_transcription
+            if last_text:
+                try:
+                    self.app_controller.clipboard.copy(last_text)
+                    self.app_controller.clipboard.paste()
+                except Exception:
+                    pass
 
     def main(self, page: ft.Page):
         """Main entry point for the Flet app."""
@@ -224,12 +277,19 @@ class VoiceTyperApp:
             today_stats = history_db.get_today_stats()
             
             content_container.content = build_home_page(
-                status="idle",  # This would come from the app state
-                last_text="",
+                status=self._get_status(),
+                last_text=self._get_last_transcription(),
                 model_info=f"Model: {self.config.model_size}",
                 device_info=f"Device: {self.config.device}",
                 total_today=today_stats.get("count", 0),
                 total_chars=today_stats.get("chars", 0),
+                on_toggle_dictation=self._on_toggle_dictation,
+                on_start_dictation=self._on_start_dictation,
+                on_stop_dictation=self._on_stop_dictation,
+                on_repaste_last=self._on_repaste_last,
+                on_open_history=lambda: self._set_view("history"),
+                on_test_mic=lambda: self._set_view("microphone"),
+                on_manage_models=lambda: self._set_view("models"),
             )
         elif callable(screen) and not hasattr(screen, 'build'):
             # It's a function (like build_home_page)
