@@ -23,6 +23,9 @@ def build_home_page(
     on_open_history=None,
     on_test_mic=None,
     on_manage_models=None,
+    on_repaste_last=None,
+    on_start_dictation=None,
+    on_stop_dictation=None,
 ) -> ft.Column:
     """Build the Home screen content."""
 
@@ -31,13 +34,25 @@ def build_home_page(
     status_color = STATUS_COLORS.get(status, STATUS_COLORS["idle"])
     status_label = STATUS_LABELS.get(status, STATUS_LABELS["idle"])
 
+    def _on_record_click(e):
+        if is_recording:
+            if on_stop_dictation:
+                on_stop_dictation()
+            elif on_toggle_dictation:
+                on_toggle_dictation()
+        else:
+            if on_start_dictation:
+                on_start_dictation()
+            elif on_toggle_dictation:
+                on_toggle_dictation()
+
     record_button = ft.Container(
         width=RECORD_BUTTON_SIZE,
         height=RECORD_BUTTON_SIZE,
         border_radius=RECORD_BUTTON_SIZE // 2,
         bgcolor=RECORD_BUTTON_STOP_COLOR if is_recording else RECORD_BUTTON_COLOR,
         alignment=ft.Alignment.CENTER,
-        on_click=lambda e: on_toggle_dictation() if on_toggle_dictation else None,
+        on_click=_on_record_click,
         animate=ft.Animation(300, ft.AnimationCurve.EASE_IN_OUT),
         shadow=ft.BoxShadow(
             spread_radius=2,
@@ -144,6 +159,14 @@ def build_home_page(
         ],
     )
 
+    # Repaste last transcription button (only if there's a last text)
+    repaste_button = ft.OutlinedButton(
+        content=ft.Row([icon("copy-01", size=16), ft.Text("Repaste Last")], spacing=8),
+        on_click=lambda e: on_repaste_last() if on_repaste_last else None,
+        visible=bool(last_text),
+        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+    )
+
     return ft.Column(
         alignment=ft.MainAxisAlignment.CENTER,
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -154,6 +177,7 @@ def build_home_page(
             record_button,
             ft.Text("Press F2 or click to dictate", size=12, color=ft.Colors.GREY_500),
             last_text_preview,
+            repaste_button,
             stats_row,
             device_card,
             quick_actions,

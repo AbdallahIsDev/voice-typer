@@ -1,4 +1,5 @@
 import flet as ft
+import threading
 from .styles import Colors
 from voice_typer.history_db import HistoryDB
 from .icons import icon
@@ -12,6 +13,8 @@ class HistoryScreen:
         self.config = config
         self.history_db = HistoryDB()
         self.history_items = []
+        self._search_timer = None
+        self._search_delay = 0.3  # debounce delay in seconds
         self._load_history()
 
     def build(self) -> ft.Control:
@@ -23,6 +26,10 @@ class HistoryScreen:
                         [
                             ft.Text("History", size=24, weight=ft.FontWeight.BOLD),
                             ft.Container(expand=True),
+                            ft.ElevatedButton(
+                                content=ft.Row([icon("filter", color=ft.Colors.GREY_700, size=16), ft.Text("Favorites")], spacing=8),
+                                on_click=self._show_favorites,
+                            ),
                             ft.ElevatedButton(
                                 content=ft.Row([icon("delete-sweep", color=ft.Colors.RED_900, size=16), ft.Text("Clear All", color=ft.Colors.RED_900)], spacing=8),
                                 on_click=self._clear_all,
@@ -46,11 +53,10 @@ class HistoryScreen:
             prefix=icon("search", color=ft.Colors.GREY_600),
             border_radius=8,
             bgcolor=ft.Colors.GREY_100,
-            on_change=self._search_history,
+            on_change=self._search_history_debounced,
         )
 
     def _build_history_list(self) -> ft.Control:
-        # Placeholder for history items
         if not self.history_items:
             return ft.Container(
                 padding=40,
@@ -81,6 +87,7 @@ class HistoryScreen:
         )
 
     def _history_item(self, item: dict) -> ft.Control:
+        is_fav = bool(item.get("favorite", 0))
         return ft.Card(
             content=ft.Container(
                 padding=16,
@@ -106,6 +113,11 @@ class HistoryScreen:
                         ),
                         ft.Row(
                             [
+                                ft.IconButton(
+                                    icon=icon("sparkles" if is_fav else "tick"),
+                                    tooltip="Unfavorite" if is_fav else "Favorite",
+                                    on_click=lambda e, i=item: self._toggle_favorite(i),
+                                ),
                                 ft.IconButton(
                                     icon=icon("copy-01"),
                                     tooltip="Copy",
@@ -136,13 +148,31 @@ class HistoryScreen:
     def _delete_item(self, item: dict):
         """Delete a transcription from database."""
         if self.history_db.delete(item.get("id")):
-            self.history_items.remove(item)
+            if item in self.history_items:
+                self.history_items.remove(item)
             self.page.snack_bar = ft.SnackBar(
                 content=ft.Text("Item deleted"),
                 bgcolor=Colors.WARNING,
             )
             self.page.snack_bar.open = True
             self.page.update()
+
+    def _toggle_favorite(self, item: dict):
+        """Toggle the favorite status of a transcription."""
+        if self.history_db.toggle_favorite(item.get("id")):
+            # Update local item state
+            item["favorite"] = 0 if item.get("favorite", 0) else 1
+            self.page.snack_bar = ft.SnackBar(
+                content=ft.Text("Favorite toggled"),
+                bgcolor=Colors.INFO,
+            )
+            self.page.snack_bar.open = True
+            self.page.update()
+
+    def _show_favorites(self, e):
+        """Show only favorited transcriptions."""
+        self.history_items = self.history_db.get_favorites()
+        self.page.update()
 
     def _clear_all(self, e):
         """Clear all transcriptions from database."""
@@ -155,8 +185,25 @@ class HistoryScreen:
             self.page.snack_bar.open = True
             self.page.update()
 
+    def _search_history_debounced(self, e):
+        """Search transcriptions with debounce."""
+        if self._search_timer is not None:
+            self._search_timer.cancel()
+
+        query = e.control.value if e.control else ""
+
+        def _do_search():
+            if query:
+                self.history_items = self.history_db.search(query)
+            else:
+                self.history_items = self.history_db.get_recent()
+            self.page.update()
+
+        self._search_timer = threading.Timer(self._search_delay, _do_search)
+        self._search_timer.start()
+
     def _search_history(self, e):
-        """Search transcriptions by text."""
+        """Search transcriptions by text (immediate, used internally)."""
         query = e.control.value if e.control else ""
         if query:
             self.history_items = self.history_db.search(query)
