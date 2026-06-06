@@ -10,7 +10,8 @@ class MicrophoneScreen:
         self.page = page
         self.config = config
         self.microphones = self._load_microphones()
-        self.active_microphone = config.microphone if config else None
+        # Use config.microphone (ID string) or None for System Default
+        self.active_microphone_id = config.microphone if config else None
     
     def _load_microphones(self) -> list[dict]:
         """Load available microphones from the platform."""
@@ -44,12 +45,61 @@ class MicrophoneScreen:
                         color=ft.Colors.GREY_600,
                     ),
                     ft.Container(height=10),
+                    # System Default option
+                    self._build_system_default(),
+                    ft.Container(height=10),
                     self._build_microphone_list(),
                     ft.Container(height=20),
                     self._build_test_area(),
                 ],
                 scroll=ft.ScrollMode.AUTO,
             ),
+        )
+
+    def _build_system_default(self) -> ft.Control:
+        """Build the System Default microphone option."""
+        is_active = self.active_microphone_id is None
+        return ft.Card(
+            content=ft.Container(
+                padding=16,
+                content=ft.Row(
+                    [
+                        ft.Row(
+                            [
+                                icon(
+                                    "microphone",
+                                    color=ft.Colors.GREEN_600 if is_active else ft.Colors.GREY_600,
+                                ),
+                                ft.Column(
+                                    [
+                                        ft.Text(
+                                            "System Default",
+                                            size=14,
+                                            weight=ft.FontWeight.W_500,
+                                        ),
+                                        ft.Text(
+                                            "Use the operating system's default input device",
+                                            size=12,
+                                            color=ft.Colors.GREY_600,
+                                        ),
+                                    ],
+                                    spacing=2,
+                                ),
+                            ],
+                            spacing=12,
+                            expand=True,
+                        ),
+                        ft.ElevatedButton(
+                            "Active" if is_active else "Use",
+                            on_click=lambda e: self._use_microphone(None),
+                            bgcolor=ft.Colors.GREEN_600 if is_active else None,
+                            color=ft.Colors.WHITE if is_active else None,
+                            disabled=is_active,
+                        ),
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ),
+            )
         )
 
     def _build_microphone_list(self) -> ft.Control:
@@ -85,7 +135,9 @@ class MicrophoneScreen:
         )
 
     def _microphone_item(self, mic: dict) -> ft.Control:
-        is_active = mic.get("name") == self.active_microphone
+        # Fix ID comparison: compare mic["id"] (str) with config.microphone (str or None)
+        is_active = mic.get("id") == self.active_microphone_id
+        is_system_default = mic.get("default", False)
         return ft.Card(
             content=ft.Container(
                 padding=16,
@@ -99,10 +151,26 @@ class MicrophoneScreen:
                                 ),
                                 ft.Column(
                                     [
-                                        ft.Text(
-                                            mic.get("name", "Unknown"),
-                                            size=14,
-                                            weight=ft.FontWeight.W_500,
+                                        ft.Row(
+                                            [
+                                                ft.Text(
+                                                    mic.get("name", "Unknown"),
+                                                    size=14,
+                                                    weight=ft.FontWeight.W_500,
+                                                ),
+                                                ft.Container(
+                                                    content=ft.Text(
+                                                        "Default" if is_system_default else "",
+                                                        size=10,
+                                                        color=ft.Colors.WHITE,
+                                                    ),
+                                                    bgcolor=ft.Colors.BLUE_600 if is_system_default else ft.Colors.TRANSPARENT,
+                                                    padding=ft.Padding.symmetric(horizontal=6, vertical=1),
+                                                    border_radius=6,
+                                                    visible=is_system_default,
+                                                ),
+                                            ],
+                                            spacing=6,
                                         ),
                                         ft.Text(
                                             f"Channels: {mic.get('channels', 1)} | Rate: {mic.get('rate', 44100)}Hz",
@@ -178,13 +246,20 @@ class MicrophoneScreen:
         self.page.snack_bar.open = True
         self.page.update()
 
-    def _use_microphone(self, mic: dict):
-        """Select a microphone for use."""
-        self.active_microphone = mic.get("name")
-        self.config.microphone = mic.get("id")
+    def _use_microphone(self, mic: dict | None):
+        """Select a microphone for use. None means System Default."""
+        if mic is None:
+            # System Default
+            self.active_microphone_id = None
+            self.config.microphone = None
+        else:
+            # Compare by ID (string), not by name
+            self.active_microphone_id = mic.get("id")
+            self.config.microphone = mic.get("id")
         self.config.save()
+        label = mic.get("name", "System Default") if mic else "System Default"
         self.page.snack_bar = ft.SnackBar(
-            content=ft.Text(f"Using: {mic.get('name')}"),
+            content=ft.Text(f"Using: {label}"),
             bgcolor=Colors.SUCCESS,
         )
         self.page.snack_bar.open = True

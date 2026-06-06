@@ -3,8 +3,28 @@ from .styles import Colors
 from .icons import icon
 
 
+# Cloud provider configuration
+CLOUD_PROVIDERS = {
+    "openai": {
+        "label": "OpenAI",
+        "url": "https://api.openai.com/v1/audio/transcriptions",
+        "model": "whisper-1",
+    },
+    "groq": {
+        "label": "Groq",
+        "url": "https://api.groq.com/openai/v1/audio/transcriptions",
+        "model": "whisper-large-v3",
+    },
+    "deepgram": {
+        "label": "Deepgram",
+        "url": "https://api.deepgram.com/v1/listen",
+        "model": "nova-2",
+    },
+}
+
+
 class ModelsScreen:
-    """Models screen for managing Whisper models."""
+    """Models screen for managing Whisper models and cloud providers."""
 
     def __init__(self, page: ft.Page, config):
         self.page = page
@@ -42,6 +62,8 @@ class ModelsScreen:
                     ),
                     ft.Container(height=10),
                     self._build_models_list(),
+                    ft.Container(height=20),
+                    self._build_cloud_providers(),
                     ft.Container(height=20),
                     self._build_model_benchmark(),
                 ],
@@ -146,6 +168,125 @@ class ModelsScreen:
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
             )
+        )
+
+    def _build_cloud_providers(self) -> ft.Control:
+        """Build cloud provider API key configuration section."""
+        return ft.Card(
+            content=ft.Container(
+                padding=20,
+                content=ft.Column(
+                    [
+                        ft.Text("Cloud ASR Providers", size=18, weight=ft.FontWeight.W_600),
+                        ft.Text(
+                            "Configure cloud-based transcription services",
+                            size=14,
+                            color=ft.Colors.GREY_600,
+                        ),
+                        ft.Container(height=10),
+                        # OpenAI
+                        self._build_provider_section(
+                            "openai",
+                            "OpenAI Whisper API",
+                            self.config.openai_api_key if self.config else "",
+                        ),
+                        ft.Container(height=10),
+                        # Groq
+                        self._build_provider_section(
+                            "groq",
+                            "Groq Whisper API",
+                            self.config.groq_api_key if self.config else "",
+                        ),
+                        ft.Container(height=10),
+                        # Deepgram
+                        self._build_provider_section(
+                            "deepgram",
+                            "Deepgram API",
+                            self.config.deepgram_api_key if self.config else "",
+                        ),
+                    ],
+                    spacing=8,
+                ),
+            )
+        )
+
+    def _build_provider_section(self, provider: str, label: str, api_key: str) -> ft.Control:
+        """Build a cloud provider API key input with Test Connection button."""
+        provider_info = CLOUD_PROVIDERS.get(provider, {})
+
+        key_field = ft.TextField(
+            label=f"{label} API Key",
+            value=api_key,
+            width=350,
+            password=True,
+            can_reveal_password=True,
+        )
+
+        test_result = ft.Text("", size=12, color=ft.Colors.GREY_600)
+
+        def _save_key(e):
+            """Save the API key to config."""
+            key_value = key_field.value or ""
+            if provider == "openai":
+                self.config.openai_api_key = key_value
+            elif provider == "groq":
+                self.config.groq_api_key = key_value
+            elif provider == "deepgram":
+                self.config.deepgram_api_key = key_value
+            self.config.save()
+            self.page.snack_bar = ft.SnackBar(
+                content=ft.Text(f"{label} API key saved"),
+                bgcolor=Colors.SUCCESS,
+            )
+            self.page.snack_bar.open = True
+            self.page.update()
+
+        def _test_connection(e):
+            """Test the cloud provider connection."""
+            key_value = key_field.value or ""
+            if not key_value:
+                test_result.value = "Please enter an API key first"
+                test_result.color = ft.Colors.RED_600
+                self.page.update()
+                return
+
+            try:
+                from voice_typer.cloud_engines import CloudEngine
+                engine = CloudEngine(
+                    provider=provider,
+                    api_key=key_value,
+                    api_url=provider_info.get("url"),
+                    model=provider_info.get("model"),
+                )
+                success, message = engine.test_connection()
+                test_result.value = message
+                test_result.color = ft.Colors.GREEN_600 if success else ft.Colors.RED_600
+            except Exception as exc:
+                test_result.value = f"Connection test failed: {exc}"
+                test_result.color = ft.Colors.RED_600
+            self.page.update()
+
+        return ft.Column(
+            [
+                ft.Text(label, size=14, weight=ft.FontWeight.W_500),
+                ft.Row(
+                    [
+                        key_field,
+                        ft.ElevatedButton(
+                            "Save Key",
+                            on_click=_save_key,
+                        ),
+                        ft.ElevatedButton(
+                            content=ft.Row([icon("sparkles", size=14), ft.Text("Test Connection")], spacing=6),
+                            on_click=_test_connection,
+                        ),
+                    ],
+                    spacing=8,
+                    wrap=True,
+                ),
+                test_result,
+            ],
+            spacing=4,
         )
 
     def _build_model_benchmark(self) -> ft.Control:
