@@ -1,5 +1,6 @@
 import flet as ft
 from .styles import Colors
+from .icons import icon
 
 
 class SettingsScreen:
@@ -163,18 +164,15 @@ class SettingsScreen:
                     [
                         ft.Text("Troubleshooting", size=18, weight=ft.FontWeight.W_600),
                         ft.ElevatedButton(
-                            "Test Microphone",
-                            icon=ft.Icons.MIC,
+                            content=ft.Row([icon("microphone", size=16), ft.Text("Test Microphone")], spacing=8),
                             on_click=self._test_microphone,
                         ),
                         ft.ElevatedButton(
-                            "View Logs",
-                            icon=ft.Icons.DESCRIPTION,
+                            content=ft.Row([icon("description", size=16), ft.Text("View Logs")], spacing=8),
                             on_click=self._view_logs,
                         ),
                         ft.ElevatedButton(
-                            "Reset to Defaults",
-                            icon=ft.Icons.REFRESH,
+                            content=ft.Row([icon("refresh", size=16), ft.Text("Reset to Defaults")], spacing=8),
                             on_click=self._reset_defaults,
                         ),
                     ],

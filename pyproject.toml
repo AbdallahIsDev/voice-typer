@@ -31,3 +31,6 @@ project-includes = ["voice_typer", "tests"]
 
 [tool.setuptools.packages.find]
 include = ["voice_typer*"]
+
+[tool.setuptools.package-data]
+voice_typer = ["assets/fonts/hgi-stroke-rounded.ttf"]

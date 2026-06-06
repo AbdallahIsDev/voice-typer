@@ -380,9 +380,9 @@ class TestSettingsUxTrayMenu:
         )
 
         labels = [item.args[0] for item in advanced_menu.args[1]()]
-        assert "Start on Login" in labels
+        assert "Launch at Startup" in labels
         assert "Dictation Notifications" in labels
-        assert "Silence Warning" in labels
+        assert "Silence Warning Timeout" in labels
         assert "Auto-Stop Timeout" in labels
 
     def test_microphone_submenu_remains_when_mics_are_present(self, tray):

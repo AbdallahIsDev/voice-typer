@@ -1,5 +1,6 @@
 import flet as ft
 from .styles import Colors
+from .icons import icon
 
 
 class ModelsScreen:
@@ -26,11 +27,9 @@ class ModelsScreen:
                             ft.Text("Models", size=24, weight=ft.FontWeight.BOLD),
                             ft.Container(expand=True),
                             ft.ElevatedButton(
-                                "Download Model",
-                                icon=ft.Icons.DOWNLOAD,
+                                content=ft.Row([icon("download", color=ft.Colors.WHITE, size=16), ft.Text("Download Model", color=ft.Colors.WHITE)], spacing=8),
                                 on_click=self._download_model,
                                 bgcolor=ft.Colors.BLUE_600,
-                                color=ft.Colors.WHITE,
                             ),
                         ],
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -57,7 +56,7 @@ class ModelsScreen:
                 alignment=ft.Alignment.CENTER,
                 content=ft.Column(
                     [
-                        ft.Icon(ft.Icons.DOWNLOAD_DONE, size=48, color=ft.Colors.GREY_400),
+                        icon("download-done", size=48, color=ft.Colors.GREY_400),
                         ft.Text(
                             "No models downloaded",
                             size=16,
@@ -131,13 +130,13 @@ class ModelsScreen:
                         ft.Row(
                             [
                                 ft.IconButton(
-                                    ft.Icons.PLAY_ARROW if not is_active else ft.Icons.CHECK,
+                                    icon=icon("play-arrow" if not is_active else "check"),
                                     tooltip="Use" if not is_active else "Active",
                                     on_click=lambda e, m=model: self._use_model(m),
                                     disabled=is_active,
                                 ),
                                 ft.IconButton(
-                                    ft.Icons.DELETE,
+                                    icon=icon("delete"),
                                     tooltip="Delete",
                                     on_click=lambda e, m=model: self._delete_model(m),
                                 ),
@@ -163,8 +162,7 @@ class ModelsScreen:
                         ),
                         ft.Container(height=10),
                         ft.ElevatedButton(
-                            "Run Benchmark",
-                            icon=ft.Icons.SPEED,
+                            content=ft.Row([icon("speed", size=16), ft.Text("Run Benchmark")], spacing=8),
                             on_click=self._run_benchmark,
                         ),
                     ],

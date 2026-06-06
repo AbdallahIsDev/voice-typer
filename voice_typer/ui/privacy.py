@@ -1,5 +1,6 @@
 import flet as ft
 from .styles import Colors
+from .icons import icon
 
 
 class PrivacyScreen:
@@ -47,9 +48,9 @@ class PrivacyScreen:
                         ft.Container(height=10),
                         ft.Row(
                             [
-                                self._stat_card("Local Processing", "100%", ft.Icons.COMPUTER),
-                                self._stat_card("Cloud Calls", "0", ft.Icons.CLOUD_OFF),
-                                self._stat_card("Data Sent", "0 KB", ft.Icons.SEND),
+                                self._stat_card("Local Processing", "100%", "computer"),
+                                self._stat_card("Cloud Calls", "0", "cloud-off"),
+                                self._stat_card("Data Sent", "0 KB", "send"),
                             ],
                             spacing=16,
                         ),
@@ -66,11 +67,11 @@ class PrivacyScreen:
             )
         )
 
-    def _stat_card(self, label: str, value: str, icon: ft.Icons) -> ft.Control:
+    def _stat_card(self, label: str, value: str, icon_name: str) -> ft.Control:
         return ft.Container(
             content=ft.Column(
                 [
-                    ft.Icon(icon, size=24, color=ft.Colors.BLUE_600),
+                    icon(icon_name, size=24, color=ft.Colors.BLUE_600),
                     ft.Text(
                         value,
                         size=20,
@@ -102,16 +103,13 @@ class PrivacyScreen:
                         ft.Text("Data Management", size=18, weight=ft.FontWeight.W_600),
                         ft.Container(height=10),
                         ft.ElevatedButton(
-                            "Export Transcriptions",
-                            icon=ft.Icons.IMPORT_EXPORT,
+                            content=ft.Row([icon("import-export", size=16), ft.Text("Export Transcriptions")], spacing=8),
                             on_click=self._export_data,
                         ),
                         ft.ElevatedButton(
-                            "Clear All Data",
-                            icon=ft.Icons.DELETE_SWEEP,
+                            content=ft.Row([icon("delete-sweep", color=ft.Colors.RED_900, size=16), ft.Text("Clear All Data", color=ft.Colors.RED_900)], spacing=8),
                             on_click=self._clear_data,
                             bgcolor=ft.Colors.RED_100,
-                            color=ft.Colors.RED_900,
                         ),
                         ft.Container(height=10),
                         ft.Text(

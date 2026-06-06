@@ -9,6 +9,7 @@ from voice_typer.ui.styles import (
     RECORD_BUTTON_COLOR,
     RECORD_BUTTON_STOP_COLOR,
 )
+from voice_typer.ui.icons import icon
 
 
 def build_home_page(
@@ -43,8 +44,8 @@ def build_home_page(
             blur_radius=15,
             color=ft.Colors.with_opacity(0.3, RECORD_BUTTON_COLOR if not is_recording else RECORD_BUTTON_STOP_COLOR),
         ),
-        content=ft.Icon(
-            icon=ft.Icons.STOP if is_recording else ft.Icons.MIC,
+        content=icon(
+            "stop" if is_recording else "microphone",
             color=ft.Colors.WHITE,
             size=48,
         ),
@@ -126,20 +127,17 @@ def build_home_page(
         spacing=12,
         controls=[
             ft.ElevatedButton(
-                "History",
-                icon=ft.Icons.HISTORY,
+                content=ft.Row([icon("history", size=16), ft.Text("History")], spacing=8),
                 on_click=lambda e: on_open_history() if on_open_history else None,
                 style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
             ),
             ft.ElevatedButton(
-                "Test Mic",
-                icon=ft.Icons.MIC_EXTERNAL_ON,
+                content=ft.Row([icon("microphone", size=16), ft.Text("Test Mic")], spacing=8),
                 on_click=lambda e: on_test_mic() if on_test_mic else None,
                 style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
             ),
             ft.ElevatedButton(
-                "Models",
-                icon=ft.Icons.MODEL_TRAINING,
+                content=ft.Row([icon("ai-brain", size=16), ft.Text("Models")], spacing=8),
                 on_click=lambda e: on_manage_models() if on_manage_models else None,
                 style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
             ),

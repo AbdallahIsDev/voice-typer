@@ -1,5 +1,6 @@
 import flet as ft
 from .styles import Colors
+from .icons import icon
 
 
 class TemplatesScreen:
@@ -20,11 +21,9 @@ class TemplatesScreen:
                             ft.Text("Templates", size=24, weight=ft.FontWeight.BOLD),
                             ft.Container(expand=True),
                             ft.ElevatedButton(
-                                "Add Template",
-                                icon=ft.Icons.ADD,
+                                content=ft.Row([icon("add", color=ft.Colors.WHITE, size=16), ft.Text("Add Template", color=ft.Colors.WHITE)], spacing=8),
                                 on_click=self._add_template,
                                 bgcolor=ft.Colors.BLUE_600,
-                                color=ft.Colors.WHITE,
                             ),
                         ],
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -48,8 +47,8 @@ class TemplatesScreen:
                 padding=40,
                 alignment=ft.Alignment.CENTER,
                 content=ft.Column(
-                    [
-                        ft.Icon(ft.Icons.TEXT_SNIPPET, size=48, color=ft.Colors.GREY_400),
+                     [
+                        icon("templates", size=48, color=ft.Colors.GREY_400),
                         ft.Text(
                             "No templates yet",
                             size=16,
@@ -62,8 +61,7 @@ class TemplatesScreen:
                         ),
                         ft.Container(height=10),
                         ft.ElevatedButton(
-                            "Create First Template",
-                            icon=ft.Icons.ADD,
+                            content=ft.Row([icon("add", size=16), ft.Text("Create First Template")], spacing=8),
                             on_click=self._add_template,
                         ),
                     ],
@@ -99,7 +97,7 @@ class TemplatesScreen:
                                             padding=ft.Padding.symmetric(horizontal=8, vertical=4),
                                             border_radius=4,
                                         ),
-                                        ft.Icon(ft.Icons.ARROW_FORWARD, size=16, color=ft.Colors.GREY_400),
+                                        icon("arrow-forward", size=16, color=ft.Colors.GREY_400),
                                         ft.Text(
                                             template.get("expansion", "")[:50],
                                             size=14,
@@ -110,7 +108,7 @@ class TemplatesScreen:
                                     ],
                                     spacing=8,
                                     wrap=True,
-                                ),
+                                  ),
                                 ft.Text(
                                     f"Variables: {template.get('variables', 0)}",
                                     size=12,
@@ -123,12 +121,12 @@ class TemplatesScreen:
                         ft.Row(
                             [
                                 ft.IconButton(
-                                    ft.Icons.EDIT,
+                                    icon=icon("edit"),
                                     tooltip="Edit",
                                     on_click=lambda e, t=template: self._edit_template(t),
                                 ),
                                 ft.IconButton(
-                                    ft.Icons.DELETE,
+                                    icon=icon("delete"),
                                     tooltip="Delete",
                                     on_click=lambda e, t=template: self._delete_template(t),
                                 ),

@@ -1,6 +1,7 @@
 import flet as ft
 from .styles import Colors
 from voice_typer.history_db import HistoryDB
+from .icons import icon
 
 
 class HistoryScreen:
@@ -23,11 +24,9 @@ class HistoryScreen:
                             ft.Text("History", size=24, weight=ft.FontWeight.BOLD),
                             ft.Container(expand=True),
                             ft.ElevatedButton(
-                                "Clear All",
-                                icon=ft.Icons.DELETE_SWEEP,
+                                content=ft.Row([icon("delete-sweep", color=ft.Colors.RED_900, size=16), ft.Text("Clear All", color=ft.Colors.RED_900)], spacing=8),
                                 on_click=self._clear_all,
                                 bgcolor=ft.Colors.RED_100,
-                                color=ft.Colors.RED_900,
                             ),
                         ],
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -44,7 +43,7 @@ class HistoryScreen:
     def _build_search_bar(self) -> ft.Control:
         return ft.TextField(
             hint_text="Search history...",
-            prefix_icon=ft.Icons.SEARCH,
+            prefix=icon("search", color=ft.Colors.GREY_600),
             border_radius=8,
             bgcolor=ft.Colors.GREY_100,
             on_change=self._search_history,
@@ -58,7 +57,7 @@ class HistoryScreen:
                 alignment=ft.Alignment.CENTER,
                 content=ft.Column(
                     [
-                        ft.Icon(ft.Icons.HISTORY, size=48, color=ft.Colors.GREY_400),
+                        icon("history", size=48, color=ft.Colors.GREY_400),
                         ft.Text(
                             "No transcriptions yet",
                             size=16,
@@ -108,12 +107,12 @@ class HistoryScreen:
                         ft.Row(
                             [
                                 ft.IconButton(
-                                    ft.Icons.COPY,
+                                    icon=icon("copy-01"),
                                     tooltip="Copy",
                                     on_click=lambda e, t=item.get("text", ""): self._copy_text(t),
                                 ),
                                 ft.IconButton(
-                                    ft.Icons.DELETE,
+                                    icon=icon("delete"),
                                     tooltip="Delete",
                                     on_click=lambda e, i=item: self._delete_item(i),
                                 ),

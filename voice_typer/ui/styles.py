@@ -33,37 +33,37 @@ class Colors:
 NAV_ITEMS = {
     "home": {
         "title": "Home",
-        "icon": ft.Icons.HOME,
+        "icon": "home",
         "description": "Start recording and view status",
     },
     "history": {
         "title": "History",
-        "icon": ft.Icons.HISTORY,
+        "icon": "history",
         "description": "View past transcriptions",
     },
     "templates": {
         "title": "Templates",
-        "icon": ft.Icons.TEXT_SNIPPET,
+        "icon": "templates",
         "description": "Manage voice templates",
     },
     "vocabulary": {
         "title": "Vocabulary",
-        "icon": ft.Icons.SCHOOL,
+        "icon": "vocabulary",
         "description": "Custom words and corrections",
     },
     "models": {
         "title": "Models",
-        "icon": ft.Icons.DOWNLOAD,
+        "icon": "models",
         "description": "Manage Whisper models",
     },
     "microphone": {
         "title": "Microphone",
-        "icon": ft.Icons.MIC,
+        "icon": "microphone",
         "description": "Test and configure audio input",
     },
     "privacy": {
         "title": "Privacy",
-        "icon": ft.Icons.SECURITY,
+        "icon": "privacy",
         "description": "Data management and privacy settings",
     },
 }
@@ -92,6 +92,7 @@ RECORD_BUTTON_STOP_COLOR = ft.Colors.GREY_600
 def get_theme(dark: bool = False) -> ft.Theme:
     """Return a Material 3 theme for the app."""
     return ft.Theme(
-        color_scheme_seed=COLORS["primary"],
+        color_scheme_seed=Colors.PRIMARY,
         visual_density=ft.VisualDensity.COMFORTABLE,
     )
+

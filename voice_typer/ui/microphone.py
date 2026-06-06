@@ -1,5 +1,6 @@
 import flet as ft
 from .styles import Colors
+from .icons import icon
 
 
 class MicrophoneScreen:
@@ -29,11 +30,9 @@ class MicrophoneScreen:
                             ft.Text("Microphone", size=24, weight=ft.FontWeight.BOLD),
                             ft.Container(expand=True),
                             ft.ElevatedButton(
-                                "Refresh",
-                                icon=ft.Icons.REFRESH,
+                                content=ft.Row([icon("refresh", color=ft.Colors.WHITE, size=16), ft.Text("Refresh", color=ft.Colors.WHITE)], spacing=8),
                                 on_click=self._refresh,
                                 bgcolor=ft.Colors.BLUE_600,
-                                color=ft.Colors.WHITE,
                             ),
                         ],
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -60,7 +59,7 @@ class MicrophoneScreen:
                 alignment=ft.Alignment.CENTER,
                 content=ft.Column(
                     [
-                        ft.Icon(ft.Icons.MIC_OFF, size=48, color=ft.Colors.GREY_400),
+                        icon("mic-off", size=48, color=ft.Colors.GREY_400),
                         ft.Text(
                             "No microphones found",
                             size=16,
@@ -94,8 +93,8 @@ class MicrophoneScreen:
                     [
                         ft.Row(
                             [
-                                ft.Icon(
-                                    ft.Icons.MIC if is_active else ft.Icons.MIC_OUTLINED,
+                                icon(
+                                    "microphone" if is_active else "mic-outlined",
                                     color=ft.Colors.GREEN_600 if is_active else ft.Colors.GREY_600,
                                 ),
                                 ft.Column(
@@ -146,13 +145,11 @@ class MicrophoneScreen:
                         ft.Row(
                             [
                                 ft.ElevatedButton(
-                                    "Start Test",
-                                    icon=ft.Icons.PLAY_ARROW,
+                                    content=ft.Row([icon("play-arrow", size=16), ft.Text("Start Test")], spacing=8),
                                     on_click=self._start_test,
                                 ),
                                 ft.ElevatedButton(
-                                    "Stop Test",
-                                    icon=ft.Icons.STOP,
+                                    content=ft.Row([icon("stop", size=16), ft.Text("Stop Test")], spacing=8),
                                     on_click=self._stop_test,
                                 ),
                             ],

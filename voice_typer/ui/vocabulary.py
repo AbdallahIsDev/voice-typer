@@ -1,5 +1,6 @@
 import flet as ft
 from .styles import Colors
+from .icons import icon
 
 
 class VocabularyScreen:
@@ -20,11 +21,9 @@ class VocabularyScreen:
                             ft.Text("Custom Vocabulary", size=24, weight=ft.FontWeight.BOLD),
                             ft.Container(expand=True),
                             ft.ElevatedButton(
-                                "Add Word",
-                                icon=ft.Icons.ADD,
+                                content=ft.Row([icon("add", color=ft.Colors.WHITE, size=16), ft.Text("Add Word", color=ft.Colors.WHITE)], spacing=8),
                                 on_click=self._add_word,
                                 bgcolor=ft.Colors.BLUE_600,
-                                color=ft.Colors.WHITE,
                             ),
                         ],
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -49,7 +48,7 @@ class VocabularyScreen:
                 alignment=ft.Alignment.CENTER,
                 content=ft.Column(
                     [
-                        ft.Icon(ft.Icons.SCHOOL, size=48, color=ft.Colors.GREY_400),
+                        icon("vocabulary", size=48, color=ft.Colors.GREY_400),
                         ft.Text(
                             "No custom vocabulary",
                             size=16,
@@ -62,8 +61,7 @@ class VocabularyScreen:
                         ),
                         ft.Container(height=10),
                         ft.ElevatedButton(
-                            "Add First Word",
-                            icon=ft.Icons.ADD,
+                            content=ft.Row([icon("add", size=16), ft.Text("Add First Word")], spacing=8),
                             on_click=self._add_word,
                         ),
                     ],
@@ -99,7 +97,7 @@ class VocabularyScreen:
                                             padding=ft.Padding.symmetric(horizontal=8, vertical=4),
                                             border_radius=4,
                                         ),
-                                        ft.Icon(ft.Icons.ARROW_FORWARD, size=16, color=ft.Colors.GREY_400),
+                                        icon("arrow-forward", size=16, color=ft.Colors.GREY_400),
                                         ft.Container(
                                             content=ft.Text(
                                                 item.get("correction", ""),
@@ -126,12 +124,12 @@ class VocabularyScreen:
                         ft.Row(
                             [
                                 ft.IconButton(
-                                    ft.Icons.EDIT,
+                                    icon=icon("edit"),
                                     tooltip="Edit",
                                     on_click=lambda e, i=item: self._edit_word(i),
                                 ),
                                 ft.IconButton(
-                                    ft.Icons.DELETE,
+                                    icon=icon("delete"),
                                     tooltip="Delete",
                                     on_click=lambda e, i=item: self._delete_word(i),
                                 ),

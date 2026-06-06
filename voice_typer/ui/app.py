@@ -1,5 +1,6 @@
 import flet as ft
 from .styles import Colors, NAV_ITEMS
+from .icons import icon
 from .home import build_home_page
 from .history import HistoryScreen
 from .templates import TemplatesScreen
@@ -63,6 +64,14 @@ class VoiceTyperApp:
         """Main entry point for the Flet app."""
         self.page = page
         page.title = "Voice Typer"
+        
+        # Register Hugeicons font
+        import os
+        assets_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "assets"))
+        page.fonts = {
+            "hgi": os.path.join(assets_dir, "fonts", "hgi-stroke-rounded.ttf")
+        }
+        
         page.window.width = 1000
         page.window.height = 700
         page.window.min_width = 800
@@ -110,7 +119,7 @@ class VoiceTyperApp:
             btn = ft.Container(
                 content=ft.Row(
                     [
-                        ft.Icon(
+                        icon(
                             item_config["icon"],
                             color=ft.Colors.WHITE if is_selected else ft.Colors.GREY_600,
                             size=20,
@@ -142,7 +151,7 @@ class VoiceTyperApp:
                     # Logo/Title
                     ft.Row(
                         [
-                            ft.Icon(ft.Icons.MIC, color=ft.Colors.BLUE_600, size=28),
+                            icon("microphone", color=ft.Colors.BLUE_600, size=28),
                             ft.Text(
                                 "Voice Typer",
                                 size=20,
@@ -161,7 +170,7 @@ class VoiceTyperApp:
                     ft.Container(
                         content=ft.Row(
                             [
-                                ft.Icon(ft.Icons.SETTINGS, color=ft.Colors.GREY_600, size=20),
+                                icon("settings", color=ft.Colors.GREY_600, size=20),
                                 ft.Text(
                                     "Settings",
                                     color=ft.Colors.GREY_700,
