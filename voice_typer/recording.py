@@ -51,8 +51,14 @@ class Recorder:
     def __init__(self, config: Config):
         self.config = config
         self._stream: Optional[sd.InputStream] = None
-        self._buffer: List[np.ndarray] = []
+        self._buffer: collections.deque = collections.deque(maxlen=MAX_BUFFER_CHUNKS)
         self._lock = threading.Lock()
+
+        # XRUN and clipping tracking
+        self._xruns: int = 0
+        self._clip_count: int = 0
+        self._peak: float = 0.0
+        self._last_clip_log_time: float = 0.0
         self._recording_event = threading.Event()
         self._effective_sr: int = config.sample_rate
         self._last_rms: float = 0.0
@@ -269,19 +275,22 @@ class Recorder:
         self._silence_next_warning_wait = 10.0
         self._recent_rms_values.clear()
         self._recording_start_time = time.perf_counter()
+        # Reset XRUN and clipping counters
+        self._xruns = 0
+        self._clip_count = 0
+        self._peak = 0.0
+        self._last_clip_log_time = 0.0
 
         device = self._resolve_device()
         candidates = self._same_physical_microphone_candidates(device)
 
         def callback(indata, frames, time_info, status):
+            # AUDIO-002: Check PortAudio status flags for XRUNs
+            if status:
+                self._xruns += 1
+                log.warning("[RECORDING] PortAudio status flag: %s (xrun_count=%d)", status, self._xruns)
+
             with self._lock:
-                if self._chunk_count >= MAX_BUFFER_CHUNKS:
-                    if self._chunk_count == MAX_BUFFER_CHUNKS:
-                        log.warning(
-                            "[RECORDING] Buffer hard cap reached (30k chunks, ~30 min). "
-                            "Dropping oldest chunks."
-                        )
-                    self._buffer.pop(0)
                 self._buffer.append(indata.copy())
                 self._chunk_count += 1
 
@@ -292,6 +301,19 @@ class Recorder:
                 chunk_rms = float(np.sqrt(np.mean(np.square(indata), dtype=np.float64)))
                 chunk_peak = float(np.max(np.abs(indata)))
                 chunk_duration = len(indata) / self._effective_sr
+
+                # AUDIO-CLIP: Track clipping
+                if chunk_peak >= 0.99:
+                    self._clip_count += 1
+                    if chunk_peak > self._peak:
+                        self._peak = chunk_peak
+                    now = time.perf_counter()
+                    if now - self._last_clip_log_time >= 1.0:
+                        log.warning(
+                            "[RECORDING] Clipping detected: peak=%.4f, count=%d chunks. Reduce mic gain.",
+                            chunk_peak, self._clip_count
+                        )
+                        self._last_clip_log_time = now
 
                 self._recent_rms_values.append(chunk_rms)
 
@@ -531,8 +553,9 @@ class Recorder:
                 # Reset cache
                 self._cached_resampled = np.array([], dtype=np.float32)
                 self._cached_native_chunk_count = 0
+                self._chunk_count = 0
                 return np.array([], dtype=np.float32)
-            audio = np.concatenate(self._buffer, axis=0).reshape(-1)
+            audio = np.concatenate(list(self._buffer), axis=0).reshape(-1)
             self._buffer.clear()
             # Reset cache on stop
             self._cached_resampled = np.array([], dtype=np.float32)
@@ -593,7 +616,7 @@ class Recorder:
 
             if effective_sr != target_sr and len(self._buffer) > self._cached_native_chunk_count:
                 # Resample only the new chunks since last snapshot
-                new_chunks = self._buffer[self._cached_native_chunk_count:]
+                new_chunks = list(self._buffer)[self._cached_native_chunk_count:]
                 if new_chunks:
                     new_audio = np.concatenate(new_chunks, axis=0).reshape(-1)
                     new_resampled = self._resample_chunk(new_audio, effective_sr, target_sr)
@@ -604,7 +627,7 @@ class Recorder:
                 return self._cached_resampled.copy()
             elif effective_sr == target_sr:
                 # No resampling needed, just concatenate all
-                audio = np.concatenate(self._buffer, axis=0).reshape(-1)
+                audio = np.concatenate(list(self._buffer), axis=0).reshape(-1)
                 return audio
             else:
                 # No new chunks, return cached

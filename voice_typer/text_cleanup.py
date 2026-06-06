@@ -156,12 +156,13 @@ def configure_corrections(
     _active_misspellings, _active_phrases, _active_extra_words = result
 
 
-def clean_transcribed_text(text: str) -> str:
+def clean_transcribed_text(text: str, *, auto_punctuation: bool = False) -> str:
     """Apply conservative cleanup without changing the user's meaning."""
     cleaned = text.strip()
     if not cleaned:
         return ""
     cleaned = _normalize_spacing(cleaned)
+    cleaned = _fix_file_extensions(cleaned)
     cleaned = _clean_self_corrections(cleaned)
     cleaned = _remove_adjacent_duplicate_phrases(cleaned)
     cleaned = _remove_near_duplicate_words(cleaned)
@@ -170,11 +171,10 @@ def clean_transcribed_text(text: str) -> str:
     cleaned = _remove_extra_words(cleaned)
     cleaned = _capitalize_sentences(cleaned)
     cleaned = _capitalize_pronoun_i(cleaned)
-    # NOTE: _add_terminal_punctuation() removed from the pipeline.
-    # It forced '.' or '?' onto speech without terminal punctuation,
-    # which corrupted URLs (example.com.), commands (open settings.),
-    # file paths, and code snippets.  Users who want auto-punctuation
-    # can re-enable it in a future version with a config toggle.
+    # NOTE: Auto-punctuation is OFF by default. Enable via config.
+    # It runs AFTER template matching in the pipeline.
+    if auto_punctuation:
+        cleaned = _add_safe_terminal_punctuation(cleaned)
     return cleaned
 
 
@@ -406,6 +406,87 @@ def _add_terminal_punctuation(text: str) -> str:
     words = text.split()
     if len(words) <= 4:
         return text
+    if _looks_like_question(text):
+        return f"{text}?"
+    return f"{text}."
+
+
+# ─── M2: File extension fix ──────────────────────────────────────────────
+
+_KNOWN_EXTENSIONS = {
+    ".txt", ".md", ".exe", ".py", ".pdf", ".doc", ".docx", ".xls", ".xlsx",
+    ".ppt", ".pptx", ".csv", ".json", ".xml", ".html", ".css", ".js", ".ts",
+    ".bat", ".sh", ".ps1", ".cmd", ".msi", ".dll", ".zip", ".rar", ".7z",
+    ".mp3", ".mp4", ".avi", ".wav", ".jpg", ".jpeg", ".png", ".gif", ".svg",
+    ".ico", ".log", ".ini", ".cfg", ".yaml", ".yml", ".toml", ".db",
+    ".sqlite", ".bak", ".tmp", ".sys", ".mov", ".mkv", ".webm", ".flac",
+    ".ogg", ".webp", ".bmp", ".tiff", ".psd", ".ai",
+}
+
+
+def _fix_file_extensions(text: str) -> str:
+    """Fix file extension patterns corrupted by text cleanup.
+
+    Whisper transcribes 'features dot md' as 'features. md'. The cleanup
+    pipeline then capitalizes after the period: 'features. Md'. This function
+    collapses such patterns back to 'features.md' before capitalization runs.
+
+    Must not break:
+    - Sentence-ending periods (normal text)
+    - URLs (example.com)
+    - Abbreviations (U.S.A., Dr., etc.)
+    """
+    # Pattern: word. ext or word . ext or word .ext
+    # Match: word characters followed by optional space, dot, optional space, 2-4 letter extension
+    def _replace_extension(m):
+        before = m.group(1)   # word before the dot
+        ext = m.group(2)      # extension without leading dot
+        # Only collapse if the extension is a known file extension
+        if f".{ext.lower()}" in _KNOWN_EXTENSIONS:
+            return f"{before}.{ext.lower()}"
+        # Not a known extension — leave as-is
+        return m.group(0)
+
+    # Match word. ext  (e.g., "features. md")
+    text = re.sub(
+        r'(\w+)\.\s+([a-zA-Z]{2,4})\b',
+        _replace_extension,
+        text,
+    )
+    return text
+
+
+# ─── Safe auto-punctuation ──────────────────────────────────────────────
+
+# Patterns that should NOT get terminal punctuation appended
+_NO_PUNCTUATION_PATTERNS = [
+    re.compile(r'https?://'),           # URLs
+    re.compile(r'\.(com|org|net|io|dev)$', re.IGNORECASE),  # Domain names
+    re.compile(r'[\\/]'),               # File paths
+    re.compile(r'`[^`]*`'),            # Inline code
+    re.compile(r'\{\{.*\}\}'),          # Template variables
+    re.compile(r'\{.*\}'),              # Variable placeholders
+]
+
+
+def _add_safe_terminal_punctuation(text: str) -> str:
+    """Add terminal punctuation with safety guards for URLs, paths, code.
+
+    This version of auto-punctuation checks for patterns that should
+    NOT receive punctuation before appending.
+    """
+    if not text or text[-1] in ".!?":
+        return text
+
+    # Check safety patterns — don't add punctuation if any match
+    for pattern in _NO_PUNCTUATION_PATTERNS:
+        if pattern.search(text):
+            return text
+
+    words = text.split()
+    if len(words) <= 4:
+        return text
+
     if _looks_like_question(text):
         return f"{text}?"
     return f"{text}."

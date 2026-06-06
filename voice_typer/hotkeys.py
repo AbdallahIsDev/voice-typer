@@ -32,10 +32,15 @@ class HotkeyBackend(ABC):
 
     def __init__(self, hotkey_str: str):
         self.hotkey_str = hotkey_str
+        self._on_release_callback: Optional[Callable[[], None]] = None
 
     @abstractmethod
     def start(self, callback: Callable[[], None]) -> None:
         """Start listening for the hotkey. Calls *callback* when pressed."""
+
+    def set_on_release(self, callback: Optional[Callable[[], None]]) -> None:
+        """Set a callback for key release (used by push-to-talk mode)."""
+        self._on_release_callback = callback
 
     @abstractmethod
     def stop(self) -> None:

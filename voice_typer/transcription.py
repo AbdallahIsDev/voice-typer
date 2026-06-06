@@ -38,12 +38,7 @@ _WHISPER_SAMPLE_RATE = 16000  # Whisper always expects 16kHz input
 _nvidia_dll_path_handles: list[object] = []
 _nvidia_dll_paths_configured = False
 
-_KNOWN_LOW_AUDIO_HALLUCINATIONS = {
-    "thanks for watching",
-    "thank you for watching",
-    "see you next time",
-    "bye",
-}
+from voice_typer.hallucination import should_reject_low_audio_hallucination, normalize_hallucination_key
 
 
 def _configure_nvidia_dll_paths():
@@ -551,23 +546,14 @@ class TranscriptionEngine:
         first_segment_start: float | None,
         last_segment_end: float | None,
     ) -> bool:
-        key = _normalize_hallucination_key(result)
-        if key not in _KNOWN_LOW_AUDIO_HALLUCINATIONS:
-            return False
-
-        if rms < 0.001 and silence_pct > 90.0:
-            return True
-
-        if first_segment_start is None or last_segment_end is None:
-            return False
-
-        segment_span = max(0.0, last_segment_end - first_segment_start)
-        return (
-            duration >= 30.0
-            and rms < 0.005
-            and silence_pct >= 50.0
-            and first_segment_start <= 3.0
-            and segment_span <= 5.0
+        return should_reject_low_audio_hallucination(
+            result,
+            rms,
+            peak=peak,
+            silence_pct=silence_pct,
+            duration=duration,
+            first_segment_start=first_segment_start,
+            last_segment_end=last_segment_end,
         )
 
     def unload(self) -> None:
@@ -578,8 +564,6 @@ class TranscriptionEngine:
             gc.collect()
 
 
-def _normalize_hallucination_key(text: str) -> str:
-    return re.sub(r"[^a-z0-9 ]+", "", text.lower()).strip()
 
 
 def _format_optional_mean(values: list[float]) -> str:
