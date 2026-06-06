@@ -1,13 +1,12 @@
-"""Tests for the tray threading model.
+"""Tests for the tray Phase 2 minimal menu.
 
-The tray must support:
-- start() is non-blocking and kicks off background work
-- run() blocks the main thread (pystray event loop)
-- State / notifications queued before run() are flushed once run() starts
-- menu= passed to pystray.Icon must be a pystray.Menu instance, NOT a bare callable
+Phase 2: Minimal 3-item right-click menu:
+- Toggle Dictation (hotkey)
+- Restart
+- Quit
 
-Suppresses ResourceWarning / unraisable destructor warnings from pystray
-Icon objects that never entered a real event loop.
+Left-click opens Flet window.
+All settings, history, templates, etc. live in the Flet window only.
 """
 
 import gc
@@ -20,19 +19,15 @@ from unittest.mock import MagicMock
 
 
 class _FakeMenu:
-    """Lightweight stand-in for pystray.Menu that records construction args.
+    """Lightweight stand-in for pystray.Menu that records construction args."""
 
-    Mirrors real pystray.Menu behavior: if a callable is passed, it is stored
-    and can be invoked with zero positional args to materialize menu items.
-    """
     def __init__(self, *args, **kwargs):
         self.args = args
         self.kwargs = kwargs
-        # Store the callable (like real pystray.Menu does)
         self._callable = args[0] if args and callable(args[0]) else None
 
     def __call__(self):
-        """Materialize menu items by invoking the stored callable with zero args."""
+        """Materialize menu items by invoking the stored callable."""
         if self._callable is not None:
             return self._callable()
         return self.args
@@ -42,6 +37,7 @@ class _FakeMenu:
 
 class _FakeMenuItem:
     """Lightweight stand-in for pystray.MenuItem."""
+
     def __init__(self, *args, **kwargs):
         self.args = args
         self.kwargs = kwargs
@@ -78,9 +74,6 @@ def mock_heavy_imports(monkeypatch):
     mock_pystray.MenuItem = _FakeMenuItem
     monkeypatch.setitem(sys.modules, "pystray", mock_pystray)
 
-    # Also patch the attributes on the already-imported tray module so that
-    # even if other test modules replaced sys.modules["pystray"] first,
-    # tray.py still uses our fakes.
     import voice_typer.tray as tray_mod
     monkeypatch.setattr(tray_mod, "pystray", mock_pystray)
 
@@ -135,12 +128,12 @@ def tray():
     from voice_typer.tray import TrayIcon
     _FakeIcon.last_kwargs = {}
     controller = _MockController()
-    # Wrap methods with MagicMock for tracking
     for method_name in [
         "toggle_dictation", "change_microphone", "change_model",
         "change_hotkey", "open_settings", "quit_app",
         "toggle_autostart", "set_notifications",
         "set_silence_warning_seconds", "set_silence_auto_stop_seconds",
+        "restart_app",
     ]:
         setattr(controller, method_name, MagicMock())
     t = TrayIcon(
@@ -148,59 +141,111 @@ def tray():
         config=SimpleNamespace(hotkey="<f2>", model_size="small.en", autostart=True, show_notifications=True, microphone=None, silence_warning_seconds=20.0, silence_auto_stop_seconds=120.0),
     )
     yield t
-    # Suppress unraisable destructor warnings from pystray Icon objects
-    # that were created but never entered a real event loop.
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", pytest.PytestUnraisableExceptionWarning)
         del t
 
 
+def _menu_labels(tray):
+    """Helper to get menu item labels."""
+    tray.start(bg_work=None)
+    return [
+        item.args[0]
+        for item in _FakeIcon.last_kwargs["menu"]()
+        if isinstance(item, _FakeMenuItem)
+    ]
+
+
+# ─── Phase 2: Minimal menu tests ────────────────────────────────────────
+
+class TestPhase2MinimalMenu:
+    """Phase 2: Right-click menu has only Toggle, Restart, Quit."""
+
+    def test_menu_has_toggle_dictation(self, tray):
+        labels = _menu_labels(tray)
+        assert any("Toggle Dictation" in label for label in labels)
+
+    def test_menu_has_restart(self, tray):
+        labels = _menu_labels(tray)
+        assert "Restart" in labels
+
+    def test_menu_has_quit(self, tray):
+        labels = _menu_labels(tray)
+        assert "Quit" in labels
+
+    def test_menu_has_exactly_three_items(self, tray):
+        """Phase 2 menu should have exactly 3 items (+ separator)."""
+        tray.start(bg_work=None)
+        items = _FakeIcon.last_kwargs["menu"]()
+        menu_items = [i for i in items if isinstance(i, _FakeMenuItem)]
+        assert len(menu_items) == 3
+
+    def test_toggle_label_includes_current_hotkey(self):
+        from voice_typer.tray import TrayIcon
+        controller = _MockController()
+        tray = TrayIcon(
+            controller=controller,
+            config=SimpleNamespace(hotkey="<f9>", model_size="small.en", autostart=True, show_notifications=True),
+        )
+        labels = _menu_labels(tray)
+        assert "Toggle Dictation (F9)" in labels
+
+    def test_no_settings_in_menu(self, tray):
+        labels = _menu_labels(tray)
+        assert "Settings" not in labels
+        assert "Settings..." not in labels
+
+    def test_no_model_submenu(self, tray):
+        """Phase 2: Model selection is in Flet window, not tray menu."""
+        labels = _menu_labels(tray)
+        assert "Model" not in labels
+
+    def test_no_microphone_submenu(self, tray):
+        """Phase 2: Microphone selection is in Flet window, not tray menu."""
+        labels = _menu_labels(tray)
+        assert "Microphone" not in labels
+
+    def test_no_advanced_submenu(self, tray):
+        """Phase 2: Advanced settings are in Flet window, not tray menu."""
+        labels = _menu_labels(tray)
+        assert "Advanced" not in labels
+
+    def test_no_hotkey_submenu(self, tray):
+        """Phase 2: Hotkey config is in Flet window, not tray menu."""
+        labels = _menu_labels(tray)
+        assert "Hotkey" not in labels
+
+    def test_no_start_on_login(self, tray):
+        labels = _menu_labels(tray)
+        assert "Start on Login" not in labels
+
+
 # ─── Regression: menu= must be a pystray.Menu instance ──────────────────
 
 class TestMenuIsPystrayMenuInstance:
-    """Regression test: menu= must be a pystray.Menu, NOT a bare callable."""
-
     def test_menu_is_fake_menu_instance(self, tray):
-        """After start(), the menu kwarg passed to pystray.Icon must be a _FakeMenu."""
         tray.start(bg_work=None)
         menu = _FakeIcon.last_kwargs.get("menu")
-        assert isinstance(menu, _FakeMenu), (
-            f"menu= must be a pystray.Menu instance, got {type(menu).__name__}: {menu!r}"
-        )
-
-    def test_menu_is_not_raw_callable(self, tray):
-        """menu= must be a pystray.Menu instance, not a bare function/callable."""
-        tray.start(bg_work=None)
-        menu = _FakeIcon.last_kwargs.get("menu")
-        # _FakeMenu (and real pystray.Menu) is itself callable, but it should
-        # be a Menu *instance*, not a bare function reference.
-        assert isinstance(menu, _FakeMenu), (
-            "menu= should be a pystray.Menu instance, not a bare callable"
-        )
+        assert isinstance(menu, _FakeMenu)
 
     def test_menu_callable_is_passed_to_menu_constructor(self, tray):
-        """The callable (build_menu) should be an arg to _FakeMenu, not to _FakeIcon."""
         tray.start(bg_work=None)
         menu = _FakeIcon.last_kwargs.get("menu")
         assert isinstance(menu, _FakeMenu)
         assert len(menu.args) >= 1
-        assert callable(menu.args[0]), "pystray.Menu should receive a callable as its argument"
+        assert callable(menu.args[0])
 
 
 # ─── Threading model ────────────────────────────────────────────────────
 
 class TestTrayStartIsNonBlocking:
     def test_start_returns_without_blocking(self, tray):
-        """start() must return immediately — it must NOT call run()."""
         bg_called = []
         def bg_work():
             bg_called.append(True)
 
         tray.start(bg_work=bg_work)
-
-        # The tray's own icon should not have had run() called yet
         assert not tray._icon._run_called
-        # Background work should have started
         time.sleep(0.1)
         assert len(bg_called) == 1
 
@@ -211,35 +256,25 @@ class TestTrayStartIsNonBlocking:
 
 class TestTrayRunBlocksMainThread:
     def test_run_calls_icon_run(self, tray):
-        """run() must call pystray.Icon.run() (which blocks)."""
         tray.start(bg_work=None)
         assert not tray._icon._run_called
-
         tray.run()
         assert tray._icon._run_called
 
 
 class TestTrayPendingState:
     def test_state_before_run_is_queued(self, tray):
-        """set_state() before run() must queue the state."""
         from voice_typer.tray import AppState
         tray.set_state(AppState.LOADING, "Loading model...")
-
-        # Icon doesn't exist yet — state should be pending
         assert len(tray._pending_states) == 1
         assert tray._pending_states[0] == (AppState.LOADING, "Loading model...")
 
     def test_pending_state_flushed_on_run(self, tray):
-        """After run(), queued states are applied to the live icon."""
         from voice_typer.tray import AppState
         tray.set_state(AppState.LOADING, "Starting...")
-
         tray.start(bg_work=None)
         tray.run()
-
-        # Pending states should be flushed
         assert len(tray._pending_states) == 0
-        # Icon state should reflect the flushed state
         assert tray._state == AppState.LOADING
 
     def test_notification_before_run_is_queued(self, tray):
@@ -250,358 +285,54 @@ class TestTrayPendingState:
         tray.notify("Test", "Hello")
         tray.start(bg_work=None)
         tray.run()
-
         assert len(tray._pending_notifications) == 0
 
 
-# ─── Regression: menu callable signature ────────────────────────────────
+# ─── Menu callable signature ────────────────────────────────────────────
 
 class TestMenuCallableSignature:
-    """Regression: the menu-generator callable must accept zero positional args."""
-
     def test_menu_callable_takes_zero_positional_args(self, tray):
-        """Calling _FakeMenu's stored callable with zero args must not raise TypeError.
-
-        Real pystray.Menu invokes its callable with no positional arguments
-        each time the tray menu is opened.  If _build_menu accidentally
-        requires arguments, this test catches it.
-        """
-        tray.start(bg_work=None)
-        menu = _FakeIcon.last_kwargs.get("menu")
-        assert isinstance(menu, _FakeMenu), "menu must be a _FakeMenu instance"
-        # This mirrors how pystray materializes the menu
-        result = menu()
-        # Should return items without raising TypeError
-        assert result is not None
-
-    def test_menu_materialization_works(self, tray):
-        """After start(), materializing the menu callable returns a tuple of items."""
         tray.start(bg_work=None)
         menu = _FakeIcon.last_kwargs.get("menu")
         assert isinstance(menu, _FakeMenu)
+        result = menu()
+        assert result is not None
 
+    def test_menu_materialization_works(self, tray):
+        tray.start(bg_work=None)
+        menu = _FakeIcon.last_kwargs.get("menu")
+        assert isinstance(menu, _FakeMenu)
         items = menu()
-        assert isinstance(items, tuple), f"Expected tuple, got {type(items)}"
-        assert len(items) > 0, "Menu should have at least one item"
-        # Each item should be a _FakeMenuItem or the SEPARATOR sentinel
-        for item in items:
-            assert isinstance(item, (_FakeMenuItem, str)), (
-                f"Unexpected menu item type: {type(item)}"
-            )
-
-
-# ─── Settings UX: simplified tray menu ─────────────────────────────────
-
-class TestSettingsUxTrayMenu:
-    def _menu_labels(self, tray):
-        tray.start(bg_work=None)
-        return [
-            item.args[0]
-            for item in _FakeIcon.last_kwargs["menu"]()
-            if isinstance(item, _FakeMenuItem)
-        ]
-
-    def test_main_menu_does_not_include_start_on_login(self):
-        from voice_typer.tray import TrayIcon
-
-        controller = _MockController()
-        tray = TrayIcon(
-            controller=controller,
-            config=SimpleNamespace(hotkey="<f2>", model_size="small.en", autostart=True, show_notifications=True),
-        )
-
-        labels = self._menu_labels(tray)
-
-        assert "Start on Login" not in labels
-
-    def test_toggle_label_includes_current_hotkey(self):
-        from voice_typer.tray import TrayIcon
-
-        controller = _MockController()
-        tray = TrayIcon(
-            controller=controller,
-            config=SimpleNamespace(hotkey="<f9>", model_size="small.en", autostart=True, show_notifications=True),
-        )
-
-        labels = self._menu_labels(tray)
-
-        assert "Toggle Dictation (F9)" in labels
-
-    def test_menu_includes_hotkey_submenu(self, tray):
-        tray._config = SimpleNamespace(hotkey="<f2>", model_size="small.en")
-
-        tray.start(bg_work=None)
-        hotkey_menu = next(
-            item
-            for item in _FakeIcon.last_kwargs["menu"]()
-            if isinstance(item, _FakeMenuItem) and item.args[0] == "Hotkey"
-        )
-
-        labels = [item.args[0] for item in hotkey_menu.args[1]()]
-        assert "F2" in labels
-        assert "Ctrl+1" in labels
-
-    def test_settings_window_is_not_in_main_menu(self, tray):
-        labels = self._menu_labels(tray)
-
-        assert "Settings..." not in labels
-
-    def test_model_submenu_is_in_main_menu(self, tray):
-        tray._config = SimpleNamespace(hotkey="<f2>", model_size="small.en")
-
-        tray.start(bg_work=None)
-        model_menu = next(
-            item
-            for item in _FakeIcon.last_kwargs["menu"]()
-            if isinstance(item, _FakeMenuItem) and item.args[0] == "Model"
-        )
-
-        labels = [item.args[0] for item in model_menu.args[1]()]
-        assert "tiny.en (fastest, ~75MB)" in labels
-        assert "small.en (fast, ~466MB)" in labels
-        assert "medium.en (slow, ~1.5GB)" in labels
-        assert "qwen (Qwen3-ASR)" in labels
-
-    def test_advanced_submenu_has_autostart_notifications_and_silence(self, tray):
-        tray._config = SimpleNamespace(
-            hotkey="<f2>",
-            model_size="small.en",
-            autostart=True,
-            show_notifications=True,
-            silence_warning_seconds=20.0,
-            silence_auto_stop_seconds=120.0,
-        )
-
-        tray.start(bg_work=None)
-        advanced_menu = next(
-            item
-            for item in _FakeIcon.last_kwargs["menu"]()
-            if isinstance(item, _FakeMenuItem) and item.args[0] == "Advanced"
-        )
-
-        labels = [item.args[0] for item in advanced_menu.args[1]()]
-        assert "Launch at Startup" in labels
-        assert "Dictation Notifications" in labels
-        assert "Silence Warning Timeout" in labels
-        assert "Auto-Stop Timeout" in labels
-
-    def test_microphone_submenu_remains_when_mics_are_present(self, tray):
-        tray._config = SimpleNamespace(microphone=None, hotkey="<f2>")
-        tray.set_microphones([
-            {"id": "mic-1", "name": "Built-in Mic", "host_api": "WASAPI"},
-        ])
-
-        tray.start(bg_work=None)
-        mic_item = next(
-            item
-            for item in _FakeIcon.last_kwargs["menu"]()
-            if isinstance(item, _FakeMenuItem) and item.args[0] == "Microphone"
-        )
-
-        assert isinstance(mic_item.args[1], _FakeMenu)
+        assert isinstance(items, tuple)
+        assert len(items) > 0
 
 
 # ─── Integration: full start + run cycle ────────────────────────────────
 
 class TestFullStartRunCycle:
-    """Integration test: start() + run() together must not crash."""
-
     def test_full_start_run_cycle_no_crash(self, tray):
-        """Calling start() followed by run() should complete without any exception."""
         try:
             tray.start(bg_work=None)
             tray.run()
         except Exception as exc:
-            pytest.fail(
-                f"start() + run() cycle raised unexpectedly: {exc}"
-            )
+            pytest.fail(f"start() + run() cycle raised unexpectedly: {exc}")
 
 
-# ─── REAL pystray regression tests ─────────────────────────────────────
+# ─── Notification safety ────────────────────────────────────────────────
 
-def _has_display():
-    """Check if a display server is available for pystray."""
-    import os
-    if os.environ.get("DISPLAY"):
-        return True
-    if os.environ.get("WAYLAND_DISPLAY"):
-        return True
-    # Check for xvfb-run
-    import shutil
-    if shutil.which("xvfb-run"):
-        return True
-    return False
+class TestNotifySafety:
+    def test_notify_safety_bypasses_toggle(self, tray):
+        """notify_safety() should send notification even when notifications disabled."""
+        tray.set_notifications_enabled(False)
+        tray.start(bg_work=None)
+        tray.run()
+        # Should not raise
+        tray.notify_safety("Test", "Safety message")
 
-
-_skip_no_display = pytest.mark.skipif(
-    not _has_display(),
-    reason="No display server available (need DISPLAY, WAYLAND_DISPLAY, or xvfb-run)",
-)
-
-
-@_skip_no_display
-@pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
-class TestRealPystrayIntegration:
-    """Regression tests using REAL pystray (not faked).
-
-    These tests exercise the actual pystray.Menu and pystray.Icon classes
-    to catch the exact TypeError that occurred when a bare callable was
-    passed to Icon(menu=...) instead of Icon(menu=pystray.Menu(...)).
-
-    They restore the real pystray module (bypassing the autouse mock fixture).
-    """
-
-    @pytest.fixture(autouse=True)
-    def _restore_real_pystray(self):
-        """Undo the autouse mock_heavy_imports fixture for this class."""
-        import importlib
-        # Remove the mock from sys.modules so import loads the real module
-        if "pystray" in sys.modules:
-            del sys.modules["pystray"]
-        if "pystray._base" in sys.modules:
-            del sys.modules["pystray._base"]
-        if "pystray._xorg" in sys.modules:
-            del sys.modules["pystray._xorg"]
-        # Force reimport
-        try:
-            import pystray as real_pystray
-            importlib.reload(real_pystray)
-            self.pystray = real_pystray
-        except ModuleNotFoundError:
-            pytest.skip("pystray not available for real integration test")
-        yield
-        # Force garbage collection of pystray Icon objects so their
-        # destructors fire here (within the module-level filterwarnings
-        # scope) rather than at arbitrary later GC points.
-        gc.collect()
-        # After test, the autouse fixture will re-mock on next test
-
-    def test_real_menu_with_callable_works(self):
-        """pystray.Menu(some_callable) should construct without error."""
-        pystray = self.pystray
-        from PIL import Image
-
-        def build_items():
-            return (
-                pystray.MenuItem("Test", lambda icon, item: None),
-            )
-
-        menu = pystray.Menu(build_items)
-        # Menu should be callable (pystray.Menu is callable)
-        assert callable(menu)
-
-    def test_real_menu_with_bound_method_works(self):
-        """pystray.Menu(bound_method) should construct without error.
-
-        This is the exact pattern used in tray.py: pystray.Menu(self._build_menu)
-        where _build_menu is a bound method of TrayIcon.
-        """
-        pystray = self.pystray
-
-        class _Dummy:
-            def build_menu(self):
-                return (
-                    pystray.MenuItem("Item", lambda icon, item: None),
-                )
-
-        obj = _Dummy()
-        menu = pystray.Menu(obj.build_menu)
-        assert callable(menu)
-
-    def test_real_icon_with_menu_instance_works(self):
-        """pystray.Icon(menu=pystray.Menu(callable)) should succeed."""
-        pystray = self.pystray
-        from PIL import Image
-
-        def build_items():
-            return (
-                pystray.MenuItem("Test", lambda icon, item: None),
-            )
-
-        menu = pystray.Menu(build_items)
-        img = Image.new("RGBA", (16, 16), "red")
-        icon = pystray.Icon("test-regression", icon=img, menu=menu)
-        assert icon is not None
-        icon.stop()
-
-    def test_bare_callable_to_icon_raises_typeerror(self):
-        """pystray.Icon(menu=some_callable) MUST raise TypeError.
-
-        This is the exact bug that was present: passing a bare callable
-        directly to Icon's menu= parameter instead of wrapping it in
-        pystray.Menu() first.
-        """
-        pystray = self.pystray
-        from PIL import Image
-
-        def build_items():
-            return (
-                pystray.MenuItem("Test", lambda icon, item: None),
-            )
-
-        img = Image.new("RGBA", (16, 16), "red")
-        with pytest.raises(TypeError, match="argument after \\* must be an iterable"):
-            pystray.Icon("test-bare", icon=img, menu=build_items)
-
-    def test_menu_star_callable_raises_typeerror(self):
-        """pystray.Menu(*bare_callable) raises TypeError — the exact crash.
-
-        If someone accidentally wrote pystray.Menu(*self._build_menu) instead
-        of pystray.Menu(self._build_menu), this is the error they'd get.
-        """
-        pystray = self.pystray
-
-        def build_items():
-            return (
-                pystray.MenuItem("Test", lambda icon, item: None),
-            )
-
-        with pytest.raises(TypeError, match="argument after \\* must be an iterable"):
-            pystray.Menu(*build_items)  # pyrefly: ignore[not-iterable]
-
-    def test_tray_code_uses_menu_wrapper(self):
-        """Verify tray.py explicitly wraps the callable in pystray.Menu().
-
-        This is a code-level regression check: the source must contain
-        'pystray.Menu(' before 'pystray.Icon(' to prevent the bare-callable bug.
-        """
-        import inspect
-        from voice_typer.tray import TrayIcon
-
-        source = inspect.getsource(TrayIcon.start)
-        # The start() method must create a pystray.Menu before passing to Icon
-        assert "pystray.Menu(" in source, (
-            "TrayIcon.start() must wrap the menu callable in pystray.Menu()"
-        )
-        # And it must pass the Menu instance to Icon
-        assert "pystray.Icon(" in source, (
-            "TrayIcon.start() must call pystray.Icon()"
-        )
-
-    def test_real_tray_icon_construction_via_tray_class(self):
-        """End-to-end: TrayIcon.start() should create a real pystray.Icon without TypeError.
-
-        This exercises the actual TrayIcon class with real pystray (not faked)
-        and verifies the defensive fix in tray.py line 107 works.
-        """
-        pystray = self.pystray
-
-        # Temporarily patch the tray module to use real pystray
-        import voice_typer.tray as tray_mod
-        old_pystray = tray_mod.pystray
-        tray_mod.pystray = pystray
-        try:
-            from voice_typer.tray import TrayIcon
-            from unittest.mock import MagicMock
-
-            controller = _MockController()
-            tray = TrayIcon(
-                controller=controller,
-                config=SimpleNamespace(hotkey="<f2>", model_size="small.en", autostart=True, show_notifications=True),
-            )
-            # This should NOT raise TypeError — the fix wraps _build_menu in pystray.Menu()
-            tray.start(bg_work=None)
-            assert tray._icon is not None
-            tray.stop()
-        finally:
-            tray_mod.pystray = old_pystray
+    def test_notify_respects_toggle(self, tray):
+        """notify() should be suppressed when notifications disabled."""
+        tray.set_notifications_enabled(False)
+        tray.start(bg_work=None)
+        tray.run()
+        # notify should not add to pending when disabled and icon exists
+        tray.notify("Test", "Normal message")

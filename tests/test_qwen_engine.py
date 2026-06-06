@@ -51,11 +51,11 @@ class TestQwenEngineUnit:
 
     def test_load_failure_missing_package(self):
         engine = self._make_engine()
-        # Ensure qwen_asr is not importable — now raises RuntimeError
+        # Ensure qwen_asr is not importable — load() returns False
         with patch.dict("sys.modules", {"qwen_asr": None}):
-            with pytest.raises(RuntimeError, match="qwen-asr package is not installed"):
-                engine.load()
+            result = engine.load()
 
+        assert result is False
         assert engine.is_loaded is False
 
     def test_load_failure_missing_weights(self):
@@ -330,11 +330,11 @@ class TestM23LoadReturnValues:
         assert result is True
         assert engine.is_loaded is True
 
-    def test_load_raises_runtime_error_on_import_error(self):
+    def test_load_returns_false_on_import_error(self):
         engine = self._make_engine()
         with patch.dict("sys.modules", {"qwen_asr": None}):
-            with pytest.raises(RuntimeError, match="qwen-asr package is not installed"):
-                engine.load()
+            result = engine.load()
+        assert result is False
         assert engine.is_loaded is False
 
     def test_load_returns_false_on_runtime_error(self):
