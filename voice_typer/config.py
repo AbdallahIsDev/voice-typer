@@ -84,6 +84,69 @@ class Config:
     # Logging
     log_transcriptions: bool = False
 
+    # ─── P1 Features ───────────────────────────────────────────────
+
+    # Push-to-talk mode (hold to record, release to stop)
+    recording_mode: str = "toggle"  # "toggle" or "push_to_talk"
+    push_to_talk_hotkey: str = ""  # Separate hotkey for PTT (empty = same as toggle)
+
+    # ESC to cancel at any stage
+    esc_cancel_enabled: bool = False
+
+    # Repaste last transcription
+    repaste_hotkey: str = "<ctrl>+<alt>+v"  # Hotkey for repasting last
+
+    # Auto-punctuation (runs AFTER template matching)
+    auto_punctuation: bool = False
+
+    # ─── P2 Features ───────────────────────────────────────────────
+
+    # Templates
+    templates_enabled: bool = True
+
+    # Vocabulary
+    vocabulary_enabled: bool = True
+
+    # Cloud ASR backends
+    cloud_api_key: str = ""
+    cloud_api_url: str = ""
+    cloud_model: str = ""
+    openai_api_key: str = ""
+    groq_api_key: str = ""
+    deepgram_api_key: str = ""
+
+    # LLM text polishing
+    llm_polish: bool = False
+    llm_api_key: str = ""
+    llm_api_url: str = "https://api.openai.com/v1/chat/completions"
+    llm_model: str = "gpt-4o-mini"
+    llm_preset: str = "professional"  # professional/casual/email/code
+
+    # Crash recovery
+    crash_recovery_enabled: bool = True
+
+    # Audio quality analysis
+    audio_quality_warnings: bool = True
+    audio_clipping_warning: bool = True
+    audio_low_volume_warning: bool = True
+    audio_noise_warning: bool = True
+
+    # Waveform visualization bubble
+    waveform_bubble: bool = False
+
+    # History database
+    history_retention_days: int = 90  # 0 = keep forever
+    history_retention_count: int = 0  # 0 = unlimited
+    history_max_entries: int = 1000
+
+    # ─── P3 Features ───────────────────────────────────────────────
+
+    # Onboarding
+    onboarding_completed: bool = False
+
+    # Wayland hotkey fallback warning
+    wayland_warned: bool = False
+
     # Silent mic disconnection (H12)
     silence_warning_seconds: float = 20.0
     silence_auto_stop_seconds: float = 120.0
@@ -180,8 +243,21 @@ class Config:
             "text_cleanup_enabled", "unsafe_paste_on_unknown_focus",
             "streaming_transcription", "log_transcriptions",
             "condition_on_previous_text",
+            "esc_cancel_enabled", "auto_punctuation", "llm_polish",
+            "crash_recovery_enabled", "audio_quality_warnings",
+            "audio_clipping_warning", "audio_low_volume_warning",
+            "audio_noise_warning",
+            "templates_enabled", "vocabulary_enabled",
+            "waveform_bubble", "onboarding_completed", "wayland_warned",
         }
-        str_fields = {"hotkey", "language", "device", "asr_backend"}
+        str_fields = {
+            "hotkey", "language", "device", "asr_backend",
+            "recording_mode", "push_to_talk_hotkey",
+            "cloud_api_key", "cloud_api_url", "cloud_model",
+            "openai_api_key", "groq_api_key", "deepgram_api_key",
+            "llm_api_key", "llm_api_url", "llm_model", "llm_preset",
+            "repaste_hotkey",
+        }
         defaults = cls()
 
         for field_name in bool_fields:

@@ -28,6 +28,10 @@ from voice_typer.platform import (
     list_microphones,
 )
 from voice_typer.hotkeys import create_hotkey_backend, HotkeyBackend
+from voice_typer.history_db import HistoryDB
+from voice_typer.crash_recovery import CrashRecovery
+from voice_typer.audio_quality import AudioQualityAnalyzer
+from voice_typer.waveform import WaveformBubble
 
 log = logging.getLogger("voice_typer")
 
@@ -140,6 +144,17 @@ class VoiceTyperApp:
         self._timer_generation: int = 0
         self._non_windows_paste_notified = False
 
+        # ─── P1/P2 New Feature Components ────────────────────────────
+        self.history_db = HistoryDB()
+        self._crash_recovery = CrashRecovery()
+        self._audio_quality = AudioQualityAnalyzer()
+        self._waveform_bubble = WaveformBubble()
+        self._last_transcription: str = ""  # For repaste
+        self._template_manager = None  # Lazy-init on first use
+        self._vocabulary_manager = None  # Lazy-init on first use
+        self._llm_polisher = None  # Lazy-init on first use
+        self._cloud_engine = None  # Lazy-init if cloud backend selected
+
     # ─── Qwen Engine (P0) ────────────────────────────────────────────
 
     def _init_qwen_engine(self):
@@ -251,6 +266,26 @@ class VoiceTyperApp:
             configure_corrections(config_dir=self.config.config_dir)
         except Exception:
             log.debug("[STARTUP] External corrections load failed, using built-in defaults")
+
+        # P2: Crash recovery — check for unpasted transcriptions
+        if self.config.crash_recovery_enabled:
+            try:
+                unpasted = self._crash_recovery.check_on_startup()
+                if unpasted:
+                    log.info("[STARTUP] Found %d unpasted transcriptions from previous session", len(unpasted))
+                    self.tray.notify(
+                        "Voice Typer",
+                        f"Recovered {len(unpasted)} transcription(s) from last session. Open History to view.",
+                    )
+            except Exception:
+                log.debug("[STARTUP] Crash recovery check failed")
+
+        # PLAT-WAYLAND: Warn if running on Wayland
+        if sys.platform.startswith("linux") and os.environ.get("XDG_SESSION_TYPE") == "wayland":
+            if not self.config.wayland_warned:
+                log.warning("[STARTUP] Wayland detected — global hotkeys may not work")
+                self.config.wayland_warned = True
+                self.config.save()
 
         # 1. Sync autostart config with platform
         log.info("[STARTUP] Step 1: sync autostart")
@@ -388,6 +423,9 @@ class VoiceTyperApp:
             self._hotkey_backend = create_hotkey_backend(hotkey_str)
             log.info("[HOTKEY] Backend created: %s", type(self._hotkey_backend).__name__)
             self._hotkey_backend.start(self.toggle_dictation)
+            # P1: Push-to-talk mode — set release callback
+            if self.config.recording_mode == "push_to_talk":
+                self._hotkey_backend.set_on_release(self._stop_dictation)
             log.info(
                 "[HOTKEY] Registration OK (alive=%s, backend=%s)",
                 self._hotkey_backend.is_alive(),
@@ -577,7 +615,7 @@ class VoiceTyperApp:
 
                 raw_text = text
                 if self.config.text_cleanup_enabled:
-                    text = clean_transcribed_text(text)
+                    text = clean_transcribed_text(text, auto_punctuation=False)  # auto-punct after templates
                     if text != raw_text:
                         log.info(
                             "[CLEANUP] Text cleaned: len %d -> %d",
@@ -586,6 +624,68 @@ class VoiceTyperApp:
                         )
                 else:
                     log.info("[CLEANUP] Text cleanup disabled (raw mode)")
+
+                # P1/P2: Vocabulary correction
+                try:
+                    if self._vocabulary_manager is None:
+                        from voice_typer.vocabulary import VocabularyManager
+                        self._vocabulary_manager = VocabularyManager()
+                    text = self._vocabulary_manager.apply_to_text(text)
+                except Exception:
+                    log.debug("[PIPELINE] Vocabulary correction failed")
+
+                # P1: Template matching
+                try:
+                    if self._template_manager is None:
+                        from voice_typer.templates import TemplateManager
+                        self._template_manager = TemplateManager()
+                    expanded = self._template_manager.match(text)
+                    if expanded is not None:
+                        log.info("[TEMPLATE] Matched template, expanded %d -> %d chars", len(text), len(expanded))
+                        text = expanded
+                except Exception:
+                    log.debug("[PIPELINE] Template matching failed")
+
+                # P1: Auto-punctuation (after template matching)
+                if self.config.auto_punctuation:
+                    from voice_typer.text_cleanup import _add_safe_terminal_punctuation
+                    text = _add_safe_terminal_punctuation(text)
+
+                # P2: LLM text polishing
+                if self.config.llm_polish and self.config.llm_api_key:
+                    try:
+                        if self._llm_polisher is None:
+                            from voice_typer.llm_polish import LLMPolisher
+                            self._llm_polisher = LLMPolisher(
+                                api_key=self.config.llm_api_key,
+                                api_url=self.config.llm_api_url or None,
+                                model=self.config.llm_model or None,
+                                preset=self.config.llm_preset,
+                                enabled=True,
+                            )
+                        text = self._llm_polisher.polish(text)
+                    except Exception as exc:
+                        log.warning("[LLM_POLISH] Polish failed: %s", exc)
+
+                # P2: Store in history and crash recovery
+                try:
+                    self.history_db.add_transcription(
+                        text,
+                        duration=duration,
+                        model=self.config.model_size,
+                        device=self.config.device,
+                    )
+                except Exception:
+                    log.debug("[PIPELINE] History DB add failed")
+
+                if self.config.crash_recovery_enabled:
+                    try:
+                        self._crash_recovery.add(text, pasted=False)
+                    except Exception:
+                        log.debug("[PIPELINE] Crash recovery add failed")
+
+                # Save for repaste
+                self._last_transcription = text
 
                 if self.config.log_transcriptions:
                     log.info("Transcription: %s", text[:200])
@@ -615,6 +715,13 @@ class VoiceTyperApp:
                 pasted = False
                 if self.config.paste_on_stop:
                     pasted = self.clipboard.paste()
+
+                # P2: Mark as pasted in crash recovery
+                if pasted and self.config.crash_recovery_enabled:
+                    try:
+                        self._crash_recovery.mark_latest_pasted()
+                    except Exception:
+                        pass
 
                 if pasted:
                     status = f"Done — {len(text)} chars (pasted)"
