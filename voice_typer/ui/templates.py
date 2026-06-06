@@ -2,6 +2,8 @@ import flet as ft
 from .styles import Colors
 from .icons import icon
 
+from voice_typer.templates import TemplateManager
+
 
 class TemplatesScreen:
     """Templates screen for managing voice templates."""
@@ -9,7 +11,33 @@ class TemplatesScreen:
     def __init__(self, page: ft.Page, config):
         self.page = page
         self.config = config
-        self.templates = []  # Templates will be injected
+        self._template_manager = None
+        self._load_templates()
+
+    def _get_manager(self) -> TemplateManager:
+        """Lazy-init TemplateManager."""
+        if self._template_manager is None:
+            self._template_manager = TemplateManager()
+        return self._template_manager
+
+    def _load_templates(self):
+        """Load templates from the manager."""
+        try:
+            mgr = self._get_manager()
+            raw = mgr.templates
+            # Convert to display format
+            self.templates = []
+            for idx, t in enumerate(raw):
+                self.templates.append({
+                    "index": idx,
+                    "trigger": t.get("trigger", ""),
+                    "expansion": t.get("output", ""),
+                    "match_mode": t.get("match_mode", "exact"),
+                    "variables": sum(1 for v in ("{today}", "{now}", "{clipboard}", "{username}")
+                                    if v in t.get("output", "")),
+                })
+        except Exception:
+            self.templates = []
 
     def build(self) -> ft.Control:
         return ft.Container(
@@ -109,10 +137,20 @@ class TemplatesScreen:
                                     spacing=8,
                                     wrap=True,
                                   ),
-                                ft.Text(
-                                    f"Variables: {template.get('variables', 0)}",
-                                    size=12,
-                                    color=ft.Colors.GREY_600,
+                                ft.Row(
+                                    [
+                                        ft.Text(
+                                            f"Variables: {template.get('variables', 0)}",
+                                            size=12,
+                                            color=ft.Colors.GREY_600,
+                                        ),
+                                        ft.Text(
+                                            f"Mode: {template.get('match_mode', 'exact')}",
+                                            size=12,
+                                            color=ft.Colors.GREY_600,
+                                        ),
+                                    ],
+                                    spacing=12,
                                 ),
                             ],
                             spacing=4,
@@ -139,25 +177,114 @@ class TemplatesScreen:
         )
 
     def _add_template(self, e):
-        self.page.snack_bar = ft.SnackBar(
-            content=ft.Text("Template editor opened"),
-            bgcolor=Colors.INFO,
+        """Open a dialog to add a new template."""
+        trigger_field = ft.TextField(label="Trigger phrase", width=300)
+        output_field = ft.TextField(label="Output text", width=300, multiline=True, min_lines=2)
+        mode_dropdown = ft.Dropdown(
+            label="Match mode",
+            width=300,
+            options=[
+                ft.dropdown.Option("exact", "Exact match"),
+                ft.dropdown.Option("contains", "Contains"),
+            ],
+            value="exact",
         )
-        self.page.snack_bar.open = True
+
+        def _save(dialog_e):
+            trigger = trigger_field.value
+            output = output_field.value
+            mode = mode_dropdown.value or "exact"
+            if trigger and output:
+                mgr = self._get_manager()
+                mgr.add(trigger, output, match_mode=mode)
+                self._load_templates()
+                self.page.snack_bar = ft.SnackBar(
+                    content=ft.Text(f"Template added: {trigger}"),
+                    bgcolor=Colors.SUCCESS,
+                )
+                self.page.snack_bar.open = True
+            self.page.dialog.open = False
+            self.page.update()
+
+        dialog = ft.AlertDialog(
+            title=ft.Text("Add Template"),
+            content=ft.Column([
+                trigger_field,
+                output_field,
+                mode_dropdown,
+            ], tight=True, spacing=10),
+            actions=[
+                ft.TextButton("Cancel", on_click=lambda e: self._close_dialog()),
+                ft.TextButton("Save", on_click=_save),
+            ],
+        )
+        self.page.dialog = dialog
+        dialog.open = True
         self.page.update()
 
     def _edit_template(self, template: dict):
-        self.page.snack_bar = ft.SnackBar(
-            content=ft.Text(f"Editing: {template.get('trigger', '')}"),
-            bgcolor=Colors.INFO,
+        """Open a dialog to edit an existing template."""
+        idx = template.get("index", -1)
+        trigger_field = ft.TextField(label="Trigger phrase", width=300, value=template.get("trigger", ""))
+        output_field = ft.TextField(label="Output text", width=300, multiline=True, min_lines=2, value=template.get("expansion", ""))
+        mode_dropdown = ft.Dropdown(
+            label="Match mode",
+            width=300,
+            options=[
+                ft.dropdown.Option("exact", "Exact match"),
+                ft.dropdown.Option("contains", "Contains"),
+            ],
+            value=template.get("match_mode", "exact"),
         )
-        self.page.snack_bar.open = True
+
+        def _save(dialog_e):
+            trigger = trigger_field.value
+            output = output_field.value
+            mode = mode_dropdown.value or "exact"
+            if trigger and output:
+                mgr = self._get_manager()
+                mgr.update(idx, trigger, output, match_mode=mode)
+                self._load_templates()
+                self.page.snack_bar = ft.SnackBar(
+                    content=ft.Text(f"Template updated: {trigger}"),
+                    bgcolor=Colors.SUCCESS,
+                )
+                self.page.snack_bar.open = True
+            self.page.dialog.open = False
+            self.page.update()
+
+        dialog = ft.AlertDialog(
+            title=ft.Text("Edit Template"),
+            content=ft.Column([
+                trigger_field,
+                output_field,
+                mode_dropdown,
+            ], tight=True, spacing=10),
+            actions=[
+                ft.TextButton("Cancel", on_click=lambda e: self._close_dialog()),
+                ft.TextButton("Save", on_click=_save),
+            ],
+        )
+        self.page.dialog = dialog
+        dialog.open = True
         self.page.update()
 
     def _delete_template(self, template: dict):
-        self.page.snack_bar = ft.SnackBar(
-            content=ft.Text(f"Deleted: {template.get('trigger', '')}"),
-            bgcolor=Colors.WARNING,
-        )
-        self.page.snack_bar.open = True
-        self.page.update()
+        """Delete a template from the manager."""
+        idx = template.get("index", -1)
+        trigger = template.get("trigger", "")
+        mgr = self._get_manager()
+        if mgr.delete(idx):
+            self._load_templates()
+            self.page.snack_bar = ft.SnackBar(
+                content=ft.Text(f"Deleted: {trigger}"),
+                bgcolor=Colors.WARNING,
+            )
+            self.page.snack_bar.open = True
+            self.page.update()
+
+    def _close_dialog(self):
+        """Close the active dialog."""
+        if hasattr(self.page, 'dialog') and self.page.dialog:
+            self.page.dialog.open = False
+            self.page.update()

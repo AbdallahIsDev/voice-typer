@@ -2,14 +2,75 @@ import flet as ft
 from .styles import Colors
 from .icons import icon
 
+from voice_typer.vocabulary import VocabularyManager, CATEGORIES
+
 
 class VocabularyScreen:
     """Vocabulary screen for managing custom words and corrections."""
 
+    # Display labels for the 6 categories
+    CATEGORY_LABELS = {
+        "misspellings": "Misspellings",
+        "phrase_corrections": "Phrase Corrections",
+        "extra_word_patterns": "Extra Word Patterns",
+        "technical_terms": "Technical Terms",
+        "names": "Names",
+        "products": "Products",
+    }
+
+    CATEGORY_DESCRIPTIONS = {
+        "misspellings": "Common word misspellings → corrections",
+        "phrase_corrections": "Phrase-level corrections",
+        "extra_word_patterns": "Patterns to remove or replace",
+        "technical_terms": "Technical jargon corrections",
+        "names": "Proper name corrections",
+        "products": "Product name corrections",
+    }
+
     def __init__(self, page: ft.Page, config):
         self.page = page
         self.config = config
-        self.vocabulary = []  # Vocabulary will be injected
+        self._vocab_manager = None
+        self._active_category = CATEGORIES[0]
+        self._load_vocabulary()
+
+    def _get_manager(self) -> VocabularyManager:
+        """Lazy-init VocabularyManager."""
+        if self._vocab_manager is None:
+            self._vocab_manager = VocabularyManager()
+        return self._vocab_manager
+
+    def _load_vocabulary(self):
+        """Load vocabulary from the manager for display."""
+        try:
+            mgr = self._get_manager()
+            self.vocabulary = []
+            self._vocab_data = mgr.get_all()
+            # Flatten dict-based categories into display items
+            for cat in CATEGORIES:
+                cat_data = self._vocab_data.get(cat)
+                if cat in ("misspellings", "technical_terms", "names", "products"):
+                    if isinstance(cat_data, dict):
+                        for key, val in cat_data.items():
+                            self.vocabulary.append({
+                                "category": cat,
+                                "original": key,
+                                "correction": val,
+                                "count": 0,
+                            })
+                elif cat in ("phrase_corrections", "extra_word_patterns"):
+                    if isinstance(cat_data, list):
+                        for i, entry in enumerate(cat_data):
+                            if isinstance(entry, (list, tuple)) and len(entry) >= 2:
+                                self.vocabulary.append({
+                                    "category": cat,
+                                    "original": entry[0],
+                                    "correction": entry[1],
+                                    "index": i,
+                                    "count": 0,
+                                })
+        except Exception:
+            self.vocabulary = []
 
     def build(self) -> ft.Control:
         return ft.Container(
@@ -35,14 +96,40 @@ class VocabularyScreen:
                         color=ft.Colors.GREY_600,
                     ),
                     ft.Container(height=10),
+                    self._build_category_tabs(),
+                    ft.Container(height=10),
                     self._build_vocabulary_list(),
                 ],
                 scroll=ft.ScrollMode.AUTO,
             ),
         )
 
+    def _build_category_tabs(self) -> ft.Control:
+        """Build category filter tabs for the 6 vocabulary categories."""
+        tabs = []
+        for cat in CATEGORIES:
+            is_active = cat == self._active_category
+            tabs.append(
+                ft.ElevatedButton(
+                    text=self.CATEGORY_LABELS.get(cat, cat),
+                    on_click=lambda e, c=cat: self._select_category(c),
+                    bgcolor=ft.Colors.BLUE_600 if is_active else ft.Colors.GREY_100,
+                    color=ft.Colors.WHITE if is_active else ft.Colors.GREY_700,
+                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=16)),
+                )
+            )
+        return ft.Row(tabs, spacing=6, wrap=True)
+
+    def _select_category(self, category: str):
+        """Select a vocabulary category to filter."""
+        self._active_category = category
+        self.page.update()
+
     def _build_vocabulary_list(self) -> ft.Control:
-        if not self.vocabulary:
+        # Filter by active category
+        filtered = [v for v in self.vocabulary if v.get("category") == self._active_category]
+
+        if not filtered:
             return ft.Container(
                 padding=40,
                 alignment=ft.Alignment.CENTER,
@@ -50,12 +137,12 @@ class VocabularyScreen:
                     [
                         icon("vocabulary", size=48, color=ft.Colors.GREY_400),
                         ft.Text(
-                            "No custom vocabulary",
+                            f"No {self.CATEGORY_LABELS.get(self._active_category, self._active_category).lower()}",
                             size=16,
                             color=ft.Colors.GREY_600,
                         ),
                         ft.Text(
-                            "Add words or phrases that Whisper often gets wrong",
+                            self.CATEGORY_DESCRIPTIONS.get(self._active_category, ""),
                             size=14,
                             color=ft.Colors.GREY_500,
                         ),
@@ -71,7 +158,7 @@ class VocabularyScreen:
 
         return ft.ListView(
             controls=[
-                self._vocabulary_item(item) for item in self.vocabulary
+                self._vocabulary_item(item) for item in filtered
             ],
             spacing=8,
         )
@@ -113,7 +200,7 @@ class VocabularyScreen:
                                     spacing=8,
                                 ),
                                 ft.Text(
-                                    f"Used {item.get('count', 0)} times",
+                                    self.CATEGORY_LABELS.get(item.get("category", ""), item.get("category", "")),
                                     size=12,
                                     color=ft.Colors.GREY_600,
                                 ),
@@ -142,25 +229,119 @@ class VocabularyScreen:
         )
 
     def _add_word(self, e):
-        self.page.snack_bar = ft.SnackBar(
-            content=ft.Text("Add word dialog opened"),
-            bgcolor=Colors.INFO,
+        """Open a dialog to add a new vocabulary entry."""
+        original_field = ft.TextField(label="Original (misrecognized word)", width=300)
+        correction_field = ft.TextField(label="Correction", width=300)
+        category_dropdown = ft.Dropdown(
+            label="Category",
+            width=300,
+            options=[
+                ft.dropdown.Option(cat, self.CATEGORY_LABELS.get(cat, cat))
+                for cat in CATEGORIES
+            ],
+            value=self._active_category,
         )
-        self.page.snack_bar.open = True
+
+        def _save(dialog_e):
+            original = original_field.value
+            correction = correction_field.value
+            category = category_dropdown.value or self._active_category
+            if original and correction:
+                mgr = self._get_manager()
+                if category in ("misspellings", "technical_terms", "names", "products"):
+                    mgr.add_entry(category, original, correction)
+                else:
+                    mgr.add_phrase(category, original, correction)
+                self._load_vocabulary()
+                self.page.snack_bar = ft.SnackBar(
+                    content=ft.Text(f"Added: {original} → {correction}"),
+                    bgcolor=Colors.SUCCESS,
+                )
+                self.page.snack_bar.open = True
+            self.page.dialog.open = False
+            self.page.update()
+
+        dialog = ft.AlertDialog(
+            title=ft.Text("Add Vocabulary Entry"),
+            content=ft.Column([
+                original_field,
+                correction_field,
+                category_dropdown,
+            ], tight=True, spacing=10),
+            actions=[
+                ft.TextButton("Cancel", on_click=lambda e: self._close_dialog()),
+                ft.TextButton("Save", on_click=_save),
+            ],
+        )
+        self.page.dialog = dialog
+        dialog.open = True
         self.page.update()
 
     def _edit_word(self, item: dict):
-        self.page.snack_bar = ft.SnackBar(
-            content=ft.Text(f"Editing: {item.get('original', '')}"),
-            bgcolor=Colors.INFO,
+        """Open a dialog to edit an existing vocabulary entry."""
+        original_field = ft.TextField(label="Original", width=300, value=item.get("original", ""))
+        correction_field = ft.TextField(label="Correction", width=300, value=item.get("correction", ""))
+        category = item.get("category", self._active_category)
+
+        def _save(dialog_e):
+            original = original_field.value
+            correction = correction_field.value
+            if original and correction:
+                mgr = self._get_manager()
+                # Remove old, add new (simple edit strategy)
+                if category in ("misspellings", "technical_terms", "names", "products"):
+                    mgr.remove_entry(category, item.get("original", ""))
+                    mgr.add_entry(category, original, correction)
+                else:
+                    idx = item.get("index", -1)
+                    if idx >= 0:
+                        mgr.remove_phrase(category, idx)
+                    mgr.add_phrase(category, original, correction)
+                self._load_vocabulary()
+                self.page.snack_bar = ft.SnackBar(
+                    content=ft.Text(f"Updated: {original} → {correction}"),
+                    bgcolor=Colors.SUCCESS,
+                )
+                self.page.snack_bar.open = True
+            self.page.dialog.open = False
+            self.page.update()
+
+        dialog = ft.AlertDialog(
+            title=ft.Text("Edit Vocabulary Entry"),
+            content=ft.Column([
+                original_field,
+                correction_field,
+            ], tight=True, spacing=10),
+            actions=[
+                ft.TextButton("Cancel", on_click=lambda e: self._close_dialog()),
+                ft.TextButton("Save", on_click=_save),
+            ],
         )
-        self.page.snack_bar.open = True
+        self.page.dialog = dialog
+        dialog.open = True
         self.page.update()
 
     def _delete_word(self, item: dict):
+        """Delete a vocabulary entry from the manager."""
+        mgr = self._get_manager()
+        category = item.get("category", self._active_category)
+        original = item.get("original", "")
+        if category in ("misspellings", "technical_terms", "names", "products"):
+            mgr.remove_entry(category, original)
+        else:
+            idx = item.get("index", -1)
+            if idx >= 0:
+                mgr.remove_phrase(category, idx)
+        self._load_vocabulary()
         self.page.snack_bar = ft.SnackBar(
-            content=ft.Text(f"Deleted: {item.get('original', '')}"),
+            content=ft.Text(f"Deleted: {original}"),
             bgcolor=Colors.WARNING,
         )
         self.page.snack_bar.open = True
         self.page.update()
+
+    def _close_dialog(self):
+        """Close the active dialog."""
+        if hasattr(self.page, 'dialog') and self.page.dialog:
+            self.page.dialog.open = False
+            self.page.update()
