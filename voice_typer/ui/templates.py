@@ -1,13 +1,11 @@
 import flet as ft
-from .styles import Colors, is_windows_dark_mode
+from .styles import Tokens, CONTENT_MAX_WIDTH, is_windows_dark_mode
 from .icons import icon
 
 from voice_typer.templates import TemplateManager
 
 
 class TemplatesScreen:
-    """Templates screen for managing voice templates."""
-
     def __init__(self, page: ft.Page, config, reload=None):
         self.page = page
         self.config = config
@@ -15,8 +13,7 @@ class TemplatesScreen:
         self._template_manager = None
         self._load_templates()
 
-    def _is_dark_mode(self) -> bool:
-        """Return True if the current theme is dark."""
+    def _is_dark(self) -> bool:
         if self.page is None:
             return is_windows_dark_mode()
         if self.page.theme_mode == ft.ThemeMode.DARK:
@@ -26,17 +23,14 @@ class TemplatesScreen:
         return is_windows_dark_mode()
 
     def _get_manager(self) -> TemplateManager:
-        """Lazy-init TemplateManager."""
         if self._template_manager is None:
             self._template_manager = TemplateManager()
         return self._template_manager
 
     def _load_templates(self):
-        """Load templates from the manager."""
         try:
             mgr = self._get_manager()
             raw = mgr.templates
-            # Convert to display format
             self.templates = []
             for idx, t in enumerate(raw):
                 self.templates.append({
@@ -51,61 +45,64 @@ class TemplatesScreen:
             self.templates = []
 
     def build(self) -> ft.Control:
+        dark = self._is_dark()
+        tp = Tokens.text_primary(dark)
+        ts = Tokens.text_secondary(dark)
+        ap = Tokens.accent_primary(dark)
         return ft.Container(
-            padding=40,
+            padding=24,
             content=ft.Column(
                 [
-                    ft.Row(
-                        [
-                            ft.Text("Templates", size=20, weight=ft.FontWeight.W_600, color="#F1F1F3"),
-                            ft.Container(expand=True),
-                            ft.Button(
-                                content=ft.Row([icon("add", color=ft.Colors.WHITE, size=16), ft.Text("Add Template", color=ft.Colors.WHITE)], spacing=8),
-                                on_click=self._add_template,
-                                bgcolor="#3B82F6",
-                            ),
-                        ],
-                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ft.Container(
+                        width=CONTENT_MAX_WIDTH,
+                        margin=ft.Margin(left=0, right=0, top=0, bottom=0),
+                        content=ft.Column(
+                            [
+                                ft.Row(
+                                    [
+                                        ft.Text("Templates", size=20, weight=ft.FontWeight.W_600, color=tp),
+                                        ft.Container(expand=True),
+                                        ft.Container(
+                                            content=ft.Row([icon("add", color="#FFFFFF", size=16), ft.Text("Add Template", color="#FFFFFF")], spacing=8),
+                                            on_click=self._add_template,
+                                            bgcolor=ap,
+                                            padding=ft.Padding(left=16, right=16, top=10, bottom=10),
+                                            border_radius=8,
+                                        ),
+                                    ],
+                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                ),
+                                ft.Text("Create voice shortcuts that expand into full text", size=13, color=ts),
+                                ft.Container(height=24),
+                                self._build_templates_list(),
+                            ],
+                        ),
                     ),
-                    ft.Text(
-                        "Create voice shortcuts that expand into full text",
-                        size=13,
-                        color="rgba(241,241,243,0.28)",
-                    ),
-                    ft.Container(height=24),
-                    self._build_templates_list(),
                 ],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             ),
         )
 
     def _build_templates_list(self) -> ft.Control:
+        dark = self._is_dark()
+        tp = Tokens.text_primary(dark)
+        ts = Tokens.text_secondary(dark)
+        ap = Tokens.accent_primary(dark)
         if not self.templates:
             return ft.Container(
                 padding=40,
                 alignment=ft.Alignment.CENTER,
                 content=ft.Column(
                     [
-                        ft.Icon(ft.Icons.ARTICLE_OUTLINED, size=52, color="rgba(241,241,243,0.15)"),
-                        ft.Text(
-                            "No templates yet",
-                            size=16,
-                            weight=ft.FontWeight.W_500,
-                            color="rgba(241,241,243,0.45)",
-                        ),
-                        ft.Text(
-                            "Say a phrase to trigger a text expansion",
-                            size=13,
-                            color="rgba(241,241,243,0.28)",
-                        ),
+                        ft.Icon(ft.Icons.ARTICLE_OUTLINED, size=52, color=ts),
+                        ft.Text("No templates yet", size=16, weight=ft.FontWeight.W_500, color=ts),
+                        ft.Text("Say a phrase to trigger a text expansion", size=13, color=ts),
                         ft.Container(height=6),
                         ft.Button(
-                            content=ft.Row(
-                                [icon("add", color="#FFFFFF", size=16), ft.Text("Create First Template", color="#FFFFFF", size=13, weight=ft.FontWeight.W_500)],
-                                spacing=8,
-                            ),
+                            content=ft.Row([icon("add", color="#FFFFFF", size=16), ft.Text("Create First Template", color="#FFFFFF", size=13, weight=ft.FontWeight.W_500)], spacing=8),
                             on_click=self._add_template,
-                            bgcolor="#3B82F6",
                             style=ft.ButtonStyle(
+                                bgcolor=ap,
                                 shape=ft.RoundedRectangleBorder(radius=8),
                                 padding=ft.Padding.symmetric(vertical=8, horizontal=20),
                             ),
@@ -117,45 +114,27 @@ class TemplatesScreen:
             )
 
         return ft.ListView(
-            controls=[
-                self._template_item(template) for template in self.templates
-            ],
+            controls=[self._template_item(template) for template in self.templates],
             spacing=0,
         )
 
     def _template_item(self, template: dict) -> ft.Control:
+        dark = self._is_dark()
+        tp = Tokens.text_primary(dark)
+        ts = Tokens.text_secondary(dark)
         return ft.Container(
             padding=ft.Padding.symmetric(vertical=14, horizontal=20),
-            border=ft.Border(bottom=ft.BorderSide(0.5, "rgba(255,255,255,0.05)")),
+            border=ft.Border(bottom=ft.BorderSide(0.5, Tokens.border_subtle(dark))),
             content=ft.Row(
                 [
                     ft.Column(
                         [
-                            ft.Text(
-                                template.get("trigger", ""),
-                                size=14,
-                                weight=ft.FontWeight.W_600,
-                                color="#F1F1F3",
-                            ),
+                            ft.Text(template.get("trigger", ""), size=14, weight=ft.FontWeight.W_600, color=tp),
                             ft.Row(
                                 [
-                                    ft.Text(
-                                        template.get("expansion", "")[:50],
-                                        size=13,
-                                        color="rgba(241,241,243,0.55)",
-                                        max_lines=1,
-                                        overflow=ft.TextOverflow.ELLIPSIS,
-                                    ),
-                                    ft.Text(
-                                        f"Variables: {template.get('variables', 0)}",
-                                        size=12,
-                                        color="rgba(241,241,243,0.30)",
-                                    ),
-                                    ft.Text(
-                                        f"Mode: {template.get('match_mode', 'exact')}",
-                                        size=12,
-                                        color="rgba(241,241,243,0.30)",
-                                    ),
+                                    ft.Text(template.get("expansion", "")[:50], size=13, color=ts, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                                    ft.Text(f"Variables: {template.get('variables', 0)}", size=12, color=ts),
+                                    ft.Text(f"Mode: {template.get('match_mode', 'exact')}", size=12, color=ts),
                                 ],
                                 spacing=12,
                             ),
@@ -165,16 +144,10 @@ class TemplatesScreen:
                     ),
                     ft.Row(
                         [
-                            ft.IconButton(
-                                icon=icon("edit"),
-                                tooltip="Edit",
-                                on_click=lambda e, t=template: self._edit_template(t),
-                            ),
-                            ft.IconButton(
-                                icon=icon("delete"),
-                                tooltip="Delete",
-                                on_click=lambda e, t=template: self._delete_template(t),
-                            ),
+                            ft.IconButton(icon=icon("edit"), tooltip="Edit",
+                                          on_click=lambda e, t=template: self._edit_template(t)),
+                            ft.IconButton(icon=icon("delete"), tooltip="Delete",
+                                          on_click=lambda e, t=template: self._delete_template(t)),
                         ],
                     ),
                 ],
@@ -183,16 +156,11 @@ class TemplatesScreen:
         )
 
     def _add_template(self, e):
-        """Open a dialog to add a new template."""
         trigger_field = ft.TextField(label="Trigger phrase", width=300)
         output_field = ft.TextField(label="Output text", width=300, multiline=True, min_lines=2)
         mode_dropdown = ft.Dropdown(
-            label="Match mode",
-            width=300,
-            options=[
-                ft.dropdown.Option("exact", "Exact match"),
-                ft.dropdown.Option("contains", "Contains"),
-            ],
+            label="Match mode", width=300,
+            options=[ft.dropdown.Option("exact", "Exact match"), ft.dropdown.Option("contains", "Contains")],
             value="exact",
         )
 
@@ -206,8 +174,7 @@ class TemplatesScreen:
                 self._load_templates()
                 self.reload()
                 self.page.snack_bar = ft.SnackBar(
-                    content=ft.Text(f"Template added: {trigger}"),
-                    bgcolor=Colors.SUCCESS,
+                    content=ft.Text(f"Template added: {trigger}"), bgcolor=Tokens.SUCCESS_DARK,
                 )
                 self.page.snack_bar.open = True
             self.page.dialog.open = False
@@ -215,32 +182,20 @@ class TemplatesScreen:
 
         dialog = ft.AlertDialog(
             title=ft.Text("Add Template"),
-            content=ft.Column([
-                trigger_field,
-                output_field,
-                mode_dropdown,
-            ], tight=True, spacing=10),
-            actions=[
-                ft.TextButton("Cancel", on_click=lambda e: self._close_dialog()),
-                ft.TextButton("Save", on_click=_save),
-            ],
+            content=ft.Column([trigger_field, output_field, mode_dropdown], tight=True, spacing=10),
+            actions=[ft.TextButton("Cancel", on_click=lambda e: self._close_dialog()), ft.TextButton("Save", on_click=_save)],
         )
         self.page.dialog = dialog
         dialog.open = True
         self.page.update()
 
     def _edit_template(self, template: dict):
-        """Open a dialog to edit an existing template."""
         idx = template.get("index", -1)
         trigger_field = ft.TextField(label="Trigger phrase", width=300, value=template.get("trigger", ""))
         output_field = ft.TextField(label="Output text", width=300, multiline=True, min_lines=2, value=template.get("expansion", ""))
         mode_dropdown = ft.Dropdown(
-            label="Match mode",
-            width=300,
-            options=[
-                ft.dropdown.Option("exact", "Exact match"),
-                ft.dropdown.Option("contains", "Contains"),
-            ],
+            label="Match mode", width=300,
+            options=[ft.dropdown.Option("exact", "Exact match"), ft.dropdown.Option("contains", "Contains")],
             value=template.get("match_mode", "exact"),
         )
 
@@ -254,8 +209,7 @@ class TemplatesScreen:
                 self._load_templates()
                 self.reload()
                 self.page.snack_bar = ft.SnackBar(
-                    content=ft.Text(f"Template updated: {trigger}"),
-                    bgcolor=Colors.SUCCESS,
+                    content=ft.Text(f"Template updated: {trigger}"), bgcolor=Tokens.SUCCESS_DARK,
                 )
                 self.page.snack_bar.open = True
             self.page.dialog.open = False
@@ -263,22 +217,14 @@ class TemplatesScreen:
 
         dialog = ft.AlertDialog(
             title=ft.Text("Edit Template"),
-            content=ft.Column([
-                trigger_field,
-                output_field,
-                mode_dropdown,
-            ], tight=True, spacing=10),
-            actions=[
-                ft.TextButton("Cancel", on_click=lambda e: self._close_dialog()),
-                ft.TextButton("Save", on_click=_save),
-            ],
+            content=ft.Column([trigger_field, output_field, mode_dropdown], tight=True, spacing=10),
+            actions=[ft.TextButton("Cancel", on_click=lambda e: self._close_dialog()), ft.TextButton("Save", on_click=_save)],
         )
         self.page.dialog = dialog
         dialog.open = True
         self.page.update()
 
     def _delete_template(self, template: dict):
-        """Delete a template from the manager."""
         idx = template.get("index", -1)
         trigger = template.get("trigger", "")
         mgr = self._get_manager()
@@ -286,14 +232,12 @@ class TemplatesScreen:
             self._load_templates()
             self.reload()
             self.page.snack_bar = ft.SnackBar(
-                content=ft.Text(f"Deleted: {trigger}"),
-                bgcolor=Colors.WARNING,
+                content=ft.Text(f"Deleted: {trigger}"), bgcolor=Tokens.WARNING_DARK,
             )
             self.page.snack_bar.open = True
             self.page.update()
 
     def _close_dialog(self):
-        """Close the active dialog."""
         if hasattr(self.page, 'dialog') and self.page.dialog:
             self.page.dialog.open = False
             self.page.update()

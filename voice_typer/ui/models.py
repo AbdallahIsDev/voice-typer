@@ -1,36 +1,17 @@
 import flet as ft
 import threading
-from .styles import Colors, is_windows_dark_mode
+from .styles import Tokens, CONTENT_MAX_WIDTH, is_windows_dark_mode
 from .icons import icon
 
 
-def _border_all(width, color):
-    s = ft.BorderSide(width, color)
-    return ft.Border(left=s, top=s, right=s, bottom=s)
-
-
 CLOUD_PROVIDERS = {
-    "openai": {
-        "label": "OpenAI",
-        "url": "https://api.openai.com/v1/audio/transcriptions",
-        "model": "whisper-1",
-    },
-    "groq": {
-        "label": "Groq",
-        "url": "https://api.groq.com/openai/v1/audio/transcriptions",
-        "model": "whisper-large-v3",
-    },
-    "deepgram": {
-        "label": "Deepgram",
-        "url": "https://api.deepgram.com/v1/listen",
-        "model": "nova-2",
-    },
+    "openai": {"label": "OpenAI", "url": "https://api.openai.com/v1/audio/transcriptions", "model": "whisper-1"},
+    "groq": {"label": "Groq", "url": "https://api.groq.com/openai/v1/audio/transcriptions", "model": "whisper-large-v3"},
+    "deepgram": {"label": "Deepgram", "url": "https://api.deepgram.com/v1/listen", "model": "nova-2"},
 }
 
 
 class ModelsScreen:
-    """Models screen for managing Whisper models and cloud providers."""
-
     def __init__(self, page: ft.Page, config, reload=None):
         self.page = page
         self.config = config
@@ -40,8 +21,7 @@ class ModelsScreen:
         self._download_progress = 0
         self._benchmark_result = None
 
-    def _is_dark_mode(self) -> bool:
-        """Return True if the current theme is dark."""
+    def _is_dark(self) -> bool:
         if self.page is None:
             return is_windows_dark_mode()
         if self.page.theme_mode == ft.ThemeMode.DARK:
@@ -51,53 +31,63 @@ class ModelsScreen:
         return is_windows_dark_mode()
 
     def _build_models_list(self) -> list[dict]:
-        """UX-012/025: Build model list from actual available models."""
         models = [
             {"name": "tiny.en", "size": "~75MB", "speed": "Fastest", "downloaded": True},
             {"name": "small.en", "size": "~466MB", "speed": "Fast", "downloaded": True},
             {"name": "medium.en", "size": "~1.5GB", "speed": "Slow", "downloaded": True},
             {"name": "qwen", "size": "Variable", "speed": "Fast", "downloaded": False},
         ]
-        # Check if current model is active
         for m in models:
             m["is_active"] = m["name"] == self.active_model
         return models
 
     def build(self) -> ft.Control:
+        dark = self._is_dark()
+        tp = Tokens.text_primary(dark)
+        ts = Tokens.text_secondary(dark)
+        ap = Tokens.accent_primary(dark)
         return ft.Container(
-            padding=40,
+            padding=24,
             content=ft.Column(
                 [
-                    ft.Row(
-                        [
-                            ft.Text("Models", size=20, weight=ft.FontWeight.W_600, color="#F1F1F3"),
-                            ft.Container(expand=True),
-                            ft.Button(
-                                content=ft.Row([icon("download", color=ft.Colors.WHITE, size=16), ft.Text("Download Model", color=ft.Colors.WHITE)], spacing=8),
-                                on_click=self._download_model,
-                                bgcolor="#3B82F6",
-                                tooltip="Download a new model for transcription",
-                            ),
-                        ],
-                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ft.Container(
+                        width=CONTENT_MAX_WIDTH,
+                        margin=ft.Margin(left=0, right=0, top=0, bottom=0),
+                        content=ft.Column(
+                            [
+                                ft.Row(
+                                    [
+                                        ft.Text("Models", size=20, weight=ft.FontWeight.W_600, color=tp),
+                                        ft.Container(expand=True),
+                                        ft.Container(
+                                            content=ft.Row([icon("download", color="#FFFFFF", size=16), ft.Text("Download Model", color="#FFFFFF")], spacing=8),
+                                            on_click=self._download_model,
+                                            bgcolor=ap,
+                                            padding=ft.Padding(left=16, right=16, top=10, bottom=10),
+                                            border_radius=8,
+                                            tooltip="Download a new model for transcription",
+                                        ),
+                                    ],
+                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                ),
+                                ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
+                                ft.Text("Manage Whisper models for transcription", size=13, color=ts),
+                                ft.Container(height=10),
+                                self._build_models_list_ui(),
+                                self._build_cloud_providers(),
+                                ft.Container(height=20),
+                                self._build_model_benchmark(),
+                            ],
+                        ),
                     ),
-                    ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
-                    ft.Text(
-                        "Manage Whisper models for transcription",
-                        size=13,
-                        color="rgba(241,241,243,0.55)",
-                    ),
-                    ft.Container(height=10),
-                    self._build_models_list_ui(),
-                    self._build_cloud_providers(),
-                    ft.Container(height=20),
-                    self._build_model_benchmark(),
                 ],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             ),
         )
 
     def _build_models_list_ui(self) -> ft.Control:
-        # UX-025: Check for models with no downloaded flag
+        dark = self._is_dark()
+        ts = Tokens.text_secondary(dark)
         has_models = any(m.get("downloaded", True) for m in self.models)
         if not has_models or not self.models:
             return ft.Container(
@@ -105,17 +95,9 @@ class ModelsScreen:
                 alignment=ft.Alignment.CENTER,
                 content=ft.Column(
                     [
-                        icon("download-done", size=48, color="rgba(241,241,243,0.30)"),
-                        ft.Text(
-                            "No models downloaded",
-                            size=16,
-                            color="rgba(241,241,243,0.55)",
-                        ),
-                        ft.Text(
-                            "Download a model to start transcribing",
-                            size=14,
-                            color="rgba(241,241,243,0.30)",
-                        ),
+                        icon("download-done", size=48, color=ts),
+                        ft.Text("No models downloaded", size=16, color=ts),
+                        ft.Text("Download a model to start transcribing", size=14, color=ts),
                         ft.Container(height=10),
                         ft.Button(
                             content=ft.Row([icon("download", size=16), ft.Text("Download Model")], spacing=8),
@@ -128,13 +110,15 @@ class ModelsScreen:
             )
 
         return ft.ListView(
-            controls=[
-                self._model_item(model) for model in self.models
-            ],
+            controls=[self._model_item(model) for model in self.models],
             spacing=8,
         )
 
     def _model_item(self, model: dict) -> ft.Control:
+        dark = self._is_dark()
+        tp = Tokens.text_primary(dark)
+        ts = Tokens.text_secondary(dark)
+        ap = Tokens.accent_primary(dark)
         is_active = model.get("name") == self.active_model
         is_downloaded = model.get("downloaded", True)
         status = "Active" if is_active else ("Downloaded" if is_downloaded else "Available")
@@ -142,15 +126,13 @@ class ModelsScreen:
         if status in ("Active", "Downloaded"):
             badge_bg = "rgba(34,197,94,0.12)"
             badge_color = "#4ADE80"
-            badge_border = _border_all(0.5, "rgba(34,197,94,0.25)")
         else:
-            badge_bg = "rgba(59,130,246,0.10)"
+            badge_bg = "rgba(37,99,235,0.10)"
             badge_color = "#60A5FA"
-            badge_border = _border_all(0.5, "rgba(59,130,246,0.25)")
 
         return ft.Container(
-            bgcolor=ft.Colors.TRANSPARENT if not is_active else "rgba(59,130,246,0.05)",
-            border=_border_all(0.5, "rgba(255,255,255,0.07)") if not is_active else _border_all(0.5, "rgba(59,130,246,0.35)"),
+            bgcolor=Tokens.bg_card(dark) if not is_active else Tokens.bg_card(dark),
+            border=ft.Border.all(1, ap if is_active else Tokens.border_subtle(dark)),
             border_radius=10,
             padding=ft.Padding(20, 16, 20, 16),
             content=ft.Row(
@@ -159,21 +141,11 @@ class ModelsScreen:
                         [
                             ft.Row(
                                 [
-                                    ft.Text(
-                                        model.get("name", ""),
-                                        size=16,
-                                        weight=ft.FontWeight.W_600,
-                                        color="#F1F1F3",
-                                    ),
+                                    ft.Text(model.get("name", ""), size=16, weight=ft.FontWeight.W_600, color=tp),
                                     ft.Container(
-                                        content=ft.Text(
-                                            status,
-                                            size=11,
-                                            color=badge_color,
-                                            weight=ft.FontWeight.W_600,
-                                        ),
+                                        content=ft.Text(status, size=11, color=badge_color, weight=ft.FontWeight.W_600),
                                         bgcolor=badge_bg,
-                                        border=badge_border,
+                                        border=ft.Border.all(0.5, badge_color + "40"),
                                         border_radius=6,
                                         padding=ft.Padding(10, 2, 10, 2),
                                     ),
@@ -182,20 +154,10 @@ class ModelsScreen:
                             ),
                             ft.Row(
                                 [
-                                    ft.Text(
-                                        f"Size: {model.get('size', 'Unknown')}",
-                                        size=11,
-                                        color="rgba(241,241,243,0.28)",
-                                    ),
+                                    ft.Text(f"Size: {model.get('size', 'Unknown')}", size=11, color=ts),
                                     ft.Row(
-                                        [
-                                            icon("speed", size=11, color="rgba(241,241,243,0.28)"),
-                                            ft.Text(
-                                                f"Speed: {model.get('speed', 'Unknown')}",
-                                                size=11,
-                                                color="rgba(241,241,243,0.28)",
-                                            ),
-                                        ],
+                                        [icon("speed", size=11, color=ts),
+                                         ft.Text(f"Speed: {model.get('speed', 'Unknown')}", size=11, color=ts)],
                                         spacing=4,
                                     ),
                                 ],
@@ -226,50 +188,41 @@ class ModelsScreen:
         )
 
     def _build_cloud_providers(self) -> ft.Control:
+        dark = self._is_dark()
+        tp = Tokens.text_primary(dark)
+        ts = Tokens.text_secondary(dark)
+        bc = Tokens.bg_card(dark)
+        bs = Tokens.border_subtle(dark)
         return ft.Container(
-            border=ft.Border(top=ft.BorderSide(0.5, "rgba(255,255,255,0.07)")),
+            border=ft.Border(top=ft.BorderSide(0.5, bs)),
             margin=ft.Margin(left=0, top=24, right=0, bottom=0),
             padding=ft.Padding(left=0, top=24, right=0, bottom=0),
             content=ft.Container(
-                bgcolor=ft.Colors.TRANSPARENT,
-                border=_border_all(0.5, "rgba(255,255,255,0.07)"),
+                bgcolor=bc,
+                border=ft.Border.all(1, bs),
                 border_radius=10,
-                content=ft.Container(
-                    padding=20,
-                    content=ft.Column(
-                        [
-                            ft.Text("Cloud ASR Providers", size=20, weight=ft.FontWeight.W_600, color="#F1F1F3"),
-                            ft.Text(
-                                "Configure cloud-based transcription services",
-                                size=13,
-                                color="rgba(241,241,243,0.55)",
-                            ),
-                            ft.Container(height=10),
-                            self._build_provider_section(
-                                "openai",
-                                "OpenAI Whisper API",
-                                self.config.openai_api_key if self.config else "",
-                            ),
-                            ft.Container(height=10),
-                            self._build_provider_section(
-                                "groq",
-                                "Groq Whisper API",
-                                self.config.groq_api_key if self.config else "",
-                            ),
-                            ft.Container(height=10),
-                            self._build_provider_section(
-                                "deepgram",
-                                "Deepgram API",
-                                self.config.deepgram_api_key if self.config else "",
-                            ),
-                        ],
-                        spacing=8,
-                    ),
+                padding=20,
+                content=ft.Column(
+                    [
+                        ft.Text("Cloud ASR Providers", size=20, weight=ft.FontWeight.W_600, color=tp),
+                        ft.Text("Configure cloud-based transcription services", size=13, color=ts),
+                        ft.Container(height=10),
+                        self._build_provider_section("openai", "OpenAI Whisper API", self.config.openai_api_key if self.config else ""),
+                        ft.Container(height=10),
+                        self._build_provider_section("groq", "Groq Whisper API", self.config.groq_api_key if self.config else ""),
+                        ft.Container(height=10),
+                        self._build_provider_section("deepgram", "Deepgram API", self.config.deepgram_api_key if self.config else ""),
+                    ],
+                    spacing=8,
                 ),
             ),
         )
 
     def _build_provider_section(self, provider: str, label: str, api_key: str) -> ft.Control:
+        dark = self._is_dark()
+        tp = Tokens.text_primary(dark)
+        ts = Tokens.text_secondary(dark)
+        ap = Tokens.accent_primary(dark)
         provider_info = CLOUD_PROVIDERS.get(provider, {})
 
         key_field = ft.TextField(
@@ -278,9 +231,9 @@ class ModelsScreen:
             width=240,
             password=True,
             can_reveal_password=True,
-            color="#F1F1F3",
-            bgcolor="rgba(255,255,255,0.05)",
-            border_color="rgba(255,255,255,0.10)",
+            color=tp,
+            bgcolor=Tokens.bg_card(dark),
+            border_color=Tokens.border_subtle(dark),
             text_size=13,
             content_padding=ft.Padding(14, 9, 14, 9),
         )
@@ -299,7 +252,7 @@ class ModelsScreen:
             self.reload()
             self.page.snack_bar = ft.SnackBar(
                 content=ft.Text(f"{label} API key saved"),
-                bgcolor=Colors.SUCCESS,
+                bgcolor=Tokens.SUCCESS_DARK,
             )
             self.page.snack_bar.open = True
             self.page.update()
@@ -308,29 +261,26 @@ class ModelsScreen:
             key_value = key_field.value or ""
             if not key_value:
                 test_result.value = "Please enter an API key first"
-                test_result.color = "#DC2626"
+                test_result.color = Tokens.ACCENT_DANGER_DARK
                 self.page.update()
                 return
-
             try:
                 from voice_typer.cloud_engines import CloudEngine
                 engine = CloudEngine(
-                    provider=provider,
-                    api_key=key_value,
-                    api_url=provider_info.get("url"),
-                    model=provider_info.get("model"),
+                    provider=provider, api_key=key_value,
+                    api_url=provider_info.get("url"), model=provider_info.get("model"),
                 )
                 success, message = engine.test_connection()
                 test_result.value = message
-                test_result.color = "#22C55E" if success else "#DC2626"
+                test_result.color = Tokens.SUCCESS_DARK if success else Tokens.ACCENT_DANGER_DARK
             except Exception as exc:
                 test_result.value = f"Connection test failed: {exc}"
-                test_result.color = "#DC2626"
+                test_result.color = Tokens.ACCENT_DANGER_DARK
             self.page.update()
 
         return ft.Column(
             [
-                ft.Text(label, size=14, weight=ft.FontWeight.W_500, color="#F1F1F3"),
+                ft.Text(label, size=14, weight=ft.FontWeight.W_500, color=tp),
                 ft.Row(
                     [
                         key_field,
@@ -340,15 +290,18 @@ class ModelsScreen:
                             tooltip=f"Save {label} API key",
                             style=ft.ButtonStyle(
                                 bgcolor=ft.Colors.TRANSPARENT,
-                                side=ft.BorderSide(0.5, "rgba(255,255,255,0.14)"),
+                                side=ft.BorderSide(0.5, Tokens.border_subtle(dark)),
                                 shape=ft.RoundedRectangleBorder(radius=8),
                                 padding=ft.Padding(16, 9, 16, 9),
-                                color="rgba(241,241,243,0.65)",
+                                color=ts,
                             ),
                         ),
-                        ft.Button(
+                        ft.Container(
                             content=ft.Row([icon("sparkles", size=14), ft.Text("Test Connection")], spacing=6),
                             on_click=_test_connection,
+                            padding=ft.Padding(left=16, right=16, top=9, bottom=9),
+                            border_radius=8,
+                            bgcolor=ap,
                             tooltip=f"Test {label} connection",
                         ),
                     ],
@@ -361,44 +314,41 @@ class ModelsScreen:
         )
 
     def _build_model_benchmark(self) -> ft.Control:
+        dark = self._is_dark()
+        tp = Tokens.text_primary(dark)
+        ts = Tokens.text_secondary(dark)
         return ft.Container(
-            bgcolor=ft.Colors.TRANSPARENT,
-            border=_border_all(0.5, "rgba(255,255,255,0.07)"),
+            bgcolor=Tokens.bg_card(dark),
+            border=ft.Border.all(1, Tokens.border_subtle(dark)),
             border_radius=10,
-            content=ft.Container(
-                padding=20,
-                content=ft.Column(
-                    [
-                        ft.Text("Model Benchmark", size=20, weight=ft.FontWeight.W_600, color="#F1F1F3"),
-                        ft.Text(
-                            "Compare model performance on your system",
-                            size=13,
-                            color="rgba(241,241,243,0.55)",
-                        ),
-                        ft.Container(height=10),
-                        ft.Button(
-                            content=ft.Row([icon("speed", size=16), ft.Text("Run Benchmark")], spacing=8),
-                            on_click=self._run_benchmark,
-                            tooltip="Benchmark current model speed",
-                        ),
-                        ft.Container(height=10),
-                        ft.Text(
-                            self._benchmark_result or "",
-                            size=13,
-                            color="rgba(241,241,243,0.55)",
-                            visible=bool(self._benchmark_result),
-                        ),
-                    ],
-                    spacing=8,
-                ),
+            padding=20,
+            content=ft.Column(
+                [
+                    ft.Text("Model Benchmark", size=20, weight=ft.FontWeight.W_600, color=tp),
+                    ft.Text("Compare model performance on your system", size=13, color=ts),
+                    ft.Container(height=10),
+                    ft.Container(
+                        content=ft.Row([icon("speed", size=16), ft.Text("Run Benchmark")], spacing=8),
+                        on_click=self._run_benchmark,
+                        padding=ft.Padding(left=16, right=16, top=9, bottom=9),
+                        border_radius=8,
+                        bgcolor=Tokens.accent_primary(dark),
+                        tooltip="Benchmark current model speed",
+                    ),
+                    ft.Container(height=10),
+                    ft.Text(
+                        self._benchmark_result or "", size=13, color=ts,
+                        visible=bool(self._benchmark_result),
+                    ),
+                ],
+                spacing=8,
             ),
         )
 
     def _download_model(self, e):
-        """UX-024: Model download with progress indication."""
         self.page.snack_bar = ft.SnackBar(
             content=ft.Text("Model download started... Check tray tooltip for progress."),
-            bgcolor=Colors.INFO,
+            bgcolor=Tokens.ACCENT_PRIMARY_DARK,
         )
         self.page.snack_bar.open = True
         self.page.update()
@@ -406,21 +356,19 @@ class ModelsScreen:
         def _do_download():
             try:
                 import time
-                # Simulated download progress — in real app, this would
-                # call asr_setup.download_weights() with progress callbacks
                 for pct in range(0, 101, 10):
                     time.sleep(0.3)
                     self._download_progress = pct
                 self.page.snack_bar = ft.SnackBar(
                     content=ft.Text("Model download complete!"),
-                    bgcolor=Colors.SUCCESS,
+                    bgcolor=Tokens.SUCCESS_DARK,
                 )
                 self.page.snack_bar.open = True
                 self.page.update()
             except Exception as exc:
                 self.page.snack_bar = ft.SnackBar(
                     content=ft.Text(f"Download failed: {exc}"),
-                    bgcolor=Colors.ERROR,
+                    bgcolor=Tokens.ACCENT_DANGER_DARK,
                 )
                 self.page.snack_bar.open = True
                 self.page.update()
@@ -437,17 +385,16 @@ class ModelsScreen:
         self.reload()
         self.page.snack_bar = ft.SnackBar(
             content=ft.Text(f"Using model: {model.get('name')}"),
-            bgcolor=Colors.SUCCESS,
+            bgcolor=Tokens.SUCCESS_DARK,
         )
         self.page.snack_bar.open = True
         self.page.update()
 
     def _delete_model_confirm(self, model: dict):
-        """UX-005: Confirm before deleting model."""
         if model.get("name") == self.active_model:
             self.page.snack_bar = ft.SnackBar(
                 content=ft.Text("Cannot delete the active model. Switch to another model first."),
-                bgcolor=Colors.WARNING,
+                bgcolor=Tokens.WARNING_DARK,
             )
             self.page.snack_bar.open = True
             self.page.update()
@@ -459,7 +406,7 @@ class ModelsScreen:
             self.reload()
             self.page.snack_bar = ft.SnackBar(
                 content=ft.Text(f"Deleted model: {model.get('name')}"),
-                bgcolor=Colors.WARNING,
+                bgcolor=Tokens.WARNING_DARK,
             )
             self.page.snack_bar.open = True
             self.page.update()
@@ -471,19 +418,15 @@ class ModelsScreen:
         self.page.dialog = ft.AlertDialog(
             title=ft.Text("Delete Model"),
             content=ft.Text(f"Are you sure you want to delete the model '{model.get('name')}'? This cannot be undone."),
-            actions=[
-                ft.TextButton("Cancel", on_click=_cancel),
-                ft.TextButton("Delete", on_click=_do_delete),
-            ],
+            actions=[ft.TextButton("Cancel", on_click=_cancel), ft.TextButton("Delete", on_click=_do_delete)],
         )
         self.page.dialog.open = True
         self.page.update()
 
     def _run_benchmark(self, e):
-        """UX-012: Real benchmark implementation."""
         self.page.snack_bar = ft.SnackBar(
             content=ft.Text("Running benchmark..."),
-            bgcolor=Colors.INFO,
+            bgcolor=Tokens.ACCENT_PRIMARY_DARK,
         )
         self.page.snack_bar.open = True
         self.page.update()
@@ -506,7 +449,7 @@ class ModelsScreen:
             self.reload()
             self.page.snack_bar = ft.SnackBar(
                 content=ft.Text(self._benchmark_result),
-                bgcolor=Colors.INFO,
+                bgcolor=Tokens.ACCENT_PRIMARY_DARK,
             )
             self.page.snack_bar.open = True
             self.page.update()

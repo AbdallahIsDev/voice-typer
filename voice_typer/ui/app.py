@@ -2,7 +2,11 @@ import ctypes
 import flet as ft
 import logging
 import threading
-from .styles import Colors, NAV_ITEMS, STATUS_COLORS, STATUS_LABELS, get_theme, is_windows_dark_mode, border_default, SIDEBAR_WIDTH
+from .styles import (
+    Tokens, NAV_ITEMS, STATUS_COLORS, STATUS_LABELS,
+    get_theme, is_windows_dark_mode, SIDEBAR_WIDTH,
+    border_card, CONTENT_MAX_WIDTH,
+)
 from .icons import icon
 from .home import build_home_page
 from .history import HistoryScreen
@@ -20,8 +24,6 @@ from voice_typer.config import Config
 
 
 class FletSettingsController:
-    """Flet-based settings controller that replaces the tkinter SettingsController."""
-
     def __init__(self, config, on_hotkey_changed=None, on_model_changed=None,
                  on_microphone_changed=None, on_autostart_changed=None,
                  on_notifications_changed=None):
@@ -46,7 +48,6 @@ class VoiceTyperApp:
         self._status_poll_timer = None
         self._current_status = "idle"
 
-        # Backend components
         self.config = Config.load()
         self.settings_controller = FletSettingsController(
             self.config,
@@ -56,6 +57,20 @@ class VoiceTyperApp:
             on_autostart_changed=self._on_autostart_changed,
             on_notifications_changed=self._on_notifications_changed,
         )
+
+    def _is_dark(self) -> bool:
+        if self.page is None:
+            theme_mode = getattr(self.config, 'theme_mode', 'system')
+            if theme_mode == 'dark':
+                return True
+            if theme_mode == 'light':
+                return False
+            return is_windows_dark_mode()
+        if self.page.theme_mode == ft.ThemeMode.DARK:
+            return True
+        if self.page.theme_mode == ft.ThemeMode.LIGHT:
+            return False
+        return is_windows_dark_mode()
 
     def _on_hotkey_changed(self, hotkey: str):
         self.config.hotkey = hotkey
@@ -77,20 +92,6 @@ class VoiceTyperApp:
         self.config.show_notifications = enabled
         self.config.save()
 
-    def _is_dark_mode(self) -> bool:
-        if self.page is None:
-            theme_mode = getattr(self.config, 'theme_mode', 'system')
-            if theme_mode == 'dark':
-                return True
-            if theme_mode == 'light':
-                return False
-            return is_windows_dark_mode()
-        if self.page.theme_mode == ft.ThemeMode.DARK:
-            return True
-        if self.page.theme_mode == ft.ThemeMode.LIGHT:
-            return False
-        return is_windows_dark_mode()
-
     def _read_flet_state(self) -> dict:
         import json
         import time
@@ -111,18 +112,11 @@ class VoiceTyperApp:
         status = state.get("status")
         if status:
             mapping = {
-                "idle": "idle",
-                "recording": "recording",
-                "transcribing": "transcribing",
-                "loading": "loading",
-                "error": "error",
-                "paused": "paused",
-                "warming_up": "warming_up",
-                "downloading": "downloading",
-                "processing": "processing",
-                "cancelling": "cancelling",
-                "setup": "setup",
-                "not_configured": "not_configured",
+                "idle": "idle", "recording": "recording", "transcribing": "transcribing",
+                "loading": "loading", "error": "error", "paused": "paused",
+                "warming_up": "warming_up", "downloading": "downloading",
+                "processing": "processing", "cancelling": "cancelling",
+                "setup": "setup", "not_configured": "not_configured",
             }
             return mapping.get(status, "idle")
         return "idle"
@@ -142,12 +136,7 @@ class VoiceTyperApp:
                 return
             vk, mod = parsed
             user32 = ctypes.windll.user32
-            mod_vk_map = {
-                1: 0x12,
-                2: 0x11,
-                4: 0x10,
-                8: 0x5B,
-            }
+            mod_vk_map = {1: 0x12, 2: 0x11, 4: 0x10, 8: 0x5B}
             pressed_mods = []
             for mod_bit, mod_vk in mod_vk_map.items():
                 if mod & mod_bit:
@@ -185,16 +174,6 @@ class VoiceTyperApp:
     def _on_stop_dictation(self):
         self._simulate_hotkey()
         self._poll_now()
-
-    def _on_repaste_last(self):
-        if self.app_controller and hasattr(self.app_controller, '_last_transcription'):
-            last_text = self.app_controller._last_transcription
-            if last_text:
-                try:
-                    self.app_controller.clipboard.copy(last_text)
-                    self.app_controller.clipboard.paste()
-                except Exception:
-                    pass
 
     def _cancel_dictation(self):
         if self.app_controller and hasattr(self.app_controller, '_cancel_dictation'):
@@ -242,21 +221,19 @@ class VoiceTyperApp:
         if ico_path.exists():
             return str(ico_path)
         size = 64
-        color = (52, 152, 219, 255)
+        color = (37, 99, 235, 255)
         img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
         cx, cy = size // 2, size // 2
         mic_w, mic_h = size // 5, size // 3
         draw.rounded_rectangle(
             [cx - mic_w, cy - mic_h, cx + mic_w, cy + mic_h // 3],
-            radius=mic_w // 2,
-            fill=color,
+            radius=mic_w // 2, fill=color,
         )
         stand_radius = size // 3
         draw.arc(
             [cx - stand_radius, cy - stand_radius + mic_h // 4, cx + stand_radius, cy + stand_radius],
-            start=0, end=180,
-            fill=color, width=max(2, size // 20),
+            start=0, end=180, fill=color, width=max(2, size // 20),
         )
         base_y = cy + stand_radius
         draw.line(
@@ -380,8 +357,7 @@ class VoiceTyperApp:
                 try:
                     dark_mode = wintypes.BOOL(0)
                     ctypes.windll.dwmapi.DwmSetWindowAttribute(
-                        _window_handle,
-                        20,
+                        _window_handle, 20,
                         ctypes.byref(dark_mode),
                         ctypes.sizeof(wintypes.BOOL),
                     )
@@ -405,7 +381,10 @@ class VoiceTyperApp:
         }
 
     def _build_sidebar(self) -> ft.Control:
-        dark = self._is_dark_mode()
+        dark = self._is_dark()
+        tp = Tokens.text_primary(dark)
+        ts = Tokens.text_secondary(dark)
+        ap = Tokens.accent_primary(dark)
         nav_items = []
 
         for item_id, item_config in NAV_ITEMS.items():
@@ -416,16 +395,15 @@ class VoiceTyperApp:
                         ft.Container(
                             content=icon(
                                 item_config["icon"],
-                                color="#3B82F6" if is_selected else "rgba(241,241,243,0.45)",
+                                color=ap if is_selected else ts,
                                 size=18,
                             ),
-                            width=20,
-                            height=20,
+                            width=20, height=20,
                             alignment=ft.Alignment.CENTER,
                         ),
                         ft.Text(
                             item_config["title"],
-                            color="#F1F1F3" if is_selected else "rgba(241,241,243,0.82)",
+                            color=tp if is_selected else ts,
                             size=13,
                             weight=ft.FontWeight.W_500,
                         ),
@@ -436,36 +414,36 @@ class VoiceTyperApp:
                 padding=ft.Padding.symmetric(horizontal=12, vertical=0),
                 height=36,
                 border_radius=8,
-                bgcolor="rgba(59,130,246,0.12)" if is_selected else ft.Colors.TRANSPARENT,
+                bgcolor=Tokens.sidebar_active_bg(dark) if is_selected else ft.Colors.TRANSPARENT,
                 border=ft.Border(
-                    left=ft.BorderSide(3, "#3B82F6" if is_selected else "transparent"),
+                    left=ft.BorderSide(3, ap if is_selected else "transparent"),
                     top=ft.BorderSide(0, "transparent"),
                     right=ft.BorderSide(0, "transparent"),
                     bottom=ft.BorderSide(0, "transparent"),
                 ) if is_selected else None,
                 on_click=lambda e, vid=item_id: self._set_view(vid),
                 tooltip=item_config.get("description", item_config["title"]),
-                animate=ft.Animation(120, ft.AnimationCurve.EASE_IN_OUT),
+                animate=ft.Animation(150, ft.AnimationCurve.EASE_IN_OUT),
+                on_hover=lambda e, b=None: None,
             )
             self.nav_buttons[item_id] = btn
             nav_items.append(btn)
 
         self._sidebar_container = ft.Container(
             width=SIDEBAR_WIDTH,
-            bgcolor=Colors.SIDEBAR_BG_DARK,
-            border=ft.Border(right=ft.BorderSide(0.5, "rgba(255,255,255,0.07)")),
+            bgcolor=Tokens.bg_sidebar(dark),
             padding=ft.Padding.symmetric(horizontal=0, vertical=0),
             content=ft.Column(
                 [
                     ft.Container(
                         content=ft.Row(
                             [
-                                icon("microphone", color="#3B82F6", size=18),
+                                icon("microphone", color=ap, size=18),
                                 ft.Text(
                                     "Voice Typer",
                                     size=14,
                                     weight=ft.FontWeight.W_600,
-                                    color=Colors.TEXT_PRIMARY,
+                                    color=tp,
                                 ),
                             ],
                             spacing=10,
@@ -473,43 +451,10 @@ class VoiceTyperApp:
                         ),
                         height=56,
                         padding=ft.Padding.symmetric(horizontal=16, vertical=0),
-                        border=ft.Border(
-                            bottom=ft.BorderSide(0.5, "rgba(255,255,255,0.08)"),
-                            left=ft.BorderSide(0, "transparent"),
-                            top=ft.BorderSide(0, "transparent"),
-                            right=ft.BorderSide(0, "transparent"),
-                        ),
                     ),
                     ft.Container(height=8),
                     ft.Column(nav_items, spacing=2),
                     ft.Container(expand=True),
-                    # Bottom status
-                    # ft.Container(
-                    #     content=ft.Row(
-                    #         [
-                    #             ft.Container(
-                    #                 width=6,
-                    #                 height=6,
-                    #                 border_radius=3,
-                    #                 bgcolor="#22C55E",
-                    #             ),
-                    #             ft.Text(
-                    #                 "GPU",
-                    #                 size=11,
-                    #                 color="rgba(241,241,243,0.30)",
-                    #             ),
-                    #         ],
-                    #         spacing=6,
-                    #         vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    #     ),
-                    #     padding=ft.Padding.symmetric(horizontal=16, vertical=8),
-                    #     border=ft.Border(
-                    #         top=ft.BorderSide(0.5, "rgba(255,255,255,0.06)"),
-                    #         left=ft.BorderSide(0, "transparent"),
-                    #         right=ft.BorderSide(0, "transparent"),
-                    #         bottom=ft.BorderSide(0, "transparent"),
-                    #     ),
-                    # ),
                 ],
                 spacing=0,
             ),
@@ -517,6 +462,7 @@ class VoiceTyperApp:
         return self._sidebar_container
 
     def _build_content_area(self) -> ft.Control:
+        dark = self._is_dark()
         self._content_column = ft.Column(
             key="content",
             scroll=ft.ScrollMode.AUTO,
@@ -524,7 +470,7 @@ class VoiceTyperApp:
         )
         self._content_area = ft.Container(
             expand=True,
-            bgcolor=Colors.APP_BG,
+            bgcolor=Tokens.bg_app(dark),
             content=ft.Container(
                 content=self._content_column,
                 animate_opacity=ft.Animation(120, ft.AnimationCurve.EASE_IN_OUT),
@@ -545,30 +491,22 @@ class VoiceTyperApp:
 
     def _show_error_view(self, error_message: str = "") -> None:
         try:
-            dark = self._is_dark_mode()
+            dark = self._is_dark()
+            tp = Tokens.text_primary(dark)
+            ts = Tokens.text_secondary(dark)
+            ad = Tokens.accent_danger(dark)
             self._content_column.scroll = None
             self._content_column.controls = [
                 ft.Container(expand=1),
                 ft.Column(
                     [
-                        ft.Icon(ft.Icons.ERROR_OUTLINE, size=48, color=ft.Colors.RED_400),
-                        ft.Text(
-                            "Something went wrong loading this page",
-                            size=16,
-                            color=Colors.RED_MUTED,
-                            weight=ft.FontWeight.W_500,
-                        ),
-                        ft.Text(
-                            error_message or "Please try restarting the application",
-                            size=13,
-                            color=Colors.text_secondary(dark),
-                        ),
+                        ft.Icon(ft.Icons.ERROR_OUTLINE, size=48, color=ad),
+                        ft.Text("Something went wrong loading this page", size=16, color=ad,
+                                weight=ft.FontWeight.W_500),
+                        ft.Text(error_message or "Please try restarting the application", size=13, color=ts),
                         ft.Container(height=10),
-                        ft.Button(
-                            "Retry",
-                            on_click=lambda e: self._set_view(self.current_view),
-                            icon=ft.Icons.REFRESH,
-                        ),
+                        ft.Button("Retry", on_click=lambda e: self._set_view(self.current_view),
+                                  icon=ft.Icons.REFRESH),
                     ],
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
@@ -579,42 +517,28 @@ class VoiceTyperApp:
             pass
 
     def _build_status_bar(self) -> ft.Control:
-        dark = self._is_dark_mode()
+        dark = self._is_dark()
+        ts = Tokens.text_secondary(dark)
         try:
             model = getattr(self.config, 'model_size', 'unknown')
             device = getattr(self.config, 'device', 'unknown')
             device_label = "GPU" if device == "cuda" else "CPU" if device == "cpu" else device.upper()
             result = ft.Container(
                 height=28,
-                bgcolor=Colors.SIDEBAR_BG_DARK,
-                border=ft.Border(top=ft.BorderSide(0.5, "rgba(255,255,255,0.06)")),
+                bgcolor=Tokens.bg_sidebar(dark),
                 padding=ft.Padding.symmetric(horizontal=14, vertical=0),
                 content=ft.Row(
                     [
                         ft.Container(
-                            width=6,
-                            height=6,
-                            border_radius=3,
-                            bgcolor="#22C55E",
+                            width=6, height=6, border_radius=3,
+                            bgcolor=STATUS_COLORS.get(self._current_status, "#22C55E"),
                         ),
                         ft.Container(width=6),
-                        ft.Text(
-                            device_label,
-                            size=11,
-                            color="rgba(241,241,243,0.30)",
-                        ),
+                        ft.Text(device_label, size=11, color=ts),
                         ft.Container(width=12),
-                        ft.Text(
-                            model,
-                            size=11,
-                            color="rgba(241,241,243,0.30)",
-                        ),
+                        ft.Text(model, size=11, color=ts),
                         ft.Container(expand=True),
-                        ft.Text(
-                            f"v{__version__}",
-                            size=11,
-                            color="rgba(241,241,243,0.30)",
-                        ),
+                        ft.Text(f"v{__version__}", size=11, color=ts),
                     ],
                     alignment=ft.MainAxisAlignment.START,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -624,18 +548,16 @@ class VoiceTyperApp:
             return result
         except Exception as e:
             log.error("[UI] _build_status_bar failed: %s", e)
-            dark = self._is_dark_mode()
+            ts = Tokens.text_secondary(dark)
             return ft.Container(
                 height=28,
-                bgcolor=Colors.SIDEBAR_BG_DARK,
-                border=ft.Border(top=ft.BorderSide(0.5, "rgba(255,255,255,0.06)")),
+                bgcolor=Tokens.bg_sidebar(dark),
                 content=ft.Row(
                     [
                         ft.Container(expand=True),
                         ft.Text(
-                            f"{getattr(self.config, 'model_size', 'unknown')}  ·  {getattr(self.config, 'device', 'unknown')}",
-                            size=11,
-                            color="rgba(241,241,243,0.30)",
+                            f"{getattr(self.config, 'model_size', 'unknown')}  \u00b7  {getattr(self.config, 'device', 'unknown')}",
+                            size=11, color=ts,
                         ),
                         ft.Container(expand=True),
                     ],
@@ -646,25 +568,26 @@ class VoiceTyperApp:
 
     def _set_view(self, view_id: str):
         self.current_view = view_id
-        dark = self._is_dark_mode()
+        dark = self._is_dark()
+        tp = Tokens.text_primary(dark)
+        ts = Tokens.text_secondary(dark)
+        ap = Tokens.accent_primary(dark)
 
-        # Update sidebar container bg
         if hasattr(self, "_sidebar_container"):
-            self._sidebar_container.bgcolor = Colors.SIDEBAR_BG_DARK
+            self._sidebar_container.bgcolor = Tokens.bg_sidebar(dark)
 
-        # Update nav button states
         for item_id, btn in self.nav_buttons.items():
             is_selected = item_id == view_id
             icon_ctrl = btn.content.controls[0].content
             text_ctrl = btn.content.controls[1]
 
-            icon_ctrl.color = "#3B82F6" if is_selected else "rgba(241,241,243,0.45)"
-            text_ctrl.color = "#F1F1F3" if is_selected else "rgba(241,241,243,0.82)"
-            btn.bgcolor = "rgba(59,130,246,0.12)" if is_selected else ft.Colors.TRANSPARENT
+            icon_ctrl.color = ap if is_selected else ts
+            text_ctrl.color = tp if is_selected else ts
+            btn.bgcolor = Tokens.sidebar_active_bg(dark) if is_selected else ft.Colors.TRANSPARENT
 
             if is_selected:
                 btn.border = ft.Border(
-                    left=ft.BorderSide(3, "#3B82F6"),
+                    left=ft.BorderSide(3, ap),
                     top=ft.BorderSide(0, "transparent"),
                     right=ft.BorderSide(0, "transparent"),
                     bottom=ft.BorderSide(0, "transparent"),
@@ -676,8 +599,7 @@ class VoiceTyperApp:
             log.error("[UI] Content area not initialized")
             return
 
-        # Update content area bg
-        self._content_area.bgcolor = Colors.APP_BG
+        self._content_area.bgcolor = Tokens.bg_app(dark)
 
         screen = self.screens.get(view_id)
         if screen is None:
@@ -699,7 +621,7 @@ class VoiceTyperApp:
                 except Exception:
                     hotkey_display = "F2"
 
-                dark = self._is_dark_mode()
+                dark = self._is_dark()
                 home_page = build_home_page(
                     status=self._get_status(),
                     last_text=self._get_last_transcription(),
@@ -710,7 +632,6 @@ class VoiceTyperApp:
                     on_toggle_dictation=self._on_toggle_dictation,
                     on_start_dictation=self._on_start_dictation,
                     on_stop_dictation=self._on_stop_dictation,
-                    on_repaste_last=self._on_repaste_last,
                     hotkey_hint=f"Press {hotkey_display} or click to dictate",
                     dark=dark,
                 )
@@ -735,18 +656,11 @@ class VoiceTyperApp:
                 ft.Container(expand=1),
                 ft.Column(
                     [
-                        ft.Icon(ft.Icons.ERROR_OUTLINE, size=48, color=ft.Colors.RED_400),
-                        ft.Text(
-                            f"Failed to load {view_id}",
-                            size=16,
-                            color=Colors.RED_MUTED,
-                            weight=ft.FontWeight.W_500,
-                        ),
-                        ft.Text(
-                            str(exc) or "Please try restarting the application",
-                            size=13,
-                            color=Colors.text_secondary(dark),
-                        ),
+                        ft.Icon(ft.Icons.ERROR_OUTLINE, size=48, color=Tokens.accent_danger(dark)),
+                        ft.Text(f"Failed to load {view_id}", size=16, color=Tokens.accent_danger(dark),
+                                weight=ft.FontWeight.W_500),
+                        ft.Text(str(exc) or "Please try restarting the application", size=13,
+                                color=Tokens.text_secondary(dark)),
                     ],
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 ),

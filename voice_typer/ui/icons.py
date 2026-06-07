@@ -74,6 +74,11 @@ ICONS = {
     "import-export": "\u3b70", # hgi-arrow-left-right
     "download": "\u3f70",      # hgi-download-01
     "cloud-download": "\u3e11", # hgi-cloud-download
+
+    # Star / bookmark for favorites
+    "star": "\u47c0",          # hgi-star-01 (outline)
+    "star-filled": "\u47c1",   # hgi-star-02 (filled)
+    "bookmark": "\u3e9a",      # hgi-bookmark-01
 }
 
 

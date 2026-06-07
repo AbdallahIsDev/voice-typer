@@ -2,7 +2,7 @@
 
 import re
 import flet as ft
-from voice_typer.ui.styles import Colors, STATUS_COLORS, STATUS_LABELS, RECORD_BUTTON_SIZE, RECORD_BUTTON_COLOR, RECORD_BUTTON_STOP_COLOR
+from voice_typer.ui.styles import Tokens, STATUS_COLORS, STATUS_LABELS, RECORD_BUTTON_SIZE, RECORD_BUTTON_COLOR
 from voice_typer.ui.icons import icon
 
 
@@ -14,7 +14,6 @@ def build_home_page(
     total_today: int = 0,
     total_chars: int = 0,
     on_toggle_dictation=None,
-    on_repaste_last=None,
     on_start_dictation=None,
     on_stop_dictation=None,
     hotkey_hint: str = "Press F2 or click to dictate",
@@ -23,6 +22,10 @@ def build_home_page(
     is_recording = status == "recording"
     status_color = STATUS_COLORS.get(status, STATUS_COLORS["idle"])
     status_label = STATUS_LABELS.get(status, STATUS_LABELS["idle"])
+    tp = Tokens.text_primary(dark)
+    ts = Tokens.text_secondary(dark)
+    ap = Tokens.accent_primary(dark)
+    bg_sidebar = Tokens.bg_sidebar(dark)
 
     def _on_record_click(e):
         if is_recording:
@@ -36,54 +39,36 @@ def build_home_page(
             elif on_toggle_dictation:
                 on_toggle_dictation()
 
-    # Status dot + label
     status_indicator = ft.Row(
         alignment=ft.MainAxisAlignment.CENTER,
         spacing=6,
         controls=[
             ft.Container(
-                width=8,
-                height=8,
-                border_radius=4,
+                width=8, height=8, border_radius=4,
                 bgcolor=status_color,
                 animate_opacity=ft.Animation(2000),
             ),
-            ft.Text(
-                status_label,
-                size=11,
-                color="rgba(241,241,243,0.40)",
-                weight=ft.FontWeight.W_500,
-            ),
+            ft.Text(status_label, size=11, color=ts, weight=ft.FontWeight.W_500),
         ],
     )
 
-    # Mic button
     record_button = ft.Container(
-        width=72,
-        height=72,
-        border_radius=36,
+        width=72, height=72, border_radius=36,
         bgcolor=RECORD_BUTTON_COLOR,
         alignment=ft.Alignment.CENTER,
         on_click=_on_record_click,
         shadow=ft.BoxShadow(
-            spread_radius=0,
-            blur_radius=10,
-            color="rgba(220,38,38,0.20)",
+            spread_radius=0, blur_radius=10,
+            color="rgba(239,68,68,0.20)",
         ) if is_recording else ft.BoxShadow(
-            spread_radius=0,
-            blur_radius=0,
-            color="rgba(220,38,38,0)",
+            spread_radius=0, blur_radius=0,
+            color="rgba(239,68,68,0)",
         ),
         animate=ft.Animation(1200, ft.AnimationCurve.EASE_IN_OUT),
-        content=icon(
-            "microphone",
-            color="#FFFFFF",
-            size=28,
-        ),
+        content=icon("microphone", color="#FFFFFF", size=28),
         tooltip="Stop recording" if is_recording else "Start recording",
     )
 
-    # Hint text with kbd badge for hotkey
     hint_parts = hotkey_hint.split("or")
     if len(hint_parts) == 2:
         left_part = hint_parts[0].strip()
@@ -96,50 +81,37 @@ def build_home_page(
                 alignment=ft.MainAxisAlignment.CENTER,
                 spacing=6,
                 controls=[
-                    ft.Text("Press", size=12, color="rgba(241,241,243,0.28)"),
+                    ft.Text("Press", size=12, color=ts),
                     ft.Container(
-                        content=ft.Text(key_name, size=11, color="rgba(241,241,243,0.60)", font_family="Consolas"),
+                        content=ft.Text(key_name, size=11, color=tp, font_family="Consolas"),
                         padding=ft.Padding.symmetric(horizontal=6, vertical=1),
                         border_radius=4,
-                        bgcolor="rgba(255,255,255,0.08)",
-                        border=ft.Border(
-                            left=ft.BorderSide(0.5, "rgba(255,255,255,0.15)"),
-                            top=ft.BorderSide(0.5, "rgba(255,255,255,0.15)"),
-                            right=ft.BorderSide(0.5, "rgba(255,255,255,0.15)"),
-                            bottom=ft.BorderSide(0.5, "rgba(255,255,255,0.15)"),
-                        ),
+                        bgcolor=Tokens.bg_card(dark),
+                        border=ft.Border.all(0.5, Tokens.border_subtle(dark)),
                     ),
-                    ft.Text(right_part, size=12, color="rgba(241,241,243,0.28)"),
+                    ft.Text(right_part, size=12, color=ts),
                 ],
             )
         else:
-            hint = ft.Text(hotkey_hint, size=12, color="rgba(241,241,243,0.28)")
+            hint = ft.Text(hotkey_hint, size=12, color=ts)
     else:
-        hint = ft.Text(hotkey_hint, size=12, color="rgba(241,241,243,0.28)")
+        hint = ft.Text(hotkey_hint, size=12, color=ts)
 
-    # Last transcript box
     last_text_preview = ft.Container(
         visible=bool(last_text),
         padding=ft.Padding.symmetric(horizontal=16, vertical=12),
         border_radius=10,
-        bgcolor="rgba(255,255,255,0.04)",
-        border=ft.Border(
-            left=ft.BorderSide(0.5, "rgba(255,255,255,0.07)"),
-            top=ft.BorderSide(0.5, "rgba(255,255,255,0.07)"),
-            right=ft.BorderSide(0.5, "rgba(255,255,255,0.07)"),
-            bottom=ft.BorderSide(0.5, "rgba(255,255,255,0.07)"),
-        ),
+        bgcolor=bg_sidebar,
         width=520,
         content=ft.Text(
             last_text if last_text else "",
             size=13,
-            color="rgba(241,241,243,0.40)",
+            color=ts,
             max_lines=2,
             overflow=ft.TextOverflow.ELLIPSIS,
         ),
     )
 
-    # Stats row — 2 cards
     stats_row = ft.Row(
         alignment=ft.MainAxisAlignment.CENTER,
         spacing=12,
@@ -149,19 +121,13 @@ def build_home_page(
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                     spacing=4,
                     controls=[
-                        ft.Text(str(total_today), size=24, weight=ft.FontWeight.W_600, color="#3B82F6"),
-                        ft.Text("Today", size=11, color="rgba(241,241,243,0.35)"),
+                        ft.Text(str(total_today), size=24, weight=ft.FontWeight.W_600, color=ap),
+                        ft.Text("Today", size=11, color=ts),
                     ],
                 ),
                 padding=ft.Padding.symmetric(horizontal=24, vertical=14),
                 border_radius=10,
-                bgcolor="rgba(255,255,255,0.04)",
-                border=ft.Border(
-                    left=ft.BorderSide(0.5, "rgba(255,255,255,0.07)"),
-                    top=ft.BorderSide(0.5, "rgba(255,255,255,0.07)"),
-                    right=ft.BorderSide(0.5, "rgba(255,255,255,0.07)"),
-                    bottom=ft.BorderSide(0.5, "rgba(255,255,255,0.07)"),
-                ),
+                bgcolor=bg_sidebar,
                 width=140,
             ),
             ft.Container(
@@ -169,43 +135,16 @@ def build_home_page(
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                     spacing=4,
                     controls=[
-                        ft.Text(str(total_chars), size=24, weight=ft.FontWeight.W_600, color="#3B82F6"),
-                        ft.Text("Characters", size=11, color="rgba(241,241,243,0.35)"),
+                        ft.Text(str(total_chars), size=24, weight=ft.FontWeight.W_600, color=ap),
+                        ft.Text("Characters", size=11, color=ts),
                     ],
                 ),
                 padding=ft.Padding.symmetric(horizontal=24, vertical=14),
                 border_radius=10,
-                bgcolor="rgba(255,255,255,0.04)",
-                border=ft.Border(
-                    left=ft.BorderSide(0.5, "rgba(255,255,255,0.07)"),
-                    top=ft.BorderSide(0.5, "rgba(255,255,255,0.07)"),
-                    right=ft.BorderSide(0.5, "rgba(255,255,255,0.07)"),
-                    bottom=ft.BorderSide(0.5, "rgba(255,255,255,0.07)"),
-                ),
+                bgcolor=bg_sidebar,
                 width=140,
             ),
         ],
-    )
-
-    # Repaste Last — floating pill
-    repaste_button = ft.Container(
-        content=ft.Row(
-            [icon("copy-01", color="rgba(241,241,243,0.55)", size=12), ft.Text("Repaste Last", size=12, color="rgba(241,241,243,0.55)")],
-            spacing=6,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        ),
-        visible=bool(last_text),
-        padding=ft.Padding.symmetric(horizontal=16, vertical=6),
-        border_radius=20,
-        bgcolor="rgba(255,255,255,0.06)",
-        border=ft.Border(
-            left=ft.BorderSide(0.5, "rgba(255,255,255,0.12)"),
-            top=ft.BorderSide(0.5, "rgba(255,255,255,0.12)"),
-            right=ft.BorderSide(0.5, "rgba(255,255,255,0.12)"),
-            bottom=ft.BorderSide(0.5, "rgba(255,255,255,0.12)"),
-        ),
-        on_click=lambda e: on_repaste_last() if on_repaste_last else None,
-        tooltip="Repaste last transcription",
     )
 
     return ft.Column(
@@ -216,7 +155,6 @@ def build_home_page(
             record_button,
             hint,
             last_text_preview,
-            repaste_button,
             stats_row,
         ],
     )

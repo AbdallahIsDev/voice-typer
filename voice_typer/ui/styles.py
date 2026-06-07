@@ -1,11 +1,10 @@
-"""Shared styles, colors, and theme constants for the Voice Typer UI."""
+"""Shared styles, color tokens, layout constants, and theme helpers."""
 
 import flet as ft
 import sys
 
 
 def is_windows_dark_mode() -> bool:
-    """Query Windows AppsUseLightTheme registry value."""
     if sys.platform != "win32":
         return False
     try:
@@ -21,108 +20,211 @@ APP_NAME = "Voice Typer"
 SIDEBAR_WIDTH = 220
 WINDOW_WIDTH = 1000
 WINDOW_HEIGHT = 700
-PAGE_MAX_WIDTH = 1200
+CONTENT_MAX_WIDTH = 1024
+SETTINGS_MAX_WIDTH = 768
 
-# ── Global design tokens (dark-mode-first) ──────────────────────────────
 
-class Colors:
-    # Accent
-    PRIMARY = "#3B82F6"
-    PRIMARY_HOVER = "#2563EB"
-    GREEN = "#22C55E"
-    RED = "#DC2626"
-    RED_MUTED = "#F87171"
+class Tokens:
+    """Design tokens – dark/light value pairs."""
 
-    # Background layers
-    APP_BG = "#0F1117"
-    SIDEBAR_BG = "#13151C"
-    SURFACE = "#FFFFFF"
-    SURFACE_DARK = "#0F1117"
-    SIDEBAR_BG_DARK = "#13151C"
-    ELEVATED = "#1F2231"
+    # ── Background layers ────────────────────────────────────────────
+    BG_APP_DARK = "#0D1117"
+    BG_APP_LIGHT = "#FFFFFF"
 
-    # Text
-    TEXT_PRIMARY = "#F1F1F3"
-    TEXT_SECONDARY = "rgba(241,241,243,0.55)"
-    TEXT_MUTED = "rgba(241,241,243,0.30)"
-    TEXT_DISABLED = "rgba(241,241,243,0.18)"
-    TEXT_PRIMARY_DARK = "#F1F1F3"
-    TEXT_SECONDARY_DARK = "rgba(241,241,243,0.55)"
+    BG_SIDEBAR_DARK = "#0B0F14"
+    BG_SIDEBAR_LIGHT = "#F0F4F9"
 
-    # Borders
-    DIVIDER = "#E5E7EB"
-    DIVIDER_DARK = "rgba(255,255,255,0.07)"
-    BORDER_DEFAULT = "rgba(255,255,255,0.07)"
-    BORDER_HOVER = "rgba(255,255,255,0.12)"
-    BORDER_FOCUS = "rgba(59,130,246,0.45)"
-    BORDER_DANGER = "rgba(220,38,38,0.30)"
+    BG_CARD_DARK = "#1F2937"
+    BG_CARD_LIGHT = "#F1F5F9"
 
-    # Legacy aliases for backward compat
-    SUCCESS = "#22C55E"
-    WARNING = "#F59E0B"
-    ERROR = "#DC2626"
-    INFO = "#3B82F6"
-    CARD_BG = "#FFFFFF"
-    CARD_BG_DARK = "#1A1D27"
-    PRIMARY_LIGHT = "#60A5FA"
-    ACCENT = "#3B82F6"
+    # ── Borders ──────────────────────────────────────────────────────
+    BORDER_SUBTLE_DARK = "#2D3748"
+    BORDER_SUBTLE_LIGHT = "#d4d4d4"
 
-    @staticmethod
-    def sidebar_bg(dark: bool) -> str:
-        return Colors.SIDEBAR_BG_DARK if dark else "#F5F5F5"
+    # ── Text ─────────────────────────────────────────────────────────
+    TEXT_PRIMARY_DARK = "#F9FAFB"
+    TEXT_PRIMARY_LIGHT = "#0F172A"
+
+    TEXT_SECONDARY_DARK = "#9CA3AF"
+    TEXT_SECONDARY_LIGHT = "#475569"
+
+    # ── Accent ───────────────────────────────────────────────────────
+    ACCENT_PRIMARY_DARK = "#2563EB"
+    ACCENT_PRIMARY_LIGHT = "#1D4ED8"
+
+    ACCENT_DANGER_DARK = "#EF4444"
+    ACCENT_DANGER_LIGHT = "#DC2626"
+
+    # ── Semantic ─────────────────────────────────────────────────────
+    SUCCESS_DARK = "#22C55E"
+    SUCCESS_LIGHT = "#16A34A"
+
+    WARNING_DARK = "#F59E0B"
+    WARNING_LIGHT = "#D97706"
+
+    # ── Gradient helpers ─────────────────────────────────────────────
+    SIDEBAR_HOVER_OPACITY = "0.6"
 
     @staticmethod
-    def surface(dark: bool) -> str:
-        return Colors.SURFACE_DARK if dark else Colors.SURFACE
+    def bg_app(dark: bool) -> str:
+        return Tokens.BG_APP_DARK if dark else Tokens.BG_APP_LIGHT
 
     @staticmethod
-    def card_bg(dark: bool) -> str:
-        return Colors.CARD_BG_DARK if dark else Colors.CARD_BG
+    def bg_sidebar(dark: bool) -> str:
+        return Tokens.BG_SIDEBAR_DARK if dark else Tokens.BG_SIDEBAR_LIGHT
+
+    @staticmethod
+    def bg_card(dark: bool) -> str:
+        return Tokens.BG_CARD_DARK if dark else Tokens.BG_CARD_LIGHT
+
+    @staticmethod
+    def border_subtle(dark: bool) -> str:
+        return Tokens.BORDER_SUBTLE_DARK if dark else Tokens.BORDER_SUBTLE_LIGHT
 
     @staticmethod
     def text_primary(dark: bool) -> str:
-        return Colors.TEXT_PRIMARY_DARK if dark else "#111827"
+        return Tokens.TEXT_PRIMARY_DARK if dark else Tokens.TEXT_PRIMARY_LIGHT
 
     @staticmethod
     def text_secondary(dark: bool) -> str:
-        return Colors.TEXT_SECONDARY_DARK if dark else "#6B7280"
+        return Tokens.TEXT_SECONDARY_DARK if dark else Tokens.TEXT_SECONDARY_LIGHT
 
     @staticmethod
-    def divider(dark: bool) -> str:
-        return Colors.DIVIDER_DARK if dark else Colors.DIVIDER
+    def accent_primary(dark: bool) -> str:
+        return Tokens.ACCENT_PRIMARY_DARK if dark else Tokens.ACCENT_PRIMARY_LIGHT
+
+    @staticmethod
+    def accent_danger(dark: bool) -> str:
+        return Tokens.ACCENT_DANGER_DARK if dark else Tokens.ACCENT_DANGER_LIGHT
+
+    @staticmethod
+    def success(dark: bool) -> str:
+        return Tokens.SUCCESS_DARK if dark else Tokens.SUCCESS_LIGHT
+
+    @staticmethod
+    def warning(dark: bool) -> str:
+        return Tokens.WARNING_DARK if dark else Tokens.WARNING_LIGHT
+
+    @staticmethod
+    def sidebar_hover_bg(dark: bool) -> str:
+        c = Tokens.BG_CARD_DARK if dark else Tokens.BG_CARD_LIGHT
+        return c + "99"
+
+    @staticmethod
+    def sidebar_active_bg(dark: bool) -> str:
+        return Tokens.BG_CARD_DARK if dark else Tokens.BG_CARD_LIGHT
+
+    @staticmethod
+    def sidebar_active_indicator(dark: bool) -> str:
+        return Tokens.ACCENT_PRIMARY_DARK if dark else Tokens.ACCENT_PRIMARY_LIGHT
 
 
-# ── Border helpers ──────────────────────────────────────────────────────
+# ── Border / shadow factories ────────────────────────────────────────
 
-def border_default() -> ft.Border:
+def border_card(dark: bool) -> ft.Border:
+    c = Tokens.border_subtle(dark)
     return ft.Border(
-        left=ft.BorderSide(0.5, "rgba(255,255,255,0.07)"),
-        top=ft.BorderSide(0.5, "rgba(255,255,255,0.07)"),
-        right=ft.BorderSide(0.5, "rgba(255,255,255,0.07)"),
-        bottom=ft.BorderSide(0.5, "rgba(255,255,255,0.07)"),
+        left=ft.BorderSide(1, c),
+        top=ft.BorderSide(1, c),
+        right=ft.BorderSide(1, c),
+        bottom=ft.BorderSide(1, c),
     )
 
 
-def border_card() -> ft.Border:
-    return ft.Border(
-        left=ft.BorderSide(0.5, "rgba(255,255,255,0.07)"),
-        top=ft.BorderSide(0.5, "rgba(255,255,255,0.07)"),
-        right=ft.BorderSide(0.5, "rgba(255,255,255,0.07)"),
-        bottom=ft.BorderSide(0.5, "rgba(255,255,255,0.07)"),
+def border_row(dark: bool) -> ft.Border:
+    c = Tokens.border_subtle(dark)
+    return ft.Border(bottom=ft.BorderSide(0.5, c))
+
+
+def card_shadow(dark: bool) -> ft.BoxShadow:
+    return ft.BoxShadow(
+        blur_radius=20, spread_radius=0,
+        offset=ft.Offset(0, 4),
+        color="rgba(0,0,0,0.20)" if dark else "rgba(0,0,0,0.08)",
     )
-
-
-# ── Shadow helpers ──────────────────────────────────────────────────────
-
-def card_shadow() -> ft.BoxShadow:
-    return ft.BoxShadow(blur_radius=20, spread_radius=0, offset=ft.Offset(0, 4), color="rgba(0,0,0,0.20)")
 
 
 def focus_shadow() -> ft.BoxShadow:
-    return ft.BoxShadow(blur_radius=3, spread_radius=0, offset=ft.Offset(0, 0), color="rgba(59,130,246,0.08)")
+    return ft.BoxShadow(
+        blur_radius=3, spread_radius=0,
+        offset=ft.Offset(0, 0),
+        color="rgba(37,99,235,0.15)",
+    )
 
 
-# ── Navigation items configuration ──────────────────────────────────────
+# ── Shared component style helpers ────────────────────────────────────
+
+def switch_control(value: bool, on_change) -> ft.Switch:
+    return ft.Switch(
+        value=value,
+        on_change=on_change,
+        active_color=Tokens.ACCENT_PRIMARY_DARK,
+        active_track_color=Tokens.ACCENT_PRIMARY_DARK,
+        track_color={ft.ControlState.DEFAULT: "rgba(255,255,255,0.14)"},
+        width=48, height=32,
+        thumb_color="#FFFFFF",
+    )
+
+
+def input_field(**kwargs) -> ft.TextField:
+    return ft.TextField(
+        bgcolor=Tokens.BG_CARD_DARK,
+        border_radius=8,
+        border_color=Tokens.BORDER_SUBTLE_DARK,
+        text_size=13,
+        content_padding=ft.Padding.symmetric(horizontal=12, vertical=7),
+        **kwargs,
+    )
+
+
+def dropdown_control(**kwargs) -> ft.Dropdown:
+    return ft.Dropdown(
+        bgcolor=Tokens.BG_CARD_DARK,
+        border_radius=8,
+        border_color=Tokens.BORDER_SUBTLE_DARK,
+        text_size=13,
+        **kwargs,
+    )
+
+
+# ── Status helpers ───────────────────────────────────────────────────
+
+STATUS_COLORS = {
+    "idle": "#22C55E",
+    "recording": "#FF3333",
+    "transcribing": "#2563EB",
+    "loading": "#F59E0B",
+    "error": "#FF3333",
+    "paused": "#A855F7",
+    "warming_up": "#F97316",
+    "downloading": "#64748B",
+    "processing": "#14B8A6",
+    "cancelling": "#F87171",
+    "setup": "#2563EB",
+    "not_configured": "#9CA3AF",
+}
+
+STATUS_LABELS = {
+    "idle": "READY",
+    "recording": "RECORDING",
+    "transcribing": "TRANSCRIBING",
+    "loading": "LOADING",
+    "error": "ERROR",
+    "paused": "PAUSED",
+    "warming_up": "WARMING UP",
+    "downloading": "DOWNLOADING",
+    "processing": "PROCESSING",
+    "cancelling": "CANCELLING",
+    "setup": "SETTING UP",
+    "not_configured": "NOT CONFIGURED",
+}
+
+RECORD_BUTTON_SIZE = 96
+RECORD_BUTTON_COLOR = "#FF3333"
+RECORD_BUTTON_STOP_COLOR = "rgba(255,255,255,0.18)"
+
+
+# ── Navigation items ─────────────────────────────────────────────────
 
 NAV_ITEMS = {
     "home": {
@@ -167,44 +269,12 @@ NAV_ITEMS = {
     },
 }
 
-STATUS_COLORS = {
-    "idle": "#22C55E",
-    "recording": "#DC2626",
-    "transcribing": "#3B82F6",
-    "loading": "#F59E0B",
-    "error": "#DC2626",
-    "paused": "#A855F7",
-    "warming_up": "#F97316",
-    "downloading": "#64748B",
-    "processing": "#14B8A6",
-    "cancelling": "#F87171",
-    "setup": "#3B82F6",
-    "not_configured": "rgba(241,241,243,0.30)",
-}
 
-STATUS_LABELS = {
-    "idle": "READY",
-    "recording": "RECORDING",
-    "transcribing": "TRANSCRIBING",
-    "loading": "LOADING",
-    "error": "ERROR",
-    "paused": "PAUSED",
-    "warming_up": "WARMING UP",
-    "downloading": "DOWNLOADING",
-    "processing": "PROCESSING",
-    "cancelling": "CANCELLING",
-    "setup": "SETTING UP",
-    "not_configured": "NOT CONFIGURED",
-}
-
-RECORD_BUTTON_SIZE = 72
-RECORD_BUTTON_COLOR = "#DC2626"
-RECORD_BUTTON_STOP_COLOR = "rgba(241,241,243,0.18)"
-
+# ── Theme factory ────────────────────────────────────────────────────
 
 def get_theme(dark: bool = False) -> ft.Theme:
     return ft.Theme(
-        color_scheme_seed="#3B82F6",
+        color_scheme_seed=Tokens.ACCENT_PRIMARY_DARK if dark else Tokens.ACCENT_PRIMARY_LIGHT,
         visual_density=ft.VisualDensity.COMFORTABLE,
     )
 
@@ -216,6 +286,8 @@ def get_high_contrast_theme(dark: bool = False) -> ft.Theme:
         visual_density=ft.VisualDensity.COMFORTABLE,
     )
 
+
+# ── Time helpers ─────────────────────────────────────────────────────
 
 def format_relative_time(timestamp_str: str) -> str:
     if not timestamp_str:
