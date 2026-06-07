@@ -52,7 +52,6 @@ def build_home_page(
         bgcolor=RECORD_BUTTON_STOP_COLOR if is_recording else RECORD_BUTTON_COLOR,
         alignment=ft.Alignment.CENTER,
         on_click=_on_record_click,
-        animate=ft.Animation(300, ft.AnimationCurve.EASE_IN_OUT),
         shadow=ft.BoxShadow(
             spread_radius=2,
             blur_radius=15,

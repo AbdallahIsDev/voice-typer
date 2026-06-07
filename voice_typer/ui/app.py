@@ -1,3 +1,4 @@
+import ctypes
 import flet as ft
 import logging
 import threading
@@ -103,47 +104,117 @@ class VoiceTyperApp:
         # SYSTEM mode - Flet should handle this, but check page's actual brightness
         return getattr(self.page.theme, 'brightness', ft.Brightness.LIGHT) == ft.Brightness.DARK
 
-    def _get_status(self) -> str:
-        if self.app_controller and hasattr(self.app_controller, 'tray'):
+    def _read_flet_state(self) -> dict:
+        """Read shared state from the JSON file written by the parent process."""
+        import json
+        import time
+        for _ in range(3):
             try:
-                state = self.app_controller.tray._state
-                if hasattr(state, 'name'):
-                    state_name = state.name.lower()
-                    mapping = {
-                        "idle": "idle",
-                        "recording": "recording",
-                        "transcribing": "transcribing",
-                        "loading": "loading",
-                        "error": "error",
-                        "paused": "paused",
-                        "warming_up": "warming_up",
-                        "downloading": "downloading",
-                        "processing": "processing",
-                        "cancelling": "cancelling",
-                        "setup": "setup",
-                        "not_configured": "not_configured",
-                    }
-                    return mapping.get(state_name, "idle")
-            except Exception:
-                pass
+                from voice_typer.config import _config_dir
+                path = _config_dir() / "flet_state.json"
+                with open(path, "r") as f:
+                    return json.load(f)
+            except FileNotFoundError:
+                return {}
+            except (json.JSONDecodeError, PermissionError):
+                time.sleep(0.05)
+        return {}
+
+    def _get_status(self) -> str:
+        state = self._read_flet_state()
+        status = state.get("status")
+        if status:
+            mapping = {
+                "idle": "idle",
+                "recording": "recording",
+                "transcribing": "transcribing",
+                "loading": "loading",
+                "error": "error",
+                "paused": "paused",
+                "warming_up": "warming_up",
+                "downloading": "downloading",
+                "processing": "processing",
+                "cancelling": "cancelling",
+                "setup": "setup",
+                "not_configured": "not_configured",
+            }
+            return mapping.get(status, "idle")
         return "idle"
 
     def _get_last_transcription(self) -> str:
-        if self.app_controller and hasattr(self.app_controller, '_last_transcription'):
-            return self.app_controller._last_transcription or ""
-        return ""
+        state = self._read_flet_state()
+        return state.get("last_text", "")
+
+    def _simulate_hotkey(self) -> None:
+        """Simulate the configured hotkey via keybd_event.
+
+        The Flet UI runs as a subprocess with no access to app_controller.
+        The parent process polls GetAsyncKeyState at ~20Hz, so the key
+        must be held briefly (150ms) to guarantee detection.
+        """
+        import time
+        import sys
+        from voice_typer.hotkeys import parse_hotkey_to_win32
+        try:
+            parsed = parse_hotkey_to_win32(self.config.hotkey)
+            if parsed is None:
+                print("[UI] _simulate_hotkey: parse returned None", flush=True, file=sys.stderr)
+                return
+            vk, mod = parsed
+
+            user32 = ctypes.windll.user32
+
+            mod_vk_map = {
+                1: 0x12,  # _MOD_ALT → VK_MENU
+                2: 0x11,  # _MOD_CONTROL → VK_CONTROL
+                4: 0x10,  # _MOD_SHIFT → VK_SHIFT
+                8: 0x5B,  # _MOD_WIN → VK_LWIN
+            }
+
+            pressed_mods = []
+            for mod_bit, mod_vk in mod_vk_map.items():
+                if mod & mod_bit:
+                    user32.keybd_event(mod_vk, 0, 0, 0)
+                    pressed_mods.append(mod_vk)
+
+            user32.keybd_event(vk, 0, 0, 0)
+            time.sleep(0.15)
+            user32.keybd_event(vk, 0, 2, 0)
+
+            for mod_vk in reversed(pressed_mods):
+                user32.keybd_event(mod_vk, 0, 2, 0)
+        except Exception as exc:
+            print(f"[UI] _simulate_hotkey: {exc}", flush=True, file=sys.stderr)
+
+    def _poll_now(self):
+        """Immediate one-shot status check — bypasses the 1s polling timer.
+
+        Retries with short sleeps to catch state chains like
+        recording→transcribing→idle that complete within ~1s.
+        """
+        import time
+        for _ in range(4):
+            try:
+                new_status = self._get_status()
+                if new_status != self._current_status:
+                    self._current_status = new_status
+                    if self.current_view == "home":
+                        self._set_view("home")
+            except Exception:
+                pass
+            time.sleep(0.15)
 
     def _on_toggle_dictation(self):
-        if self.app_controller and hasattr(self.app_controller, 'toggle_dictation'):
-            self.app_controller.toggle_dictation()
+        self._simulate_hotkey()
+        self._poll_now()
 
     def _on_start_dictation(self):
-        if self.app_controller and hasattr(self.app_controller, '_start_dictation'):
-            self.app_controller._start_dictation()
+        self._simulate_hotkey()
+        self._poll_now()
 
     def _on_stop_dictation(self):
-        if self.app_controller and hasattr(self.app_controller, '_stop_dictation'):
-            self.app_controller._stop_dictation()
+        self._simulate_hotkey()
+        self._poll_now()
 
     def _on_repaste_last(self):
         if self.app_controller and hasattr(self.app_controller, '_last_transcription'):
@@ -397,13 +468,13 @@ class VoiceTyperApp:
         """Initialize all screens."""
         self.screens = {
             "home": build_home_page,
-            "history": HistoryScreen(self.page, self.config),
-            "templates": TemplatesScreen(self.page, self.config),
-            "vocabulary": VocabularyScreen(self.page, self.config),
-            "models": ModelsScreen(self.page, self.config),
-            "microphone": MicrophoneScreen(self.page, self.config),
-            "privacy": PrivacyScreen(self.page, self.config),
-            "settings": SettingsScreen(self.page, self.config, self.settings_controller),
+            "history": HistoryScreen(self.page, self.config, reload=lambda: self._set_view("history")),
+            "templates": TemplatesScreen(self.page, self.config, reload=lambda: self._set_view("templates")),
+            "vocabulary": VocabularyScreen(self.page, self.config, reload=lambda: self._set_view("vocabulary")),
+            "models": ModelsScreen(self.page, self.config, reload=lambda: self._set_view("models")),
+            "microphone": MicrophoneScreen(self.page, self.config, reload=lambda: self._set_view("microphone")),
+            "privacy": PrivacyScreen(self.page, self.config, reload=lambda: self._set_view("privacy")),
+            "settings": SettingsScreen(self.page, self.config, self.settings_controller, reload=lambda: self._set_view("settings")),
         }
 
     def _build_sidebar(self) -> ft.Control:

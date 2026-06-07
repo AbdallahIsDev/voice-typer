@@ -8,9 +8,10 @@ from voice_typer.templates import TemplateManager
 class TemplatesScreen:
     """Templates screen for managing voice templates."""
 
-    def __init__(self, page: ft.Page, config):
+    def __init__(self, page: ft.Page, config, reload=None):
         self.page = page
         self.config = config
+        self.reload = reload or (lambda: None)
         self._template_manager = None
         self._load_templates()
 
@@ -215,6 +216,7 @@ class TemplatesScreen:
                 mgr = self._get_manager()
                 mgr.add(trigger, output, match_mode=mode)
                 self._load_templates()
+                self.reload()
                 self.page.snack_bar = ft.SnackBar(
                     content=ft.Text(f"Template added: {trigger}"),
                     bgcolor=Colors.SUCCESS,
@@ -262,6 +264,7 @@ class TemplatesScreen:
                 mgr = self._get_manager()
                 mgr.update(idx, trigger, output, match_mode=mode)
                 self._load_templates()
+                self.reload()
                 self.page.snack_bar = ft.SnackBar(
                     content=ft.Text(f"Template updated: {trigger}"),
                     bgcolor=Colors.SUCCESS,
@@ -293,6 +296,7 @@ class TemplatesScreen:
         mgr = self._get_manager()
         if mgr.delete(idx):
             self._load_templates()
+            self.reload()
             self.page.snack_bar = ft.SnackBar(
                 content=ft.Text(f"Deleted: {trigger}"),
                 bgcolor=Colors.WARNING,

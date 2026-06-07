@@ -735,6 +735,34 @@ class VoiceTyperApp:
 
                 # Save for repaste
                 self._last_transcription = text
+                # Write to shared state file so Flet subprocess sees it too
+                try:
+                    import json
+                    import os
+                    import tempfile
+                    from voice_typer.config import _config_dir
+                    _state_path = _config_dir() / "flet_state.json"
+                    try:
+                        with open(_state_path, "r") as _f:
+                            _data = json.load(_f)
+                    except (FileNotFoundError, json.JSONDecodeError):
+                        _data = {}
+                    _data["last_text"] = text
+                    _fd, _tmp = tempfile.mkstemp(
+                        dir=str(_state_path.parent), suffix=".tmp"
+                    )
+                    try:
+                        with os.fdopen(_fd, "w") as _f:
+                            json.dump(_data, _f)
+                        os.replace(_tmp, str(_state_path))
+                    except BaseException:
+                        try:
+                            os.unlink(_tmp)
+                        except Exception:
+                            pass
+                        raise
+                except Exception:
+                    pass
 
                 if self.config.log_transcriptions:
                     log.info("Transcription: %s", text[:200])

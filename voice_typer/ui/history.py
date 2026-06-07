@@ -10,9 +10,10 @@ from .icons import icon
 class HistoryScreen:
     """History screen for viewing past transcriptions."""
 
-    def __init__(self, page: ft.Page, config):
+    def __init__(self, page: ft.Page, config, reload=None):
         self.page = page
         self.config = config
+        self.reload = reload or (lambda: None)
         self.history_db = HistoryDB()
         self.history_items = []
         self._search_timer = None
@@ -184,10 +185,10 @@ class HistoryScreen:
         """UX-010: Delete with undo support."""
         item_id = item.get("id")
         if self.history_db.delete(item_id):
-            # Store for undo
             self._last_deleted = item
             if item in self.history_items:
                 self.history_items.remove(item)
+            self.reload()
             self.page.snack_bar = ft.SnackBar(
                 content=ft.Text("Item deleted"),
                 bgcolor=Colors.WARNING,
@@ -209,6 +210,7 @@ class HistoryScreen:
                 )
                 self._load_history()
                 self._last_deleted = None
+                self.reload()
                 self.page.snack_bar = ft.SnackBar(
                     content=ft.Text("Item restored"),
                     bgcolor=Colors.SUCCESS,
@@ -221,6 +223,7 @@ class HistoryScreen:
     def _toggle_favorite(self, item: dict):
         if self.history_db.toggle_favorite(item.get("id")):
             item["favorite"] = 0 if item.get("favorite", 0) else 1
+            self.reload()
             self.page.snack_bar = ft.SnackBar(
                 content=ft.Text("Favorite toggled"),
                 bgcolor=Colors.INFO,
@@ -230,6 +233,7 @@ class HistoryScreen:
 
     def _show_favorites(self, e):
         self.history_items = self.history_db.get_favorites()
+        self.reload()
         self.page.update()
 
     def _clear_all_confirm(self, e):
@@ -238,6 +242,7 @@ class HistoryScreen:
             self.page.dialog.open = False
             if self.history_db.clear_all():
                 self.history_items.clear()
+                self.reload()
                 self.page.snack_bar = ft.SnackBar(
                     content=ft.Text("History cleared"),
                     bgcolor=Colors.WARNING,
@@ -264,6 +269,7 @@ class HistoryScreen:
         """Direct clear without confirm (legacy, kept for compatibility)."""
         if self.history_db.clear_all():
             self.history_items.clear()
+            self.reload()
             self.page.snack_bar = ft.SnackBar(
                 content=ft.Text("History cleared"),
                 bgcolor=Colors.WARNING,
@@ -300,6 +306,7 @@ class HistoryScreen:
                 self.history_items = self.history_db.search(query)
             else:
                 self.history_items = self.history_db.get_recent()
+            self.reload()
             self.page.update()
 
         self._search_timer = threading.Timer(self._search_delay, _do_search)

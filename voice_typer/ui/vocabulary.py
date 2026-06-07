@@ -27,9 +27,10 @@ class VocabularyScreen:
         "products": "Product name corrections",
     }
 
-    def __init__(self, page: ft.Page, config):
+    def __init__(self, page: ft.Page, config, reload=None):
         self.page = page
         self.config = config
+        self.reload = reload or (lambda: None)
         self._vocab_manager = None
         self._active_category = CATEGORIES[0]
         self._load_vocabulary()
@@ -133,6 +134,7 @@ class VocabularyScreen:
     def _select_category(self, category: str):
         """Select a vocabulary category to filter."""
         self._active_category = category
+        self.reload()
         self.page.update()
 
     def _build_vocabulary_list(self) -> ft.Control:
@@ -270,6 +272,7 @@ class VocabularyScreen:
                 else:
                     mgr.add_phrase(category, original, correction)
                 self._load_vocabulary()
+                self.reload()
                 self.page.snack_bar = ft.SnackBar(
                     content=ft.Text(f"Added: {original} → {correction}"),
                     bgcolor=Colors.SUCCESS,
@@ -305,7 +308,6 @@ class VocabularyScreen:
             correction = correction_field.value
             if original and correction:
                 mgr = self._get_manager()
-                # Remove old, add new (simple edit strategy)
                 if category in ("misspellings", "technical_terms", "names", "products"):
                     mgr.remove_entry(category, item.get("original", ""))
                     mgr.add_entry(category, original, correction)
@@ -315,6 +317,7 @@ class VocabularyScreen:
                         mgr.remove_phrase(category, idx)
                     mgr.add_phrase(category, original, correction)
                 self._load_vocabulary()
+                self.reload()
                 self.page.snack_bar = ft.SnackBar(
                     content=ft.Text(f"Updated: {original} → {correction}"),
                     bgcolor=Colors.SUCCESS,
@@ -350,6 +353,7 @@ class VocabularyScreen:
             if idx >= 0:
                 mgr.remove_phrase(category, idx)
         self._load_vocabulary()
+        self.reload()
         self.page.snack_bar = ft.SnackBar(
             content=ft.Text(f"Deleted: {original}"),
             bgcolor=Colors.WARNING,

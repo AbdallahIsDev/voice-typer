@@ -11,9 +11,10 @@ log = logging.getLogger(__name__)
 class SettingsScreen:
     """Settings screen for the Voice Typer desktop app."""
 
-    def __init__(self, page: ft.Page, config, settings_controller):
+    def __init__(self, page: ft.Page, config, settings_controller, reload=None):
         self.page = page
         self.config = config
+        self.reload = reload or (lambda: None)
         self.settings = settings_controller
 
     def build(self) -> ft.Control:
@@ -39,6 +40,7 @@ class SettingsScreen:
                     ),
                     ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
                     self._build_general_settings(),
+                    self._build_tray_settings(),
                     self._build_recording_settings(),
                     self._build_hotkey_settings(),
                     self._build_appearance_settings(),
@@ -94,6 +96,36 @@ class SettingsScreen:
                                 tooltip="Show desktop notifications for transcriptions",
                             ),
                             "Show desktop notifications for transcriptions",
+                        ),
+                    ],
+                    spacing=10,
+                ),
+            )
+        )
+
+    def _on_tray_click_change(self, value: str):
+        self._update_config("tray_left_click_action", value)
+
+    def _build_tray_settings(self) -> ft.Control:
+        return ft.Card(
+            content=ft.Container(
+                padding=20,
+                content=ft.Column(
+                    [
+                        ft.Text("Tray Icon", size=18, weight=ft.FontWeight.W_600),
+                        self._setting_row(
+                            "Left-click action",
+                            ft.Dropdown(
+                                value=self.config.tray_left_click_action,
+                                width=180,
+                                options=[
+                                    ft.dropdown.Option("open_app", "Open App"),
+                                    ft.dropdown.Option("toggle_dictation", "Toggle Dictation"),
+                                ],
+                                on_select=lambda e: self._on_tray_click_change(e.control.value),
+                                tooltip="What happens when you left-click the tray icon",
+                            ),
+                            "What happens when you left-click the tray icon",
                         ),
                     ],
                     spacing=10,
@@ -479,6 +511,7 @@ class SettingsScreen:
         try:
             setattr(self.config, field, value)
             self.config.save()
+            self.reload()
         except Exception:
             pass
 
@@ -489,6 +522,7 @@ class SettingsScreen:
             internal = format_function_hotkey(display_value)
             setattr(self.config, field, internal)
             self.config.save()
+            self.reload()
             if field == "hotkey" and self.settings.on_hotkey_changed:
                 self.settings.on_hotkey_changed(internal)
         except ValueError:
@@ -512,6 +546,7 @@ class SettingsScreen:
         """UX-008/031: Change application theme."""
         self.config.theme_mode = theme_mode
         self.config.save()
+        self.reload()
         if self.page:
             if theme_mode == "light":
                 self.page.theme_mode = ft.ThemeMode.LIGHT
@@ -590,6 +625,7 @@ class SettingsScreen:
                 if hasattr(self.config, field):
                     setattr(self.config, field, getattr(defaults, field))
             self.config.save()
+            self.reload()
             self.page.snack_bar = ft.SnackBar(
                 content=ft.Text("Settings reset to defaults"),
                 bgcolor=Colors.WARNING,
@@ -608,6 +644,7 @@ class SettingsScreen:
             if 3 <= seconds <= 30:
                 self.config.silence_warning_seconds = seconds
                 self.config.save()
+                self.reload()
         except ValueError:
             pass
 
@@ -617,5 +654,6 @@ class SettingsScreen:
             if 0 <= seconds <= 7200:
                 self.config.max_recording_seconds = seconds
                 self.config.save()
+                self.reload()
         except ValueError:
             pass

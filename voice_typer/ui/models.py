@@ -26,9 +26,10 @@ CLOUD_PROVIDERS = {
 class ModelsScreen:
     """Models screen for managing Whisper models and cloud providers."""
 
-    def __init__(self, page: ft.Page, config):
+    def __init__(self, page: ft.Page, config, reload=None):
         self.page = page
         self.config = config
+        self.reload = reload or (lambda: None)
         self.active_model = config.model_size if config else "tiny.en"
         self.models = self._build_models_list()
         self._download_progress = 0
@@ -276,6 +277,7 @@ class ModelsScreen:
             elif provider == "deepgram":
                 self.config.deepgram_api_key = key_value
             self.config.save()
+            self.reload()
             self.page.snack_bar = ft.SnackBar(
                 content=ft.Text(f"{label} API key saved"),
                 bgcolor=Colors.SUCCESS,
@@ -407,9 +409,9 @@ class ModelsScreen:
         self.active_model = model.get("name")
         self.config.model_size = model.get("name")
         self.config.save()
-        # Update model list active state
         for m in self.models:
             m["is_active"] = m["name"] == self.active_model
+        self.reload()
         self.page.snack_bar = ft.SnackBar(
             content=ft.Text(f"Using model: {model.get('name')}"),
             bgcolor=Colors.SUCCESS,
@@ -431,6 +433,7 @@ class ModelsScreen:
         def _do_delete(dialog_e):
             self.page.dialog.open = False
             self.models = [m for m in self.models if m.get("name") != model.get("name")]
+            self.reload()
             self.page.snack_bar = ft.SnackBar(
                 content=ft.Text(f"Deleted model: {model.get('name')}"),
                 bgcolor=Colors.WARNING,
@@ -467,7 +470,6 @@ class ModelsScreen:
                 import time
                 import numpy as np
                 start = time.time()
-                # Synthetic benchmark: measure numpy throughput
                 data = np.random.randn(16000 * 5).astype(np.float32)
                 for _ in range(10):
                     _ = np.sqrt(np.mean(np.square(data)))
@@ -478,6 +480,7 @@ class ModelsScreen:
                 )
             except Exception as exc:
                 self._benchmark_result = f"Benchmark failed: {exc}"
+            self.reload()
             self.page.snack_bar = ft.SnackBar(
                 content=ft.Text(self._benchmark_result),
                 bgcolor=Colors.INFO,

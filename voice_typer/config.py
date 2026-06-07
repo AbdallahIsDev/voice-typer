@@ -144,6 +144,9 @@ class Config:
     # Onboarding
     onboarding_completed: bool = False
 
+    # Tray icon left-click behavior
+    tray_left_click_action: str = "open_app"  # "open_app" or "toggle_dictation"
+
     # UX-008: Theme mode (system/light/dark)
     theme_mode: str = "system"
 
@@ -264,6 +267,7 @@ class Config:
             "openai_api_key", "groq_api_key", "deepgram_api_key",
             "llm_api_key", "llm_api_url", "llm_model", "llm_preset",
             "repaste_hotkey",
+            "tray_left_click_action",
         }
         defaults = cls()
 

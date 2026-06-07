@@ -7,9 +7,10 @@ from .icons import icon
 class MicrophoneScreen:
     """Microphone screen for testing and configuring audio input."""
 
-    def __init__(self, page: ft.Page, config):
+    def __init__(self, page: ft.Page, config, reload=None):
         self.page = page
         self.config = config
+        self.reload = reload or (lambda: None)
         self.microphones = self._load_microphones()
         self.active_microphone_id = config.microphone if config else None
         self._test_running = False
@@ -246,6 +247,7 @@ class MicrophoneScreen:
 
     def _refresh(self, e):
         self.microphones = self._load_microphones()
+        self.reload()
         self.page.snack_bar = ft.SnackBar(
             content=ft.Text(f"Found {len(self.microphones)} microphone(s)"),
             bgcolor=Colors.INFO,
@@ -261,6 +263,7 @@ class MicrophoneScreen:
             self.active_microphone_id = mic.get("id")
             self.config.microphone = mic.get("id")
         self.config.save()
+        self.reload()
         label = mic.get("name", "System Default") if mic else "System Default"
         self.page.snack_bar = ft.SnackBar(
             content=ft.Text(f"Using: {label}"),

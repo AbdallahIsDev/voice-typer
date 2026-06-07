@@ -120,6 +120,36 @@ class TrayIcon:
         else:
             with self._queue_lock:
                 self._pending_states.append((state, message))
+        self._write_flet_state_file(state.name.lower(), message)
+
+    def _write_flet_state_file(self, status: str, message: str = "") -> None:
+        """Write current state to a shared JSON file that the Flet subprocess reads."""
+        try:
+            import json
+            import os
+            import tempfile
+            from voice_typer.config import _config_dir
+            path = _config_dir() / "flet_state.json"
+            try:
+                with open(path, "r") as f:
+                    data = json.load(f)
+            except (FileNotFoundError, json.JSONDecodeError):
+                data = {}
+            data["status"] = status
+            data["message"] = message
+            fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w") as f:
+                    json.dump(data, f)
+                os.replace(tmp, str(path))
+            except BaseException:
+                try:
+                    os.unlink(tmp)
+                except Exception:
+                    pass
+                raise
+        except Exception:
+            pass
 
     def set_microphones(self, mics: list[dict]) -> None:
         """Update the cached microphone list."""
@@ -158,9 +188,6 @@ class TrayIcon:
             raise RuntimeError(
                 f"Failed to create tray icon (pystray Menu construction error): {e}"
             ) from e
-
-        # Add left-click handler to open Flet window
-        self._icon.on_click = self._on_icon_click
 
         # Start background work
         if self._bg_work_fn:
@@ -417,28 +444,8 @@ class TrayIcon:
         """
         # Check if Flet process is already running
         if self._flet_process is not None and self._flet_process.poll() is None:
-            log.info("Flet window already open (PID=%d)", self._flet_process.pid)
-            # Bring the existing window to the foreground.
-            # Use PID-based lookup so we target OUR window, not a stale
-            # zombie window left behind by a killed process.
-            try:
-                import ctypes
-                from ctypes import wintypes
-
-                our_pid = self._flet_process.pid
-
-                def _enum_cb(hwnd, lparam):
-                    pid = wintypes.DWORD()
-                    ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-                    if pid.value == our_pid and ctypes.windll.user32.IsWindowVisible(hwnd):
-                        ctypes.windll.user32.SetForegroundWindow(hwnd)
-                        return False
-                    return True
-
-                WNDENUMPROC = ctypes.CFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-                ctypes.windll.user32.EnumWindows(WNDENUMPROC(_enum_cb), 0)
-            except Exception:
-                pass
+            log.info("Flet window already open (PID=%d), bringing to front", self._flet_process.pid)
+            self._bring_window_to_front(self._flet_process.pid)
             return
 
         try:
@@ -472,6 +479,77 @@ class TrayIcon:
         """Mark the menu cache as stale so it rebuilds on next right-click."""
         self._menu_cache_valid = False
 
+    @staticmethod
+    def _bring_window_to_front(pid: int) -> None:
+        """Restore and focus the Flet window.
+
+        Searches by window title (\"Voice Typer\") instead of PID because
+        Flet's embedded webview window is owned by a different process
+        than the Python subprocess.
+        """
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            found_hwnd = None
+
+            def _enum_cb(hwnd, _):
+                nonlocal found_hwnd
+                buf = ctypes.create_unicode_buffer(256)
+                ctypes.windll.user32.GetWindowTextW(hwnd, buf, 256)
+                title = buf.value
+                if title and "Voice Typer" in title:
+                    found_hwnd = hwnd
+                    return False
+                return True
+
+            WNDENUMPROC = ctypes.CFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+            ctypes.windll.user32.EnumWindows(WNDENUMPROC(_enum_cb), 0)
+
+            if found_hwnd is None:
+                log.warning("No Voice Typer window found for PID %d", pid)
+                return
+
+            # Restore if minimized
+            if ctypes.windll.user32.IsIconic(found_hwnd):
+                ctypes.windll.user32.ShowWindow(found_hwnd, 9)  # SW_RESTORE
+
+            # Attach thread input to bypass Windows foreground-lock
+            our_tid = ctypes.windll.kernel32.GetCurrentThreadId()
+            target_tid = ctypes.windll.user32.GetWindowThreadProcessId(found_hwnd, None)
+            fg_hwnd = ctypes.windll.user32.GetForegroundWindow()
+
+            if target_tid != our_tid:
+                ctypes.windll.user32.AttachThreadInput(our_tid, target_tid, True)
+            if fg_hwnd:
+                fg_tid = ctypes.windll.user32.GetWindowThreadProcessId(fg_hwnd, None)
+                if fg_tid and fg_tid != target_tid and fg_tid != our_tid:
+                    ctypes.windll.user32.AttachThreadInput(our_tid, fg_tid, False)
+
+            ctypes.windll.user32.BringWindowToTop(found_hwnd)
+            ctypes.windll.user32.SetForegroundWindow(found_hwnd)
+            ctypes.windll.user32.SetActiveWindow(found_hwnd)
+
+            if target_tid != our_tid:
+                ctypes.windll.user32.AttachThreadInput(our_tid, target_tid, False)
+
+        except Exception as exc:
+            log.warning("Failed to bring window to front: %s", exc)
+
+    def _get_left_click_action(self) -> str:
+        """Read tray_left_click_action from config on disk (live, not cached)."""
+        try:
+            from voice_typer.config import _config_dir
+            import json
+            path = _config_dir() / "config.json"
+            if path.exists():
+                with open(path) as f:
+                    data = json.load(f)
+                return data.get("tray_left_click_action", "open_app")
+        except Exception:
+            pass
+        return "open_app"
+
     def _build_menu(self) -> tuple:
         """Build the Phase 2 minimal tray menu."""
         if self._menu_cache_valid and self._cached_menu is not None:
@@ -480,14 +558,31 @@ class TrayIcon:
         items = []
         hotkey = self._display_hotkey()
 
-        # Toggle dictation
-        items.append(
-            pystray.MenuItem(
-                f"Toggle Dictation ({hotkey})",
-                self._wrap(self._controller.toggle_dictation),
-                default=True,
+        left_click_action = self._get_left_click_action()
+
+        if left_click_action == 'toggle_dictation':
+            items.append(
+                pystray.MenuItem(
+                    f"Toggle Dictation ({hotkey})",
+                    self._wrap(self._controller.toggle_dictation),
+                    default=True,
+                )
             )
-        )
+            items.append(pystray.MenuItem("Open App", self._wrap(self.open_flet_window)))
+        else:
+            items.append(
+                pystray.MenuItem(
+                    "Open App",
+                    self._wrap(self.open_flet_window),
+                    default=True,
+                )
+            )
+            items.append(
+                pystray.MenuItem(
+                    f"Toggle Dictation ({hotkey})",
+                    self._wrap(self._controller.toggle_dictation),
+                )
+            )
 
         # Settings (TRAY-002)
         items.append(pystray.MenuItem("Settings", self._wrap(self.open_flet_window)))
@@ -531,11 +626,6 @@ class TrayIcon:
             else:
                 parts.append(clean.upper())
         return "+".join(parts)
-
-    def _on_icon_click(self, icon, item):
-        """Handle left-click on tray icon to open Flet window."""
-        log.info("Tray icon left-clicked, opening Flet window")
-        self.open_flet_window()
 
     @staticmethod
     def _wrap(fn):

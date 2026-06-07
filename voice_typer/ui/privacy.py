@@ -9,9 +9,10 @@ from .icons import icon
 class PrivacyScreen:
     """Privacy screen for managing data and privacy settings."""
 
-    def __init__(self, page: ft.Page, config):
+    def __init__(self, page: ft.Page, config, reload=None):
         self.page = page
         self.config = config
+        self.reload = reload or (lambda: None)
         self._history_db = None
         self._vocab_manager = None
 
@@ -274,6 +275,7 @@ class PrivacyScreen:
                 db = self._get_history_db()
                 if db:
                     db.clear_all()
+                self.reload()
                 self.page.snack_bar = ft.SnackBar(
                     content=ft.Text("All data cleared"),
                     bgcolor=Colors.WARNING,
