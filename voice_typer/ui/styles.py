@@ -42,7 +42,7 @@ class Colors:
     TEXT_PRIMARY_DARK = ft.Colors.WHITE
     TEXT_SECONDARY_DARK = ft.Colors.GREY_400
     DIVIDER = ft.Colors.GREY_200
-    DIVIDER_DARK = ft.Colors.GREY_200
+    DIVIDER_DARK = ft.Colors.GREY_900
     CARD_BG = ft.Colors.WHITE
     CARD_BG_DARK = ft.Colors.GREY_800
 

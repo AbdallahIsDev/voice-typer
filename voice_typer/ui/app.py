@@ -375,6 +375,7 @@ class VoiceTyperApp:
         page.theme = get_theme(dark=is_dark)
 
         page.padding = 0
+        page.window.title_bar_hidden = True
         page.vertical_alignment = ft.MainAxisAlignment.START
         page.horizontal_alignment = ft.CrossAxisAlignment.STRETCH
 
@@ -393,6 +394,7 @@ class VoiceTyperApp:
         page.add(
             ft.Column(
                 [
+                    self._build_title_bar(),
                     ft.Container(
                         content=self._build_main_row(),
                         expand=True,
@@ -555,6 +557,62 @@ class VoiceTyperApp:
         )
         return self._content_area
 
+    def _build_title_bar(self) -> ft.Control:
+        """Build a custom title bar with window controls (no icon or name)."""
+        dark = self._is_dark_mode()
+
+        def minimize_click(e):
+            self.page.window.minimized = True
+            self.page.update()
+
+        def maximize_click(e):
+            self.page.window.maximized = not self.page.window.maximized
+            self.page.update()
+
+        def close_click(e):
+            self.page.window.close()
+
+        self._title_bar_container = ft.Container(
+            height=32,
+            bgcolor=Colors.sidebar_bg(dark),
+            padding=ft.Padding.symmetric(horizontal=8),
+            content=ft.Row(
+                [
+                    ft.WindowDragArea(
+                        ft.Container(expand=True),
+                        expand=True,
+                        on_double_tap=maximize_click,
+                    ),
+                    ft.Row(
+                        spacing=0,
+                        controls=[
+                            ft.IconButton(
+                                icon=ft.Icons.MINIMIZE,
+                                icon_size=16,
+                                on_click=minimize_click,
+                                padding=ft.Padding.symmetric(horizontal=4, vertical=2),
+                            ),
+                            ft.IconButton(
+                                icon=ft.Icons.MAXIMIZE,
+                                icon_size=16,
+                                on_click=maximize_click,
+                                padding=ft.Padding.symmetric(horizontal=4, vertical=2),
+                            ),
+                            ft.IconButton(
+                                icon=ft.Icons.CLOSE,
+                                icon_size=16,
+                                on_click=close_click,
+                                padding=ft.Padding.symmetric(horizontal=4, vertical=2),
+                            ),
+                        ],
+                    ),
+                ],
+                spacing=0,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+        )
+        return self._title_bar_container
+
     def _build_main_row(self) -> ft.Row:
         """Build the Row containing sidebar + content area."""
         return ft.Row(
@@ -703,6 +761,8 @@ class VoiceTyperApp:
             self._content_area.bgcolor = Colors.surface(dark)
         if hasattr(self, "_sidebar_container"):
             self._sidebar_container.bgcolor = Colors.sidebar_bg(dark)
+        if hasattr(self, "_title_bar_container"):
+            self._title_bar_container.bgcolor = Colors.sidebar_bg(dark)
         for item_id, btn in self.nav_buttons.items():
             is_selected = item_id == view_id
             btn.content.controls[0].color = ft.Colors.WHITE if is_selected else Colors.text_secondary(dark)
