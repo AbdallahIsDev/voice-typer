@@ -511,7 +511,7 @@ class VoiceTyperApp:
         # UX-008: Theme toggle button
         current_theme = getattr(self.config, 'theme_mode', 'system')
 
-        return ft.Container(
+        self._sidebar_container = ft.Container(
             width=220,
             bgcolor=Colors.sidebar_bg(dark),
             padding=ft.Padding.all(16),
@@ -537,9 +537,11 @@ class VoiceTyperApp:
                 spacing=0,
             ),
         )
+        return self._sidebar_container
 
     def _build_content_area(self) -> ft.Control:
         """Build the main content area."""
+        dark = self._is_dark_mode()
         self._content_column = ft.Column(
             key="content",
             scroll=ft.ScrollMode.AUTO,
@@ -547,7 +549,7 @@ class VoiceTyperApp:
         )
         self._content_area = ft.Container(
             expand=True,
-            bgcolor=ft.Colors.WHITE,
+            bgcolor=Colors.surface(dark),
             content=self._content_column,
         )
         return self._content_area
@@ -696,6 +698,10 @@ class VoiceTyperApp:
 
         # Update nav button states
         dark = self._is_dark_mode()
+        if hasattr(self, "_content_area"):
+            self._content_area.bgcolor = Colors.surface(dark)
+        if hasattr(self, "_sidebar_container"):
+            self._sidebar_container.bgcolor = Colors.sidebar_bg(dark)
         for item_id, btn in self.nav_buttons.items():
             is_selected = item_id == view_id
             btn.content.controls[0].color = ft.Colors.WHITE if is_selected else Colors.text_secondary(dark)
