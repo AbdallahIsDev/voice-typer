@@ -4,6 +4,11 @@ from .styles import Colors, is_windows_dark_mode
 from .icons import icon
 
 
+def _border_all(width, color):
+    s = ft.BorderSide(width, color)
+    return ft.Border(left=s, top=s, right=s, bottom=s)
+
+
 CLOUD_PROVIDERS = {
     "openai": {
         "label": "OpenAI",
@@ -59,19 +64,18 @@ class ModelsScreen:
         return models
 
     def build(self) -> ft.Control:
-        dark = self._is_dark_mode()
         return ft.Container(
             padding=40,
             content=ft.Column(
                 [
                     ft.Row(
                         [
-                            ft.Text("Models", size=24, weight=ft.FontWeight.BOLD, color=Colors.text_primary(dark)),
+                            ft.Text("Models", size=20, weight=ft.FontWeight.W_600, color="#F1F1F3"),
                             ft.Container(expand=True),
                             ft.Button(
                                 content=ft.Row([icon("download", color=ft.Colors.WHITE, size=16), ft.Text("Download Model", color=ft.Colors.WHITE)], spacing=8),
                                 on_click=self._download_model,
-                                bgcolor=ft.Colors.BLUE_600,
+                                bgcolor="#3B82F6",
                                 tooltip="Download a new model for transcription",
                             ),
                         ],
@@ -80,12 +84,11 @@ class ModelsScreen:
                     ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
                     ft.Text(
                         "Manage Whisper models for transcription",
-                        size=14,
-                        color=Colors.text_secondary(dark),
+                        size=13,
+                        color="rgba(241,241,243,0.55)",
                     ),
                     ft.Container(height=10),
                     self._build_models_list_ui(),
-                    ft.Container(height=20),
                     self._build_cloud_providers(),
                     ft.Container(height=20),
                     self._build_model_benchmark(),
@@ -94,7 +97,6 @@ class ModelsScreen:
         )
 
     def _build_models_list_ui(self) -> ft.Control:
-        dark = self._is_dark_mode()
         # UX-025: Check for models with no downloaded flag
         has_models = any(m.get("downloaded", True) for m in self.models)
         if not has_models or not self.models:
@@ -103,16 +105,16 @@ class ModelsScreen:
                 alignment=ft.Alignment.CENTER,
                 content=ft.Column(
                     [
-                        icon("download-done", size=48, color=ft.Colors.GREY_400 if not dark else ft.Colors.GREY_500),
+                        icon("download-done", size=48, color="rgba(241,241,243,0.30)"),
                         ft.Text(
                             "No models downloaded",
                             size=16,
-                            color=ft.Colors.GREY_600 if not dark else ft.Colors.GREY_400,
+                            color="rgba(241,241,243,0.55)",
                         ),
                         ft.Text(
                             "Download a model to start transcribing",
                             size=14,
-                            color=ft.Colors.GREY_500 if not dark else ft.Colors.GREY_500,
+                            color="rgba(241,241,243,0.30)",
                         ),
                         ft.Container(height=10),
                         ft.Button(
@@ -133,137 +135,154 @@ class ModelsScreen:
         )
 
     def _model_item(self, model: dict) -> ft.Control:
-        dark = self._is_dark_mode()
         is_active = model.get("name") == self.active_model
         is_downloaded = model.get("downloaded", True)
+        status = "Active" if is_active else ("Downloaded" if is_downloaded else "Available")
+
+        if status in ("Active", "Downloaded"):
+            badge_bg = "rgba(34,197,94,0.12)"
+            badge_color = "#4ADE80"
+            badge_border = _border_all(0.5, "rgba(34,197,94,0.25)")
+        else:
+            badge_bg = "rgba(59,130,246,0.10)"
+            badge_color = "#60A5FA"
+            badge_border = _border_all(0.5, "rgba(59,130,246,0.25)")
+
         return ft.Container(
-            bgcolor=Colors.card_bg(dark),
-            border_radius=8,
-            content=ft.Card(
-                elevation=0,
-                content=ft.Container(
-                    padding=16,
-                    content=ft.Row(
-                    [
-                        ft.Column(
-                            [
-                                ft.Row(
-                                    [
-                                        ft.Text(
-                                            model.get("name", ""),
-                                            size=16,
+            bgcolor=ft.Colors.TRANSPARENT if not is_active else "rgba(59,130,246,0.05)",
+            border=_border_all(0.5, "rgba(255,255,255,0.07)") if not is_active else _border_all(0.5, "rgba(59,130,246,0.35)"),
+            border_radius=10,
+            padding=ft.Padding(20, 16, 20, 16),
+            content=ft.Row(
+                [
+                    ft.Column(
+                        [
+                            ft.Row(
+                                [
+                                    ft.Text(
+                                        model.get("name", ""),
+                                        size=16,
+                                        weight=ft.FontWeight.W_600,
+                                        color="#F1F1F3",
+                                    ),
+                                    ft.Container(
+                                        content=ft.Text(
+                                            status,
+                                            size=11,
+                                            color=badge_color,
                                             weight=ft.FontWeight.W_600,
-                                            color=Colors.text_primary(dark),
                                         ),
-                                        ft.Container(
-                                            content=ft.Text(
-                                                "Active" if is_active else ("Downloaded" if is_downloaded else "Available"),
-                                                size=12,
-                                                color=ft.Colors.WHITE,
+                                        bgcolor=badge_bg,
+                                        border=badge_border,
+                                        border_radius=6,
+                                        padding=ft.Padding(10, 2, 10, 2),
+                                    ),
+                                ],
+                                spacing=8,
+                            ),
+                            ft.Row(
+                                [
+                                    ft.Text(
+                                        f"Size: {model.get('size', 'Unknown')}",
+                                        size=11,
+                                        color="rgba(241,241,243,0.28)",
+                                    ),
+                                    ft.Row(
+                                        [
+                                            icon("speed", size=11, color="rgba(241,241,243,0.28)"),
+                                            ft.Text(
+                                                f"Speed: {model.get('speed', 'Unknown')}",
+                                                size=11,
+                                                color="rgba(241,241,243,0.28)",
                                             ),
-                                            bgcolor=ft.Colors.GREEN_600 if is_active else (ft.Colors.GREY_500 if is_downloaded else ft.Colors.BLUE_400),
-                                            padding=ft.Padding.symmetric(horizontal=8, vertical=2),
-                                            border_radius=10,
-                                        ),
-                                    ],
-                                    spacing=8,
-                                ),
-                                ft.Row(
-                                    [
-                                        ft.Text(
-                                            f"Size: {model.get('size', 'Unknown')}",
-                                            size=12,
-                                            color=Colors.text_secondary(dark),
-                                        ),
-                                        ft.Text(
-                                            f"Speed: {model.get('speed', 'Unknown')}",
-                                            size=12,
-                                            color=Colors.text_secondary(dark),
-                                        ),
-                                    ],
-                                    spacing=16,
-                                ),
-                            ],
-                            spacing=4,
-                            expand=True,
-                        ),
-                        ft.Row(
-                            [
-                                ft.IconButton(
-                                    icon=icon("play-arrow" if not is_active else "check"),
-                                    tooltip="Use" if not is_active else "Active",
-                                    on_click=lambda e, m=model: self._use_model(m),
-                                    disabled=is_active,
-                                ),
-                                ft.IconButton(
-                                    icon=icon("delete"),
-                                    tooltip="Delete",
-                                    on_click=lambda e, m=model: self._delete_model_confirm(m),
-                                ),
-                            ],
-                        ),
-                    ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                ),
+                                        ],
+                                        spacing=4,
+                                    ),
+                                ],
+                                spacing=12,
+                            ),
+                        ],
+                        spacing=4,
+                        expand=True,
+                    ),
+                    ft.Row(
+                        [
+                            ft.IconButton(
+                                icon=icon("play-arrow" if not is_active else "check"),
+                                tooltip="Use" if not is_active else "Active",
+                                on_click=lambda e, m=model: self._use_model(m),
+                                disabled=is_active,
+                            ),
+                            ft.IconButton(
+                                icon=icon("delete"),
+                                tooltip="Delete",
+                                on_click=lambda e, m=model: self._delete_model_confirm(m),
+                            ),
+                        ],
+                    ),
+                ],
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             ),
-        ),
-    )
+        )
 
     def _build_cloud_providers(self) -> ft.Control:
-        dark = self._is_dark_mode()
         return ft.Container(
-            bgcolor=Colors.card_bg(dark),
-            border_radius=8,
-            content=ft.Card(
-                elevation=0,
+            border=ft.Border(top=ft.BorderSide(0.5, "rgba(255,255,255,0.07)")),
+            margin=ft.Margin(left=0, top=24, right=0, bottom=0),
+            padding=ft.Padding(left=0, top=24, right=0, bottom=0),
+            content=ft.Container(
+                bgcolor=ft.Colors.TRANSPARENT,
+                border=_border_all(0.5, "rgba(255,255,255,0.07)"),
+                border_radius=10,
                 content=ft.Container(
                     padding=20,
                     content=ft.Column(
-                    [
-                        ft.Text("Cloud ASR Providers", size=18, weight=ft.FontWeight.W_600, color=Colors.text_primary(dark)),
-                        ft.Text(
-                            "Configure cloud-based transcription services",
-                            size=14,
-                            color=Colors.text_secondary(dark),
-                        ),
-                        ft.Container(height=10),
-                        self._build_provider_section(
-                            "openai",
-                            "OpenAI Whisper API",
-                            self.config.openai_api_key if self.config else "",
-                        ),
-                        ft.Container(height=10),
-                        self._build_provider_section(
-                            "groq",
-                            "Groq Whisper API",
-                            self.config.groq_api_key if self.config else "",
-                        ),
-                        ft.Container(height=10),
-                        self._build_provider_section(
-                            "deepgram",
-                            "Deepgram API",
-                            self.config.deepgram_api_key if self.config else "",
-                        ),
-                    ],
-                    spacing=8,
+                        [
+                            ft.Text("Cloud ASR Providers", size=20, weight=ft.FontWeight.W_600, color="#F1F1F3"),
+                            ft.Text(
+                                "Configure cloud-based transcription services",
+                                size=13,
+                                color="rgba(241,241,243,0.55)",
+                            ),
+                            ft.Container(height=10),
+                            self._build_provider_section(
+                                "openai",
+                                "OpenAI Whisper API",
+                                self.config.openai_api_key if self.config else "",
+                            ),
+                            ft.Container(height=10),
+                            self._build_provider_section(
+                                "groq",
+                                "Groq Whisper API",
+                                self.config.groq_api_key if self.config else "",
+                            ),
+                            ft.Container(height=10),
+                            self._build_provider_section(
+                                "deepgram",
+                                "Deepgram API",
+                                self.config.deepgram_api_key if self.config else "",
+                            ),
+                        ],
+                        spacing=8,
+                    ),
                 ),
             ),
-        ),
-    )
+        )
 
     def _build_provider_section(self, provider: str, label: str, api_key: str) -> ft.Control:
-        dark = self._is_dark_mode()
         provider_info = CLOUD_PROVIDERS.get(provider, {})
 
         key_field = ft.TextField(
             label=f"{label} API Key",
             value=api_key,
-            width=350,
+            width=240,
             password=True,
             can_reveal_password=True,
-            color=Colors.text_primary(dark),
-            bgcolor=ft.Colors.GREY_200 if not dark else ft.Colors.GREY_700,
-            border_color=Colors.divider(dark),
+            color="#F1F1F3",
+            bgcolor="rgba(255,255,255,0.05)",
+            border_color="rgba(255,255,255,0.10)",
+            text_size=13,
+            content_padding=ft.Padding(14, 9, 14, 9),
         )
 
         test_result = ft.Text("", size=12)
@@ -289,7 +308,7 @@ class ModelsScreen:
             key_value = key_field.value or ""
             if not key_value:
                 test_result.value = "Please enter an API key first"
-                test_result.color = Colors.ERROR
+                test_result.color = "#DC2626"
                 self.page.update()
                 return
 
@@ -303,15 +322,15 @@ class ModelsScreen:
                 )
                 success, message = engine.test_connection()
                 test_result.value = message
-                test_result.color = Colors.SUCCESS if success else Colors.ERROR
+                test_result.color = "#22C55E" if success else "#DC2626"
             except Exception as exc:
                 test_result.value = f"Connection test failed: {exc}"
-                test_result.color = Colors.ERROR
+                test_result.color = "#DC2626"
             self.page.update()
 
         return ft.Column(
             [
-                ft.Text(label, size=14, weight=ft.FontWeight.W_500, color=Colors.text_primary(dark)),
+                ft.Text(label, size=14, weight=ft.FontWeight.W_500, color="#F1F1F3"),
                 ft.Row(
                     [
                         key_field,
@@ -319,6 +338,13 @@ class ModelsScreen:
                             "Save Key",
                             on_click=_save_key,
                             tooltip=f"Save {label} API key",
+                            style=ft.ButtonStyle(
+                                bgcolor=ft.Colors.TRANSPARENT,
+                                side=ft.BorderSide(0.5, "rgba(255,255,255,0.14)"),
+                                shape=ft.RoundedRectangleBorder(radius=8),
+                                padding=ft.Padding(16, 9, 16, 9),
+                                color="rgba(241,241,243,0.65)",
+                            ),
                         ),
                         ft.Button(
                             content=ft.Row([icon("sparkles", size=14), ft.Text("Test Connection")], spacing=6),
@@ -335,21 +361,19 @@ class ModelsScreen:
         )
 
     def _build_model_benchmark(self) -> ft.Control:
-        dark = self._is_dark_mode()
         return ft.Container(
-            bgcolor=Colors.card_bg(dark),
-            border_radius=8,
-            content=ft.Card(
-                elevation=0,
-                content=ft.Container(
-                    padding=20,
-                    content=ft.Column(
+            bgcolor=ft.Colors.TRANSPARENT,
+            border=_border_all(0.5, "rgba(255,255,255,0.07)"),
+            border_radius=10,
+            content=ft.Container(
+                padding=20,
+                content=ft.Column(
                     [
-                        ft.Text("Model Benchmark", size=18, weight=ft.FontWeight.W_600, color=Colors.text_primary(dark)),
+                        ft.Text("Model Benchmark", size=20, weight=ft.FontWeight.W_600, color="#F1F1F3"),
                         ft.Text(
                             "Compare model performance on your system",
-                            size=14,
-                            color=Colors.text_secondary(dark),
+                            size=13,
+                            color="rgba(241,241,243,0.55)",
                         ),
                         ft.Container(height=10),
                         ft.Button(
@@ -361,15 +385,14 @@ class ModelsScreen:
                         ft.Text(
                             self._benchmark_result or "",
                             size=13,
-                            color=Colors.text_secondary(dark),
+                            color="rgba(241,241,243,0.55)",
                             visible=bool(self._benchmark_result),
                         ),
                     ],
                     spacing=8,
                 ),
             ),
-        ),
-    )
+        )
 
     def _download_model(self, e):
         """UX-024: Model download with progress indication."""

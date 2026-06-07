@@ -51,59 +51,66 @@ class TemplatesScreen:
             self.templates = []
 
     def build(self) -> ft.Control:
-        dark = self._is_dark_mode()
         return ft.Container(
             padding=40,
             content=ft.Column(
                 [
                     ft.Row(
                         [
-                            ft.Text("Templates", size=24, weight=ft.FontWeight.BOLD, color=Colors.text_primary(dark)),
+                            ft.Text("Templates", size=20, weight=ft.FontWeight.W_600, color="#F1F1F3"),
                             ft.Container(expand=True),
                             ft.Button(
                                 content=ft.Row([icon("add", color=ft.Colors.WHITE, size=16), ft.Text("Add Template", color=ft.Colors.WHITE)], spacing=8),
                                 on_click=self._add_template,
-                                bgcolor=ft.Colors.BLUE_600,
+                                bgcolor="#3B82F6",
                             ),
                         ],
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     ),
-                    ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
                     ft.Text(
                         "Create voice shortcuts that expand into full text",
-                        size=14,
-                        color=Colors.text_secondary(dark),
+                        size=13,
+                        color="rgba(241,241,243,0.28)",
                     ),
-                    ft.Container(height=10),
+                    ft.Container(height=24),
                     self._build_templates_list(),
                 ],
             ),
         )
 
     def _build_templates_list(self) -> ft.Control:
-        dark = self._is_dark_mode()
         if not self.templates:
             return ft.Container(
                 padding=40,
                 alignment=ft.Alignment.CENTER,
                 content=ft.Column(
-                     [
-                        icon("templates", size=48, color=ft.Colors.GREY_400 if not dark else ft.Colors.GREY_500),
+                    [
+                        ft.Icon(ft.Icons.ARTICLE_OUTLINED, size=52, color="rgba(241,241,243,0.15)"),
                         ft.Text(
                             "No templates yet",
                             size=16,
-                            color=ft.Colors.GREY_600 if not dark else ft.Colors.GREY_400,
+                            weight=ft.FontWeight.W_500,
+                            color="rgba(241,241,243,0.45)",
                         ),
                         ft.Text(
                             "Say a phrase to trigger a text expansion",
-                            size=14,
-                            color=ft.Colors.GREY_500 if not dark else ft.Colors.GREY_500,
+                            size=13,
+                            color="rgba(241,241,243,0.28)",
                         ),
-                        ft.Container(height=10),
+                        ft.Container(height=6),
                         ft.Button(
-                            content=ft.Row([icon("add", size=16), ft.Text("Create First Template")], spacing=8),
+                            content=ft.Row(
+                                [icon("add", color="#FFFFFF", size=16), ft.Text("Create First Template", color="#FFFFFF", size=13, weight=ft.FontWeight.W_500)],
+                                spacing=8,
+                            ),
                             on_click=self._add_template,
+                            bgcolor="#3B82F6",
+                            style=ft.ButtonStyle(
+                                shape=ft.RoundedRectangleBorder(radius=8),
+                                padding=ft.Padding.symmetric(vertical=8, horizontal=20),
+                            ),
                         ),
+                        ft.Container(height=20),
                     ],
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
@@ -113,86 +120,67 @@ class TemplatesScreen:
             controls=[
                 self._template_item(template) for template in self.templates
             ],
-            spacing=8,
+            spacing=0,
         )
 
     def _template_item(self, template: dict) -> ft.Control:
-        dark = self._is_dark_mode()
         return ft.Container(
-            bgcolor=Colors.card_bg(dark),
-            border_radius=8,
-            content=ft.Card(
-                elevation=0,
-                content=ft.Container(
-                    padding=16,
-                    content=ft.Row(
-                    [
-                        ft.Column(
-                            [
-                                ft.Row(
-                                    [
-                                        ft.Container(
-                                            content=ft.Text(
-                                                template.get("trigger", ""),
-                                                size=14,
-                                                weight=ft.FontWeight.W_600,
-                                                color=ft.Colors.BLUE_800 if not dark else ft.Colors.BLUE_200,
-                                            ),
-                                            bgcolor=ft.Colors.BLUE_50 if not dark else ft.Colors.BLUE_900,
-                                            padding=ft.Padding.symmetric(horizontal=8, vertical=4),
-                                            border_radius=4,
-                                        ),
-                                        icon("arrow-forward", size=16, color=ft.Colors.GREY_400 if not dark else ft.Colors.GREY_500),
-                                        ft.Text(
-                                            template.get("expansion", "")[:50],
-                                            size=14,
-                                            color=ft.Colors.GREY_700 if not dark else ft.Colors.GREY_300,
-                                            max_lines=1,
-                                            overflow=ft.TextOverflow.ELLIPSIS,
-                                        ),
-                                    ],
-                                    spacing=8,
-                                    wrap=True,
-                                  ),
-                                ft.Row(
-                                    [
-                                        ft.Text(
-                                            f"Variables: {template.get('variables', 0)}",
-                                            size=12,
-                                            color=Colors.text_secondary(dark),
-                                        ),
-                                        ft.Text(
-                                            f"Mode: {template.get('match_mode', 'exact')}",
-                                            size=12,
-                                            color=Colors.text_secondary(dark),
-                                        ),
-                                    ],
-                                    spacing=12,
-                                ),
-                            ],
-                            spacing=4,
-                            expand=True,
-                        ),
-                        ft.Row(
-                            [
-                                ft.IconButton(
-                                    icon=icon("edit"),
-                                    tooltip="Edit",
-                                    on_click=lambda e, t=template: self._edit_template(t),
-                                ),
-                                ft.IconButton(
-                                    icon=icon("delete"),
-                                    tooltip="Delete",
-                                    on_click=lambda e, t=template: self._delete_template(t),
-                                ),
-                            ],
-                        ),
-                    ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                ),
+            padding=ft.Padding.symmetric(vertical=14, horizontal=20),
+            border=ft.Border(bottom=ft.BorderSide(0.5, "rgba(255,255,255,0.05)")),
+            content=ft.Row(
+                [
+                    ft.Column(
+                        [
+                            ft.Text(
+                                template.get("trigger", ""),
+                                size=14,
+                                weight=ft.FontWeight.W_600,
+                                color="#F1F1F3",
+                            ),
+                            ft.Row(
+                                [
+                                    ft.Text(
+                                        template.get("expansion", "")[:50],
+                                        size=13,
+                                        color="rgba(241,241,243,0.55)",
+                                        max_lines=1,
+                                        overflow=ft.TextOverflow.ELLIPSIS,
+                                    ),
+                                    ft.Text(
+                                        f"Variables: {template.get('variables', 0)}",
+                                        size=12,
+                                        color="rgba(241,241,243,0.30)",
+                                    ),
+                                    ft.Text(
+                                        f"Mode: {template.get('match_mode', 'exact')}",
+                                        size=12,
+                                        color="rgba(241,241,243,0.30)",
+                                    ),
+                                ],
+                                spacing=12,
+                            ),
+                        ],
+                        spacing=4,
+                        expand=True,
+                    ),
+                    ft.Row(
+                        [
+                            ft.IconButton(
+                                icon=icon("edit"),
+                                tooltip="Edit",
+                                on_click=lambda e, t=template: self._edit_template(t),
+                            ),
+                            ft.IconButton(
+                                icon=icon("delete"),
+                                tooltip="Delete",
+                                on_click=lambda e, t=template: self._delete_template(t),
+                            ),
+                        ],
+                    ),
+                ],
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             ),
-        ),
-    )
+        )
 
     def _add_template(self, e):
         """Open a dialog to add a new template."""

@@ -1,7 +1,6 @@
 """Shared styles, colors, and theme constants for the Voice Typer UI."""
 
 import flet as ft
-
 import sys
 
 
@@ -19,65 +18,112 @@ def is_windows_dark_mode() -> bool:
 
 
 APP_NAME = "Voice Typer"
-SIDEBAR_WIDTH = 200
-WINDOW_WIDTH = 800
-WINDOW_HEIGHT = 500
+SIDEBAR_WIDTH = 220
+WINDOW_WIDTH = 1000
+WINDOW_HEIGHT = 700
+PAGE_MAX_WIDTH = 1200
 
+# ── Global design tokens (dark-mode-first) ──────────────────────────────
 
-# Color constants for easy access
 class Colors:
-    PRIMARY = ft.Colors.BLUE_600
-    PRIMARY_LIGHT = ft.Colors.BLUE_200
-    ACCENT = ft.Colors.TEAL_600
-    SUCCESS = ft.Colors.GREEN_600
-    WARNING = ft.Colors.AMBER_600
-    ERROR = ft.Colors.RED_600
-    INFO = ft.Colors.BLUE_400
-    SURFACE = ft.Colors.WHITE
-    SURFACE_DARK = "#111111"
-    SIDEBAR_BG = "#F5F5F5"
-    SIDEBAR_BG_DARK = "#0f0f0f"
-    TEXT_PRIMARY = ft.Colors.GREY_900
-    TEXT_SECONDARY = ft.Colors.GREY_600
-    TEXT_PRIMARY_DARK = ft.Colors.WHITE
-    TEXT_SECONDARY_DARK = ft.Colors.GREY_400
-    DIVIDER = ft.Colors.GREY_200
-    DIVIDER_DARK = ft.Colors.GREY_900
-    CARD_BG = ft.Colors.WHITE
-    CARD_BG_DARK = ft.Colors.GREY_800
+    # Accent
+    PRIMARY = "#3B82F6"
+    PRIMARY_HOVER = "#2563EB"
+    GREEN = "#22C55E"
+    RED = "#DC2626"
+    RED_MUTED = "#F87171"
+
+    # Background layers
+    APP_BG = "#0F1117"
+    SIDEBAR_BG = "#13151C"
+    SURFACE = "#FFFFFF"
+    SURFACE_DARK = "#0F1117"
+    SIDEBAR_BG_DARK = "#13151C"
+    ELEVATED = "#1F2231"
+
+    # Text
+    TEXT_PRIMARY = "#F1F1F3"
+    TEXT_SECONDARY = "rgba(241,241,243,0.55)"
+    TEXT_MUTED = "rgba(241,241,243,0.30)"
+    TEXT_DISABLED = "rgba(241,241,243,0.18)"
+    TEXT_PRIMARY_DARK = "#F1F1F3"
+    TEXT_SECONDARY_DARK = "rgba(241,241,243,0.55)"
+
+    # Borders
+    DIVIDER = "#E5E7EB"
+    DIVIDER_DARK = "rgba(255,255,255,0.07)"
+    BORDER_DEFAULT = "rgba(255,255,255,0.07)"
+    BORDER_HOVER = "rgba(255,255,255,0.12)"
+    BORDER_FOCUS = "rgba(59,130,246,0.45)"
+    BORDER_DANGER = "rgba(220,38,38,0.30)"
+
+    # Legacy aliases for backward compat
+    SUCCESS = "#22C55E"
+    WARNING = "#F59E0B"
+    ERROR = "#DC2626"
+    INFO = "#3B82F6"
+    CARD_BG = "#FFFFFF"
+    CARD_BG_DARK = "#1A1D27"
+    PRIMARY_LIGHT = "#60A5FA"
+    ACCENT = "#3B82F6"
 
     @staticmethod
     def sidebar_bg(dark: bool) -> str:
-        """Return sidebar background color for current theme."""
-        return Colors.SIDEBAR_BG_DARK if dark else Colors.SIDEBAR_BG
+        return Colors.SIDEBAR_BG_DARK if dark else "#F5F5F5"
 
     @staticmethod
     def surface(dark: bool) -> str:
-        """Return surface/background color for current theme."""
         return Colors.SURFACE_DARK if dark else Colors.SURFACE
 
     @staticmethod
     def card_bg(dark: bool) -> str:
-        """Return card background color for current theme."""
         return Colors.CARD_BG_DARK if dark else Colors.CARD_BG
 
     @staticmethod
     def text_primary(dark: bool) -> str:
-        """Return primary text color for current theme."""
-        return Colors.TEXT_PRIMARY_DARK if dark else Colors.TEXT_PRIMARY
+        return Colors.TEXT_PRIMARY_DARK if dark else "#111827"
 
     @staticmethod
     def text_secondary(dark: bool) -> str:
-        """Return secondary text color for current theme."""
-        return Colors.TEXT_SECONDARY_DARK if dark else Colors.TEXT_SECONDARY
+        return Colors.TEXT_SECONDARY_DARK if dark else "#6B7280"
 
     @staticmethod
     def divider(dark: bool) -> str:
-        """Return divider color for current theme."""
         return Colors.DIVIDER_DARK if dark else Colors.DIVIDER
 
 
-# Navigation items configuration
+# ── Border helpers ──────────────────────────────────────────────────────
+
+def border_default() -> ft.Border:
+    return ft.Border(
+        left=ft.BorderSide(0.5, "rgba(255,255,255,0.07)"),
+        top=ft.BorderSide(0.5, "rgba(255,255,255,0.07)"),
+        right=ft.BorderSide(0.5, "rgba(255,255,255,0.07)"),
+        bottom=ft.BorderSide(0.5, "rgba(255,255,255,0.07)"),
+    )
+
+
+def border_card() -> ft.Border:
+    return ft.Border(
+        left=ft.BorderSide(0.5, "rgba(255,255,255,0.07)"),
+        top=ft.BorderSide(0.5, "rgba(255,255,255,0.07)"),
+        right=ft.BorderSide(0.5, "rgba(255,255,255,0.07)"),
+        bottom=ft.BorderSide(0.5, "rgba(255,255,255,0.07)"),
+    )
+
+
+# ── Shadow helpers ──────────────────────────────────────────────────────
+
+def card_shadow() -> ft.BoxShadow:
+    return ft.BoxShadow(blur_radius=20, spread_radius=0, offset=ft.Offset(0, 4), color="rgba(0,0,0,0.20)")
+
+
+def focus_shadow() -> ft.BoxShadow:
+    return ft.BoxShadow(blur_radius=3, spread_radius=0, offset=ft.Offset(0, 0), color="rgba(59,130,246,0.08)")
+
+
+# ── Navigation items configuration ──────────────────────────────────────
+
 NAV_ITEMS = {
     "home": {
         "title": "Home",
@@ -122,56 +168,48 @@ NAV_ITEMS = {
 }
 
 STATUS_COLORS = {
-    "idle": ft.Colors.GREY_500,
-    "recording": ft.Colors.RED_500,
-    "transcribing": ft.Colors.BLUE_500,
-    "loading": ft.Colors.AMBER_500,
-    "error": ft.Colors.RED_700,
-    "paused": ft.Colors.PURPLE_500,
-    "warming_up": ft.Colors.ORANGE_500,
-    "downloading": ft.Colors.BLUE_GREY_500,
-    "processing": ft.Colors.TEAL_500,
-    "cancelling": ft.Colors.RED_300,
-    "setup": ft.Colors.BLUE_700,
-    "not_configured": ft.Colors.GREY_400,
+    "idle": "#22C55E",
+    "recording": "#DC2626",
+    "transcribing": "#3B82F6",
+    "loading": "#F59E0B",
+    "error": "#DC2626",
+    "paused": "#A855F7",
+    "warming_up": "#F97316",
+    "downloading": "#64748B",
+    "processing": "#14B8A6",
+    "cancelling": "#F87171",
+    "setup": "#3B82F6",
+    "not_configured": "rgba(241,241,243,0.30)",
 }
 
-# UX-040: Expanded STATUS_LABELS from 5 to 12 states
 STATUS_LABELS = {
-    "idle": "Ready",
-    "recording": "Recording...",
-    "transcribing": "Transcribing...",
-    "loading": "Loading model...",
-    "error": "Error",
-    "paused": "Paused",
-    "warming_up": "Warming up...",
-    "downloading": "Downloading...",
-    "processing": "Processing...",
-    "cancelling": "Cancelling...",
-    "setup": "Setting up...",
-    "not_configured": "Not configured",
+    "idle": "READY",
+    "recording": "RECORDING",
+    "transcribing": "TRANSCRIBING",
+    "loading": "LOADING",
+    "error": "ERROR",
+    "paused": "PAUSED",
+    "warming_up": "WARMING UP",
+    "downloading": "DOWNLOADING",
+    "processing": "PROCESSING",
+    "cancelling": "CANCELLING",
+    "setup": "SETTING UP",
+    "not_configured": "NOT CONFIGURED",
 }
 
-RECORD_BUTTON_SIZE = 100
-RECORD_BUTTON_COLOR = ft.Colors.RED_500
-RECORD_BUTTON_STOP_COLOR = ft.Colors.GREY_600
+RECORD_BUTTON_SIZE = 72
+RECORD_BUTTON_COLOR = "#DC2626"
+RECORD_BUTTON_STOP_COLOR = "rgba(241,241,243,0.18)"
 
 
 def get_theme(dark: bool = False) -> ft.Theme:
-    """UX-002: Return a Material 3 theme for the app.
-
-    Brightness is handled by page.theme_mode, not by ft.Theme()
-    (Flet 0.85.2 rejects the brightness kwarg).
-    """
     return ft.Theme(
-        color_scheme_seed=Colors.PRIMARY,
+        color_scheme_seed="#3B82F6",
         visual_density=ft.VisualDensity.COMFORTABLE,
     )
 
 
-# UX-036: High-contrast theme
 def get_high_contrast_theme(dark: bool = False) -> ft.Theme:
-    """Return a high-contrast accessibility theme."""
     seed = ft.Colors.WHITE if dark else ft.Colors.BLACK
     return ft.Theme(
         color_scheme_seed=seed,
@@ -179,24 +217,16 @@ def get_high_contrast_theme(dark: bool = False) -> ft.Theme:
     )
 
 
-# UX-027: Relative time formatter
 def format_relative_time(timestamp_str: str) -> str:
-    """Convert ISO timestamp to relative time string.
-
-    Returns strings like 'just now', '3 min ago', '2 hours ago',
-    'yesterday', or the original date for older entries.
-    """
     if not timestamp_str:
         return ""
     try:
-        from datetime import datetime, timedelta, timezone
-        # Parse ISO timestamp
+        from datetime import datetime, timezone
         ts = timestamp_str
         if 'T' in ts:
             dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
         else:
             dt = datetime.fromisoformat(ts)
-        # If naive, assume local time
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         now = datetime.now(timezone.utc)
@@ -217,7 +247,6 @@ def format_relative_time(timestamp_str: str) -> str:
         if seconds < 604800:
             days = int(seconds / 86400)
             return f"{days} days ago"
-        # Older than a week — show date
         return dt.strftime("%Y-%m-%d %H:%M")
     except Exception:
         return timestamp_str

@@ -39,25 +39,32 @@ class HistoryScreen:
                 [
                     ft.Row(
                         [
-                            ft.Text("History", size=24, weight=ft.FontWeight.BOLD, color=Colors.text_primary(dark)),
+                            ft.Text("History", size=20, weight=ft.FontWeight.W_600, color="#F1F1F3"),
                             ft.Container(expand=True),
-                            ft.Button(
-                                content=ft.Row([icon("import-export", size=16), ft.Text("Export")], spacing=8),
+                            ft.TextButton(
+                                content=ft.Row([icon("import-export", size=16, color="rgba(241,241,243,0.55)"), ft.Text("Export", color="rgba(241,241,243,0.55)", size=13)], spacing=8),
                                 on_click=self._export_history,
                                 tooltip="Export transcription history",
                             ),
-                            ft.Button(
-                                content=ft.Row([icon("filter", color=Colors.text_secondary(dark), size=16), ft.Text("Favorites")], spacing=8),
+                            ft.TextButton(
+                                content=ft.Row([icon("filter", color="rgba(241,241,243,0.55)", size=16), ft.Text("Favorites", color="rgba(241,241,243,0.55)", size=13)], spacing=8),
                                 on_click=self._show_favorites,
                                 tooltip="Show favorited transcriptions only",
                             ),
-                            ft.Button(
-                                content=ft.Row([icon("delete-sweep", color=Colors.ERROR, size=16), ft.Text("Clear All", color=Colors.ERROR)], spacing=8),
-                                on_click=self._clear_all_confirm,
-                                bgcolor=ft.Colors.RED_100 if not dark else ft.Colors.RED_900,
-                                tooltip="Delete all transcriptions",
+                            ft.Container(
+                                content=ft.Button(
+                                    content=ft.Row([icon("delete-sweep", color="#FFFFFF", size=16), ft.Text("Clear All", color="#FFFFFF", size=13, weight=ft.FontWeight.W_500)], spacing=8),
+                                    on_click=self._clear_all_confirm,
+                                    tooltip="Delete all transcriptions",
+                                    style=ft.ButtonStyle(
+                                        padding=ft.Padding(left=16, right=16, top=7, bottom=7),
+                                    ),
+                                ),
+                                bgcolor="#DC2626",
+                                border_radius=8,
                             ),
                         ],
+                        spacing=8,
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     ),
                     ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
@@ -72,11 +79,13 @@ class HistoryScreen:
         dark = self._is_dark_mode()
         return ft.TextField(
             hint_text="Search history...",
-            hint_style=ft.TextStyle(color=Colors.text_secondary(dark)),
-            prefix=icon("search", color=Colors.text_secondary(dark)),
+            hint_style=ft.TextStyle(color="rgba(241,241,243,0.55)"),
+            prefix=icon("search", color="rgba(241,241,243,0.30)", size=15),
             border_radius=8,
-            bgcolor=ft.Colors.GREY_200 if not dark else ft.Colors.GREY_700,
-            color=Colors.text_primary(dark),
+            bgcolor="rgba(255,255,255,0.05)",
+            border_color="rgba(255,255,255,0.10)",
+            color="#F1F1F3",
+            width=280,
             on_change=self._search_history_debounced,
         )
 
@@ -88,16 +97,16 @@ class HistoryScreen:
                 alignment=ft.Alignment.CENTER,
                 content=ft.Column(
                     [
-                        icon("history", size=48, color=ft.Colors.GREY_400 if not dark else ft.Colors.GREY_500),
+                        icon("history", size=48, color="rgba(241,241,243,0.30)"),
                         ft.Text(
                             "No transcriptions yet",
                             size=16,
-                            color=ft.Colors.GREY_600 if not dark else ft.Colors.GREY_400,
+                            color="rgba(241,241,243,0.55)",
                         ),
                         ft.Text(
                             "Your voice transcriptions will appear here",
                             size=14,
-                            color=ft.Colors.GREY_500 if not dark else ft.Colors.GREY_500,
+                            color="rgba(241,241,243,0.30)",
                         ),
                     ],
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -108,7 +117,7 @@ class HistoryScreen:
             controls=[
                 self._history_item(item) for item in self.history_items
             ],
-            spacing=8,
+            spacing=0,
         )
 
     def _history_item(self, item: dict) -> ft.Control:
@@ -118,59 +127,56 @@ class HistoryScreen:
         timestamp = item.get("timestamp", "")
         display_time = format_relative_time(timestamp)
         return ft.Container(
-            bgcolor=Colors.card_bg(dark),
-            border_radius=8,
-            content=ft.Card(
-                elevation=0,
-                content=ft.Container(
-                    padding=16,
-                    content=ft.Row(
-                    [
-                        ft.Column(
-                            [
-                                ft.Text(
-                                    item.get("text", "")[:100],
-                                    size=14,
-                                    weight=ft.FontWeight.W_500,
-                                    max_lines=2,
-                                    overflow=ft.TextOverflow.ELLIPSIS,
-                                    color=Colors.text_primary(dark),
-                                ),
-                                ft.Text(
-                                    display_time,
-                                    size=12,
-                                    color=Colors.text_secondary(dark),
-                                    tooltip=timestamp,
-                                ),
-                            ],
-                            spacing=4,
-                            expand=True,
-                        ),
-                        ft.Row(
-                            [
-                                ft.IconButton(
-                                    icon=icon("sparkles" if is_fav else "tick"),
-                                    tooltip="Unfavorite" if is_fav else "Favorite",
-                                    on_click=lambda e, i=item: self._toggle_favorite(i),
-                                ),
-                                ft.IconButton(
-                                    icon=icon("copy-01"),
-                                    tooltip="Copy",
-                                    on_click=lambda e, t=item.get("text", ""): self._copy_text(t),
-                                ),
-                                ft.IconButton(
-                                    icon=icon("delete"),
-                                    tooltip="Delete",
-                                    on_click=lambda e, i=item: self._delete_item(i),
-                                ),
-                            ],
-                        ),
-                    ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                ),
+            padding=ft.Padding(left=20, right=20, top=14, bottom=14),
+            border=ft.Border(
+                bottom=ft.BorderSide(0.5, "rgba(255,255,255,0.05)"),
             ),
-        ),
-    )
+            content=ft.Row(
+                [
+                    ft.Column(
+                        [
+                            ft.Text(
+                                item.get("text", "")[:100],
+                                size=13,
+                                weight=ft.FontWeight.W_500,
+                                max_lines=2,
+                                overflow=ft.TextOverflow.ELLIPSIS,
+                                color="rgba(241,241,243,0.85)",
+                            ),
+                            ft.Text(
+                                display_time,
+                                size=11,
+                                color="rgba(241,241,243,0.28)",
+                                tooltip=timestamp,
+                            ),
+                        ],
+                        spacing=4,
+                        expand=True,
+                    ),
+                    ft.Row(
+                        [
+                            ft.IconButton(
+                                icon=icon("sparkles" if is_fav else "tick"),
+                                tooltip="Unfavorite" if is_fav else "Favorite",
+                                on_click=lambda e, i=item: self._toggle_favorite(i),
+                            ),
+                            ft.IconButton(
+                                icon=icon("copy-01"),
+                                tooltip="Copy",
+                                on_click=lambda e, t=item.get("text", ""): self._copy_text(t),
+                            ),
+                            ft.IconButton(
+                                icon=icon("delete"),
+                                icon_color="#F87171",
+                                tooltip="Delete",
+                                on_click=lambda e, i=item: self._delete_item(i),
+                            ),
+                        ],
+                    ),
+                ],
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            ),
+        )
 
     def _copy_text(self, text: str):
         pyperclip.copy(text)
