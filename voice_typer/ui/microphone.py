@@ -1,6 +1,6 @@
 import flet as ft
 import threading
-from .styles import Tokens, CONTENT_MAX_WIDTH, is_windows_dark_mode
+from .styles import Tokens, SETTINGS_MAX_WIDTH, is_windows_dark_mode
 from .icons import icon
 
 
@@ -49,34 +49,30 @@ class MicrophoneScreen:
         self._level_text = ft.Text("Level: 0%", size=12, color=ts)
 
         return ft.Container(
-            padding=24,
-            content=ft.Column(
-                [
-                    ft.Container(
-                        width=CONTENT_MAX_WIDTH,
-                        margin=ft.Margin(left=0, right=0, top=0, bottom=0),
-                        content=ft.Column(
+            expand=True,
+            padding=ft.Padding.symmetric(horizontal=24, vertical=32),
+            alignment=ft.Alignment(0, -1),
+            content=ft.Container(
+                width=SETTINGS_MAX_WIDTH,
+                content=ft.Column(
+                    [
+                        ft.Row(
                             [
-                                ft.Row(
-                                    [
-                                        ft.Text("Microphone", size=20, weight=ft.FontWeight.W_600, color=tp),
-                                        ft.Container(expand=True),
-                                    ],
-                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                ),
-                                ft.Container(height=8),
-                                ft.Text("Select and test your microphone", size=13, color=ts),
-                                ft.Container(height=20),
-                                self._build_system_default(),
-                                ft.Container(height=16),
-                                self._build_test_area(),
-                                ft.Container(height=24),
-                                self._build_microphone_list(),
+                                ft.Text("Microphone", size=20, weight=ft.FontWeight.W_600, color=tp),
+                                ft.Container(expand=True),
                             ],
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         ),
-                    ),
-                ],
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        ft.Container(height=8),
+                        ft.Text("Select and test your microphone", size=13, color=ts),
+                        ft.Container(height=20),
+                        self._build_system_default(),
+                        ft.Container(height=16),
+                        self._build_test_area(),
+                        ft.Container(height=24),
+                        self._build_microphone_list(),
+                    ],
+                ),
             ),
         )
 

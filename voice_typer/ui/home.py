@@ -2,7 +2,7 @@
 
 import re
 import flet as ft
-from voice_typer.ui.styles import Tokens, STATUS_COLORS, STATUS_LABELS, RECORD_BUTTON_SIZE, RECORD_BUTTON_COLOR
+from voice_typer.ui.styles import Tokens, SETTINGS_MAX_WIDTH, STATUS_COLORS, STATUS_LABELS, RECORD_BUTTON_SIZE, RECORD_BUTTON_COLOR
 from voice_typer.ui.icons import icon
 
 
@@ -147,14 +147,22 @@ def build_home_page(
         ],
     )
 
-    return ft.Column(
-        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-        spacing=20,
-        controls=[
-            status_indicator,
-            record_button,
-            hint,
-            last_text_preview,
-            stats_row,
-        ],
+    return ft.Container(
+        expand=True,
+        padding=ft.Padding.symmetric(horizontal=24, vertical=32),
+        alignment=ft.Alignment(0, -1),
+        content=ft.Container(
+            width=SETTINGS_MAX_WIDTH,
+            content=ft.Column(
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=20,
+                controls=[
+                    status_indicator,
+                    record_button,
+                    hint,
+                    last_text_preview,
+                    stats_row,
+                ],
+            ),
+        ),
     )

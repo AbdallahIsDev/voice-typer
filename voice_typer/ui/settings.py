@@ -15,6 +15,7 @@ class SettingsScreen:
         self.reload = reload or (lambda: None)
         self.settings = settings_controller
         self._dark = True
+        self._switch_cache = {}
 
     def _is_dark(self) -> bool:
         if self.page is None:
@@ -51,11 +52,8 @@ class SettingsScreen:
         )
 
     def _section_header(self, title: str) -> ft.Control:
-        dark = self._is_dark()
-        tp = Tokens.text_primary(dark)
-        return ft.Text(
-            title, size=14, weight=ft.FontWeight.W_600, color=tp,
-        )
+        tp = Tokens.text_primary(self._is_dark())
+        return ft.Text(title, size=14, weight=ft.FontWeight.W_600, color=tp)
 
     def _setting_row(self, label: str, control: ft.Control, description: str) -> ft.Control:
         dark = self._is_dark()
@@ -77,16 +75,25 @@ class SettingsScreen:
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
         )
 
-    def _premium_switch(self, value: bool, on_change) -> ft.Switch:
-        return ft.Switch(
+    def _switch(self, key: str, value: bool, on_change) -> ft.Switch:
+        dark = self._is_dark()
+        if key in self._switch_cache:
+            s = self._switch_cache[key]
+            s.value = value
+            s.on_change = on_change
+            return s
+        s = ft.Switch(
             value=value,
             on_change=on_change,
             active_color=Tokens.ACCENT_PRIMARY_DARK,
             active_track_color=Tokens.ACCENT_PRIMARY_DARK,
             track_color={ft.ControlState.DEFAULT: "rgba(255,255,255,0.14)"},
+            track_outline_color={ft.ControlState.DEFAULT: Tokens.border_subtle(dark)},
             width=48, height=32,
             thumb_color="#FFFFFF",
         )
+        self._switch_cache[key] = s
+        return s
 
     def _input_with_unit(self, value: str, unit: str, on_change, width=80) -> ft.Row:
         dark = self._is_dark()
@@ -114,7 +121,18 @@ class SettingsScreen:
             border_radius=8,
             border_color=Tokens.border_subtle(dark),
             text_size=13,
+            elevation=12,
             **kwargs,
+        )
+
+    def _drop_opt(self, key: str, label: str) -> ft.dropdown.Option:
+        dark = self._is_dark()
+        return ft.dropdown.Option(
+            key=key,
+            content=ft.Container(
+                content=ft.Text(label, size=13, color=Tokens.text_primary(dark)),
+                padding=ft.Padding.symmetric(horizontal=16, vertical=8),
+            ),
         )
 
     def _text_field(self, **kwargs) -> ft.TextField:
@@ -144,62 +162,53 @@ class SettingsScreen:
 
     def build(self) -> ft.Control:
         self._dark = self._is_dark()
-        tp = Tokens.text_primary(self._dark)
-        ts = Tokens.text_secondary(self._dark)
-
         return ft.Container(
             expand=True,
             bgcolor=Tokens.bg_app(self._dark),
             padding=ft.Padding.symmetric(horizontal=24, vertical=32),
-            content=ft.Column(
-                [
-                    ft.Container(
-                        width=SETTINGS_MAX_WIDTH,
-                        margin=ft.Margin(left=0, right=0, top=0, bottom=0),
-                        content=ft.Column(
-                            [
-                                self._build_header(),
-                                ft.Container(height=24),
-                                self._section_header("Application"),
-                                ft.Container(height=8),
-                                self._build_application_section(),
-                                ft.Container(height=20),
-                                self._section_header("Recording"),
-                                ft.Container(height=8),
-                                self._build_recording_section(),
-                                ft.Container(height=20),
-                                self._section_header("Speech Processing"),
-                                ft.Container(height=8),
-                                self._build_speech_section(),
-                                ft.Container(height=20),
-                                self._section_header("Audio & Recovery"),
-                                ft.Container(height=8),
-                                self._build_audio_recovery_section(),
-                                ft.Container(height=20),
-                                self._section_header("Accessibility"),
-                                ft.Container(height=8),
-                                self._build_accessibility_section(),
-                                ft.Container(height=20),
-                                self._section_header("Troubleshooting"),
-                                ft.Container(height=8),
-                                self._build_troubleshooting(),
-                                ft.Container(height=32),
-                            ],
-                            spacing=0,
-                        ),
-                    ),
-                ],
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            alignment=ft.Alignment(0, -1),
+            content=ft.Container(
+                width=SETTINGS_MAX_WIDTH,
+                content=ft.Column(
+                    spacing=32,
+                    controls=[
+                        self._build_header(),
+                        ft.Column(spacing=8, controls=[
+                            self._section_header("Application"),
+                            self._build_application_section(),
+                        ]),
+                        ft.Column(spacing=8, controls=[
+                            self._section_header("Recording"),
+                            self._build_recording_section(),
+                        ]),
+                        ft.Column(spacing=8, controls=[
+                            self._section_header("Speech Processing"),
+                            self._build_speech_section(),
+                        ]),
+                        ft.Column(spacing=8, controls=[
+                            self._section_header("Audio & Recovery"),
+                            self._build_audio_recovery_section(),
+                        ]),
+                        ft.Column(spacing=8, controls=[
+                            self._section_header("Accessibility"),
+                            self._build_accessibility_section(),
+                        ]),
+                        ft.Column(spacing=8, controls=[
+                            self._section_header("Troubleshooting"),
+                            self._build_troubleshooting(),
+                        ]),
+                    ],
+                ),
             ),
         )
 
     def _build_header(self) -> ft.Control:
         tp = Tokens.text_primary(self._dark)
+        ts = Tokens.text_secondary(self._dark)
         return ft.Column(
             [
                 ft.Text("Settings", size=20, weight=ft.FontWeight.W_600, color=tp),
-                ft.Text("Manage Voice Typer preferences and behavior.", size=13, color=Tokens.text_secondary(self._dark)),
-                ft.Container(height=16),
+                ft.Text("Manage Voice Typer preferences and behavior.", size=13, color=ts),
             ],
             spacing=4,
         )
@@ -208,21 +217,21 @@ class SettingsScreen:
         current_theme = getattr(self.config, 'theme_mode', 'system')
         return self._section_card([
             self._setting_row("Launch at Startup",
-                self._premium_switch(value=self.config.autostart,
+                self._switch("autostart", value=self.config.autostart,
                     on_change=lambda e: self.settings.on_autostart_changed(e.control.value) if self.settings.on_autostart_changed else None),
                 "Start Voice Typer when Windows starts"),
             self._setting_row("Show Notifications",
-                self._premium_switch(value=self.config.show_notifications,
+                self._switch("show_notifications", value=self.config.show_notifications,
                     on_change=lambda e: self.settings.on_notifications_changed(e.control.value) if self.settings.on_notifications_changed else None),
                 "Show desktop notifications for transcriptions"),
             self._setting_row("Tray Left-click Action",
                 self._dropdown(value=self.config.tray_left_click_action, width=160,
-                    options=[ft.dropdown.Option("open_app", "Open App"), ft.dropdown.Option("toggle_dictation", "Toggle Dictation")],
+                    options=[self._drop_opt("open_app", "Open App"), self._drop_opt("toggle_dictation", "Toggle Dictation")],
                     on_select=lambda e: self._on_tray_click_change(e.control.value)),
                 "What happens when you left-click the tray icon"),
             self._setting_row("Theme",
                 self._dropdown(value=current_theme, width=160,
-                    options=[ft.dropdown.Option("system", "System Default"), ft.dropdown.Option("light", "Light"), ft.dropdown.Option("dark", "Dark")],
+                    options=[self._drop_opt("system", "System Default"), self._drop_opt("light", "Light"), self._drop_opt("dark", "Dark")],
                     on_select=lambda e: self._change_theme(e.control.value)),
                 "Choose light, dark, or system theme"),
         ])
@@ -234,7 +243,7 @@ class SettingsScreen:
         return self._section_card([
             self._setting_row("Recording Mode",
                 self._dropdown(width=160,
-                    options=[ft.dropdown.Option("toggle", "Toggle (F2)"), ft.dropdown.Option("push_to_talk", "Push-to-Talk")],
+                    options=[self._drop_opt("toggle", "Toggle (F2)"), self._drop_opt("push_to_talk", "Push-to-Talk")],
                     value=self.config.recording_mode,
                     on_select=lambda e: self._update_config("recording_mode", e.control.value)),
                 "Toggle: press to start/stop. Push-to-talk: hold to record"),
@@ -247,11 +256,11 @@ class SettingsScreen:
                     on_change=lambda e: self._update_max_recording(e.control.value)),
                 "Maximum recording duration in seconds (0 = auto)"),
             self._setting_row("Auto-paste on Stop",
-                self._premium_switch(value=self.config.paste_on_stop,
+                self._switch("paste_on_stop", value=self.config.paste_on_stop,
                     on_change=lambda e: self._update_config("paste_on_stop", e.control.value)),
                 "Paste transcribed text into the focused field when recording stops"),
             self._setting_row("ESC to Cancel",
-                self._premium_switch(value=self.config.esc_cancel_enabled,
+                self._switch("esc_cancel", value=self.config.esc_cancel_enabled,
                     on_change=lambda e: self._update_config("esc_cancel_enabled", e.control.value)),
                 "Press Escape to cancel current recording"),
             self._setting_row("Start/Stop Hotkey",
@@ -265,11 +274,11 @@ class SettingsScreen:
                     tooltip="Hotkey for repasting last transcription"),
                 "Hotkey for repasting last transcription"),
             self._setting_row("Snippets / Templates",
-                self._premium_switch(value=self.config.templates_enabled,
+                self._switch("templates", value=self.config.templates_enabled,
                     on_change=lambda e: self._update_config("templates_enabled", e.control.value)),
                 "Enable text snippets with variables"),
             self._setting_row("Vocabulary Correction",
-                self._premium_switch(value=self.config.vocabulary_enabled,
+                self._switch("vocabulary", value=self.config.vocabulary_enabled,
                     on_change=lambda e: self._update_config("vocabulary_enabled", e.control.value)),
                 "Apply custom vocabulary corrections"),
         ])
@@ -277,15 +286,15 @@ class SettingsScreen:
     def _build_speech_section(self) -> ft.Control:
         return self._section_card([
             self._setting_row("Auto-Punctuation",
-                self._premium_switch(value=self.config.auto_punctuation,
+                self._switch("auto_punctuation", value=self.config.auto_punctuation,
                     on_change=lambda e: self._update_config("auto_punctuation", e.control.value)),
                 "Add punctuation automatically after transcription"),
             self._setting_row("Text Cleanup",
-                self._premium_switch(value=self.config.text_cleanup_enabled,
+                self._switch("text_cleanup", value=self.config.text_cleanup_enabled,
                     on_change=lambda e: self._update_config("text_cleanup_enabled", e.control.value)),
                 "Remove filler words, fix capitalization"),
             self._setting_row("LLM Polishing",
-                self._premium_switch(value=self.config.llm_polish,
+                self._switch("llm_polish", value=self.config.llm_polish,
                     on_change=lambda e: self._update_config("llm_polish", e.control.value)),
                 "Use LLM to improve text quality (requires API key)"),
             self._setting_row("LLM API Key",
@@ -303,8 +312,8 @@ class SettingsScreen:
                 "Model name (e.g., gpt-4o-mini)"),
             self._setting_row("LLM Preset",
                 self._dropdown(width=160,
-                    options=[ft.dropdown.Option("professional", "Professional"), ft.dropdown.Option("casual", "Casual"),
-                             ft.dropdown.Option("email", "Email"), ft.dropdown.Option("code", "Code")],
+                    options=[self._drop_opt("professional", "Professional"), self._drop_opt("casual", "Casual"),
+                             self._drop_opt("email", "Email"), self._drop_opt("code", "Code")],
                     value=self.config.llm_preset,
                     on_select=lambda e: self._update_config("llm_preset", e.control.value or "professional")),
                 "Polishing style preset"),
@@ -313,23 +322,23 @@ class SettingsScreen:
     def _build_audio_recovery_section(self) -> ft.Control:
         return self._section_card([
             self._setting_row("Crash Recovery",
-                self._premium_switch(value=self.config.crash_recovery_enabled,
+                self._switch("crash_recovery", value=self.config.crash_recovery_enabled,
                     on_change=lambda e: self._update_config("crash_recovery_enabled", e.control.value)),
                 "Save unpasted transcriptions for recovery after crash"),
             self._setting_row("Audio Quality Warnings",
-                self._premium_switch(value=self.config.audio_quality_warnings,
+                self._switch("audio_quality_warnings", value=self.config.audio_quality_warnings,
                     on_change=lambda e: self._update_config("audio_quality_warnings", e.control.value)),
                 "Warn about clipping, low volume, or noise"),
             self._setting_row("Clipping Warning",
-                self._premium_switch(value=self.config.audio_clipping_warning,
+                self._switch("clipping_warning", value=self.config.audio_clipping_warning,
                     on_change=lambda e: self._update_config("audio_clipping_warning", e.control.value)),
                 "Warn when audio is clipping (too loud)"),
             self._setting_row("Low Volume Warning",
-                self._premium_switch(value=self.config.audio_low_volume_warning,
+                self._switch("low_volume_warning", value=self.config.audio_low_volume_warning,
                     on_change=lambda e: self._update_config("audio_low_volume_warning", e.control.value)),
                 "Warn when audio is too quiet"),
             self._setting_row("Noise Warning",
-                self._premium_switch(value=self.config.audio_noise_warning,
+                self._switch("noise_warning", value=self.config.audio_noise_warning,
                     on_change=lambda e: self._update_config("audio_noise_warning", e.control.value)),
                 "Warn when background noise is detected"),
         ])
@@ -339,7 +348,7 @@ class SettingsScreen:
         text_size = getattr(self.config, 'text_size', 14)
         return self._section_card([
             self._setting_row("High Contrast",
-                self._premium_switch(value=high_contrast,
+                self._switch("high_contrast", value=high_contrast,
                     on_change=lambda e: self._update_config("high_contrast", e.control.value)),
                 "Enable high-contrast mode for better visibility"),
             self._setting_row("Text Size",

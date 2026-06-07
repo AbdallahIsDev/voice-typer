@@ -2,7 +2,7 @@ import flet as ft
 import json
 import pyperclip
 import sys
-from .styles import Tokens, CONTENT_MAX_WIDTH, is_windows_dark_mode
+from .styles import Tokens, SETTINGS_MAX_WIDTH, is_windows_dark_mode
 from .icons import icon
 
 
@@ -66,32 +66,28 @@ class PrivacyScreen:
         tp = Tokens.text_primary(dark)
         ts = Tokens.text_secondary(dark)
         return ft.Container(
-            padding=24,
-            content=ft.Column(
-                [
-                    ft.Container(
-                        width=CONTENT_MAX_WIDTH,
-                        margin=ft.Margin(left=0, right=0, top=0, bottom=0),
-                        content=ft.Column(
+            expand=True,
+            padding=ft.Padding.symmetric(horizontal=24, vertical=32),
+            alignment=ft.Alignment(0, -1),
+            content=ft.Container(
+                width=SETTINGS_MAX_WIDTH,
+                content=ft.Column(
+                    [
+                        ft.Row(
                             [
-                                ft.Row(
-                                    [
-                                        ft.Text("Privacy", size=24, weight=ft.FontWeight.BOLD, color=tp),
-                                        ft.Container(expand=True),
-                                    ],
-                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                ),
-                                ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
-                                ft.Text("Your data stays on your device", size=14, color=ts),
-                                ft.Container(height=10),
-                                self._build_privacy_dashboard(),
-                                ft.Container(height=20),
-                                self._build_data_management(),
+                                ft.Text("Privacy", size=24, weight=ft.FontWeight.BOLD, color=tp),
+                                ft.Container(expand=True),
                             ],
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         ),
-                    ),
-                ],
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
+                        ft.Text("Your data stays on your device", size=14, color=ts),
+                        ft.Container(height=10),
+                        self._build_privacy_dashboard(),
+                        ft.Container(height=20),
+                        self._build_data_management(),
+                    ],
+                ),
             ),
         )
 

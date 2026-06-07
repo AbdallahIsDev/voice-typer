@@ -2,7 +2,7 @@ import flet as ft
 import json
 import pyperclip
 import threading
-from .styles import Tokens, CONTENT_MAX_WIDTH, format_relative_time, is_windows_dark_mode
+from .styles import Tokens, SETTINGS_MAX_WIDTH, format_relative_time, is_windows_dark_mode
 from voice_typer.history_db import HistoryDB
 from .icons import icon
 
@@ -39,13 +39,12 @@ class HistoryScreen:
         ad = Tokens.accent_danger(dark)
 
         return ft.Container(
-            padding=24,
-            content=ft.Column(
-                [
-                    ft.Container(
-                        width=CONTENT_MAX_WIDTH,
-                        margin=ft.Margin(left=0, right=0, top=0, bottom=0),
-                        content=ft.Column(
+            expand=True,
+            padding=ft.Padding.symmetric(horizontal=24, vertical=32),
+            alignment=ft.Alignment(0, -1),
+            content=ft.Container(
+                width=SETTINGS_MAX_WIDTH,
+                content=ft.Column(
                             [
                                 ft.Row(
                                     [
@@ -82,10 +81,7 @@ class HistoryScreen:
                             ],
                         ),
                     ),
-                ],
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
-        )
+                )
 
     def _build_search_bar(self) -> ft.Control:
         dark = self._is_dark()

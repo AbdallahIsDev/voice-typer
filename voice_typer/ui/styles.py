@@ -28,17 +28,17 @@ class Tokens:
     """Design tokens – dark/light value pairs."""
 
     # ── Background layers ────────────────────────────────────────────
-    BG_APP_DARK = "#0D1117"
+    BG_APP_DARK = "#101726"
     BG_APP_LIGHT = "#FFFFFF"
 
-    BG_SIDEBAR_DARK = "#0B0F14"
+    BG_SIDEBAR_DARK = "#0F1521"
     BG_SIDEBAR_LIGHT = "#F0F4F9"
 
-    BG_CARD_DARK = "#1F2937"
+    BG_CARD_DARK = "#152036"
     BG_CARD_LIGHT = "#F1F5F9"
 
     # ── Borders ──────────────────────────────────────────────────────
-    BORDER_SUBTLE_DARK = "#2D3748"
+    BORDER_SUBTLE_DARK = "#333f54"
     BORDER_SUBTLE_LIGHT = "#d4d4d4"
 
     # ── Text ─────────────────────────────────────────────────────────

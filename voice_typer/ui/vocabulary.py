@@ -1,5 +1,5 @@
 import flet as ft
-from .styles import Tokens, CONTENT_MAX_WIDTH, is_windows_dark_mode
+from .styles import Tokens, SETTINGS_MAX_WIDTH, is_windows_dark_mode
 from .icons import icon
 
 from voice_typer.vocabulary import VocabularyManager, CATEGORIES
@@ -76,39 +76,35 @@ class VocabularyScreen:
         ts = Tokens.text_secondary(dark)
         ap = Tokens.accent_primary(dark)
         return ft.Container(
-            padding=24,
-            content=ft.Column(
-                [
-                    ft.Container(
-                        width=CONTENT_MAX_WIDTH,
-                        margin=ft.Margin(left=0, right=0, top=0, bottom=0),
-                        content=ft.Column(
+            expand=True,
+            padding=ft.Padding.symmetric(horizontal=24, vertical=32),
+            alignment=ft.Alignment(0, -1),
+            content=ft.Container(
+                width=SETTINGS_MAX_WIDTH,
+                content=ft.Column(
+                    [
+                        ft.Row(
                             [
-                                ft.Row(
-                                    [
-                                        ft.Text("Custom Vocabulary", size=20, weight=ft.FontWeight.W_600, color=tp),
-                                        ft.Container(expand=True),
-                                        ft.Container(
-                                            content=ft.Row([icon("add", color="#FFFFFF", size=16), ft.Text("Add Word", color="#FFFFFF", size=14)], spacing=8),
-                                            on_click=self._add_word,
-                                            bgcolor=ap,
-                                            padding=ft.Padding(left=16, right=16, top=10, bottom=10),
-                                            border_radius=8,
-                                        ),
-                                    ],
-                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                ft.Text("Custom Vocabulary", size=20, weight=ft.FontWeight.W_600, color=tp),
+                                ft.Container(expand=True),
+                                ft.Container(
+                                    content=ft.Row([icon("add", color="#FFFFFF", size=16), ft.Text("Add Word", color="#FFFFFF", size=14)], spacing=8),
+                                    on_click=self._add_word,
+                                    bgcolor=ap,
+                                    padding=ft.Padding(left=16, right=16, top=10, bottom=10),
+                                    border_radius=8,
                                 ),
-                                ft.Container(height=8),
-                                ft.Text("Add custom words and corrections to improve accuracy", size=13, color=ts),
-                                ft.Container(height=20),
-                                self._build_category_tabs(),
-                                ft.Container(height=16),
-                                self._build_vocabulary_list(),
                             ],
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         ),
-                    ),
-                ],
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        ft.Container(height=8),
+                        ft.Text("Add custom words and corrections to improve accuracy", size=13, color=ts),
+                        ft.Container(height=20),
+                        self._build_category_tabs(),
+                        ft.Container(height=16),
+                        self._build_vocabulary_list(),
+                    ],
+                ),
             ),
         )
 
