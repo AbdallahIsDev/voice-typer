@@ -15,6 +15,7 @@ SVG_ICONS = {
     "home": "home-03.svg",
     "history": "history-anticlockwise-line.svg",
     "templates": "license.svg",
+    "models": "ai-brain-03.svg",
 }
 
 _ICONS_DIR = os.path.join(os.path.dirname(__file__), "..", "assets", "icons")
