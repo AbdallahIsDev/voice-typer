@@ -514,6 +514,7 @@ class VoiceTyperApp:
         self._sidebar_container = ft.Container(
             width=220,
             bgcolor=Colors.sidebar_bg(dark),
+            border=ft.Border(right=ft.BorderSide(1, Colors.divider(dark))),
             padding=ft.Padding.all(16),
             content=ft.Column(
                 [

@@ -27,22 +27,22 @@ WINDOW_HEIGHT = 500
 # Color constants for easy access
 class Colors:
     PRIMARY = ft.Colors.BLUE_600
-    PRIMARY_LIGHT = ft.Colors.BLUE_100
+    PRIMARY_LIGHT = ft.Colors.BLUE_200
     ACCENT = ft.Colors.TEAL_600
     SUCCESS = ft.Colors.GREEN_600
     WARNING = ft.Colors.AMBER_600
     ERROR = ft.Colors.RED_600
     INFO = ft.Colors.BLUE_400
-    SURFACE = ft.Colors.GREY_50
-    SURFACE_DARK = "#2b2b2b"  # dark grey
-    SIDEBAR_BG = ft.Colors.GREY_100
-    SIDEBAR_BG_DARK = ft.Colors.GREY_800
+    SURFACE = ft.Colors.WHITE
+    SURFACE_DARK = "#111111"
+    SIDEBAR_BG = "#F5F5F5"
+    SIDEBAR_BG_DARK = "#0f0f0f"
     TEXT_PRIMARY = ft.Colors.GREY_900
     TEXT_SECONDARY = ft.Colors.GREY_600
     TEXT_PRIMARY_DARK = ft.Colors.WHITE
     TEXT_SECONDARY_DARK = ft.Colors.GREY_400
-    DIVIDER = ft.Colors.GREY_300
-    DIVIDER_DARK = ft.Colors.GREY_700
+    DIVIDER = ft.Colors.GREY_200
+    DIVIDER_DARK = ft.Colors.GREY_200
     CARD_BG = ft.Colors.WHITE
     CARD_BG_DARK = ft.Colors.GREY_800
 
