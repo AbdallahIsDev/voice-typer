@@ -517,7 +517,7 @@ class VoiceTyperApp:
             width=220,
             bgcolor=Colors.sidebar_bg(dark),
             border=ft.Border(right=ft.BorderSide(1, Colors.divider(dark))),
-            padding=ft.Padding.all(16),
+            padding=ft.Padding.all(8),
             content=ft.Column(
                 [
                     # Logo/Title
@@ -572,10 +572,27 @@ class VoiceTyperApp:
         def close_click(e):
             self.page.window.close()
 
+        def _make_caption_btn(icon_name, on_click, hover_bg):
+            return ft.Container(
+                width=46,
+                height=32,
+                padding=0,
+                on_click=on_click,
+                bgcolor=ft.Colors.TRANSPARENT,
+                border_radius=ft.border_radius.all(0),
+                content=ft.Icon(
+                    name=icon_name,
+                    size=10,
+                    color=Colors.text_primary(dark),
+                ),
+                alignment=ft.alignment.center,
+                animate_opacity=100,
+            )
+
         self._title_bar_container = ft.Container(
             height=32,
             bgcolor=Colors.sidebar_bg(dark),
-            padding=ft.Padding.symmetric(horizontal=8),
+            padding=0,
             content=ft.Row(
                 [
                     ft.WindowDragArea(
@@ -587,22 +604,40 @@ class VoiceTyperApp:
                         spacing=0,
                         controls=[
                             ft.IconButton(
-                                icon=ft.Icons.MINIMIZE,
-                                icon_size=16,
+                                icon=ft.Icons.HORIZONTAL_RULE,
+                                icon_size=14,
+                                width=46,
+                                height=32,
+                                padding=0,
                                 on_click=minimize_click,
-                                padding=ft.Padding.symmetric(horizontal=4, vertical=2),
+                                hover_color=ft.Colors.with_opacity(0.15, ft.Colors.WHITE if dark else ft.Colors.BLACK),
+                                style=ft.ButtonStyle(
+                                    shape=ft.RoundedRectangleBorder(radius=0),
+                                ),
                             ),
                             ft.IconButton(
-                                icon=ft.Icons.MAXIMIZE,
-                                icon_size=16,
+                                icon=ft.Icons.CROP_SQUARE if not self.page.window.maximized else ft.Icons.FILTER_NONE,
+                                icon_size=14,
+                                width=46,
+                                height=32,
+                                padding=0,
                                 on_click=maximize_click,
-                                padding=ft.Padding.symmetric(horizontal=4, vertical=2),
+                                hover_color=ft.Colors.with_opacity(0.15, ft.Colors.WHITE if dark else ft.Colors.BLACK),
+                                style=ft.ButtonStyle(
+                                    shape=ft.RoundedRectangleBorder(radius=0),
+                                ),
                             ),
                             ft.IconButton(
                                 icon=ft.Icons.CLOSE,
-                                icon_size=16,
+                                icon_size=14,
+                                width=46,
+                                height=32,
+                                padding=0,
                                 on_click=close_click,
-                                padding=ft.Padding.symmetric(horizontal=4, vertical=2),
+                                hover_color=ft.Colors.RED_700,
+                                style=ft.ButtonStyle(
+                                    shape=ft.RoundedRectangleBorder(radius=0),
+                                ),
                             ),
                         ],
                     ),
