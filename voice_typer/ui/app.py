@@ -254,7 +254,6 @@ class VoiceTyperApp:
             self._status_poll_timer.cancel()
             self._status_poll_timer = None
 
-    @staticmethod
     def main(self, page: ft.Page):
         """Main entry point for the Flet app."""
         self.page = page
