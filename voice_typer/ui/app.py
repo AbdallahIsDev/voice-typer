@@ -254,52 +254,10 @@ class VoiceTyperApp:
             self._status_poll_timer.cancel()
             self._status_poll_timer = None
 
-    @staticmethod
-    def _ensure_window_icon() -> str:
-        """Generate a microphone .ico file for the window title bar / taskbar.
-
-        Returns the path to the .ico file (cached after first generation).
-        """
-        from voice_typer.config import _config_dir
-        from PIL import Image, ImageDraw
-
-        ico_path = _config_dir() / "voice-typer.ico"
-        if ico_path.exists():
-            return str(ico_path)
-
-        # Vibrant blue microphone — static logo (not state-dependent like the tray icon)
-        size = 64
-        color = (52, 152, 219, 255)
-        img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
-
-        cx, cy = size // 2, size // 2
-        mic_w, mic_h = size // 5, size // 3
-        draw.rounded_rectangle(
-            [cx - mic_w, cy - mic_h, cx + mic_w, cy + mic_h // 3],
-            radius=mic_w // 2,
-            fill=color,
-        )
-        stand_radius = size // 3
-        draw.arc(
-            [cx - stand_radius, cy - stand_radius + mic_h // 4, cx + stand_radius, cy + stand_radius],
-            start=0, end=180,
-            fill=color, width=max(2, size // 20),
-        )
-        base_y = cy + stand_radius
-        draw.line(
-            [cx - stand_radius // 2, base_y, cx + stand_radius // 2, base_y],
-            fill=color, width=max(2, size // 20),
-        )
-
-        ico_path.parent.mkdir(parents=True, exist_ok=True)
-        img.save(ico_path, format="ICO", sizes=[(64, 64)])
-        return str(ico_path)
-
     def main(self, page: ft.Page):
         """Main entry point for the Flet app."""
         self.page = page
-        page.title = "Voice Typer"
+        page.title = ""
 
         # ── Immediately hide the native window via Windows API ──────────
         # Flet creates the window before main(page) runs, so it appears at
@@ -333,12 +291,6 @@ class VoiceTyperApp:
                 _screen_h = user32.GetSystemMetrics(1)
         except Exception:
             pass
-
-        # Set the window icon (taskbar + title bar) to the microphone logo
-        try:
-            page.window.icon = VoiceTyperApp._ensure_window_icon()
-        except Exception:
-            pass  # Non-critical — fall back to default Flet icon
 
         # Register Hugeicons font
         import os
