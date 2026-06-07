@@ -255,51 +255,10 @@ class VoiceTyperApp:
             self._status_poll_timer = None
 
     @staticmethod
-    def _ensure_window_icon() -> str:
-        """Generate a microphone .ico file for the window title bar / taskbar.
-
-        Returns the path to the .ico file (cached after first generation).
-        """
-        from voice_typer.config import _config_dir
-        from PIL import Image, ImageDraw
-
-        ico_path = _config_dir() / "voice-typer.ico"
-        if ico_path.exists():
-            return str(ico_path)
-
-        # Vibrant blue microphone — static logo (not state-dependent like the tray icon)
-        size = 64
-        color = (52, 152, 219, 255)
-        img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
-
-        cx, cy = size // 2, size // 2
-        mic_w, mic_h = size // 5, size // 3
-        draw.rounded_rectangle(
-            [cx - mic_w, cy - mic_h, cx + mic_w, cy + mic_h // 3],
-            radius=mic_w // 2,
-            fill=color,
-        )
-        stand_radius = size // 3
-        draw.arc(
-            [cx - stand_radius, cy - stand_radius + mic_h // 4, cx + stand_radius, cy + stand_radius],
-            start=0, end=180,
-            fill=color, width=max(2, size // 20),
-        )
-        base_y = cy + stand_radius
-        draw.line(
-            [cx - stand_radius // 2, base_y, cx + stand_radius // 2, base_y],
-            fill=color, width=max(2, size // 20),
-        )
-
-        ico_path.parent.mkdir(parents=True, exist_ok=True)
-        img.save(ico_path, format="ICO", sizes=[(64, 64)])
-        return str(ico_path)
-
     def main(self, page: ft.Page):
         """Main entry point for the Flet app."""
         self.page = page
-        page.title = "Voice Typer"
+        page.title = ""
 
         # ── Immediately hide the native window via Windows API ──────────
         # Flet creates the window before main(page) runs, so it appears at
@@ -333,12 +292,6 @@ class VoiceTyperApp:
                 _screen_h = user32.GetSystemMetrics(1)
         except Exception:
             pass
-
-        # Set the window icon (title bar + taskbar) to the microphone logo
-        try:
-            page.window.icon = self._ensure_window_icon()
-        except Exception:
-            pass  # Non-critical — fall back to default Flet icon
 
         # Register Hugeicons font
         import os
@@ -375,7 +328,6 @@ class VoiceTyperApp:
         page.theme = get_theme(dark=is_dark)
 
         page.padding = 0
-        page.window.title_bar_hidden = True
         page.vertical_alignment = ft.MainAxisAlignment.START
         page.horizontal_alignment = ft.CrossAxisAlignment.STRETCH
 
@@ -394,7 +346,6 @@ class VoiceTyperApp:
         page.add(
             ft.Column(
                 [
-                    self._build_title_bar(),
                     ft.Container(
                         content=self._build_main_row(),
                         expand=True,
@@ -557,80 +508,6 @@ class VoiceTyperApp:
         )
         return self._content_area
 
-    def _build_title_bar(self) -> ft.Control:
-        """Build a custom title bar with window controls (no icon or name)."""
-        dark = self._is_dark_mode()
-
-        def minimize_click(e):
-            self.page.window.minimized = True
-            self.page.update()
-
-        def maximize_click(e):
-            self.page.window.maximized = not self.page.window.maximized
-            self.page.update()
-
-        def close_click(e):
-            self.page.window.close()
-
-        self._title_bar_container = ft.Container(
-            height=32,
-            bgcolor=Colors.sidebar_bg(dark),
-            padding=0,
-            content=ft.Row(
-                [
-                    ft.WindowDragArea(
-                        ft.Container(expand=True),
-                        expand=True,
-                        on_double_tap=maximize_click,
-                    ),
-                    ft.Row(
-                        spacing=0,
-                        controls=[
-                            ft.IconButton(
-                                icon=ft.Icons.HORIZONTAL_RULE,
-                                icon_size=14,
-                                width=46,
-                                height=32,
-                                padding=0,
-                                on_click=minimize_click,
-                                hover_color=ft.Colors.with_opacity(0.15, ft.Colors.WHITE if dark else ft.Colors.BLACK),
-                                style=ft.ButtonStyle(
-                                    shape=ft.RoundedRectangleBorder(radius=0),
-                                ),
-                            ),
-                            ft.IconButton(
-                                icon=ft.Icons.CROP_SQUARE if not self.page.window.maximized else ft.Icons.FILTER_NONE,
-                                icon_size=14,
-                                width=46,
-                                height=32,
-                                padding=0,
-                                on_click=maximize_click,
-                                hover_color=ft.Colors.with_opacity(0.15, ft.Colors.WHITE if dark else ft.Colors.BLACK),
-                                style=ft.ButtonStyle(
-                                    shape=ft.RoundedRectangleBorder(radius=0),
-                                ),
-                            ),
-                            ft.IconButton(
-                                icon=ft.Icons.CLOSE,
-                                icon_size=14,
-                                width=46,
-                                height=32,
-                                padding=0,
-                                on_click=close_click,
-                                hover_color=ft.Colors.RED_700,
-                                style=ft.ButtonStyle(
-                                    shape=ft.RoundedRectangleBorder(radius=0),
-                                ),
-                            ),
-                        ],
-                    ),
-                ],
-                spacing=0,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
-        )
-        return self._title_bar_container
-
     def _build_main_row(self) -> ft.Row:
         """Build the Row containing sidebar + content area."""
         return ft.Row(
@@ -779,8 +656,6 @@ class VoiceTyperApp:
             self._content_area.bgcolor = Colors.surface(dark)
         if hasattr(self, "_sidebar_container"):
             self._sidebar_container.bgcolor = Colors.sidebar_bg(dark)
-        if hasattr(self, "_title_bar_container"):
-            self._title_bar_container.bgcolor = Colors.sidebar_bg(dark)
         for item_id, btn in self.nav_buttons.items():
             is_selected = item_id == view_id
             btn.content.controls[0].color = ft.Colors.WHITE if is_selected else Colors.text_secondary(dark)
