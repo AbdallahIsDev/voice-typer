@@ -34,7 +34,7 @@ class Colors:
     ERROR = ft.Colors.RED_600
     INFO = ft.Colors.BLUE_400
     SURFACE = ft.Colors.GREY_50
-    SURFACE_DARK = ft.Colors.GREY_900
+    SURFACE_DARK = "#2b2b2b"  # dark grey
     SIDEBAR_BG = ft.Colors.GREY_100
     SIDEBAR_BG_DARK = ft.Colors.GREY_800
     TEXT_PRIMARY = ft.Colors.GREY_900
