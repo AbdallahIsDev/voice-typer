@@ -572,23 +572,6 @@ class VoiceTyperApp:
         def close_click(e):
             self.page.window.close()
 
-        def _make_caption_btn(icon_name, on_click, hover_bg):
-            return ft.Container(
-                width=46,
-                height=32,
-                padding=0,
-                on_click=on_click,
-                bgcolor=ft.Colors.TRANSPARENT,
-                border_radius=ft.border_radius.all(0),
-                content=ft.Icon(
-                    name=icon_name,
-                    size=10,
-                    color=Colors.text_primary(dark),
-                ),
-                alignment=ft.alignment.center,
-                animate_opacity=100,
-            )
-
         self._title_bar_container = ft.Container(
             height=32,
             bgcolor=Colors.sidebar_bg(dark),
