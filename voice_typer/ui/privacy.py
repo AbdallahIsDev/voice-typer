@@ -2,7 +2,7 @@ import flet as ft
 import json
 import pyperclip
 import sys
-from .styles import Colors
+from .styles import Colors, is_windows_dark_mode
 from .icons import icon
 
 
@@ -19,13 +19,12 @@ class PrivacyScreen:
     def _is_dark_mode(self) -> bool:
         """Return True if the current theme is dark."""
         if self.page is None:
-            return False
+            return is_windows_dark_mode()
         if self.page.theme_mode == ft.ThemeMode.DARK:
             return True
         if self.page.theme_mode == ft.ThemeMode.LIGHT:
             return False
-        # SYSTEM mode - Flet should handle this
-        return getattr(self.page.theme, 'brightness', ft.Brightness.LIGHT) == ft.Brightness.DARK
+        return is_windows_dark_mode()
 
     def _get_history_db(self):
         """Lazy-init HistoryDB."""

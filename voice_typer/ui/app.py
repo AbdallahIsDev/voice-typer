@@ -2,7 +2,7 @@ import ctypes
 import flet as ft
 import logging
 import threading
-from .styles import Colors, NAV_ITEMS, STATUS_COLORS, STATUS_LABELS, get_theme
+from .styles import Colors, NAV_ITEMS, STATUS_COLORS, STATUS_LABELS, get_theme, is_windows_dark_mode
 from .icons import icon
 from .home import build_home_page
 from .history import HistoryScreen
@@ -80,29 +80,17 @@ class VoiceTyperApp:
     def _is_dark_mode(self) -> bool:
         """Return True if the current theme is dark."""
         if self.page is None:
-            # Fallback to config before page is initialized
             theme_mode = getattr(self.config, 'theme_mode', 'system')
             if theme_mode == 'dark':
                 return True
             if theme_mode == 'light':
                 return False
-            # SYSTEM mode - check system preference
-            try:
-                import ctypes
-                # Check Windows AppsUseLightTheme registry value
-                import winreg
-                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as key:
-                    value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
-                    return value == 0  # 0 = dark, 1 = light
-            except Exception:
-                return False  # default to light
-        # Page is initialized - use its theme_mode
+            return is_windows_dark_mode()
         if self.page.theme_mode == ft.ThemeMode.DARK:
             return True
         if self.page.theme_mode == ft.ThemeMode.LIGHT:
             return False
-        # SYSTEM mode - Flet should handle this, but check page's actual brightness
-        return getattr(self.page.theme, 'brightness', ft.Brightness.LIGHT) == ft.Brightness.DARK
+        return is_windows_dark_mode()
 
     def _read_flet_state(self) -> dict:
         """Read shared state from the JSON file written by the parent process."""
@@ -368,13 +356,23 @@ class VoiceTyperApp:
         theme_mode = getattr(self.config, 'theme_mode', 'system')
         if theme_mode == 'light':
             page.theme_mode = ft.ThemeMode.LIGHT
+            is_dark = False
         elif theme_mode == 'dark':
             page.theme_mode = ft.ThemeMode.DARK
+            is_dark = True
         else:
             page.theme_mode = ft.ThemeMode.SYSTEM
+            # Detect OS dark mode at startup via Windows registry
+            is_dark = False
+            try:
+                import winreg
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as key:
+                    value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+                    is_dark = value == 0
+            except Exception:
+                pass
 
-        # UX-002: Wire get_theme into page
-        page.theme = get_theme(dark=(page.theme_mode == ft.ThemeMode.DARK))
+        page.theme = get_theme(dark=is_dark)
 
         page.padding = 0
         page.vertical_alignment = ft.MainAxisAlignment.START

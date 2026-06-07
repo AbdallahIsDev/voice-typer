@@ -1,5 +1,5 @@
 import flet as ft
-from .styles import Colors
+from .styles import Colors, is_windows_dark_mode
 from .icons import icon
 
 from voice_typer.vocabulary import VocabularyManager, CATEGORIES
@@ -38,12 +38,12 @@ class VocabularyScreen:
     def _is_dark_mode(self) -> bool:
         """Return True if the current theme is dark."""
         if self.page is None:
-            return False
+            return is_windows_dark_mode()
         if self.page.theme_mode == ft.ThemeMode.DARK:
             return True
         if self.page.theme_mode == ft.ThemeMode.LIGHT:
             return False
-        return getattr(self.page.theme, 'brightness', ft.Brightness.LIGHT) == ft.Brightness.DARK
+        return is_windows_dark_mode()
 
     def _get_manager(self) -> VocabularyManager:
         """Lazy-init VocabularyManager."""

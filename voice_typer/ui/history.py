@@ -2,7 +2,7 @@ import flet as ft
 import json
 import pyperclip
 import threading
-from .styles import Colors, format_relative_time
+from .styles import Colors, format_relative_time, is_windows_dark_mode
 from voice_typer.history_db import HistoryDB
 from .icons import icon
 
@@ -24,12 +24,12 @@ class HistoryScreen:
     def _is_dark_mode(self) -> bool:
         """Return True if the current theme is dark."""
         if self.page is None:
-            return False
+            return is_windows_dark_mode()
         if self.page.theme_mode == ft.ThemeMode.DARK:
             return True
         if self.page.theme_mode == ft.ThemeMode.LIGHT:
             return False
-        return getattr(self.page.theme, 'brightness', ft.Brightness.LIGHT) == ft.Brightness.DARK
+        return is_windows_dark_mode()
 
     def build(self) -> ft.Control:
         dark = self._is_dark_mode()

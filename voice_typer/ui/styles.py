@@ -2,6 +2,22 @@
 
 import flet as ft
 
+import sys
+
+
+def is_windows_dark_mode() -> bool:
+    """Query Windows AppsUseLightTheme registry value."""
+    if sys.platform != "win32":
+        return False
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as key:
+            value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+            return value == 0
+    except Exception:
+        return False
+
+
 APP_NAME = "Voice Typer"
 SIDEBAR_WIDTH = 200
 WINDOW_WIDTH = 800
@@ -144,14 +160,9 @@ RECORD_BUTTON_STOP_COLOR = ft.Colors.GREY_600
 def get_theme(dark: bool = False) -> ft.Theme:
     """UX-002: Return a Material 3 theme for the app.
 
-    Now wired into the Flet page via ui/app.py.
+    Brightness is handled by page.theme_mode, not by ft.Theme()
+    (Flet 0.85.2 rejects the brightness kwarg).
     """
-    if dark:
-        return ft.Theme(
-            color_scheme_seed=Colors.PRIMARY,
-            visual_density=ft.VisualDensity.COMFORTABLE,
-            brightness=ft.Brightness.DARK,
-        )
     return ft.Theme(
         color_scheme_seed=Colors.PRIMARY,
         visual_density=ft.VisualDensity.COMFORTABLE,
@@ -161,14 +172,9 @@ def get_theme(dark: bool = False) -> ft.Theme:
 # UX-036: High-contrast theme
 def get_high_contrast_theme(dark: bool = False) -> ft.Theme:
     """Return a high-contrast accessibility theme."""
-    if dark:
-        return ft.Theme(
-            color_scheme_seed=ft.Colors.WHITE,
-            visual_density=ft.VisualDensity.COMFORTABLE,
-            brightness=ft.Brightness.DARK,
-        )
+    seed = ft.Colors.WHITE if dark else ft.Colors.BLACK
     return ft.Theme(
-        color_scheme_seed=ft.Colors.BLACK,
+        color_scheme_seed=seed,
         visual_density=ft.VisualDensity.COMFORTABLE,
     )
 

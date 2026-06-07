@@ -546,15 +546,26 @@ class SettingsScreen:
         """UX-008/031: Change application theme."""
         self.config.theme_mode = theme_mode
         self.config.save()
-        self.reload()
         if self.page:
             if theme_mode == "light":
                 self.page.theme_mode = ft.ThemeMode.LIGHT
+                is_dark = False
             elif theme_mode == "dark":
                 self.page.theme_mode = ft.ThemeMode.DARK
+                is_dark = True
             else:
                 self.page.theme_mode = ft.ThemeMode.SYSTEM
-            self.page.theme = get_theme(dark=(self.page.theme_mode == ft.ThemeMode.DARK))
+                is_dark = False
+                try:
+                    import winreg
+                    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as key:
+                        value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+                        is_dark = value == 0
+                except Exception:
+                    pass
+            self.page.theme = get_theme(dark=is_dark)
+        self.reload()
+        if self.page:
             self.page.update()
 
     def _filter_settings(self, e):
