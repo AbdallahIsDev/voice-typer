@@ -68,7 +68,7 @@ class ModelsScreen:
                         [
                             ft.Text("Models", size=24, weight=ft.FontWeight.BOLD, color=Colors.text_primary(dark)),
                             ft.Container(expand=True),
-                            ft.ElevatedButton(
+                            ft.Button(
                                 content=ft.Row([icon("download", color=ft.Colors.WHITE, size=16), ft.Text("Download Model", color=ft.Colors.WHITE)], spacing=8),
                                 on_click=self._download_model,
                                 bgcolor=ft.Colors.BLUE_600,
@@ -115,7 +115,7 @@ class ModelsScreen:
                             color=ft.Colors.GREY_500 if not dark else ft.Colors.GREY_500,
                         ),
                         ft.Container(height=10),
-                        ft.ElevatedButton(
+                        ft.Button(
                             content=ft.Row([icon("download", size=16), ft.Text("Download Model")], spacing=8),
                             on_click=self._download_model,
                             tooltip="Download a model to get started",
@@ -315,12 +315,12 @@ class ModelsScreen:
                 ft.Row(
                     [
                         key_field,
-                        ft.ElevatedButton(
+                        ft.Button(
                             "Save Key",
                             on_click=_save_key,
                             tooltip=f"Save {label} API key",
                         ),
-                        ft.ElevatedButton(
+                        ft.Button(
                             content=ft.Row([icon("sparkles", size=14), ft.Text("Test Connection")], spacing=6),
                             on_click=_test_connection,
                             tooltip=f"Test {label} connection",
@@ -352,7 +352,7 @@ class ModelsScreen:
                             color=Colors.text_secondary(dark),
                         ),
                         ft.Container(height=10),
-                        ft.ElevatedButton(
+                        ft.Button(
                             content=ft.Row([icon("speed", size=16), ft.Text("Run Benchmark")], spacing=8),
                             on_click=self._run_benchmark,
                             tooltip="Benchmark current model speed",

@@ -470,17 +470,17 @@ class SettingsScreen:
                 content=ft.Column(
                     [
                         ft.Text("Troubleshooting", size=18, weight=ft.FontWeight.W_600),
-                        ft.ElevatedButton(
+                        ft.Button(
                             content=ft.Row([icon("microphone", size=16), ft.Text("Test Microphone")], spacing=8),
                             on_click=self._test_microphone,
                             tooltip="Test your microphone input levels",
                         ),
-                        ft.ElevatedButton(
+                        ft.Button(
                             content=ft.Row([icon("description", size=16), ft.Text("View Logs")], spacing=8),
                             on_click=self._view_logs,
                             tooltip="Open the application log file",
                         ),
-                        ft.ElevatedButton(
+                        ft.Button(
                             content=ft.Row([icon("refresh", size=16), ft.Text("Reset to Defaults")], spacing=8),
                             on_click=self._reset_defaults,
                             tooltip="Reset all settings to default values",

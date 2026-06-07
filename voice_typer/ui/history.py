@@ -41,17 +41,17 @@ class HistoryScreen:
                         [
                             ft.Text("History", size=24, weight=ft.FontWeight.BOLD, color=Colors.text_primary(dark)),
                             ft.Container(expand=True),
-                            ft.ElevatedButton(
+                            ft.Button(
                                 content=ft.Row([icon("import-export", size=16), ft.Text("Export")], spacing=8),
                                 on_click=self._export_history,
                                 tooltip="Export transcription history",
                             ),
-                            ft.ElevatedButton(
+                            ft.Button(
                                 content=ft.Row([icon("filter", color=Colors.text_secondary(dark), size=16), ft.Text("Favorites")], spacing=8),
                                 on_click=self._show_favorites,
                                 tooltip="Show favorited transcriptions only",
                             ),
-                            ft.ElevatedButton(
+                            ft.Button(
                                 content=ft.Row([icon("delete-sweep", color=Colors.ERROR, size=16), ft.Text("Clear All", color=Colors.ERROR)], spacing=8),
                                 on_click=self._clear_all_confirm,
                                 bgcolor=ft.Colors.RED_100 if not dark else ft.Colors.RED_900,

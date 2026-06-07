@@ -93,7 +93,7 @@ class VocabularyScreen:
                         [
                             ft.Text("Custom Vocabulary", size=24, weight=ft.FontWeight.BOLD, color=Colors.text_primary(dark)),
                             ft.Container(expand=True),
-                            ft.ElevatedButton(
+                            ft.Button(
                                 content=ft.Row([icon("add", color=ft.Colors.WHITE, size=16), ft.Text("Add Word", color=ft.Colors.WHITE)], spacing=8),
                                 on_click=self._add_word,
                                 bgcolor=ft.Colors.BLUE_600,
@@ -122,7 +122,7 @@ class VocabularyScreen:
         for cat in CATEGORIES:
             is_active = cat == self._active_category
             tabs.append(
-                ft.ElevatedButton(
+                ft.Button(
                     content=ft.Text(self.CATEGORY_LABELS.get(cat, cat), color=ft.Colors.WHITE if is_active else Colors.text_primary(dark)),
                     on_click=lambda e, c=cat: self._select_category(c),
                     bgcolor=ft.Colors.BLUE_600 if is_active else (ft.Colors.GREY_200 if not dark else ft.Colors.GREY_700),
@@ -160,7 +160,7 @@ class VocabularyScreen:
                             color=ft.Colors.GREY_500 if not dark else ft.Colors.GREY_500,
                         ),
                         ft.Container(height=10),
-                        ft.ElevatedButton(
+                        ft.Button(
                             content=ft.Row([icon("add", size=16), ft.Text("Add First Word")], spacing=8),
                             on_click=self._add_word,
                         ),

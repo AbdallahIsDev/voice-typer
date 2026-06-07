@@ -299,7 +299,7 @@ class VoiceTyperApp:
     def main(self, page: ft.Page):
         """Main entry point for the Flet app."""
         self.page = page
-        page.title = "Voice Typer"
+        page.title = ""
 
         # ── Immediately hide the native window via Windows API ──────────
         # Flet creates the window before main(page) runs, so it appears at
@@ -589,7 +589,7 @@ class VoiceTyperApp:
                             color=Colors.text_secondary(dark),
                         ),
                         ft.Container(height=10),
-                        ft.ElevatedButton(
+                        ft.Button(
                             "Retry",
                             on_click=lambda e: self._set_view(self.current_view),
                             icon=ft.Icons.REFRESH,

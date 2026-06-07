@@ -60,7 +60,7 @@ class TemplatesScreen:
                         [
                             ft.Text("Templates", size=24, weight=ft.FontWeight.BOLD, color=Colors.text_primary(dark)),
                             ft.Container(expand=True),
-                            ft.ElevatedButton(
+                            ft.Button(
                                 content=ft.Row([icon("add", color=ft.Colors.WHITE, size=16), ft.Text("Add Template", color=ft.Colors.WHITE)], spacing=8),
                                 on_click=self._add_template,
                                 bgcolor=ft.Colors.BLUE_600,
@@ -100,7 +100,7 @@ class TemplatesScreen:
                             color=ft.Colors.GREY_500 if not dark else ft.Colors.GREY_500,
                         ),
                         ft.Container(height=10),
-                        ft.ElevatedButton(
+                        ft.Button(
                             content=ft.Row([icon("add", size=16), ft.Text("Create First Template")], spacing=8),
                             on_click=self._add_template,
                         ),

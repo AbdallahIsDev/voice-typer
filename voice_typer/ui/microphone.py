@@ -48,7 +48,7 @@ class MicrophoneScreen:
                         [
                             ft.Text("Microphone", size=24, weight=ft.FontWeight.BOLD, color=Colors.text_primary(dark)),
                             ft.Container(expand=True),
-                            ft.ElevatedButton(
+                            ft.Button(
                                 content=ft.Row([icon("refresh", color=ft.Colors.WHITE, size=16), ft.Text("Refresh", color=ft.Colors.WHITE)], spacing=8),
                                 on_click=self._refresh,
                                 bgcolor=ft.Colors.BLUE_600,
@@ -102,7 +102,7 @@ class MicrophoneScreen:
                             spacing=12,
                             expand=True,
                         ),
-                        ft.ElevatedButton(
+                        ft.Button(
                             "Active" if is_active else "Use",
                             on_click=lambda e: self._use_microphone(None),
                             bgcolor=ft.Colors.GREEN_600 if is_active else None,
@@ -186,7 +186,7 @@ class MicrophoneScreen:
                             spacing=12,
                             expand=True,
                         ),
-                        ft.ElevatedButton(
+                        ft.Button(
                             "Use" if not is_active else "Active",
                             on_click=lambda e, m=mic: self._use_microphone(m),
                             bgcolor=ft.Colors.GREEN_600 if is_active else None,
@@ -221,12 +221,12 @@ class MicrophoneScreen:
                         ft.Container(height=10),
                         ft.Row(
                             [
-                                ft.ElevatedButton(
+                                ft.Button(
                                     content=ft.Row([icon("play-arrow", size=16), ft.Text("Start Test")], spacing=8),
                                     on_click=self._start_test,
                                     tooltip="Start microphone test",
                                 ),
-                                ft.ElevatedButton(
+                                ft.Button(
                                     content=ft.Row([icon("stop", size=16), ft.Text("Stop Test")], spacing=8),
                                     on_click=self._stop_test,
                                     tooltip="Stop microphone test",

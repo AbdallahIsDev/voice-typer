@@ -193,15 +193,15 @@ class PrivacyScreen:
                     [
                         ft.Text("Data Management", size=18, weight=ft.FontWeight.W_600, color=Colors.text_primary(dark)),
                         ft.Container(height=10),
-                        ft.ElevatedButton(
+                        ft.Button(
                             content=ft.Row([icon("import-export", size=16), ft.Text("Export Transcriptions")], spacing=8),
                             on_click=self._export_data,
                         ),
-                        ft.ElevatedButton(
+                        ft.Button(
                             content=ft.Row([icon("import-export", size=16), ft.Text("Export Vocabulary")], spacing=8),
                             on_click=self._export_vocabulary,
                         ),
-                        ft.ElevatedButton(
+                        ft.Button(
                             content=ft.Row([icon("delete-sweep", color=Colors.ERROR, size=16), ft.Text("Clear All Data", color=Colors.ERROR)], spacing=8),
                             on_click=self._clear_data,
                             bgcolor=ft.Colors.RED_100 if not dark else ft.Colors.RED_900,
