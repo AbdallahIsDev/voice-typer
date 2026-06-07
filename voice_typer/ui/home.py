@@ -132,12 +132,9 @@ def build_home_page(
     )
 
     # ── Elements wrapper ─────────────────────────────────────────────
-    # Groups every home-screen element in a single Column.  The parent
-    # Container in app.py (non-scrollable, full-viewport) centers this
-    # wrapper via Alignment.CENTER — equivalent to CSS
-    #   display:flex; justify-content:center; align-items:center;
-    # The wrapper must NOT be placed inside a scrollable Column: in
-    # Flet 0.85.x that breaks expand/alignment on its children.
+    # Groups every home-screen element in a single Column.  Centering
+    # is handled by the parent Container (_content_area) in app.py which
+    # gets alignment=ft.Alignment(0,0) for the home view.
     return ft.Column(
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         spacing=20,

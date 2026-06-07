@@ -470,24 +470,18 @@ class VoiceTyperApp:
         )
 
     def _build_content_area(self) -> ft.Control:
-        """Build the main content area.
-
-        Single Column that holds either:
-        - Home view: a centered Container wrapping the home page (set in _set_view)
-        - Other views: the screen directly (scrollable Column)
-
-        Content is swapped in :meth:`_set_view`.
-        """
+        """Build the main content area."""
         self._content_column = ft.Column(
             key="content",
             scroll=ft.ScrollMode.AUTO,
             expand=True,
         )
-        return ft.Container(
+        self._content_area = ft.Container(
             expand=True,
             bgcolor=ft.Colors.WHITE,
             content=self._content_column,
         )
+        return self._content_area
 
     def _build_main_row(self) -> ft.Row:
         """Build the Row containing sidebar + content area."""
@@ -504,35 +498,34 @@ class VoiceTyperApp:
     def _show_error_view(self, error_message: str = "") -> None:
         """Display a fallback error message when the home page fails to render."""
         try:
-            content_column = self._content_column
-            content_column.controls = [
-                ft.Container(
-                    expand=True,
-                    alignment=ft.Alignment(0, 0),
-                    content=ft.Column(
-                        [
-                            ft.Icon(ft.Icons.ERROR_OUTLINE, size=48, color=ft.Colors.RED_400),
-                            ft.Text(
-                                "Something went wrong loading this page",
-                                size=16,
-                                color=ft.Colors.RED_700,
-                                weight=ft.FontWeight.W_500,
-                            ),
-                            ft.Text(
-                                error_message or "Please try restarting the application",
-                                size=13,
-                                color=Colors.text_secondary(dark),
-                            ),
-                            ft.Container(height=10),
-                            ft.ElevatedButton(
-                                "Retry",
-                                on_click=lambda e: self._set_view(self.current_view),
-                                icon=ft.Icons.REFRESH,
-                            ),
-                        ],
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    ),
+            dark = self._is_dark_mode()
+            self._content_column.scroll = None
+            self._content_column.controls = [
+                ft.Container(expand=1),
+                ft.Column(
+                    [
+                        ft.Icon(ft.Icons.ERROR_OUTLINE, size=48, color=ft.Colors.RED_400),
+                        ft.Text(
+                            "Something went wrong loading this page",
+                            size=16,
+                            color=ft.Colors.RED_700,
+                            weight=ft.FontWeight.W_500,
+                        ),
+                        ft.Text(
+                            error_message or "Please try restarting the application",
+                            size=13,
+                            color=Colors.text_secondary(dark),
+                        ),
+                        ft.Container(height=10),
+                        ft.ElevatedButton(
+                            "Retry",
+                            on_click=lambda e: self._set_view(self.current_view),
+                            icon=ft.Icons.REFRESH,
+                        ),
+                    ],
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
+                ft.Container(expand=1),
             ]
             self.page.update()
         except Exception:
@@ -642,14 +635,13 @@ class VoiceTyperApp:
             btn.bgcolor = ft.Colors.BLUE_600 if is_selected else ft.Colors.TRANSPARENT
 
         # Update content area.
-        # content_column is a single Column. We replace its controls entirely:
-        # - Home: a centered Container (expands, centers its content)
-        # - Other views: the screen directly (scrollable Column)
-        if not hasattr(self, "_content_column"):
+        # Home view bypasses the scrollable Column (self._content_column)
+        # because expand=True children inside a scrollable Column in Flet
+        # 0.85.x are not properly constrained.  Other views keep the
+        # scrollable Column.
+        if not hasattr(self, "_content_area"):
             log.error("[UI] Content area not initialized")
             return
-
-        content_column = self._content_column
 
         screen = self.screens.get(view_id)
         if screen is None:
@@ -687,43 +679,48 @@ class VoiceTyperApp:
                     hotkey_hint=f"Press {hotkey_display} or click to dictate",
                     dark=dark,
                 )
-                # Wrap home page in a full-size centered Container
-                content_column.controls = [
-                    ft.Container(
-                        expand=True,
-                        alignment=ft.Alignment(0, 0),
-                        content=home_page,
-                    )
+                # Center home page using expand spacers inside the
+                # content Column.  _content_area (no alignment) gives
+                # tight constraints to _content_column, which gets the
+                # full viewport height.  Two Container(expand=1) spacers
+                # push the content Column to vertical center.
+                self._content_column.scroll = None
+                self._content_column.controls = [
+                    ft.Container(expand=1),
+                    home_page,
+                    ft.Container(expand=1),
                 ]
+                self._content_area.update()
             else:
+                self._content_column.scroll = ft.ScrollMode.AUTO
                 if callable(screen) and not hasattr(screen, 'build'):
-                    content_column.controls = [screen()]
+                    self._content_column.controls = [screen()]
                 else:
-                    content_column.controls = [screen.build()]
+                    self._content_column.controls = [screen.build()]
+                self._content_area.update()
         except Exception as exc:
             log.error("[UI] Failed to build view %s: %s", view_id, exc)
-            content_column.controls = [
-                ft.Container(
-                    expand=True,
-                    alignment=ft.Alignment(0, 0),
-                    content=ft.Column(
-                        [
-                            ft.Icon(ft.Icons.ERROR_OUTLINE, size=48, color=ft.Colors.RED_400),
-                            ft.Text(
-                                f"Failed to load {view_id}",
-                                size=16,
-                                color=ft.Colors.RED_700,
-                                weight=ft.FontWeight.W_500,
-                            ),
-                            ft.Text(
-                                str(exc) or "Please try restarting the application",
-                                size=13,
-                                color=Colors.text_secondary(dark),
-                            ),
-                        ],
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    ),
+            self._content_column.scroll = None
+            self._content_column.controls = [
+                ft.Container(expand=1),
+                ft.Column(
+                    [
+                        ft.Icon(ft.Icons.ERROR_OUTLINE, size=48, color=ft.Colors.RED_400),
+                        ft.Text(
+                            f"Failed to load {view_id}",
+                            size=16,
+                            color=ft.Colors.RED_700,
+                            weight=ft.FontWeight.W_500,
+                        ),
+                        ft.Text(
+                            str(exc) or "Please try restarting the application",
+                            size=13,
+                            color=Colors.text_secondary(dark),
+                        ),
+                    ],
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
+                ft.Container(expand=1),
             ]
 
         self.page.update()
