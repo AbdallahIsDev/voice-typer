@@ -23,6 +23,7 @@ CQ-005: No tkinter imports — all dialogs moved to Flet window.
 
 import logging
 import os
+import subprocess
 import sys
 import threading
 from enum import Enum
@@ -98,9 +99,10 @@ class TrayIcon:
         self._cached_menu = None
         self._menu_cache_valid = False
 
-        # Flet window tracking (runs in a daemon thread; signal.signal stubbed
-        # inside the thread to satisfy Flet's main-thread requirement)
-        self._flet_thread: Optional[threading.Thread] = None
+        # Flet window tracking (runs as a separate subprocess so Flet's
+        # asyncio / signal / COM infrastructure doesn't interfere with
+        # pystray's Windows message loop on the main thread)
+        self._flet_process: Optional[subprocess.Popen] = None
 
     # ─── Public API ─────────────────────────────────────────────────────
 
@@ -186,8 +188,170 @@ class TrayIcon:
         log.info("Tray event loop starting (main thread)")
         self._icon.run()
 
+    @staticmethod
+    def _kill_all_flet_processes(tracked_pid: int | None = None) -> None:
+        """Find and kill ALL Flet processes, using multiple strategies:
+
+        1. Window-title sweep: find top-level windows with "Voice Typer" in
+           their title and kill their owning process.
+
+        2. Command-line sweep: search for any Python process whose
+           command line contains ``voice_typer.ui.app`` on Windows via
+           ``tasklist`` (more reliable than deprecated wmic).
+
+        3. Explicit tracked PID: ensure the PID we tracked is dead.
+
+        This catches orphaned Flet processes that the tracked
+        ``_flet_process`` might have lost track of (e.g. from an earlier
+        restart that failed to fully clean up, or when the window is in a
+        "loading" phase before ``page.title`` is set).
+        """
+        if sys.platform != "win32":
+            return
+
+        killed_pids: set[int] = set()
+
+        # Always ensure tracked_pid is in the kill set
+        if tracked_pid is not None:
+            killed_pids.add(tracked_pid)
+
+        # ── Strategy 1: Window-title sweep ────────────────────────────
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            def _enum_cb(hwnd, lparam):
+                buf = ctypes.create_unicode_buffer(256)
+                ctypes.windll.user32.GetWindowTextW(hwnd, buf, 256)
+                title = buf.value
+                if title and "Voice Typer" in title:
+                    pid = wintypes.DWORD()
+                    ctypes.windll.user32.GetWindowThreadProcessId(
+                        hwnd, ctypes.byref(pid)
+                    )
+                    if pid.value:
+                        killed_pids.add(pid.value)
+                return True
+
+            WNDENUMPROC = ctypes.CFUNCTYPE(
+                wintypes.BOOL, wintypes.HWND, wintypes.LPARAM
+            )
+            ctypes.windll.user32.EnumWindows(WNDENUMPROC(_enum_cb), 0)
+        except Exception as e:
+            log.warning("EnumWindows cleanup failed: %s", e)
+
+        # ── Strategy 2: Command-line sweep via tasklist ───────────────
+        # tasklist is available on all modern Windows versions, unlike wmic
+        # which is deprecated/removed in Windows 11 22H2+.
+        try:
+            result = subprocess.run(
+                [
+                    "tasklist",
+                    "/FI",
+                    "IMAGENAME eq python.exe",
+                    "/FI",
+                    "IMAGENAME eq pythonw.exe",
+                    "/FO",
+                    "CSV",
+                    "/V",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            import re
+            # CSV format: "Image Name","PID","Session Name","Session#","Mem Usage","Status","User Name","CPU Time","Window Title","Command Line"
+            for line in result.stdout.splitlines()[1:]:  # skip header
+                if "voice_typer.ui.app" in line:
+                    # Parse CSV line
+                    parts = line.split('","')
+                    if len(parts) >= 2:
+                        pid_str = parts[1].strip('"')
+                        if pid_str.isdigit():
+                            killed_pids.add(int(pid_str))
+        except Exception as e:
+            log.warning("tasklist command-line sweep failed: %s", e)
+
+        if not killed_pids:
+            return
+
+        log.info(
+            "Killing %d orphaned Flet process(es): %s",
+            len(killed_pids),
+            sorted(killed_pids),
+        )
+        for pid in sorted(killed_pids):
+            try:
+                # Use /T for tree kill to also terminate child processes
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(pid)],
+                    capture_output=True,
+                    timeout=5,
+                )
+            except Exception as e:
+                log.warning(
+                    "Failed to kill orphaned PID %d: %s", pid, e
+                )
+
+    def close_flet_window(self) -> None:
+        """Kill the tracked Flet subprocess (if any) without stopping the
+        tray icon, then sweep for any remaining Flet windows that might
+        have been orphaned from a previous incomplete restart.
+
+        Used during restart so the old Flet window is gone before the new
+        VoiceTyper process starts — prevents stale windows showing "loading".
+        """
+        proc = self._flet_process
+        tracked_pid = None
+        if proc is not None and proc.poll() is None:
+            tracked_pid = proc.pid
+            log.info("Closing Flet window (PID=%d)", tracked_pid)
+
+            # 1. Try graceful terminate first
+            try:
+                proc.terminate()
+                proc.wait(timeout=3)
+                log.info("Flet window terminated gracefully (PID=%d)", tracked_pid)
+                self._flet_process = None
+            except Exception:
+                pass
+
+            # 2. Try kill()
+            if proc.poll() is None:
+                try:
+                    proc.kill()
+                    proc.wait(timeout=2)
+                    log.info("Flet window killed (PID=%d)", tracked_pid)
+                    self._flet_process = None
+                except Exception:
+                    pass
+
+            # 3. taskkill /F /T on the tracked PID (tree kill)
+            if sys.platform == "win32" and proc.poll() is None:
+                try:
+                    subprocess.run(
+                        ["taskkill", "/F", "/T", "/PID", str(tracked_pid)],
+                        capture_output=True,
+                        timeout=5,
+                    )
+                    proc.wait(timeout=2)
+                    log.info("Flet window killed via taskkill /T (PID=%d)", tracked_pid)
+                except Exception as e:
+                    log.warning(
+                        "taskkill /T fallback failed for PID %d: %s", tracked_pid, e
+                    )
+
+        self._flet_process = None
+
+        # 4. Sweep: kill any remaining Flet windows not tracked by us
+        #    (orphans from previous incomplete restarts)
+        # Pass tracked_pid so we can double-ensure it's dead
+        self._kill_all_flet_processes(tracked_pid)
+
     def stop(self) -> None:
-        """Stop the tray icon and exit the event loop."""
+        """Stop the tray icon, kill the Flet subprocess, and exit the event loop."""
+        self.close_flet_window()
+
         if self._icon:
             self._icon.stop()
             self._icon = None
@@ -240,42 +404,67 @@ class TrayIcon:
             log.warning("Notification failed: %s", e)
 
     def open_flet_window(self) -> None:
-        """Open the Flet desktop window in a daemon thread.
+        """Open the Flet desktop window in a separate subprocess.
 
-        pystray blocks the main thread with its event loop; Flet is started in a
-        daemon thread so the two UIs coexist in one process.  ``app_controller``
-        (the main ``VoiceTyperApp`` instance) is passed by direct reference —
-        no IPC, no serialization, no port allocation, no subprocess.
+        Flet uses asyncio, signal handlers, and COM internally, all of which
+        can interfere with pystray's Windows message loop when running in the
+        same process (even in a daemon thread).  Launching Flet as a subprocess
+        fully isolates it — no interference, no signal stubbing.
 
-        Flet's event-loop bootstrap calls ``signal.signal(signal.SIGINT, ...)``
-        which raises ``ValueError`` in any non-main thread.  We stub
-        ``signal.signal`` for the lifetime of the Flet thread so the launch
-        succeeds.  This is a no-op for Flet (it never fires on Windows desktop
-        apps) and restores the real handler on thread exit.
+        ``app_controller`` is NOT passed (it lives in the parent process), so
+        direct-in-process actions (record button, etc.) are unavailable.  The
+        tray menu, hotkeys, and all other features continue to work.
         """
-        if self._flet_thread is not None and self._flet_thread.is_alive():
-            log.info("Flet window already open")
+        # Check if Flet process is already running
+        if self._flet_process is not None and self._flet_process.poll() is None:
+            log.info("Flet window already open (PID=%d)", self._flet_process.pid)
+            # Bring the existing window to the foreground.
+            # Use PID-based lookup so we target OUR window, not a stale
+            # zombie window left behind by a killed process.
+            try:
+                import ctypes
+                from ctypes import wintypes
+
+                our_pid = self._flet_process.pid
+
+                def _enum_cb(hwnd, lparam):
+                    pid = wintypes.DWORD()
+                    ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                    if pid.value == our_pid and ctypes.windll.user32.IsWindowVisible(hwnd):
+                        ctypes.windll.user32.SetForegroundWindow(hwnd)
+                        return False
+                    return True
+
+                WNDENUMPROC = ctypes.CFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+                ctypes.windll.user32.EnumWindows(WNDENUMPROC(_enum_cb), 0)
+            except Exception:
+                pass
             return
 
         try:
-            from voice_typer.ui.app import main
-
-            def _run_flet():
-                import signal as _signal
-                _orig_signal = _signal.signal
-                _signal.signal = lambda *a, **kw: None
-                try:
-                    main(app_controller=self._controller)
-                finally:
-                    _signal.signal = _orig_signal
-                    log.info("Flet window closed")
-
-            self._flet_thread = threading.Thread(
-                target=_run_flet,
-                daemon=True,
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            self._flet_process = subprocess.Popen(
+                [sys.executable, "-m", "voice_typer.ui.app"],
+                cwd=project_root,
             )
-            self._flet_thread.start()
-            log.info("Flet window opened in daemon thread")
+            log.info("Flet window opened in subprocess (PID=%d)", self._flet_process.pid)
+
+            # Watch for subprocess exit so we can log it and clean up
+            # the process reference so open_flet_window() correctly detects
+            # the window is gone on the next call.
+            def _watch_flet(proc):
+                try:
+                    proc.wait()
+                    log.info("Flet window closed (PID=%d)", proc.pid)
+                except Exception:
+                    pass
+                finally:
+                    # Clear the reference so open_flet_window() doesn't
+                    # see a stale Popen object and skip launching.
+                    if self._flet_process is proc:
+                        self._flet_process = None
+
+            threading.Thread(target=_watch_flet, args=(self._flet_process,), daemon=True).start()
         except Exception as e:
             log.error("Failed to open Flet window: %s", e)
 

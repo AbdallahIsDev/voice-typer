@@ -20,13 +20,11 @@ def build_home_page(
     total_today: int = 0,
     total_chars: int = 0,
     on_toggle_dictation=None,
-    on_open_history=None,
-    on_test_mic=None,
-    on_manage_models=None,
     on_repaste_last=None,
     on_start_dictation=None,
     on_stop_dictation=None,
     hotkey_hint: str = "Press F2 or click to dictate",
+    dark: bool = False,
 ) -> ft.Column:
     """Build the Home screen content."""
 
@@ -89,32 +87,17 @@ def build_home_page(
     last_text_preview = ft.Container(
         padding=ft.Padding.all(12),
         border_radius=8,
-        bgcolor=ft.Colors.GREY_100,
+        bgcolor=ft.Colors.GREY_200 if not dark else ft.Colors.GREY_700,
         width=400,
         height=60,
         clip_behavior=ft.ClipBehavior.HARD_EDGE,
         content=ft.Text(
             last_text if last_text else "No transcription yet",
             size=13,
-            color=ft.Colors.GREY_600 if not last_text else ft.Colors.GREY_800,
+            color=ft.Colors.GREY_600 if not dark else ft.Colors.GREY_400 if not last_text else ft.Colors.GREY_800 if not dark else ft.Colors.GREY_200,
             italic=not last_text,
             max_lines=2,
             overflow=ft.TextOverflow.ELLIPSIS,
-        ),
-    )
-
-    device_card = ft.Card(
-        elevation=1,
-        content=ft.Container(
-        padding=ft.Padding.all(12),
-            content=ft.Column(
-                spacing=4,
-                controls=[
-                    ft.Text("Device Info", size=12, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_500),
-                    ft.Text(model_info if model_info else "No model loaded", size=13),
-                    ft.Text(device_info if device_info else "", size=12, color=ft.Colors.GREY_500),
-                ],
-            ),
         ),
     )
 
@@ -126,40 +109,15 @@ def build_home_page(
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
                     ft.Text(str(total_today), size=20, weight=ft.FontWeight.BOLD, color=Colors.PRIMARY),
-                    ft.Text("Today", size=11, color=ft.Colors.GREY_500),
+                    ft.Text("Today", size=11, color=ft.Colors.GREY_500 if not dark else ft.Colors.GREY_400),
                 ],
             ),
             ft.Column(
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
                     ft.Text(str(total_chars), size=20, weight=ft.FontWeight.BOLD, color=Colors.PRIMARY),
-                    ft.Text("Characters", size=11, color=ft.Colors.GREY_500),
+                    ft.Text("Characters", size=11, color=ft.Colors.GREY_500 if not dark else ft.Colors.GREY_400),
                 ],
-            ),
-        ],
-    )
-
-    quick_actions = ft.Row(
-        alignment=ft.MainAxisAlignment.CENTER,
-        spacing=12,
-        controls=[
-            ft.ElevatedButton(
-                content=ft.Row([icon("history", size=16), ft.Text("History")], spacing=8),
-                on_click=lambda e: on_open_history() if on_open_history else None,
-                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-                tooltip="View transcription history",
-            ),
-            ft.ElevatedButton(
-                content=ft.Row([icon("microphone", size=16), ft.Text("Test Mic")], spacing=8),
-                on_click=lambda e: on_test_mic() if on_test_mic else None,
-                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-                tooltip="Test your microphone",
-            ),
-            ft.ElevatedButton(
-                content=ft.Row([icon("ai-brain", size=16), ft.Text("Models")], spacing=8),
-                on_click=lambda e: on_manage_models() if on_manage_models else None,
-                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-                tooltip="Manage transcription models",
             ),
         ],
     )
@@ -173,19 +131,22 @@ def build_home_page(
         tooltip="Repaste last transcription",
     )
 
+    # ── Elements wrapper ─────────────────────────────────────────────
+    # Groups every home-screen element in a single Column.  The parent
+    # Container in app.py (non-scrollable, full-viewport) centers this
+    # wrapper via Alignment.CENTER — equivalent to CSS
+    #   display:flex; justify-content:center; align-items:center;
+    # The wrapper must NOT be placed inside a scrollable Column: in
+    # Flet 0.85.x that breaks expand/alignment on its children.
     return ft.Column(
-        alignment=ft.MainAxisAlignment.CENTER,
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         spacing=20,
         controls=[
-            ft.Text("Home", size=24, weight=ft.FontWeight.BOLD),
             status_indicator,
             record_button,
-            ft.Text(hotkey_hint, size=12, color=ft.Colors.GREY_500),
+            ft.Text(hotkey_hint, size=12, color=ft.Colors.GREY_500 if not dark else ft.Colors.GREY_400),
             last_text_preview,
             repaste_button,
             stats_row,
-            device_card,
-            quick_actions,
         ],
     )

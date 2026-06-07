@@ -15,6 +15,17 @@ class PrivacyScreen:
         self._history_db = None
         self._vocab_manager = None
 
+    def _is_dark_mode(self) -> bool:
+        """Return True if the current theme is dark."""
+        if self.page is None:
+            return False
+        if self.page.theme_mode == ft.ThemeMode.DARK:
+            return True
+        if self.page.theme_mode == ft.ThemeMode.LIGHT:
+            return False
+        # SYSTEM mode - Flet should handle this
+        return getattr(self.page.theme, 'brightness', ft.Brightness.LIGHT) == ft.Brightness.DARK
+
     def _get_history_db(self):
         """Lazy-init HistoryDB."""
         if self._history_db is None:
@@ -58,13 +69,15 @@ class PrivacyScreen:
         return stats
 
     def build(self) -> ft.Control:
+        dark = self._is_dark_mode()
+        text_secondary = Colors.text_secondary(dark)
         return ft.Container(
             padding=40,
             content=ft.Column(
                 [
                     ft.Row(
                         [
-                            ft.Text("Privacy", size=24, weight=ft.FontWeight.BOLD),
+                            ft.Text("Privacy", size=24, weight=ft.FontWeight.BOLD, color=Colors.text_primary(dark)),
                             ft.Container(expand=True),
                         ],
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -73,25 +86,29 @@ class PrivacyScreen:
                     ft.Text(
                         "Your data stays on your device",
                         size=14,
-                        color=ft.Colors.GREY_600,
+                        color=text_secondary,
                     ),
                     ft.Container(height=10),
                     self._build_privacy_dashboard(),
                     ft.Container(height=20),
                     self._build_data_management(),
                 ],
-                scroll=ft.ScrollMode.AUTO,
             ),
         )
 
     def _build_privacy_dashboard(self) -> ft.Control:
+        dark = self._is_dark_mode()
         stats = self._get_privacy_stats()
-        return ft.Card(
-            content=ft.Container(
-                padding=20,
-                content=ft.Column(
+        return ft.Container(
+            bgcolor=Colors.card_bg(dark),
+            border_radius=8,
+            content=ft.Card(
+                elevation=0,
+                content=ft.Container(
+                    padding=20,
+                    content=ft.Column(
                     [
-                        ft.Text("Privacy Dashboard", size=18, weight=ft.FontWeight.W_600),
+                        ft.Text("Privacy Dashboard", size=18, weight=ft.FontWeight.W_600, color=Colors.text_primary(dark)),
                         ft.Container(height=10),
                         ft.Row(
                             [
@@ -114,30 +131,33 @@ class PrivacyScreen:
                         ft.Text(
                             "All transcription happens locally using Whisper" if stats["local_processing"] == "100%" else "Cloud transcription is active — audio is sent to external APIs",
                             size=14,
-                            color=ft.Colors.GREEN_700 if stats["local_processing"] == "100%" else ft.Colors.AMBER_700,
+                            color=Colors.SUCCESS if stats["local_processing"] == "100%" else Colors.WARNING,
                             weight=ft.FontWeight.W_500,
                         ),
                     ],
                     spacing=8,
                 ),
-            )
-        )
+            ),
+        ),
+    )
 
     def _stat_card(self, label: str, value: str, icon_name: str) -> ft.Control:
+        dark = self._is_dark_mode()
         return ft.Container(
             content=ft.Column(
                 [
-                    icon(icon_name, size=24, color=ft.Colors.BLUE_600),
+                    icon(icon_name, size=24, color=Colors.PRIMARY),
                     ft.Text(
                         value,
                         size=20,
                         weight=ft.FontWeight.BOLD,
                         text_align=ft.TextAlign.CENTER,
+                        color=Colors.text_primary(dark),
                     ),
                     ft.Text(
                         label,
                         size=12,
-                        color=ft.Colors.GREY_600,
+                        color=Colors.text_secondary(dark),
                         text_align=ft.TextAlign.CENTER,
                     ),
                 ],
@@ -147,10 +167,11 @@ class PrivacyScreen:
             expand=True,
             padding=16,
             border_radius=8,
-            bgcolor=ft.Colors.GREY_50,
+            bgcolor=Colors.card_bg(dark),
         )
 
     def _build_data_management(self) -> ft.Control:
+        dark = self._is_dark_mode()
         # Determine data directory path for display
         try:
             from voice_typer.config import _config_dir
@@ -161,12 +182,16 @@ class PrivacyScreen:
             else:
                 data_path = "~/.config/voice-typer/"
 
-        return ft.Card(
-            content=ft.Container(
-                padding=20,
-                content=ft.Column(
+        return ft.Container(
+            bgcolor=Colors.card_bg(dark),
+            border_radius=8,
+            content=ft.Card(
+                elevation=0,
+                content=ft.Container(
+                    padding=20,
+                    content=ft.Column(
                     [
-                        ft.Text("Data Management", size=18, weight=ft.FontWeight.W_600),
+                        ft.Text("Data Management", size=18, weight=ft.FontWeight.W_600, color=Colors.text_primary(dark)),
                         ft.Container(height=10),
                         ft.ElevatedButton(
                             content=ft.Row([icon("import-export", size=16), ft.Text("Export Transcriptions")], spacing=8),
@@ -177,21 +202,22 @@ class PrivacyScreen:
                             on_click=self._export_vocabulary,
                         ),
                         ft.ElevatedButton(
-                            content=ft.Row([icon("delete-sweep", color=ft.Colors.RED_900, size=16), ft.Text("Clear All Data", color=ft.Colors.RED_900)], spacing=8),
+                            content=ft.Row([icon("delete-sweep", color=Colors.ERROR, size=16), ft.Text("Clear All Data", color=Colors.ERROR)], spacing=8),
                             on_click=self._clear_data,
-                            bgcolor=ft.Colors.RED_100,
+                            bgcolor=ft.Colors.RED_100 if not dark else ft.Colors.RED_900,
                         ),
                         ft.Container(height=10),
                         ft.Text(
                             f"Data is stored in: {data_path}",
                             size=12,
-                            color=ft.Colors.GREY_600,
+                            color=Colors.text_secondary(dark),
                         ),
                     ],
                     spacing=8,
                 ),
-            )
-        )
+            ),
+        ),
+    )
 
     def _export_data(self, e):
         """Export transcription history as JSON."""

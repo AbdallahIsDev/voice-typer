@@ -30,6 +30,36 @@ class Colors:
     CARD_BG = ft.Colors.WHITE
     CARD_BG_DARK = ft.Colors.GREY_800
 
+    @staticmethod
+    def sidebar_bg(dark: bool) -> str:
+        """Return sidebar background color for current theme."""
+        return Colors.SIDEBAR_BG_DARK if dark else Colors.SIDEBAR_BG
+
+    @staticmethod
+    def surface(dark: bool) -> str:
+        """Return surface/background color for current theme."""
+        return Colors.SURFACE_DARK if dark else Colors.SURFACE
+
+    @staticmethod
+    def card_bg(dark: bool) -> str:
+        """Return card background color for current theme."""
+        return Colors.CARD_BG_DARK if dark else Colors.CARD_BG
+
+    @staticmethod
+    def text_primary(dark: bool) -> str:
+        """Return primary text color for current theme."""
+        return Colors.TEXT_PRIMARY_DARK if dark else Colors.TEXT_PRIMARY
+
+    @staticmethod
+    def text_secondary(dark: bool) -> str:
+        """Return secondary text color for current theme."""
+        return Colors.TEXT_SECONDARY_DARK if dark else Colors.TEXT_SECONDARY
+
+    @staticmethod
+    def divider(dark: bool) -> str:
+        """Return divider color for current theme."""
+        return Colors.DIVIDER_DARK if dark else Colors.DIVIDER
+
 
 # Navigation items configuration
 NAV_ITEMS = {
@@ -67,6 +97,11 @@ NAV_ITEMS = {
         "title": "Privacy",
         "icon": "privacy",
         "description": "Data management and privacy settings",
+    },
+    "settings": {
+        "title": "Settings",
+        "icon": "settings",
+        "description": "Application settings",
     },
 }
 

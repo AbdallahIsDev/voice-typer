@@ -16,6 +16,16 @@ class MicrophoneScreen:
         self._level_bar = None
         self._level_text = None
 
+    def _is_dark_mode(self) -> bool:
+        """Return True if the current theme is dark."""
+        if self.page is None:
+            return False
+        if self.page.theme_mode == ft.ThemeMode.DARK:
+            return True
+        if self.page.theme_mode == ft.ThemeMode.LIGHT:
+            return False
+        return getattr(self.page.theme, 'brightness', ft.Brightness.LIGHT) == ft.Brightness.DARK
+
     def _load_microphones(self) -> list[dict]:
         try:
             from voice_typer.platform import list_microphones
@@ -25,8 +35,9 @@ class MicrophoneScreen:
 
     def build(self) -> ft.Control:
         # UX-013: Real level bar and text for microphone test
+        dark = self._is_dark_mode()
         self._level_bar = ft.ProgressBar(value=0, color=ft.Colors.GREEN_600, width=400)
-        self._level_text = ft.Text("Level: 0%", size=12, color=ft.Colors.GREY_600)
+        self._level_text = ft.Text("Level: 0%", size=12, color=Colors.text_secondary(dark))
 
         return ft.Container(
             padding=40,
@@ -34,7 +45,7 @@ class MicrophoneScreen:
                 [
                     ft.Row(
                         [
-                            ft.Text("Microphone", size=24, weight=ft.FontWeight.BOLD),
+                            ft.Text("Microphone", size=24, weight=ft.FontWeight.BOLD, color=Colors.text_primary(dark)),
                             ft.Container(expand=True),
                             ft.ElevatedButton(
                                 content=ft.Row([icon("refresh", color=ft.Colors.WHITE, size=16), ft.Text("Refresh", color=ft.Colors.WHITE)], spacing=8),
@@ -49,7 +60,7 @@ class MicrophoneScreen:
                     ft.Text(
                         "Select and test your microphone",
                         size=14,
-                        color=ft.Colors.GREY_600,
+                        color=Colors.text_secondary(dark),
                     ),
                     ft.Container(height=10),
                     self._build_system_default(),
@@ -58,27 +69,31 @@ class MicrophoneScreen:
                     ft.Container(height=20),
                     self._build_test_area(),
                 ],
-                scroll=ft.ScrollMode.AUTO,
             ),
         )
 
     def _build_system_default(self) -> ft.Control:
+        dark = self._is_dark_mode()
         is_active = self.active_microphone_id is None
-        return ft.Card(
-            content=ft.Container(
-                padding=16,
-                content=ft.Row(
+        return ft.Container(
+            bgcolor=Colors.card_bg(dark),
+            border_radius=8,
+            content=ft.Card(
+                elevation=0,
+                content=ft.Container(
+                    padding=16,
+                    content=ft.Row(
                     [
                         ft.Row(
                             [
                                 icon(
                                     "microphone",
-                                    color=ft.Colors.GREEN_600 if is_active else ft.Colors.GREY_600,
+                                    color=ft.Colors.GREEN_600 if is_active else Colors.text_secondary(dark),
                                 ),
                                 ft.Column(
                                     [
-                                        ft.Text("System Default", size=14, weight=ft.FontWeight.W_500),
-                                        ft.Text("Use the operating system's default input device", size=12, color=ft.Colors.GREY_600),
+                                        ft.Text("System Default", size=14, weight=ft.FontWeight.W_500, color=Colors.text_primary(dark)),
+                                        ft.Text("Use the operating system's default input device", size=12, color=Colors.text_secondary(dark)),
                                     ],
                                     spacing=2,
                                 ),
@@ -98,18 +113,20 @@ class MicrophoneScreen:
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
             ),
-        )
+        ),
+    )
 
     def _build_microphone_list(self) -> ft.Control:
+        dark = self._is_dark_mode()
         if not self.microphones:
             return ft.Container(
                 padding=40,
                 alignment=ft.Alignment.CENTER,
                 content=ft.Column(
                     [
-                        icon("mic-off", size=48, color=ft.Colors.GREY_400),
-                        ft.Text("No microphones found", size=16, color=ft.Colors.GREY_600),
-                        ft.Text("Connect a microphone and click Refresh", size=14, color=ft.Colors.GREY_500),
+                        icon("mic-off", size=48, color=ft.Colors.GREY_400 if not dark else ft.Colors.GREY_500),
+                        ft.Text("No microphones found", size=16, color=ft.Colors.GREY_600 if not dark else ft.Colors.GREY_400),
+                        ft.Text("Connect a microphone and click Refresh", size=14, color=ft.Colors.GREY_500 if not dark else ft.Colors.GREY_500),
                     ],
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
@@ -117,7 +134,7 @@ class MicrophoneScreen:
 
         return ft.Column(
             [
-                ft.Text("Available Microphones", size=16, weight=ft.FontWeight.W_600),
+                ft.Text("Available Microphones", size=16, weight=ft.FontWeight.W_600, color=Colors.text_primary(dark)),
                 ft.Container(height=10),
                 *[self._microphone_item(mic) for mic in self.microphones],
             ],
@@ -125,22 +142,27 @@ class MicrophoneScreen:
         )
 
     def _microphone_item(self, mic: dict) -> ft.Control:
+        dark = self._is_dark_mode()
         is_active = mic.get("id") == self.active_microphone_id
         is_system_default = mic.get("default", False)
-        return ft.Card(
-            content=ft.Container(
-                padding=16,
-                content=ft.Row(
+        return ft.Container(
+            bgcolor=Colors.card_bg(dark),
+            border_radius=8,
+            content=ft.Card(
+                elevation=0,
+                content=ft.Container(
+                    padding=16,
+                    content=ft.Row(
                     [
                         ft.Row(
                             [
                                 icon("microphone" if is_active else "mic-outlined",
-                                     color=ft.Colors.GREEN_600 if is_active else ft.Colors.GREY_600),
+                                     color=ft.Colors.GREEN_600 if is_active else Colors.text_secondary(dark)),
                                 ft.Column(
                                     [
                                         ft.Row(
                                             [
-                                                ft.Text(mic.get("name", "Unknown"), size=14, weight=ft.FontWeight.W_500),
+                                                ft.Text(mic.get("name", "Unknown"), size=14, weight=ft.FontWeight.W_500, color=Colors.text_primary(dark)),
                                                 ft.Container(
                                                     content=ft.Text("Default" if is_system_default else "", size=10, color=ft.Colors.WHITE),
                                                     bgcolor=ft.Colors.BLUE_600 if is_system_default else ft.Colors.TRANSPARENT,
@@ -154,7 +176,7 @@ class MicrophoneScreen:
                                         ft.Text(
                                             f"Channels: {mic.get('channels', 1)} | Rate: {mic.get('rate', 44100)}Hz",
                                             size=12,
-                                            color=ft.Colors.GREY_600,
+                                            color=Colors.text_secondary(dark),
                                         ),
                                     ],
                                     spacing=2,
@@ -175,19 +197,25 @@ class MicrophoneScreen:
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
             ),
-        )
+        ),
+    )
 
     def _build_test_area(self) -> ft.Control:
-        return ft.Card(
-            content=ft.Container(
-                padding=20,
-                content=ft.Column(
+        dark = self._is_dark_mode()
+        return ft.Container(
+            bgcolor=Colors.card_bg(dark),
+            border_radius=8,
+            content=ft.Card(
+                elevation=0,
+                content=ft.Container(
+                    padding=20,
+                    content=ft.Column(
                     [
-                        ft.Text("Test Microphone", size=18, weight=ft.FontWeight.W_600),
+                        ft.Text("Test Microphone", size=18, weight=ft.FontWeight.W_600, color=Colors.text_primary(dark)),
                         ft.Text(
                             "Speak into your microphone to test audio levels",
                             size=14,
-                            color=ft.Colors.GREY_600,
+                            color=Colors.text_secondary(dark),
                         ),
                         ft.Container(height=10),
                         ft.Row(
@@ -211,8 +239,10 @@ class MicrophoneScreen:
                     ],
                     spacing=8,
                 ),
-            )
-        )
+            ),
+        ),
+    )
+
 
     def _refresh(self, e):
         self.microphones = self._load_microphones()

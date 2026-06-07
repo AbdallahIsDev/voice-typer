@@ -1,4 +1,5 @@
 import flet as ft
+import logging
 import threading
 from .styles import Colors, NAV_ITEMS, STATUS_COLORS, STATUS_LABELS, get_theme
 from .icons import icon
@@ -10,6 +11,9 @@ from .models import ModelsScreen
 from .microphone import MicrophoneScreen
 from .privacy import PrivacyScreen
 from .settings import SettingsScreen
+from voice_typer import __version__
+
+log = logging.getLogger(__name__)
 
 # CQ-001: No tkinter imports — SettingsController moved to local Flet-based implementation
 from voice_typer.config import Config
@@ -71,6 +75,33 @@ class VoiceTyperApp:
     def _on_notifications_changed(self, enabled: bool):
         self.config.show_notifications = enabled
         self.config.save()
+
+    def _is_dark_mode(self) -> bool:
+        """Return True if the current theme is dark."""
+        if self.page is None:
+            # Fallback to config before page is initialized
+            theme_mode = getattr(self.config, 'theme_mode', 'system')
+            if theme_mode == 'dark':
+                return True
+            if theme_mode == 'light':
+                return False
+            # SYSTEM mode - check system preference
+            try:
+                import ctypes
+                # Check Windows AppsUseLightTheme registry value
+                import winreg
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as key:
+                    value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+                    return value == 0  # 0 = dark, 1 = light
+            except Exception:
+                return False  # default to light
+        # Page is initialized - use its theme_mode
+        if self.page.theme_mode == ft.ThemeMode.DARK:
+            return True
+        if self.page.theme_mode == ft.ThemeMode.LIGHT:
+            return False
+        # SYSTEM mode - Flet should handle this, but check page's actual brightness
+        return getattr(self.page.theme, 'brightness', ft.Brightness.LIGHT) == ft.Brightness.DARK
 
     def _get_status(self) -> str:
         if self.app_controller and hasattr(self.app_controller, 'tray'):
@@ -164,10 +195,91 @@ class VoiceTyperApp:
             self._status_poll_timer.cancel()
             self._status_poll_timer = None
 
+    @staticmethod
+    def _ensure_window_icon() -> str:
+        """Generate a microphone .ico file for the window title bar / taskbar.
+
+        Returns the path to the .ico file (cached after first generation).
+        """
+        from voice_typer.config import _config_dir
+        from PIL import Image, ImageDraw
+
+        ico_path = _config_dir() / "voice-typer.ico"
+        if ico_path.exists():
+            return str(ico_path)
+
+        # Vibrant blue microphone — static logo (not state-dependent like the tray icon)
+        size = 64
+        color = (52, 152, 219, 255)
+        img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+
+        cx, cy = size // 2, size // 2
+        mic_w, mic_h = size // 5, size // 3
+        draw.rounded_rectangle(
+            [cx - mic_w, cy - mic_h, cx + mic_w, cy + mic_h // 3],
+            radius=mic_w // 2,
+            fill=color,
+        )
+        stand_radius = size // 3
+        draw.arc(
+            [cx - stand_radius, cy - stand_radius + mic_h // 4, cx + stand_radius, cy + stand_radius],
+            start=0, end=180,
+            fill=color, width=max(2, size // 20),
+        )
+        base_y = cy + stand_radius
+        draw.line(
+            [cx - stand_radius // 2, base_y, cx + stand_radius // 2, base_y],
+            fill=color, width=max(2, size // 20),
+        )
+
+        ico_path.parent.mkdir(parents=True, exist_ok=True)
+        img.save(ico_path, format="ICO", sizes=[(64, 64)])
+        return str(ico_path)
+
     def main(self, page: ft.Page):
         """Main entry point for the Flet app."""
         self.page = page
         page.title = "Voice Typer"
+
+        # ── Immediately hide the native window via Windows API ──────────
+        # Flet creates the window before main(page) runs, so it appears at
+        # the default (corner) position first.  We hide it instantly via
+        # ShowWindow(SW_HIDE) — no Flet protocol round-trip — then position
+        # and show it at center at the end.
+        _window_handle = None
+        _screen_w, _screen_h = 0, 0
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            user32 = ctypes.windll.user32
+            our_pid = ctypes.windll.kernel32.GetCurrentProcessId()
+
+            def _enum_cb(hwnd, lparam):
+                pid = wintypes.DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                if pid.value == our_pid and user32.IsWindowVisible(hwnd):
+                    nonlocal _window_handle
+                    _window_handle = hwnd
+                    return False
+                return True
+
+            WNDENUMPROC = ctypes.CFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+            user32.EnumWindows(WNDENUMPROC(_enum_cb), 0)
+
+            if _window_handle:
+                user32.ShowWindow(_window_handle, 0)  # SW_HIDE — instant, no round-trip
+                _screen_w = user32.GetSystemMetrics(0)
+                _screen_h = user32.GetSystemMetrics(1)
+        except Exception:
+            pass
+
+        # Set the window icon (title bar + taskbar) to the microphone logo
+        try:
+            page.window.icon = self._ensure_window_icon()
+        except Exception:
+            pass  # Non-critical — fall back to default Flet icon
 
         # Register Hugeicons font
         import os
@@ -180,17 +292,6 @@ class VoiceTyperApp:
         page.window.height = 700
         page.window.min_width = 800
         page.window.min_height = 600
-
-        # Set window position BEFORE page.add() so it opens centered from the start
-        try:
-            import ctypes
-            user32 = ctypes.windll.user32
-            sw = user32.GetSystemMetrics(0)
-            sh = user32.GetSystemMetrics(1)
-            page.window.left = max(0, (sw - page.window.width) // 2)
-            page.window.top = max(0, (sh - page.window.height) // 2)
-        except Exception:
-            pass
 
         # UX-008/031: Theme from config instead of hardcoded LIGHT
         theme_mode = getattr(self.config, 'theme_mode', 'system')
@@ -205,6 +306,8 @@ class VoiceTyperApp:
         page.theme = get_theme(dark=(page.theme_mode == ft.ThemeMode.DARK))
 
         page.padding = 0
+        page.vertical_alignment = ft.MainAxisAlignment.START
+        page.horizontal_alignment = ft.CrossAxisAlignment.STRETCH
 
         # Allow the Flet window to close normally when X is clicked.
         # The main Voice Typer tray app continues running independently.
@@ -212,30 +315,71 @@ class VoiceTyperApp:
         # Initialize screens
         self._init_screens()
 
-        # Build layout
+        # Build layout — outer Column wraps main Row + bottom status bar.
+        # CRITICAL: Column MUST have expand=True so it fills the full page height.
+        # Without expand=True, Flet only allocates the column its children's natural
+        # height, leaving no room for proper layout of expand=True children.
+        status_bar = self._build_status_bar()
+
         page.add(
-            ft.Row(
+            ft.Column(
                 [
-                    self._build_sidebar(),
-                    self._build_content_area(),
+                    ft.Container(
+                        content=self._build_main_row(),
+                        expand=True,
+                    ),
+                    status_bar,
                 ],
                 expand=True,
                 spacing=0,
             )
         )
 
-        # Set initial view
-        self._set_view("home")
+        # Set initial view (wrapped in try/except so the Flet window doesn't
+        # appear blank if a screen fails to render)
+        try:
+            self._set_view("home")
+        except Exception as exc:
+            log.error("[UI] Failed to set initial view: %s", exc)
+            # Show a visible error message instead of a blank page
+            try:
+                self._show_error_view(str(exc))
+            except Exception:
+                pass
 
-        # Center the window AFTER page.add() ensures the window exists
+        # ── Position at center and show the window ─────────────────────
+        # We already hid the window at the start.  Now position it at the
+        # center via the Windows API (instant, no round-trip) and show it.
         try:
             import ctypes
+            from ctypes import wintypes
+
             user32 = ctypes.windll.user32
-            sw = user32.GetSystemMetrics(0)
-            sh = user32.GetSystemMetrics(1)
-            page.window.left = max(0, (sw - page.window.width) // 2)
-            page.window.top = max(0, (sh - page.window.height) // 2)
-            page.update()
+
+            if _window_handle:
+                new_left = max(0, (_screen_w - page.window.width) // 2)
+                new_top = max(0, (_screen_h - page.window.height) // 2)
+
+                SWP_NOSIZE = 0x0001
+                SWP_NOZORDER = 0x0004
+                SWP_SHOWWINDOW = 0x0040
+                user32.SetWindowPos(
+                    _window_handle, 0, new_left, new_top, 0, 0,
+                    SWP_NOSIZE | SWP_NOZORDER | SWP_SHOWWINDOW,
+                )
+                log.info("[CENTER] Window positioned at center (%d, %d)", new_left, new_top)
+
+                # ── Title bar: force light theme to match sidebar ──────
+                try:
+                    dark_mode = wintypes.BOOL(0)  # 0 = light
+                    ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                        _window_handle,
+                        20,  # DWMWA_USE_IMMERSIVE_DARK_MODE
+                        ctypes.byref(dark_mode),
+                        ctypes.sizeof(wintypes.BOOL),
+                    )
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -264,6 +408,7 @@ class VoiceTyperApp:
 
     def _build_sidebar(self) -> ft.Control:
         """Build the navigation sidebar."""
+        dark = self._is_dark_mode()
         nav_items = []
 
         for item_id, item_config in NAV_ITEMS.items():
@@ -273,23 +418,22 @@ class VoiceTyperApp:
                     [
                         icon(
                             item_config["icon"],
-                            color=ft.Colors.WHITE if is_selected else ft.Colors.GREY_600,
+                            color=ft.Colors.WHITE if is_selected else Colors.text_secondary(dark),
                             size=20,
                         ),
                         ft.Text(
                             item_config["title"],
-                            color=ft.Colors.WHITE if is_selected else ft.Colors.GREY_700,
+                            color=ft.Colors.WHITE if is_selected else Colors.text_primary(dark),
                             size=14,
                             weight=ft.FontWeight.W_600 if is_selected else ft.FontWeight.NORMAL,
                         ),
                     ],
                     spacing=12,
                 ),
-                padding=ft.Padding.symmetric(horizontal=16, vertical=12),
+                padding=ft.Padding.symmetric(horizontal=8, vertical=6),
                 border_radius=8,
                 bgcolor=ft.Colors.BLUE_600 if is_selected else ft.Colors.TRANSPARENT,
                 on_click=lambda e, vid=item_id: self._set_view(vid),
-                ink=True,
                 tooltip=item_config.get("description", item_config["title"]),
             )
             self.nav_buttons[item_id] = btn
@@ -300,19 +444,19 @@ class VoiceTyperApp:
 
         return ft.Container(
             width=220,
-            bgcolor=ft.Colors.GREY_50,
+            bgcolor=Colors.sidebar_bg(dark),
             padding=ft.Padding.all(16),
             content=ft.Column(
                 [
                     # Logo/Title
                     ft.Row(
                         [
-                            icon("microphone", color=ft.Colors.BLUE_600, size=28),
+                            icon("microphone", color=Colors.PRIMARY, size=28),
                             ft.Text(
                                 "Voice Typer",
                                 size=20,
                                 weight=ft.FontWeight.BOLD,
-                                color=ft.Colors.BLUE_800,
+                                color=Colors.PRIMARY,
                             ),
                         ],
                         spacing=8,
@@ -320,99 +464,267 @@ class VoiceTyperApp:
                     ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
                     # Navigation items
                     ft.Column(nav_items, spacing=4),
-                    ft.Container(expand=True),
-                    # UX-032: Background indicator
-                    ft.Container(
-                        content=ft.Row(
-                            [
-                                icon("radio-button-checked", color=ft.Colors.GREEN_600, size=14),
-                                ft.Text("Running", size=11, color=ft.Colors.GREEN_700),
-                            ],
-                            spacing=6,
-                        ),
-                        padding=ft.Padding.symmetric(horizontal=16, vertical=4),
-                    ),
-                    # Settings at bottom
-                    ft.Divider(color=ft.Colors.GREY_300),
-                    ft.Container(
-                        content=ft.Row(
-                            [
-                                icon("settings", color=ft.Colors.GREY_600, size=20),
-                                ft.Text(
-                                    "Settings",
-                                    color=ft.Colors.GREY_700,
-                                    size=14,
-                                ),
-                            ],
-                            spacing=12,
-                        ),
-                padding=ft.Padding.symmetric(horizontal=16, vertical=12),
-                        border_radius=8,
-                        on_click=lambda e: self._set_view("settings"),
-                        ink=True,
-                        tooltip="Application settings",
-                    ),
                 ],
                 spacing=0,
             ),
         )
 
     def _build_content_area(self) -> ft.Control:
-        """Build the main content area."""
+        """Build the main content area.
+
+        Single Column that holds either:
+        - Home view: a centered Container wrapping the home page (set in _set_view)
+        - Other views: the screen directly (scrollable Column)
+
+        Content is swapped in :meth:`_set_view`.
+        """
+        self._content_column = ft.Column(
+            key="content",
+            scroll=ft.ScrollMode.AUTO,
+            expand=True,
+        )
         return ft.Container(
             expand=True,
             bgcolor=ft.Colors.WHITE,
-            content=ft.Container(
-                key="content",
-                expand=True,
-            ),
+            content=self._content_column,
         )
+
+    def _build_main_row(self) -> ft.Row:
+        """Build the Row containing sidebar + content area."""
+        return ft.Row(
+            [
+                self._build_sidebar(),
+                self._build_content_area(),
+            ],
+            expand=True,
+            spacing=0,
+            vertical_alignment=ft.CrossAxisAlignment.STRETCH,
+        )
+
+    def _show_error_view(self, error_message: str = "") -> None:
+        """Display a fallback error message when the home page fails to render."""
+        try:
+            content_column = self._content_column
+            content_column.controls = [
+                ft.Container(
+                    expand=True,
+                    alignment=ft.Alignment(0, 0),
+                    content=ft.Column(
+                        [
+                            ft.Icon(ft.Icons.ERROR_OUTLINE, size=48, color=ft.Colors.RED_400),
+                            ft.Text(
+                                "Something went wrong loading this page",
+                                size=16,
+                                color=ft.Colors.RED_700,
+                                weight=ft.FontWeight.W_500,
+                            ),
+                            ft.Text(
+                                error_message or "Please try restarting the application",
+                                size=13,
+                                color=Colors.text_secondary(dark),
+                            ),
+                            ft.Container(height=10),
+                            ft.ElevatedButton(
+                                "Retry",
+                                on_click=lambda e: self._set_view(self.current_view),
+                                icon=ft.Icons.REFRESH,
+                            ),
+                        ],
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                ),
+            ]
+            self.page.update()
+        except Exception:
+            pass
+
+    def _build_status_bar(self) -> ft.Control:
+        """Build the bottom status bar with model name, device info, and version.
+
+        Spans the full window width below both sidebar and content area.
+        Shows model name (left) and device type (left), separated by a dot
+        with 8px gaps, and app version on the far right, on a white
+        background with a top border.
+
+        This method NEVER raises — any internal failure falls back to a minimal
+        visible status bar so the user always sees something at the bottom.
+        """
+        dark = self._is_dark_mode()
+        try:
+            model = getattr(self.config, 'model_size', 'unknown')
+            device = getattr(self.config, 'device', 'unknown')
+            # Map internal device names to user-friendly labels
+            device_label = "GPU" if device == "cuda" else "CPU" if device == "cpu" else device.upper()
+
+            text_color = Colors.text_primary(dark)
+            secondary_color = Colors.text_secondary(dark)
+            bg_color = Colors.surface(dark)
+            divider_color = Colors.divider(dark)
+
+            result = ft.Container(
+                height=28,
+                bgcolor=bg_color,
+                border=ft.Border(top=ft.BorderSide(1, divider_color)),
+                padding=ft.Padding.symmetric(horizontal=14, vertical=0),
+                content=ft.Row(
+                    [
+                        ft.Text(
+                            model,
+                            size=12,
+                            color=text_color,
+                            weight=ft.FontWeight.W_500,
+                        ),
+                        ft.Container(width=8),
+                        ft.Text(
+                            "·",
+                            size=12,
+                            color=secondary_color,
+                        ),
+                        ft.Container(width=8),
+                        ft.Text(
+                            device_label,
+                            size=12,
+                            color=text_color,
+                            weight=ft.FontWeight.W_500,
+                        ),
+                        ft.Container(expand=True),
+                        ft.Text(
+                            f"v{__version__}",
+                            size=11,
+                            color=secondary_color,
+                            weight=ft.FontWeight.W_400,
+                        ),
+                    ],
+                    alignment=ft.MainAxisAlignment.START,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=0,
+                ),
+            )
+            log.info("[UI] Status bar built OK (model=%s, device=%s, version=%s)", model, device_label, __version__)
+            return result
+        except Exception as e:
+            log.error("[UI] _build_status_bar failed: %s", e)
+            # NEVER re-raise: return a minimal visible fallback status bar
+            dark = self._is_dark_mode()
+            bg_color = Colors.surface(dark)
+            text_color = Colors.text_primary(dark)
+            divider_color = Colors.divider(dark)
+            return ft.Container(
+                height=28,
+                bgcolor=bg_color,
+                border=ft.Border(top=ft.BorderSide(1, divider_color)),
+                content=ft.Row(
+                    [
+                        ft.Container(expand=True),
+                        ft.Text(
+                            f"{getattr(self.config, 'model_size', 'unknown')}  ·  {getattr(self.config, 'device', 'unknown')}",
+                            size=12,
+                            color=text_color,
+                        ),
+                        ft.Container(expand=True),
+                    ],
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            )
 
     def _set_view(self, view_id: str):
         """Switch to a different view."""
         self.current_view = view_id
 
         # Update nav button states
+        dark = self._is_dark_mode()
         for item_id, btn in self.nav_buttons.items():
             is_selected = item_id == view_id
-            btn.content.controls[0].color = ft.Colors.WHITE if is_selected else ft.Colors.GREY_600
-            btn.content.controls[1].color = ft.Colors.WHITE if is_selected else ft.Colors.GREY_700
+            btn.content.controls[0].color = ft.Colors.WHITE if is_selected else Colors.text_secondary(dark)
+            btn.content.controls[1].color = ft.Colors.WHITE if is_selected else Colors.text_primary(dark)
             btn.content.controls[1].weight = ft.FontWeight.W_600 if is_selected else ft.FontWeight.NORMAL
             btn.bgcolor = ft.Colors.BLUE_600 if is_selected else ft.Colors.TRANSPARENT
 
-        # Update content area
-        content_container = self.page.controls[0].controls[1].content
-        screen = self.screens[view_id]
+        # Update content area.
+        # content_column is a single Column. We replace its controls entirely:
+        # - Home: a centered Container (expands, centers its content)
+        # - Other views: the screen directly (scrollable Column)
+        if not hasattr(self, "_content_column"):
+            log.error("[UI] Content area not initialized")
+            return
 
-        if view_id == "home":
-            from voice_typer.history_db import HistoryDB
-            history_db = HistoryDB()
-            today_stats = history_db.get_today_stats()
+        content_column = self._content_column
 
-            # UX-007: Dynamic hotkey hint from config
-            from voice_typer.settings import display_hotkey
-            hotkey_display = display_hotkey(self.config.hotkey)
+        screen = self.screens.get(view_id)
+        if screen is None:
+            log.warning("[UI] Unknown view: %s", view_id)
+            return
 
-            content_container.content = build_home_page(
-                status=self._get_status(),
-                last_text=self._get_last_transcription(),
-                model_info=f"Model: {self.config.model_size}",
-                device_info=f"Device: {self.config.device}",
-                total_today=today_stats.get("count", 0),
-                total_chars=today_stats.get("chars", 0),
-                on_toggle_dictation=self._on_toggle_dictation,
-                on_start_dictation=self._on_start_dictation,
-                on_stop_dictation=self._on_stop_dictation,
-                on_repaste_last=self._on_repaste_last,
-                on_open_history=lambda: self._set_view("history"),
-                on_test_mic=lambda: self._set_view("microphone"),
-                on_manage_models=lambda: self._set_view("models"),
-                hotkey_hint=f"Press {hotkey_display} or click to dictate",
-            )
-        elif callable(screen) and not hasattr(screen, 'build'):
-            content_container.content = screen()
-        else:
-            content_container.content = screen.build()
+        try:
+            if view_id == "home":
+                from voice_typer.history_db import HistoryDB
+                try:
+                    history_db = HistoryDB()
+                    today_stats = history_db.get_today_stats()
+                except Exception:
+                    today_stats = {}
+
+                # UX-007: Dynamic hotkey hint from config
+                try:
+                    from voice_typer.settings import display_hotkey
+                    hotkey_display = display_hotkey(self.config.hotkey)
+                except Exception:
+                    hotkey_display = "F2"
+
+                dark = self._is_dark_mode()
+                home_page = build_home_page(
+                    status=self._get_status(),
+                    last_text=self._get_last_transcription(),
+                    model_info=f"Model: {self.config.model_size}",
+                    device_info=f"Device: {self.config.device}",
+                    total_today=today_stats.get("count", 0),
+                    total_chars=today_stats.get("chars", 0),
+                    on_toggle_dictation=self._on_toggle_dictation,
+                    on_start_dictation=self._on_start_dictation,
+                    on_stop_dictation=self._on_stop_dictation,
+                    on_repaste_last=self._on_repaste_last,
+                    hotkey_hint=f"Press {hotkey_display} or click to dictate",
+                    dark=dark,
+                )
+                # Wrap home page in a full-size centered Container
+                content_column.controls = [
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        content=home_page,
+                    )
+                ]
+            else:
+                if callable(screen) and not hasattr(screen, 'build'):
+                    content_column.controls = [screen()]
+                else:
+                    content_column.controls = [screen.build()]
+        except Exception as exc:
+            log.error("[UI] Failed to build view %s: %s", view_id, exc)
+            content_column.controls = [
+                ft.Container(
+                    expand=True,
+                    alignment=ft.Alignment(0, 0),
+                    content=ft.Column(
+                        [
+                            ft.Icon(ft.Icons.ERROR_OUTLINE, size=48, color=ft.Colors.RED_400),
+                            ft.Text(
+                                f"Failed to load {view_id}",
+                                size=16,
+                                color=ft.Colors.RED_700,
+                                weight=ft.FontWeight.W_500,
+                            ),
+                            ft.Text(
+                                str(exc) or "Please try restarting the application",
+                                size=13,
+                                color=Colors.text_secondary(dark),
+                            ),
+                        ],
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                ),
+            ]
 
         self.page.update()
 
@@ -425,6 +737,8 @@ def main(app_controller=None):
     actions (record, stop, history, models) through a direct in-process
     reference — no IPC, no subprocess, no serialization.
     """
+    # Window centering is handled inside VoiceTyperApp.main() via the
+    # native Windows API — no watcher thread needed.
     app = VoiceTyperApp(app_controller=app_controller)
     ft.run(app.main)
 

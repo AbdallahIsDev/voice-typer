@@ -349,6 +349,17 @@ class VoiceTyperApp:
             log.info("[STARTUP] Step 4: load Whisper model")
             self._try_load_model(notify_on_failure=True)
 
+        # After restart: auto-open the Flet window so it appears fresh
+        # once the new instance is fully ready (model loaded, hotkey registered,
+        # etc.).  The VOICE_TYPER_RESTART env var is set by restart_app() in
+        # the old process before launching the new one.
+        if os.environ.get("VOICE_TYPER_RESTART"):
+            log.info("[STARTUP] Restart detected — opening Flet window")
+            try:
+                self.tray.open_flet_window()
+            except Exception as e:
+                log.warning("[STARTUP] Failed to open Flet window after restart: %s", e)
+
         log.info("[STARTUP] _do_startup complete")
 
     def _sync_autostart(self) -> None:
@@ -580,6 +591,7 @@ class VoiceTyperApp:
         self._cancel_pending_timers()
 
         log.info("[DICTATION] Stopping recording...")
+        
         self._busy_event.clear()  # busy = True
 
         try:
@@ -1115,25 +1127,109 @@ class VoiceTyperApp:
         self.show_settings()
 
     def quit_app(self) -> None:
-        """TrayController protocol: quit the app."""
-        self.quit()
+        """TrayController protocol: quit the app.
+
+        Uses inline cleanup + ``os._exit(0)`` instead of ``self.quit()`` →
+        ``sys.exit(0)`` because the tray menu callback wrapper
+        (``_wrap`` in ``tray.py``) catches ``SystemExit`` and silently
+        swallows it — meaning the process would never actually terminate,
+        leaving the terminal stuck with a zombie process.
+        """
+        log.info("[QUIT] Quitting Voice Typer...")
+
+        # 1. Kill the Flet window first so it doesn't linger as orphan
+        try:
+            self.tray.close_flet_window()
+        except Exception as e:
+            log.warning("[QUIT] Failed to close Flet window: %s", e)
+
+        # 2. Quick cleanup before force-exit.
+        #    NOTE: self.tray.stop() / self._icon.stop() is NOT called because
+        #    it can hang when called from within a pystray callback (the tray
+        #    menu's _wrap handler catches SystemExit, and _icon.stop() may not
+        #    return reliably).  os._exit(0) terminates the process immediately,
+        #    and the OS cleans up the tray icon.
+        try:
+            self._cancel_pending_timers()
+        except Exception:
+            pass
+        try:
+            if self._hotkey_backend:
+                self._hotkey_backend.stop()
+        except Exception:
+            pass
+        try:
+            if self._esc_backend:
+                self._esc_backend.stop()
+        except Exception:
+            pass
+        try:
+            if self._repaste_backend:
+                self._repaste_backend.stop()
+        except Exception:
+            pass
+
+        log.info("[QUIT] Force-exiting")
+        os._exit(0)
 
     def restart_app(self) -> None:
-        """TrayController protocol: restart the app."""
+        """TrayController protocol: restart the app.
+
+        Kills the old Flet window FIRST (so it doesn't linger showing "loading"
+        during the new process startup), then launches a fresh VoiceTyper
+        subprocess, and finally force-exits the current instance.
+
+        NOTE: Uses ``os._exit(0)`` instead of ``self.quit()`` → ``sys.exit(0)``
+        because the tray menu callback wrapper (``_wrap`` in ``tray.py``)
+        catches ``SystemExit`` and silently swallows it — meaning the process
+        would never actually terminate, leaving a zombie holding the Flet
+        window handles and the single-instance mutex.
+        """
         log.info("[RESTART] Restarting Voice Typer...")
         import subprocess
-        # Pass env var so new instance skips single-instance check
+
+        # 1. Kill the old Flet window immediately so it doesn't linger
+        #    as a stale window showing "loading" while the new process starts up.
+        try:
+            self.tray.close_flet_window()
+            log.info("[RESTART] Old Flet window closed")
+        except Exception as e:
+            log.warning("[RESTART] Failed to close old Flet window: %s", e)
+
+        # 1b. Brief pause for Windows to fully release window handles / clean
+        #     up zombie windows so they don't interfere with the new process.
+        import time
+        time.sleep(0.5)
+
+        # 2. Launch the new instance
         env = os.environ.copy()
         env["VOICE_TYPER_RESTART"] = "1"
-        # Small delay so old process releases mutex before new one starts
         subprocess.Popen(
             [sys.executable, "-m", "voice_typer"],
             cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
             env=env,
             start_new_session=True,
         )
-        # Quit this instance (releases mutex)
-        self.quit()
+
+        # 3. Minimal cleanup before force-exit.
+        #    self.quit() is NOT called because its sys.exit(0) gets swallowed
+        #    by tray.py's _wrap SystemExit handler, leaving the process alive
+        #    as a zombie with no tray icon.
+        #    NOTE: self.tray.stop() / self._icon.stop() is also NOT called
+        #    because it can hang when called from within a pystray callback,
+        #    preventing os._exit(0) from ever running.
+        try:
+            self._cancel_pending_timers()
+        except Exception:
+            pass
+        try:
+            if self._hotkey_backend:
+                self._hotkey_backend.stop()
+        except Exception:
+            pass
+
+        log.info("[RESTART] Force-exiting old process")
+        os._exit(0)
 
     def toggle_autostart(self) -> None:
         """TrayController protocol: toggle autostart on/off."""
@@ -1321,8 +1417,17 @@ def _ensure_single_instance():
     ERROR_ALREADY_EXISTS = 183
     mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "VoiceTyperSingleInstance")
     if ctypes.windll.kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
-        if sys.stderr is not None:
-            print("Voice Typer is already running.", file=sys.stderr)
+        # Show a visible popup on Windows (stderr may not be visible under pythonw.exe)
+        try:
+            ctypes.windll.user32.MessageBoxW(
+                0,
+                "Voice Typer is already running. Only one instance is allowed.",
+                "Voice Typer",
+                0x00000030 | 0x00000000,  # MB_ICONWARNING | MB_OK
+            )
+        except Exception:
+            if sys.stderr is not None:
+                print("Voice Typer is already running.", file=sys.stderr)
         sys.exit(0)
     return mutex
 

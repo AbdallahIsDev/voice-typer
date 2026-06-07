@@ -34,6 +34,16 @@ class ModelsScreen:
         self._download_progress = 0
         self._benchmark_result = None
 
+    def _is_dark_mode(self) -> bool:
+        """Return True if the current theme is dark."""
+        if self.page is None:
+            return False
+        if self.page.theme_mode == ft.ThemeMode.DARK:
+            return True
+        if self.page.theme_mode == ft.ThemeMode.LIGHT:
+            return False
+        return getattr(self.page.theme, 'brightness', ft.Brightness.LIGHT) == ft.Brightness.DARK
+
     def _build_models_list(self) -> list[dict]:
         """UX-012/025: Build model list from actual available models."""
         models = [
@@ -48,13 +58,14 @@ class ModelsScreen:
         return models
 
     def build(self) -> ft.Control:
+        dark = self._is_dark_mode()
         return ft.Container(
             padding=40,
             content=ft.Column(
                 [
                     ft.Row(
                         [
-                            ft.Text("Models", size=24, weight=ft.FontWeight.BOLD),
+                            ft.Text("Models", size=24, weight=ft.FontWeight.BOLD, color=Colors.text_primary(dark)),
                             ft.Container(expand=True),
                             ft.ElevatedButton(
                                 content=ft.Row([icon("download", color=ft.Colors.WHITE, size=16), ft.Text("Download Model", color=ft.Colors.WHITE)], spacing=8),
@@ -69,7 +80,7 @@ class ModelsScreen:
                     ft.Text(
                         "Manage Whisper models for transcription",
                         size=14,
-                        color=ft.Colors.GREY_600,
+                        color=Colors.text_secondary(dark),
                     ),
                     ft.Container(height=10),
                     self._build_models_list_ui(),
@@ -78,11 +89,11 @@ class ModelsScreen:
                     ft.Container(height=20),
                     self._build_model_benchmark(),
                 ],
-                scroll=ft.ScrollMode.AUTO,
             ),
         )
 
     def _build_models_list_ui(self) -> ft.Control:
+        dark = self._is_dark_mode()
         # UX-025: Check for models with no downloaded flag
         has_models = any(m.get("downloaded", True) for m in self.models)
         if not has_models or not self.models:
@@ -91,16 +102,16 @@ class ModelsScreen:
                 alignment=ft.Alignment.CENTER,
                 content=ft.Column(
                     [
-                        icon("download-done", size=48, color=ft.Colors.GREY_400),
+                        icon("download-done", size=48, color=ft.Colors.GREY_400 if not dark else ft.Colors.GREY_500),
                         ft.Text(
                             "No models downloaded",
                             size=16,
-                            color=ft.Colors.GREY_600,
+                            color=ft.Colors.GREY_600 if not dark else ft.Colors.GREY_400,
                         ),
                         ft.Text(
                             "Download a model to start transcribing",
                             size=14,
-                            color=ft.Colors.GREY_500,
+                            color=ft.Colors.GREY_500 if not dark else ft.Colors.GREY_500,
                         ),
                         ft.Container(height=10),
                         ft.ElevatedButton(
@@ -121,12 +132,17 @@ class ModelsScreen:
         )
 
     def _model_item(self, model: dict) -> ft.Control:
+        dark = self._is_dark_mode()
         is_active = model.get("name") == self.active_model
         is_downloaded = model.get("downloaded", True)
-        return ft.Card(
-            content=ft.Container(
-                padding=16,
-                content=ft.Row(
+        return ft.Container(
+            bgcolor=Colors.card_bg(dark),
+            border_radius=8,
+            content=ft.Card(
+                elevation=0,
+                content=ft.Container(
+                    padding=16,
+                    content=ft.Row(
                     [
                         ft.Column(
                             [
@@ -136,6 +152,7 @@ class ModelsScreen:
                                             model.get("name", ""),
                                             size=16,
                                             weight=ft.FontWeight.W_600,
+                                            color=Colors.text_primary(dark),
                                         ),
                                         ft.Container(
                                             content=ft.Text(
@@ -155,12 +172,12 @@ class ModelsScreen:
                                         ft.Text(
                                             f"Size: {model.get('size', 'Unknown')}",
                                             size=12,
-                                            color=ft.Colors.GREY_600,
+                                            color=Colors.text_secondary(dark),
                                         ),
                                         ft.Text(
                                             f"Speed: {model.get('speed', 'Unknown')}",
                                             size=12,
-                                            color=ft.Colors.GREY_600,
+                                            color=Colors.text_secondary(dark),
                                         ),
                                     ],
                                     spacing=16,
@@ -188,19 +205,25 @@ class ModelsScreen:
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
             ),
-        )
+        ),
+    )
 
     def _build_cloud_providers(self) -> ft.Control:
-        return ft.Card(
-            content=ft.Container(
-                padding=20,
-                content=ft.Column(
+        dark = self._is_dark_mode()
+        return ft.Container(
+            bgcolor=Colors.card_bg(dark),
+            border_radius=8,
+            content=ft.Card(
+                elevation=0,
+                content=ft.Container(
+                    padding=20,
+                    content=ft.Column(
                     [
-                        ft.Text("Cloud ASR Providers", size=18, weight=ft.FontWeight.W_600),
+                        ft.Text("Cloud ASR Providers", size=18, weight=ft.FontWeight.W_600, color=Colors.text_primary(dark)),
                         ft.Text(
                             "Configure cloud-based transcription services",
                             size=14,
-                            color=ft.Colors.GREY_600,
+                            color=Colors.text_secondary(dark),
                         ),
                         ft.Container(height=10),
                         self._build_provider_section(
@@ -223,10 +246,12 @@ class ModelsScreen:
                     ],
                     spacing=8,
                 ),
-            )
-        )
+            ),
+        ),
+    )
 
     def _build_provider_section(self, provider: str, label: str, api_key: str) -> ft.Control:
+        dark = self._is_dark_mode()
         provider_info = CLOUD_PROVIDERS.get(provider, {})
 
         key_field = ft.TextField(
@@ -235,9 +260,12 @@ class ModelsScreen:
             width=350,
             password=True,
             can_reveal_password=True,
+            color=Colors.text_primary(dark),
+            bgcolor=ft.Colors.GREY_200 if not dark else ft.Colors.GREY_700,
+            border_color=Colors.divider(dark),
         )
 
-        test_result = ft.Text("", size=12, color=ft.Colors.GREY_600)
+        test_result = ft.Text("", size=12)
 
         def _save_key(e):
             key_value = key_field.value or ""
@@ -259,7 +287,7 @@ class ModelsScreen:
             key_value = key_field.value or ""
             if not key_value:
                 test_result.value = "Please enter an API key first"
-                test_result.color = ft.Colors.RED_600
+                test_result.color = Colors.ERROR
                 self.page.update()
                 return
 
@@ -273,15 +301,15 @@ class ModelsScreen:
                 )
                 success, message = engine.test_connection()
                 test_result.value = message
-                test_result.color = ft.Colors.GREEN_600 if success else ft.Colors.RED_600
+                test_result.color = Colors.SUCCESS if success else Colors.ERROR
             except Exception as exc:
                 test_result.value = f"Connection test failed: {exc}"
-                test_result.color = ft.Colors.RED_600
+                test_result.color = Colors.ERROR
             self.page.update()
 
         return ft.Column(
             [
-                ft.Text(label, size=14, weight=ft.FontWeight.W_500),
+                ft.Text(label, size=14, weight=ft.FontWeight.W_500, color=Colors.text_primary(dark)),
                 ft.Row(
                     [
                         key_field,
@@ -305,16 +333,21 @@ class ModelsScreen:
         )
 
     def _build_model_benchmark(self) -> ft.Control:
-        return ft.Card(
-            content=ft.Container(
-                padding=20,
-                content=ft.Column(
+        dark = self._is_dark_mode()
+        return ft.Container(
+            bgcolor=Colors.card_bg(dark),
+            border_radius=8,
+            content=ft.Card(
+                elevation=0,
+                content=ft.Container(
+                    padding=20,
+                    content=ft.Column(
                     [
-                        ft.Text("Model Benchmark", size=18, weight=ft.FontWeight.W_600),
+                        ft.Text("Model Benchmark", size=18, weight=ft.FontWeight.W_600, color=Colors.text_primary(dark)),
                         ft.Text(
                             "Compare model performance on your system",
                             size=14,
-                            color=ft.Colors.GREY_600,
+                            color=Colors.text_secondary(dark),
                         ),
                         ft.Container(height=10),
                         ft.ElevatedButton(
@@ -326,14 +359,15 @@ class ModelsScreen:
                         ft.Text(
                             self._benchmark_result or "",
                             size=13,
-                            color=ft.Colors.GREY_700,
+                            color=Colors.text_secondary(dark),
                             visible=bool(self._benchmark_result),
                         ),
                     ],
                     spacing=8,
                 ),
-            )
-        )
+            ),
+        ),
+    )
 
     def _download_model(self, e):
         """UX-024: Model download with progress indication."""

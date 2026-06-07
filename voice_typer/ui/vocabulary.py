@@ -34,6 +34,16 @@ class VocabularyScreen:
         self._active_category = CATEGORIES[0]
         self._load_vocabulary()
 
+    def _is_dark_mode(self) -> bool:
+        """Return True if the current theme is dark."""
+        if self.page is None:
+            return False
+        if self.page.theme_mode == ft.ThemeMode.DARK:
+            return True
+        if self.page.theme_mode == ft.ThemeMode.LIGHT:
+            return False
+        return getattr(self.page.theme, 'brightness', ft.Brightness.LIGHT) == ft.Brightness.DARK
+
     def _get_manager(self) -> VocabularyManager:
         """Lazy-init VocabularyManager."""
         if self._vocab_manager is None:
@@ -73,13 +83,14 @@ class VocabularyScreen:
             self.vocabulary = []
 
     def build(self) -> ft.Control:
+        dark = self._is_dark_mode()
         return ft.Container(
             padding=40,
             content=ft.Column(
                 [
                     ft.Row(
                         [
-                            ft.Text("Custom Vocabulary", size=24, weight=ft.FontWeight.BOLD),
+                            ft.Text("Custom Vocabulary", size=24, weight=ft.FontWeight.BOLD, color=Colors.text_primary(dark)),
                             ft.Container(expand=True),
                             ft.ElevatedButton(
                                 content=ft.Row([icon("add", color=ft.Colors.WHITE, size=16), ft.Text("Add Word", color=ft.Colors.WHITE)], spacing=8),
@@ -93,27 +104,27 @@ class VocabularyScreen:
                     ft.Text(
                         "Add custom words and corrections to improve accuracy",
                         size=14,
-                        color=ft.Colors.GREY_600,
+                        color=Colors.text_secondary(dark),
                     ),
                     ft.Container(height=10),
                     self._build_category_tabs(),
                     ft.Container(height=10),
                     self._build_vocabulary_list(),
                 ],
-                scroll=ft.ScrollMode.AUTO,
             ),
         )
 
     def _build_category_tabs(self) -> ft.Control:
         """Build category filter tabs for the 6 vocabulary categories."""
+        dark = self._is_dark_mode()
         tabs = []
         for cat in CATEGORIES:
             is_active = cat == self._active_category
             tabs.append(
                 ft.ElevatedButton(
-                    content=ft.Text(self.CATEGORY_LABELS.get(cat, cat), color=ft.Colors.WHITE if is_active else ft.Colors.GREY_700),
+                    content=ft.Text(self.CATEGORY_LABELS.get(cat, cat), color=ft.Colors.WHITE if is_active else Colors.text_primary(dark)),
                     on_click=lambda e, c=cat: self._select_category(c),
-                    bgcolor=ft.Colors.BLUE_600 if is_active else ft.Colors.GREY_100,
+                    bgcolor=ft.Colors.BLUE_600 if is_active else (ft.Colors.GREY_200 if not dark else ft.Colors.GREY_700),
                     style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=16)),
                 )
             )
@@ -125,6 +136,7 @@ class VocabularyScreen:
         self.page.update()
 
     def _build_vocabulary_list(self) -> ft.Control:
+        dark = self._is_dark_mode()
         # Filter by active category
         filtered = [v for v in self.vocabulary if v.get("category") == self._active_category]
 
@@ -134,16 +146,16 @@ class VocabularyScreen:
                 alignment=ft.Alignment.CENTER,
                 content=ft.Column(
                     [
-                        icon("vocabulary", size=48, color=ft.Colors.GREY_400),
+                        icon("vocabulary", size=48, color=ft.Colors.GREY_400 if not dark else ft.Colors.GREY_500),
                         ft.Text(
                             f"No {self.CATEGORY_LABELS.get(self._active_category, self._active_category).lower()}",
                             size=16,
-                            color=ft.Colors.GREY_600,
+                            color=ft.Colors.GREY_600 if not dark else ft.Colors.GREY_400,
                         ),
                         ft.Text(
                             self.CATEGORY_DESCRIPTIONS.get(self._active_category, ""),
                             size=14,
-                            color=ft.Colors.GREY_500,
+                            color=ft.Colors.GREY_500 if not dark else ft.Colors.GREY_500,
                         ),
                         ft.Container(height=10),
                         ft.ElevatedButton(
@@ -163,10 +175,15 @@ class VocabularyScreen:
         )
 
     def _vocabulary_item(self, item: dict) -> ft.Control:
-        return ft.Card(
-            content=ft.Container(
-                padding=16,
-                content=ft.Row(
+        dark = self._is_dark_mode()
+        return ft.Container(
+            bgcolor=Colors.card_bg(dark),
+            border_radius=8,
+            content=ft.Card(
+                elevation=0,
+                content=ft.Container(
+                    padding=16,
+                    content=ft.Row(
                     [
                         ft.Column(
                             [
@@ -177,21 +194,21 @@ class VocabularyScreen:
                                                 item.get("original", ""),
                                                 size=14,
                                                 weight=ft.FontWeight.W_600,
-                                                color=ft.Colors.RED_800,
+                                                color=ft.Colors.RED_800 if not dark else ft.Colors.RED_200,
                                             ),
-                                            bgcolor=ft.Colors.RED_50,
+                                            bgcolor=ft.Colors.RED_50 if not dark else ft.Colors.RED_900,
                                             padding=ft.Padding.symmetric(horizontal=8, vertical=4),
                                             border_radius=4,
                                         ),
-                                        icon("arrow-forward", size=16, color=ft.Colors.GREY_400),
+                                        icon("arrow-forward", size=16, color=ft.Colors.GREY_400 if not dark else ft.Colors.GREY_500),
                                         ft.Container(
                                             content=ft.Text(
                                                 item.get("correction", ""),
                                                 size=14,
                                                 weight=ft.FontWeight.W_600,
-                                                color=ft.Colors.GREEN_800,
+                                                color=ft.Colors.GREEN_800 if not dark else ft.Colors.GREEN_200,
                                             ),
-                                            bgcolor=ft.Colors.GREEN_50,
+                                            bgcolor=ft.Colors.GREEN_50 if not dark else ft.Colors.GREEN_900,
                                             padding=ft.Padding.symmetric(horizontal=8, vertical=4),
                                             border_radius=4,
                                         ),
@@ -201,7 +218,7 @@ class VocabularyScreen:
                                 ft.Text(
                                     self.CATEGORY_LABELS.get(item.get("category", ""), item.get("category", "")),
                                     size=12,
-                                    color=ft.Colors.GREY_600,
+                                    color=Colors.text_secondary(dark),
                                 ),
                             ],
                             spacing=4,
@@ -224,8 +241,9 @@ class VocabularyScreen:
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
-            )
-        )
+            ),
+        ),
+    )
 
     def _add_word(self, e):
         """Open a dialog to add a new vocabulary entry."""

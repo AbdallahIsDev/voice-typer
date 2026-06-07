@@ -84,7 +84,7 @@ def check_dependencies() -> dict:
         try:
             mod = __import__(pkg.replace('-', '_'))
             deps[pkg] = getattr(mod, '__version__', 'installed')
-        except ImportError:
+        except (ImportError, ValueError):
             pass
 
     log.info("[ASR_SETUP] Dependency check: %s", deps)

@@ -67,6 +67,8 @@ _WINDOWS_TEXT_CLASSES: set[str] = {
     # ── Chromium / Electron ──
     "chrome_widgetwin_",        # Chrome, Edge, Electron (VS Code, Slack, etc.)
     "renderwidgethost",         # Chromium renderer sub-window
+    # ── Firefox ──
+    "mozillawindowclass",       # Firefox main window
     # ── Consoles / terminals ──
     "consolewindowclass",       # cmd.exe, powershell.exe
     "cascadia_hosting_window_class",  # Windows Terminal
@@ -118,6 +120,9 @@ _TEXT_PROCESS_NAMES: set[str] = {
     # ── Text editors (common ones with generic class names) ──
     "notepad.exe",              # Notepad (usually Edit class, but just in case)
     "notepad++.exe",            # Notepad++
+    # ── Browsers with WebView2 ──
+    "msedgewebview2.exe",       # Edge WebView2
+    "firefox.exe",              # Firefox
 }
 
 

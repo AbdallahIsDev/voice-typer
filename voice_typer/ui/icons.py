@@ -1,13 +1,29 @@
-"""Hugeicons stroke-rounded icon mapping and helper for Flet UI."""
+"""Hugeicons stroke-rounded icon mapping and helper for Flet UI.
 
+Supports both:
+- SVG icons from ``assets/icons/{name}.svg`` (uses ``ft.SvgImage``)
+- Hugeicons font icons from the ``ICONS`` codepoint mapping (uses ``ft.Text``)
+"""
+
+import os
 import flet as ft
 
+# ── SVG icon paths ─────────────────────────────────────────────────────
+# Icons with SVG files in assets/icons/ are rendered as ft.SvgImage.
+# Add the SVG filename (without path) here to use the SVG renderer.
+SVG_ICONS = {
+    "home": "home-03.svg",
+    "history": "history-anticlockwise-line.svg",
+    "templates": "license.svg",
+}
+
+_ICONS_DIR = os.path.join(os.path.dirname(__file__), "..", "assets", "icons")
+
+# ── Font-based icon codepoints ─────────────────────────────────────────
 # Map of semantic icon names to their Hugeicons unicode codepoints
 ICONS = {
     # Nav items
-    "home": "\u4159",          # hgi-home-01
-    "history": "\u4915",       # hgi-time-01
-    "templates": "\u48ea",     # hgi-text
+    # "templates" is now an SVG icon (license.svg)
     "vocabulary": "\u4682",    # hgi-school
     "models": "\u44c0",        # hgi-package
     "microphone": "\u4395",    # hgi-mic-01
@@ -60,12 +76,25 @@ ICONS = {
 }
 
 
-def icon(name: str, color: str = None, size: float = None, tooltip: str = None) -> ft.Text:
-    """Helper function to create a text-based icon using the Hugeicons font.
+def icon(name: str, color: str = None, size: float = None, tooltip: str = None) -> ft.Control:
+    """Helper function to create an icon.
 
-    Hugeicons uses a custom TTF font, so we render icons as ft.Text with
-    the font family set to "hgi" and the icon's unicode codepoint as text.
+    If ``name`` has a matching SVG file in ``assets/icons/``, renders it
+    as an ``ft.SvgImage`` (which supports ``currentColor`` from the SVG
+    via the ``color`` parameter).  Otherwise falls back to the Hugeicons
+    font icon font using the codepoint from the ``ICONS`` dict.
     """
+    svg_filename = SVG_ICONS.get(name)
+    if svg_filename:
+        svg_path = os.path.join(_ICONS_DIR, svg_filename)
+        return ft.Image(
+            src=svg_path,
+            width=size or 24,
+            height=size or 24,
+            color=color,
+            tooltip=tooltip,
+        )
+
     codepoint = ICONS.get(name, name)
     return ft.Text(
         codepoint,

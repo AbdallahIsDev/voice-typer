@@ -105,8 +105,8 @@ class ClipboardManager:
 
         On Windows, includes a short retry: if focus detection returns False
         on the first attempt (which can happen if focus is briefly disrupted
-        by the recording-stop or tray-update event), we wait 200 ms and
-        retry once.  This handles the common case where the original text
+        by the recording-stop or tray-update event), we wait and retry
+        multiple times. This handles the common case where the original text
         field regains focus almost immediately.
         """
         if not self.paste_enabled:
@@ -115,14 +115,20 @@ class ClipboardManager:
 
         focused = is_text_input_focused()
 
-        # Retry once on Windows if focus was just disrupted
+        # Retry on Windows if focus was just disrupted
         if focused is False and sys.platform == "win32":
-            log.info(
-                "No text input focused on first check -- "
-                "retrying after 200 ms (focus may be briefly disrupted)"
-            )
-            time.sleep(0.05)  # brief settle for focus recovery
-            focused = is_text_input_focused()
+            delays = [0.15, 0.3, 0.5]  # 150ms, 300ms, 500ms
+            for i, delay in enumerate(delays, 1):
+                log.info(
+                    "No text input focused on attempt %d -- "
+                    "retrying after %.0f ms (focus may be disrupted)",
+                    i + 1, delay * 1000
+                )
+                time.sleep(delay)
+                focused = is_text_input_focused()
+                if focused is not False:
+                    log.info("Focus recovered on retry %d", i + 1)
+                    break
 
         if focused is False:
             log.info("No text input focused -- skipping paste (clipboard has the text)")
@@ -139,12 +145,13 @@ class ClipboardManager:
                     "(set unsafe_paste_on_unknown_focus=True to override)"
                 )
                 return False
+
         # focused is True, or None with opt-in -> attempt paste
 
         try:
             time.sleep(0.02)  # minimal settle before keystroke
             if not is_text_input_focused() and not self.unsafe_paste_on_unknown_focus:
-                log.info("Focus lost during paste delay — skipping")
+                log.info("Focus lost during paste delay -- skipping")
                 return False
             # Detect if focused process is a terminal
             process_name = self._detect_focused_process()

@@ -14,6 +14,16 @@ class TemplatesScreen:
         self._template_manager = None
         self._load_templates()
 
+    def _is_dark_mode(self) -> bool:
+        """Return True if the current theme is dark."""
+        if self.page is None:
+            return False
+        if self.page.theme_mode == ft.ThemeMode.DARK:
+            return True
+        if self.page.theme_mode == ft.ThemeMode.LIGHT:
+            return False
+        return getattr(self.page.theme, 'brightness', ft.Brightness.LIGHT) == ft.Brightness.DARK
+
     def _get_manager(self) -> TemplateManager:
         """Lazy-init TemplateManager."""
         if self._template_manager is None:
@@ -40,13 +50,14 @@ class TemplatesScreen:
             self.templates = []
 
     def build(self) -> ft.Control:
+        dark = self._is_dark_mode()
         return ft.Container(
             padding=40,
             content=ft.Column(
                 [
                     ft.Row(
                         [
-                            ft.Text("Templates", size=24, weight=ft.FontWeight.BOLD),
+                            ft.Text("Templates", size=24, weight=ft.FontWeight.BOLD, color=Colors.text_primary(dark)),
                             ft.Container(expand=True),
                             ft.ElevatedButton(
                                 content=ft.Row([icon("add", color=ft.Colors.WHITE, size=16), ft.Text("Add Template", color=ft.Colors.WHITE)], spacing=8),
@@ -60,32 +71,32 @@ class TemplatesScreen:
                     ft.Text(
                         "Create voice shortcuts that expand into full text",
                         size=14,
-                        color=ft.Colors.GREY_600,
+                        color=Colors.text_secondary(dark),
                     ),
                     ft.Container(height=10),
                     self._build_templates_list(),
                 ],
-                scroll=ft.ScrollMode.AUTO,
             ),
         )
 
     def _build_templates_list(self) -> ft.Control:
+        dark = self._is_dark_mode()
         if not self.templates:
             return ft.Container(
                 padding=40,
                 alignment=ft.Alignment.CENTER,
                 content=ft.Column(
                      [
-                        icon("templates", size=48, color=ft.Colors.GREY_400),
+                        icon("templates", size=48, color=ft.Colors.GREY_400 if not dark else ft.Colors.GREY_500),
                         ft.Text(
                             "No templates yet",
                             size=16,
-                            color=ft.Colors.GREY_600,
+                            color=ft.Colors.GREY_600 if not dark else ft.Colors.GREY_400,
                         ),
                         ft.Text(
                             "Say a phrase to trigger a text expansion",
                             size=14,
-                            color=ft.Colors.GREY_500,
+                            color=ft.Colors.GREY_500 if not dark else ft.Colors.GREY_500,
                         ),
                         ft.Container(height=10),
                         ft.ElevatedButton(
@@ -105,10 +116,15 @@ class TemplatesScreen:
         )
 
     def _template_item(self, template: dict) -> ft.Control:
-        return ft.Card(
-            content=ft.Container(
-                padding=16,
-                content=ft.Row(
+        dark = self._is_dark_mode()
+        return ft.Container(
+            bgcolor=Colors.card_bg(dark),
+            border_radius=8,
+            content=ft.Card(
+                elevation=0,
+                content=ft.Container(
+                    padding=16,
+                    content=ft.Row(
                     [
                         ft.Column(
                             [
@@ -119,17 +135,17 @@ class TemplatesScreen:
                                                 template.get("trigger", ""),
                                                 size=14,
                                                 weight=ft.FontWeight.W_600,
-                                                color=ft.Colors.BLUE_800,
+                                                color=ft.Colors.BLUE_800 if not dark else ft.Colors.BLUE_200,
                                             ),
-                                            bgcolor=ft.Colors.BLUE_50,
+                                            bgcolor=ft.Colors.BLUE_50 if not dark else ft.Colors.BLUE_900,
                                             padding=ft.Padding.symmetric(horizontal=8, vertical=4),
                                             border_radius=4,
                                         ),
-                                        icon("arrow-forward", size=16, color=ft.Colors.GREY_400),
+                                        icon("arrow-forward", size=16, color=ft.Colors.GREY_400 if not dark else ft.Colors.GREY_500),
                                         ft.Text(
                                             template.get("expansion", "")[:50],
                                             size=14,
-                                            color=ft.Colors.GREY_700,
+                                            color=ft.Colors.GREY_700 if not dark else ft.Colors.GREY_300,
                                             max_lines=1,
                                             overflow=ft.TextOverflow.ELLIPSIS,
                                         ),
@@ -142,12 +158,12 @@ class TemplatesScreen:
                                         ft.Text(
                                             f"Variables: {template.get('variables', 0)}",
                                             size=12,
-                                            color=ft.Colors.GREY_600,
+                                            color=Colors.text_secondary(dark),
                                         ),
                                         ft.Text(
                                             f"Mode: {template.get('match_mode', 'exact')}",
                                             size=12,
-                                            color=ft.Colors.GREY_600,
+                                            color=Colors.text_secondary(dark),
                                         ),
                                     ],
                                     spacing=12,
@@ -173,8 +189,9 @@ class TemplatesScreen:
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
-            )
-        )
+            ),
+        ),
+    )
 
     def _add_template(self, e):
         """Open a dialog to add a new template."""

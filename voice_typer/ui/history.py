@@ -20,14 +20,25 @@ class HistoryScreen:
         self._last_deleted = None
         self._load_history()
 
+    def _is_dark_mode(self) -> bool:
+        """Return True if the current theme is dark."""
+        if self.page is None:
+            return False
+        if self.page.theme_mode == ft.ThemeMode.DARK:
+            return True
+        if self.page.theme_mode == ft.ThemeMode.LIGHT:
+            return False
+        return getattr(self.page.theme, 'brightness', ft.Brightness.LIGHT) == ft.Brightness.DARK
+
     def build(self) -> ft.Control:
+        dark = self._is_dark_mode()
         return ft.Container(
             padding=40,
             content=ft.Column(
                 [
                     ft.Row(
                         [
-                            ft.Text("History", size=24, weight=ft.FontWeight.BOLD),
+                            ft.Text("History", size=24, weight=ft.FontWeight.BOLD, color=Colors.text_primary(dark)),
                             ft.Container(expand=True),
                             ft.ElevatedButton(
                                 content=ft.Row([icon("import-export", size=16), ft.Text("Export")], spacing=8),
@@ -35,14 +46,14 @@ class HistoryScreen:
                                 tooltip="Export transcription history",
                             ),
                             ft.ElevatedButton(
-                                content=ft.Row([icon("filter", color=ft.Colors.GREY_700, size=16), ft.Text("Favorites")], spacing=8),
+                                content=ft.Row([icon("filter", color=Colors.text_secondary(dark), size=16), ft.Text("Favorites")], spacing=8),
                                 on_click=self._show_favorites,
                                 tooltip="Show favorited transcriptions only",
                             ),
                             ft.ElevatedButton(
-                                content=ft.Row([icon("delete-sweep", color=ft.Colors.RED_900, size=16), ft.Text("Clear All", color=ft.Colors.RED_900)], spacing=8),
+                                content=ft.Row([icon("delete-sweep", color=Colors.ERROR, size=16), ft.Text("Clear All", color=Colors.ERROR)], spacing=8),
                                 on_click=self._clear_all_confirm,
-                                bgcolor=ft.Colors.RED_100,
+                                bgcolor=ft.Colors.RED_100 if not dark else ft.Colors.RED_900,
                                 tooltip="Delete all transcriptions",
                             ),
                         ],
@@ -53,36 +64,39 @@ class HistoryScreen:
                     ft.Container(height=10),
                     self._build_history_list(),
                 ],
-                scroll=ft.ScrollMode.AUTO,
             ),
         )
 
     def _build_search_bar(self) -> ft.Control:
+        dark = self._is_dark_mode()
         return ft.TextField(
             hint_text="Search history...",
-            prefix=icon("search", color=ft.Colors.GREY_600),
+            hint_style=ft.TextStyle(color=Colors.text_secondary(dark)),
+            prefix=icon("search", color=Colors.text_secondary(dark)),
             border_radius=8,
-            bgcolor=ft.Colors.GREY_100,
+            bgcolor=ft.Colors.GREY_200 if not dark else ft.Colors.GREY_700,
+            color=Colors.text_primary(dark),
             on_change=self._search_history_debounced,
         )
 
     def _build_history_list(self) -> ft.Control:
+        dark = self._is_dark_mode()
         if not self.history_items:
             return ft.Container(
                 padding=40,
                 alignment=ft.Alignment.CENTER,
                 content=ft.Column(
                     [
-                        icon("history", size=48, color=ft.Colors.GREY_400),
+                        icon("history", size=48, color=ft.Colors.GREY_400 if not dark else ft.Colors.GREY_500),
                         ft.Text(
                             "No transcriptions yet",
                             size=16,
-                            color=ft.Colors.GREY_600,
+                            color=ft.Colors.GREY_600 if not dark else ft.Colors.GREY_400,
                         ),
                         ft.Text(
                             "Your voice transcriptions will appear here",
                             size=14,
-                            color=ft.Colors.GREY_500,
+                            color=ft.Colors.GREY_500 if not dark else ft.Colors.GREY_500,
                         ),
                     ],
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -97,14 +111,19 @@ class HistoryScreen:
         )
 
     def _history_item(self, item: dict) -> ft.Control:
+        dark = self._is_dark_mode()
         is_fav = bool(item.get("favorite", 0))
         # UX-027: Use relative time formatter
         timestamp = item.get("timestamp", "")
         display_time = format_relative_time(timestamp)
-        return ft.Card(
-            content=ft.Container(
-                padding=16,
-                content=ft.Row(
+        return ft.Container(
+            bgcolor=Colors.card_bg(dark),
+            border_radius=8,
+            content=ft.Card(
+                elevation=0,
+                content=ft.Container(
+                    padding=16,
+                    content=ft.Row(
                     [
                         ft.Column(
                             [
@@ -114,11 +133,12 @@ class HistoryScreen:
                                     weight=ft.FontWeight.W_500,
                                     max_lines=2,
                                     overflow=ft.TextOverflow.ELLIPSIS,
+                                    color=Colors.text_primary(dark),
                                 ),
                                 ft.Text(
                                     display_time,
                                     size=12,
-                                    color=ft.Colors.GREY_600,
+                                    color=Colors.text_secondary(dark),
                                     tooltip=timestamp,
                                 ),
                             ],
@@ -148,7 +168,8 @@ class HistoryScreen:
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
             ),
-        )
+        ),
+    )
 
     def _copy_text(self, text: str):
         pyperclip.copy(text)

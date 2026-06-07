@@ -122,13 +122,13 @@ class SettingsScreen:
                             "Toggle: press to start/stop. Push-to-talk: hold to record",
                         ),
                         self._setting_row(
-                            "Repaste Last",
+                            "Auto-paste on Stop",
                             ft.Switch(
                                 value=self.config.paste_on_stop,
                                 on_change=lambda e: self._update_config("paste_on_stop", e.control.value),
-                                tooltip="Re-paste last transcription when idle",
+                                tooltip="Automatically paste transcription into the focused input field when recording stops",
                             ),
-                            "Re-paste last transcription when idle",
+                            "Paste transcribed text into the currently focused field after stopping recording",
                         ),
                         self._setting_row(
                             "ESC to Cancel",
