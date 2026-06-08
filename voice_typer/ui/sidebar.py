@@ -47,15 +47,6 @@ class Sidebar:
                 Tokens.sidebar_active_bg(dark) if is_selected
                 else ft.Colors.TRANSPARENT
             )
-            if is_selected:
-                btn.border = ft.Border(
-                    left=ft.BorderSide(3, ap),
-                    top=ft.BorderSide(0, "transparent"),
-                    right=ft.BorderSide(0, "transparent"),
-                    bottom=ft.BorderSide(0, "transparent"),
-                )
-            else:
-                btn.border = None
 
     def build(self, current_view: str) -> ft.Control:
         """Build and return the sidebar control."""
@@ -97,14 +88,6 @@ class Sidebar:
                     Tokens.sidebar_active_bg(dark) if is_selected
                     else ft.Colors.TRANSPARENT
                 ),
-                border=(
-                    ft.Border(
-                        left=ft.BorderSide(3, ap),
-                        top=ft.BorderSide(0, "transparent"),
-                        right=ft.BorderSide(0, "transparent"),
-                        bottom=ft.BorderSide(0, "transparent"),
-                    ) if is_selected else None
-                ),
                 on_click=lambda e, vid=item_id: self.on_navigate(vid),
                 tooltip=item_config.get("description", item_config["title"]),
                 animate=ft.Animation(150, ft.AnimationCurve.EASE_IN_OUT),
@@ -115,7 +98,7 @@ class Sidebar:
         self.container = ft.Container(
             width=SIDEBAR_WIDTH,
             bgcolor=Tokens.bg_sidebar(dark),
-            padding=ft.Padding.symmetric(horizontal=0, vertical=0),
+            padding=ft.Padding.symmetric(horizontal=8, vertical=0),
             content=ft.Column(
                 [
                     ft.Container(

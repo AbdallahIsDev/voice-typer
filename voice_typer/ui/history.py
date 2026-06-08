@@ -38,18 +38,18 @@ class HistoryScreen:
         ap = Tokens.accent_primary(dark)
         ad = Tokens.accent_danger(dark)
 
-        return ft.Column(
+        return ft.Container(
             expand=True,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            controls=[
-                ft.Container(
-                    width=800,
-                    padding=ft.Padding.symmetric(horizontal=0, vertical=32),
-                    content=ft.Column(
+            padding=ft.Padding.symmetric(horizontal=24, vertical=32),
+            alignment=ft.Alignment(0, -1),
+            content=ft.Container(
+                width=800,
+                content=ft.Column(
                             [
                                 ft.Row(
                                     [
                                         ft.Text("History", size=20, weight=ft.FontWeight.W_600, color=tp),
+                                        ft.Container(expand=True),
                                         ft.TextButton(
                                             content=ft.Row([icon("import-export", size=16, color=ts), ft.Text("Export", color=ts, size=13)], spacing=8),
                                             on_click=self._export_history,
@@ -81,8 +81,7 @@ class HistoryScreen:
                             ],
                         ),
                     ),
-                ],
-        )
+                )
 
     def _build_search_bar(self) -> ft.Control:
         dark = self._is_dark()
@@ -92,7 +91,7 @@ class HistoryScreen:
             hint_style=ft.TextStyle(color=ts),
             prefix=icon("search", color=ts, size=15),
             border_radius=10,
-            bgcolor=Tokens.bg_sidebar(dark),
+            bgcolor=Tokens.bg_card(dark),
             border_color=Tokens.border_subtle(dark),
             color=Tokens.text_primary(dark),
             content_padding=ft.Padding(left=16, right=16, top=12, bottom=12),
@@ -132,12 +131,12 @@ class HistoryScreen:
         display_time = format_relative_time(timestamp)
         return ft.Container(
             padding=ft.Padding(left=20, right=20, top=16, bottom=16),
-            bgcolor=Tokens.bg_sidebar(dark),
+            bgcolor=Tokens.bg_card(dark),
             border=ft.Border(
-                left=ft.BorderSide(1, Tokens.border_subtle(dark)),
-                top=ft.BorderSide(1, Tokens.border_subtle(dark)),
-                right=ft.BorderSide(1, Tokens.border_subtle(dark)),
-                bottom=ft.BorderSide(1, Tokens.border_subtle(dark)),
+                left=ft.BorderSide(0.5, Tokens.border_subtle(dark)),
+                top=ft.BorderSide(0.5, Tokens.border_subtle(dark)),
+                right=ft.BorderSide(0.5, Tokens.border_subtle(dark)),
+                bottom=ft.BorderSide(0.5, Tokens.border_subtle(dark)),
             ),
             border_radius=12,
             content=ft.Row(
@@ -182,7 +181,6 @@ class HistoryScreen:
             on_click=lambda e, i=item: action(i),
             padding=ft.Padding(left=6, right=6, top=6, bottom=6),
             border_radius=6,
-            animate=ft.Animation(150, ft.AnimationCurve.EASE_OUT),
         )
         def on_hover(e, ico=icon_ctrl):
             if e.data == "true":
