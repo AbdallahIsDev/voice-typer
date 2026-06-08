@@ -1,4 +1,5 @@
 import ctypes
+from ctypes import wintypes
 import flet as ft
 import logging
 import threading
@@ -17,6 +18,7 @@ from .models import ModelsScreen
 from .microphone import MicrophoneScreen
 from .privacy import PrivacyScreen
 from .settings import SettingsScreen
+from .resize import wrap_with_resize_overlay
 
 log = logging.getLogger(__name__)
 
@@ -247,32 +249,6 @@ class VoiceTyperApp:
     def main(self, page: ft.Page):
         self.page = page
         page.title = "Voice Typer"
-        _window_handle = None
-        _screen_w, _screen_h = 0, 0
-        try:
-            import ctypes
-            from ctypes import wintypes
-            user32 = ctypes.windll.user32
-            our_pid = ctypes.windll.kernel32.GetCurrentProcessId()
-
-            def _enum_cb(hwnd, lparam):
-                pid = wintypes.DWORD()
-                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-                if pid.value == our_pid and user32.IsWindowVisible(hwnd):
-                    nonlocal _window_handle
-                    _window_handle = hwnd
-                    return False
-                return True
-
-            WNDENUMPROC = ctypes.CFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-            user32.EnumWindows(WNDENUMPROC(_enum_cb), 0)
-
-            if _window_handle:
-                user32.ShowWindow(_window_handle, 0)
-                _screen_w = user32.GetSystemMetrics(0)
-                _screen_h = user32.GetSystemMetrics(1)
-        except Exception:
-            pass
 
         try:
             page.window.icon = VoiceTyperApp._ensure_window_icon()
@@ -322,8 +298,22 @@ class VoiceTyperApp:
         status_bar = build_status_bar(self.config, self._current_status, self._is_dark())
         border_c = Tokens.border_subtle(is_dark)
 
+        main_row = self._build_main_row(status_bar=status_bar)
+
+        # Wrap content in resize overlay for edge/corner resize + double-click maximize
+        def _toggle_maximize():
+            target = not page.window.maximized
+            page.window.maximized = target
+            self.update_window_layout(target)
+            page.update()
+
+        overlay_content = wrap_with_resize_overlay(
+            content=main_row,
+            on_double_tap_title=lambda e: _toggle_maximize(),
+        )
+
         main_container = ft.Container(
-            content=self._build_main_row(status_bar=status_bar),
+            content=overlay_content,
             expand=True,
             border_radius=12,
             bgcolor=bg,
@@ -340,44 +330,6 @@ class VoiceTyperApp:
                 self._show_error_view(str(exc))
             except Exception:
                 pass
-
-        try:
-            import ctypes
-            from ctypes import wintypes
-            user32 = ctypes.windll.user32
-            if _window_handle:
-                new_left = max(0, (_screen_w - page.window.width) // 2)
-                new_top = max(0, (_screen_h - page.window.height) // 2)
-                SWP_NOSIZE = 0x0001
-                SWP_NOZORDER = 0x0004
-                SWP_SHOWWINDOW = 0x0040
-                user32.SetWindowPos(
-                    _window_handle, 0, new_left, new_top, 0, 0,
-                    SWP_NOSIZE | SWP_NOZORDER | SWP_SHOWWINDOW,
-                )
-                try:
-                    dark_mode = wintypes.BOOL(is_dark)
-                    ctypes.windll.dwmapi.DwmSetWindowAttribute(
-                        _window_handle, 20,
-                        ctypes.byref(dark_mode),
-                        ctypes.sizeof(wintypes.BOOL),
-                    )
-                except Exception:
-                    pass
-                try:
-                    DWMWA_WINDOW_CORNER_PREFERENCE = 33
-                    DWMWCP_ROUND = 2
-                    corner_pref = wintypes.DWORD(DWMWCP_ROUND)
-                    ctypes.windll.dwmapi.DwmSetWindowAttribute(
-                        _window_handle,
-                        DWMWA_WINDOW_CORNER_PREFERENCE,
-                        ctypes.byref(corner_pref),
-                        ctypes.sizeof(wintypes.DWORD),
-                    )
-                except Exception:
-                    pass
-        except Exception:
-            pass
 
         self._start_status_polling()
 

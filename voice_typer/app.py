@@ -324,9 +324,6 @@ class VoiceTyperApp:
 
         # Warmup handled synchronously in recording.py on first recording start.
 
-        # 3b. ASR auto-setup: ensure dependencies are installed
-        self._ensure_asr_dependencies()
-
         # 4. Create transcription engine and load model
         log.info("[STARTUP] Step 4: create transcription engine")
         self.transcriber = TranscriptionEngine(
@@ -374,22 +371,6 @@ class VoiceTyperApp:
                 disable_autostart()
         except Exception as e:
             log.warning("Autostart sync failed: %s", e)
-
-    def _ensure_asr_dependencies(self) -> None:
-        """Check and install ASR dependencies if missing."""
-        try:
-            from voice_typer.asr_setup import detect_gpu, check_dependencies
-            gpu = detect_gpu()
-            if gpu['available']:
-                log.info("[ASR_SETUP] GPU detected: %s", gpu.get('device_name', 'unknown'))
-            else:
-                log.info("[ASR_SETUP] No GPU detected, using CPU")
-            deps = check_dependencies()
-            missing = [k for k, v in deps.items() if v is None]
-            if missing:
-                log.info("[ASR_SETUP] Missing dependencies: %s", missing)
-        except Exception as e:
-            log.debug("[ASR_SETUP] Dependency check skipped: %s", e)
 
     def _ensure_desktop_shortcut(self) -> None:
         """Create desktop .bat launcher on first run if it doesn't exist."""
