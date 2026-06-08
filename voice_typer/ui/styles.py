@@ -124,10 +124,10 @@ class Tokens:
 def border_card(dark: bool) -> ft.Border:
     c = Tokens.border_subtle(dark)
     return ft.Border(
-        left=ft.BorderSide(1, c),
-        top=ft.BorderSide(1, c),
-        right=ft.BorderSide(1, c),
-        bottom=ft.BorderSide(1, c),
+        left=ft.BorderSide(0.5, c),
+        top=ft.BorderSide(0.5, c),
+        right=ft.BorderSide(0.5, c),
+        bottom=ft.BorderSide(0.5, c),
     )
 
 
