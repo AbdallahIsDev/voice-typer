@@ -80,7 +80,7 @@ class VocabularyScreen:
             padding=ft.Padding.symmetric(horizontal=24, vertical=32),
             alignment=ft.Alignment(0, -1),
             content=ft.Container(
-                width=SETTINGS_MAX_WIDTH,
+                width=800,
                 content=ft.Column(
                     [
                         ft.Row(
@@ -97,7 +97,6 @@ class VocabularyScreen:
                             ],
                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         ),
-                        ft.Container(height=8),
                         ft.Text("Add custom words and corrections to improve accuracy", size=13, color=ts),
                         ft.Container(height=20),
                         self._build_category_tabs(),
@@ -112,9 +111,15 @@ class VocabularyScreen:
         dark = self._is_dark()
         if e.data == "true":
             tab.bgcolor = Tokens.bg_card(dark)
+            tab.scale = 1.05
+            if isinstance(tab.content, ft.Text):
+                tab.content.color = Tokens.text_primary(dark)
         else:
+            tab.scale = 1.0
             if cat != self._active_category:
                 tab.bgcolor = None
+                if isinstance(tab.content, ft.Text):
+                    tab.content.color = Tokens.text_secondary(dark)
         tab.update()
 
     def _build_category_tabs(self) -> ft.Control:
@@ -130,9 +135,10 @@ class VocabularyScreen:
                     size=12, weight=ft.FontWeight.W_500,
                     color=tp if is_active else ts,
                 ),
-                padding=ft.Padding(left=14, right=14, top=5, bottom=5),
+                padding=ft.Padding(left=16, right=16, top=8, bottom=8),
                 border_radius=6,
                 bgcolor=Tokens.bg_card(dark) if is_active else None,
+                shadow=ft.BoxShadow(blur_radius=4, spread_radius=0, color="rgba(0,0,0,0.12)") if is_active else None,
                 on_click=lambda e, c=cat: self._select_category(c),
                 data=cat,
             )
@@ -141,7 +147,7 @@ class VocabularyScreen:
             tabs.append(tab)
         return ft.Container(
             content=ft.Row(tabs, spacing=2),
-            bgcolor=Tokens.bg_card(dark),
+            bgcolor=Tokens.bg_sidebar(dark),
             border_radius=8,
             padding=3,
         )
@@ -184,43 +190,31 @@ class VocabularyScreen:
 
         return ft.ListView(
             controls=[self._vocabulary_item(item) for item in filtered],
-            spacing=0,
+            spacing=12,
         )
 
     def _vocabulary_item(self, item: dict) -> ft.Control:
         dark = self._is_dark()
-        tp = Tokens.text_primary(dark)
         ts = Tokens.text_secondary(dark)
         return ft.Container(
             padding=ft.Padding(left=20, right=20, top=14, bottom=14),
-            border=ft.Border(bottom=ft.BorderSide(0.5, Tokens.border_subtle(dark))),
+            bgcolor=Tokens.bg_sidebar(dark),
+            border=ft.Border(
+                left=ft.BorderSide(0.5, Tokens.border_subtle(dark)),
+                top=ft.BorderSide(0.5, Tokens.border_subtle(dark)),
+                right=ft.BorderSide(0.5, Tokens.border_subtle(dark)),
+                bottom=ft.BorderSide(0.5, Tokens.border_subtle(dark)),
+            ),
+            border_radius=10,
             content=ft.Row(
                 [
                     ft.Column(
                         [
                             ft.Row(
                                 [
-                                    ft.Container(
-                                        content=ft.Text(
-                                            item.get("original", ""),
-                                            size=12, weight=ft.FontWeight.W_500,
-                                            color="#F87171",
-                                        ),
-                                        bgcolor="rgba(220,38,38,0.14)",
-                                        padding=ft.Padding(left=10, right=10, top=3, bottom=3),
-                                        border_radius=6,
-                                    ),
+                                    ft.Text(item.get("original", ""), size=13, weight=ft.FontWeight.W_500, color="#F87171"),
                                     ft.Text("\u2192", color=ts, size=14),
-                                    ft.Container(
-                                        content=ft.Text(
-                                            item.get("correction", ""),
-                                            size=12, weight=ft.FontWeight.W_500,
-                                            color="#4ADE80",
-                                        ),
-                                        bgcolor="rgba(34,197,94,0.12)",
-                                        padding=ft.Padding(left=10, right=10, top=3, bottom=3),
-                                        border_radius=6,
-                                    ),
+                                    ft.Text(item.get("correction", ""), size=13, weight=ft.FontWeight.W_600, color="#34D399"),
                                 ],
                                 spacing=8,
                             ),
@@ -233,26 +227,36 @@ class VocabularyScreen:
                         expand=True,
                     ),
                     ft.Row(
-                        [
-                            ft.IconButton(
-                                icon=icon("edit", color=ts),
-                                tooltip="Edit",
-                                on_click=lambda e, i=item: self._edit_word(i),
-                                icon_size=18,
-                            ),
-                            ft.IconButton(
-                                icon=icon("delete", color=ts),
-                                tooltip="Delete",
-                                on_click=lambda e, i=item: self._delete_word(i),
-                                icon_size=18,
-                            ),
-                        ],
                         spacing=0,
+                        controls=[
+                            self._build_icon_button("edit", item, self._edit_word, Tokens.accent_primary(dark)),
+                            self._build_icon_button("delete", item, self._delete_word, Tokens.accent_danger(dark)),
+                        ],
                     ),
                 ],
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             ),
         )
+
+    def _build_icon_button(self, icon_name: str, item: dict, action, hover_color: str) -> ft.Control:
+        dark = self._is_dark()
+        ts = Tokens.text_secondary(dark)
+        icon_ctrl = icon(icon_name, color=ts, size=16)
+        btn = ft.Container(
+            content=icon_ctrl,
+            on_click=lambda e, i=item: action(i),
+            padding=ft.Padding(left=6, right=6, top=6, bottom=6),
+            border_radius=6,
+            tooltip="Edit" if icon_name == "edit" else "Delete",
+        )
+        def on_hover(e, icon=icon_ctrl):
+            if e.data == "true":
+                icon.color = hover_color
+            else:
+                icon.color = ts
+            btn.update()
+        btn.on_hover = on_hover
+        return btn
 
     def _add_word(self, e):
         original_field = ft.TextField(label="Original (misrecognized word)", width=300)

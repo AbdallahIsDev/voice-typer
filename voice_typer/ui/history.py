@@ -38,18 +38,18 @@ class HistoryScreen:
         ap = Tokens.accent_primary(dark)
         ad = Tokens.accent_danger(dark)
 
-        return ft.Container(
+        return ft.Column(
             expand=True,
-            padding=ft.Padding.symmetric(horizontal=24, vertical=32),
-            alignment=ft.Alignment(0, -1),
-            content=ft.Container(
-                width=SETTINGS_MAX_WIDTH,
-                content=ft.Column(
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Container(
+                    width=800,
+                    padding=ft.Padding.symmetric(horizontal=0, vertical=32),
+                    content=ft.Column(
                             [
                                 ft.Row(
                                     [
                                         ft.Text("History", size=20, weight=ft.FontWeight.W_600, color=tp),
-                                        ft.Container(expand=True),
                                         ft.TextButton(
                                             content=ft.Row([icon("import-export", size=16, color=ts), ft.Text("Export", color=ts, size=13)], spacing=8),
                                             on_click=self._export_history,
@@ -74,14 +74,15 @@ class HistoryScreen:
                                     spacing=8,
                                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                 ),
-                                ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
+                                ft.Container(height=16),
                                 self._build_search_bar(),
-                                ft.Container(height=10),
+                                ft.Container(height=12),
                                 self._build_history_list(),
                             ],
                         ),
                     ),
-                )
+                ],
+        )
 
     def _build_search_bar(self) -> ft.Control:
         dark = self._is_dark()
@@ -90,11 +91,11 @@ class HistoryScreen:
             hint_text="Search history...",
             hint_style=ft.TextStyle(color=ts),
             prefix=icon("search", color=ts, size=15),
-            border_radius=8,
-            bgcolor=Tokens.bg_card(dark),
+            border_radius=10,
+            bgcolor=Tokens.bg_sidebar(dark),
             border_color=Tokens.border_subtle(dark),
             color=Tokens.text_primary(dark),
-            width=280,
+            content_padding=ft.Padding(left=16, right=16, top=12, bottom=12),
             on_change=self._search_history_debounced,
         )
 
@@ -118,7 +119,7 @@ class HistoryScreen:
 
         return ft.ListView(
             controls=[self._history_item(item) for item in self.history_items],
-            spacing=0,
+            spacing=14,
         )
 
     def _history_item(self, item: dict) -> ft.Control:
@@ -130,25 +131,30 @@ class HistoryScreen:
         timestamp = item.get("timestamp", "")
         display_time = format_relative_time(timestamp)
         return ft.Container(
-            padding=ft.Padding(left=20, right=20, top=14, bottom=14),
-            border=ft.Border(bottom=ft.BorderSide(0.5, Tokens.border_subtle(dark))),
+            padding=ft.Padding(left=20, right=20, top=16, bottom=16),
+            bgcolor=Tokens.bg_sidebar(dark),
+            border=ft.Border(
+                left=ft.BorderSide(1, Tokens.border_subtle(dark)),
+                top=ft.BorderSide(1, Tokens.border_subtle(dark)),
+                right=ft.BorderSide(1, Tokens.border_subtle(dark)),
+                bottom=ft.BorderSide(1, Tokens.border_subtle(dark)),
+            ),
+            border_radius=12,
             content=ft.Row(
                 [
                     ft.Column(
                         [
-                            ft.Container(
-                                content=ft.Text(
-                                    item.get("text", ""),
-                                    size=13,
-                                    weight=ft.FontWeight.W_500,
-                                    max_lines=3,
-                                    overflow=ft.TextOverflow.ELLIPSIS,
-                                    color=tp,
-                                ),
+                            ft.Text(
+                                item.get("text", ""),
+                                size=13,
+                                weight=ft.FontWeight.W_500,
+                                max_lines=3,
+                                overflow=ft.TextOverflow.ELLIPSIS,
+                                color=tp,
                             ),
                             ft.Text(
                                 display_time,
-                                size=11,
+                                size=12,
                                 color=ts,
                                 tooltip=timestamp,
                             ),
@@ -157,30 +163,35 @@ class HistoryScreen:
                         expand=True,
                     ),
                     ft.Row(
-                        [
-                            ft.IconButton(
-                                icon=icon("star-filled" if is_fav else "star"),
-                                icon_color=ap if is_fav else ts,
-                                tooltip="Unfavorite" if is_fav else "Favorite",
-                                on_click=lambda e, i=item: self._toggle_favorite(i),
-                            ),
-                            ft.IconButton(
-                                icon=icon("copy-01"),
-                                tooltip="Copy",
-                                on_click=lambda e, t=item.get("text", ""): self._copy_text(t),
-                            ),
-                            ft.IconButton(
-                                icon=icon("delete"),
-                                icon_color=ts,
-                                tooltip="Delete",
-                                on_click=lambda e, i=item: self._delete_item(i),
-                            ),
+                        spacing=0,
+                        controls=[
+                            self._build_history_icon("star-filled" if is_fav else "star", item, self._toggle_favorite, ap, ap if is_fav else ts),
+                            self._build_history_icon("copy-01", item, lambda i: self._copy_text(i.get("text", "")), ap, ts),
+                            self._build_history_icon("delete", item, self._delete_item, Tokens.accent_danger(dark), ts),
                         ],
                     ),
                 ],
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             ),
         )
+
+    def _build_history_icon(self, icon_name: str, item: dict, action, hover_color: str, default_color: str) -> ft.Control:
+        icon_ctrl = icon(icon_name, color=default_color, size=18)
+        btn = ft.Container(
+            content=icon_ctrl,
+            on_click=lambda e, i=item: action(i),
+            padding=ft.Padding(left=6, right=6, top=6, bottom=6),
+            border_radius=6,
+            animate=ft.Animation(150, ft.AnimationCurve.EASE_OUT),
+        )
+        def on_hover(e, ico=icon_ctrl):
+            if e.data == "true":
+                ico.color = hover_color
+            else:
+                ico.color = default_color
+            btn.update()
+        btn.on_hover = on_hover
+        return btn
 
     def _copy_text(self, text: str):
         pyperclip.copy(text)

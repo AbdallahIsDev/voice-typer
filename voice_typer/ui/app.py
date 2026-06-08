@@ -3,11 +3,11 @@ import flet as ft
 import logging
 import threading
 from .styles import (
-    Tokens, NAV_ITEMS, STATUS_COLORS, STATUS_LABELS,
-    get_theme, is_windows_dark_mode, SIDEBAR_WIDTH,
-    border_card, CONTENT_MAX_WIDTH,
+    Tokens,
+    get_theme, is_windows_dark_mode,
 )
-from .icons import icon
+from .sidebar import Sidebar
+from .statusbar import build_status_bar
 from .home import build_home_page
 from .history import HistoryScreen
 from .templates import TemplatesScreen
@@ -16,7 +16,6 @@ from .models import ModelsScreen
 from .microphone import MicrophoneScreen
 from .privacy import PrivacyScreen
 from .settings import SettingsScreen
-from voice_typer import __version__
 
 log = logging.getLogger(__name__)
 
@@ -42,8 +41,7 @@ class VoiceTyperApp:
         self.page = None
         self.current_view = "home"
         self.screens = {}
-        self.nav_buttons = {}
-        self._nav_btn_refs = {}
+        self.sidebar = None
         self.app_controller = app_controller
         self._status_poll_timer = None
         self._current_status = "idle"
@@ -315,7 +313,7 @@ class VoiceTyperApp:
 
         self._init_screens()
 
-        status_bar = self._build_status_bar()
+        status_bar = build_status_bar(self.config, self._current_status, self._is_dark())
 
         page.add(
             ft.Column(
@@ -381,85 +379,8 @@ class VoiceTyperApp:
         }
 
     def _build_sidebar(self) -> ft.Control:
-        dark = self._is_dark()
-        tp = Tokens.text_primary(dark)
-        ts = Tokens.text_secondary(dark)
-        ap = Tokens.accent_primary(dark)
-        nav_items = []
-
-        for item_id, item_config in NAV_ITEMS.items():
-            is_selected = item_id == self.current_view
-            btn = ft.Container(
-                content=ft.Row(
-                    [
-                        ft.Container(
-                            content=icon(
-                                item_config["icon"],
-                                color=ap if is_selected else ts,
-                                size=18,
-                            ),
-                            width=20, height=20,
-                            alignment=ft.Alignment.CENTER,
-                        ),
-                        ft.Text(
-                            item_config["title"],
-                            color=tp if is_selected else ts,
-                            size=13,
-                            weight=ft.FontWeight.W_500,
-                        ),
-                    ],
-                    spacing=10,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
-                padding=ft.Padding.symmetric(horizontal=12, vertical=0),
-                height=36,
-                border_radius=8,
-                bgcolor=Tokens.sidebar_active_bg(dark) if is_selected else ft.Colors.TRANSPARENT,
-                border=ft.Border(
-                    left=ft.BorderSide(3, ap if is_selected else "transparent"),
-                    top=ft.BorderSide(0, "transparent"),
-                    right=ft.BorderSide(0, "transparent"),
-                    bottom=ft.BorderSide(0, "transparent"),
-                ) if is_selected else None,
-                on_click=lambda e, vid=item_id: self._set_view(vid),
-                tooltip=item_config.get("description", item_config["title"]),
-                animate=ft.Animation(150, ft.AnimationCurve.EASE_IN_OUT),
-                on_hover=lambda e, b=None: None,
-            )
-            self.nav_buttons[item_id] = btn
-            nav_items.append(btn)
-
-        self._sidebar_container = ft.Container(
-            width=SIDEBAR_WIDTH,
-            bgcolor=Tokens.bg_sidebar(dark),
-            padding=ft.Padding.symmetric(horizontal=0, vertical=0),
-            content=ft.Column(
-                [
-                    ft.Container(
-                        content=ft.Row(
-                            [
-                                icon("microphone", color=ap, size=18),
-                                ft.Text(
-                                    "Voice Typer",
-                                    size=14,
-                                    weight=ft.FontWeight.W_600,
-                                    color=tp,
-                                ),
-                            ],
-                            spacing=10,
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        ),
-                        height=56,
-                        padding=ft.Padding.symmetric(horizontal=16, vertical=0),
-                    ),
-                    ft.Container(height=8),
-                    ft.Column(nav_items, spacing=2),
-                    ft.Container(expand=True),
-                ],
-                spacing=0,
-            ),
-        )
-        return self._sidebar_container
+        self.sidebar = Sidebar(self.page, self.config, self._set_view)
+        return self.sidebar.build(self.current_view)
 
     def _build_content_area(self) -> ft.Control:
         dark = self._is_dark()
@@ -516,84 +437,12 @@ class VoiceTyperApp:
         except Exception:
             pass
 
-    def _build_status_bar(self) -> ft.Control:
-        dark = self._is_dark()
-        ts = Tokens.text_secondary(dark)
-        try:
-            model = getattr(self.config, 'model_size', 'unknown')
-            device = getattr(self.config, 'device', 'unknown')
-            device_label = "GPU" if device == "cuda" else "CPU" if device == "cpu" else device.upper()
-            result = ft.Container(
-                height=28,
-                bgcolor=Tokens.bg_sidebar(dark),
-                padding=ft.Padding.symmetric(horizontal=14, vertical=0),
-                content=ft.Row(
-                    [
-                        ft.Container(
-                            width=6, height=6, border_radius=3,
-                            bgcolor=STATUS_COLORS.get(self._current_status, "#22C55E"),
-                        ),
-                        ft.Container(width=6),
-                        ft.Text(device_label, size=11, color=ts),
-                        ft.Container(width=12),
-                        ft.Text(model, size=11, color=ts),
-                        ft.Container(expand=True),
-                        ft.Text(f"v{__version__}", size=11, color=ts),
-                    ],
-                    alignment=ft.MainAxisAlignment.START,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    spacing=0,
-                ),
-            )
-            return result
-        except Exception as e:
-            log.error("[UI] _build_status_bar failed: %s", e)
-            ts = Tokens.text_secondary(dark)
-            return ft.Container(
-                height=28,
-                bgcolor=Tokens.bg_sidebar(dark),
-                content=ft.Row(
-                    [
-                        ft.Container(expand=True),
-                        ft.Text(
-                            f"{getattr(self.config, 'model_size', 'unknown')}  \u00b7  {getattr(self.config, 'device', 'unknown')}",
-                            size=11, color=ts,
-                        ),
-                        ft.Container(expand=True),
-                    ],
-                    alignment=ft.MainAxisAlignment.CENTER,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
-            )
-
     def _set_view(self, view_id: str):
         self.current_view = view_id
         dark = self._is_dark()
-        tp = Tokens.text_primary(dark)
-        ts = Tokens.text_secondary(dark)
-        ap = Tokens.accent_primary(dark)
 
-        if hasattr(self, "_sidebar_container"):
-            self._sidebar_container.bgcolor = Tokens.bg_sidebar(dark)
-
-        for item_id, btn in self.nav_buttons.items():
-            is_selected = item_id == view_id
-            icon_ctrl = btn.content.controls[0].content
-            text_ctrl = btn.content.controls[1]
-
-            icon_ctrl.color = ap if is_selected else ts
-            text_ctrl.color = tp if is_selected else ts
-            btn.bgcolor = Tokens.sidebar_active_bg(dark) if is_selected else ft.Colors.TRANSPARENT
-
-            if is_selected:
-                btn.border = ft.Border(
-                    left=ft.BorderSide(3, ap),
-                    top=ft.BorderSide(0, "transparent"),
-                    right=ft.BorderSide(0, "transparent"),
-                    bottom=ft.BorderSide(0, "transparent"),
-                )
-            else:
-                btn.border = None
+        if self.sidebar is not None:
+            self.sidebar.update_active_view(view_id, dark)
 
         if not hasattr(self, "_content_area"):
             log.error("[UI] Content area not initialized")
