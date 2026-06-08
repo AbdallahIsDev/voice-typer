@@ -108,7 +108,9 @@ class TranscriptionEngine:
         self.condition_on_previous_text = condition_on_previous_text
         self._model = None
         self._lock = threading.RLock()
-        self._device, self._compute_type = self._resolve_device(device)
+        self._requested_device = device  # defer CUDA detection to load()
+        self._device = "cpu"
+        self._compute_type = "int8"
 
     def _resolve_device(self, device: str) -> tuple[str, str]:
         """Auto-detect best device and compute type."""
@@ -159,8 +161,24 @@ class TranscriptionEngine:
 
         progress_callback: optional callable(message: str) for download/load status.
         """
+        # Deferred CUDA detection — run now (once) near load time
+        self._resolve_device_once()
         self._pre_download_model(self.model_size, progress_callback)
         self._load_model_outside_lock(progress_callback=progress_callback)
+
+    def _resolve_device_once(self):
+        """Resolve the CUDA device if not already resolved.
+
+        Separated from __init__ so the expensive ``import ctranslate2`` and
+        CUDA DLL loading only happens when the model is actually about to
+        load, not during construction.  This saves ~20s on startup when the
+        user hasn't pressed F2 yet.
+        """
+        if self._requested_device is None:
+            return
+        device = self._requested_device
+        self._requested_device = None
+        self._device, self._compute_type = self._resolve_device(device)
 
     def _load_model_outside_lock(self, progress_callback=None):
         """Load model outside the lock so downloads don't block other threads."""
