@@ -16,6 +16,21 @@ SVG_ICONS = {
     "history": "history-anticlockwise-line.svg",
     "templates": "license.svg",
     "models": "ai-brain-03.svg",
+    "shield-energy": "shield-energy.svg",
+    "speech-to-text": "speech-to-text.svg",
+    "microphone": "mic-02.svg",
+    "vocabulary": "book-open-02.svg",
+    "line": "line.svg",
+    "time-01": "time-01.svg",
+    "time-02": "time-02.svg",
+    "cloud": "cloud.svg",
+    "settings-03": "settings-03.svg",
+    "file-02": "file-02.svg",
+    "database-02": "database-02.svg",
+    "heart": "heart.svg",
+    "heart-filled": "heart-filled.svg",
+    "close-icon": "close-icon.svg",
+    "rectangle": "rectangle.svg",
 }
 
 _ICONS_DIR = os.path.join(os.path.dirname(__file__), "..", "assets", "icons")
@@ -82,7 +97,7 @@ ICONS = {
 }
 
 
-def icon(name: str, color: str = None, size: float = None, tooltip: str = None) -> ft.Control:
+def icon(name: str, color: str = None, size: float = None) -> ft.Control:
     """Helper function to create an icon.
 
     If ``name`` has a matching SVG file in ``assets/icons/``, renders it
@@ -98,7 +113,6 @@ def icon(name: str, color: str = None, size: float = None, tooltip: str = None) 
             width=size or 24,
             height=size or 24,
             color=color,
-            tooltip=tooltip,
         )
 
     codepoint = ICONS.get(name, name)
@@ -107,5 +121,4 @@ def icon(name: str, color: str = None, size: float = None, tooltip: str = None) 
         font_family="hgi",
         color=color,
         size=size,
-        tooltip=tooltip,
     )

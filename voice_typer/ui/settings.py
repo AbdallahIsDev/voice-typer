@@ -88,7 +88,7 @@ class SettingsScreen:
             active_color=Tokens.ACCENT_PRIMARY_DARK,
             active_track_color=Tokens.ACCENT_PRIMARY_DARK,
             track_color={ft.ControlState.DEFAULT: "rgba(255,255,255,0.14)"},
-            track_outline_color={ft.ControlState.DEFAULT: Tokens.border_subtle(dark)},
+            track_outline_width=0,
             width=48, height=32,
             thumb_color="#FFFFFF",
         )
@@ -265,13 +265,11 @@ class SettingsScreen:
                 "Press Escape to cancel current recording"),
             self._setting_row("Start/Stop Hotkey",
                 self._hotkey_field(value=self._display_hotkey(self.config.hotkey), width=80,
-                    on_change=lambda e: self._on_hotkey_change(e.control.value, "hotkey"),
-                    tooltip="Key to toggle recording"),
+                    on_change=lambda e: self._on_hotkey_change(e.control.value, "hotkey")),
                 "Key to toggle recording"),
             self._setting_row("Repaste Hotkey",
                 self._hotkey_field(value=self._display_hotkey(self.config.repaste_hotkey), width=80,
-                    on_change=lambda e: self._on_hotkey_change(e.control.value, "repaste_hotkey"),
-                    tooltip="Hotkey for repasting last transcription"),
+                    on_change=lambda e: self._on_hotkey_change(e.control.value, "repaste_hotkey")),
                 "Hotkey for repasting last transcription"),
             self._setting_row("Snippets / Templates",
                 self._switch("templates", value=self.config.templates_enabled,
@@ -354,7 +352,7 @@ class SettingsScreen:
             self._setting_row("Text Size",
                 ft.Slider(min=12, max=24, divisions=6, label="{value}", value=text_size,
                     on_change=lambda e: self._update_config("text_size", int(e.control.value)),
-                    width=200, tooltip="Adjust text size throughout the app"),
+                    width=200),
                 "Adjust base text size (12-24px)"),
         ])
 
@@ -374,7 +372,6 @@ class SettingsScreen:
                         bgcolor=bc,
                         border=ft.Border.all(0.5, bs),
                         on_click=self._test_microphone,
-                        tooltip="Test your microphone input levels",
                     ),
                     ft.Container(
                         content=ft.Row([icon("description", size=16), ft.Text("View Logs")], spacing=8),
@@ -383,7 +380,6 @@ class SettingsScreen:
                         bgcolor=bc,
                         border=ft.Border.all(0.5, bs),
                         on_click=self._view_logs,
-                        tooltip="Open the application log file",
                     ),
                     ft.Container(
                         content=ft.Row([icon("refresh", color=ad, size=16), ft.Text("Reset to Defaults", color=ad)], spacing=8),
@@ -391,7 +387,6 @@ class SettingsScreen:
                         border_radius=10,
                         bgcolor=ad + "1A",
                         on_click=self._reset_defaults,
-                        tooltip="Reset all settings to default values",
                     ),
                 ],
                 spacing=12,

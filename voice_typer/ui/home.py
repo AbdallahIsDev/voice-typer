@@ -26,6 +26,7 @@ def build_home_page(
     ts = Tokens.text_secondary(dark)
     ap = Tokens.accent_primary(dark)
     bg_sidebar = Tokens.bg_sidebar(dark)
+    bg_card = Tokens.bg_card(dark)
 
     def _on_record_click(e):
         if is_recording:
@@ -57,16 +58,8 @@ def build_home_page(
         bgcolor=RECORD_BUTTON_COLOR,
         alignment=ft.Alignment.CENTER,
         on_click=_on_record_click,
-        shadow=ft.BoxShadow(
-            spread_radius=0, blur_radius=10,
-            color="rgba(239,68,68,0.20)",
-        ) if is_recording else ft.BoxShadow(
-            spread_radius=0, blur_radius=0,
-            color="rgba(239,68,68,0)",
-        ),
         animate=ft.Animation(1200, ft.AnimationCurve.EASE_IN_OUT),
         content=icon("microphone", color="#FFFFFF", size=28),
-        tooltip="Stop recording" if is_recording else "Start recording",
     )
 
     hint_parts = hotkey_hint.split("or")
@@ -101,7 +94,7 @@ def build_home_page(
         visible=bool(last_text),
         padding=ft.Padding.symmetric(horizontal=16, vertical=12),
         border_radius=10,
-        bgcolor=bg_sidebar,
+        bgcolor=bg_card,
         width=520,
         content=ft.Text(
             last_text if last_text else "",
@@ -127,7 +120,7 @@ def build_home_page(
                 ),
                 padding=ft.Padding.symmetric(horizontal=24, vertical=14),
                 border_radius=10,
-                bgcolor=bg_sidebar,
+                bgcolor=bg_card,
                 width=140,
             ),
             ft.Container(
@@ -141,7 +134,7 @@ def build_home_page(
                 ),
                 padding=ft.Padding.symmetric(horizontal=24, vertical=14),
                 border_radius=10,
-                bgcolor=bg_sidebar,
+                bgcolor=bg_card,
                 width=140,
             ),
         ],

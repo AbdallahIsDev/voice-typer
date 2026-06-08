@@ -140,9 +140,9 @@ class TemplatesScreen:
                     ),
                     ft.Row(
                         [
-                            ft.IconButton(icon=icon("edit"), tooltip="Edit",
+                            ft.IconButton(icon=icon("edit"),
                                           on_click=lambda e, t=template: self._edit_template(t)),
-                            ft.IconButton(icon=icon("delete"), tooltip="Delete",
+                            ft.IconButton(icon=icon("delete"),
                                           on_click=lambda e, t=template: self._delete_template(t)),
                         ],
                     ),

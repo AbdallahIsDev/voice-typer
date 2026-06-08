@@ -137,8 +137,7 @@ class VocabularyScreen:
                 ),
                 padding=ft.Padding(left=16, right=16, top=8, bottom=8),
                 border_radius=6,
-                bgcolor=Tokens.bg_card(dark) if is_active else None,
-                shadow=ft.BoxShadow(blur_radius=4, spread_radius=0, color="rgba(0,0,0,0.12)") if is_active else None,
+                bgcolor=Tokens.bg_sidebar(dark) if is_active else None,
                 on_click=lambda e, c=cat: self._select_category(c),
                 data=cat,
             )
@@ -147,7 +146,7 @@ class VocabularyScreen:
             tabs.append(tab)
         return ft.Container(
             content=ft.Row(tabs, spacing=2),
-            bgcolor=Tokens.bg_sidebar(dark),
+            bgcolor=Tokens.bg_card(dark),
             border_radius=8,
             padding=3,
         )
@@ -198,7 +197,7 @@ class VocabularyScreen:
         ts = Tokens.text_secondary(dark)
         return ft.Container(
             padding=ft.Padding(left=20, right=20, top=14, bottom=14),
-            bgcolor=Tokens.bg_sidebar(dark),
+            bgcolor=Tokens.bg_card(dark),
             border=ft.Border(
                 left=ft.BorderSide(0.5, Tokens.border_subtle(dark)),
                 top=ft.BorderSide(0.5, Tokens.border_subtle(dark)),
@@ -247,7 +246,6 @@ class VocabularyScreen:
             on_click=lambda e, i=item: action(i),
             padding=ft.Padding(left=6, right=6, top=6, bottom=6),
             border_radius=6,
-            tooltip="Edit" if icon_name == "edit" else "Delete",
         )
         def on_hover(e, icon=icon_ctrl):
             if e.data == "true":

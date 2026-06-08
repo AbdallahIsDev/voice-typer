@@ -1,6 +1,6 @@
 import flet as ft
 import threading
-from .styles import Tokens, SETTINGS_MAX_WIDTH, is_windows_dark_mode
+from .styles import Tokens, is_windows_dark_mode
 from .icons import icon
 
 
@@ -51,12 +51,18 @@ class ModelsScreen:
             padding=ft.Padding.symmetric(horizontal=24, vertical=32),
             alignment=ft.Alignment(0, -1),
             content=ft.Container(
-                width=SETTINGS_MAX_WIDTH,
+                width=800,
                 content=ft.Column(
                     [
                         ft.Row(
                             [
-                                ft.Text("Models", size=20, weight=ft.FontWeight.W_600, color=tp),
+                                ft.Column(
+                                    [
+                                        ft.Text("Models", size=20, weight=ft.FontWeight.W_600, color=tp),
+                                        ft.Text("Configure your speech-to-text engines...", size=13, color=ts),
+                                    ],
+                                    spacing=2,
+                                ),
                                 ft.Container(expand=True),
                                 ft.Container(
                                     content=ft.Row([icon("download", color="#FFFFFF", size=16), ft.Text("Download Model", color="#FFFFFF")], spacing=8),
@@ -64,14 +70,12 @@ class ModelsScreen:
                                     bgcolor=ap,
                                     padding=ft.Padding(left=16, right=16, top=10, bottom=10),
                                     border_radius=8,
-                                    tooltip="Download a new model for transcription",
                                 ),
                             ],
                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
                         ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
-                        ft.Text("Manage Whisper models for transcription", size=13, color=ts),
-                        ft.Container(height=10),
                         self._build_models_list_ui(),
                         self._build_cloud_providers(),
                         ft.Container(height=20),
@@ -98,7 +102,6 @@ class ModelsScreen:
                         ft.Button(
                             content=ft.Row([icon("download", size=16), ft.Text("Download Model")], spacing=8),
                             on_click=self._download_model,
-                            tooltip="Download a model to get started",
                         ),
                     ],
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -167,13 +170,11 @@ class ModelsScreen:
                         [
                             ft.IconButton(
                                 icon=icon("play-arrow" if not is_active else "check"),
-                                tooltip="Use" if not is_active else "Active",
                                 on_click=lambda e, m=model: self._use_model(m),
                                 disabled=is_active,
                             ),
                             ft.IconButton(
                                 icon=icon("delete"),
-                                tooltip="Delete",
                                 on_click=lambda e, m=model: self._delete_model_confirm(m),
                             ),
                         ],
@@ -187,34 +188,20 @@ class ModelsScreen:
         dark = self._is_dark()
         tp = Tokens.text_primary(dark)
         ts = Tokens.text_secondary(dark)
-        bc = Tokens.bg_card(dark)
-        bs = Tokens.border_subtle(dark)
-        return ft.Container(
-            border=ft.Border(top=ft.BorderSide(0.5, bs)),
-            margin=ft.Margin(left=0, top=24, right=0, bottom=0),
-            padding=ft.Padding(left=0, top=24, right=0, bottom=0),
-            content=ft.Container(
-                bgcolor=bc,
-                border=ft.Border.all(1, bs),
-                border_radius=10,
-                padding=20,
-                content=ft.Column(
-                    [
-                        ft.Text("Cloud ASR Providers", size=20, weight=ft.FontWeight.W_600, color=tp),
-                        ft.Text("Configure cloud-based transcription services", size=13, color=ts),
-                        ft.Container(height=10),
-                        self._build_provider_section("openai", "OpenAI Whisper API", self.config.openai_api_key if self.config else ""),
-                        ft.Container(height=10),
-                        self._build_provider_section("groq", "Groq Whisper API", self.config.groq_api_key if self.config else ""),
-                        ft.Container(height=10),
-                        self._build_provider_section("deepgram", "Deepgram API", self.config.deepgram_api_key if self.config else ""),
-                    ],
-                    spacing=8,
-                ),
-            ),
+        return ft.Column(
+            [
+                ft.Container(height=20),
+                ft.Text("Cloud ASR Providers", size=20, weight=ft.FontWeight.W_600, color=tp),
+                ft.Text("Configure cloud-based transcription services", size=13, color=ts),
+                ft.Container(height=10),
+                self._build_provider_card("openai", "OpenAI Whisper API", self.config.openai_api_key if self.config else ""),
+                self._build_provider_card("groq", "Groq Whisper API", self.config.groq_api_key if self.config else ""),
+                self._build_provider_card("deepgram", "Deepgram API", self.config.deepgram_api_key if self.config else ""),
+            ],
+            spacing=8,
         )
 
-    def _build_provider_section(self, provider: str, label: str, api_key: str) -> ft.Control:
+    def _build_provider_card(self, provider: str, label: str, api_key: str) -> ft.Control:
         dark = self._is_dark()
         tp = Tokens.text_primary(dark)
         ts = Tokens.text_secondary(dark)
@@ -224,14 +211,15 @@ class ModelsScreen:
         key_field = ft.TextField(
             label=f"{label} API Key",
             value=api_key,
-            width=240,
             password=True,
             can_reveal_password=True,
             color=tp,
-            bgcolor=Tokens.bg_card(dark),
+            bgcolor=Tokens.bg_app(dark),
             border_color=Tokens.border_subtle(dark),
+            border_radius=8,
             text_size=13,
-            content_padding=ft.Padding(14, 9, 14, 9),
+            content_padding=12,
+            width=500,
         )
 
         test_result = ft.Text("", size=12)
@@ -274,39 +262,50 @@ class ModelsScreen:
                 test_result.color = Tokens.ACCENT_DANGER_DARK
             self.page.update()
 
-        return ft.Column(
-            [
-                ft.Text(label, size=14, weight=ft.FontWeight.W_500, color=tp),
-                ft.Row(
-                    [
-                        key_field,
-                        ft.Button(
-                            "Save Key",
-                            on_click=_save_key,
-                            tooltip=f"Save {label} API key",
-                            style=ft.ButtonStyle(
-                                bgcolor=ft.Colors.TRANSPARENT,
-                                side=ft.BorderSide(0.5, Tokens.border_subtle(dark)),
-                                shape=ft.RoundedRectangleBorder(radius=8),
-                                padding=ft.Padding(16, 9, 16, 9),
-                                color=ts,
+        return ft.Container(
+            bgcolor=Tokens.bg_card(dark),
+            border=ft.Border.all(1, Tokens.border_subtle(dark)),
+            border_radius=12,
+            padding=24,
+            margin=ft.Margin(left=0, top=0, right=0, bottom=16),
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [
+                            icon("privacy", color=ap, size=20),
+                            ft.Text(f"{label} Settings", size=16, weight=ft.FontWeight.W_600, color=tp),
+                        ],
+                        spacing=8,
+                    ),
+                    key_field,
+                    ft.Row(
+                        [
+                            ft.Button(
+                                "Save Key",
+                                on_click=_save_key,
+                                width=140,
+                                style=ft.ButtonStyle(
+                                    bgcolor=ap,
+                                    color="#FFFFFF",
+                                    shape=ft.RoundedRectangleBorder(radius=8),
+                                ),
                             ),
-                        ),
-                        ft.Container(
-                            content=ft.Row([icon("sparkles", size=14), ft.Text("Test Connection")], spacing=6),
-                            on_click=_test_connection,
-                            padding=ft.Padding(left=16, right=16, top=9, bottom=9),
-                            border_radius=8,
-                            bgcolor=ap,
-                            tooltip=f"Test {label} connection",
-                        ),
-                    ],
-                    spacing=8,
-                    wrap=True,
-                ),
-                test_result,
-            ],
-            spacing=4,
+                            ft.Container(
+                                content=ft.Row([icon("sparkles", size=14), ft.Text("Test Connection")], spacing=6),
+                                on_click=_test_connection,
+                                padding=ft.Padding(left=16, right=16, top=9, bottom=9),
+                                border_radius=8,
+                                bgcolor=ap,
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.START,
+                        spacing=8,
+                    ),
+                    test_result,
+                ],
+                horizontal_alignment=ft.CrossAxisAlignment.START,
+                spacing=16,
+            ),
         )
 
     def _build_model_benchmark(self) -> ft.Control:
@@ -329,7 +328,6 @@ class ModelsScreen:
                         padding=ft.Padding(left=16, right=16, top=9, bottom=9),
                         border_radius=8,
                         bgcolor=Tokens.accent_primary(dark),
-                        tooltip="Benchmark current model speed",
                     ),
                     ft.Container(height=10),
                     ft.Text(

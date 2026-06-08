@@ -145,7 +145,7 @@ class MicrophoneScreen:
         if not self.microphones:
             return ft.Container(
                 padding=40,
-                alignment=ft.alignment.center,
+                alignment=ft.alignment.Alignment(0, 0),
                 content=ft.Column(
                     [
                         icon("mic-off", size=48, color=ts),

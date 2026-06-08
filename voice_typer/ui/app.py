@@ -8,6 +8,7 @@ from .styles import (
 )
 from .sidebar import Sidebar
 from .statusbar import build_status_bar
+from .icons import icon
 from .home import build_home_page
 from .history import HistoryScreen
 from .templates import TemplatesScreen
@@ -46,6 +47,7 @@ class VoiceTyperApp:
         self._status_poll_timer = None
         self._current_status = "idle"
 
+        self.main_container = None
         self.config = Config.load()
         self.settings_controller = FletSettingsController(
             self.config,
@@ -244,7 +246,7 @@ class VoiceTyperApp:
 
     def main(self, page: ft.Page):
         self.page = page
-        page.title = ""
+        page.title = "Voice Typer"
         _window_handle = None
         _screen_w, _screen_h = 0, 0
         try:
@@ -287,6 +289,7 @@ class VoiceTyperApp:
         page.window.height = 700
         page.window.min_width = 800
         page.window.min_height = 600
+        page.window.frameless = True
 
         theme_mode = getattr(self.config, 'theme_mode', 'system')
         if theme_mode == 'light':
@@ -307,6 +310,9 @@ class VoiceTyperApp:
                 pass
 
         page.theme = get_theme(dark=is_dark)
+        bg = Tokens.bg_app(dark=is_dark)
+        page.bgcolor = ft.Colors.TRANSPARENT
+        page.window.bgcolor = ft.Colors.TRANSPARENT
         page.padding = 0
         page.vertical_alignment = ft.MainAxisAlignment.START
         page.horizontal_alignment = ft.CrossAxisAlignment.STRETCH
@@ -314,20 +320,17 @@ class VoiceTyperApp:
         self._init_screens()
 
         status_bar = build_status_bar(self.config, self._current_status, self._is_dark())
+        border_c = Tokens.border_subtle(is_dark)
 
-        page.add(
-            ft.Column(
-                [
-                    ft.Container(
-                        content=self._build_main_row(),
-                        expand=True,
-                    ),
-                    status_bar,
-                ],
-                expand=True,
-                spacing=0,
-            )
+        main_container = ft.Container(
+            content=self._build_main_row(status_bar=status_bar),
+            expand=True,
+            border_radius=12,
+            bgcolor=bg,
+            border=ft.Border.all(1, border_c),
         )
+        page.add(main_container)
+        self.main_container = main_container
 
         try:
             self._set_view("home")
@@ -353,7 +356,7 @@ class VoiceTyperApp:
                     SWP_NOSIZE | SWP_NOZORDER | SWP_SHOWWINDOW,
                 )
                 try:
-                    dark_mode = wintypes.BOOL(0)
+                    dark_mode = wintypes.BOOL(is_dark)
                     ctypes.windll.dwmapi.DwmSetWindowAttribute(
                         _window_handle, 20,
                         ctypes.byref(dark_mode),
@@ -361,10 +364,42 @@ class VoiceTyperApp:
                     )
                 except Exception:
                     pass
+                try:
+                    DWMWA_WINDOW_CORNER_PREFERENCE = 33
+                    DWMWCP_ROUND = 2
+                    corner_pref = wintypes.DWORD(DWMWCP_ROUND)
+                    ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                        _window_handle,
+                        DWMWA_WINDOW_CORNER_PREFERENCE,
+                        ctypes.byref(corner_pref),
+                        ctypes.sizeof(wintypes.DWORD),
+                    )
+                except Exception:
+                    pass
         except Exception:
             pass
 
         self._start_status_polling()
+
+        page.window.on_event = self._handle_window_event
+
+    def _handle_window_event(self, e: ft.WindowEvent):
+        if e.type in (ft.WindowEventType.MAXIMIZE, ft.WindowEventType.UNMAXIMIZE, ft.WindowEventType.RESTORE):
+            self.update_window_layout(self.page.window.maximized)
+            self.page.update()
+
+    def update_window_layout(self, maximized: bool):
+        if self.main_container is None:
+            return
+        if maximized:
+            self.page.padding = 0
+            self.main_container.border_radius = 0
+            self.main_container.border = None
+        else:
+            self.page.padding = 0
+            self.main_container.border_radius = 12
+            border_c = Tokens.border_subtle(self._is_dark())
+            self.main_container.border = ft.Border.all(1, border_c)
 
     def _init_screens(self):
         self.screens = {
@@ -382,28 +417,105 @@ class VoiceTyperApp:
         self.sidebar = Sidebar(self.page, self.config, self._set_view)
         return self.sidebar.build(self.current_view)
 
-    def _build_content_area(self) -> ft.Control:
+    def _build_content_area(self, status_bar: ft.Control = None) -> ft.Control:
         dark = self._is_dark()
         self._content_column = ft.Column(
             key="content",
             scroll=ft.ScrollMode.AUTO,
             expand=True,
         )
-        self._content_area = ft.Container(
-            expand=True,
-            bgcolor=Tokens.bg_app(dark),
-            content=ft.Container(
+        tp = Tokens.text_primary(dark)
+        bg = Tokens.bg_app(dark)
+        wci = Tokens.window_ctrl_icon(dark)
+        page = self.page
+
+        def minimize(e):
+            page.window.minimized = True
+            page.update()
+        def maximize(e):
+            target = not page.window.maximized
+            page.window.maximized = target
+            self.update_window_layout(target)
+            page.update()
+        async def close(e):
+            await page.window.close()
+
+        win_hover_bg = "#1e2d45" if dark else "#e5e5e5"
+        win_min_btn = ft.Container(width=46, height=40, alignment=ft.alignment.Alignment(0, 0),
+            on_click=minimize, bgcolor=ft.Colors.TRANSPARENT,
+            content=icon("line", color=wci, size=10))
+        def min_enter(e):
+            win_min_btn.bgcolor = win_hover_bg
+            win_min_btn.update()
+        def min_exit(e):
+            win_min_btn.bgcolor = ft.Colors.TRANSPARENT
+            win_min_btn.update()
+        win_min = ft.GestureDetector(content=win_min_btn, on_enter=min_enter, on_exit=min_exit)
+
+        win_max_btn = ft.Container(width=46, height=40, alignment=ft.alignment.Alignment(0, 0),
+            on_click=maximize, bgcolor=ft.Colors.TRANSPARENT,
+            content=icon("rectangle", color=tp, size=10))
+        def max_enter(e):
+            win_max_btn.bgcolor = win_hover_bg
+            win_max_btn.update()
+        def max_exit(e):
+            win_max_btn.bgcolor = ft.Colors.TRANSPARENT
+            win_max_btn.update()
+        win_max = ft.GestureDetector(content=win_max_btn, on_enter=max_enter, on_exit=max_exit)
+
+        close_ctrl = icon("close-icon", color=wci, size=11)
+        close_btn_raw = ft.Container(width=46, height=40, alignment=ft.alignment.Alignment(0, 0),
+            on_click=close, bgcolor=ft.Colors.TRANSPARENT, content=close_ctrl)
+        def close_enter(e):
+            close_btn_raw.bgcolor = "#e81123"
+            close_ctrl.color = "#FFFFFF"
+            close_btn_raw.update()
+        def close_exit(e):
+            close_btn_raw.bgcolor = ft.Colors.TRANSPARENT
+            close_ctrl.color = wci
+            close_btn_raw.update()
+        close_btn = ft.GestureDetector(content=close_btn_raw, on_enter=close_enter, on_exit=close_exit)
+
+        column_controls = [
+            ft.Container(
+                height=40,
+                bgcolor=bg,
+                content=ft.Row(
+                    spacing=0,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.WindowDragArea(
+                            ft.Container(expand=True, height=40),
+                            expand=True,
+                        ),
+                        win_min, win_max, close_btn,
+                    ],
+                ),
+            ),
+            ft.Container(
+                expand=True,
                 content=self._content_column,
                 animate_opacity=ft.Animation(120, ft.AnimationCurve.EASE_IN_OUT),
+            ),
+        ]
+        if status_bar is not None:
+            column_controls.append(status_bar)
+
+        self._content_area = ft.Container(
+            expand=True,
+            bgcolor=bg,
+            content=ft.Column(
+                spacing=0,
+                controls=column_controls,
             ),
         )
         return self._content_area
 
-    def _build_main_row(self) -> ft.Row:
+    def _build_main_row(self, status_bar: ft.Control = None) -> ft.Row:
         return ft.Row(
             [
                 self._build_sidebar(),
-                self._build_content_area(),
+                self._build_content_area(status_bar=status_bar),
             ],
             expand=True,
             spacing=0,

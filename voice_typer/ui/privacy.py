@@ -1,7 +1,9 @@
 import flet as ft
 import json
+import os
 import pyperclip
 import sys
+from pathlib import Path
 from .styles import Tokens, SETTINGS_MAX_WIDTH, is_windows_dark_mode
 from .icons import icon
 
@@ -59,108 +61,36 @@ class PrivacyScreen:
                     stats["data_sent"] = f"{data_kb} KB"
         except Exception:
             pass
+        sec = int(stats["total_duration"])
+        m, s = divmod(sec, 60)
+        stats["duration_str"] = f"{m}m {s}s" if m > 0 else f"{s}s"
+        stats["chars_str"] = f"{stats['total_chars']:,}"
+        try:
+            from voice_typer.config import _config_dir
+            config_path = _config_dir()
+            total = 0
+            for f in Path(config_path).rglob("*"):
+                if f.is_file():
+                    total += f.stat().st_size
+            if total > 1048576:
+                stats["cache_size"] = f"{total / 1048576:.1f} MB"
+            elif total > 1024:
+                stats["cache_size"] = f"{total / 1024:.1f} KB"
+            else:
+                stats["cache_size"] = f"{total} B"
+        except Exception:
+            stats["cache_size"] = "0 B"
         return stats
 
     def build(self) -> ft.Control:
         dark = self._is_dark()
         tp = Tokens.text_primary(dark)
         ts = Tokens.text_secondary(dark)
-        return ft.Container(
-            expand=True,
-            padding=ft.Padding.symmetric(horizontal=24, vertical=32),
-            alignment=ft.Alignment(0, -1),
-            content=ft.Container(
-                width=SETTINGS_MAX_WIDTH,
-                content=ft.Column(
-                    [
-                        ft.Row(
-                            [
-                                ft.Text("Privacy", size=24, weight=ft.FontWeight.BOLD, color=tp),
-                                ft.Container(expand=True),
-                            ],
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                        ),
-                        ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
-                        ft.Text("Your data stays on your device", size=14, color=ts),
-                        ft.Container(height=10),
-                        self._build_privacy_dashboard(),
-                        ft.Container(height=20),
-                        self._build_data_management(),
-                    ],
-                ),
-            ),
-        )
-
-    def _build_privacy_dashboard(self) -> ft.Control:
-        dark = self._is_dark()
-        tp = Tokens.text_primary(dark)
-        ts = Tokens.text_secondary(dark)
         stats = self._get_privacy_stats()
-        bg_sidebar = Tokens.bg_sidebar(dark)
-
-        return ft.Container(
-            bgcolor=bg_sidebar,
-            border_radius=10,
-            padding=20,
-            content=ft.Column(
-                [
-                    ft.Text("Privacy Dashboard", size=18, weight=ft.FontWeight.W_600, color=tp),
-                    ft.Container(height=10),
-                    ft.Row(
-                        [self._stat_card("Local Processing", stats["local_processing"], "computer"),
-                         self._stat_card("Cloud Calls", stats["cloud_calls"], "cloud-off"),
-                         self._stat_card("Data Sent", stats["data_sent"], "send")],
-                        spacing=16,
-                    ),
-                    ft.Container(height=10),
-                    ft.Row(
-                        [self._stat_card("Transcriptions", str(stats["total_transcriptions"]), "speech-to-text"),
-                         self._stat_card("Characters", str(stats["total_chars"]), "file"),
-                         self._stat_card("Duration (s)", str(stats["total_duration"]), "volume-up")],
-                        spacing=16,
-                    ),
-                    ft.Container(height=10),
-                    ft.Text(
-                        "All transcription happens locally using Whisper" if stats["local_processing"] == "100%"
-                        else "Cloud transcription is active \u2014 audio is sent to external APIs",
-                        size=14, color=Tokens.SUCCESS_DARK if stats["local_processing"] == "100%" else Tokens.WARNING_DARK,
-                        weight=ft.FontWeight.W_500,
-                    ),
-                ],
-                spacing=8,
-            ),
-        )
-
-    def _stat_card(self, label: str, value: str, icon_name: str) -> ft.Control:
-        dark = self._is_dark()
-        tp = Tokens.text_primary(dark)
-        ts = Tokens.text_secondary(dark)
+        bg = Tokens.bg_card(dark)
+        bs = Tokens.border_subtle(dark)
         ap = Tokens.accent_primary(dark)
-        bg_sidebar = Tokens.bg_sidebar(dark)
-        return ft.Container(
-            content=ft.Column(
-                [
-                    icon(icon_name, size=24, color=ap),
-                    ft.Text(value, size=20, weight=ft.FontWeight.BOLD,
-                            text_align=ft.TextAlign.CENTER, color=tp),
-                    ft.Text(label, size=12, color=ts,
-                            text_align=ft.TextAlign.CENTER),
-                ],
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=4,
-            ),
-            expand=True,
-            padding=16,
-            border_radius=8,
-            bgcolor=bg_sidebar,
-        )
-
-    def _build_data_management(self) -> ft.Control:
-        dark = self._is_dark()
-        tp = Tokens.text_primary(dark)
-        ts = Tokens.text_secondary(dark)
         ad = Tokens.accent_danger(dark)
-        bg_sidebar = Tokens.bg_sidebar(dark)
 
         try:
             from voice_typer.config import _config_dir
@@ -172,38 +102,147 @@ class PrivacyScreen:
                 data_path = "~/.config/voice-typer/"
 
         return ft.Container(
-            bgcolor=bg_sidebar,
-            border_radius=10,
+            expand=True,
+            padding=ft.Padding(left=24, top=40, right=24, bottom=24),
+            alignment=ft.alignment.Alignment(0, -1),
+            content=ft.Column(
+                scroll=ft.ScrollMode.ADAPTIVE,
+                expand=True,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Container(
+                        width=800,
+                        content=ft.Column(
+                            spacing=8,
+                            controls=[
+                                ft.Column(
+                                    horizontal_alignment=ft.CrossAxisAlignment.START,
+                                    spacing=8,
+                                    controls=[
+                                        ft.Text("Privacy", size=24, weight=ft.FontWeight.BOLD, color=tp),
+                                        ft.Text("Your data stays on your device", size=14, color=ts),
+                                    ],
+                                ),
+                                ft.ResponsiveRow(
+                                    spacing=8,
+                                    run_spacing=8,
+                                    controls=[
+                                        self._stat_card("Local Processing", stats["local_processing"], "shield-energy", bg, bs, ap),
+                                        self._stat_card("Total Transcription Time", stats["duration_str"], "time-02", bg, bs, ap),
+                                        self._stat_card("API Cloud Calls", stats["cloud_calls"], "cloud", bg, bs, ap),
+                                        self._stat_card("Characters Transcribed", stats["chars_str"], "speech-to-text", bg, bs, ap),
+                                        self._stat_card("Total Transcripts", str(stats["total_transcriptions"]), "file-02", bg, bs, ap),
+                                        ft.Container(
+                                            col={"sm": 12, "md": 4},
+                                            bgcolor=bg,
+                                            border_radius=12,
+                                            padding=20,
+                                            content=ft.Column(
+                                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                                alignment=ft.MainAxisAlignment.CENTER,
+                                                spacing=8,
+                                                controls=[
+                                                    ft.Container(
+                                                        content=icon("database-02", color=ap, size=24),
+                                                        width=24,
+                                                        height=24,
+                                                    ),
+                                                    ft.Text(
+                                                        stats["cache_size"],
+                                                        size=24,
+                                                        weight=ft.FontWeight.BOLD,
+                                                        color=tp,
+                                                        text_align=ft.TextAlign.CENTER,
+                                                    ),
+                                                    ft.Text(
+                                                        "Local Cache Size",
+                                                        size=12,
+                                                        color=ts,
+                                                        text_align=ft.TextAlign.CENTER,
+                                                    ),
+                                                ],
+                                            ),
+                                        ),
+                                    ],
+                                ),
+                                ft.Container(
+                                    bgcolor=bg,
+                                    border_radius=12,
+                                    padding=24,
+                                    width=800,
+                                    content=ft.Column(
+                                        horizontal_alignment=ft.CrossAxisAlignment.START,
+                                        spacing=16,
+                                        controls=[
+                                            ft.Text("Data Management", size=18, weight=ft.FontWeight.W_600, color=tp),
+                                            ft.Row(
+                                                spacing=16,
+                                                controls=[
+                                                    self._build_action_button("Export Transcriptions", "import-export", ts, self._export_data),
+                                                    self._build_action_button("Export Vocabulary", "folder", ts, self._export_vocabulary),
+                                                    self._build_action_button("Clear All Data", "delete-sweep", ad, self._clear_data),
+                                                ],
+                                            ),
+                                        ],
+                                    ),
+                                ),
+                                ft.Text(
+                                    f"Data is stored in: {data_path}",
+                                    text_align=ft.TextAlign.LEFT,
+                                    size=11,
+                                    color=ts,
+
+                                ),
+                            ],
+                        ),
+                    ),
+                ],
+            ),
+        )
+
+    def _stat_card(self, label: str, value: str, icon_name: str, bg: str, bs: str, ap: str) -> ft.Control:
+        dark = self._is_dark()
+        return ft.Container(
+            col={"sm": 12, "md": 4},
+            bgcolor=bg,
+            border_radius=12,
             padding=20,
             content=ft.Column(
-                [
-                    ft.Text("Data Management", size=18, weight=ft.FontWeight.W_600, color=tp),
-                    ft.Container(height=10),
-                    ft.Button(
-                        content=ft.Row([icon("import-export", size=16), ft.Text("Export Transcriptions")], spacing=8),
-                        on_click=self._export_data,
-                    ),
-                    ft.Button(
-                        content=ft.Row([icon("import-export", size=16), ft.Text("Export Vocabulary")], spacing=8),
-                        on_click=self._export_vocabulary,
-                    ),
-                    ft.Container(height=10),
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                alignment=ft.MainAxisAlignment.CENTER,
+                spacing=8,
+                controls=[
                     ft.Container(
-                        content=ft.Row(
-                            [icon("delete-sweep", color="#FFFFFF", size=16),
-                             ft.Text("Clear All Data", color="#FFFFFF", size=13, weight=ft.FontWeight.W_500)],
-                            spacing=8,
-                        ),
-                        on_click=self._clear_data,
-                        bgcolor=ad,
-                        padding=ft.Padding(left=16, right=16, top=10, bottom=10),
-                        border_radius=8,
+                        content=icon(icon_name, color=ap, size=24),
+                        width=24,
+                        height=24,
                     ),
-                    ft.Container(height=10),
-                    ft.Text(f"Data is stored in: {data_path}", size=12, color=ts),
+                    ft.Text(
+                        value,
+                        size=24,
+                        weight=ft.FontWeight.BOLD,
+                        color=Tokens.text_primary(dark),
+                        text_align=ft.TextAlign.CENTER,
+                    ),
+                    ft.Text(
+                        label,
+                        size=12,
+                        color=Tokens.text_secondary(dark),
+                        text_align=ft.TextAlign.CENTER,
+                    ),
                 ],
+            ),
+        )
+
+    def _build_action_button(self, label: str, icon_name: str, color: str, handler) -> ft.Control:
+        return ft.Container(
+            on_click=handler,
+            content=ft.Row(
+                [icon(icon_name, size=16, color=color), ft.Text(label, size=13, color=color)],
                 spacing=8,
             ),
+            padding=ft.Padding(left=14, right=14, top=8, bottom=8),
+            border_radius=8,
         )
 
     def _export_data(self, e):

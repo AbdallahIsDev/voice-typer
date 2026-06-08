@@ -2,6 +2,8 @@ import flet as ft
 import json
 import pyperclip
 import threading
+import tkinter as tk
+from tkinter import filedialog
 from .styles import Tokens, SETTINGS_MAX_WIDTH, format_relative_time, is_windows_dark_mode
 from voice_typer.history_db import HistoryDB
 from .icons import icon
@@ -50,25 +52,24 @@ class HistoryScreen:
                                     [
                                         ft.Text("History", size=20, weight=ft.FontWeight.W_600, color=tp),
                                         ft.Container(expand=True),
-                                        ft.TextButton(
-                                            content=ft.Row([icon("import-export", size=16, color=ts), ft.Text("Export", color=ts, size=13)], spacing=8),
+                                        ft.Container(
                                             on_click=self._export_history,
-                                            tooltip="Export transcription history as JSON",
+                                            content=ft.Row([icon("import-export", size=16, color=ts), ft.Text("Export", color=ts, size=13)], spacing=8),
+                                            padding=ft.Padding(left=12, right=12, top=8, bottom=8),
+                                            border_radius=8,
                                         ),
-                                        ft.TextButton(
-                                            content=ft.Row([icon("star", size=16, color=ap if self._favorites_active else ts), ft.Text("Favorites", color=ap if self._favorites_active else ts, size=13)], spacing=8),
+                                        ft.Container(
                                             on_click=self._toggle_favorites_filter,
-                                            tooltip="Toggle favorites filter",
+                                            content=ft.Row([icon("heart-filled" if self._favorites_active else "heart", size=16, color=ap if self._favorites_active else ts), ft.Text("Favorites", color=ap if self._favorites_active else ts, size=13)], spacing=8),
+                                            padding=ft.Padding(left=12, right=12, top=8, bottom=8),
+                                            border_radius=8,
                                         ),
-                                        ft.Button(
-                                            content=ft.Row([icon("delete-sweep", color="#FFFFFF", size=16), ft.Text("Clear All", color="#FFFFFF", size=13, weight=ft.FontWeight.W_500)], spacing=8),
+                                        ft.Container(
                                             on_click=self._clear_all_confirm,
-                                            tooltip="Delete all transcriptions",
-                                            style=ft.ButtonStyle(
-                                                bgcolor=ad,
-                                                shape=ft.RoundedRectangleBorder(radius=8),
-                                                padding=ft.Padding(left=16, right=16, top=7, bottom=7),
-                                            ),
+                                            content=ft.Row([icon("delete-sweep", color="#FFFFFF", size=16), ft.Text("Clear All", color="#FFFFFF", size=13, weight=ft.FontWeight.W_500)], spacing=8),
+                                            padding=ft.Padding(left=16, right=16, top=8, bottom=8),
+                                            border_radius=8,
+                                            bgcolor=ad,
                                         ),
                                     ],
                                     spacing=8,
@@ -86,16 +87,32 @@ class HistoryScreen:
     def _build_search_bar(self) -> ft.Control:
         dark = self._is_dark()
         ts = Tokens.text_secondary(dark)
-        return ft.TextField(
-            hint_text="Search history...",
-            hint_style=ft.TextStyle(color=ts),
-            prefix=icon("search", color=ts, size=15),
-            border_radius=10,
+        return ft.Container(
             bgcolor=Tokens.bg_card(dark),
-            border_color=Tokens.border_subtle(dark),
-            color=Tokens.text_primary(dark),
-            content_padding=ft.Padding(left=16, right=16, top=12, bottom=12),
-            on_change=self._search_history_debounced,
+            border=ft.Border(
+                left=ft.BorderSide(0.5, Tokens.border_subtle(dark)),
+                top=ft.BorderSide(0.5, Tokens.border_subtle(dark)),
+                right=ft.BorderSide(0.5, Tokens.border_subtle(dark)),
+                bottom=ft.BorderSide(0.5, Tokens.border_subtle(dark)),
+            ),
+            border_radius=10,
+            padding=ft.Padding(left=16, right=16, top=0, bottom=0),
+            content=ft.Row(
+                [
+                    icon("search", color=ts, size=16),
+                    ft.Container(width=16),
+                    ft.TextField(
+                        hint_text="Search history...",
+                        hint_style=ft.TextStyle(color=ts),
+                        color=Tokens.text_primary(dark),
+                        border=ft.InputBorder.NONE,
+                        expand=True,
+                        content_padding=ft.Padding(left=0, right=0, top=12, bottom=12),
+                        on_change=self._search_history_debounced,
+                    ),
+                ],
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
         )
 
     def _build_history_list(self) -> ft.Control:
@@ -155,7 +172,6 @@ class HistoryScreen:
                                 display_time,
                                 size=12,
                                 color=ts,
-                                tooltip=timestamp,
                             ),
                         ],
                         spacing=4,
@@ -164,7 +180,7 @@ class HistoryScreen:
                     ft.Row(
                         spacing=0,
                         controls=[
-                            self._build_history_icon("star-filled" if is_fav else "star", item, self._toggle_favorite, ap, ap if is_fav else ts),
+                            self._build_history_icon("heart-filled" if is_fav else "heart", item, self._toggle_favorite, ap, ap if is_fav else ts),
                             self._build_history_icon("copy-01", item, lambda i: self._copy_text(i.get("text", "")), ap, ts),
                             self._build_history_icon("delete", item, self._delete_item, Tokens.accent_danger(dark), ts),
                         ],
@@ -253,49 +269,87 @@ class HistoryScreen:
         self.page.update()
 
     def _clear_all_confirm(self, e):
-        def _do_clear(dialog_e):
-            self.page.dialog.open = False
-            if self.history_db.clear_all():
-                self.history_items.clear()
-                self.reload()
-                self.page.snack_bar = ft.SnackBar(
-                    content=ft.Text("History cleared"),
-                    bgcolor=Tokens.WARNING_DARK,
-                )
-                self.page.snack_bar.open = True
-            self.page.update()
+        try:
+            dark = self._is_dark()
 
-        def _cancel(dialog_e):
-            self.page.dialog.open = False
-            self.page.update()
+            def _do_clear(dialog_e):
+                self.page.pop_dialog()
+                try:
+                    if self.history_db.clear_all():
+                        self.history_items.clear()
+                        self.reload()
+                        self.page.snack_bar = ft.SnackBar(
+                            content=ft.Text("History cleared"),
+                            bgcolor=Tokens.WARNING_DARK,
+                        )
+                        self.page.snack_bar.open = True
+                    self.page.update()
+                except Exception as exc:
+                    self._show_error_dialog(f"Clear failed: {exc}")
 
-        self.page.dialog = ft.AlertDialog(
-            title=ft.Text("Clear All History"),
-            content=ft.Text("Are you sure you want to delete all transcriptions? This cannot be undone."),
-            actions=[
-                ft.TextButton("Cancel", on_click=_cancel),
-                ft.TextButton("Clear All", on_click=_do_clear),
-            ],
-        )
-        self.page.dialog.open = True
-        self.page.update()
+            def _cancel(dialog_e):
+                self.page.pop_dialog()
+                self.page.update()
+
+            dialog = ft.AlertDialog(
+                title=ft.Text("Clear All History"),
+                content=ft.Text("Are you sure you want to delete all transcriptions? This cannot be undone."),
+                bgcolor=Tokens.bg_sidebar(dark),
+                actions=[
+                    ft.TextButton("Cancel", on_click=_cancel),
+                    ft.TextButton("Clear All", on_click=_do_clear),
+                ],
+            )
+            self.page.show_dialog(dialog)
+        except Exception as exc:
+            self._show_error_dialog(f"Could not open dialog: {exc}")
+
+    def _show_error_dialog(self, message: str):
+        try:
+            dlg = ft.AlertDialog(
+                title=ft.Text("Error"),
+                content=ft.Text(message),
+                actions=[ft.TextButton("OK", on_click=lambda e: self._close_dialog())],
+            )
+            self.page.show_dialog(dlg)
+        except Exception:
+            import traceback
+            traceback.print_exc()
 
     def _export_history(self, e):
         try:
             entries = self.history_db.get_recent(limit=10000)
             export_json = json.dumps(entries, indent=2, ensure_ascii=False, default=str)
-            pyperclip.copy(export_json)
+
+            root = tk.Tk()
+            root.withdraw()
+            try:
+                file_path = filedialog.asksaveasfilename(
+                    defaultextension=".json",
+                    filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+                    title="Export History",
+                    initialfile="voice_typing_history.json",
+                )
+            finally:
+                root.destroy()
+
+            if not file_path:
+                return
+
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(export_json)
+
             self.page.snack_bar = ft.SnackBar(
-                content=ft.Text(f"Exported {len(entries)} transcriptions to clipboard"),
+                content=ft.Text(f"Exported {len(entries)} transcriptions to {file_path}"),
                 bgcolor=Tokens.SUCCESS_DARK,
             )
+            self.page.snack_bar.open = True
+            self.page.update()
         except Exception as exc:
-            self.page.snack_bar = ft.SnackBar(
-                content=ft.Text(f"Export failed: {exc}"),
-                bgcolor=Tokens.ACCENT_DANGER_DARK,
-            )
-        self.page.snack_bar.open = True
-        self.page.update()
+            self._show_error_dialog(f"Export failed: {exc}")
+
+    def _close_dialog(self):
+        self.page.pop_dialog()
 
     def _search_history_debounced(self, e):
         if self._search_timer is not None:
@@ -316,5 +370,3 @@ class HistoryScreen:
 
     def _load_history(self):
         self.history_items = self.history_db.get_recent()
-
-

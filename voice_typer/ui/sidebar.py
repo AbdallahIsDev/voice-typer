@@ -68,7 +68,7 @@ class Sidebar:
                                 color=ap if is_selected else ts,
                                 size=18,
                             ),
-                            width=20, height=20,
+                            width=24, height=24,
                             alignment=ft.Alignment.CENTER,
                         ),
                         ft.Text(
@@ -89,7 +89,6 @@ class Sidebar:
                     else ft.Colors.TRANSPARENT
                 ),
                 on_click=lambda e, vid=item_id: self.on_navigate(vid),
-                tooltip=item_config.get("description", item_config["title"]),
                 animate=ft.Animation(150, ft.AnimationCurve.EASE_IN_OUT),
             )
             self.nav_buttons[item_id] = btn
@@ -101,22 +100,24 @@ class Sidebar:
             padding=ft.Padding.symmetric(horizontal=8, vertical=0),
             content=ft.Column(
                 [
-                    ft.Container(
-                        content=ft.Row(
-                            [
-                                icon("microphone", color=ap, size=18),
-                                ft.Text(
-                                    "Voice Typer",
-                                    size=14,
-                                    weight=ft.FontWeight.W_600,
-                                    color=tp,
-                                ),
-                            ],
-                            spacing=10,
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ft.WindowDragArea(
+                        ft.Container(
+                            content=ft.Row(
+                                [
+                                    icon("microphone", color=ap, size=18),
+                                    ft.Text(
+                                        "Voice Typer",
+                                        size=14,
+                                        weight=ft.FontWeight.W_600,
+                                        color=tp,
+                                    ),
+                                ],
+                                spacing=10,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            ),
+                            height=56,
+                            padding=ft.Padding.symmetric(horizontal=16, vertical=0),
                         ),
-                        height=56,
-                        padding=ft.Padding.symmetric(horizontal=16, vertical=0),
                     ),
                     ft.Container(height=8),
                     ft.Column(nav_items, spacing=2),

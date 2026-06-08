@@ -55,6 +55,10 @@ class Tokens:
     ACCENT_DANGER_DARK = "#EF4444"
     ACCENT_DANGER_LIGHT = "#DC2626"
 
+    # ── Window controls ──────────────────────────────────────────────
+    WINDOW_CTRL_ICON_DARK = "#FFFFFF"
+    WINDOW_CTRL_ICON_LIGHT = "#0F172A"
+
     # ── Semantic ─────────────────────────────────────────────────────
     SUCCESS_DARK = "#22C55E"
     SUCCESS_LIGHT = "#16A34A"
@@ -98,6 +102,10 @@ class Tokens:
         return Tokens.ACCENT_DANGER_DARK if dark else Tokens.ACCENT_DANGER_LIGHT
 
     @staticmethod
+    def window_ctrl_icon(dark: bool) -> str:
+        return Tokens.WINDOW_CTRL_ICON_DARK if dark else Tokens.WINDOW_CTRL_ICON_LIGHT
+
+    @staticmethod
     def success(dark: bool) -> str:
         return Tokens.SUCCESS_DARK if dark else Tokens.SUCCESS_LIGHT
 
@@ -119,7 +127,7 @@ class Tokens:
         return Tokens.ACCENT_PRIMARY_DARK if dark else Tokens.ACCENT_PRIMARY_LIGHT
 
 
-# ── Border / shadow factories ────────────────────────────────────────
+# ── Border factories ────────────────────────────────────────────────
 
 def border_card(dark: bool) -> ft.Border:
     c = Tokens.border_subtle(dark)
@@ -134,22 +142,6 @@ def border_card(dark: bool) -> ft.Border:
 def border_row(dark: bool) -> ft.Border:
     c = Tokens.border_subtle(dark)
     return ft.Border(bottom=ft.BorderSide(0.5, c))
-
-
-def card_shadow(dark: bool) -> ft.BoxShadow:
-    return ft.BoxShadow(
-        blur_radius=20, spread_radius=0,
-        offset=ft.Offset(0, 4),
-        color="rgba(0,0,0,0.20)" if dark else "rgba(0,0,0,0.08)",
-    )
-
-
-def focus_shadow() -> ft.BoxShadow:
-    return ft.BoxShadow(
-        blur_radius=3, spread_radius=0,
-        offset=ft.Offset(0, 0),
-        color="rgba(37,99,235,0.15)",
-    )
 
 
 # ── Shared component style helpers ────────────────────────────────────
@@ -264,7 +256,7 @@ NAV_ITEMS = {
     },
     "settings": {
         "title": "Settings",
-        "icon": "settings",
+        "icon": "settings-03",
         "description": "Application settings",
     },
 }
