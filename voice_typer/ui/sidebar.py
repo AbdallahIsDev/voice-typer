@@ -48,7 +48,7 @@ class Sidebar:
                 else ft.Colors.TRANSPARENT
             )
 
-    def build(self, current_view: str) -> ft.Control:
+    def build(self, current_view: str, collapsed: bool = False) -> ft.Control:
         """Build and return the sidebar control."""
         self.current_view = current_view
         dark = self._is_dark()
@@ -76,6 +76,7 @@ class Sidebar:
                             color=tp if is_selected else ts,
                             size=13,
                             weight=ft.FontWeight.W_500,
+                            visible=not collapsed,
                         ),
                     ],
                     spacing=10,
@@ -95,13 +96,14 @@ class Sidebar:
             nav_items.append(btn)
 
         self.container = ft.Container(
-            width=SIDEBAR_WIDTH,
+            width=60 if collapsed else SIDEBAR_WIDTH,
             bgcolor=Tokens.bg_sidebar(dark),
             padding=ft.Padding.symmetric(horizontal=8, vertical=0),
             content=ft.Column(
                 [
                     ft.WindowDragArea(
-                        ft.Container(
+                        maximizable=False,
+                        content=ft.Container(
                             content=ft.Row(
                                 [
                                     icon("microphone", color=ap, size=18),
@@ -110,6 +112,7 @@ class Sidebar:
                                         size=14,
                                         weight=ft.FontWeight.W_600,
                                         color=tp,
+                                        visible=not collapsed,
                                     ),
                                 ],
                                 spacing=10,
@@ -127,3 +130,20 @@ class Sidebar:
             ),
         )
         return self.container
+
+    def set_collapsed(self, collapsed: bool, dark: bool):
+        """Rebuild sidebar in collapsed/expanded state."""
+        self.container.width = 60 if collapsed else SIDEBAR_WIDTH
+        self.container.bgcolor = Tokens.bg_sidebar(dark)
+
+        # Toggle header text visibility
+        header_row = self.container.content.controls[0].content.content
+        header_row.controls[1].visible = not collapsed
+
+        # Toggle nav text visibility
+        nav_col = self.container.content.controls[2]
+        for item_id, btn in self.nav_buttons.items():
+            text_ctrl = btn.content.controls[1]
+            text_ctrl.visible = not collapsed
+
+        self.container.update()

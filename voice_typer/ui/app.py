@@ -8,8 +8,8 @@ from .styles import (
     get_theme, is_windows_dark_mode,
 )
 from .sidebar import Sidebar
+from .titlebar import TitleBar
 from .statusbar import build_status_bar
-from .icons import icon
 from .home import build_home_page
 from .history import HistoryScreen
 from .templates import TemplatesScreen
@@ -18,7 +18,6 @@ from .models import ModelsScreen
 from .microphone import MicrophoneScreen
 from .privacy import PrivacyScreen
 from .settings import SettingsScreen
-from .resize import wrap_with_resize_overlay
 
 log = logging.getLogger(__name__)
 
@@ -48,6 +47,9 @@ class VoiceTyperApp:
         self.app_controller = app_controller
         self._status_poll_timer = None
         self._current_status = "idle"
+
+        self.sidebar_collapsed = False
+        self.title_bar = None
 
         self.main_container = None
         self.config = Config.load()
@@ -246,9 +248,24 @@ class VoiceTyperApp:
         img.save(ico_path, format="ICO", sizes=[(64, 64)])
         return str(ico_path)
 
-    def main(self, page: ft.Page):
+    async def main(self, page: ft.Page):
         self.page = page
         page.title = "Voice Typer"
+
+        # ── Set CENTERED alignment before any content ─────────────────
+        page.window.alignment = ft.Alignment.CENTER
+
+        # ── Native title bar with styled background ───────────────────
+        is_dark = self._check_initial_theme(page)
+        bg_sidebar = Tokens.bg_sidebar(is_dark)
+        page.bgcolor = bg_sidebar
+
+        page.window.width = 1000
+        page.window.height = 700
+        page.window.min_width = 800
+        page.window.min_height = 600
+        page.window.resizable = True
+        page.window.title_bar_hidden = True
 
         try:
             page.window.icon = VoiceTyperApp._ensure_window_icon()
@@ -261,12 +278,60 @@ class VoiceTyperApp:
             "hgi": os.path.join(assets_dir, "fonts", "hgi-stroke-rounded.ttf")
         }
 
-        page.window.width = 1000
-        page.window.height = 700
-        page.window.min_width = 800
-        page.window.min_height = 600
-        page.window.frameless = True
+        page.padding = 0
+        page.vertical_alignment = ft.MainAxisAlignment.START
+        page.horizontal_alignment = ft.CrossAxisAlignment.STRETCH
 
+        self._init_screens()
+
+        status_bar = build_status_bar(self.config, self._current_status, is_dark)
+        main_row = self._build_main_row(status_bar=status_bar)
+
+        main_container = ft.Container(
+            content=main_row,
+            expand=True,
+            border_radius=0,
+            bgcolor=bg_sidebar,
+            border=None,
+        )
+
+        self.title_bar = TitleBar(
+            self.page,
+            on_toggle_sidebar=self._toggle_sidebar,
+            dark=is_dark,
+            sidebar_collapsed=self.sidebar_collapsed,
+        )
+        title_bar = self.title_bar.build()
+
+        page.add(
+            ft.Column(
+                [
+                    title_bar,
+                    main_container,
+                ],
+                expand=True,
+                spacing=0,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+            )
+        )
+        self.main_container = main_container
+
+        try:
+            self._set_view("home")
+        except Exception as exc:
+            log.error("[UI] Failed to set initial view: %s", exc)
+            try:
+                self._show_error_view(str(exc))
+            except Exception:
+                pass
+
+        self._start_status_polling()
+        page.window.on_event = self._handle_window_event
+
+        page.update()
+
+    def _check_initial_theme(self, page: ft.Page) -> bool:
+        """Determine initial dark mode before page.theme_mode is fully set."""
         theme_mode = getattr(self.config, 'theme_mode', 'system')
         if theme_mode == 'light':
             page.theme_mode = ft.ThemeMode.LIGHT
@@ -286,72 +351,30 @@ class VoiceTyperApp:
                 pass
 
         page.theme = get_theme(dark=is_dark)
-        bg = Tokens.bg_app(dark=is_dark)
-        page.bgcolor = ft.Colors.TRANSPARENT
-        page.window.bgcolor = ft.Colors.TRANSPARENT
-        page.padding = 0
-        page.vertical_alignment = ft.MainAxisAlignment.START
-        page.horizontal_alignment = ft.CrossAxisAlignment.STRETCH
-
-        self._init_screens()
-
-        status_bar = build_status_bar(self.config, self._current_status, self._is_dark())
-        border_c = Tokens.border_subtle(is_dark)
-
-        main_row = self._build_main_row(status_bar=status_bar)
-
-        # Wrap content in resize overlay for edge/corner resize + double-click maximize
-        def _toggle_maximize():
-            target = not page.window.maximized
-            page.window.maximized = target
-            self.update_window_layout(target)
-            page.update()
-
-        overlay_content = wrap_with_resize_overlay(
-            content=main_row,
-            on_double_tap_title=lambda e: _toggle_maximize(),
-        )
-
-        main_container = ft.Container(
-            content=overlay_content,
-            expand=True,
-            border_radius=12,
-            bgcolor=bg,
-            border=ft.Border.all(1, border_c),
-        )
-        page.add(main_container)
-        self.main_container = main_container
-
-        try:
-            self._set_view("home")
-        except Exception as exc:
-            log.error("[UI] Failed to set initial view: %s", exc)
-            try:
-                self._show_error_view(str(exc))
-            except Exception:
-                pass
-
-        self._start_status_polling()
-
-        page.window.on_event = self._handle_window_event
+        return is_dark
 
     def _handle_window_event(self, e: ft.WindowEvent):
         if e.type in (ft.WindowEventType.MAXIMIZE, ft.WindowEventType.UNMAXIMIZE, ft.WindowEventType.RESTORE):
             self.update_window_layout(self.page.window.maximized)
             self.page.update()
+        if self.title_bar is not None:
+            self.title_bar.set_maximized(self.page.window.maximized)
+
+    def _toggle_sidebar(self, e=None):
+        self.sidebar_collapsed = not self.sidebar_collapsed
+        dark = self._is_dark()
+        if self.sidebar is not None:
+            self.sidebar.set_collapsed(self.sidebar_collapsed, dark)
+        if self.title_bar is not None:
+            self.title_bar.set_collapsed(self.sidebar_collapsed)
+        self.page.update()
 
     def update_window_layout(self, maximized: bool):
         if self.main_container is None:
             return
-        if maximized:
-            self.page.padding = 0
-            self.main_container.border_radius = 0
-            self.main_container.border = None
-        else:
-            self.page.padding = 0
-            self.main_container.border_radius = 12
-            border_c = Tokens.border_subtle(self._is_dark())
-            self.main_container.border = ft.Border.all(1, border_c)
+        self.page.padding = 0
+        self.main_container.border_radius = 0
+        self.main_container.border = None
 
     def _init_screens(self):
         self.screens = {
@@ -367,7 +390,7 @@ class VoiceTyperApp:
 
     def _build_sidebar(self) -> ft.Control:
         self.sidebar = Sidebar(self.page, self.config, self._set_view)
-        return self.sidebar.build(self.current_view)
+        return self.sidebar.build(self.current_view, collapsed=self.sidebar_collapsed)
 
     def _build_content_area(self, status_bar: ft.Control = None) -> ft.Control:
         dark = self._is_dark()
@@ -377,73 +400,10 @@ class VoiceTyperApp:
             expand=True,
         )
         tp = Tokens.text_primary(dark)
-        bg = Tokens.bg_app(dark)
-        wci = Tokens.window_ctrl_icon(dark)
         page = self.page
 
-        def minimize(e):
-            page.window.minimized = True
-            page.update()
-        def maximize(e):
-            target = not page.window.maximized
-            page.window.maximized = target
-            self.update_window_layout(target)
-            page.update()
-        async def close(e):
-            await page.window.close()
-
-        win_hover_bg = "#1e2d45" if dark else "#e5e5e5"
-        win_min_btn = ft.Container(width=46, height=40, alignment=ft.alignment.Alignment(0, 0),
-            on_click=minimize, bgcolor=ft.Colors.TRANSPARENT,
-            content=icon("line", color=wci, size=10))
-        def min_enter(e):
-            win_min_btn.bgcolor = win_hover_bg
-            win_min_btn.update()
-        def min_exit(e):
-            win_min_btn.bgcolor = ft.Colors.TRANSPARENT
-            win_min_btn.update()
-        win_min = ft.GestureDetector(content=win_min_btn, on_enter=min_enter, on_exit=min_exit)
-
-        win_max_btn = ft.Container(width=46, height=40, alignment=ft.alignment.Alignment(0, 0),
-            on_click=maximize, bgcolor=ft.Colors.TRANSPARENT,
-            content=icon("rectangle", color=tp, size=10))
-        def max_enter(e):
-            win_max_btn.bgcolor = win_hover_bg
-            win_max_btn.update()
-        def max_exit(e):
-            win_max_btn.bgcolor = ft.Colors.TRANSPARENT
-            win_max_btn.update()
-        win_max = ft.GestureDetector(content=win_max_btn, on_enter=max_enter, on_exit=max_exit)
-
-        close_ctrl = icon("close-icon", color=wci, size=11)
-        close_btn_raw = ft.Container(width=46, height=40, alignment=ft.alignment.Alignment(0, 0),
-            on_click=close, bgcolor=ft.Colors.TRANSPARENT, content=close_ctrl)
-        def close_enter(e):
-            close_btn_raw.bgcolor = "#e81123"
-            close_ctrl.color = "#FFFFFF"
-            close_btn_raw.update()
-        def close_exit(e):
-            close_btn_raw.bgcolor = ft.Colors.TRANSPARENT
-            close_ctrl.color = wci
-            close_btn_raw.update()
-        close_btn = ft.GestureDetector(content=close_btn_raw, on_enter=close_enter, on_exit=close_exit)
-
-        column_controls = [
-            ft.Container(
-                height=40,
-                bgcolor=bg,
-                content=ft.Row(
-                    spacing=0,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    controls=[
-                        ft.WindowDragArea(
-                            ft.Container(expand=True, height=40),
-                            expand=True,
-                        ),
-                        win_min, win_max, close_btn,
-                    ],
-                ),
-            ),
+        # ── Build the workspace inner column ──────────────────────────
+        workspace_inner_controls = [
             ft.Container(
                 expand=True,
                 content=self._content_column,
@@ -451,17 +411,41 @@ class VoiceTyperApp:
             ),
         ]
         if status_bar is not None:
-            column_controls.append(status_bar)
+            workspace_inner_controls.append(status_bar)
 
+        # ── Floating workspace container ──────────────────────────────
         self._content_area = ft.Container(
             expand=True,
-            bgcolor=bg,
+            bgcolor=Tokens.bg_workspace(dark),
+            border_radius=ft.BorderRadius(
+                top_left=12,
+                top_right=0,
+                bottom_left=12,
+                bottom_right=0,
+            ),
+            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            padding=0,
+            shadow=ft.BoxShadow(
+                blur_radius=24,
+                spread_radius=0,
+                offset=ft.Offset(0, 4),
+                color=ft.Colors.BLACK_38,
+            ),
             content=ft.Column(
                 spacing=0,
-                controls=column_controls,
+                controls=workspace_inner_controls,
             ),
         )
-        return self._content_area
+
+        # ── Wrap floating workspace in outer canvas with spacing ──────
+        floating_wrapper = ft.Container(
+            expand=True,
+            bgcolor=Tokens.bg_sidebar(dark),
+            padding=ft.Padding(left=12, right=0, top=0, bottom=0),
+            content=self._content_area,
+        )
+
+        return floating_wrapper
 
     def _build_main_row(self, status_bar: ft.Control = None) -> ft.Row:
         return ft.Row(
@@ -512,7 +496,8 @@ class VoiceTyperApp:
             log.error("[UI] Content area not initialized")
             return
 
-        self._content_area.bgcolor = Tokens.bg_app(dark)
+        # Update workspace background (the floating container inside the wrapper)
+        self._content_area.bgcolor = Tokens.bg_workspace(dark)
 
         screen = self.screens.get(view_id)
         if screen is None:

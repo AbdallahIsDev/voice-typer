@@ -31,6 +31,7 @@ SVG_ICONS = {
     "heart-filled": "heart-filled.svg",
     "close-icon": "close-icon.svg",
     "rectangle": "rectangle.svg",
+    "panel-left": "panel-left.svg",
 }
 
 _ICONS_DIR = os.path.join(os.path.dirname(__file__), "..", "assets", "icons")

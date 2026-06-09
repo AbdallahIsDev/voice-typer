@@ -37,6 +37,9 @@ class Tokens:
     BG_CARD_DARK = "#152036"
     BG_CARD_LIGHT = "#F1F5F9"
 
+    BG_WORKSPACE_DARK = "#1A2A44"
+    BG_WORKSPACE_LIGHT = "#FFFFFF"
+
     # ── Borders ──────────────────────────────────────────────────────
     BORDER_SUBTLE_DARK = "#333f54"
     BORDER_SUBTLE_LIGHT = "#d4d4d4"
@@ -125,6 +128,10 @@ class Tokens:
     @staticmethod
     def sidebar_active_indicator(dark: bool) -> str:
         return Tokens.ACCENT_PRIMARY_DARK if dark else Tokens.ACCENT_PRIMARY_LIGHT
+
+    @staticmethod
+    def bg_workspace(dark: bool) -> str:
+        return Tokens.BG_WORKSPACE_DARK if dark else Tokens.BG_WORKSPACE_LIGHT
 
 
 # ── Border factories ────────────────────────────────────────────────

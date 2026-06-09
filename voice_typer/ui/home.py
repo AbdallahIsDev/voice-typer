@@ -25,6 +25,7 @@ def build_home_page(
     tp = Tokens.text_primary(dark)
     ts = Tokens.text_secondary(dark)
     ap = Tokens.accent_primary(dark)
+    bg_app = Tokens.bg_app(dark)
     bg_sidebar = Tokens.bg_sidebar(dark)
     bg_card = Tokens.bg_card(dark)
 
