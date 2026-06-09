@@ -57,7 +57,7 @@ class TestRegisterHotKeyFailure:
         mock_user32.RegisterHotKey.return_value = 0  # BOOL FALSE
         mock_kernel32.GetLastError.return_value = 1409
 
-        from voice_typer.hotkeys import WindowsNativeHotkey
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<f2>")
         with pytest.raises(RuntimeError, match="Failed to register hotkey"):
@@ -68,7 +68,7 @@ class TestRegisterHotKeyFailure:
         mock_user32, mock_kernel32 = mock_win32
         mock_user32.RegisterHotKey.return_value = 0
 
-        from voice_typer.hotkeys import WindowsNativeHotkey
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<f2>")
         start_time = time.monotonic()
@@ -83,7 +83,7 @@ class TestRegisterHotKeyFailure:
         mock_user32.RegisterHotKey.return_value = 0
         mock_kernel32.GetLastError.return_value = 1409
 
-        from voice_typer.hotkeys import WindowsNativeHotkey
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<f2>")
         with pytest.raises(RuntimeError, match="1409"):
@@ -98,7 +98,7 @@ class TestSuccessScenario:
 
     def test_ready_event_set_on_success(self, mock_win32):
         """After successful start(), _ready_event should be set."""
-        from voice_typer.hotkeys import WindowsNativeHotkey
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<f2>")
         backend.start(MagicMock())
@@ -109,7 +109,7 @@ class TestSuccessScenario:
 
     def test_is_alive_returns_true(self, mock_win32):
         """After successful start(), is_alive() returns True while thread runs."""
-        from voice_typer.hotkeys import WindowsNativeHotkey
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<f2>")
         backend.start(MagicMock())
@@ -119,7 +119,7 @@ class TestSuccessScenario:
 
     def test_is_alive_false_after_stop(self, mock_win32):
         """After stop(), is_alive() returns False."""
-        from voice_typer.hotkeys import WindowsNativeHotkey
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<f2>")
         backend.start(MagicMock())
@@ -129,7 +129,7 @@ class TestSuccessScenario:
 
     def test_registered_flag_true(self, mock_win32):
         """On success, _success should be True (survives thread cleanup)."""
-        from voice_typer.hotkeys import WindowsNativeHotkey
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<f2>")
         backend.start(MagicMock())
@@ -146,7 +146,7 @@ class TestDiagnoseMethod:
 
     def test_diagnose_before_start(self):
         """Before start(), diagnose() should say 'no thread started'."""
-        from voice_typer.hotkeys import WindowsNativeHotkey
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<f2>")
         info = backend.diagnose()
@@ -154,7 +154,7 @@ class TestDiagnoseMethod:
 
     def test_diagnose_on_success(self, mock_win32):
         """After successful start(), diagnose() includes key info."""
-        from voice_typer.hotkeys import WindowsNativeHotkey
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<f2>")
         backend.start(MagicMock())
@@ -170,7 +170,7 @@ class TestDiagnoseMethod:
         mock_user32, _ = mock_win32
         mock_user32.RegisterHotKey.return_value = 0
 
-        from voice_typer.hotkeys import WindowsNativeHotkey
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<f2>")
         with pytest.raises(RuntimeError):
@@ -189,7 +189,7 @@ class TestMockVerification:
     def test_register_hotkey_called(self, mock_win32):
         """RegisterHotKey should be called during start()."""
         mock_user32, _ = mock_win32
-        from voice_typer.hotkeys import WindowsNativeHotkey
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<f2>")
         backend.start(MagicMock())
@@ -200,7 +200,7 @@ class TestMockVerification:
     def test_register_hotkey_uses_ctrl_modifier_for_ctrl_digit(self, mock_win32):
         """Ctrl+1 should register Ctrl as a modifier and 1 as the main key."""
         mock_user32, _ = mock_win32
-        from voice_typer.hotkeys import WindowsNativeHotkey
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<ctrl>+1")
         backend.start(MagicMock())
@@ -213,7 +213,7 @@ class TestMockVerification:
     def test_stop_calls_cleanup(self, mock_win32):
         """stop() should call UnregisterHotKey."""
         mock_user32, _ = mock_win32
-        from voice_typer.hotkeys import WindowsNativeHotkey
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<f2>")
         backend.start(MagicMock())

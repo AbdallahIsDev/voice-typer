@@ -6,13 +6,13 @@ import numpy as np
 
 @pytest.fixture
 def analyzer():
-    from voice_typer.audio_quality import AudioQualityAnalyzer
+    from voice_typer.server.audio_quality import AudioQualityAnalyzer
     return AudioQualityAnalyzer()
 
 
 class TestAudioQualityReport:
     def test_report_defaults(self):
-        from voice_typer.audio_quality import AudioQualityReport
+        from voice_typer.server.audio_quality import AudioQualityReport
         report = AudioQualityReport()
         assert report.clipping_detected is False
         assert report.low_volume_detected is False
@@ -20,29 +20,29 @@ class TestAudioQualityReport:
         assert report.has_issues is False
 
     def test_report_has_issues(self):
-        from voice_typer.audio_quality import AudioQualityReport
+        from voice_typer.server.audio_quality import AudioQualityReport
         report = AudioQualityReport(clipping_detected=True)
         assert report.has_issues is True
 
     def test_report_summary_no_issues(self):
-        from voice_typer.audio_quality import AudioQualityReport
+        from voice_typer.server.audio_quality import AudioQualityReport
         report = AudioQualityReport()
         assert "OK" in report.get_summary()
 
     def test_report_summary_with_clipping(self):
-        from voice_typer.audio_quality import AudioQualityReport
+        from voice_typer.server.audio_quality import AudioQualityReport
         report = AudioQualityReport(clipping_detected=True, clipping_count=5, clipping_peak=0.99)
         summary = report.get_summary()
         assert "Clipping" in summary
 
     def test_report_summary_with_low_volume(self):
-        from voice_typer.audio_quality import AudioQualityReport
+        from voice_typer.server.audio_quality import AudioQualityReport
         report = AudioQualityReport(low_volume_detected=True, low_volume_rms=0.002)
         summary = report.get_summary()
         assert "Low volume" in summary
 
     def test_report_summary_with_noise(self):
-        from voice_typer.audio_quality import AudioQualityReport
+        from voice_typer.server.audio_quality import AudioQualityReport
         report = AudioQualityReport(high_noise_detected=True, noise_ratio=0.8)
         summary = report.get_summary()
         assert "noise" in summary.lower()

@@ -16,7 +16,7 @@ import sys
 
 class TestResolveDevice:
     def test_none_config_returns_none(self):
-        from voice_typer.recording import Recorder
+        from voice_typer.server.recording import Recorder
         config = MagicMock()
         config.microphone = None
         config.sample_rate = 16000
@@ -24,7 +24,7 @@ class TestResolveDevice:
         assert r._resolve_device() is None
 
     def test_string_index_converts_to_int(self):
-        from voice_typer.recording import Recorder
+        from voice_typer.server.recording import Recorder
         config = MagicMock()
         config.microphone = "7"
         config.sample_rate = 16000
@@ -33,7 +33,7 @@ class TestResolveDevice:
 
     def test_legacy_name_string_passes_through(self):
         """If someone put a device name (not numeric), pass it as-is."""
-        from voice_typer.recording import Recorder
+        from voice_typer.server.recording import Recorder
         config = MagicMock()
         config.microphone = "Blue Yeti"
         config.sample_rate = 16000
@@ -43,7 +43,7 @@ class TestResolveDevice:
 
 class TestStopAudioPrep:
     def test_stop_concatenates_chunks_to_1d_and_clears_buffer(self, monkeypatch):
-        from voice_typer.recording import Recorder
+        from voice_typer.server.recording import Recorder
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
@@ -62,7 +62,7 @@ class TestStopAudioPrep:
         assert r._stream is None
 
     def test_stop_resamples_when_effective_rate_differs(self, monkeypatch):
-        from voice_typer.recording import Recorder
+        from voice_typer.server.recording import Recorder
 
         calls = []
 
@@ -70,7 +70,7 @@ class TestStopAudioPrep:
             calls.append((up, down))
             return np.array([0.25, 0.5], dtype=np.float32)
 
-        monkeypatch.setattr("voice_typer.recording._get_resample_poly", lambda: fake_resample_poly)
+        monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", lambda: fake_resample_poly)
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
@@ -85,10 +85,10 @@ class TestStopAudioPrep:
         assert calls == [(1, 3)]
 
     def test_stop_skips_resample_when_rate_matches_target(self, monkeypatch):
-        from voice_typer.recording import Recorder
+        from voice_typer.server.recording import Recorder
 
         get_resampler = MagicMock()
-        monkeypatch.setattr("voice_typer.recording._get_resample_poly", get_resampler)
+        monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", get_resampler)
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
@@ -102,8 +102,8 @@ class TestStopAudioPrep:
         get_resampler.assert_not_called()
 
     def test_start_failure_resets_recording_state(self, monkeypatch):
-        from voice_typer.recording import Recorder
-        import voice_typer.recording as recording_mod
+        from voice_typer.server.recording import Recorder
+        import voice_typer.server.recording as recording_mod
 
         class FailingStream:
             def __init__(self, *args, **kwargs):
@@ -127,8 +127,8 @@ class TestStopAudioPrep:
         assert r._stream is None
 
     def test_start_falls_back_to_same_microphone_on_another_host_api(self, monkeypatch):
-        from voice_typer.recording import Recorder
-        import voice_typer.recording as recording_mod
+        from voice_typer.server.recording import Recorder
+        import voice_typer.server.recording as recording_mod
 
         devices = [
             {"index": 0, "name": "Microsoft Sound Mapper - Input", "max_input_channels": 2, "default_samplerate": 44100, "hostapi": 0},
@@ -182,8 +182,8 @@ class TestStopAudioPrep:
 
     def test_start_falls_back_to_all_devices_when_configured_mic_fails(self, monkeypatch):
         """When configured mic and same-name alternates all fail, try ALL input devices."""
-        from voice_typer.recording import Recorder
-        import voice_typer.recording as recording_mod
+        from voice_typer.server.recording import Recorder
+        import voice_typer.server.recording as recording_mod
 
         devices = [
             {"index": 0, "name": "Microsoft Sound Mapper - Input", "max_input_channels": 2, "default_samplerate": 44100, "hostapi": 0},
@@ -235,7 +235,7 @@ class TestStopAudioPrep:
         assert config.microphone == "2"
 
     def test_snapshot_returns_audio_without_clearing_buffer(self):
-        from voice_typer.recording import Recorder
+        from voice_typer.server.recording import Recorder
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
@@ -256,7 +256,7 @@ class TestStopAudioPrep:
         np.testing.assert_array_equal(stopped, snapshot)
 
     def test_snapshot_returns_empty_float32_when_no_buffer_exists(self):
-        from voice_typer.recording import Recorder
+        from voice_typer.server.recording import Recorder
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
@@ -270,7 +270,7 @@ class TestStopAudioPrep:
         assert snapshot.size == 0
 
     def test_snapshot_uses_same_resampling_path_as_stop(self, monkeypatch):
-        from voice_typer.recording import Recorder
+        from voice_typer.server.recording import Recorder
 
         calls = []
 
@@ -278,7 +278,7 @@ class TestStopAudioPrep:
             calls.append((audio.copy(), up, down))
             return np.array([0.25, 0.5], dtype=np.float32)
 
-        monkeypatch.setattr("voice_typer.recording._get_resample_poly", lambda: fake_resample_poly)
+        monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", lambda: fake_resample_poly)
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
@@ -295,12 +295,12 @@ class TestStopAudioPrep:
         assert calls[0][1:] == (1, 3)
 
     def test_snapshot_resampling_does_not_emit_info_log_spam(self, monkeypatch, caplog):
-        from voice_typer.recording import Recorder
+        from voice_typer.server.recording import Recorder
 
         def fake_resample_poly(audio, up, down):
             return np.array([0.25, 0.5], dtype=np.float32)
 
-        monkeypatch.setattr("voice_typer.recording._get_resample_poly", lambda: fake_resample_poly)
+        monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", lambda: fake_resample_poly)
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
@@ -319,7 +319,7 @@ class TestH15CachedResampling:
 
     def test_snapshot_uses_cached_resampled_prefix(self, monkeypatch):
         """Second snapshot should only resample new chunks, not all."""
-        from voice_typer.recording import Recorder
+        from voice_typer.server.recording import Recorder
 
         call_count = [0]
 
@@ -328,7 +328,7 @@ class TestH15CachedResampling:
             # Simple decimation for testing
             return audio[::down][:len(audio) * up // down]
 
-        monkeypatch.setattr("voice_typer.recording._get_resample_poly", lambda: fake_resample_poly)
+        monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", lambda: fake_resample_poly)
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
@@ -352,7 +352,7 @@ class TestH15CachedResampling:
 
     def test_snapshot_no_resample_when_rate_matches(self):
         """When effective_sr matches target, no resampling occurs."""
-        from voice_typer.recording import Recorder
+        from voice_typer.server.recording import Recorder
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
@@ -370,7 +370,7 @@ class TestH12SilenceDetection:
     """H12: Silent mic disconnection - silence detection."""
 
     def test_silence_timer_starts_at_zero(self):
-        from voice_typer.recording import Recorder
+        from voice_typer.server.recording import Recorder
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
@@ -378,7 +378,7 @@ class TestH12SilenceDetection:
         assert r._silence_warning_count == 0
 
     def test_silence_callback_fields_exist(self):
-        from voice_typer.recording import Recorder
+        from voice_typer.server.recording import Recorder
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
@@ -387,8 +387,8 @@ class TestH12SilenceDetection:
         assert r.on_max_duration_auto_stop is None
 
     def test_start_resets_silence_state(self, monkeypatch):
-        from voice_typer.recording import Recorder
-        import voice_typer.recording as recording_mod
+        from voice_typer.server.recording import Recorder
+        import voice_typer.server.recording as recording_mod
 
         class OkStream:
             def __init__(self, *args, **kwargs): pass
@@ -409,7 +409,7 @@ class TestH12SilenceDetection:
 
     def test_cache_reset_on_stop(self):
         """stop() should reset the resample cache."""
-        from voice_typer.recording import Recorder
+        from voice_typer.server.recording import Recorder
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
@@ -427,7 +427,7 @@ class TestH12SilenceDetection:
 
     def test_cache_reset_on_discard(self):
         """discard() should reset the resample cache."""
-        from voice_typer.recording import Recorder
+        from voice_typer.server.recording import Recorder
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)

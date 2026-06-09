@@ -1,6 +1,6 @@
 """Tests for lightweight post-transcription text cleanup."""
 
-from voice_typer.text_cleanup import clean_transcribed_text, configure_corrections
+from voice_typer.server.text_cleanup import clean_transcribed_text, configure_corrections
 
 # Initialize corrections from bundled corrections.json so _active_misspellings,
 # _active_phrases, and _active_extra_words are populated.
@@ -143,21 +143,21 @@ class TestExternalCorrectionsFallback:
 
     def test_load_external_corrections_returns_none_when_no_file(self, tmp_path, monkeypatch):
         """When no corrections file exists, _load_external_corrections returns None."""
-        from voice_typer import text_cleanup
+        from voice_typer.server import text_cleanup
         monkeypatch.setattr(text_cleanup, "_BUNDLED_CORRECTIONS_PATH", tmp_path / "nonexistent.json")
         result = text_cleanup._load_external_corrections(config_dir=tmp_path)
         assert result is None
 
     def test_load_external_corrections_returns_none_when_no_config_dir(self, monkeypatch):
         """When config_dir is None and corrections_path is None, returns None."""
-        from voice_typer import text_cleanup
+        from voice_typer.server import text_cleanup
         monkeypatch.setattr(text_cleanup, "_BUNDLED_CORRECTIONS_PATH", text_cleanup.Path("/nonexistent.json"))
         result = text_cleanup._load_external_corrections(config_dir=None, corrections_path=None)
         assert result is None
 
     def test_load_external_corrections_returns_corrections_when_file_exists(self, tmp_path, monkeypatch):
         """When corrections file exists, returns merged corrections."""
-        from voice_typer import text_cleanup
+        from voice_typer.server import text_cleanup
         import json
         monkeypatch.setattr(text_cleanup, "_BUNDLED_CORRECTIONS_PATH", tmp_path / "nonexistent.json")
         corrections_file = tmp_path / "voice-typer-corrections.json"
@@ -172,7 +172,7 @@ class TestExternalCorrectionsFallback:
 
     def test_load_external_corrections_returns_none_on_invalid_path(self, tmp_path, monkeypatch):
         """When corrections_path points to a non-existent file, returns None."""
-        from voice_typer import text_cleanup
+        from voice_typer.server import text_cleanup
         monkeypatch.setattr(text_cleanup, "_BUNDLED_CORRECTIONS_PATH", tmp_path / "nonexistent.json")
         result = text_cleanup._load_external_corrections(corrections_path="/nonexistent/file.json")
         assert result is None
@@ -185,7 +185,7 @@ class TestExternalCorrectionsFallback:
     def test_cleanup_merges_external_corrections(self, tmp_path):
         """External corrections are merged with built-in defaults."""
         import json
-        from voice_typer.text_cleanup import configure_corrections
+        from voice_typer.server.text_cleanup import configure_corrections
         corrections_file = tmp_path / "voice-typer-corrections.json"
         corrections_file.write_text(json.dumps({
             "misspellings": {"customerr": "customer"},

@@ -54,12 +54,12 @@ def mock_heavy_imports(monkeypatch):
     monkeypatch.setitem(sys.modules, "pyperclip", MagicMock())
 
     # Prevent the app's atexit handler from polluting test output.
-    monkeypatch.setattr("voice_typer.app.atexit.register", lambda *a, **kw: None)
+    monkeypatch.setattr("voice_typer.server.app.atexit.register", lambda *a, **kw: None)
 
     # Force PynputHotkey backend so tests can mock pynput.keyboard.GlobalHotKeys.
-    from voice_typer.hotkeys import PynputHotkey
+    from voice_typer.server.hotkeys import PynputHotkey
     monkeypatch.setattr(
-        "voice_typer.app.create_hotkey_backend",
+        "voice_typer.server.app.create_hotkey_backend",
         lambda hotkey_str: PynputHotkey(hotkey_str),
     )
 
@@ -67,19 +67,19 @@ def mock_heavy_imports(monkeypatch):
 @pytest.fixture
 def tmp_config_dir(tmp_path, monkeypatch):
     """Point config to a temp directory."""
-    monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
     return tmp_path
 
 
 @pytest.fixture
 def app(tmp_config_dir, monkeypatch):
     """Create a VoiceTyperApp with mocked dependencies."""
-    monkeypatch.setattr("voice_typer.app.is_autostart_enabled", lambda: False)
-    monkeypatch.setattr("voice_typer.app.enable_autostart", lambda: True)
-    monkeypatch.setattr("voice_typer.app.disable_autostart", lambda: True)
-    monkeypatch.setattr("voice_typer.app.list_microphones", lambda: [])
+    monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
+    monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
+    monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
+    monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
 
-    from voice_typer.app import VoiceTyperApp
+    from voice_typer.server.app import VoiceTyperApp
     instance = VoiceTyperApp()
     # Ensure esc_cancel_enabled is False for deterministic test behavior
     instance.config.esc_cancel_enabled = False
@@ -127,7 +127,7 @@ class TestAppStateTransitions:
         app.recorder.stop.assert_not_called()
 
     def test_short_audio_skips_transcription(self, app, monkeypatch):
-        import voice_typer.app as app_mod
+        import voice_typer.server.app as app_mod
         app_mod.time = MagicMock()
 
         app.recorder = MagicMock()
@@ -337,12 +337,12 @@ class TestConfigWiring:
         config_file = tmp_config_dir / "config.json"
         config_file.write_text(json.dumps({"paste_on_stop": False}))
 
-        monkeypatch.setattr("voice_typer.app.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.app.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.app.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.app.list_microphones", lambda: [])
+        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
 
-        from voice_typer.app import VoiceTyperApp
+        from voice_typer.server.app import VoiceTyperApp
         app = VoiceTyperApp()
 
         assert app.config.paste_on_stop is False
@@ -353,12 +353,12 @@ class TestConfigWiring:
         config_file = tmp_config_dir / "config.json"
         config_file.write_text(json.dumps({"streaming_transcription": False}))
 
-        monkeypatch.setattr("voice_typer.app.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.app.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.app.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.app.list_microphones", lambda: [])
+        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
 
-        from voice_typer.app import VoiceTyperApp
+        from voice_typer.server.app import VoiceTyperApp
         app = VoiceTyperApp()
 
         assert app.config.streaming_transcription is False
@@ -371,15 +371,15 @@ class TestConfigWiring:
             "condition_on_previous_text": True,
         }))
 
-        monkeypatch.setattr("voice_typer.app.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.app.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.app.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.app.list_microphones", lambda: [])
+        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
 
         transcriber_cls = MagicMock()
-        monkeypatch.setattr("voice_typer.app.TranscriptionEngine", transcriber_cls)
+        monkeypatch.setattr("voice_typer.server.app.TranscriptionEngine", transcriber_cls)
 
-        from voice_typer.app import VoiceTyperApp
+        from voice_typer.server.app import VoiceTyperApp
         app = VoiceTyperApp()
         # TranscriptionEngine is now created in _do_startup, not __init__
         app._sync_autostart = MagicMock()
@@ -397,13 +397,13 @@ class TestConfigWiring:
         config_file = tmp_config_dir / "config.json"
         config_file.write_text(json.dumps({"autostart": True}))
 
-        monkeypatch.setattr("voice_typer.app.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
         called = []
-        monkeypatch.setattr("voice_typer.app.enable_autostart", lambda: called.append(True) or True)
-        monkeypatch.setattr("voice_typer.app.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.app.list_microphones", lambda: [])
+        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: called.append(True) or True)
+        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
 
-        from voice_typer.app import VoiceTyperApp
+        from voice_typer.server.app import VoiceTyperApp
         app = VoiceTyperApp()
         app._sync_autostart()
 
@@ -413,13 +413,13 @@ class TestConfigWiring:
         config_file = tmp_config_dir / "config.json"
         config_file.write_text(json.dumps({"autostart": False}))
 
-        monkeypatch.setattr("voice_typer.app.is_autostart_enabled", lambda: True)
-        monkeypatch.setattr("voice_typer.app.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
         called = []
-        monkeypatch.setattr("voice_typer.app.disable_autostart", lambda: called.append(True) or True)
-        monkeypatch.setattr("voice_typer.app.list_microphones", lambda: [])
+        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: called.append(True) or True)
+        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
 
-        from voice_typer.app import VoiceTyperApp
+        from voice_typer.server.app import VoiceTyperApp
         app = VoiceTyperApp()
         app._sync_autostart()
 
@@ -429,7 +429,7 @@ class TestConfigWiring:
 class TestSettingsWindowIntegration:
     def test_show_settings_opens_native_window(self, app, monkeypatch):
         window_cls = MagicMock()
-        monkeypatch.setattr("voice_typer.app.SettingsWindow", window_cls)
+        monkeypatch.setattr("voice_typer.server.app.SettingsWindow", window_cls)
 
         app.show_settings()
 
@@ -450,7 +450,7 @@ class TestSettingsWindowIntegration:
     def test_model_change_uses_config_device(self, app, monkeypatch):
         """_change_model should use self.config.device, not hardcoded cuda."""
         transcriber_cls = MagicMock()
-        monkeypatch.setattr("voice_typer.app.TranscriptionEngine", transcriber_cls)
+        monkeypatch.setattr("voice_typer.server.app.TranscriptionEngine", transcriber_cls)
 
         app.config.device = "cpu"
         app._change_model("medium.en")
@@ -467,7 +467,7 @@ class TestHotkeyMapping:
 
     def test_register_hotkey_creates_backend(self, app, monkeypatch):
         """_register_hotkey should create a hotkey backend and call start()."""
-        from voice_typer.hotkeys import PynputHotkey
+        from voice_typer.server.hotkeys import PynputHotkey
         from pynput.keyboard import GlobalHotKeys
 
         # Ensure GlobalHotKeys works (mock returns a MagicMock with is_alive=True)
@@ -505,17 +505,17 @@ class TestFallbackHotkeyParser:
     """Verify parse_hotkey_to_vk correctly converts hotkey strings."""
 
     def test_parse_f2(self):
-        from voice_typer.hotkeys import parse_hotkey_to_vk
+        from voice_typer.server.hotkeys import parse_hotkey_to_vk
         result = parse_hotkey_to_vk("<f2>")
         assert result == 0x71
 
     def test_parse_f1(self):
-        from voice_typer.hotkeys import parse_hotkey_to_vk
+        from voice_typer.server.hotkeys import parse_hotkey_to_vk
         result = parse_hotkey_to_vk("<f1>")
         assert result == 0x70
 
     def test_parse_f12(self):
-        from voice_typer.hotkeys import parse_hotkey_to_vk
+        from voice_typer.server.hotkeys import parse_hotkey_to_vk
         result = parse_hotkey_to_vk("<f12>")
         assert result == 0x7B
 
@@ -595,7 +595,7 @@ class TestStartDictationBehavior:
 
         app.recorder.start.assert_called_once()
         app.tray.set_state.assert_called_once()
-        from voice_typer.tray import AppState
+        from voice_typer.server.tray import AppState
         args = app.tray.set_state.call_args
         assert args[0][0] == AppState.RECORDING, (
             f"Expected AppState.RECORDING, got {args[0][0]}"
@@ -626,7 +626,7 @@ class TestHotkeyCallbackChain:
         app.transcriber.is_loaded = True
 
         # Simulate what GlobalHotKeys does: call the registered callback directly
-        from voice_typer.tray import AppState
+        from voice_typer.server.tray import AppState
 
         # The callback stored in the hotkey mapping IS app.toggle_dictation
         app.toggle_dictation()
@@ -665,7 +665,7 @@ class TestHotkeyCallbackChain:
         # Simulate the hotkey being pressed
         callback()
 
-        from voice_typer.tray import AppState
+        from voice_typer.server.tray import AppState
         app.recorder.start.assert_called_once()
         args = app.tray.set_state.call_args
         assert args[0][0] == AppState.RECORDING
@@ -703,15 +703,15 @@ class TestAppStartupIntegration:
 
     def test_startup_reaches_do_startup_without_crash(self, tmp_config_dir, monkeypatch):
         """Verify _do_startup runs without crashing (integration)."""
-        monkeypatch.setattr("voice_typer.app.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.app.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.app.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.app.list_microphones", lambda: [])
+        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
 
         # Make transcriber.load() a no-op (don't actually load a model)
-        monkeypatch.setattr("voice_typer.app.TranscriptionEngine", MagicMock())
+        monkeypatch.setattr("voice_typer.server.app.TranscriptionEngine", MagicMock())
 
-        from voice_typer.app import VoiceTyperApp
+        from voice_typer.server.app import VoiceTyperApp
         app = VoiceTyperApp()
 
         # Run _do_startup directly (normally called in a thread by tray.start)
@@ -723,17 +723,17 @@ class TestAppStartupIntegration:
 
     def test_tray_icon_created_on_start(self, tmp_config_dir, monkeypatch):
         """Verify tray.start() creates an icon with menu= wrapped in pystray.Menu."""
-        monkeypatch.setattr("voice_typer.app.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.app.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.app.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.app.list_microphones", lambda: [])
+        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
 
         from tests.test_tray import _FakeIcon, _FakeMenu, _FakeMenuItem
 
-        monkeypatch.setattr("voice_typer.app.TranscriptionEngine", MagicMock())
+        monkeypatch.setattr("voice_typer.server.app.TranscriptionEngine", MagicMock())
 
         # Ensure voice_typer.tray uses our fakes
-        import voice_typer.tray as tray_mod
+        import voice_typer.server.tray as tray_mod
         mock_pystray = MagicMock()
         mock_pystray.Icon = _FakeIcon
         mock_pystray.Menu = _FakeMenu
@@ -741,7 +741,7 @@ class TestAppStartupIntegration:
         mock_pystray.MenuItem = _FakeMenuItem
         monkeypatch.setattr(tray_mod, "pystray", mock_pystray)
 
-        from voice_typer.app import VoiceTyperApp
+        from voice_typer.server.app import VoiceTyperApp
         app = VoiceTyperApp()
 
         # Reset before our call
@@ -782,7 +782,7 @@ class TestTryLoadModel:
 
         app.transcriber.load.assert_called_once()
         app.tray.set_state.assert_called()
-        from voice_typer.tray import AppState
+        from voice_typer.server.tray import AppState
         # The last set_state call should be IDLE
         last_call = app.tray.set_state.call_args_list[-1]
         assert last_call[0][0] == AppState.IDLE
@@ -797,7 +797,7 @@ class TestTryLoadModel:
 
         app._try_load_model()
 
-        from voice_typer.tray import AppState
+        from voice_typer.server.tray import AppState
         last_call = app.tray.set_state.call_args_list[-1]
         assert last_call[0][0] == AppState.ERROR
         assert "retry" in last_call[0][1].lower()
@@ -850,7 +850,7 @@ class TestStreamingIntegration:
 
         session = MagicMock()
         session_cls = MagicMock(return_value=session)
-        monkeypatch.setattr("voice_typer.app.StreamingTranscriptionSession", session_cls, raising=False)
+        monkeypatch.setattr("voice_typer.server.app.StreamingTranscriptionSession", session_cls, raising=False)
 
         app._start_dictation()
 
@@ -897,7 +897,7 @@ class TestStreamingIntegration:
         app.tray = MagicMock()
 
         session_cls = MagicMock()
-        monkeypatch.setattr("voice_typer.app.StreamingTranscriptionSession", session_cls, raising=False)
+        monkeypatch.setattr("voice_typer.server.app.StreamingTranscriptionSession", session_cls, raising=False)
 
         app._start_dictation()
 
@@ -1017,13 +1017,13 @@ class TestStartupNoCrash:
 
     def test_app_construction_no_crash(self, tmp_config_dir, monkeypatch):
         """VoiceTyperApp() should construct without crashing."""
-        monkeypatch.setattr("voice_typer.app.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.app.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.app.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.app.list_microphones", lambda: [])
-        monkeypatch.setattr("voice_typer.app.TranscriptionEngine", MagicMock())
+        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+        monkeypatch.setattr("voice_typer.server.app.TranscriptionEngine", MagicMock())
 
-        from voice_typer.app import VoiceTyperApp
+        from voice_typer.server.app import VoiceTyperApp
         app = VoiceTyperApp()
 
         assert app.config is not None
@@ -1035,15 +1035,15 @@ class TestStartupNoCrash:
 
     def test_tray_start_creates_icon(self, tmp_config_dir, monkeypatch):
         """app.tray.start(bg_work=None) should create the tray icon without crashing."""
-        monkeypatch.setattr("voice_typer.app.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.app.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.app.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.app.list_microphones", lambda: [])
-        monkeypatch.setattr("voice_typer.app.TranscriptionEngine", MagicMock())
+        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+        monkeypatch.setattr("voice_typer.server.app.TranscriptionEngine", MagicMock())
 
         # Ensure tray module uses fakes
         from tests.test_tray import _FakeIcon, _FakeMenu, _FakeMenuItem
-        import voice_typer.tray as tray_mod
+        import voice_typer.server.tray as tray_mod
         mock_pystray = MagicMock()
         mock_pystray.Icon = _FakeIcon
         mock_pystray.Menu = _FakeMenu
@@ -1051,7 +1051,7 @@ class TestStartupNoCrash:
         mock_pystray.MenuItem = _FakeMenuItem
         monkeypatch.setattr(tray_mod, "pystray", mock_pystray)
 
-        from voice_typer.app import VoiceTyperApp
+        from voice_typer.server.app import VoiceTyperApp
         app = VoiceTyperApp()
 
         _FakeIcon.last_kwargs = {}
@@ -1068,7 +1068,7 @@ class TestTextCleanupConfig:
 
     def test_cleanup_skipped_when_disabled(self, app):
         """When config.text_cleanup_enabled=False, should not call cleanup."""
-        from voice_typer import text_cleanup as tc_mod
+        from voice_typer.server import text_cleanup as tc_mod
         original = tc_mod.clean_transcribed_text
         called = False
 
@@ -1088,7 +1088,7 @@ class TestTextCleanupConfig:
         app.recorder.stop = MagicMock(return_value=np.ones(16000, dtype=np.float32))
         app.recorder.last_rms = 0.5
 
-        import voice_typer.app as app_mod
+        import voice_typer.server.app as app_mod
         monkeypatch = pytest.MonkeyPatch()
         monkeypatch.setattr(app_mod, "clean_transcribed_text", spy)
         try:
@@ -1099,14 +1099,14 @@ class TestTextCleanupConfig:
         assert not called, "clean_transcribed_text should NOT be called when disabled"
 
     def test_cleanup_applied_when_enabled(self):
-        from voice_typer.text_cleanup import clean_transcribed_text
+        from voice_typer.server.text_cleanup import clean_transcribed_text
         text = "this is a test of the cleanup"
         result = clean_transcribed_text(text)
         # Cleanup applies capitalization and other transforms
         assert result == "This is a test of the cleanup"
 
     def test_cleanup_applied_when_enabled_streaming(self):
-        from voice_typer.text_cleanup import clean_transcribed_text
+        from voice_typer.server.text_cleanup import clean_transcribed_text
         text = "this is a test of the cleanup"
         result = clean_transcribed_text(text)
         # Cleanup applies capitalization and other transforms
@@ -1176,14 +1176,14 @@ class TestExternalCorrectionsWiring:
 
     def test_configure_corrections_called_at_startup(self, app, monkeypatch):
         """_do_startup should call configure_corrections with config_dir."""
-        from voice_typer import text_cleanup
+        from voice_typer.server import text_cleanup
         called_with = {}
 
         def spy(config_dir=None, corrections_path=None):
             called_with["config_dir"] = config_dir
 
         # Patch the name in app's namespace (from X import Y creates local ref)
-        monkeypatch.setattr("voice_typer.app.configure_corrections", spy)
+        monkeypatch.setattr("voice_typer.server.app.configure_corrections", spy)
         app._settings_window = None
         app._do_startup()
         assert called_with.get("config_dir") == app.config.config_dir, (
@@ -1210,7 +1210,7 @@ class TestWin32ConsoleHandler:
 
     def test_ctrl_logoff_event_starts_quit_thread(self, app):
         """CTRL_LOGOFF_EVENT should start a quit thread."""
-        with patch('voice_typer.app.threading.Thread') as mock_thread:
+        with patch('voice_typer.server.app.threading.Thread') as mock_thread:
             mock_thread_instance = MagicMock()
             mock_thread.return_value = mock_thread_instance
             result = app._win32_console_handler(5)  # CTRL_LOGOFF_EVENT
@@ -1219,7 +1219,7 @@ class TestWin32ConsoleHandler:
 
     def test_ctrl_shutdown_event_starts_quit_thread(self, app):
         """CTRL_SHUTDOWN_EVENT should start a quit thread."""
-        with patch('voice_typer.app.threading.Thread') as mock_thread:
+        with patch('voice_typer.server.app.threading.Thread') as mock_thread:
             mock_thread_instance = MagicMock()
             mock_thread.return_value = mock_thread_instance
             result = app._win32_console_handler(6)  # CTRL_SHUTDOWN_EVENT
@@ -1228,7 +1228,7 @@ class TestWin32ConsoleHandler:
 
     def test_ctrl_c_event_starts_quit_thread(self, app):
         """CTRL_C_EVENT should start a quit thread."""
-        with patch('voice_typer.app.threading.Thread') as mock_thread:
+        with patch('voice_typer.server.app.threading.Thread') as mock_thread:
             mock_thread_instance = MagicMock()
             mock_thread.return_value = mock_thread_instance
             result = app._win32_console_handler(0)  # CTRL_C_EVENT

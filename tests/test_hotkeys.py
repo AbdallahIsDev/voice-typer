@@ -19,28 +19,28 @@ class TestCreateHotkeyBackend:
 
     def test_returns_pynput_hotkey_on_linux(self, monkeypatch):
         monkeypatch.setattr(sys, "platform", "linux")
-        from voice_typer.hotkeys import create_hotkey_backend, PynputHotkey
+        from voice_typer.server.hotkeys import create_hotkey_backend, PynputHotkey
 
         backend = create_hotkey_backend("<f2>")
         assert isinstance(backend, PynputHotkey)
 
     def test_returns_pynput_hotkey_on_darwin(self, monkeypatch):
         monkeypatch.setattr(sys, "platform", "darwin")
-        from voice_typer.hotkeys import create_hotkey_backend, PynputHotkey
+        from voice_typer.server.hotkeys import create_hotkey_backend, PynputHotkey
 
         backend = create_hotkey_backend("<f2>")
         assert isinstance(backend, PynputHotkey)
 
     def test_returns_windows_native_on_win32(self, monkeypatch):
         monkeypatch.setattr(sys, "platform", "win32")
-        from voice_typer.hotkeys import create_hotkey_backend, WindowsNativeHotkey
+        from voice_typer.server.hotkeys import create_hotkey_backend, WindowsNativeHotkey
 
         backend = create_hotkey_backend("<f2>")
         assert isinstance(backend, WindowsNativeHotkey)
 
     def test_backend_has_hotkey_str(self, monkeypatch):
         monkeypatch.setattr(sys, "platform", "linux")
-        from voice_typer.hotkeys import create_hotkey_backend
+        from voice_typer.server.hotkeys import create_hotkey_backend
 
         backend = create_hotkey_backend("<f12>")
         assert backend.hotkey_str == "<f12>"
@@ -53,51 +53,51 @@ class TestParseHotkeyToVk:
     """Verify WindowsNativeHotkey can parse hotkey strings to VK codes."""
 
     def test_f1(self):
-        from voice_typer.hotkeys import parse_hotkey_to_vk
+        from voice_typer.server.hotkeys import parse_hotkey_to_vk
         assert parse_hotkey_to_vk("<f1>") == 0x70
 
     def test_f2(self):
-        from voice_typer.hotkeys import parse_hotkey_to_vk
+        from voice_typer.server.hotkeys import parse_hotkey_to_vk
         assert parse_hotkey_to_vk("<f2>") == 0x71
 
     def test_f12(self):
-        from voice_typer.hotkeys import parse_hotkey_to_vk
+        from voice_typer.server.hotkeys import parse_hotkey_to_vk
         assert parse_hotkey_to_vk("<f12>") == 0x7B
 
     def test_f24(self):
-        from voice_typer.hotkeys import parse_hotkey_to_vk
+        from voice_typer.server.hotkeys import parse_hotkey_to_vk
         assert parse_hotkey_to_vk("<f24>") == 0x87
 
     def test_digit(self):
-        from voice_typer.hotkeys import parse_hotkey_to_vk
+        from voice_typer.server.hotkeys import parse_hotkey_to_vk
         assert parse_hotkey_to_vk("0") == ord("0")
         assert parse_hotkey_to_vk("9") == ord("9")
 
     def test_letter(self):
-        from voice_typer.hotkeys import parse_hotkey_to_vk
+        from voice_typer.server.hotkeys import parse_hotkey_to_vk
         assert parse_hotkey_to_vk("a") == ord("A")
         assert parse_hotkey_to_vk("z") == ord("Z")
 
     def test_unknown_returns_none(self):
-        from voice_typer.hotkeys import parse_hotkey_to_vk
+        from voice_typer.server.hotkeys import parse_hotkey_to_vk
         assert parse_hotkey_to_vk("<ctrl>") is None
         assert parse_hotkey_to_vk("<super>") is None
 
     def test_angle_brackets_stripped(self):
-        from voice_typer.hotkeys import parse_hotkey_to_vk
+        from voice_typer.server.hotkeys import parse_hotkey_to_vk
         assert parse_hotkey_to_vk("<f5>") == parse_hotkey_to_vk("f5")
 
 
 class TestParseHotkeyToWin32:
     def test_ctrl_digit_parses_key_and_modifier(self):
-        from voice_typer.hotkeys import parse_hotkey_to_win32
+        from voice_typer.server.hotkeys import parse_hotkey_to_win32
 
         parsed = parse_hotkey_to_win32("<ctrl>+1")
 
         assert parsed == (ord("1"), 0x0002)
 
     def test_plain_function_key_has_no_modifier(self):
-        from voice_typer.hotkeys import parse_hotkey_to_win32
+        from voice_typer.server.hotkeys import parse_hotkey_to_win32
 
         parsed = parse_hotkey_to_win32("<f2>")
 
@@ -124,7 +124,7 @@ class TestPynputHotkey:
         mock_listener.is_alive.return_value = True
         mock_kb.GlobalHotKeys = MagicMock(return_value=mock_listener)
 
-        from voice_typer.hotkeys import PynputHotkey
+        from voice_typer.server.hotkeys import PynputHotkey
 
         backend = PynputHotkey("<f2>")
         cb = MagicMock()
@@ -140,7 +140,7 @@ class TestPynputHotkey:
         mock_listener.is_alive.return_value = True
         mock_kb.GlobalHotKeys = MagicMock(return_value=mock_listener)
 
-        from voice_typer.hotkeys import PynputHotkey
+        from voice_typer.server.hotkeys import PynputHotkey
 
         backend = PynputHotkey("<f2>")
         backend.start(MagicMock())
@@ -158,7 +158,7 @@ class TestPynputHotkey:
         fallback_listener.is_alive.return_value = True
         mock_kb.Listener = MagicMock(return_value=fallback_listener)
 
-        from voice_typer.hotkeys import PynputHotkey
+        from voice_typer.server.hotkeys import PynputHotkey
 
         backend = PynputHotkey("<f2>")
         backend.start(MagicMock())
@@ -173,7 +173,7 @@ class TestPynputHotkey:
         mock_kb.GlobalHotKeys = MagicMock(side_effect=Exception("no display"))
         mock_kb.Listener = MagicMock(side_effect=Exception("no input"))
 
-        from voice_typer.hotkeys import PynputHotkey
+        from voice_typer.server.hotkeys import PynputHotkey
 
         backend = PynputHotkey("<f2>")
         # Should not raise
@@ -184,7 +184,7 @@ class TestPynputHotkey:
         mock_kb = self._make_mock_modules(monkeypatch)
 
         # Initially not alive
-        from voice_typer.hotkeys import PynputHotkey
+        from voice_typer.server.hotkeys import PynputHotkey
         backend = PynputHotkey("<f2>")
         assert backend.is_alive() is False
 
@@ -201,7 +201,7 @@ class TestPynputHotkey:
 
     def test_diagnose_before_start(self, monkeypatch):
         self._make_mock_modules(monkeypatch)
-        from voice_typer.hotkeys import PynputHotkey
+        from voice_typer.server.hotkeys import PynputHotkey
 
         backend = PynputHotkey("<f2>")
         info = backend.diagnose()
@@ -215,7 +215,7 @@ class TestPynputHotkey:
         mock_listener.daemon = True
         mock_kb.GlobalHotKeys = MagicMock(return_value=mock_listener)
 
-        from voice_typer.hotkeys import PynputHotkey
+        from voice_typer.server.hotkeys import PynputHotkey
 
         backend = PynputHotkey("<f2>")
         backend.start(MagicMock())
@@ -231,7 +231,7 @@ class TestPynputHotkey:
         mock_listener.is_alive.return_value = True
         mock_kb.GlobalHotKeys = MagicMock(return_value=mock_listener)
 
-        from voice_typer.hotkeys import PynputHotkey
+        from voice_typer.server.hotkeys import PynputHotkey
 
         backend = PynputHotkey("<f2>")
         backend.start(MagicMock())
@@ -267,27 +267,27 @@ class TestWindowsNativeHotkey:
         return mock_user32
 
     def test_start_raises_for_invalid_vk(self):
-        from voice_typer.hotkeys import WindowsNativeHotkey
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<ctrl>")
         with pytest.raises(ValueError, match="Cannot parse"):
             backend.start(MagicMock())
 
     def test_is_alive_before_start(self):
-        from voice_typer.hotkeys import WindowsNativeHotkey
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<f2>")
         assert backend.is_alive() is False
 
     def test_diagnose_before_start(self):
-        from voice_typer.hotkeys import WindowsNativeHotkey
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<f2>")
         info = backend.diagnose()
         assert "no thread" in info.lower()
 
     def test_stop_is_idempotent(self):
-        from voice_typer.hotkeys import WindowsNativeHotkey
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<f2>")
         # Calling stop before start should not raise
@@ -295,11 +295,11 @@ class TestWindowsNativeHotkey:
         backend.stop()
 
     def test_vk_code_stored(self):
-        from voice_typer.hotkeys import WindowsNativeHotkey
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<f2>")
         # VK is only populated when start() is called, but we can check parse_hotkey_to_vk
-        from voice_typer.hotkeys import parse_hotkey_to_vk
+        from voice_typer.server.hotkeys import parse_hotkey_to_vk
         vk = parse_hotkey_to_vk("<f2>")
         assert vk == 0x71  # F2
 
@@ -311,7 +311,7 @@ class TestHotkeyBackendABC:
     """Verify the abstract base cannot be instantiated directly."""
 
     def test_cannot_instantiate(self):
-        from voice_typer.hotkeys import HotkeyBackend
+        from voice_typer.server.hotkeys import HotkeyBackend
 
         with pytest.raises(TypeError):
             HotkeyBackend("<f2>")  # pyrefly: ignore[bad-instantiation,missing-argument]
@@ -329,7 +329,7 @@ class TestRealLifecycle:
     """
 
     def test_lifecycle_no_crash(self):
-        from voice_typer.hotkeys import create_hotkey_backend
+        from voice_typer.server.hotkeys import create_hotkey_backend
 
         backend = create_hotkey_backend("<f2>")
         callback_fired = []

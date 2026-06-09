@@ -44,7 +44,7 @@ def main():
         import os
         os.environ["VOICE_TYPER_DEBUG"] = "1"
 
-    from voice_typer.app import main as app_main
+    from voice_typer.server.app import main as app_main
     app_main()
 
 

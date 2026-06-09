@@ -74,7 +74,7 @@ def mock_heavy_imports(monkeypatch):
     mock_pystray.MenuItem = _FakeMenuItem
     monkeypatch.setitem(sys.modules, "pystray", mock_pystray)
 
-    import voice_typer.tray as tray_mod
+    import voice_typer.server.tray as tray_mod
     monkeypatch.setattr(tray_mod, "pystray", mock_pystray)
 
     mock_pil = MagicMock()
@@ -125,7 +125,7 @@ class _MockController:
 
 @pytest.fixture
 def tray():
-    from voice_typer.tray import TrayIcon
+    from voice_typer.server.tray import TrayIcon
     _FakeIcon.last_kwargs = {}
     controller = _MockController()
     for method_name in [
@@ -186,7 +186,7 @@ class TestPhase2MinimalMenu:
         assert any("Quit" in l for l in labels)
 
     def test_toggle_label_includes_current_hotkey(self):
-        from voice_typer.tray import TrayIcon
+        from voice_typer.server.tray import TrayIcon
         controller = _MockController()
         tray = TrayIcon(
             controller=controller,
@@ -269,13 +269,13 @@ class TestTrayRunBlocksMainThread:
 
 class TestTrayPendingState:
     def test_state_before_run_is_queued(self, tray):
-        from voice_typer.tray import AppState
+        from voice_typer.server.tray import AppState
         tray.set_state(AppState.LOADING, "Loading model...")
         assert len(tray._pending_states) == 1
         assert tray._pending_states[0] == (AppState.LOADING, "Loading model...")
 
     def test_pending_state_flushed_on_run(self, tray):
-        from voice_typer.tray import AppState
+        from voice_typer.server.tray import AppState
         tray.set_state(AppState.LOADING, "Starting...")
         tray.start(bg_work=None)
         tray.run()

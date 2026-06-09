@@ -5,7 +5,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch
 
-from voice_typer.config import Config, _config_dir
+from voice_typer.server.config import Config, _config_dir
 
 
 class TestConfigDefaults:
@@ -39,7 +39,7 @@ class TestConfigDefaults:
 
 class TestConfigLoadSave:
     def test_save_creates_config_file(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         c = Config(hotkey="<f3>", autostart=True)
         c.save()
 
@@ -51,13 +51,13 @@ class TestConfigLoadSave:
         assert data["autostart"] is True
 
     def test_load_returns_defaults_when_no_file(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         c = Config.load()
         assert c.hotkey == "<f2>"
         assert c.autostart is True
 
     def test_load_reads_existing_file(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({
             "hotkey": "<f9>",
@@ -78,7 +78,7 @@ class TestConfigLoadSave:
     def test_load_preserves_user_device_and_paste_settings(self, tmp_path, monkeypatch):
         """P1 fix: User's device, paste_on_stop, and streaming_transcription
         values in config.json must survive load() without being overridden."""
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({
             "streaming_transcription": False,
@@ -93,7 +93,7 @@ class TestConfigLoadSave:
         assert c.device == "cpu"
 
     def test_load_raises_streaming_overlap_and_guard_to_safer_minimums(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({
             "streaming_left_overlap_seconds": 2.0,
@@ -109,7 +109,7 @@ class TestConfigLoadSave:
     def test_load_normalizes_legacy_or_unsupported_model_to_small_en(
         self, tmp_path, monkeypatch, legacy_model
     ):
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"model_size": legacy_model}))
 
@@ -117,7 +117,7 @@ class TestConfigLoadSave:
         assert c.model_size == "small.en"
 
     def test_load_keeps_medium_en_model(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"model_size": "medium.en"}))
 
@@ -125,7 +125,7 @@ class TestConfigLoadSave:
         assert c.model_size == "medium.en"
 
     def test_load_ignores_unknown_keys(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({
             "hotkey": "<f5>",
@@ -137,7 +137,7 @@ class TestConfigLoadSave:
         assert not hasattr(c, "bogus_key")
 
     def test_load_returns_defaults_on_corrupt_file(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         config_file = tmp_path / "config.json"
         config_file.write_text("NOT VALID JSON {{{")
 
@@ -147,18 +147,18 @@ class TestConfigLoadSave:
     def test_load_logs_error_on_corrupt_file(self, tmp_path, monkeypatch, caplog):
         """P1 fix: Config.load() must log errors instead of silently swallowing them."""
         import logging
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         config_file = tmp_path / "config.json"
         config_file.write_text("NOT VALID JSON {{{")
 
-        with caplog.at_level(logging.ERROR, logger="voice_typer.config"):
+        with caplog.at_level(logging.ERROR, logger="voice_typer.server.config"):
             c = Config.load()
 
         assert any("corrupted" in r.message.lower() or "failed to load" in r.message.lower()
                     for r in caplog.records)
 
     def test_round_trip(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         c1 = Config(
             hotkey="<f7>",
             microphone="Blue Yeti",
@@ -205,7 +205,7 @@ class TestConfigPathValidation:
 
     def test_qwen_model_path_invalid_resets_to_none(self, tmp_path, monkeypatch):
         """If qwen_model_path points to a non-existent directory, reset to None."""
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({
             "asr_backend": "qwen",
@@ -217,7 +217,7 @@ class TestConfigPathValidation:
 
     def test_qwen_model_path_file_not_dir_resets_to_none(self, tmp_path, monkeypatch):
         """If qwen_model_path points to a file (not a directory), reset to None."""
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         # Create a file (not a directory) at the path
         fake_model = tmp_path / "model_file"
         fake_model.write_text("not a directory")
@@ -231,7 +231,7 @@ class TestConfigPathValidation:
 
     def test_qwen_model_path_valid_dir_preserved(self, tmp_path, monkeypatch):
         """If qwen_model_path points to an existing directory, preserve it."""
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         model_dir = tmp_path / "qwen_model"
         model_dir.mkdir()
         config_file = tmp_path / "config.json"
@@ -244,7 +244,7 @@ class TestConfigPathValidation:
 
     def test_corrections_path_invalid_resets_to_none(self, tmp_path, monkeypatch):
         """If corrections_path points to a non-existent file, reset to None."""
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({
             "corrections_path": "/nonexistent/corrections.json",
@@ -255,7 +255,7 @@ class TestConfigPathValidation:
 
     def test_corrections_path_dir_not_file_resets_to_none(self, tmp_path, monkeypatch):
         """If corrections_path points to a directory (not a file), reset to None."""
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         corrections_dir = tmp_path / "corrections_dir"
         corrections_dir.mkdir()
         config_file = tmp_path / "config.json"
@@ -268,7 +268,7 @@ class TestConfigPathValidation:
 
     def test_corrections_path_valid_file_preserved(self, tmp_path, monkeypatch):
         """If corrections_path points to an existing file, preserve it."""
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         corrections_file = tmp_path / "corrections.json"
         corrections_file.write_text('{"misspellings": {}}')
         config_file = tmp_path / "config.json"
@@ -281,7 +281,7 @@ class TestConfigPathValidation:
 
     def test_none_paths_pass_validation(self, tmp_path, monkeypatch):
         """None values for qwen_model_path and corrections_path are valid."""
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({
             "qwen_model_path": None,
@@ -298,7 +298,7 @@ class TestAtomicConfigSave:
 
     def test_save_uses_tmp_file_then_replace(self, tmp_path, monkeypatch):
         """save() writes to .tmp first then atomically replaces config.json."""
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         c = Config(hotkey="<f5>")
         c.save()
 
@@ -313,7 +313,7 @@ class TestAtomicConfigSave:
 
     def test_save_preserves_existing_config_on_partial_write(self, tmp_path, monkeypatch):
         """If a write fails mid-stream, the existing config.json is preserved."""
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         c1 = Config(hotkey="<f3>")
         c1.save()
 
@@ -331,7 +331,7 @@ class TestAtomicConfigSave:
 
     def test_no_stale_tmp_file_after_successful_save(self, tmp_path, monkeypatch):
         """After a successful save, no .tmp file should remain."""
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         c = Config()
         c.save()
 
@@ -344,7 +344,7 @@ class TestH1NonNumericFieldValidation:
 
     def test_bool_field_coerces_truthy_string(self, tmp_path, monkeypatch):
         """Non-bool truthy value for bool field should be coerced."""
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"autostart": "true"}))
         c = Config.load()
@@ -352,7 +352,7 @@ class TestH1NonNumericFieldValidation:
 
     def test_bool_field_coerces_zero(self, tmp_path, monkeypatch):
         """Zero for bool field should be coerced to False."""
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"paste_on_stop": 0}))
         c = Config.load()
@@ -360,7 +360,7 @@ class TestH1NonNumericFieldValidation:
 
     def test_bool_field_resets_invalid_value(self, tmp_path, monkeypatch):
         """Invalid value for bool field should reset to default."""
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"autostart": [1, 2]}))
         c = Config.load()
@@ -368,7 +368,7 @@ class TestH1NonNumericFieldValidation:
 
     def test_str_field_resets_non_string(self, tmp_path, monkeypatch):
         """Non-string value for str field should reset to default."""
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"hotkey": 42}))
         c = Config.load()
@@ -376,7 +376,7 @@ class TestH1NonNumericFieldValidation:
 
     def test_str_field_keeps_valid_string(self, tmp_path, monkeypatch):
         """Valid string value for str field should be preserved."""
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"language": "fr"}))
         c = Config.load()
@@ -395,23 +395,23 @@ class TestM3ConfigSchemaVersion:
     """M3: No config schema versioning."""
 
     def test_config_has_schema_version_field(self):
-        from voice_typer.config import Config
+        from voice_typer.server.config import Config
         c = Config()
         assert hasattr(c, "schema_version")
         assert c.schema_version == 1
 
     def test_config_save_load_preserves_schema_version(self, tmp_path, monkeypatch):
-        from voice_typer.config import Config
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        from voice_typer.server.config import Config
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         c = Config()
         c.save()
         loaded = Config.load()
         assert loaded.schema_version == 1
 
     def test_config_migration_from_version_0(self, tmp_path, monkeypatch):
-        from voice_typer.config import Config
+        from voice_typer.server.config import Config
         import json
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"hotkey": "<f3>", "model_size": "small.en"}))
         loaded = Config.load()
@@ -423,8 +423,8 @@ class TestM4SaveErrorHandling:
     """M4: save() has no error handling."""
 
     def test_save_returns_false_on_permission_error(self, tmp_path, monkeypatch):
-        from voice_typer.config import Config
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        from voice_typer.server.config import Config
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         c = Config()
         import json
         original_dump = json.dump
@@ -435,8 +435,8 @@ class TestM4SaveErrorHandling:
         assert result is False
 
     def test_save_returns_true_on_success(self, tmp_path, monkeypatch):
-        from voice_typer.config import Config
-        monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+        from voice_typer.server.config import Config
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         c = Config()
         result = c.save()
         assert result is True

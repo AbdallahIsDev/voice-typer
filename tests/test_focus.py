@@ -15,7 +15,7 @@ heavy ctypes mocking (which causes stack overflow with MagicMock).
 import sys
 import pytest
 
-from voice_typer.focus import (
+from voice_typer.server.focus import (
     is_text_input_focused,
     _class_matches,
     _get_process_name,

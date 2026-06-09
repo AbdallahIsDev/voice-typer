@@ -7,7 +7,7 @@ from pathlib import Path
 @pytest.fixture
 def db(tmp_path):
     """Create a HistoryDB with a temp path."""
-    from voice_typer.history_db import HistoryDB
+    from voice_typer.server.history_db import HistoryDB
     db_instance = HistoryDB(db_path=tmp_path / "test_history.db")
     yield db_instance
     db_instance.close()

@@ -8,14 +8,14 @@ from pathlib import Path
 @pytest.fixture
 def onboarding_dir(tmp_path, monkeypatch):
     """Point config to a temp directory."""
-    monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
     return tmp_path
 
 
 @pytest.fixture
 def ctrl(onboarding_dir):
     """Create an OnboardingController with temp dir."""
-    from voice_typer.onboarding import OnboardingController
+    from voice_typer.server.onboarding import OnboardingController
     return OnboardingController(config_dir=onboarding_dir)
 
 
@@ -25,7 +25,7 @@ class TestOnboardingFirstRun:
 
     def test_not_first_run_with_config(self, onboarding_dir):
         (onboarding_dir / "config.json").write_text("{}", encoding="utf-8")
-        from voice_typer.onboarding import OnboardingController
+        from voice_typer.server.onboarding import OnboardingController
         ctrl = OnboardingController(config_dir=onboarding_dir)
         assert ctrl.is_first_run() is False
 

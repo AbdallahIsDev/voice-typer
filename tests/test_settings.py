@@ -4,8 +4,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from voice_typer.config import Config
-from voice_typer.settings import (
+from voice_typer.server.config import Config
+from voice_typer.server.settings import (
     ALLOWED_MODELS,
     SettingsController,
     display_hotkey,

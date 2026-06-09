@@ -28,11 +28,11 @@ class TestFallbackChain:
 
     def test_chain_includes_float32_last_resort(self):
         """The fallback chain must include CPU/float32/tiny.en as the last resort."""
-        from voice_typer.transcription import TranscriptionEngine
+        from voice_typer.server.transcription import TranscriptionEngine
 
         engine = TranscriptionEngine(model_size="small.en", device="auto")
         # Force all WhisperModel calls to fail
-        import voice_typer.transcription as mod
+        import voice_typer.server.transcription as mod
         mod_obj = sys.modules.get("faster_whisper")
         # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.side_effect = RuntimeError("mkl_malloc: failed to allocate memory")
@@ -52,10 +52,10 @@ class TestFallbackChain:
 
     def test_chain_tries_preferred_device_first(self):
         """First attempt should use the configured device/compute type."""
-        from voice_typer.transcription import TranscriptionEngine
+        from voice_typer.server.transcription import TranscriptionEngine
 
         engine = TranscriptionEngine(model_size="small.en", device="cuda")
-        import voice_typer.transcription as mod
+        import voice_typer.server.transcription as mod
         mod_obj = sys.modules.get("faster_whisper")
         # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.side_effect = RuntimeError("fail")
@@ -71,10 +71,10 @@ class TestFallbackChain:
 
     def test_chain_falls_through_to_cpu_int8(self):
         """After CUDA fails, should try CPU/int8 with same model."""
-        from voice_typer.transcription import TranscriptionEngine
+        from voice_typer.server.transcription import TranscriptionEngine
 
         engine = TranscriptionEngine(model_size="small.en", device="cuda")
-        import voice_typer.transcription as mod
+        import voice_typer.server.transcription as mod
         mod_obj = sys.modules.get("faster_whisper")
         # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.side_effect = RuntimeError("fail")
@@ -93,10 +93,10 @@ class TestFallbackChain:
 
     def test_chain_tries_tiny_en_before_float32(self):
         """Should try CPU/int8/tiny.en before CPU/float32/tiny.en."""
-        from voice_typer.transcription import TranscriptionEngine
+        from voice_typer.server.transcription import TranscriptionEngine
 
         engine = TranscriptionEngine(model_size="medium.en", device="cuda")
-        import voice_typer.transcription as mod
+        import voice_typer.server.transcription as mod
         mod_obj = sys.modules.get("faster_whisper")
         # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.side_effect = RuntimeError("fail")
@@ -117,11 +117,11 @@ class TestFallbackChain:
 
     def test_succeeds_on_fallback(self):
         """If preferred fails but fallback succeeds, load() should succeed."""
-        from voice_typer.transcription import TranscriptionEngine
+        from voice_typer.server.transcription import TranscriptionEngine
 
         engine = TranscriptionEngine(model_size="small.en", device="cuda")
         mock_model = MagicMock()
-        import voice_typer.transcription as mod
+        import voice_typer.server.transcription as mod
         mod_obj = sys.modules.get("faster_whisper")
 
         # First call (CUDA) fails, second call (CPU/int8) succeeds
@@ -140,11 +140,11 @@ class TestFallbackChain:
 
     def test_float32_success_updates_device_info(self):
         """If only float32 succeeds, device_info should reflect that."""
-        from voice_typer.transcription import TranscriptionEngine
+        from voice_typer.server.transcription import TranscriptionEngine
 
         engine = TranscriptionEngine(model_size="small.en", device="cuda")
         mock_model = MagicMock()
-        import voice_typer.transcription as mod
+        import voice_typer.server.transcription as mod
         mod_obj = sys.modules.get("faster_whisper")
 
         # All fail except the last (float32/tiny.en)
@@ -167,16 +167,17 @@ class TestFallbackChain:
 
     def test_loaded_via_reflects_actual_path(self):
         """loaded_via should show which fallback path was used."""
-        from voice_typer.transcription import TranscriptionEngine
+        from voice_typer.server.transcription import TranscriptionEngine
 
         engine = TranscriptionEngine(model_size="small.en", device="auto")
         mock_model = MagicMock()
-        import voice_typer.transcription as mod
+        import voice_typer.server.transcription as mod
         mod_obj = sys.modules.get("faster_whisper")
 
         # Force resolution to CPU (auto with no CUDA)
         engine._device = "cpu"
         engine._compute_type = "int8"
+        engine._requested_device = None  # prevent _resolve_device_once() from re-detecting CUDA
 
         # First try (cpu/int8/small.en) succeeds
         # pyrefly: ignore [missing-attribute]
@@ -189,7 +190,7 @@ class TestFallbackChain:
 
 class TestNvidiaDllPaths:
     def test_configure_nvidia_dll_paths_adds_wheel_bins(self, tmp_path, monkeypatch):
-        import voice_typer.transcription as mod
+        import voice_typer.server.transcription as mod
 
         cublas_bin = tmp_path / "nvidia" / "cublas" / "bin"
         cudnn_bin = tmp_path / "nvidia" / "cudnn" / "bin"
@@ -222,11 +223,11 @@ class TestLoadIdempotent:
     """Calling load() twice should not re-download or re-initialize."""
 
     def test_second_load_is_noop(self):
-        from voice_typer.transcription import TranscriptionEngine
+        from voice_typer.server.transcription import TranscriptionEngine
 
         engine = TranscriptionEngine(model_size="small.en", device="cpu")
         mock_model = MagicMock()
-        import voice_typer.transcription as mod
+        import voice_typer.server.transcription as mod
         mod_obj = sys.modules.get("faster_whisper")
         # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.return_value = mock_model
@@ -244,7 +245,7 @@ class TestTranscribeWithFallback:
     """Verify transcribe_with_fallback handles GPU errors and retries on CPU."""
 
     def _make_engine_with_model(self):
-        from voice_typer.transcription import TranscriptionEngine
+        from voice_typer.server.transcription import TranscriptionEngine
         engine = TranscriptionEngine(model_size="small.en", device="cuda")
         engine._device = "cuda"
         engine._compute_type = "float16"
@@ -272,7 +273,7 @@ class TestTranscribeWithFallback:
     def test_custom_decode_settings_are_passed_to_model(self):
         """Configurable decode settings should reach faster-whisper."""
         import numpy as np
-        from voice_typer.transcription import TranscriptionEngine
+        from voice_typer.server.transcription import TranscriptionEngine
 
         engine = TranscriptionEngine(
             model_size="small.en",
@@ -297,7 +298,7 @@ class TestTranscribeWithFallback:
     def test_gpu_error_triggers_cpu_fallback(self):
         """GPU cuBLAS error triggers model reload on CPU and retry."""
         import numpy as np
-        import voice_typer.transcription as mod
+        import voice_typer.server.transcription as mod
         mod_obj = sys.modules.get("faster_whisper")
 
         engine, mock_model = self._make_engine_with_model()
@@ -322,8 +323,8 @@ class TestTranscribeWithFallback:
     def test_transcribe_words_gpu_error_triggers_cpu_fallback(self):
         """Timestamped streaming transcription should use the same GPU fallback."""
         import numpy as np
-        import voice_typer.transcription as mod
-        from voice_typer.streaming import WordTiming
+        import voice_typer.server.transcription as mod
+        from voice_typer.server.streaming import WordTiming
         mod_obj = sys.modules.get("faster_whisper")
 
         engine, mock_model = self._make_engine_with_model()
@@ -442,8 +443,8 @@ class TestTranscribeWords:
     def test_transcribe_words_passes_timestamp_options_and_applies_offset(self):
         import numpy as np
 
-        from voice_typer.streaming import WordTiming
-        from voice_typer.transcription import TranscriptionEngine
+        from voice_typer.server.streaming import WordTiming
+        from voice_typer.server.transcription import TranscriptionEngine
 
         engine = TranscriptionEngine(model_size="small.en", device="cpu")
         mock_model = MagicMock()
@@ -470,7 +471,7 @@ class TestTranscribeWords:
 
     def test_transcribe_words_empty_audio_returns_empty_without_calling_model(self):
         import numpy as np
-        from voice_typer.transcription import TranscriptionEngine
+        from voice_typer.server.transcription import TranscriptionEngine
 
         engine = TranscriptionEngine(model_size="small.en", device="cpu")
         mock_model = MagicMock()
@@ -481,7 +482,7 @@ class TestTranscribeWords:
 
     def test_model_operations_are_guarded_by_engine_lock(self, monkeypatch):
         import numpy as np
-        from voice_typer.transcription import TranscriptionEngine
+        from voice_typer.server.transcription import TranscriptionEngine
 
         class TrackingLock:
             def __init__(self):
@@ -523,8 +524,8 @@ class TestM9GpuMemoryFree:
         """GPU fallback should del model and gc.collect before reload."""
         import gc as real_gc
         import numpy as np
-        from voice_typer.transcription import TranscriptionEngine
-        import voice_typer.transcription as mod
+        from voice_typer.server.transcription import TranscriptionEngine
+        import voice_typer.server.transcription as mod
 
         engine = TranscriptionEngine(model_size="small.en", device="cuda")
         engine._device = "cuda"
@@ -556,8 +557,8 @@ class TestM9GpuMemoryFree:
         """GPU words fallback should del model and gc.collect before reload."""
         import gc as real_gc
         import numpy as np
-        from voice_typer.transcription import TranscriptionEngine
-        import voice_typer.transcription as mod
+        from voice_typer.server.transcription import TranscriptionEngine
+        import voice_typer.server.transcription as mod
 
         engine = TranscriptionEngine(model_size="small.en", device="cuda")
         engine._device = "cuda"
@@ -587,7 +588,7 @@ class TestM11GpuRuntimeErrorTypeCheck:
 
     def test_detects_cublas_exception_type(self):
         """Exceptions with cuBLAS in their type name should be detected."""
-        from voice_typer.transcription import TranscriptionEngine
+        from voice_typer.server.transcription import TranscriptionEngine
 
         engine = TranscriptionEngine(model_size="small.en", device="cuda")
         engine._device = "cuda"
@@ -599,7 +600,7 @@ class TestM11GpuRuntimeErrorTypeCheck:
 
     def test_detects_cuda_string_in_message(self):
         """String 'cuda' in error message should still be detected."""
-        from voice_typer.transcription import TranscriptionEngine
+        from voice_typer.server.transcription import TranscriptionEngine
 
         engine = TranscriptionEngine(model_size="small.en", device="cuda")
         engine._device = "cuda"
@@ -608,7 +609,7 @@ class TestM11GpuRuntimeErrorTypeCheck:
 
     def test_cpu_device_never_gpu_error(self):
         """When device is CPU, no error should be treated as GPU error."""
-        from voice_typer.transcription import TranscriptionEngine
+        from voice_typer.server.transcription import TranscriptionEngine
 
         engine = TranscriptionEngine(model_size="small.en", device="cpu")
 

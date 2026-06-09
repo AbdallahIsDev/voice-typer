@@ -3,7 +3,7 @@
 import numpy as np
 from unittest.mock import MagicMock
 
-from voice_typer.streaming import (
+from voice_typer.server.streaming import (
     AudioWindow,
     AudioWindowPlanner,
     StreamingConfig,
@@ -321,7 +321,7 @@ class TestConcurrentAccess:
         """Multiple threads calling process_available_audio_once should not corrupt data."""
         import threading
 
-        from voice_typer.streaming import (
+        from voice_typer.server.streaming import (
             StreamingTranscriptionSession, StreamingConfig, WordTiming,
         )
 

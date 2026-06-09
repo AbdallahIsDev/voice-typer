@@ -1,4 +1,4 @@
-"""Tests for voice_typer.ui.app — VoiceTyperApp Flet UI construction.
+"""Tests for voice_typer.server.ui.app — VoiceTyperApp Flet UI construction.
 
 Tests verify that the UI can be constructed without crashing by treating
 build_*_page as pure functions returning ft.Control trees. All Flet imports
@@ -87,11 +87,11 @@ def mock_flet(monkeypatch):
     monkeypatch.setitem(sys.modules, "flet.testing", MagicMock())
 
     # Mock sub-modules
-    for mod_name in ["voice_typer.ui.styles", "voice_typer.ui.icons",
-                     "voice_typer.ui.home", "voice_typer.ui.history",
-                     "voice_typer.ui.templates", "voice_typer.ui.vocabulary",
-                     "voice_typer.ui.models", "voice_typer.ui.microphone",
-                     "voice_typer.ui.privacy", "voice_typer.ui.settings"]:
+    for mod_name in ["voice_typer.server.ui.styles", "voice_typer.server.ui.icons",
+                     "voice_typer.server.ui.home", "voice_typer.server.ui.history",
+                     "voice_typer.server.ui.templates", "voice_typer.server.ui.vocabulary",
+                     "voice_typer.server.ui.models", "voice_typer.server.ui.microphone",
+                     "voice_typer.server.ui.privacy", "voice_typer.server.ui.settings"]:
         if mod_name not in sys.modules:
             sys.modules[mod_name] = MagicMock()
 
@@ -99,12 +99,12 @@ def mock_flet(monkeypatch):
 class TestVoiceTyperAppConstruction:
     def test_app_can_be_imported(self):
         """VoiceTyperApp class should be importable."""
-        from voice_typer.ui.app import VoiceTyperApp
+        from voice_typer.server.ui.app import VoiceTyperApp
         assert VoiceTyperApp is not None
 
     def test_app_instantiation(self, monkeypatch):
         """VoiceTyperApp should instantiate without crashing."""
-        monkeypatch.setattr("voice_typer.ui.app.Config.load", lambda: MagicMock(
+        monkeypatch.setattr("voice_typer.server.ui.app.Config.load", lambda: MagicMock(
             hotkey="<f2>", model_size="small.en", microphone=None,
             device="cpu", autostart=True, show_notifications=True,
             silence_warning_seconds=20.0, silence_auto_stop_seconds=120.0,
@@ -117,7 +117,7 @@ class TestVoiceTyperAppConstruction:
             waveform_bubble=False, esc_cancel_enabled=False,
             templates_enabled=True, vocabulary_enabled=True,
         ))
-        from voice_typer.ui.app import VoiceTyperApp
+        from voice_typer.server.ui.app import VoiceTyperApp
         app = VoiceTyperApp()
         assert app is not None
         assert app.current_view == "home"
@@ -126,7 +126,7 @@ class TestVoiceTyperAppConstruction:
 class TestHomeScreenBuild:
     def test_build_home_page_returns_control(self):
         """build_home_page should return a ft.Column without crashing."""
-        from voice_typer.ui.home import build_home_page
+        from voice_typer.server.ui.home import build_home_page
         result = build_home_page(status="idle", last_text="", model_info="test", device_info="cpu")
         assert result is not None
 
@@ -134,10 +134,10 @@ class TestHomeScreenBuild:
 class TestHistoryScreenBuild:
     def test_history_screen_build(self):
         """HistoryScreen.build() should return a control without crashing."""
-        from voice_typer.ui.history import HistoryScreen
+        from voice_typer.server.ui.history import HistoryScreen
         mock_page = MagicMock()
         mock_config = MagicMock()
-        with patch("voice_typer.ui.history.HistoryDB") as mock_db:
+        with patch("voice_typer.server.ui.history.HistoryDB") as mock_db:
             mock_db.return_value.get_recent.return_value = []
             screen = HistoryScreen(mock_page, mock_config)
             result = screen.build()
@@ -146,7 +146,7 @@ class TestHistoryScreenBuild:
 
 class TestTemplatesScreenBuild:
     def test_templates_screen_build(self):
-        from voice_typer.ui.templates import TemplatesScreen
+        from voice_typer.server.ui.templates import TemplatesScreen
         mock_page = MagicMock()
         mock_config = MagicMock()
         screen = TemplatesScreen(mock_page, mock_config)
@@ -156,7 +156,7 @@ class TestTemplatesScreenBuild:
 
 class TestVocabularyScreenBuild:
     def test_vocabulary_screen_build(self):
-        from voice_typer.ui.vocabulary import VocabularyScreen
+        from voice_typer.server.ui.vocabulary import VocabularyScreen
         mock_page = MagicMock()
         mock_config = MagicMock()
         screen = VocabularyScreen(mock_page, mock_config)
@@ -166,7 +166,7 @@ class TestVocabularyScreenBuild:
 
 class TestModelsScreenBuild:
     def test_models_screen_build(self):
-        from voice_typer.ui.models import ModelsScreen
+        from voice_typer.server.ui.models import ModelsScreen
         mock_page = MagicMock()
         mock_config = MagicMock()
         mock_config.model_size = "small.en"
@@ -177,11 +177,11 @@ class TestModelsScreenBuild:
 
 class TestMicrophoneScreenBuild:
     def test_microphone_screen_build(self):
-        from voice_typer.ui.microphone import MicrophoneScreen
+        from voice_typer.server.ui.microphone import MicrophoneScreen
         mock_page = MagicMock()
         mock_config = MagicMock()
         mock_config.microphone = None
-        with patch("voice_typer.ui.microphone.list_microphones", return_value=[]):
+        with patch("voice_typer.server.ui.microphone.list_microphones", return_value=[]):
             screen = MicrophoneScreen(mock_page, mock_config)
             result = screen.build()
             assert result is not None
@@ -189,7 +189,7 @@ class TestMicrophoneScreenBuild:
 
 class TestPrivacyScreenBuild:
     def test_privacy_screen_build(self):
-        from voice_typer.ui.privacy import PrivacyScreen
+        from voice_typer.server.ui.privacy import PrivacyScreen
         mock_page = MagicMock()
         mock_config = MagicMock()
         screen = PrivacyScreen(mock_page, mock_config)
@@ -199,7 +199,7 @@ class TestPrivacyScreenBuild:
 
 class TestSettingsScreenBuild:
     def test_settings_screen_build(self):
-        from voice_typer.ui.settings import SettingsScreen
+        from voice_typer.server.ui.settings import SettingsScreen
         mock_page = MagicMock()
         mock_config = MagicMock()
         mock_config.autostart = True
@@ -213,16 +213,16 @@ class TestSettingsScreenBuild:
 
 class TestStylesModule:
     def test_colors_class(self):
-        from voice_typer.ui.styles import Colors
+        from voice_typer.server.ui.styles import Colors
         assert hasattr(Colors, "PRIMARY")
 
     def test_nav_items(self):
         import sys
         # Force re-import to get real module with mocked flet
         for key in list(sys.modules.keys()):
-            if key.startswith("voice_typer.ui.styles"):
+            if key.startswith("voice_typer.server.ui.styles"):
                 del sys.modules[key]
-        from voice_typer.ui.styles import NAV_ITEMS
+        from voice_typer.server.ui.styles import NAV_ITEMS
         assert isinstance(NAV_ITEMS, dict)
         assert "home" in NAV_ITEMS
         assert "history" in NAV_ITEMS
@@ -230,19 +230,19 @@ class TestStylesModule:
     def test_status_colors(self):
         import sys
         for key in list(sys.modules.keys()):
-            if key.startswith("voice_typer.ui.styles"):
+            if key.startswith("voice_typer.server.ui.styles"):
                 del sys.modules[key]
-        from voice_typer.ui.styles import STATUS_COLORS
+        from voice_typer.server.ui.styles import STATUS_COLORS
         assert isinstance(STATUS_COLORS, dict)
         assert "idle" in STATUS_COLORS
         assert "recording" in STATUS_COLORS
 
     def test_get_theme(self):
-        from voice_typer.ui.styles import get_theme
+        from voice_typer.server.ui.styles import get_theme
         theme = get_theme(dark=False)
         assert theme is not None
 
     def test_get_theme_dark(self):
-        from voice_typer.ui.styles import get_theme
+        from voice_typer.server.ui.styles import get_theme
         theme = get_theme(dark=True)
         assert theme is not None

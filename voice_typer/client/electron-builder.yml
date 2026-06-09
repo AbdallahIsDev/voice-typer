@@ -1,0 +1,25 @@
+appId: com.voicetyper.app
+productName: Voice Typer
+directories:
+  buildResources: resources
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.*'
+  - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+win:
+  icon: resources/icon.png
+  target:
+    - nsis
+mac:
+  icon: resources/icon.png
+  target:
+    - dmg
+linux:
+  icon: resources/icon.png
+  target:
+    - AppImage
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

@@ -41,6 +41,6 @@ def mock_heavy_imports(monkeypatch):
 
     # Prevent atexit handler from polluting test output
     try:
-        monkeypatch.setattr("voice_typer.app.atexit.register", lambda *a, **kw: None)
+        monkeypatch.setattr("voice_typer.server.app.atexit.register", lambda *a, **kw: None)
     except Exception:
         pass

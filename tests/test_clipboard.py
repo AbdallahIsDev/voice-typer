@@ -12,13 +12,13 @@ sys.modules.setdefault("pynput", mock_pynput)
 sys.modules.setdefault("pynput.keyboard", mock_pynput_kb)
 sys.modules.setdefault("pyperclip", MagicMock())
 
-from voice_typer.clipboard import ClipboardManager
+from voice_typer.server.clipboard import ClipboardManager
 
 
 class TestCopy:
     def test_copy_puts_text_on_clipboard(self, monkeypatch):
-        monkeypatch.setattr("voice_typer.clipboard.pyperclip", MagicMock())
-        import voice_typer.clipboard as mod
+        monkeypatch.setattr("voice_typer.server.clipboard.pyperclip", MagicMock())
+        import voice_typer.server.clipboard as mod
         mod.pyperclip = MagicMock()
 
         cm = ClipboardManager(paste_enabled=False)
@@ -34,7 +34,7 @@ class TestCopy:
         assert cm.copy(None) is False
 
     def test_copy_returns_false_on_exception(self, monkeypatch):
-        import voice_typer.clipboard as mod
+        import voice_typer.server.clipboard as mod
         mod.pyperclip = MagicMock()
         mod.pyperclip.copy.side_effect = Exception("clipboard locked")
 
@@ -43,9 +43,9 @@ class TestCopy:
 
 
 class TestPaste:
-    @patch("voice_typer.clipboard.is_text_input_focused", return_value=True)
+    @patch("voice_typer.server.clipboard.is_text_input_focused", return_value=True)
     def test_paste_sends_keystroke_when_focused(self, mock_focus, monkeypatch):
-        import voice_typer.clipboard as mod
+        import voice_typer.server.clipboard as mod
         mod.time = MagicMock()
 
         cm = ClipboardManager(paste_enabled=True)
@@ -57,12 +57,12 @@ class TestPaste:
         cm._keyboard.press.assert_called()
         cm._keyboard.release.assert_called()
 
-    @patch("voice_typer.clipboard.is_text_input_focused", return_value=False)
+    @patch("voice_typer.server.clipboard.is_text_input_focused", return_value=False)
     def test_paste_skips_when_no_focus_windows(self, mock_focus, monkeypatch):
         """On Windows, paste is skipped after retry when focus stays False."""
-        import voice_typer.clipboard as mod
+        import voice_typer.server.clipboard as mod
         mod.time = MagicMock()
-        monkeypatch.setattr("voice_typer.clipboard.sys.platform", "win32")
+        monkeypatch.setattr("voice_typer.server.clipboard.sys.platform", "win32")
         cm = ClipboardManager(paste_enabled=True)
         cm._keyboard = MagicMock()
 
@@ -70,7 +70,7 @@ class TestPaste:
 
         assert result is False
         cm._keyboard.press.assert_not_called()
-        assert mock_focus.call_count == 2  # initial + retry
+        assert mock_focus.call_count == 4  # initial + 3 retries
 
     def test_paste_skips_when_disabled(self):
         cm = ClipboardManager(paste_enabled=False)
@@ -81,10 +81,10 @@ class TestPaste:
         assert result is False
         cm._keyboard.press.assert_not_called()
 
-    @patch("voice_typer.clipboard.is_text_input_focused", return_value=None)
+    @patch("voice_typer.server.clipboard.is_text_input_focused", return_value=None)
     def test_paste_skipped_when_focus_unknown_by_default(self, mock_focus, monkeypatch):
         """When focus is unknown (None) and unsafe_paste_on_unknown_focus is False, skip."""
-        import voice_typer.clipboard as mod
+        import voice_typer.server.clipboard as mod
         mod.time = MagicMock()
 
         cm = ClipboardManager(paste_enabled=True)
@@ -95,10 +95,10 @@ class TestPaste:
         # Default: unsafe_paste_on_unknown_focus=False -> skip paste
         assert result is False
 
-    @patch("voice_typer.clipboard.is_text_input_focused", return_value=None)
+    @patch("voice_typer.server.clipboard.is_text_input_focused", return_value=None)
     def test_paste_attempts_when_focus_unknown_and_opted_in(self, mock_focus, monkeypatch):
         """When focus is unknown (None) and unsafe_paste_on_unknown_focus is True, attempt."""
-        import voice_typer.clipboard as mod
+        import voice_typer.server.clipboard as mod
         mod.time = MagicMock()
 
         cm = ClipboardManager(paste_enabled=True, unsafe_paste_on_unknown_focus=True)
@@ -108,12 +108,12 @@ class TestPaste:
 
         assert result is True
 
-    @patch("voice_typer.clipboard.is_text_input_focused")
+    @patch("voice_typer.server.clipboard.is_text_input_focused")
     def test_paste_retries_on_windows_when_focus_disrupted(self, mock_focus, monkeypatch):
         """On Windows, if focus returns False then True on retry, paste succeeds."""
-        import voice_typer.clipboard as mod
+        import voice_typer.server.clipboard as mod
         mod.time = MagicMock()
-        monkeypatch.setattr("voice_typer.clipboard.sys.platform", "win32")
+        monkeypatch.setattr("voice_typer.server.clipboard.sys.platform", "win32")
         mock_focus.side_effect = [False, True, True]
 
         cm = ClipboardManager(paste_enabled=True)
@@ -125,12 +125,12 @@ class TestPaste:
         cm._keyboard.press.assert_called()
         assert mock_focus.call_count >= 2
 
-    @patch("voice_typer.clipboard.is_text_input_focused")
+    @patch("voice_typer.server.clipboard.is_text_input_focused")
     def test_paste_no_retry_on_non_windows(self, mock_focus, monkeypatch):
         """On non-Windows, there is no retry — paste is skipped immediately."""
-        import voice_typer.clipboard as mod
+        import voice_typer.server.clipboard as mod
         mod.time = MagicMock()
-        monkeypatch.setattr("voice_typer.clipboard.sys.platform", "linux")
+        monkeypatch.setattr("voice_typer.server.clipboard.sys.platform", "linux")
         mock_focus.side_effect = [False, True]
 
         cm = ClipboardManager(paste_enabled=True)
@@ -142,9 +142,9 @@ class TestPaste:
         cm._keyboard.press.assert_not_called()
         assert mock_focus.call_count == 1
 
-    @patch("voice_typer.clipboard.is_text_input_focused", return_value=True)
+    @patch("voice_typer.server.clipboard.is_text_input_focused", return_value=True)
     def test_paste_returns_false_on_keyboard_error(self, mock_focus, monkeypatch):
-        import voice_typer.clipboard as mod
+        import voice_typer.server.clipboard as mod
         mod.time = MagicMock()
 
         cm = ClipboardManager(paste_enabled=True)

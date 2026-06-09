@@ -8,14 +8,14 @@ from pathlib import Path
 @pytest.fixture
 def template_dir(tmp_path, monkeypatch):
     """Point config to a temp directory."""
-    monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
     return tmp_path
 
 
 @pytest.fixture
 def tm(template_dir):
     """Create a TemplateManager with a clean temp dir."""
-    from voice_typer.templates import TemplateManager
+    from voice_typer.server.templates import TemplateManager
     return TemplateManager(config_dir=template_dir)
 
 
@@ -135,7 +135,7 @@ class TestTemplateVariables:
 
 class TestTemplatePersistence:
     def test_templates_persist_across_instances(self, template_dir):
-        from voice_typer.templates import TemplateManager
+        from voice_typer.server.templates import TemplateManager
         tm1 = TemplateManager(config_dir=template_dir)
         tm1.add("hello", "Hello!")
         del tm1
@@ -145,7 +145,7 @@ class TestTemplatePersistence:
         assert tm2.templates[0]["trigger"] == "hello"
 
     def test_empty_templates_file(self, template_dir):
-        from voice_typer.templates import TemplateManager
+        from voice_typer.server.templates import TemplateManager
         # Write empty templates file
         (template_dir / "voice-typer-templates.json").write_text('{"templates": []}')
         tm = TemplateManager(config_dir=template_dir)

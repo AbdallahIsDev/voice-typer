@@ -8,7 +8,7 @@ from pathlib import Path
 @pytest.fixture
 def vocab_dir(tmp_path, monkeypatch):
     """Point config to a temp directory."""
-    monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
     return tmp_path
 
 
@@ -31,7 +31,7 @@ def bundled(tmp_path):
 @pytest.fixture
 def vm(vocab_dir, bundled):
     """Create a VocabularyManager with bundled data."""
-    from voice_typer.vocabulary import VocabularyManager
+    from voice_typer.server.vocabulary import VocabularyManager
     return VocabularyManager(config_dir=vocab_dir, bundled_path=bundled)
 
 
@@ -60,7 +60,7 @@ class TestVocabularyMerge:
         user_file.write_text(json.dumps({
             "misspellings": {"teh": "TEH (custom)"},
         }), encoding="utf-8")
-        from voice_typer.vocabulary import VocabularyManager
+        from voice_typer.server.vocabulary import VocabularyManager
         vm = VocabularyManager(config_dir=vocab_dir, bundled_path=bundled)
         miss = vm.get_category("misspellings")
         assert miss["teh"] == "TEH (custom)"
@@ -72,7 +72,7 @@ class TestVocabularyMerge:
         user_file.write_text(json.dumps({
             "phrase_corrections": [["custom phrase", "custom fix"]],
         }), encoding="utf-8")
-        from voice_typer.vocabulary import VocabularyManager
+        from voice_typer.server.vocabulary import VocabularyManager
         vm = VocabularyManager(config_dir=vocab_dir, bundled_path=bundled)
         phrases = vm.get_category("phrase_corrections")
         assert len(phrases) >= 2  # bundled + user

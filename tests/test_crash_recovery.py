@@ -8,14 +8,14 @@ from pathlib import Path
 @pytest.fixture
 def recovery_dir(tmp_path, monkeypatch):
     """Point config to a temp directory."""
-    monkeypatch.setattr("voice_typer.config._config_dir", lambda: tmp_path)
+    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
     return tmp_path
 
 
 @pytest.fixture
 def cr(recovery_dir):
     """Create a CrashRecovery instance with temp dir."""
-    from voice_typer.crash_recovery import CrashRecovery
+    from voice_typer.server.crash_recovery import CrashRecovery
     return CrashRecovery(config_dir=recovery_dir)
 
 
@@ -85,7 +85,7 @@ class TestCrashRecoveryClear:
 
 class TestCrashRecoveryPersistence:
     def test_persists_to_disk(self, recovery_dir):
-        from voice_typer.crash_recovery import CrashRecovery
+        from voice_typer.server.crash_recovery import CrashRecovery
         cr1 = CrashRecovery(config_dir=recovery_dir)
         cr1.add("Persistent entry", pasted=False)
         del cr1
@@ -95,7 +95,7 @@ class TestCrashRecoveryPersistence:
         assert cr2.get_all()[0]["text"] == "Persistent entry"
 
     def test_empty_recovery_file(self, recovery_dir):
-        from voice_typer.crash_recovery import CrashRecovery
+        from voice_typer.server.crash_recovery import CrashRecovery
         # Write an empty recovery file
         path = recovery_dir / "voice-typer-recovery.json"
         path.write_text('{"entries": []}', encoding="utf-8")

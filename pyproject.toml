@@ -14,13 +14,13 @@ dependencies = [
     "scipy>=1.10,<2.0",
     "pyperclip>=1.8,<2.0",
     "pystray>=0.19,<1.0",
-    "Pillow>=9.0,<12.0",
+    "Pillow>=9.0,<13.0",
     "pynput>=1.7,<2.0",
     "flet>=0.25,<1.0",
 ]
 
 [project.scripts]
-voice-typer = "voice_typer.app:main"
+voice-typer = "voice_typer.server.app:main"
 
 [project.optional-dependencies]
 test = ["pytest>=7", "pytest-mock"]
@@ -33,7 +33,7 @@ project-includes = ["voice_typer", "tests"]
 include = ["voice_typer*"]
 
 [tool.setuptools.package-data]
-voice_typer = ["assets/fonts/hgi-stroke-rounded.ttf"]
+"voice_typer.server" = ["assets/fonts/hgi-stroke-rounded.ttf"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

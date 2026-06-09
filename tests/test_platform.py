@@ -5,7 +5,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from voice_typer.platform import (
+from voice_typer.server.platform import (
     _autostart_command,
     _generate_icon_ico,
     create_launcher_shortcut,
@@ -56,9 +56,9 @@ class TestFindMicrophoneByName:
             {"id": "1", "index": 1, "name": "WO Mic", "host_api": "MME", "channels": 1, "default": False},
             {"id": "2", "index": 2, "name": "Blue Yeti", "host_api": "MME", "channels": 2, "default": False},
         ]
-        monkeypatch.setattr("voice_typer.platform.list_microphones", lambda: fake_mics)
+        monkeypatch.setattr("voice_typer.server.platform.list_microphones", lambda: fake_mics)
 
-        from voice_typer.platform import find_microphone_by_name
+        from voice_typer.server.platform import find_microphone_by_name
         result = find_microphone_by_name("wo mic")
         assert result is not None
         assert result["name"] == "WO Mic"
@@ -66,18 +66,18 @@ class TestFindMicrophoneByName:
 
     def test_returns_none_for_no_match(self, monkeypatch):
         monkeypatch.setattr(
-            "voice_typer.platform.list_microphones",
+            "voice_typer.server.platform.list_microphones",
             lambda: [{"id": "0", "index": 0, "name": "Built-in", "host_api": "", "channels": 2, "default": True}],
         )
-        from voice_typer.platform import find_microphone_by_name
+        from voice_typer.server.platform import find_microphone_by_name
         assert find_microphone_by_name("nonexistent mic") is None
 
     def test_case_insensitive(self, monkeypatch):
         monkeypatch.setattr(
-            "voice_typer.platform.list_microphones",
+            "voice_typer.server.platform.list_microphones",
             lambda: [{"id": "0", "index": 0, "name": "Blue Yeti", "host_api": "MME", "channels": 2, "default": False}],
         )
-        from voice_typer.platform import find_microphone_by_name
+        from voice_typer.server.platform import find_microphone_by_name
         assert find_microphone_by_name("BLUE YETI") is not None
 
 
@@ -87,19 +87,19 @@ class TestFindMicrophoneById:
             {"id": "3", "index": 3, "name": "WO Mic", "host_api": "WASAPI", "channels": 1, "default": False},
             {"id": "7", "index": 7, "name": "WO Mic", "host_api": "MME", "channels": 1, "default": False},
         ]
-        monkeypatch.setattr("voice_typer.platform.list_microphones", lambda: fake_mics)
+        monkeypatch.setattr("voice_typer.server.platform.list_microphones", lambda: fake_mics)
 
-        from voice_typer.platform import find_microphone_by_id
+        from voice_typer.server.platform import find_microphone_by_id
         result = find_microphone_by_id("7")
         assert result is not None
         assert result["index"] == 7
         assert result["host_api"] == "MME"
 
     def test_returns_none_for_bad_id(self, monkeypatch):
-        monkeypatch.setattr("voice_typer.platform.list_microphones", lambda: [
+        monkeypatch.setattr("voice_typer.server.platform.list_microphones", lambda: [
             {"id": "0", "index": 0, "name": "Mic", "host_api": "", "channels": 1, "default": True}
         ])
-        from voice_typer.platform import find_microphone_by_id
+        from voice_typer.server.platform import find_microphone_by_id
         assert find_microphone_by_id("99") is None
 
 
@@ -110,9 +110,9 @@ class TestDuplicateMicrophoneDisambiguation:
             {"id": "3", "index": 3, "name": "WO Mic", "host_api": "Windows WASAPI", "channels": 1, "default": False},
             {"id": "7", "index": 7, "name": "WO Mic", "host_api": "MME", "channels": 1, "default": False},
         ]
-        monkeypatch.setattr("voice_typer.platform.list_microphones", lambda: fake_mics)
+        monkeypatch.setattr("voice_typer.server.platform.list_microphones", lambda: fake_mics)
 
-        from voice_typer.platform import find_microphone_by_id
+        from voice_typer.server.platform import find_microphone_by_id
         mic1 = find_microphone_by_id("3")
         mic2 = find_microphone_by_id("7")
         assert mic1 is not None and mic2 is not None
@@ -129,7 +129,7 @@ class TestCreateLauncherShortcut:
         pythonw.touch()
         monkeypatch.setattr(sys, "executable", str(tmp_path / "python.exe"))
 
-        import voice_typer.platform as mod
+        import voice_typer.server.platform as mod
         monkeypatch.setattr(mod, "SYSTEM", "win32")
 
         desktop = tmp_path / "Desktop"
@@ -163,7 +163,7 @@ class TestCreateLauncherShortcut:
         pythonw.touch()
         monkeypatch.setattr(sys, "executable", str(tmp_path / "python.exe"))
 
-        import voice_typer.platform as mod
+        import voice_typer.server.platform as mod
         monkeypatch.setattr(mod, "SYSTEM", "win32")
 
         desktop = tmp_path / "Desktop"
@@ -188,7 +188,7 @@ class TestCreateLauncherShortcut:
         assert "-m voice_typer" in content
 
     def test_returns_none_on_non_windows(self, monkeypatch):
-        import voice_typer.platform as mod
+        import voice_typer.server.platform as mod
         monkeypatch.setattr(mod, "SYSTEM", "linux")
         assert create_launcher_shortcut() is None
 
@@ -196,7 +196,7 @@ class TestCreateLauncherShortcut:
     def test_returns_none_when_pythonw_missing(self, tmp_path, monkeypatch):
         """If pythonw.exe doesn't exist next to the interpreter, returns None."""
         monkeypatch.setattr(sys, "executable", str(tmp_path / "python.exe"))
-        import voice_typer.platform as mod
+        import voice_typer.server.platform as mod
         monkeypatch.setattr(mod, "SYSTEM", "win32")
         assert create_launcher_shortcut() is None
 
