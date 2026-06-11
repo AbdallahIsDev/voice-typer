@@ -3,8 +3,13 @@ import { spawn, ChildProcess } from "child_process";
 import path from "path";
 import os from "os";
 
+interface PendingRequest {
+  resolve: (value: unknown) => void;
+  reject: (reason: unknown) => void;
+}
+
 let pythonProcess: ChildProcess | null = null;
-const pendingRequests = new Map<number, (value: unknown) => void>();
+const pendingRequests = new Map<number, PendingRequest>();
 let nextId = 1;
 let buffer = "";
 
@@ -19,10 +24,14 @@ function pythonArgs(): [string, string[]] {
 
 function handleMessage(msg: Record<string, unknown>) {
   if (msg.id != null) {
-    const resolve = pendingRequests.get(msg.id as number);
-    if (resolve) {
+    const entry = pendingRequests.get(msg.id as number);
+    if (entry) {
       pendingRequests.delete(msg.id as number);
-      resolve(msg);
+      if (msg.type === "error") {
+        entry.reject(new Error((msg.data as Record<string, unknown>)?.message as string ?? "Unknown error"));
+      } else {
+        entry.resolve(msg.data);
+      }
     }
   } else {
     BrowserWindow.getAllWindows().forEach((win) => {
@@ -35,7 +44,7 @@ function sendToPython(msg: Record<string, unknown>): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const id = nextId++;
     (msg as Record<string, unknown>).id = id;
-    pendingRequests.set(id, resolve);
+    pendingRequests.set(id, { resolve, reject });
     const line = JSON.stringify(msg) + "\n";
     pythonProcess!.stdin!.write(line);
     setTimeout(() => {
@@ -96,10 +105,13 @@ app.whenReady().then(() => {
   const win = new BrowserWindow({
     width: 1000,
     height: 700,
+    icon: path.join(__dirname, "../../resources/icon.png"),
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
     },
   });
+
+  win.webContents.openDevTools({ mode: "bottom" });
 
   if (process.env.ELECTRON_RENDERER_URL) {
     win.loadURL(process.env.ELECTRON_RENDERER_URL);

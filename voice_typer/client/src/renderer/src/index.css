@@ -117,6 +117,20 @@
     --sidebar-ring: oklch(0.556 0 0);
 }
 
+:root, .dark {
+    --bg: var(--background);
+    --bg-subtle: oklch(0.17 0 0);
+    --surface-page: var(--background);
+    --surface-hover: oklch(0.22 0 0);
+    --text-primary: var(--foreground);
+    --text-muted: var(--muted-foreground);
+    --text-secondary: oklch(0.85 0 0);
+    --accent: var(--primary);
+    --accent-foreground: var(--primary-foreground);
+    --accent-soft: oklch(0.424 0.199 265.638 / 0.15);
+    --accent-muted: oklch(0.546 0.245 262.881 / 0.6);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

@@ -1,68 +1,167 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { usePython, usePythonEvent } from '@/hooks/usePython'
+import { Sidebar } from '@/components/Sidebar'
+import { StatusBar } from '@/components/StatusBar'
+import Home from '@/pages/Home'
+import HistoryPage from '@/pages/History'
+import SettingsPage from '@/pages/Settings'
+import { cn } from '@/lib/utils'
+import type { RecordingState, Page } from '@/types/ipc'
+import '@/styles/fonts.css'
 
-declare global {
-  interface Window {
-    python: {
-      call: (msg: Record<string, unknown>) => Promise<Record<string, unknown>>
-      onEvent: (callback: (msg: Record<string, unknown>) => void) => void
-    }
-  }
-}
+export default function App() {
+  // ── Routing ───────────────────────────────────────────────────
 
-function App() {
-  const [status, setStatus] = useState('connecting...')
-  const [error, setError] = useState('')
-  const [ready, setReady] = useState(false)
+  const [currentPage, setCurrentPage] = useState<Page>('home')
+
+  // ── Global state (pushed down from app level) ─────────────────
+
+  const [recordingState, setRecordingState] = useState<RecordingState>('idle')
+  const [connectionStatus, setConnectionStatus] = useState<
+    'connected' | 'disconnected' | 'connecting'
+  >('connecting')
+  const [lastError, setLastError] = useState<string | null>(null)
+
+  const { call, isReady } = usePython()
+
+  // ── Connection lifecycle ──────────────────────────────────────
 
   useEffect(() => {
-    ;(async () => {
+    if (!isReady) return
+
+    let retries = 0
+    const maxRetries = 10
+    let timer: ReturnType<typeof setTimeout>
+    let cancelled = false
+
+    const checkConnection = async () => {
+      if (cancelled) return
       try {
-        const res = await window.python.call({ type: 'get_status' })
-        setStatus(res.data.status as string)
-        setReady(true)
+        await call('get_config')
+        if (!cancelled) setConnectionStatus('connected')
       } catch {
-        setStatus('connection failed')
+        retries++
+        if (!cancelled && retries < maxRetries) {
+          timer = setTimeout(checkConnection, 1000)
+        } else if (!cancelled) {
+          setConnectionStatus('disconnected')
+        }
       }
-    })()
-  }, [])
+    }
 
+    checkConnection()
+
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [isReady, call])
+
+  // Periodic health check while connected
   useEffect(() => {
-    window.python.onEvent((msg) => {
-      if (msg.type === 'status_change') setStatus(msg.data.status as string)
-      if (msg.type === 'error') setError(msg.data.message as string)
-    })
-  }, [])
+    if (connectionStatus !== 'connected') return
 
-  const toggle = async () => {
-    setError('')
+    let cancelled = false
+
+    const interval = setInterval(async () => {
+      try {
+        await call('get_config')
+      } catch {
+        if (!cancelled) setConnectionStatus('disconnected')
+      }
+    }, 30_000)
+
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [connectionStatus, call])
+
+  // ── App-level event subscriptions ─────────────────────────────
+
+  usePythonEvent('status_change', useCallback((data) => {
+    if (data?.status) {
+      const state = data.status as string
+      if (state === 'idle' || state === 'recording' || state === 'processing' || state === 'error') {
+        setRecordingState(state as RecordingState)
+      }
+      setLastError(null)
+    }
+  }, []))
+
+  usePythonEvent('error', useCallback((data) => {
+    if (typeof data?.message === 'string') {
+      setLastError(data.message)
+    }
+  }, []))
+
+  // ── Reconnection handler (called by children on fatal errors) ─
+
+  const handleRetryConnection = useCallback(async () => {
+    setConnectionStatus('connecting')
     try {
-      await window.python.call({ type: 'toggle_dictation' })
-    } catch (e) {
-      setError('Error: ' + (e as Error).message)
+      await call('get_config')
+      setConnectionStatus('connected')
+    } catch {
+      setConnectionStatus('disconnected')
+    }
+  }, [call])
+
+  // ── Page renderer ─────────────────────────────────────────────
+
+  const renderPage = () => {
+    switch (currentPage) {
+      case 'home':
+        return <Home recordingState={recordingState} lastError={lastError} />
+      case 'settings':
+        return <SettingsPage />
+      case 'history':
+        return <HistoryPage />
     }
   }
+
+  // ── Render ────────────────────────────────────────────────────
 
   return (
-    <div className="flex items-center justify-center h-screen bg-neutral-950 text-neutral-100">
-      <div className="text-center space-y-8">
-        <div className="text-lg text-neutral-400">
-          Status: <span className="text-neutral-100 font-semibold">{status}</span>
-        </div>
-        <button
-          onClick={toggle}
-          disabled={!ready}
-          className={`w-20 h-20 rounded-full border-2 transition-all text-3xl
-            ${status === 'recording'
-              ? 'border-red-500 bg-red-950 text-red-500'
-              : 'border-neutral-600 bg-neutral-900 text-neutral-300 hover:border-neutral-400 hover:bg-neutral-800'}
-            disabled:opacity-40 disabled:cursor-not-allowed`}
-        >
-          🎤
-        </button>
-        {error && <div className="text-red-400 text-sm">{error}</div>}
+    <div className="flex h-screen bg-[var(--bg)] font-sans text-[var(--text-primary)]">
+      <Sidebar currentPage={currentPage} onNavigate={setCurrentPage} />
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <main className="flex-1 overflow-hidden">
+          {connectionStatus === 'connecting' ? (
+            <div className="flex h-full flex-col items-center justify-center gap-3">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--accent)] border-t-transparent" />
+              <p className="text-sm text-[var(--text-muted)]">
+                Starting Python backend...
+              </p>
+            </div>
+          ) : connectionStatus === 'disconnected' ? (
+            <div className="flex h-full flex-col items-center justify-center gap-4">
+              <p className="text-sm text-red-400">
+                Lost connection to Python backend
+              </p>
+              <button
+                onClick={handleRetryConnection}
+                className={cn(
+                  'rounded-lg bg-[var(--surface)] px-4 py-2 text-sm',
+                  'text-[var(--text-secondary)] transition-colors',
+                  'hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]',
+                )}
+              >
+                Retry Connection
+              </button>
+            </div>
+          ) : (
+            renderPage()
+          )}
+        </main>
+
+        <StatusBar
+          connectionStatus={connectionStatus}
+          recordingState={recordingState}
+        />
       </div>
     </div>
   )
 }
 
-export default App
