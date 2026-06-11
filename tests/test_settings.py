@@ -14,7 +14,7 @@ from voice_typer.server.settings import (
 
 
 def test_allowed_models_include_all_options():
-    assert ALLOWED_MODELS == ("tiny.en", "small.en", "medium.en", "qwen")
+    assert ALLOWED_MODELS == ("tiny.en", "small.en", "medium.en", "qwen", "parakeet")
 
 
 @pytest.mark.parametrize(

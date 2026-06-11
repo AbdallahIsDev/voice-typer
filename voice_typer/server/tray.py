@@ -27,10 +27,11 @@ import subprocess
 import sys
 import threading
 from enum import Enum
+from pathlib import Path
 from typing import Optional, Callable, Protocol
 
 import pystray
-from PIL import Image, ImageDraw
+from PIL import Image
 
 log = logging.getLogger(__name__)
 
@@ -449,9 +450,11 @@ class TrayIcon:
             return
 
         try:
+            from voice_typer.server.asr_setup import get_voice_typer_python
+            python_exe = get_voice_typer_python()
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             self._flet_process = subprocess.Popen(
-                [sys.executable, "-m", "voice_typer.server.ui.app"],
+                [python_exe, "-m", "voice_typer.server.ui.app"],
                 cwd=project_root,
             )
             log.info("Flet window opened in subprocess (PID=%d)", self._flet_process.pid)
@@ -666,13 +669,15 @@ def _get_dpi_aware_icon_size() -> int:
 def _make_icon(state: AppState, size: int = 0) -> Image.Image:
     """Generate a colored microphone icon based on state.
     
-    TRAY-020: If size is 0, auto-detect DPI scaling on Windows.
+    Uses pre-rendered white microphone PNG (from vt_logo.svg) and
+    colorizes it per state.  TRAY-020: If size is 0, auto-detect DPI.
     """
     if size == 0:
         size = _get_dpi_aware_icon_size()
     cache_key = (state, size)
     if cache_key in _icon_cache:
         return _icon_cache[cache_key]
+
     colors = {
         AppState.IDLE: (120, 120, 120, 255),
         AppState.RECORDING: (235, 64, 52, 255),
@@ -689,33 +694,20 @@ def _make_icon(state: AppState, size: int = 0) -> Image.Image:
     }
     color = colors.get(state, (120, 120, 120, 255))
 
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
+    try:
+        # Load pre-rendered white microphone PNG (from vt_logo.svg)
+        asset_dir = Path(__file__).resolve().parent / "assets"
+        available = [16, 24, 32, 48, 64]
+        best = min(available, key=lambda x: abs(x - size))
+        mic_img = Image.open(str(asset_dir / f"tray-mic-{best}.png")).convert("RGBA")
+        # Colorize: use mic's alpha channel as mask over solid state color
+        colored = Image.new("RGBA", mic_img.size, color)
+        colored.putalpha(mic_img.split()[3])
+        if colored.size != (size, size):
+            colored = colored.resize((size, size), Image.LANCZOS)
+    except Exception:
+        # Fallback: solid colored square
+        colored = Image.new("RGBA", (size, size), color)
 
-    cx, cy = size // 2, size // 2
-
-    # Microphone body (rounded rect)
-    mic_w, mic_h = size // 5, size // 3
-    draw.rounded_rectangle(
-        [cx - mic_w, cy - mic_h, cx + mic_w, cy + mic_h // 3],
-        radius=mic_w // 2,
-        fill=color,
-    )
-
-    # Stand arc
-    stand_radius = size // 3
-    draw.arc(
-        [cx - stand_radius, cy - stand_radius + mic_h // 4, cx + stand_radius, cy + stand_radius],
-        start=0, end=180,
-        fill=color, width=max(2, size // 20),
-    )
-
-    # Base line
-    base_y = cy + stand_radius
-    draw.line(
-        [cx - stand_radius // 2, base_y, cx + stand_radius // 2, base_y],
-        fill=color, width=max(2, size // 20),
-    )
-
-    _icon_cache[cache_key] = img
-    return img
+    _icon_cache[cache_key] = colored
+    return colored

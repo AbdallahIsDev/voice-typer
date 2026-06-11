@@ -50,14 +50,34 @@ def _configure_nvidia_dll_paths():
     roots: list[str] = []
     try:
         roots.extend(site.getsitepackages())
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("[CUDA-DLL] site.getsitepackages() failed: %s", exc)
     try:
         user_site = site.getusersitepackages()
         if user_site:
             roots.append(user_site)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("[CUDA-DLL] site.getusersitepackages() failed: %s", exc)
+
+    # Also include the current venv's site-packages (via sys.prefix).
+    # site.getsitepackages() can be wrong when the app runs from a
+    # different Python environment (e.g. Hermes venv) than expected.
+    venv_sp = os.path.join(sys.prefix, "Lib", "site-packages")
+    if os.path.isdir(venv_sp) and venv_sp not in roots:
+        roots.append(venv_sp)
+        log.debug("[CUDA-DLL] Added current venv site-packages: %s", venv_sp)
+
+    # Fallback: the app's own venv at ~/.voice-typer/venv/ may have the
+    # NVIDIA pip wheels even when the running Python belongs to a
+    # different environment.
+    app_venv_sp = os.path.join(
+        os.path.expanduser("~"), ".voice-typer", "venv", "Lib", "site-packages",
+    )
+    if os.path.isdir(app_venv_sp) and app_venv_sp not in roots:
+        roots.append(app_venv_sp)
+        log.debug("[CUDA-DLL] Added app venv site-packages: %s", app_venv_sp)
+
+    log.info("[CUDA-DLL] Searching for NVIDIA DLLs in root paths: %s", roots)
 
     candidate_parts = [
         ("nvidia", "cublas", "bin"),
@@ -70,20 +90,35 @@ def _configure_nvidia_dll_paths():
         for parts in candidate_parts:
             path = os.path.join(root, *parts)
             if not os.path.isdir(path):
+                log.debug("[CUDA-DLL] Path not found: %s", path)
                 continue
-            if not any(name.lower().endswith(".dll") for name in os.listdir(path)):
+            dll_names = [n for n in os.listdir(path) if n.lower().endswith(".dll")]
+            if not dll_names:
+                log.debug("[CUDA-DLL] No DLLs in: %s", path)
                 continue
+            log.debug("[CUDA-DLL] Found path with %d DLLs: %s (first: %s)", len(dll_names), path, dll_names[0])
             if path not in existing_paths and path not in new_paths:
                 new_paths.append(path)
             add_dll_directory = getattr(os, "add_dll_directory", None)
             if add_dll_directory is not None:
-                handle = add_dll_directory(path)
-                if handle is not None:
-                    _nvidia_dll_path_handles.append(handle)
+                try:
+                    handle = add_dll_directory(path)
+                    log.debug("[CUDA-DLL] os.add_dll_directory(%s) -> handle=%s", path, handle)
+                    if handle is not None:
+                        _nvidia_dll_path_handles.append(handle)
+                except Exception as exc:
+                    log.warning("[CUDA-DLL] os.add_dll_directory(%s) failed: %s", path, exc)
 
     if new_paths:
         os.environ["PATH"] = os.pathsep.join(new_paths + existing_paths)
-        log.info("[CUDA] Added NVIDIA wheel DLL paths: %s", new_paths)
+        log.info("[CUDA-DLL] Preprended to PATH: %s", new_paths)
+    else:
+        log.info("[CUDA-DLL] No new NVIDIA DLL paths found (all already in PATH or absent)")
+
+    # Log final PATH for debugging
+    final_path = os.environ.get("PATH", "")
+    log.debug("[CUDA-DLL] PATH entries with 'nvidia': %s",
+              [p for p in final_path.split(os.pathsep) if "nvidia" in p.lower()])
     _nvidia_dll_paths_configured = True
 
 
@@ -213,6 +248,12 @@ class TranscriptionEngine:
                     self._loaded_model_size = model_size
                     self.model_size = self._configured_model_size
                 log.info("Model loaded via %s", self.loaded_via)
+
+                # CUDA probe: force a tiny transcription to smoke-test cuBLAS
+                # loading at startup, so failures surface here (with a clean
+                # fallback to CPU) rather than mid-recording.
+                if self._device == "cuda":
+                    self._probe_cuda_runtime(progress_callback)
                 return
             except Exception as exc:
                 last_error = exc
@@ -279,12 +320,84 @@ class TranscriptionEngine:
             f"Last error: {last_error}"
         ) from last_error
 
+    def _probe_cuda_runtime(self, progress_callback=None):
+        """Probe CUDA with a real transcription to force early cuBLAS/cuDNN loading.
+
+        Uses a 1s sine-wave tone and the exact same parameters as
+        ``_transcribe_unlocked`` — including ``vad_filter=True`` and
+        ``without_timestamps=True`` — then **iterates every segment** so
+        the underlying cuBLAS kernels are actually resolved.  If the DLLs
+        can't be loaded, catches the error at startup and falls back to
+        CPU immediately instead of failing mid-recording.
+        """
+        import numpy as np
+        t = np.arange(int(_WHISPER_SAMPLE_RATE), dtype=np.float32) / _WHISPER_SAMPLE_RATE
+        probe_audio: np.ndarray = np.sin(2 * np.pi * 440 * t, dtype=np.float32) * 0.1
+
+        log.info("[CUDA-PROBE] Running CUDA runtime smoke test (1s sine wave)...")
+        if progress_callback:
+            progress_callback("Running CUDA runtime probe...")
+        try:
+            # Must exercise the same cuBLAS kernels as real dictation.
+            # NOTE: vad_filter=False is deliberate — VAD would reject a
+            # sine wave as non-speech, causing Whisper to be skipped.
+            segments, info = self._model.transcribe(
+                probe_audio,
+                beam_size=self.beam_size,
+                best_of=self.best_of,
+                temperature=0.0,
+                vad_filter=False,
+                language=self.language,
+                condition_on_previous_text=self.condition_on_previous_text,
+                without_timestamps=True,
+            )
+            # Force iteration through ALL segments — model.transcribe()
+            # returns lazily; the real GPU work (and DLL loading) happens
+            # here.
+            for seg in segments:
+                pass
+            log.info("[CUDA-PROBE] CUDA runtime OK — cuBLAS/cuDNN loaded successfully")
+        except Exception as exc:
+            error_str = str(exc)
+            log.warning(
+                "[CUDA-PROBE] CUDA runtime probe FAILED: %s",
+                error_str,
+            )
+            if any(kw in error_str.lower() for kw in [
+                "cublas", "cuda", "cudnn", "dll",
+                "not found", "cannot be loaded", "load library",
+            ]):
+                log.warning(
+                    "[CUDA-PROBE] cuBLAS/cuDNN runtime error detected — "
+                    "falling back to CPU immediately",
+                )
+                try:
+                    del self._model
+                    import gc
+                    gc.collect()
+                except Exception:
+                    pass
+                self._model = None
+                self._device = "cpu"
+                self._compute_type = "int8"
+                self._reload_under_lock()
+                log.warning(
+                    "[CUDA-PROBE] Model reloaded on CPU after CUDA probe failure. "
+                    "Loaded via: %s", self.loaded_via,
+                )
+            else:
+                raise
+
     def _pre_download_model(self, model_size: str, progress_callback=None):
         """Pre-download model files via huggingface_hub if not already cached.
 
         This ensures the user sees download progress before WhisperModel blocks
         on the download internally.
         """
+        # Skip pre-download for non-Whisper model sizes (e.g. "parakeet" or "qwen")
+        if not model_size or model_size in ("parakeet", "qwen"):
+            log.debug("[MODEL] Skipping pre-download for non-Whisper model '%s'", model_size)
+            return
         try:
             from huggingface_hub import snapshot_download
 

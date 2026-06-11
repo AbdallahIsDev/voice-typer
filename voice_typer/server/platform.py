@@ -307,16 +307,21 @@ def _is_autostart_linux() -> bool:
 # ─── Launcher shortcut ────────────────────────────────────────────────
 
 def _generate_icon_ico() -> Optional[Path]:
-    """Generate a microphone .ico file for the shortcut icon.
+    """Generate a logo .ico file for the shortcut icon.
 
-    Uses the same PIL drawing logic as the tray icon.  Saves to
+    Uses the pre-rendered vt_logo.svg PNG.  Saves to
     ``%APPDATA%/voice-typer/icon.ico`` and returns the path, or None
     on failure.
     """
     try:
-        from PIL import Image, ImageDraw
+        from PIL import Image
     except ImportError:
         log.debug("PIL not available — cannot generate icon")
+        return None
+
+    icon_png = Path(__file__).resolve().parent / "assets" / "logo-256.png"
+    if not icon_png.exists():
+        log.debug("Pre-rendered logo PNG not found — cannot generate icon")
         return None
 
     appdata = Path(os.environ.get("APPDATA", Path.home()))
@@ -324,36 +329,7 @@ def _generate_icon_ico() -> Optional[Path]:
     icon_dir.mkdir(parents=True, exist_ok=True)
     ico_path = icon_dir / "icon.ico"
 
-    size = 256
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-
-    cx, cy = size // 2, size // 2
-    color = (52, 152, 219, 255)  # blue — matches TRANSCRIBING state
-
-    # Microphone body (rounded rect)
-    mic_w, mic_h = size // 5, size // 3
-    draw.rounded_rectangle(
-        [cx - mic_w, cy - mic_h, cx + mic_w, cy + mic_h // 3],
-        radius=mic_w // 2,
-        fill=color,
-    )
-
-    # Stand arc
-    stand_radius = size // 3
-    draw.arc(
-        [cx - stand_radius, cy - stand_radius + mic_h // 4,
-         cx + stand_radius, cy + stand_radius],
-        start=0, end=180,
-        fill=color, width=max(2, size // 20),
-    )
-
-    # Base line
-    base_y = cy + stand_radius
-    draw.line(
-        [cx - stand_radius // 2, base_y, cx + stand_radius // 2, base_y],
-        fill=color, width=max(2, size // 20),
-    )
+    img = Image.open(str(icon_png)).convert("RGBA")
 
     try:
         img.save(str(ico_path), format="ICO", sizes=[(256, 256)])

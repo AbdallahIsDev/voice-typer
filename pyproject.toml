@@ -17,6 +17,8 @@ dependencies = [
     "Pillow>=9.0,<13.0",
     "pynput>=1.7,<2.0",
     "flet>=0.25,<1.0",
+    "transformers>=4.40,<6.0",
+    "accelerate>=0.26,<2.0",
 ]
 
 [project.scripts]

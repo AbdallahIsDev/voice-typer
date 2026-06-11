@@ -1,14 +1,66 @@
 import flet as ft
 import threading
+import os
+from typing import Optional, Callable
 from .styles import Tokens, is_windows_dark_mode
 from .icons import icon
-
 
 CLOUD_PROVIDERS = {
     "openai": {"label": "OpenAI", "url": "https://api.openai.com/v1/audio/transcriptions", "model": "whisper-1"},
     "groq": {"label": "Groq", "url": "https://api.groq.com/openai/v1/audio/transcriptions", "model": "whisper-large-v3"},
     "deepgram": {"label": "Deepgram", "url": "https://api.deepgram.com/v1/listen", "model": "nova-2"},
 }
+
+_PARAKERT_MODEL_ID = "nvidia/parakeet-tdt-0.6b-v3"
+
+
+def _ensure_hf_env():
+    """Ensure HF_HOME is set to ~/.voice-typer/huggingface/ for this process."""
+    from voice_typer.server.config import _config_dir as _get_cfg_dir
+    hf_home = str(_get_cfg_dir() / "huggingface")
+    os.environ.setdefault("HF_HOME", hf_home)
+    os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+    os.environ.setdefault("HF_HUB_DISABLE_XET", "true")
+    os.environ.setdefault("HF_HUB_DISABLE_UNVERIFIED_ACCESS_WARNING", "1")
+
+
+def _check_whisper_cached(model_size: str) -> bool:
+    """Check if a Systran/faster-whisper-{size} model is in HF cache."""
+    _ensure_hf_env()
+    try:
+        from huggingface_hub import snapshot_download
+        repo_id = f"Systran/faster-whisper-{model_size}"
+        snapshot_download(repo_id=repo_id, local_files_only=True)
+        return True
+    except Exception:
+        return False
+
+
+def _check_parakeet_cached() -> bool:
+    """Check if Parakeet weights are in HF cache."""
+    _ensure_hf_env()
+    try:
+        from huggingface_hub import snapshot_download
+        snapshot_download(repo_id=_PARAKERT_MODEL_ID, local_files_only=True)
+        return True
+    except Exception:
+        return False
+
+
+def _check_transformers_installed() -> bool:
+    try:
+        import transformers  # noqa
+        return True
+    except ImportError:
+        return False
+
+
+def _check_qwen_installed() -> bool:
+    try:
+        import qwen_asr  # noqa
+        return True
+    except ImportError:
+        return False
 
 
 class ModelsScreen:
@@ -17,9 +69,12 @@ class ModelsScreen:
         self.config = config
         self.reload = reload or (lambda: None)
         self.active_model = config.model_size if config else "tiny.en"
-        self.models = self._build_models_list()
         self._download_progress = 0
+        self._download_status_text = ""
+        self._is_downloading = False
+        self._installing_deps = False
         self._benchmark_result = None
+        self.models = self._build_models_list()
 
     def _is_dark(self) -> bool:
         if self.page is None:
@@ -32,13 +87,51 @@ class ModelsScreen:
 
     def _build_models_list(self) -> list[dict]:
         models = [
-            {"name": "tiny.en", "size": "~75MB", "speed": "Fastest", "downloaded": True},
-            {"name": "small.en", "size": "~466MB", "speed": "Fast", "downloaded": True},
-            {"name": "medium.en", "size": "~1.5GB", "speed": "Slow", "downloaded": True},
-            {"name": "qwen", "size": "Variable", "speed": "Fast", "downloaded": False},
+            {
+                "name": "tiny.en",
+                "size": "~75MB",
+                "speed": "Fastest",
+                "backend": "whisper",
+                "downloaded": _check_whisper_cached("tiny.en"),
+            },
+            {
+                "name": "small.en",
+                "size": "~466MB",
+                "speed": "Fast",
+                "backend": "whisper",
+                "downloaded": _check_whisper_cached("small.en"),
+            },
+            {
+                "name": "medium.en",
+                "size": "~1.5GB",
+                "speed": "Slow",
+                "backend": "whisper",
+                "downloaded": _check_whisper_cached("medium.en"),
+            },
+            {
+                "name": "qwen",
+                "size": "Variable",
+                "speed": "Fast",
+                "backend": "qwen",
+                "downloaded": _check_qwen_installed(),
+            },
+            {
+                "name": "parakeet",
+                "size": "~2.5GB",
+                "speed": "Fast",
+                "backend": "parakeet",
+                "downloaded": _check_parakeet_cached(),
+                "deps_ok": _check_transformers_installed(),
+            },
         ]
         for m in models:
-            m["is_active"] = m["name"] == self.active_model
+            if m["name"] == "parakeet":
+                is_active = (self.config.asr_backend == "parakeet" and self.active_model == "parakeet")
+            elif m["name"] == "qwen":
+                is_active = (self.config.asr_backend == "qwen" and self.active_model == "qwen")
+            else:
+                is_active = (self.config.asr_backend == "whisper" and m["name"] == self.active_model)
+            m["is_active"] = is_active
         return models
 
     def build(self) -> ft.Control:
@@ -46,6 +139,27 @@ class ModelsScreen:
         tp = Tokens.text_primary(dark)
         ts = Tokens.text_secondary(dark)
         ap = Tokens.accent_primary(dark)
+
+        download_btn = ft.Container(
+            content=ft.Row(
+                [icon("download", color="#FFFFFF", size=16), ft.Text("Download Model", color="#FFFFFF")],
+                spacing=8,
+            ),
+            on_click=self._download_model,
+            bgcolor=ap,
+            padding=ft.Padding(left=16, right=16, top=10, bottom=10),
+            border_radius=8,
+        )
+
+        progress_section = ft.Column(spacing=4)
+        if self._is_downloading or self._installing_deps:
+            progress_section.controls = [
+                ft.Container(height=8),
+                ft.ProgressBar(width=760, value=self._download_progress / 100 if self._download_progress > 0 else None),
+                ft.Text(self._download_status_text, size=12, color=ts),
+                ft.Container(height=8),
+            ]
+
         return ft.Container(
             expand=True,
             padding=ft.Padding.symmetric(horizontal=24, vertical=32),
@@ -64,18 +178,13 @@ class ModelsScreen:
                                     spacing=2,
                                 ),
                                 ft.Container(expand=True),
-                                ft.Container(
-                                    content=ft.Row([icon("download", color="#FFFFFF", size=16), ft.Text("Download Model", color="#FFFFFF")], spacing=8),
-                                    on_click=self._download_model,
-                                    bgcolor=ap,
-                                    padding=ft.Padding(left=16, right=16, top=10, bottom=10),
-                                    border_radius=8,
-                                ),
+                                download_btn,
                             ],
                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
                         ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
+                        progress_section,
                         self._build_models_list_ui(),
                         self._build_cloud_providers(),
                         ft.Container(height=20),
@@ -118,16 +227,61 @@ class ModelsScreen:
         tp = Tokens.text_primary(dark)
         ts = Tokens.text_secondary(dark)
         ap = Tokens.accent_primary(dark)
-        is_active = model.get("name") == self.active_model
+        is_active = model.get("is_active", False)
         is_downloaded = model.get("downloaded", True)
-        status = "Active" if is_active else ("Downloaded" if is_downloaded else "Available")
+        deps_ok = model.get("deps_ok", True)
+        name = model.get("name", "")
 
-        if status in ("Active", "Downloaded"):
+        if is_active:
+            status = "Active"
             badge_bg = "rgba(34,197,94,0.12)"
             badge_color = "#4ADE80"
+        elif is_downloaded:
+            status = "Downloaded"
+            badge_bg = "rgba(34,197,94,0.12)"
+            badge_color = "#4ADE80"
+        elif not deps_ok and name == "parakeet":
+            status = "Dependencies required"
+            badge_bg = "rgba(245,158,11,0.12)"
+            badge_color = "#F59E0B"
         else:
+            status = "Available"
             badge_bg = "rgba(37,99,235,0.10)"
             badge_color = "#60A5FA"
+
+        subtitle_parts = [f"Size: {model.get('size', 'Unknown')}"]
+        if name == "parakeet":
+            subtitle_parts.insert(0, "NVIDIA Parakeet TDT v3")
+        subtitle = "  ·  ".join(subtitle_parts)
+
+        actions = ft.Row(spacing=4)
+
+        if name == "parakeet" and not deps_ok:
+            actions.controls.append(
+                ft.Container(
+                    content=ft.Row([icon("download", size=14, color="#FFFFFF"), ft.Text("Install Deps", size=12, color="#FFFFFF")], spacing=4),
+                    on_click=lambda e, m=model: self._install_deps_and_download(m),
+                    bgcolor="#F59E0B",
+                    padding=ft.Padding(left=12, right=12, top=6, bottom=6),
+                    border_radius=6,
+                )
+            )
+        else:
+            actions.controls.append(
+                ft.IconButton(
+                    icon=icon("play-arrow" if not is_active else "check"),
+                    on_click=lambda e, m=model: self._use_model(m),
+                    disabled=is_active or (not is_downloaded and not deps_ok),
+                )
+            )
+
+        actions.controls.append(
+            ft.IconButton(
+                icon=icon("delete"),
+                on_click=lambda e, m=model: self._delete_model_confirm(m),
+                disabled=is_active,
+            )
+        )
 
         return ft.Container(
             bgcolor=Tokens.bg_card(dark) if not is_active else Tokens.bg_card(dark),
@@ -140,7 +294,7 @@ class ModelsScreen:
                         [
                             ft.Row(
                                 [
-                                    ft.Text(model.get("name", ""), size=16, weight=ft.FontWeight.W_600, color=tp),
+                                    ft.Text(name, size=16, weight=ft.FontWeight.W_600, color=tp),
                                     ft.Container(
                                         content=ft.Text(status, size=11, color=badge_color, weight=ft.FontWeight.W_600),
                                         bgcolor=badge_bg,
@@ -153,12 +307,7 @@ class ModelsScreen:
                             ),
                             ft.Row(
                                 [
-                                    ft.Text(f"Size: {model.get('size', 'Unknown')}", size=11, color=ts),
-                                    ft.Row(
-                                        [icon("speed", size=11, color=ts),
-                                         ft.Text(f"Speed: {model.get('speed', 'Unknown')}", size=11, color=ts)],
-                                        spacing=4,
-                                    ),
+                                    ft.Text(subtitle, size=11, color=ts),
                                 ],
                                 spacing=12,
                             ),
@@ -166,19 +315,7 @@ class ModelsScreen:
                         spacing=4,
                         expand=True,
                     ),
-                    ft.Row(
-                        [
-                            ft.IconButton(
-                                icon=icon("play-arrow" if not is_active else "check"),
-                                on_click=lambda e, m=model: self._use_model(m),
-                                disabled=is_active,
-                            ),
-                            ft.IconButton(
-                                icon=icon("delete"),
-                                on_click=lambda e, m=model: self._delete_model_confirm(m),
-                            ),
-                        ],
-                    ),
+                    actions,
                 ],
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             ),
@@ -339,91 +476,196 @@ class ModelsScreen:
             ),
         )
 
-    def _download_model(self, e):
-        self.page.snack_bar = ft.SnackBar(
-            content=ft.Text("Model download started... Check tray tooltip for progress."),
-            bgcolor=Tokens.ACCENT_PRIMARY_DARK,
-        )
-        self.page.snack_bar.open = True
-        self.page.update()
+    def _install_deps_and_download(self, model: dict):
+        """Install dependencies then download model, with progress."""
+        if self._is_downloading or self._installing_deps:
+            return
+
+        self._is_downloading = True
+        self._installing_deps = True
+        self._download_progress = 0
+        self._download_status_text = f"Installing dependencies for {model['name']}..."
+        self.reload()
+
+        def _do_install():
+            try:
+                from voice_typer.server.asr_setup import get_voice_typer_python
+                python_exe = get_voice_typer_python()
+                result = subprocess.run(
+                    [python_exe, "-m", "pip", "install", "transformers>=4.40"],
+                    capture_output=True, text=True, timeout=300,
+                )
+                if result.returncode != 0:
+                    raise RuntimeError(f"Dependency install failed: {result.stderr[:200]}")
+
+                self._installing_deps = False
+                model["deps_ok"] = _check_transformers_installed()
+                if not model["deps_ok"]:
+                    raise RuntimeError("transformers still not importable after install")
+
+                self._download_status_text = f"Downloading {model['name']} model (~2.5GB)..."
+                self._download_progress = 10
+                self.reload()
+
+                from voice_typer.server.asr_setup import download_parakeet_weights
+                success = download_parakeet_weights()
+                if not success:
+                    raise RuntimeError("Parakeet download returned failure")
+
+                self._download_progress = 100
+                self._download_status_text = "Download complete!"
+                model["downloaded"] = True
+                self._show_snack(f"Model '{model['name']}' ready!", Tokens.SUCCESS_DARK)
+            except Exception as exc:
+                self._download_status_text = f"Failed: {exc}"
+                self._show_snack(f"Failed: {exc}", Tokens.ACCENT_DANGER_DARK)
+            finally:
+                self._is_downloading = False
+                self._installing_deps = False
+                self.reload()
+
+        t = threading.Thread(target=_do_install, daemon=True)
+        t.start()
+
+    def _download_model(self, e=None):
+        if self._is_downloading or self._installing_deps:
+            return
+
+        # Find first undownloaded model
+        target = None
+        for m in self.models:
+            if m["name"] == "parakeet" and not m.get("downloaded"):
+                target = m
+                break
+        if target is None:
+            for m in self.models:
+                if not m.get("downloaded"):
+                    target = m
+                    break
+
+        if target is None:
+            self._show_snack("All models already downloaded", Tokens.SUCCESS_DARK)
+            return
+
+        self._is_downloading = True
+        self._download_progress = 0
+        self._download_status_text = f"Preparing {target['name']}..."
+        self.reload()
 
         def _do_download():
             try:
-                import time
-                for pct in range(0, 101, 10):
-                    time.sleep(0.3)
-                    self._download_progress = pct
-                self.page.snack_bar = ft.SnackBar(
-                    content=ft.Text("Model download complete!"),
-                    bgcolor=Tokens.SUCCESS_DARK,
-                )
-                self.page.snack_bar.open = True
-                self.page.update()
+                if target["name"] == "parakeet":
+                    # Check+install deps first
+                    if not target.get("deps_ok"):
+                        self._installing_deps = True
+                        self._download_status_text = "Installing transformers dependency..."
+                        self._download_progress = 5
+                        self.reload()
+
+                        from voice_typer.server.asr_setup import get_voice_typer_python
+                        python_exe = get_voice_typer_python()
+                        result = subprocess.run(
+                            [python_exe, "-m", "pip", "install", "transformers>=4.40"],
+                            capture_output=True, text=True, timeout=300,
+                        )
+                        if result.returncode != 0:
+                            raise RuntimeError(f"Dependency install failed: {result.stderr[:200]}")
+
+                        self._installing_deps = False
+                        target["deps_ok"] = _check_transformers_installed()
+                        if not target["deps_ok"]:
+                            raise RuntimeError("transformers still not importable after install")
+
+                    self._download_status_text = "Downloading Parakeet TDT v3 model (~2.5GB)..."
+                    self._download_progress = 10
+                    self.reload()
+
+                    from voice_typer.server.asr_setup import download_parakeet_weights
+                    success = download_parakeet_weights()
+                    if not success:
+                        raise RuntimeError("Parakeet download returned failure")
+                elif target["name"] == "qwen":
+                    from voice_typer.server.asr_setup import download_weights
+                    success = download_weights(target["name"])
+                    if not success:
+                        raise RuntimeError("Qwen download returned failure")
+                else:
+                    from voice_typer.server.asr_setup import download_weights
+                    success = download_weights(target["name"])
+                    if not success:
+                        raise RuntimeError(f"Download failed for {target['name']}")
+
+                self._download_progress = 100
+                self._download_status_text = "Download complete!"
+                target["downloaded"] = True
+
+                self._show_snack(f"Model '{target['name']}' downloaded!", Tokens.SUCCESS_DARK)
             except Exception as exc:
-                self.page.snack_bar = ft.SnackBar(
-                    content=ft.Text(f"Download failed: {exc}"),
-                    bgcolor=Tokens.ACCENT_DANGER_DARK,
-                )
-                self.page.snack_bar.open = True
-                self.page.update()
+                self._download_status_text = f"Failed: {exc}"
+                self._show_snack(f"Download failed: {exc}", Tokens.ACCENT_DANGER_DARK)
+            finally:
+                self._is_downloading = False
+                self._installing_deps = False
+                self.reload()
 
         t = threading.Thread(target=_do_download, daemon=True)
         t.start()
 
     def _use_model(self, model: dict):
-        self.active_model = model.get("name")
-        self.config.model_size = model.get("name")
-        self.config.save()
-        for m in self.models:
-            m["is_active"] = m["name"] == self.active_model
-        self.reload()
-        self.page.snack_bar = ft.SnackBar(
-            content=ft.Text(f"Using model: {model.get('name')}"),
-            bgcolor=Tokens.SUCCESS_DARK,
-        )
-        self.page.snack_bar.open = True
-        self.page.update()
+        name = model.get("name")
+        backend = model.get("backend", "whisper")
 
-    def _delete_model_confirm(self, model: dict):
-        if model.get("name") == self.active_model:
-            self.page.snack_bar = ft.SnackBar(
-                content=ft.Text("Cannot delete the active model. Switch to another model first."),
-                bgcolor=Tokens.WARNING_DARK,
-            )
-            self.page.snack_bar.open = True
-            self.page.update()
+        # If parakeet deps missing, trigger install+download first
+        if name == "parakeet" and not model.get("deps_ok"):
+            self._install_deps_and_download(model)
+            return
+        if name == "parakeet" and not model.get("downloaded"):
+            self._install_deps_and_download(model)
             return
 
-        def _do_delete(dialog_e):
-            self.page.dialog.open = False
-            self.models = [m for m in self.models if m.get("name") != model.get("name")]
-            self.reload()
-            self.page.snack_bar = ft.SnackBar(
-                content=ft.Text(f"Deleted model: {model.get('name')}"),
-                bgcolor=Tokens.WARNING_DARK,
-            )
-            self.page.snack_bar.open = True
-            self.page.update()
+        self.active_model = name
+        if backend == "whisper":
+            self.config.asr_backend = "whisper"
+            self.config.model_size = name
+        elif backend == "qwen":
+            self.config.asr_backend = "qwen"
+            self.config.model_size = "qwen"
+        elif backend == "parakeet":
+            self.config.asr_backend = "parakeet"
+            self.config.model_size = "parakeet"
 
-        def _cancel(dialog_e):
+        self.config.save()
+        for m in self.models:
+            m["is_active"] = False
+        model["is_active"] = True
+        self.reload()
+        self._show_snack(f"Using model: {name}", Tokens.SUCCESS_DARK)
+
+    def _delete_model_confirm(self, model: dict):
+        if model.get("is_active"):
+            self._show_snack("Cannot delete the active model. Switch to another model first.", Tokens.WARNING_DARK)
+            return
+
+        def _do_delete(e):
+            self.page.dialog.open = False
+            self.models = [m for m in self.models if m["name"] != model["name"]]
+            self._show_snack(f"Deleted model: {model['name']}", Tokens.WARNING_DARK)
+            self.reload()
+
+        def _cancel(e):
             self.page.dialog.open = False
             self.page.update()
 
         self.page.dialog = ft.AlertDialog(
             title=ft.Text("Delete Model"),
-            content=ft.Text(f"Are you sure you want to delete the model '{model.get('name')}'? This cannot be undone."),
+            content=ft.Text(f"Are you sure you want to delete the model '{model['name']}'? This cannot be undone."),
             actions=[ft.TextButton("Cancel", on_click=_cancel), ft.TextButton("Delete", on_click=_do_delete)],
         )
         self.page.dialog.open = True
         self.page.update()
 
     def _run_benchmark(self, e):
-        self.page.snack_bar = ft.SnackBar(
-            content=ft.Text("Running benchmark..."),
-            bgcolor=Tokens.ACCENT_PRIMARY_DARK,
-        )
-        self.page.snack_bar.open = True
-        self.page.update()
+        self._show_snack("Running benchmark...", Tokens.ACCENT_PRIMARY_DARK)
 
         def _do_benchmark():
             try:
@@ -441,12 +683,14 @@ class ModelsScreen:
             except Exception as exc:
                 self._benchmark_result = f"Benchmark failed: {exc}"
             self.reload()
-            self.page.snack_bar = ft.SnackBar(
-                content=ft.Text(self._benchmark_result),
-                bgcolor=Tokens.ACCENT_PRIMARY_DARK,
-            )
-            self.page.snack_bar.open = True
-            self.page.update()
+            self._show_snack(self._benchmark_result, Tokens.ACCENT_PRIMARY_DARK)
 
         t = threading.Thread(target=_do_benchmark, daemon=True)
         t.start()
+
+    def _show_snack(self, msg: str, color: str):
+        if self.page is None:
+            return
+        self.page.snack_bar = ft.SnackBar(content=ft.Text(msg), bgcolor=color)
+        self.page.snack_bar.open = True
+        self.page.update()

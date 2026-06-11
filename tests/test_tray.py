@@ -82,6 +82,12 @@ def mock_heavy_imports(monkeypatch):
     monkeypatch.setitem(sys.modules, "PIL.Image", MagicMock())
     monkeypatch.setitem(sys.modules, "PIL.ImageDraw", MagicMock())
 
+    # _make_icon now calls Image.open() — replace with a dummy that
+    # returns a simple transparent image to keep tests running.
+    _real_image = __import__("PIL.Image", fromlist=["Image"])
+    _dummy_icon = _real_image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    monkeypatch.setattr(tray_mod, "_make_icon", lambda state, size=0: _dummy_icon)
+
 
 class _MockController:
     """Mock controller implementing the TrayController protocol."""

@@ -205,6 +205,12 @@ class TestNvidiaDllPaths:
         monkeypatch.setattr(sys, "platform", "win32")
         monkeypatch.setattr(mod.site, "getsitepackages", lambda: [str(tmp_path)])
         monkeypatch.setattr(mod.site, "getusersitepackages", lambda: str(tmp_path / "user"))
+        # Override sys.prefix so the _configure_nvidia_dll_paths()
+        # sys.prefix fallback doesn't pick up the real venv's NVIDIA dirs.
+        monkeypatch.setattr(mod.sys, "prefix", str(tmp_path / "prefix"))
+        # Override expanduser so the app_venv fallback doesn't pick up
+        # the real ~/.voice-typer/venv/ nvidia packages.
+        monkeypatch.setattr(mod.os.path, "expanduser", lambda _: str(tmp_path / "home"))
         # os.add_dll_directory is Windows-only; add a mock attribute for testing
         monkeypatch.setattr(mod.os, "add_dll_directory", lambda path: added.append(path), raising=False)
         monkeypatch.setenv("PATH", "C:\\Windows")

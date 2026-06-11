@@ -55,6 +55,34 @@ class _SessionFilter(logging.Filter):
         return True
 
 
+class _ColorFormatter(logging.Formatter):
+    """ANSI-colored formatter for stderr. No extra dependencies."""
+
+    _LVL_COLOR = {
+        logging.DEBUG: "38;5;245",
+        logging.INFO: "38;5;114",
+        logging.WARNING: "38;5;214",
+        logging.ERROR: "38;5;196",
+        logging.CRITICAL: "38;5;196;1",
+    }
+    _LVL_SYM = {
+        logging.DEBUG: "DBUG",
+        logging.INFO: "INFO",
+        logging.WARNING: "WARN",
+        logging.ERROR: "ERR",
+        logging.CRITICAL: "FATAL",
+    }
+
+    def format(self, record):
+        c = self._LVL_COLOR.get(record.levelno, "0")
+        sym = self._LVL_SYM.get(record.levelno, "????")
+        ts = self.formatTime(record, "%H:%M:%S")
+        return (
+            f"\033[{c}m{ts} {sym:<5s}\033[0m"
+            f"  {record.getMessage()}"
+        )
+
+
 def _setup_logging():
     """Configure logging to file (not console, since we run as tray app)."""
     global _session_id
@@ -103,9 +131,7 @@ def _setup_logging():
     if sys.stderr.isatty():
         stream = logging.StreamHandler()
         stream.setLevel(logging.INFO)
-        stream.setFormatter(
-            logging.Formatter(fmt, defaults={"session_id": "", "component": ""})
-        )
+        stream.setFormatter(_ColorFormatter())
         root.addHandler(stream)
 
 
@@ -117,8 +143,11 @@ class VoiceTyperApp:
         self.recorder = Recorder(self.config)
         self.transcriber: Optional[TranscriptionEngine] = None
         self._qwen_engine = None
+        self._parakeet_engine = None
         if self.config.asr_backend == "qwen" and self.config.qwen_model_path:
             self._init_qwen_engine()
+        if self.config.asr_backend == "parakeet":
+            self._init_parakeet_engine()
 
         self.clipboard = ClipboardManager(
             paste_enabled=self.config.paste_on_stop,
@@ -186,8 +215,35 @@ class VoiceTyperApp:
             log.error("[QWEN] Failed to initialise QwenEngine: %s", exc)
             self._qwen_engine = None
 
+    # ─── Parakeet Engine (P0) ────────────────────────────────────────
+
+    def _init_parakeet_engine(self):
+        """Conditionally initialise the Parakeet ASR engine."""
+        try:
+            from voice_typer.server.parakeet_engine import ParakeetEngine
+
+            self._parakeet_engine = ParakeetEngine(
+                device=self.config.device,
+                language=self.config.language,
+            )
+            log.info("[PARAKEET] ParakeetEngine created (will load on first use)")
+        except ImportError:
+            log.warning(
+                "[PARAKEET] transformers package not installed, Parakeet backend unavailable"
+            )
+            self._parakeet_engine = None
+        except Exception as exc:
+            log.error("[PARAKEET] Failed to initialise ParakeetEngine: %s", exc)
+            self._parakeet_engine = None
+
     def _get_active_transcriber(self):
-        """Return the Qwen engine (if active) or Whisper engine."""
+        """Return the active transcriber: Parakeet, Qwen, or Whisper."""
+        if (
+            self.config.asr_backend == "parakeet"
+            and self._parakeet_engine is not None
+            and self._parakeet_engine.is_loaded
+        ):
+            return self._parakeet_engine
         if (
             self.config.asr_backend == "qwen"
             and self._qwen_engine is not None
@@ -347,7 +403,44 @@ class VoiceTyperApp:
             if self._qwen_engine.is_loaded:
                 self.tray.set_state(AppState.IDLE, "Ready — Qwen ASR")
             else:
+                log.warning("[STARTUP] Qwen load failed")
+                if self._shutting_down:
+                    return
                 log.warning("[STARTUP] Qwen load failed, falling back to Whisper")
+                self.config.model_size = "tiny.en"
+                if self.transcriber is not None:
+                    self.transcriber.model_size = "tiny.en"
+                    self.transcriber._configured_model_size = "tiny.en"
+                self._try_load_model(notify_on_failure=False)
+        elif self.config.asr_backend == "parakeet" and self._parakeet_engine is not None:
+            log.info("[STARTUP] Step 4: Parakeet backend active, loading Parakeet model")
+            self._parakeet_engine.load()
+            if self._qwen_engine.is_loaded:
+                self.tray.set_state(AppState.IDLE, "Ready — Qwen ASR")
+            else:
+                log.warning("[STARTUP] Qwen load failed")
+                if self._shutting_down:
+                    return
+                log.warning("[STARTUP] Qwen load failed, falling back to Whisper")
+                self.config.model_size = "tiny.en"
+                if self.transcriber is not None:
+                    self.transcriber.model_size = "tiny.en"
+                    self.transcriber._configured_model_size = "tiny.en"
+                self._try_load_model(notify_on_failure=False)
+        elif self.config.asr_backend == "parakeet" and self._parakeet_engine is not None:
+            log.info("[STARTUP] Step 4: Parakeet backend active, loading Parakeet model")
+            self.transcriber = None
+            if self._parakeet_engine.is_loaded:
+                self.tray.set_state(AppState.IDLE, "Ready — Parakeet ASR")
+            else:
+                log.warning("[STARTUP] Parakeet load failed")
+                if self._shutting_down:
+                    return
+                log.warning("[STARTUP] Parakeet load failed, falling back to Whisper")
+                self.config.model_size = "tiny.en"
+                if self.transcriber is not None:
+                    self.transcriber.model_size = "tiny.en"
+                    self.transcriber._configured_model_size = "tiny.en"
                 self._try_load_model(notify_on_failure=False)
         else:
             log.info("[STARTUP] Step 4: load Whisper model")
@@ -450,7 +543,8 @@ class VoiceTyperApp:
                 type(self._hotkey_backend).__name__,
             )
         except Exception:
-            log.exception("[HOTKEY] Registration FAILED")
+            log.warning("[HOTKEY] Registration FAILED — %s", hotkey_str)
+            log.debug("Hotkey registration error", exc_info=True)
             self.tray.notify(
                 "Voice Typer",
                 "Hotkey registration failed. Use the tray menu to toggle dictation.",
@@ -513,17 +607,48 @@ class VoiceTyperApp:
             self.tray.set_state(AppState.LOADING, "Starting up — please wait...")
             return
 
+        # Lazy-init engines if backend was changed via Flet UI after startup
+        if self.config.asr_backend == "parakeet" and self._parakeet_engine is None:
+            self._init_parakeet_engine()
+        if self.config.asr_backend == "qwen" and self._qwen_engine is None:
+            self._init_qwen_engine()
+
         # Guard: refuse to record if no model is loaded
         qwen_active = (
             self.config.asr_backend == "qwen"
             and self._qwen_engine is not None
             and self._qwen_engine.is_loaded
         )
+        parakeet_active = (
+            self.config.asr_backend == "parakeet"
+            and self._parakeet_engine is not None
+            and self._parakeet_engine.is_loaded
+        )
         whisper_loaded = self.transcriber.is_loaded
 
-        if not qwen_active and not whisper_loaded:
+        if not qwen_active and not parakeet_active and not whisper_loaded:
             if self.config.asr_backend == "qwen" and self._qwen_engine is not None:
                 log.warning("[DICTATION] Qwen not loaded, lazy-loading Whisper as fallback")
+                self.config.model_size = "tiny.en"
+                if self.transcriber is not None:
+                    self.transcriber.model_size = "tiny.en"
+                    self.transcriber._configured_model_size = "tiny.en"
+                self.tray.set_state(AppState.LOADING, "Retrying model load (may take 30s)...")
+                self._try_load_model(notify_on_failure=True)
+                if not self.transcriber.is_loaded:
+                    log.error("[DICTATION] Whisper fallback also failed, cannot record")
+                    self._schedule_timer(
+                        3.0, lambda: self.tray.set_state(
+                            AppState.ERROR, "Model failed to load — press F2 to retry"
+                        )
+                    )
+                    return
+            elif self.config.asr_backend == "parakeet" and self._parakeet_engine is not None:
+                log.warning("[DICTATION] Parakeet not loaded, lazy-loading Whisper as fallback")
+                self.config.model_size = "tiny.en"
+                if self.transcriber is not None:
+                    self.transcriber.model_size = "tiny.en"
+                    self.transcriber._configured_model_size = "tiny.en"
                 self.tray.set_state(AppState.LOADING, "Retrying model load (may take 30s)...")
                 self._try_load_model(notify_on_failure=True)
                 if not self.transcriber.is_loaded:

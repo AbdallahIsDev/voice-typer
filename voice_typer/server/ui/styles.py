@@ -249,7 +249,7 @@ NAV_ITEMS = {
     "models": {
         "title": "Models",
         "icon": "models",
-        "description": "Manage Whisper models",
+        "description": "Manage Whisper, Parakeet & Qwen models",
     },
     "microphone": {
         "title": "Microphone",

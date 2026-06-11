@@ -220,30 +220,19 @@ class VoiceTyperApp:
     @staticmethod
     def _ensure_window_icon() -> str:
         from voice_typer.server.config import _config_dir
-        from PIL import Image, ImageDraw
+        from PIL import Image
         ico_path = _config_dir() / "voice-typer.ico"
         if ico_path.exists():
             return str(ico_path)
-        size = 64
-        color = (37, 99, 235, 255)
-        img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
-        cx, cy = size // 2, size // 2
-        mic_w, mic_h = size // 5, size // 3
-        draw.rounded_rectangle(
-            [cx - mic_w, cy - mic_h, cx + mic_w, cy + mic_h // 3],
-            radius=mic_w // 2, fill=color,
-        )
-        stand_radius = size // 3
-        draw.arc(
-            [cx - stand_radius, cy - stand_radius + mic_h // 4, cx + stand_radius, cy + stand_radius],
-            start=0, end=180, fill=color, width=max(2, size // 20),
-        )
-        base_y = cy + stand_radius
-        draw.line(
-            [cx - stand_radius // 2, base_y, cx + stand_radius // 2, base_y],
-            fill=color, width=max(2, size // 20),
-        )
+        icon_png = Path(__file__).resolve().parent.parent / "assets" / "logo-64.png"
+        if not icon_png.exists():
+            icon_png = Path(__file__).resolve().parent.parent / "assets" / "logo-256.png"
+        if icon_png.exists():
+            img = Image.open(str(icon_png)).convert("RGBA")
+            if img.size != (64, 64):
+                img = img.resize((64, 64), Image.LANCZOS)
+        else:
+            img = Image.new("RGBA", (64, 64), (37, 99, 235, 255))
         ico_path.parent.mkdir(parents=True, exist_ok=True)
         img.save(ico_path, format="ICO", sizes=[(64, 64)])
         return str(ico_path)

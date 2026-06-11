@@ -11,7 +11,7 @@ from typing import Optional
 log = logging.getLogger("voice_typer.server.config")
 
 
-ALLOWED_USER_MODELS = {"tiny.en", "small.en", "medium.en", "qwen"}
+ALLOWED_USER_MODELS = {"tiny.en", "small.en", "medium.en", "qwen", "parakeet"}
 
 
 def _legacy_config_dir() -> Path | None:
@@ -91,8 +91,9 @@ class Config:
     show_notifications: bool = True
 
     # ASR backend selection
-    asr_backend: str = "whisper"  # "whisper" or "qwen"
+    asr_backend: str = "whisper"  # "whisper", "qwen", or "parakeet"
     qwen_model_path: Optional[str] = None  # local path to Qwen3-ASR weights
+    parakeet_model_path: Optional[str] = None  # local override for Parakeet weights (None = HF cache)
 
     # Text cleanup
     text_cleanup_enabled: bool = True  # Set False for raw (uncorrected) output
@@ -293,6 +294,7 @@ class Config:
             "llm_api_key", "llm_api_url", "llm_model", "llm_preset",
             "repaste_hotkey",
             "tray_left_click_action",
+            "parakeet_model_path",
         }
         defaults = cls()
 
