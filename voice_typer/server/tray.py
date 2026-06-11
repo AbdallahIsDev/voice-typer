@@ -622,19 +622,11 @@ class TrayIcon:
                 )
             )
 
-        # Settings (TRAY-002)
-        items.append(pystray.MenuItem("Settings", self._wrap(self.open_flet_window)))
-
         items.append(pystray.Menu.SEPARATOR)
 
         # Models submenu — only show downloaded models
         models_sub = self._build_models_submenu()
         items.append(pystray.MenuItem("Models", pystray.Menu(*models_sub)))
-
-        items.append(pystray.Menu.SEPARATOR)
-
-        # Repaste Last (Feature)
-        items.append(pystray.MenuItem("Repaste Last", self._wrap(self._controller.repaste_last if hasattr(self._controller, 'repaste_last') else lambda: None)))
 
         items.append(pystray.Menu.SEPARATOR)
 
@@ -694,7 +686,6 @@ class TrayIcon:
             if not downloaded:
                 continue
 
-            label = name
             is_active = (name == current_model and cfg.get("asr_backend", "whisper") == backend) or (
                 name == "parakeet" and cfg.get("asr_backend") == "parakeet"
             ) or (
@@ -703,9 +694,8 @@ class TrayIcon:
 
             items.append(
                 pystray.MenuItem(
-                    label,
+                    f"{'• ' if is_active else '  '}{name}",
                     self._wrap(lambda n=name: self._controller.change_model(n)),
-                    checked=lambda active=is_active: active,
                 )
             )
 

@@ -180,14 +180,14 @@ class TestPhase2MinimalMenu:
         assert "Quit" in labels
 
     def test_menu_has_required_items(self, tray):
-        """Phase 2 menu should have Toggle Dictation, Settings, Repaste, Restart, Quit."""
+        """Phase 2 menu should have Toggle Dictation, Open App, Models, Restart, Quit."""
         tray.start(bg_work=None)
         items = _FakeIcon.last_kwargs["menu"]()
         menu_items = [i for i in items if isinstance(i, _FakeMenuItem)]
         labels = [m.args[0] for m in menu_items]
         assert len(menu_items) >= 5
         assert any("Toggle Dictation" in l for l in labels)
-        assert any("Settings" in l for l in labels)
+        assert any("Open App" in l for l in labels)
         assert any("Restart" in l for l in labels)
         assert any("Quit" in l for l in labels)
 
@@ -201,15 +201,10 @@ class TestPhase2MinimalMenu:
         labels = _menu_labels(tray)
         assert "Toggle Dictation (F9)" in labels
 
-    def test_settings_in_menu(self, tray):
-        """TRAY-002: Settings entry is now in the tray menu."""
+    def test_models_submenu_in_menu(self, tray):
+        """Models submenu is now in the tray menu."""
         labels = _menu_labels(tray)
-        assert any("Settings" in l for l in labels)
-
-    def test_no_model_submenu(self, tray):
-        """Phase 2: Model selection is in Flet window, not tray menu."""
-        labels = _menu_labels(tray)
-        assert "Model" not in labels
+        assert any("Models" in l for l in labels)
 
     def test_no_microphone_submenu(self, tray):
         """Phase 2: Microphone selection is in Flet window, not tray menu."""
