@@ -1219,21 +1219,84 @@ class VoiceTyperApp:
         self.tray.set_hotkey(self.config.hotkey)
 
     def _change_model(self, model_size: str):
-        """Apply a model change for future dictation sessions."""
+        """Apply a model change for future dictation sessions.
+
+        Handles Whisper, Parakeet, and Qwen backends.
+        Unloads the old engine and loads the new one immediately (unless
+        currently recording).
+        """
+        # Determine backend from model name
+        if model_size == "parakeet":
+            new_backend = "parakeet"
+        elif model_size == "qwen":
+            new_backend = "qwen"
+        else:
+            new_backend = "whisper"
+
+        old_backend = self.config.asr_backend
+
+        self.config.asr_backend = new_backend
         self.config.model_size = model_size
         self.config.save()
-        if self.recorder.recording or not self._busy_event.is_set():  # busy
-            log.info("Model changed to %s; applying after active work", model_size)
+
+        if self.recorder.recording or not self._busy_event.is_set():
+            log.info("Model changed to %s (%s); applying after active work", model_size, new_backend)
             self.tray.notify(
                 "Voice Typer",
                 f"Model will change to {model_size} after current recording",
             )
             return
-        try:
-            if self.transcriber is not None:
+
+        # Unload old backend
+        if old_backend == "parakeet" and self._parakeet_engine is not None:
+            try:
+                self._parakeet_engine = None
+            except Exception:
+                pass
+        if old_backend == "qwen" and self._qwen_engine is not None:
+            try:
+                self._qwen_engine = None
+            except Exception:
+                pass
+        if self.transcriber is not None:
+            try:
                 self.transcriber.unload()
-        except Exception:
-            log.exception("[MODEL] Failed to unload previous model")
+            except Exception:
+                pass
+            self.transcriber = None
+
+        # Load new backend
+        self._model_load_attempted = False
+
+        if new_backend == "parakeet":
+            self._init_parakeet_engine()
+            if self._parakeet_engine is not None:
+                def on_progress(msg: str):
+                    self.tray.set_state(AppState.LOADING, msg)
+                self._parakeet_engine.load(progress_callback=on_progress)
+                if self._parakeet_engine.is_loaded:
+                    self.tray.set_state(AppState.IDLE, f"Ready — Parakeet ASR")
+                    self.tray.invalidate_menu_cache()
+                else:
+                    log.warning("[MODEL] Parakeet model failed to load")
+                    self.tray.set_state(AppState.ERROR, "Parakeet model failed to load")
+            return
+
+        if new_backend == "qwen":
+            self._init_qwen_engine()
+            if self._qwen_engine is not None:
+                def on_progress(msg: str):
+                    self.tray.set_state(AppState.LOADING, msg)
+                self._qwen_engine.load(progress_callback=on_progress)
+                if self._qwen_engine.is_loaded:
+                    self.tray.set_state(AppState.IDLE, f"Ready — Qwen ASR")
+                    self.tray.invalidate_menu_cache()
+                else:
+                    log.warning("[MODEL] Qwen model failed to load")
+                    self.tray.set_state(AppState.ERROR, "Qwen model failed to load")
+            return
+
+        # Whisper
         self.transcriber = TranscriptionEngine(
             model_size=self.config.model_size,
             device=self.config.device,
@@ -1242,8 +1305,17 @@ class VoiceTyperApp:
             best_of=self.config.best_of,
             condition_on_previous_text=self.config.condition_on_previous_text,
         )
-        self._model_load_attempted = False
-        self.tray.set_state(AppState.IDLE, "Model changed — press F2 to load")
+        try:
+            def on_progress(msg: str):
+                self.tray.set_state(AppState.LOADING, msg)
+            self.transcriber.load(progress_callback=on_progress)
+            self.tray.set_state(
+                AppState.IDLE, f"Ready — {self.transcriber.device_info}"
+            )
+            self.tray.invalidate_menu_cache()
+        except Exception as exc:
+            log.exception("[MODEL] Whisper model load failed: %s", exc)
+            self.tray.set_state(AppState.ERROR, f"Model failed: {exc}")
 
     # ─── TrayController Protocol Methods (P3) ────────────────────────
 

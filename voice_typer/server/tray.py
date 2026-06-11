@@ -25,6 +25,7 @@ import logging
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 from enum import Enum
 from pathlib import Path
@@ -122,6 +123,37 @@ class TrayIcon:
             with self._queue_lock:
                 self._pending_states.append((state, message))
         self._write_flet_state_file(state.name.lower(), message)
+
+    def _check_pending_model_change(self) -> None:
+        """Read flet_state.json and apply any pending model change."""
+        try:
+            import json
+            from voice_typer.server.config import _config_dir
+            path = _config_dir() / "flet_state.json"
+            try:
+                with open(path, "r") as f:
+                    data = json.load(f)
+            except (FileNotFoundError, json.JSONDecodeError):
+                return
+            name = data.pop("pending_model_name", None)
+            backend = data.pop("pending_model_backend", None)
+            if name is None:
+                return
+            # Clear the pending fields so we don't re-apply
+            fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w") as f:
+                    json.dump(data, f)
+                os.replace(tmp, str(path))
+            except BaseException:
+                try:
+                    os.unlink(tmp)
+                except Exception:
+                    pass
+            log.info("[TRAY] Pending model change detected: %s (%s)", name, backend)
+            self._controller.change_model(name)
+        except Exception as exc:
+            log.warning("[TRAY] Failed to apply pending model change: %s", exc)
 
     def _write_flet_state_file(self, status: str, message: str = "") -> None:
         """Write current state to a shared JSON file that the Flet subprocess reads."""
@@ -554,9 +586,12 @@ class TrayIcon:
         return "open_app"
 
     def _build_menu(self) -> tuple:
-        """Build the Phase 2 minimal tray menu."""
+        """Build the Phase 2 minimal tray menu with Models submenu."""
         if self._menu_cache_valid and self._cached_menu is not None:
             return self._cached_menu
+
+        # Apply any pending model change from Flet UI
+        self._check_pending_model_change()
 
         items = []
         hotkey = self._display_hotkey()
@@ -592,6 +627,12 @@ class TrayIcon:
 
         items.append(pystray.Menu.SEPARATOR)
 
+        # Models submenu — only show downloaded models
+        models_sub = self._build_models_submenu()
+        items.append(pystray.MenuItem("Models", pystray.Menu(*models_sub)))
+
+        items.append(pystray.Menu.SEPARATOR)
+
         # Repaste Last (Feature)
         items.append(pystray.MenuItem("Repaste Last", self._wrap(self._controller.repaste_last if hasattr(self._controller, 'repaste_last') else lambda: None)))
 
@@ -607,6 +648,75 @@ class TrayIcon:
         self._cached_menu = result
         self._menu_cache_valid = True
         return result
+
+    def _build_models_submenu(self) -> list:
+        """Build a list of model MenuItems — only cached models + More models link."""
+        import json
+        from voice_typer.server.config import _config_dir
+        from voice_typer.server.asr_setup import ensure_hf_env
+        ensure_hf_env()
+
+        # Read current model from config
+        config_path = _config_dir() / "config.json"
+        current_model = "tiny.en"
+        try:
+            with open(config_path, "r") as f:
+                cfg = json.load(f)
+            current_model = cfg.get("model_size", "tiny.en")
+        except Exception:
+            pass
+
+        # Models to check
+        candidates = [
+            ("tiny.en", "whisper", "Systran/faster-whisper-tiny.en"),
+            ("small.en", "whisper", "Systran/faster-whisper-small.en"),
+            ("medium.en", "whisper", "Systran/faster-whisper-medium.en"),
+            ("parakeet", "parakeet", "nvidia/parakeet-tdt-0.6b-v3"),
+            ("qwen", "qwen", None),
+        ]
+
+        items = []
+        for name, backend, repo_id in candidates:
+            downloaded = False
+            if backend == "qwen":
+                try:
+                    import qwen_asr  # noqa
+                    downloaded = True
+                except ImportError:
+                    pass
+            elif repo_id:
+                cache_dir = _config_dir() / "huggingface" / "hub"
+                ref_file = cache_dir / f"models--{repo_id.replace('/', '--')}" / "refs" / "main"
+                downloaded = ref_file.exists()
+            else:
+                downloaded = False
+
+            if not downloaded:
+                continue
+
+            label = name
+            is_active = (name == current_model and cfg.get("asr_backend", "whisper") == backend) or (
+                name == "parakeet" and cfg.get("asr_backend") == "parakeet"
+            ) or (
+                name == "qwen" and cfg.get("asr_backend") == "qwen"
+            )
+
+            items.append(
+                pystray.MenuItem(
+                    label,
+                    self._wrap(lambda n=name: self._controller.change_model(n)),
+                    checked=lambda active=is_active: active,
+                )
+            )
+
+        items.append(pystray.Menu.SEPARATOR)
+        items.append(
+            pystray.MenuItem(
+                "More models...",
+                self._wrap(self.open_flet_window),
+            )
+        )
+        return items
 
     def _display_hotkey(self) -> str:
         """Return the configured hotkey in a user-facing form."""

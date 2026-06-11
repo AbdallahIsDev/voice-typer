@@ -635,11 +635,39 @@ class ModelsScreen:
             self.config.model_size = "parakeet"
 
         self.config.save()
+
+        # Notify main process (tray) to pick up model change immediately
+        self._write_pending_model_change(name, backend)
+
         for m in self.models:
             m["is_active"] = False
         model["is_active"] = True
         self.reload()
         self._show_snack(f"Using model: {name}", Tokens.SUCCESS_DARK)
+
+    def _write_pending_model_change(self, name: str, backend: str) -> None:
+        """Write pending model change to flet_state.json so the main
+        process picks it up on its next check."""
+        import json, tempfile
+        from voice_typer.server.config import _config_dir
+        path = _config_dir() / "flet_state.json"
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            data = {}
+        data["pending_model_name"] = name
+        data["pending_model_backend"] = backend
+        fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(data, f)
+            os.replace(tmp, str(path))
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except Exception:
+                pass
 
     def _delete_model_confirm(self, model: dict):
         if model.get("is_active"):
