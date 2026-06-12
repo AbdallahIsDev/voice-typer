@@ -97,11 +97,11 @@ class PynputHotkey(HotkeyBackend):
                 self._stop_listener()
                 self._start_fallback(callback, Listener, Key, KeyCode)
         except Exception:
-            log.exception("GlobalHotKeys failed; trying fallback Listener")
+            log.exception("[HOTKEY] GlobalHotKeys failed; trying fallback Listener")
             try:
                 self._start_fallback(callback, Listener, Key, KeyCode)
             except Exception:
-                log.exception("Fallback Listener also failed")
+                log.exception("[HOTKEY] Fallback Listener also failed")
 
     # --- internal helpers ---------------------------------------------------
 
@@ -125,7 +125,7 @@ class PynputHotkey(HotkeyBackend):
         time.sleep(0.5)
         self._fallback = True
         log.info(
-            "Fallback listener started, watching for %s (alive=%s)",
+            "[HOTKEY] Fallback listener started, watching for %s (alive=%s)",
             match_key,
             self._listener.is_alive(),
         )
@@ -142,7 +142,7 @@ class PynputHotkey(HotkeyBackend):
 
     def stop(self) -> None:
         if self._listener is not None:
-            log.info("Stopping pynput hotkey listener")
+            log.info("[HOTKEY] Stopping pynput hotkey listener")
             self._stop_listener()
 
     def is_alive(self) -> bool:
@@ -370,21 +370,22 @@ class WindowsNativeHotkey(HotkeyBackend):
                     # pyrefly: ignore [missing-attribute]
                     err = self._kernel32.GetLastError()
                     self._last_error = err
-                    log.error(
-                        "RegisterHotKey failed for VK=0x%X, GetLastError=%d (0x%X)",
+                    log.warning(
+                        "RegisterHotKey failed for VK=0x%X, GetLastError=%d (0x%X) "
+                        "— polling fallback still works",
                         self._vk,
                         err, err,
                     )
-                    self._ready_event.set()
-                    return
-                self._registered = True
+                else:
+                    self._registered = True
+                    log.info(
+                        "RegisterHotKey succeeded: hotkey=%s vk=0x%X id=%d",
+                        self.hotkey_str,
+                        self._vk,
+                        self._hotkey_id,
+                    )
+
                 self._success = True
-                log.info(
-                    "RegisterHotKey succeeded: hotkey=%s vk=0x%X id=%d",
-                    self.hotkey_str,
-                    self._vk,
-                    self._hotkey_id,
-                )
                 self._ready_event.set()
 
                 # ── Hotkey detection ──
@@ -392,19 +393,19 @@ class WindowsNativeHotkey(HotkeyBackend):
                 # RegisterHotKey + GetMessageW does not reliably deliver WM_HOTKEY
                 # on all Windows configurations.  Polling at 20Hz uses negligible
                 # CPU and works universally.
-                log.info("Starting hotkey detection via GetAsyncKeyState polling")
+                log.info("[HOTKEY] Starting hotkey detection via GetAsyncKeyState polling")
                 self._using_polling = True
                 self._run_polling_loop(callback)
 
             except Exception:
-                log.exception("Windows hotkey thread error")
+                log.exception("[HOTKEY] Windows hotkey thread error")
             finally:
                 # Cleanup
                 if self._registered:
                     # pyrefly: ignore [missing-attribute]
                     self._user32.UnregisterHotKey(0, self._hotkey_id)
                     self._registered = False
-                    log.info("UnregisterHotKey done")
+                    log.info("[HOTKEY] UnregisterHotKey done")
 
         # Also set GetAsyncKeyState argtypes for the polling fallback
         self._user32.GetAsyncKeyState.argtypes = [INT]
@@ -439,7 +440,7 @@ class WindowsNativeHotkey(HotkeyBackend):
         import ctypes
         vk = self._vk
         was_pressed = False
-        log.info("Polling loop started for VK=0x%X modifiers=0x%X", vk, self._modifiers)
+        log.info("[HOTKEY] Polling loop started for VK=0x%X modifiers=0x%X", vk, self._modifiers)
         while not self._stop_event.is_set():
             # pyrefly: ignore [missing-attribute]
             state = self._user32.GetAsyncKeyState(vk)
@@ -471,7 +472,7 @@ class WindowsNativeHotkey(HotkeyBackend):
         return bool(self._user32.GetAsyncKeyState(vk) & 0x8000)
 
     def stop(self) -> None:
-        log.info("Stopping Windows native hotkey listener")
+        log.info("[HOTKEY] Stopping Windows native hotkey listener")
         self._stop_event.set()
         if self._user32 is not None and self._thread is not None:
             thread_id = self._thread.ident
@@ -510,8 +511,8 @@ def create_hotkey_backend(hotkey_str: str) -> HotkeyBackend:
     - Elsewhere: returns ``PynputHotkey``.
     """
     if sys.platform == "win32":
-        log.info("Platform is win32 -> using WindowsNativeHotkey")
+        log.info("[HOTKEY] Platform is win32 -> using WindowsNativeHotkey")
         return WindowsNativeHotkey(hotkey_str)
 
-    log.info("Platform is %s -> using PynputHotkey", sys.platform)
+    log.info("[HOTKEY] Platform is %s -> using PynputHotkey", sys.platform)
     return PynputHotkey(hotkey_str)

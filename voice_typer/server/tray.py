@@ -227,7 +227,7 @@ class TrayIcon:
             self._bg_thread = threading.Thread(target=self._bg_work_fn, daemon=True)
             self._bg_thread.start()
 
-        log.info("Tray icon created, background work started")
+        log.info("[TRAY] Tray icon created, background work started")
 
     def run(self) -> None:
         """Block the main thread with pystray's event loop."""
@@ -245,7 +245,7 @@ class TrayIcon:
                 self._do_notify(title, message)
             self._pending_notifications.clear()
 
-        log.info("Tray event loop starting (main thread)")
+        log.info("[TRAY] Tray event loop starting (main thread)")
         self._icon.run()
 
     @staticmethod
@@ -298,7 +298,7 @@ class TrayIcon:
             )
             ctypes.windll.user32.EnumWindows(WNDENUMPROC(_enum_cb), 0)
         except Exception as e:
-            log.warning("EnumWindows cleanup failed: %s", e)
+            log.warning("[TRAY] EnumWindows cleanup failed: %s", e)
 
         # ── Strategy 2: Command-line sweep via tasklist ───────────────
         # tasklist is available on all modern Windows versions, unlike wmic
@@ -330,13 +330,13 @@ class TrayIcon:
                         if pid_str.isdigit():
                             killed_pids.add(int(pid_str))
         except Exception as e:
-            log.warning("tasklist command-line sweep failed: %s", e)
+            log.warning("[TRAY] tasklist command-line sweep failed: %s", e)
 
         if not killed_pids:
             return
 
         log.info(
-            "Killing %d orphaned Flet process(es): %s",
+            "[TRAY] Killing %d orphaned Flet process(es): %s",
             len(killed_pids),
             sorted(killed_pids),
         )
@@ -365,13 +365,13 @@ class TrayIcon:
         tracked_pid = None
         if proc is not None and proc.poll() is None:
             tracked_pid = proc.pid
-            log.info("Closing Flet window (PID=%d)", tracked_pid)
+            log.info("[TRAY] Closing Flet window (PID=%d)", tracked_pid)
 
             # 1. Try graceful terminate first
             try:
                 proc.terminate()
                 proc.wait(timeout=3)
-                log.info("Flet window terminated gracefully (PID=%d)", tracked_pid)
+                log.info("[TRAY] Flet window terminated gracefully (PID=%d)", tracked_pid)
                 self._flet_process = None
             except Exception:
                 pass
@@ -381,7 +381,7 @@ class TrayIcon:
                 try:
                     proc.kill()
                     proc.wait(timeout=2)
-                    log.info("Flet window killed (PID=%d)", tracked_pid)
+                    log.info("[TRAY] Flet window killed (PID=%d)", tracked_pid)
                     self._flet_process = None
                 except Exception:
                     pass
@@ -395,10 +395,10 @@ class TrayIcon:
                         timeout=5,
                     )
                     proc.wait(timeout=2)
-                    log.info("Flet window killed via taskkill /T (PID=%d)", tracked_pid)
+                    log.info("[TRAY] Flet window killed via taskkill /T (PID=%d)", tracked_pid)
                 except Exception as e:
                     log.warning(
-                        "taskkill /T fallback failed for PID %d: %s", tracked_pid, e
+                        "[TRAY] taskkill /T fallback failed for PID %d: %s", tracked_pid, e
                     )
 
         self._flet_process = None
@@ -415,7 +415,7 @@ class TrayIcon:
         if self._icon:
             self._icon.stop()
             self._icon = None
-        log.info("Tray icon stopped")
+        log.info("[SHUTDOWN] Tray icon stopped")
 
     def notify(self, title: str, message: str) -> None:
         """Show a notification if notifications are enabled."""
@@ -461,7 +461,7 @@ class TrayIcon:
         try:
             self._icon.notify(message, title)
         except Exception as e:
-            log.warning("Notification failed: %s", e)
+            log.warning("[TRAY] Notification failed: %s", e)
 
     def open_flet_window(self) -> None:
         """Open the Flet desktop window in a separate subprocess.
@@ -477,7 +477,7 @@ class TrayIcon:
         """
         # Check if Flet process is already running
         if self._flet_process is not None and self._flet_process.poll() is None:
-            log.info("Flet window already open (PID=%d), bringing to front", self._flet_process.pid)
+            log.info("[TRAY] Flet window already open (PID=%d), bringing to front", self._flet_process.pid)
             self._bring_window_to_front(self._flet_process.pid)
             return
 
@@ -489,7 +489,7 @@ class TrayIcon:
                 [python_exe, "-m", "voice_typer.server.ui.app"],
                 cwd=project_root,
             )
-            log.info("Flet window opened in subprocess (PID=%d)", self._flet_process.pid)
+            log.info("[TRAY] Flet window opened in subprocess (PID=%d)", self._flet_process.pid)
 
             # Watch for subprocess exit so we can log it and clean up
             # the process reference so open_flet_window() correctly detects
@@ -497,7 +497,7 @@ class TrayIcon:
             def _watch_flet(proc):
                 try:
                     proc.wait()
-                    log.info("Flet window closed (PID=%d)", proc.pid)
+                    log.info("[TRAY] Flet window closed (PID=%d)", proc.pid)
                 except Exception:
                     pass
                 finally:
@@ -508,7 +508,7 @@ class TrayIcon:
 
             threading.Thread(target=_watch_flet, args=(self._flet_process,), daemon=True).start()
         except Exception as e:
-            log.error("Failed to open Flet window: %s", e)
+            log.error("[TRAY] Failed to open Flet window: %s", e)
 
     def invalidate_menu_cache(self) -> None:
         """Mark the menu cache as stale so it rebuilds on next right-click."""
@@ -542,7 +542,7 @@ class TrayIcon:
             ctypes.windll.user32.EnumWindows(WNDENUMPROC(_enum_cb), 0)
 
             if found_hwnd is None:
-                log.warning("No Voice Typer window found for PID %d", pid)
+                log.warning("[TRAY] No Voice Typer window found for PID %d", pid)
                 return
 
             # Restore if minimized
@@ -569,7 +569,7 @@ class TrayIcon:
                 ctypes.windll.user32.AttachThreadInput(our_tid, target_tid, False)
 
         except Exception as exc:
-            log.warning("Failed to bring window to front: %s", exc)
+            log.warning("[TRAY] Failed to bring window to front: %s", exc)
 
     def _get_left_click_action(self) -> str:
         """Read tray_left_click_action from config on disk (live, not cached)."""

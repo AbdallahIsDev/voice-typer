@@ -95,7 +95,7 @@ class Recorder:
         try:
             resample_poly = _get_resample_poly()
             resample_poly(np.zeros(32, dtype=np.float32), 160, 441)
-            log.info("[RECORDING] Resampler warmed up")
+            log.debug("[RECORDING] Resampler warmed up")
         except ImportError:
             log.warning("[RECORDING] scipy not available, will use linear interp resampling")
         except Exception as e:
@@ -217,7 +217,7 @@ class Recorder:
                 "host_api_name": host_api_name,
                 "native_rate": native_rate,
             }
-            log.info(
+            log.debug(
                 "[RECORDING] Device query: name=%s, host_api=%s, "
                 "native_rate=%d, target_rate=%d",
                 dev_info["name"], host_api_name, native_rate, target_sr,
@@ -230,13 +230,13 @@ class Recorder:
             # reject non-native rates (e.g. 16kHz on a 48kHz WASAPI device)
             # work correctly.
             if native_rate == target_sr:
-                log.info(
+                log.debug(
                     "[RECORDING] Native rate matches target, using %d Hz directly",
                     target_sr,
                 )
                 return target_sr, dev_info_extra
             else:
-                log.info(
+                log.debug(
                     "[RECORDING] Native rate %d differs from target %d, "
                     "will record at native rate and resample",
                     native_rate, target_sr,

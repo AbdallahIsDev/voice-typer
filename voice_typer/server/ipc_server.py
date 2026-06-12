@@ -85,7 +85,11 @@ class IPCServer:
         """
         stdin = _stdin or sys.stdin
         stdout = _stdout or sys.stdout
-        for line in stdin:
+        try:
+            iterator = iter(stdin)
+        except OSError:
+            return  # stdin not available (e.g. during testing)
+        for line in iterator:
             if not self._running:
                 break
             line = line.strip()
@@ -122,7 +126,7 @@ class IPCServer:
                 self.app.toggle_dictation()
                 resp["type"] = "ack"
             except Exception as e:
-                log.error("toggle_dictation failed: %s", e, exc_info=True)
+                log.error("[IPC] toggle_dictation failed: %s", e, exc_info=True)
                 resp["type"] = "error"
                 resp["data"] = {"message": str(e)}
 
@@ -139,7 +143,7 @@ class IPCServer:
                 self.app.config.save()
                 resp["type"] = "ack"
             except Exception as e:
-                log.error("set_config failed: %s", e, exc_info=True)
+                log.error("[IPC] set_config failed: %s", e, exc_info=True)
                 resp["type"] = "error"
                 resp["data"] = {"message": str(e)}
 
@@ -149,7 +153,7 @@ class IPCServer:
                 resp["type"] = "history"
                 resp["data"] = self.app.history_db.get_recent(limit)
             except Exception as e:
-                log.error("get_history failed: %s", e, exc_info=True)
+                log.error("[IPC] get_history failed: %s", e, exc_info=True)
                 resp["type"] = "error"
                 resp["data"] = {"message": str(e)}
 
@@ -158,7 +162,7 @@ class IPCServer:
                 resp["type"] = "today_stats"
                 resp["data"] = self.app.history_db.get_today_stats()
             except Exception as e:
-                log.error("get_today_stats failed: %s", e, exc_info=True)
+                log.error("[IPC] get_today_stats failed: %s", e, exc_info=True)
                 resp["type"] = "error"
                 resp["data"] = {"message": str(e)}
 
@@ -167,7 +171,7 @@ class IPCServer:
                 resp["type"] = "microphones"
                 resp["data"] = self.app._microphones
             except Exception as e:
-                log.error("get_microphones failed: %s", e, exc_info=True)
+                log.error("[IPC] get_microphones failed: %s", e, exc_info=True)
                 resp["type"] = "error"
                 resp["data"] = {"message": str(e)}
 
@@ -177,7 +181,7 @@ class IPCServer:
                 self._send(resp)
                 self.app.restart_app()
             except Exception as e:
-                log.error("restart_app failed: %s", e, exc_info=True)
+                log.error("[IPC] restart_app failed: %s", e, exc_info=True)
                 # The ack was already sent; can't recover from here.
             return None
 
@@ -187,7 +191,7 @@ class IPCServer:
                 self._send(resp)
                 self.app.quit_app()
             except Exception as e:
-                log.error("quit_app failed: %s", e, exc_info=True)
+                log.error("[IPC] quit_app failed: %s", e, exc_info=True)
             return None
 
         else:

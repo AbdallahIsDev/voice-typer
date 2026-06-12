@@ -77,7 +77,7 @@ def _configure_nvidia_dll_paths():
         roots.append(app_venv_sp)
         log.debug("[CUDA-DLL] Added app venv site-packages: %s", app_venv_sp)
 
-    log.info("[CUDA-DLL] Searching for NVIDIA DLLs in root paths: %s", roots)
+    log.debug("[CUDA-DLL] Searching root paths for NVIDIA DLLs: %s", roots)
 
     candidate_parts = [
         ("nvidia", "cublas", "bin"),
@@ -111,14 +111,8 @@ def _configure_nvidia_dll_paths():
 
     if new_paths:
         os.environ["PATH"] = os.pathsep.join(new_paths + existing_paths)
-        log.info("[CUDA-DLL] Preprended to PATH: %s", new_paths)
-    else:
-        log.info("[CUDA-DLL] No new NVIDIA DLL paths found (all already in PATH or absent)")
+        log.info("[CUDA-DLL] Prepended to PATH: %s", new_paths)
 
-    # Log final PATH for debugging
-    final_path = os.environ.get("PATH", "")
-    log.debug("[CUDA-DLL] PATH entries with 'nvidia': %s",
-              [p for p in final_path.split(os.pathsep) if "nvidia" in p.lower()])
     _nvidia_dll_paths_configured = True
 
 
@@ -158,15 +152,15 @@ class TranscriptionEngine:
                 _configure_nvidia_dll_paths()
                 import ctranslate2
                 if ctranslate2.get_cuda_device_count() > 0:
-                    log.info("Using CUDA device for transcription")
+                    log.info("[MODEL] Using CUDA device for transcription")
                     return "cuda", "float16"
             except Exception:
-                log.warning("CUDA detection failed, falling back to CPU", exc_info=True)
+                log.warning("[MODEL] CUDA detection failed, falling back to CPU", exc_info=True)
 
             if device == "cuda":
-                log.warning("CUDA requested but not available, falling back to CPU")
+                log.warning("[MODEL] CUDA requested but not available, falling back to CPU")
 
-        log.info("Using CPU for transcription")
+        log.info("[MODEL] Using CPU for transcription")
         return "cpu", "int8"
 
     @property
@@ -247,7 +241,7 @@ class TranscriptionEngine:
                     self._compute_type = compute_type
                     self._loaded_model_size = model_size
                     self.model_size = self._configured_model_size
-                log.info("Model loaded via %s", self.loaded_via)
+                log.info("[MODEL] Model loaded via %s", self.loaded_via)
 
                 # CUDA probe: force a tiny transcription to smoke-test cuBLAS
                 # loading at startup, so failures surface here (with a clean
@@ -305,7 +299,7 @@ class TranscriptionEngine:
                 self._compute_type = compute_type
                 self._loaded_model_size = model_size
                 self.model_size = self._configured_model_size
-                log.info("Model reloaded via %s", self.loaded_via)
+                log.info("[MODEL] Model reloaded via %s", self.loaded_via)
                 return
             except Exception as exc:
                 last_error = exc

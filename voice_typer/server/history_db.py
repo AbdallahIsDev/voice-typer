@@ -140,7 +140,7 @@ class HistoryDB:
             CREATE INDEX IF NOT EXISTS idx_favorite
             ON transcriptions(favorite)
         """)
-        log.info("History database initialized: %s (schema v%d)", self.db_path, _CURRENT_SCHEMA_VERSION)
+        log.info("[HISTORY] History database initialized: %s (schema v%d)", self.db_path, _CURRENT_SCHEMA_VERSION)
 
     def close(self):
         """Close the thread-local connection."""
@@ -173,7 +173,7 @@ class HistoryDB:
             log.debug("Added transcription %d: %d chars", row_id, char_count)
             return row_id
         except Exception as e:
-            log.error("Failed to add transcription: %s", e)
+            log.error("[HISTORY] Failed to add transcription: %s", e)
             return -1
 
     def get_recent(self, limit: int = 50) -> list[dict]:
@@ -189,7 +189,7 @@ class HistoryDB:
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
         except Exception as e:
-            log.error("Failed to get recent transcriptions: %s", e)
+            log.error("[HISTORY] Failed to get recent transcriptions: %s", e)
             return []
 
     def search(self, query: str, limit: int = 50) -> list[dict]:
@@ -206,7 +206,7 @@ class HistoryDB:
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
         except Exception as e:
-            log.error("Failed to search transcriptions: %s", e)
+            log.error("[HISTORY] Failed to search transcriptions: %s", e)
             return []
 
     def delete(self, transcription_id: int) -> bool:
@@ -221,7 +221,7 @@ class HistoryDB:
             conn.commit()
             return cursor.rowcount > 0
         except Exception as e:
-            log.error("Failed to delete transcription: %s", e)
+            log.error("[HISTORY] Failed to delete transcription: %s", e)
             return False
 
     def clear_all(self) -> bool:
@@ -231,10 +231,10 @@ class HistoryDB:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM transcriptions")
             conn.commit()
-            log.info("Cleared all transcriptions")
+            log.info("[HISTORY] Cleared all transcriptions")
             return True
         except Exception as e:
-            log.error("Failed to clear transcriptions: %s", e)
+            log.error("[HISTORY] Failed to clear transcriptions: %s", e)
             return False
 
     def toggle_favorite(self, transcription_id: int) -> bool:
@@ -249,7 +249,7 @@ class HistoryDB:
             conn.commit()
             return cursor.rowcount > 0
         except Exception as e:
-            log.error("Failed to toggle favorite: %s", e)
+            log.error("[HISTORY] Failed to toggle favorite: %s", e)
             return False
 
     def get_favorites(self, limit: int = 50) -> list[dict]:
@@ -266,7 +266,7 @@ class HistoryDB:
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
         except Exception as e:
-            log.error("Failed to get favorites: %s", e)
+            log.error("[HISTORY] Failed to get favorites: %s", e)
             return []
 
     def apply_retention(self, retention_days: int = 0, max_entries: int = 0) -> int:
@@ -308,7 +308,7 @@ class HistoryDB:
                 conn.commit()
                 log.info("[HISTORY_DB] Retention policy deleted %d entries", deleted)
         except Exception as e:
-            log.error("Failed to apply retention: %s", e)
+            log.error("[HISTORY] Failed to apply retention: %s", e)
         return deleted
 
     def get_stats(self) -> dict:
@@ -334,7 +334,7 @@ class HistoryDB:
                 "avg_chars": row[4] or 0,
             }
         except Exception as e:
-            log.error("Failed to get stats: %s", e)
+            log.error("[HISTORY] Failed to get stats: %s", e)
             return {}
 
     def get_today_stats(self) -> dict:
@@ -355,5 +355,5 @@ class HistoryDB:
                 "chars": row[1] or 0,
             }
         except Exception as e:
-            log.error("Failed to get today stats: %s", e)
+            log.error("[HISTORY] Failed to get today stats: %s", e)
             return {"count": 0, "chars": 0}

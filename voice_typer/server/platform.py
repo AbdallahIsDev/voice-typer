@@ -136,7 +136,7 @@ def enable_autostart() -> bool:
         else:
             return _enable_autostart_linux()
     except Exception as e:
-        log.error("Failed to enable autostart: %s", e)
+        log.error("[CONFIG] Failed to enable autostart: %s", e)
         return False
 
 
@@ -149,7 +149,7 @@ def disable_autostart() -> bool:
         else:
             return _disable_autostart_linux()
     except Exception as e:
-        log.error("Failed to disable autostart: %s", e)
+        log.error("[CONFIG] Failed to disable autostart: %s", e)
         return False
 
 
@@ -179,7 +179,7 @@ def _enable_autostart_windows() -> bool:
         winreg.SetValueEx(key, "VoiceTyper", 0, winreg.REG_SZ, cmd)
     finally:
         winreg.CloseKey(key)
-    log.info("Autostart enabled (Windows): %s", cmd)
+    log.info("[CONFIG] Autostart enabled (Windows): %s", cmd)
     return True
 
 
@@ -195,7 +195,7 @@ def _disable_autostart_windows() -> bool:
     except FileNotFoundError:
         pass
     winreg.CloseKey(key)
-    log.info("Autostart disabled (Windows)")
+    log.info("[CONFIG] Autostart disabled (Windows)")
     return True
 
 
@@ -253,8 +253,8 @@ def _enable_autostart_macos() -> bool:
         import subprocess
         subprocess.run(["launchctl", "load", str(plist_path)], check=False, capture_output=True)
     except Exception as e:
-        log.warning("launchctl load failed: %s", e)
-    log.info("Autostart enabled (macOS): %s", plist_path)
+        log.warning("[CONFIG] launchctl load failed: %s", e)
+    log.info("[CONFIG] Autostart enabled (macOS): %s", plist_path)
     return True
 
 
@@ -262,7 +262,7 @@ def _disable_autostart_macos() -> bool:
     plist_path = get_autostart_dir() / "com.voicetyper.plist"
     if plist_path.exists():
         plist_path.unlink()
-    log.info("Autostart disabled (macOS)")
+    log.info("[CONFIG] Autostart disabled (macOS)")
     return True
 
 
@@ -288,7 +288,7 @@ Hidden=false
 NoDisplay=true
 """
     desktop_path.write_text(desktop_content)
-    log.info("Autostart enabled (Linux): %s", desktop_path)
+    log.info("[CONFIG] Autostart enabled (Linux): %s", desktop_path)
     return True
 
 
@@ -296,7 +296,7 @@ def _disable_autostart_linux() -> bool:
     desktop_path = get_autostart_dir() / "voice-typer.desktop"
     if desktop_path.exists():
         desktop_path.unlink()
-    log.info("Autostart disabled (Linux)")
+    log.info("[CONFIG] Autostart disabled (Linux)")
     return True
 
 
@@ -333,10 +333,10 @@ def _generate_icon_ico() -> Optional[Path]:
 
     try:
         img.save(str(ico_path), format="ICO", sizes=[(256, 256)])
-        log.info("Shortcut icon saved: %s", ico_path)
+        log.info("[STARTUP] Shortcut icon saved: %s", ico_path)
         return ico_path
     except OSError as e:
-        log.warning("Failed to save icon: %s", e)
+        log.warning("[STARTUP] Failed to save icon: %s", e)
         return None
 
 
@@ -351,12 +351,12 @@ def create_launcher_shortcut() -> Optional[Path]:
     platforms / failure.
     """
     if SYSTEM != "win32":
-        log.info("Launcher shortcut only supported on Windows")
+        log.info("[STARTUP] Launcher shortcut only supported on Windows")
         return None
 
     pythonw = Path(sys.executable).parent / "pythonw.exe"
     if not pythonw.exists():
-        log.warning("pythonw.exe not found at %s — cannot create console-free launcher", pythonw)
+        log.warning("[STARTUP] pythonw.exe not found at %s — cannot create console-free launcher", pythonw)
         return None
 
     desktop = Path.home() / "Desktop"
@@ -378,20 +378,20 @@ def create_launcher_shortcut() -> Optional[Path]:
             shortcut.IconLocation = str(icon_ico)
         shortcut.save()
 
-        log.info("Launcher shortcut created: %s", lnk_path)
+        log.info("[STARTUP] Launcher shortcut created: %s", lnk_path)
         return lnk_path
     except ImportError:
-        log.info("win32com not available — falling back to .bat launcher")
+        log.info("[STARTUP] win32com not available — falling back to .bat launcher")
     except OSError as e:
-        log.warning("Failed to create .lnk shortcut: %s — falling back to .bat", e)
+        log.warning("[STARTUP] Failed to create .lnk shortcut: %s — falling back to .bat", e)
 
     # Fallback: .bat launcher
     bat_path = desktop / "Voice Typer.bat"
     bat_content = f'@echo off\r\nstart "" "{pythonw}" -m voice_typer\r\n'
     try:
         bat_path.write_text(bat_content, encoding="utf-8")
-        log.info("Launcher shortcut created (fallback .bat): %s", bat_path)
+        log.info("[STARTUP] Launcher shortcut created (fallback .bat): %s", bat_path)
         return bat_path
     except OSError as e:
-        log.error("Failed to create launcher shortcut: %s", e)
+        log.error("[STARTUP] Failed to create launcher shortcut: %s", e)
         return None
