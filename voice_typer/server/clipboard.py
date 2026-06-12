@@ -10,6 +10,7 @@
 
 import logging
 import sys
+import threading
 import time
 
 import pyperclip
@@ -53,6 +54,7 @@ class ClipboardManager:
         self.paste_enabled = paste_enabled
         self._keyboard = Controller()
         self._last_paste_time: float = 0.0
+        self._paste_lock = threading.Lock()
 
     @staticmethod
     def _is_terminal_process(process_name: str | None) -> bool:
@@ -111,49 +113,53 @@ class ClipboardManager:
         """Send a paste keystroke into the focused window.
 
         Returns True if a keystroke was sent, False if paste is disabled
-        or rate-limited.
+        or rate-limited.  Thread-safe via an internal lock.
         """
-        now = time.monotonic()
-        if now - self._last_paste_time < self._PASTE_RATE_LIMIT:
-            log.info(
-                "[CLIPBOARD] Paste rate-limited (%.0f ms since last paste)",
-                (now - self._last_paste_time) * 1000,
-            )
-            return False
+        with self._paste_lock:
+            now = time.monotonic()
+            if now - self._last_paste_time < self._PASTE_RATE_LIMIT:
+                log.info(
+                    "[CLIPBOARD] Paste rate-limited (%.0f ms since last paste)",
+                    (now - self._last_paste_time) * 1000,
+                )
+                return False
 
-        if not self.paste_enabled:
-            log.info("[CLIPBOARD] Paste disabled by config -- skipping keystroke")
-            return False
+            if not self.paste_enabled:
+                log.info("[CLIPBOARD] Paste disabled by config -- skipping keystroke")
+                return False
 
-        try:
-            time.sleep(0.02)
-
-            process_name = self._detect_focused_process()
-            is_terminal = self._is_terminal_process(process_name)
-
-            if is_terminal:
-                if sys.platform == "darwin":
-                    self._keyboard.press(Key.cmd)
-                    self._keyboard.press(Key.shift)
-                    self._keyboard.press("v")
-                    self._keyboard.release("v")
-                    self._keyboard.release(Key.shift)
-                    self._keyboard.release(Key.cmd)
-                else:
-                    self._send_keystroke_sequence(Key.shift, Key.insert)
-            elif sys.platform == "darwin":
-                self._send_keystroke_sequence(Key.cmd, "v")
-            elif sys.platform == "win32":
-                self._send_ctrl_v_win32()
-            else:
-                self._send_keystroke_sequence(Key.ctrl, "v")
-
+            # Claim the rate-limit slot BEFORE the actual I/O so concurrent
+            # callers see the updated timestamp and get blocked.
             self._last_paste_time = time.monotonic()
-            log.info("[CLIPBOARD] Sent paste keystroke")
-            return True
-        except Exception as e:
-            log.warning("[CLIPBOARD] Auto-paste failed (clipboard still has the text): %s", e)
-            return False
+
+            try:
+                time.sleep(0.02)
+
+                process_name = self._detect_focused_process()
+                is_terminal = self._is_terminal_process(process_name)
+
+                if is_terminal:
+                    if sys.platform == "darwin":
+                        self._keyboard.press(Key.cmd)
+                        self._keyboard.press(Key.shift)
+                        self._keyboard.press("v")
+                        self._keyboard.release("v")
+                        self._keyboard.release(Key.shift)
+                        self._keyboard.release(Key.cmd)
+                    else:
+                        self._send_keystroke_sequence(Key.shift, Key.insert)
+                elif sys.platform == "darwin":
+                    self._send_keystroke_sequence(Key.cmd, "v")
+                elif sys.platform == "win32":
+                    self._send_ctrl_v_win32()
+                else:
+                    self._send_keystroke_sequence(Key.ctrl, "v")
+
+                log.info("[CLIPBOARD] Sent paste keystroke")
+                return True
+            except Exception as e:
+                log.warning("[CLIPBOARD] Auto-paste failed (clipboard still has the text): %s", e)
+                return False
 
     def _send_keystroke_sequence(self, modifier, char) -> None:
         self._keyboard.press(modifier)
@@ -162,7 +168,11 @@ class ClipboardManager:
         self._keyboard.release(modifier)
 
     def _send_ctrl_v_win32(self) -> None:
-        """Send Ctrl+V via a single atomic SendInput batch."""
+        """Send Ctrl+V via a single atomic SendInput batch.
+
+        No fallback — pynput's Controller also calls SendInput internally,
+        so a retry would just repeat the same (potentially blocked) call.
+        """
         import ctypes
         from ctypes import wintypes
         from pynput._util.win32 import (
@@ -197,7 +207,7 @@ class ClipboardManager:
         result = SendInput(4, ctypes.byref(events), ctypes.sizeof(INPUT))
         if result != 4:
             log.warning(
-                "[CLIPBOARD] SendInput returned %d (expected 4) — fallback to pynput",
+                "[CLIPBOARD] SendInput returned %d (expected 4) — "
+                "paste may not have reached the target window",
                 result,
             )
-            self._send_keystroke_sequence(Key.ctrl, "v")
