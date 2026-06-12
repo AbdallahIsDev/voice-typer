@@ -239,11 +239,13 @@ def main() -> None:
     from voice_typer.server.app import VoiceTyperApp, _setup_logging, _ensure_single_instance
 
     _setup_logging()
-    _single_instance_mutex = _ensure_single_instance()
+    _single_instance_mutex = _ensure_single_instance(silent=True)
 
     app = VoiceTyperApp()
     server = IPCServer(app)
     server.start()
+    # Tell the frontend we're ready — Electron defers window creation until this.
+    server.push({"type": "ready"})
     app.start()  # blocks (tray event loop)
     # Keep mutex alive by referencing it until exit
     _ = _single_instance_mutex

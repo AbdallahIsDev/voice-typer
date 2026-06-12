@@ -1738,12 +1738,17 @@ class VoiceTyperApp:
         return False
 
 
-def _ensure_single_instance():
+def _ensure_single_instance(silent=False):
     """Enforce single-instance via a Windows named mutex.
 
     Returns the mutex handle (kept alive to hold the lock) on Windows,
     or None on other platforms.
     Skipped when VOICE_TYPER_RESTART env var is set (restart flow).
+
+    Parameters
+    ----------
+    silent : bool
+        If True, skip the MessageBoxW dialog (caller handles UX).
     """
     if sys.platform != "win32":
         return None
@@ -1757,17 +1762,18 @@ def _ensure_single_instance():
     ERROR_ALREADY_EXISTS = 183
     mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "VoiceTyperSingleInstance")
     if ctypes.windll.kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
-        # Show a visible popup on Windows (stderr may not be visible under pythonw.exe)
-        try:
-            ctypes.windll.user32.MessageBoxW(
-                0,
-                "Voice Typer is already running. Only one instance is allowed.",
-                "Voice Typer",
-                0x00000030 | 0x00000000,  # MB_ICONWARNING | MB_OK
-            )
-        except Exception:
-            if sys.stderr is not None:
-                print("Voice Typer is already running.", file=sys.stderr)
+        if not silent:
+            # Show a visible popup on Windows (stderr may not be visible under pythonw.exe)
+            try:
+                ctypes.windll.user32.MessageBoxW(
+                    0,
+                    "Voice Typer is already running. Only one instance is allowed.",
+                    "Voice Typer",
+                    0x00000030 | 0x00000000,  # MB_ICONWARNING | MB_OK
+                )
+            except Exception:
+                if sys.stderr is not None:
+                    print("Voice Typer is already running.", file=sys.stderr)
         sys.exit(0)
     return mutex
 

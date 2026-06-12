@@ -13,6 +13,8 @@ let mainWindow: BrowserWindow | null = null;
 const pendingRequests = new Map<number, PendingRequest>();
 let nextId = 1;
 let buffer = "";
+let pythonReady = false;
+let pythonExitedEarly = false;
 
 function pythonArgs(): [string, string[]] {
   const home = os.homedir();
@@ -33,6 +35,11 @@ function handleMessage(msg: Record<string, unknown>) {
       } else {
         entry.resolve(msg.data);
       }
+    }
+  } else if (!mainWindow) {
+    // No window yet — intercept "ready" to trigger window creation
+    if (msg.type === "ready") {
+      createMainWindow();
     }
   } else {
     BrowserWindow.getAllWindows().forEach((win) => {
@@ -62,7 +69,32 @@ function sendToPython(msg: Record<string, unknown>): Promise<unknown> {
   });
 }
 
-let pythonExitedEarly = false;
+function createMainWindow() {
+  if (mainWindow) return;
+  pythonReady = true;
+  mainWindow = new BrowserWindow({
+    width: 1000,
+    height: 700,
+    minWidth: 800,
+    minHeight: 500,
+    icon: path.join(__dirname, "../../resources/icon.png"),
+    frame: false,
+    webPreferences: {
+      preload: path.join(__dirname, "../preload/index.js"),
+    },
+  });
+
+  Menu.setApplicationMenu(null);
+
+  mainWindow.on("maximize", () => broadcastMaximized(true));
+  mainWindow.on("unmaximize", () => broadcastMaximized(false));
+
+  if (process.env.ELECTRON_RENDERER_URL) {
+    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
+  } else {
+    mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
+  }
+}
 
 function startPython() {
   const [exe, args] = pythonArgs();
@@ -71,10 +103,7 @@ function startPython() {
     env: { ...process.env, PYTHONUNBUFFERED: "1" },
   });
 
-  let hasReceivedData = false;
-
   pythonProcess.stdout!.on("data", (chunk: Buffer) => {
-    hasReceivedData = true;
     buffer += chunk.toString();
     const lines = buffer.split("\n");
     buffer = lines.pop()!;
@@ -94,10 +123,9 @@ function startPython() {
 
   pythonProcess.on("exit", (code) => {
     console.log("Python process exited:", code);
-    if (!hasReceivedData) {
+    if (!pythonReady) {
       pythonExitedEarly = true;
       pythonProcess = null;
-      // Reject all pending requests immediately
       for (const [id, entry] of pendingRequests) {
         pendingRequests.delete(id);
         entry.reject(new Error("Python backend exited early"));
@@ -116,6 +144,13 @@ function startPython() {
       pythonProcess = null;
     }
   });
+
+  // Fallback: create window even without "ready" (backward compat)
+  setTimeout(() => {
+    if (!pythonReady && pythonProcess) {
+      createMainWindow();
+    }
+  }, 30000);
 }
 
 function stopPython() {
@@ -138,33 +173,7 @@ function broadcastMaximized(maximized: boolean) {
 
 app.whenReady().then(() => {
   startPython();
-
-  mainWindow = new BrowserWindow({
-    width: 1000,
-    height: 700,
-    minWidth: 800,
-    minHeight: 500,
-    icon: path.join(__dirname, "../../resources/icon.png"),
-    frame: false,
-    webPreferences: {
-      preload: path.join(__dirname, "../preload/index.js"),
-    },
-  });
-
-  // Remove default menu bar
-  Menu.setApplicationMenu(null);
-
-  // Track maximize state and notify the renderer so the title bar
-  // can swap the maximize icon for the restore icon and the button
-  // can toggle correctly when the user snaps via OS shortcuts.
-  mainWindow.on("maximize", () => broadcastMaximized(true));
-  mainWindow.on("unmaximize", () => broadcastMaximized(false));
-
-  if (process.env.ELECTRON_RENDERER_URL) {
-    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
-  } else {
-    mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
-  }
+  // Window is created when Python sends "ready", not here.
 });
 
 ipcMain.handle("python-call", async (_event, msg) => {
