@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu } from "electron";
 import { spawn, ChildProcess } from "child_process";
 import path from "path";
 import os from "os";
@@ -43,11 +43,16 @@ function handleMessage(msg: Record<string, unknown>) {
 
 function sendToPython(msg: Record<string, unknown>): Promise<unknown> {
   return new Promise((resolve, reject) => {
+    const proc = pythonProcess;
+    if (!proc || !proc.stdin) {
+      reject(new Error("Python backend is not connected"));
+      return;
+    }
     const id = nextId++;
     (msg as Record<string, unknown>).id = id;
     pendingRequests.set(id, { resolve, reject });
     const line = JSON.stringify(msg) + "\n";
-    pythonProcess!.stdin!.write(line);
+    proc.stdin.write(line);
     setTimeout(() => {
       if (pendingRequests.has(id)) {
         pendingRequests.delete(id);
@@ -57,6 +62,8 @@ function sendToPython(msg: Record<string, unknown>): Promise<unknown> {
   });
 }
 
+let pythonExitedEarly = false;
+
 function startPython() {
   const [exe, args] = pythonArgs();
   pythonProcess = spawn(exe, args, {
@@ -64,7 +71,10 @@ function startPython() {
     env: { ...process.env, PYTHONUNBUFFERED: "1" },
   });
 
+  let hasReceivedData = false;
+
   pythonProcess.stdout!.on("data", (chunk: Buffer) => {
+    hasReceivedData = true;
     buffer += chunk.toString();
     const lines = buffer.split("\n");
     buffer = lines.pop()!;
@@ -84,7 +94,27 @@ function startPython() {
 
   pythonProcess.on("exit", (code) => {
     console.log("Python process exited:", code);
-    pythonProcess = null;
+    if (!hasReceivedData) {
+      pythonExitedEarly = true;
+      pythonProcess = null;
+      // Reject all pending requests immediately
+      for (const [id, entry] of pendingRequests) {
+        pendingRequests.delete(id);
+        entry.reject(new Error("Python backend exited early"));
+      }
+      if (mainWindow) {
+        mainWindow.close();
+        mainWindow = null;
+      }
+      dialog.showErrorBox(
+        "Voice Typer",
+        "Only one instance of Voice Typer can run at a time.\n\n" +
+          "Close the existing instance first, then try again."
+      );
+      app.quit();
+    } else {
+      pythonProcess = null;
+    }
   });
 }
 
@@ -138,6 +168,12 @@ app.whenReady().then(() => {
 });
 
 ipcMain.handle("python-call", async (_event, msg) => {
+  if (!pythonProcess) {
+    if (pythonExitedEarly) {
+      throw new Error("Python backend exited early — another instance is running");
+    }
+    throw new Error("Python backend is not connected");
+  }
   return await sendToPython(msg);
 });
 
