@@ -81,6 +81,7 @@ class _ColorFormatter(logging.Formatter):
         "PARAKEET": "38;5;69",
         "QWEN": "38;5;69",          # same blue — ASR engine family
         "MODEL": "38;5;69",
+        "CUDA-PROBE": "38;5;75",      # lighter blue — hardware verification
         "HOTKEY": "38;5;141",
         "HOTKEY FIRED": "38;5;141",
         "HOTKEY FALLBACK": "38;5;141",
@@ -220,6 +221,15 @@ def _setup_logging():
     root.addHandler(handler)
     root.addFilter(_SessionFilter())
 
+    # Fix stderr encoding error handler so Unicode chars (Cyrillic, emoji,
+    # etc.) don't crash logging.  Windows console uses cp1252 by default
+    # which can't encode most non-Latin scripts.
+    if sys.stderr is not None and hasattr(sys.stderr, "reconfigure"):
+        try:
+            sys.stderr.reconfigure(errors="backslashreplace")
+        except OSError:
+            pass
+
     # Also log to stderr when running interactively (debugging)
     if sys.stderr.isatty():
         stream = logging.StreamHandler()
@@ -247,8 +257,6 @@ class VoiceTyperApp:
         self._parakeet_engine = None
         if self.config.asr_backend == "qwen" and self.config.qwen_model_path:
             self._init_qwen_engine()
-        if self.config.asr_backend == "parakeet":
-            self._init_parakeet_engine()
 
         self.clipboard = ClipboardManager(
             paste_enabled=self.config.paste_on_stop,
@@ -477,15 +485,29 @@ class VoiceTyperApp:
 
         # 4. Create transcription engine and load model
         log.info("[STARTUP] Step 4: create transcription engine")
-        self.transcriber = TranscriptionEngine(
-            model_size=self.config.model_size,
-            device=self.config.device,
-            language=self.config.language,
-            beam_size=self.config.beam_size,
-            best_of=self.config.best_of,
-            condition_on_previous_text=self.config.condition_on_previous_text,
-        )
-        if self.config.asr_backend == "qwen" and self._qwen_engine is not None:
+
+        if self.config.asr_backend == "parakeet":
+            # Created here instead of in __init__ so the heavy
+            # torch+transformers import (22s) runs in this BG thread,
+            # not blocking the main thread startup or UI.
+            if self._parakeet_engine is None:
+                self._init_parakeet_engine()
+            if self._parakeet_engine is not None:
+                log.info("[STARTUP] Step 4: Parakeet backend active, loading Parakeet model")
+                self.transcriber = None
+                self._parakeet_engine.load()
+                if self._parakeet_engine.is_loaded:
+                    self.tray.set_state(AppState.IDLE, "Ready — Parakeet ASR")
+                else:
+                    log.warning("[STARTUP] Parakeet load failed")
+                    if self._shutting_down:
+                        return
+                    log.warning("[STARTUP] Parakeet load failed, falling back to Whisper")
+                    self._fallback_to_whisper(notify_on_failure=False)
+            else:
+                log.warning("[STARTUP] Parakeet engine init failed, falling back to Whisper")
+                self._fallback_to_whisper(notify_on_failure=True)
+        elif self.config.asr_backend == "qwen" and self._qwen_engine is not None:
             log.info("[STARTUP] Step 4: Qwen backend active, loading Qwen model")
             self._qwen_engine.load()
             if self._qwen_engine.is_loaded:
@@ -495,28 +517,16 @@ class VoiceTyperApp:
                 if self._shutting_down:
                     return
                 log.warning("[STARTUP] Qwen load failed, falling back to Whisper")
-                self.config.model_size = "tiny.en"
-                if self.transcriber is not None:
-                    self.transcriber.model_size = "tiny.en"
-                    self.transcriber._configured_model_size = "tiny.en"
-                self._try_load_model(notify_on_failure=False)
-        elif self.config.asr_backend == "parakeet" and self._parakeet_engine is not None:
-            log.info("[STARTUP] Step 4: Parakeet backend active, loading Parakeet model")
-            self.transcriber = None
-            self._parakeet_engine.load()
-            if self._parakeet_engine.is_loaded:
-                self.tray.set_state(AppState.IDLE, "Ready — Parakeet ASR")
-            else:
-                log.warning("[STARTUP] Parakeet load failed")
-                if self._shutting_down:
-                    return
-                log.warning("[STARTUP] Parakeet load failed, falling back to Whisper")
-                self.config.model_size = "tiny.en"
-                if self.transcriber is not None:
-                    self.transcriber.model_size = "tiny.en"
-                    self.transcriber._configured_model_size = "tiny.en"
-                self._try_load_model(notify_on_failure=False)
+                self._fallback_to_whisper(notify_on_failure=False)
         else:
+            self.transcriber = TranscriptionEngine(
+                model_size=self.config.model_size,
+                device=self.config.device,
+                language=self.config.language,
+                beam_size=self.config.beam_size,
+                best_of=self.config.best_of,
+                condition_on_previous_text=self.config.condition_on_previous_text,
+            )
             log.info("[STARTUP] Step 4: load Whisper model")
             self._try_load_model(notify_on_failure=True)
 
@@ -569,6 +579,23 @@ class VoiceTyperApp:
             log.info("[RECORDING] Found %d microphone(s)", len(mics))
         except Exception as e:
             log.warning("[RECORDING] Could not enumerate microphones: %s", e)
+
+    def _fallback_to_whisper(self, notify_on_failure: bool = False):
+        """Fallback to Whisper tiny.en after Parakeet/Qwen backend failed."""
+        self.config.model_size = "tiny.en"
+        if self.transcriber is None:
+            self.transcriber = TranscriptionEngine(
+                model_size="tiny.en",
+                device=self.config.device,
+                language=self.config.language,
+                beam_size=self.config.beam_size,
+                best_of=self.config.best_of,
+                condition_on_previous_text=self.config.condition_on_previous_text,
+            )
+        else:
+            self.transcriber.model_size = "tiny.en"
+            self.transcriber._configured_model_size = "tiny.en"
+        self._try_load_model(notify_on_failure=notify_on_failure)
 
     def _try_load_model(self, notify_on_failure: bool = False):
         """Attempt to load the transcription model."""
