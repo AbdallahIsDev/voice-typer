@@ -47,7 +47,7 @@ def _migrate_from_legacy():
         return
     import shutil
     shutil.copytree(legacy, target, dirs_exist_ok=True)
-    log.info("Migrated data from %s to %s", legacy, target)
+    log.info("[CONFIG] Migrated data from %s to %s", legacy, target)
 
 
 _CURRENT_SCHEMA_VERSION = 1
@@ -97,12 +97,6 @@ class Config:
 
     # Text cleanup
     text_cleanup_enabled: bool = True  # Set False for raw (uncorrected) output
-
-    # Safety: paste when focus detection is unavailable (macOS / Linux)
-    # When False (default), paste is skipped if the app cannot determine
-    # whether a text input is focused — prevents keystrokes reaching
-    # non-text windows (games, media players, etc.).
-    unsafe_paste_on_unknown_focus: bool = False
 
     # External corrections file
     corrections_path: Optional[str] = None
@@ -205,7 +199,7 @@ class Config:
             os.replace(str(tmp_file), str(config_file))
             return True
         except (OSError, PermissionError) as e:
-            log.error("Failed to save config: %s", e)
+            log.error("[CONFIG] Failed to save config: %s", e)
             return False
 
     @classmethod
@@ -243,7 +237,7 @@ class Config:
                     p = Path(qwen_path)
                     if not p.exists() or not p.is_dir():
                         log.warning(
-                            "Config qwen_model_path=%s does not exist or is not a directory, resetting to None",
+                            "[CONFIG] Config qwen_model_path=%s does not exist or is not a directory, resetting to None",
                             qwen_path,
                         )
                         data["qwen_model_path"] = None
@@ -254,7 +248,7 @@ class Config:
                     cp = Path(corrections)
                     if not cp.exists() or not cp.is_file():
                         log.warning(
-                            "Config corrections_path=%s does not exist or is not a file, resetting to None",
+                            "[CONFIG] Config corrections_path=%s does not exist or is not a file, resetting to None",
                             corrections,
                         )
                         data["corrections_path"] = None
@@ -264,10 +258,10 @@ class Config:
 
                 return cls(**data)
             except json.JSONDecodeError as e:
-                log.error("Config file corrupted: %s. Using defaults.", e)
+                log.error("[CONFIG] Config file corrupted: %s. Using defaults.", e)
                 return cls()
             except Exception as e:
-                log.error("Failed to load config: %s. Using defaults.", e)
+                log.error("[CONFIG] Failed to load config: %s. Using defaults.", e)
                 return cls()
         return cls()
 
@@ -276,7 +270,7 @@ class Config:
         """Validate and coerce bool and str fields in loaded config data."""
         bool_fields = {
             "autostart", "paste_on_stop", "show_notifications",
-            "text_cleanup_enabled", "unsafe_paste_on_unknown_focus",
+            "text_cleanup_enabled",
             "streaming_transcription", "log_transcriptions",
             "condition_on_previous_text",
             "esc_cancel_enabled", "auto_punctuation", "llm_polish",
@@ -307,22 +301,24 @@ class Config:
             # Coerce truthy/falsy values
             if val in (1, "1", "true", "True", "yes"):
                 log.warning(
-                    "Config field '%s' had non-bool value %r, coercing to True",
+                    "[CONFIG] Config field '%s' had non-bool value %r, coercing to True",
                     field_name, val,
                 )
                 data[field_name] = True
             elif val in (0, "0", "false", "False", "no", ""):
                 log.warning(
-                    "Config field '%s' had non-bool value %r, coercing to False",
+                    "[CONFIG] Config field '%s' had non-bool value %r, coercing to False",
                     field_name, val,
                 )
                 data[field_name] = False
             else:
                 log.warning(
-                    "Config field '%s' had invalid value %r, resetting to default %r",
+                    "[CONFIG] Config field '%s' had invalid value %r, resetting to default %r",
                     field_name, val, getattr(defaults, field_name),
                 )
                 data[field_name] = getattr(defaults, field_name)
+
+        optional_str_fields = {"parakeet_model_path"}
 
         for field_name in str_fields:
             if field_name not in data:
@@ -330,8 +326,10 @@ class Config:
             val = data[field_name]
             if isinstance(val, str):
                 continue
+            if val is None and field_name in optional_str_fields:
+                continue
             log.warning(
-                "Config field '%s' had non-string value %r, resetting to default %r",
+                "[CONFIG] Config field '%s' had non-string value %r, resetting to default %r",
                 field_name, val, getattr(defaults, field_name),
             )
             data[field_name] = getattr(defaults, field_name)

@@ -444,7 +444,8 @@ class TestLifecycle:
             assert threads[0].daemon is True
         server.stop()
 
-    def test_stop_sets_running_false(self, server):
+    def test_stop_sets_running_false(self, server, monkeypatch):
+        monkeypatch.setattr("sys.stdin", io.StringIO())
         server.start()
         assert server._running is True
         server.stop()

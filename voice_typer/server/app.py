@@ -56,31 +56,124 @@ class _SessionFilter(logging.Filter):
 
 
 class _ColorFormatter(logging.Formatter):
-    """ANSI-colored formatter for stderr. No extra dependencies."""
+    """ANSI-colored formatter for stderr. No extra dependencies.
 
+    Design:
+      - timestamp dimmed to recede visually
+      - INFO level label omitted (redundant on ~every line)
+      - WARN/ERR full-line colored with level label
+      - Lines with bracketed prefix (e.g. [PARAKEET]) get topic color
+      - Lines without brackets infer topic from message content
+    """
+
+    _DIM = "38;5;242"  # grey for timestamp
     _LVL_COLOR = {
-        logging.DEBUG: "38;5;245",
-        logging.INFO: "38;5;114",
         logging.WARNING: "38;5;214",
         logging.ERROR: "38;5;196",
         logging.CRITICAL: "38;5;196;1",
     }
     _LVL_SYM = {
-        logging.DEBUG: "DBUG",
-        logging.INFO: "INFO",
         logging.WARNING: "WARN",
         logging.ERROR: "ERR",
         logging.CRITICAL: "FATAL",
     }
+    _TOPIC_COLOR = {
+        "PARAKEET": "38;5;69",
+        "QWEN": "38;5;69",          # same blue — ASR engine family
+        "MODEL": "38;5;69",
+        "HOTKEY": "38;5;141",
+        "HOTKEY FIRED": "38;5;141",
+        "HOTKEY FALLBACK": "38;5;141",
+        "RECORDING": "38;5;79",
+        "DICTATION": "38;5;215",
+        "TRANSCRIBE": "38;5;120",
+        "CLIPBOARD": "38;5;120",    # paste pipeline — same green as TRANSCRIBE
+        "STARTUP": "38;5;103",
+        "STREAMING": "38;5;110",
+        "CLOUD": "38;5;110",        # cloud engines — same light blue as STREAMING
+        "FOCUS": "38;5;102",
+        "CLEANUP": "38;5;102",
+        "TEMPLATE": "38;5;102",
+        "WIN32": "38;5;102",
+        "SIGNAL": "38;5;102",
+        "HISTORY": "38;5;102",
+        "HISTORY_DB": "38;5;102",
+        "SHUTDOWN": "38;5;95",      # brownish dim — distinct from infra grey
+        "QUIT": "38;5;95",
+        "RESTART": "38;5;95",
+        "CANCEL": "38;5;215",       # same orange as DICTATION
+        "REPASTE": "38;5;120",      # same green as TRANSCRIBE
+        "CONFIG": "38;5;102",
+        "TRAY": "38;5;102",
+        "LLM_POLISH": "38;5;140",
+        "ASR_SETUP": "38;5;102",
+        "WAVEFORM": "38;5;102",
+        "ONBOARDING": "38;5;102",
+        "RECOVERY": "38;5;102",
+        "ATEXIT": "38;5;102",
+        "PIPELINE": "38;5;102",
+    }
+    # For unlabeled lines, infer topic from keyword presence.
+    # First match wins — order matters (list narrower keywords first).
+    _TOPIC_KEYWORDS: dict[str, list[str]] = {
+        "PARAKEET": ["parakeet", "loading model", "model loaded", "loaded successfully"],
+        "STARTUP": ["voice typer starting", "startup", "tray icon created",
+                    "tray event loop", "entering tray", "found microphone"],
+        "HOTKEY": ["hotkey", "register", "unregister", "polling", "getasynckeystate",
+                   "platform is win32", "key-down", "vk=0x"],
+        "DICTATION": ["dictation", "recording started", "recording stopped",
+                      "starting recording", "stopping recording"],
+        "RECORDING": ["microphone", "device query", "native rate", "resampl",
+                      "buffer telemetry", "audio captured", "silence", "chunk"],
+        "TRANSCRIBE": ["transcrib", "transcription thread", "transcription complete",
+                       "transcription failed", "clipboard", "paste"],
+        "SHUTDOWN": ["shutdown", "stopping", "stopped", "exiting", "tray icon stopped",
+                     "unregisterhotkey"],
+        "WIN32": ["console control handler"],
+        "HISTORY": ["history database"],
+    }
+
+    def _infer_topic(self, msg: str) -> str | None:
+        lower = msg.lower()
+        for topic, keywords in self._TOPIC_KEYWORDS.items():
+            for kw in keywords:
+                if kw in lower:
+                    return topic
+        return None
 
     def format(self, record):
-        c = self._LVL_COLOR.get(record.levelno, "0")
-        sym = self._LVL_SYM.get(record.levelno, "????")
         ts = self.formatTime(record, "%H:%M:%S")
-        return (
-            f"\033[{c}m{ts} {sym:<5s}\033[0m"
-            f"  {record.getMessage()}"
-        )
+        msg = record.getMessage()
+
+        # Extract bracketed topic prefix (e.g. [PARAKEET])
+        topic = None
+        content = msg
+        if msg.startswith("[") and "]" in msg:
+            close = msg.index("]")
+            topic = msg[1:close]
+            content = msg[close + 1:].lstrip()
+
+        if record.levelno >= logging.WARNING:
+            c = self._LVL_COLOR.get(record.levelno, "0")
+            sym = self._LVL_SYM.get(record.levelno, "????")
+            return f"\033[{c}m{ts} {sym:<5s}  {msg}\033[0m"
+
+        # INFO — dim timestamp, no level label, full line colored by topic
+        prefix = f"\033[{self._DIM}m{ts}\033[0m"
+        tc = None
+        if topic:
+            tc = self._TOPIC_COLOR.get(topic)
+        elif not topic:
+            inferred = self._infer_topic(msg)
+            if inferred:
+                tc = self._TOPIC_COLOR.get(inferred)
+
+        indent = "  "
+        if tc:
+            body = f"\033[{tc}m{msg}\033[0m"
+        else:
+            body = msg
+        return f"{prefix}{indent}{body}"
 
 
 def _setup_logging():
@@ -140,6 +233,14 @@ class VoiceTyperApp:
 
     def __init__(self):
         self.config = Config.load()
+
+        # Startup banner — first visible log, before any subsystem init
+        log.info(
+            "Voice Typer starting -- model=%s, hotkey=%s, mic=%s, sample_rate=%s",
+            self.config.model_size, self.config.hotkey,
+            self.config.microphone or "default", self.config.sample_rate,
+        )
+
         self.recorder = Recorder(self.config)
         self.transcriber: Optional[TranscriptionEngine] = None
         self._qwen_engine = None
@@ -151,19 +252,11 @@ class VoiceTyperApp:
 
         self.clipboard = ClipboardManager(
             paste_enabled=self.config.paste_on_stop,
-            unsafe_paste_on_unknown_focus=self.config.unsafe_paste_on_unknown_focus,
         )
         self.tray = TrayIcon(
             controller=self,
             config=self.config,
         )
-
-        # Load microphones synchronously so tray menu has them from the start
-        try:
-            self._microphones = list_microphones()
-            self.tray.set_microphones(self._microphones)
-        except Exception:
-            self._microphones = []
 
         self._hotkey_backend: Optional[HotkeyBackend] = None
         self._esc_backend: Optional[HotkeyBackend] = None
@@ -180,7 +273,8 @@ class VoiceTyperApp:
         self._shutting_down = False  # True once quit() starts
         self._pending_timers: list[threading.Timer] = []
         self._timer_generation: int = 0
-        self._non_windows_paste_notified = False
+        self._cycle_counter = 0      # monotonic counter for dictation cycles
+        self._cycle_id: str = ""     # human-readable cycle id for log correlation
 
         # ─── P1/P2 New Feature Components ────────────────────────────
         self.history_db = HistoryDB()
@@ -289,12 +383,6 @@ class VoiceTyperApp:
 
     def start(self):
         """Initialize and run the application."""
-        log.info(
-            "Voice Typer starting -- model=%s, hotkey=%s, mic=%s, sample_rate=%s",
-            self.config.model_size, self.config.hotkey,
-            self.config.microphone or "default", self.config.sample_rate,
-        )
-
         # Wire notifications
         self.tray.set_notifications_enabled(self.config.show_notifications)
 
@@ -319,7 +407,7 @@ class VoiceTyperApp:
         atexit.register(self._atexit_log)
 
         # Enter pystray event loop — MUST be on the main thread
-        log.info("Entering tray event loop on main thread")
+        log.info("[TRAY] Entering tray event loop on main thread")
         self.tray.run()
 
     def _do_startup(self):
@@ -414,22 +502,8 @@ class VoiceTyperApp:
                 self._try_load_model(notify_on_failure=False)
         elif self.config.asr_backend == "parakeet" and self._parakeet_engine is not None:
             log.info("[STARTUP] Step 4: Parakeet backend active, loading Parakeet model")
-            self._parakeet_engine.load()
-            if self._qwen_engine.is_loaded:
-                self.tray.set_state(AppState.IDLE, "Ready — Qwen ASR")
-            else:
-                log.warning("[STARTUP] Qwen load failed")
-                if self._shutting_down:
-                    return
-                log.warning("[STARTUP] Qwen load failed, falling back to Whisper")
-                self.config.model_size = "tiny.en"
-                if self.transcriber is not None:
-                    self.transcriber.model_size = "tiny.en"
-                    self.transcriber._configured_model_size = "tiny.en"
-                self._try_load_model(notify_on_failure=False)
-        elif self.config.asr_backend == "parakeet" and self._parakeet_engine is not None:
-            log.info("[STARTUP] Step 4: Parakeet backend active, loading Parakeet model")
             self.transcriber = None
+            self._parakeet_engine.load()
             if self._parakeet_engine.is_loaded:
                 self.tray.set_state(AppState.IDLE, "Ready — Parakeet ASR")
             else:
@@ -464,13 +538,13 @@ class VoiceTyperApp:
         try:
             actual = is_autostart_enabled()
             if self.config.autostart and not actual:
-                log.info("Config says autostart=true but it is disabled -- enabling")
+                log.info("[CONFIG] Config says autostart=true but it is disabled -- enabling")
                 enable_autostart()
             elif not self.config.autostart and actual:
-                log.info("Config says autostart=false but it is enabled -- disabling")
+                log.info("[CONFIG] Config says autostart=false but it is enabled -- disabling")
                 disable_autostart()
         except Exception as e:
-            log.warning("Autostart sync failed: %s", e)
+            log.warning("[CONFIG] Autostart sync failed: %s", e)
 
     def _ensure_desktop_shortcut(self) -> None:
         """Create desktop .bat launcher on first run if it doesn't exist."""
@@ -492,9 +566,9 @@ class VoiceTyperApp:
             mics = list_microphones()
             self._microphones = mics
             self.tray.set_microphones(mics)
-            log.info("Found %d microphone(s)", len(mics))
+            log.info("[RECORDING] Found %d microphone(s)", len(mics))
         except Exception as e:
-            log.warning("Could not enumerate microphones: %s", e)
+            log.warning("[RECORDING] Could not enumerate microphones: %s", e)
 
     def _try_load_model(self, notify_on_failure: bool = False):
         """Attempt to load the transcription model."""
@@ -572,19 +646,25 @@ class VoiceTyperApp:
 
     def toggle_dictation(self):
         """Toggle recording on/off."""
-        transcriber_ready = self.transcriber is not None
+        # Generate cycle correlation ID for this dictation
+        self._cycle_counter += 1
+        self._cycle_id = f"#{self._cycle_counter}"
+
+        active = self._get_active_transcriber()
+        model_loaded = active is not None and active.is_loaded
         log.info(
             "[HOTKEY FIRED] toggle_dictation called "
-            "(recording=%s, busy=%s, model_loaded=%s, thread=%s)",
+            "(recording=%s, busy=%s, model_loaded=%s, thread=%s, cycle=%s)",
             self.recorder.recording, self._busy_event.is_set(),
-            transcriber_ready and self.transcriber.is_loaded,
+            model_loaded,
             threading.current_thread().name,
+            self._cycle_id,
         )
         if not self._busy_event.is_set():  # busy
-            log.warning("[F2 BLOCKED] Busy transcribing, ignoring toggle")
+            log.warning("[F2 BLOCKED] Busy transcribing, ignoring toggle (cycle=%s)", self._cycle_id)
             return
 
-        if self.transcriber is None:
+        if active is None:
             self.tray.set_state(AppState.LOADING, "Starting up — please wait...")
             return
 
@@ -601,11 +681,6 @@ class VoiceTyperApp:
 
         # Cancel any stale pending timers from previous sessions
         self._cancel_pending_timers()
-
-        # Guard: refuse to record if transcriber not created yet
-        if self.transcriber is None:
-            self.tray.set_state(AppState.LOADING, "Starting up — please wait...")
-            return
 
         # Lazy-init engines if backend was changed via Flet UI after startup
         if self.config.asr_backend == "parakeet" and self._parakeet_engine is None:
@@ -624,7 +699,7 @@ class VoiceTyperApp:
             and self._parakeet_engine is not None
             and self._parakeet_engine.is_loaded
         )
-        whisper_loaded = self.transcriber.is_loaded
+        whisper_loaded = self.transcriber is not None and self.transcriber.is_loaded
 
         if not qwen_active and not parakeet_active and not whisper_loaded:
             if self.config.asr_backend == "qwen" and self._qwen_engine is not None:
@@ -672,7 +747,7 @@ class VoiceTyperApp:
                     )
                     return
 
-        log.info("[DICTATION] Starting recording...")
+        log.info("[DICTATION] Starting recording... (cycle=%s)", self._cycle_id)
         try:
             # H12: Wire silence detection callbacks
             self.recorder.on_silence_warning = self._on_silence_warning
@@ -682,7 +757,7 @@ class VoiceTyperApp:
             self.recorder.start()
             self._start_streaming_session_if_enabled()
             self.tray.set_state(AppState.RECORDING, "Recording...")
-            log.info("[DICTATION] Recording started OK")
+            log.info("[DICTATION] Recording started OK (cycle=%s)", self._cycle_id)
         except Exception as e:
             log.exception("[DICTATION] Failed to start recording: %s", e)
             self._cancel_streaming_session()
@@ -703,7 +778,7 @@ class VoiceTyperApp:
         # Cancel any stale pending timers
         self._cancel_pending_timers()
 
-        log.info("[DICTATION] Stopping recording...")
+        log.info("[DICTATION] Stopping recording... (cycle=%s)", self._cycle_id)
         
         self._busy_event.clear()  # busy = True
 
@@ -722,7 +797,7 @@ class VoiceTyperApp:
         duration = len(audio) / self.config.sample_rate if len(audio) > 0 else 0
         # Capture RMS before starting transcription thread (race-safe)
         recorded_rms = self.recorder.last_rms
-        log.info("[DICTATION] Recording stopped -- %.1fs of audio, busy=True", duration)
+        log.info("[DICTATION] Recording stopped -- %.1fs of audio, busy=True (cycle=%s)", duration, self._cycle_id)
 
         if duration < 0.5:
             log.info("[DICTATION] Audio too short, skipping transcription")
@@ -732,7 +807,7 @@ class VoiceTyperApp:
             self._schedule_timer(2.0, lambda: self.tray.set_state(AppState.IDLE))
             return
 
-        log.info("[DICTATION] Starting transcription thread...")
+        log.info("[DICTATION] Starting transcription thread... (cycle=%s)", self._cycle_id)
         self.tray.set_state(AppState.TRANSCRIBING, "Transcribing...")
 
         # Safety watchdog: if transcription hangs for >60s, force-recover.
@@ -743,21 +818,28 @@ class VoiceTyperApp:
         watchdog.daemon = True
         watchdog.start()
 
+        _captured_cycle_id = self._cycle_id
+
         def transcribe_thread():
+            _t0 = time.perf_counter()
             try:
-                log.info("[TRANSCRIBE] Starting transcription...")
+                log.info("[TRANSCRIBE] Starting transcription... (cycle=%s)", _captured_cycle_id)
                 session = self._get_streaming_session()
                 if session is not None:
-                    log.info("[STREAMING] Finalizing streaming transcript")
+                    log.info("[STREAMING] Finalizing streaming transcript (cycle=%s)", _captured_cycle_id)
                     text = session.finalize(audio)
                     self._set_streaming_session(None)
                 else:
                     active = self._get_active_transcriber()
                     text = active.transcribe_with_fallback(audio)
-                log.info("[TRANSCRIBE] Transcription complete (len=%d)", len(text) if text else 0)
+                _elapsed = time.perf_counter() - _t0
+                log.info("[TRANSCRIBE] Transcription complete (len=%d, took=%.1fs, cycle=%s)", len(text) if text else 0, _elapsed, _captured_cycle_id)
+
+                active = self._get_active_transcriber()
+                _device_info = active.device_info if active is not None and hasattr(active, "device_info") else "Parakeet ASR"
 
                 if not text:
-                    log.info("[TRANSCRIBE] No speech detected")
+                    log.info("[TRANSCRIBE] No speech detected (cycle=%s)", _captured_cycle_id)
                     if recorded_rms < 0.005:
                         self.tray.set_state(
                             AppState.IDLE,
@@ -878,13 +960,13 @@ class VoiceTyperApp:
                     pass
 
                 if self.config.log_transcriptions:
-                    log.info("Transcription: %s", text[:200])
+                    log.info("[TRANSCRIBE] Transcription: %s", text[:200])
                 else:
-                    log.info("Transcription: %d chars", len(text))
+                    log.info("[TRANSCRIBE] Transcription: %d chars", len(text))
 
                 # Copy to clipboard — only attempt paste if copy succeeded.
                 if not self.clipboard.copy(text):
-                    log.error("Clipboard copy failed -- not attempting paste")
+                    log.error("[CLIPBOARD] Clipboard copy failed -- not attempting paste (cycle=%s)", _captured_cycle_id)
                     self.tray.set_state(AppState.IDLE, "Done — clipboard unavailable")
                     self.tray.notify(
                         "Voice Typer",
@@ -894,7 +976,7 @@ class VoiceTyperApp:
                     self._busy_event.set()  # busy = False
                     self._schedule_timer(
                         3.0,
-                        lambda di=self.transcriber.device_info: self.tray.set_state(
+                        lambda di=_device_info: self.tray.set_state(
                             AppState.IDLE,
                             f"Ready — {di}",
                         ),
@@ -917,14 +999,6 @@ class VoiceTyperApp:
                     status = f"Done — {len(text)} chars (pasted)"
                 else:
                     status = f"Done — {len(text)} chars (in clipboard)"
-                    if sys.platform != "win32" and self.config.paste_on_stop and not self._non_windows_paste_notified:
-                        if not self.config.unsafe_paste_on_unknown_focus:
-                            self._non_windows_paste_notified = True
-                            self.tray.notify(
-                                "Voice Typer",
-                                "Auto-paste skipped (focus detection unavailable).\n"
-                                "Enable 'unsafe_paste_on_unknown_focus' in config to paste anyway.",
-                            )
 
                 self.tray.set_state(AppState.IDLE, status)
                 self.tray.notify("Voice Typer", f"Transcribed {len(text)} characters")
@@ -932,14 +1006,14 @@ class VoiceTyperApp:
                 # Reset to plain "Ready" after a few seconds
                 self._schedule_timer(
                     3.0,
-                    lambda di=self.transcriber.device_info: self.tray.set_state(
+                    lambda di=_device_info: self.tray.set_state(
                         AppState.IDLE,
                         f"Ready — {di}",
                     ),
                 )
 
             except Exception as e:
-                log.exception("[TRANSCRIBE] Transcription FAILED")
+                log.exception("[TRANSCRIBE] Transcription FAILED (cycle=%s)", _captured_cycle_id)
                 self.tray.set_state(AppState.ERROR, "Transcription failed")
                 self.tray.notify("Voice Typer Error", f"Transcription failed.\n{e}")
                 self._schedule_timer(3.0, lambda: self.tray.set_state(AppState.IDLE))
@@ -954,7 +1028,7 @@ class VoiceTyperApp:
                 # Force garbage collection to release audio arrays and inference buffers
                 import gc
                 gc.collect()
-                log.info("[TRANSCRIBE] busy reset to False")
+                log.info("[TRANSCRIBE] busy reset to False (cycle=%s)", _captured_cycle_id)
 
         self._transcription_thread = threading.Thread(
             target=transcribe_thread,
@@ -987,16 +1061,32 @@ class VoiceTyperApp:
         if not self._streaming_enabled():
             return
 
+        # Streaming requires transcribe_words (word-level timestamps).
+        # Only Whisper supports this; skip for Parakeet/Qwen.
+        active = self._get_active_transcriber()
+        if active is not None:
+            log.info(
+                "[STREAMING] Checking transcriber: %s has transcribe_words=%s",
+                type(active).__name__,
+                hasattr(active, "transcribe_words"),
+            )
+            if not hasattr(active, "transcribe_words"):
+                log.info("[STREAMING] Transcriber lacks transcribe_words, skipping streaming (cycle=%s)", self._cycle_id)
+                return
+        else:
+            log.info("[STREAMING] No active transcriber, skipping streaming (cycle=%s)", self._cycle_id)
+            return
+
         try:
             session = StreamingTranscriptionSession(
                 recorder=self.recorder,
-                transcriber=self.transcriber,
+                transcriber=self._get_active_transcriber(),
                 config=self._streaming_config(),
                 sample_rate=self.config.sample_rate,
             )
             session.start()
             self._set_streaming_session(session)
-            log.info("[STREAMING] Hidden streaming session started")
+            log.info("[STREAMING] Hidden streaming session started (cycle=%s)", self._cycle_id)
         except Exception as e:
             log.exception("[STREAMING] Failed to start streaming session: %s", e)
             self._set_streaming_session(None)
@@ -1031,7 +1121,7 @@ class VoiceTyperApp:
             )
             return
 
-        log.warning("FORCE RECOVER: transcription watchdog fired, resetting state")
+        log.warning("[RECOVERY] FORCE RECOVER: transcription watchdog fired, resetting state")
         self._busy_event.set()  # busy = False
         self.tray.set_state(AppState.IDLE, "Recovered — transcription timed out")
         self.tray.notify(
@@ -1101,14 +1191,14 @@ class VoiceTyperApp:
 
     def _cancel_dictation(self):
         """Feature: ESC to cancel — cancel current recording/transcription."""
-        log.info("[CANCEL] Cancelling current dictation")
+        log.info("[CANCEL] Cancelling current dictation (cycle=%s)", self._cycle_id)
         self._cancel_pending_timers()
         if self.recorder.recording:
             try:
                 self.recorder.discard()
-                log.info("[CANCEL] Recording discarded")
+                log.info("[CANCEL] Recording discarded (cycle=%s)", self._cycle_id)
             except Exception as e:
-                log.warning("[CANCEL] Failed to discard recording: %s", e)
+                log.warning("[CANCEL] Failed to discard recording: %s (cycle=%s)", e, self._cycle_id)
         self._cancel_streaming_session()
         self.tray.set_state(AppState.IDLE, "Cancelled")
         self._busy_event.set()
@@ -1127,9 +1217,9 @@ class VoiceTyperApp:
             self.config.autostart = enabled
             self.config.save()
             self.tray.set_autostart_enabled(enabled)
-            log.info("Autostart set to %s", enabled)
+            log.info("[CONFIG] Autostart set to %s", enabled)
         except Exception as e:
-            log.exception("Failed to set autostart")
+            log.exception("[CONFIG] Failed to set autostart")
             self.tray.notify("Voice Typer", f"Could not change autostart setting.\n{e}")
 
     def _set_notifications(self, enabled: bool):
@@ -1137,7 +1227,7 @@ class VoiceTyperApp:
         self.config.show_notifications = enabled
         self.config.save()
         self.tray.set_notifications_enabled(enabled)
-        log.info("Notifications set to %s", enabled)
+        log.info("[CONFIG] Notifications set to %s", enabled)
 
     def _select_microphone(self, mic_name: str | None):
         """Handle microphone selection from tray menu."""
@@ -1146,12 +1236,12 @@ class VoiceTyperApp:
         label = mic_name if mic_name else "System Default"
 
         if self.recorder.recording:
-            log.info("Microphone changed to %s; applying after active recording", label)
+            log.info("[CONFIG] Microphone changed to %s; applying after active recording", label)
             self.tray.notify("Voice Typer", f"Microphone next recording: {label}")
             return
 
         self.recorder = Recorder(self.config)  # re-create with new mic
-        log.info("Microphone changed to: %s", label)
+        log.info("[CONFIG] Microphone changed to: %s", label)
         self.tray.notify("Voice Typer", f"Microphone: {label}")
 
     def show_settings(self):
@@ -1202,7 +1292,7 @@ class VoiceTyperApp:
                 editor = shutil.which("xdg-open") or "xdg-open"
                 subprocess.Popen([editor, str(config_file)])
         except Exception as e:
-            log.warning("Could not open editor: %s", e)
+            log.warning("[CONFIG] Could not open editor: %s", e)
             self.tray.notify("Voice Typer", f"Config file:\n{config_file}")
 
     def _restart_hotkey(self, hotkey: str):
@@ -1240,7 +1330,7 @@ class VoiceTyperApp:
         self.config.save()
 
         if self.recorder.recording or not self._busy_event.is_set():
-            log.info("Model changed to %s (%s); applying after active work", model_size, new_backend)
+            log.info("[CONFIG] Model changed to %s (%s); applying after active work", model_size, new_backend)
             self.tray.notify(
                 "Voice Typer",
                 f"Model will change to {model_size} after current recording",
@@ -1273,7 +1363,12 @@ class VoiceTyperApp:
             if self._parakeet_engine is not None:
                 def on_progress(msg: str):
                     self.tray.set_state(AppState.LOADING, msg)
-                self._parakeet_engine.load(progress_callback=on_progress)
+                try:
+                    self._parakeet_engine.load(progress_callback=on_progress)
+                except Exception as e:
+                    log.exception("[MODEL] Parakeet load raised: %s", e)
+                    self.tray.set_state(AppState.ERROR, f"Parakeet load failed: {e}")
+                    return
                 if self._parakeet_engine.is_loaded:
                     self.tray.set_state(AppState.IDLE, f"Ready — Parakeet ASR")
                     self.tray.invalidate_menu_cache()
@@ -1287,7 +1382,12 @@ class VoiceTyperApp:
             if self._qwen_engine is not None:
                 def on_progress(msg: str):
                     self.tray.set_state(AppState.LOADING, msg)
-                self._qwen_engine.load(progress_callback=on_progress)
+                try:
+                    self._qwen_engine.load(progress_callback=on_progress)
+                except Exception as e:
+                    log.exception("[MODEL] Qwen load raised: %s", e)
+                    self.tray.set_state(AppState.ERROR, f"Qwen load failed: {e}")
+                    return
                 if self._qwen_engine.is_loaded:
                     self.tray.set_state(AppState.IDLE, f"Ready — Qwen ASR")
                     self.tray.invalidate_menu_cache()
@@ -1486,11 +1586,11 @@ class VoiceTyperApp:
     def quit(self):
         """Shut down the application cleanly."""
         if self._shutting_down:
-            log.info("quit() already in progress, ignoring duplicate call")
+            log.info("[SHUTDOWN] quit() already in progress, ignoring duplicate call")
             return
 
         is_main = threading.current_thread() is threading.main_thread()
-        log.info("Shutting down (quit() called from thread=%s, is_main=%s)",
+        log.info("[SHUTDOWN] Shutting down (quit() called from thread=%s, is_main=%s)",
                  threading.current_thread().name, is_main)
         self._shutting_down = True
 
@@ -1513,16 +1613,16 @@ class VoiceTyperApp:
         # Wait for any running transcription thread to finish (short timeout).
         t = self._transcription_thread
         if t is not None and t.is_alive():
-            log.info("Waiting for transcription thread to finish...")
+            log.info("[SHUTDOWN] Waiting for transcription thread to finish...")
             t.join(timeout=3.0)
             if t.is_alive():
-                log.warning("Transcription thread did not finish in time, continuing shutdown")
+                log.warning("[SHUTDOWN] Transcription thread did not finish in time, continuing shutdown")
 
         if self._hotkey_backend:
             self._hotkey_backend.stop()
 
         self.tray.stop()
-        log.info("Shutdown complete, exiting")
+        log.info("[SHUTDOWN] Shutdown complete, exiting")
 
         # Close devnull streams
         for f in _devnull_files:
