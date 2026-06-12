@@ -236,12 +236,17 @@ def main() -> None:
 
         python -m voice_typer.server.ipc_server
     """
-    from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.app import VoiceTyperApp, _setup_logging, _ensure_single_instance
+
+    _setup_logging()
+    _single_instance_mutex = _ensure_single_instance()
 
     app = VoiceTyperApp()
     server = IPCServer(app)
     server.start()
     app.start()  # blocks (tray event loop)
+    # Keep mutex alive by referencing it until exit
+    _ = _single_instance_mutex
 
 
 if __name__ == "__main__":
