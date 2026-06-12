@@ -6,7 +6,7 @@ import type { VoiceTyperConfig, MicrophoneDevice } from './config'
 
 export type RecordingState = 'idle' | 'listening' | 'recording' | 'processing' | 'error'
 
-export type Page = 'home' | 'history' | 'settings'
+export type Page = 'home' | 'history' | 'templates' | 'vocabulary' | 'models' | 'microphone' | 'privacy' | 'settings'
 
 // ── History data shapes (from Python history_db) ───────────────────
 
@@ -148,8 +148,19 @@ export interface PythonBridge {
   onEvent: (callback: (event: PythonPushEvent) => void) => () => void
 }
 
+// ── Window augmentation for the custom title bar (preload `window.*`) ─
+
+export interface WindowBridge {
+  minimize: () => Promise<void>
+  toggleMaximize: () => Promise<boolean>
+  close: () => Promise<void>
+  isMaximized: () => Promise<boolean>
+  onMaximizedChanged: (callback: (maximized: boolean) => void) => () => void
+}
+
 declare global {
   interface Window {
     python?: PythonBridge
+    window_?: WindowBridge
   }
 }

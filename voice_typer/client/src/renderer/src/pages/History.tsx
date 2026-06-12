@@ -45,9 +45,9 @@ export default function HistoryPage() {
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="animate-fade-in-up mx-auto flex h-full w-full max-w-2xl flex-col overflow-hidden">
       <div className="space-y-1 px-6 pb-4 pt-6">
-        <h1 className="font-serif text-2xl font-bold tracking-tight text-[var(--text-primary)]">
+        <h1 className="font-sans text-2xl font-bold tracking-tight text-[var(--text-primary)]">
           History
         </h1>
         {stats && (

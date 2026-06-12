@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, Menu } from "electron";
 import { spawn, ChildProcess } from "child_process";
 import path from "path";
 import os from "os";
@@ -9,6 +9,7 @@ interface PendingRequest {
 }
 
 let pythonProcess: ChildProcess | null = null;
+let mainWindow: BrowserWindow | null = null;
 const pendingRequests = new Map<number, PendingRequest>();
 let nextId = 1;
 let buffer = "";
@@ -99,29 +100,69 @@ function stopPython() {
   pythonProcess.on("exit", () => clearTimeout(killTimer));
 }
 
+function broadcastMaximized(maximized: boolean) {
+  BrowserWindow.getAllWindows().forEach((win) => {
+    win.webContents.send("window:maximized-changed", maximized);
+  });
+}
+
 app.whenReady().then(() => {
   startPython();
 
-  const win = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1000,
     height: 700,
+    minWidth: 800,
+    minHeight: 500,
     icon: path.join(__dirname, "../../resources/icon.png"),
+    frame: false,
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
     },
   });
 
-  win.webContents.openDevTools({ mode: "bottom" });
+  // Remove default menu bar
+  Menu.setApplicationMenu(null);
+
+  // Track maximize state and notify the renderer so the title bar
+  // can swap the maximize icon for the restore icon and the button
+  // can toggle correctly when the user snaps via OS shortcuts.
+  mainWindow.on("maximize", () => broadcastMaximized(true));
+  mainWindow.on("unmaximize", () => broadcastMaximized(false));
 
   if (process.env.ELECTRON_RENDERER_URL) {
-    win.loadURL(process.env.ELECTRON_RENDERER_URL);
+    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
-    win.loadFile(path.join(__dirname, "../renderer/index.html"));
+    mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
   }
 });
 
 ipcMain.handle("python-call", async (_event, msg) => {
   return await sendToPython(msg);
+});
+
+// ── Window control IPC (used by the custom title bar) ──────────────
+
+ipcMain.handle("window:minimize", () => {
+  mainWindow?.minimize();
+});
+
+ipcMain.handle("window:toggle-maximize", () => {
+  if (!mainWindow) return false;
+  if (mainWindow.isMaximized()) {
+    mainWindow.unmaximize();
+  } else {
+    mainWindow.maximize();
+  }
+  return mainWindow.isMaximized();
+});
+
+ipcMain.handle("window:close", () => {
+  mainWindow?.close();
+});
+
+ipcMain.handle("window:is-maximized", () => {
+  return mainWindow?.isMaximized() ?? false;
 });
 
 app.on("before-quit", () => stopPython());

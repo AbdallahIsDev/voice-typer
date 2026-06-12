@@ -1,5 +1,3 @@
-// src/renderer/src/components/StatusBar.tsx
-
 import { cn } from '@/lib/utils'
 import type { RecordingState } from '@/types/ipc'
 
@@ -34,9 +32,9 @@ export function StatusBar({ connectionStatus, recordingState }: StatusBarProps) 
         <span
           className={cn(
             'inline-block h-1.5 w-1.5 rounded-full',
-            connectionStatus === 'connected' && 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.4)]',
-            connectionStatus === 'disconnected' && 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.4)]',
-            connectionStatus === 'connecting' && 'bg-yellow-500 animate-pulse',
+            connectionStatus === 'connected' && 'bg-primary shadow-[0_0_6px_var(--primary)]',
+            connectionStatus === 'disconnected' && 'bg-destructive shadow-[0_0_6px_var(--destructive)]',
+            connectionStatus === 'connecting' && 'bg-primary animate-pulse',
           )}
         />
         <span className="text-[11px] text-[var(--text-muted)]">
@@ -56,7 +54,7 @@ export function StatusBar({ connectionStatus, recordingState }: StatusBarProps) 
             'text-[11px]',
             isConnected ? 'text-[var(--text-muted)]' : 'text-[var(--text-muted)] opacity-50',
             isRecording && 'text-[var(--accent)]',
-            recordingState === 'error' && 'text-red-400',
+            recordingState === 'error' && 'text-destructive',
           )}
         >
           {RECORDING_LABELS[recordingState]}

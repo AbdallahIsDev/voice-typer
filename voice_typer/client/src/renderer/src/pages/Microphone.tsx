@@ -1,0 +1,302 @@
+// src/renderer/src/pages/Microphone.tsx
+
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { usePython } from '@/hooks/usePython'
+import { HugeiconsIcon } from '@hugeicons/react'
+import {
+  Mic02Icon,
+  MicOff01Icon,
+  PlayIcon,
+  StopIcon,
+} from '@hugeicons/core-free-icons'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
+import type { VoiceTyperConfig } from '@/types/config'
+
+interface MicDevice {
+  index: number
+  id?: string
+  name: string
+  host_api: string
+  default?: boolean
+  channels?: number
+  rate?: number
+}
+
+export default function MicrophonePage() {
+  const { call } = usePython()
+  const [microphones, setMicrophones] = useState<MicDevice[]>([])
+  const [config, setConfig] = useState<VoiceTyperConfig | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [testRunning, setTestRunning] = useState(false)
+  const [level, setLevel] = useState(0)
+  const [snackbar, setSnackbar] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null)
+  const levelIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const showSnack = (message: string, type: 'success' | 'error' | 'warning') => {
+    setSnackbar({ message, type })
+    setTimeout(() => setSnackbar(null), 3000)
+  }
+
+  const loadData = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [mics, cfg] = await Promise.all([
+        call<MicDevice[]>('get_microphones'),
+        call<any>('get_config'),
+      ])
+      setMicrophones(Array.isArray(mics) ? mics : [])
+      setConfig(cfg)
+    } catch (err) {
+      console.error('Failed to load microphone data:', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [call])
+
+  useEffect(() => { loadData() }, [loadData])
+
+  // Cleanup test interval on unmount
+  useEffect(() => {
+    return () => {
+      if (levelIntervalRef.current) {
+        clearInterval(levelIntervalRef.current)
+      }
+    }
+  }, [])
+
+  const activeMicId = config?.microphone ?? null
+  const isSystemDefault = activeMicId === null
+
+  const useMicrophone = async (micId: string | null) => {
+    try {
+      await call('set_config', { data: { microphone: micId } })
+      setConfig((prev) => (prev ? { ...prev, microphone: micId } : prev))
+      const label = micId === null ? 'System Default' : microphones.find((m) => (m.id ?? String(m.index)) === micId)?.name ?? 'Microphone'
+      showSnack(`Using: ${label}`, 'success')
+    } catch (err) {
+      showSnack('Failed to set microphone', 'error')
+    }
+  }
+
+  const startTest = () => {
+    setTestRunning(true)
+    setLevel(0)
+    showSnack('Microphone test started — speak into your mic', 'warning')
+
+    levelIntervalRef.current = setInterval(() => {
+      if (!testRunning) return
+      // Simulate audio level (in real app this would come from Python)
+      const newLevel = Math.random() * 0.8 + 0.1
+      setLevel(Math.min(1, newLevel))
+    }, 150)
+  }
+
+  const stopTest = () => {
+    setTestRunning(false)
+    if (levelIntervalRef.current) {
+      clearInterval(levelIntervalRef.current)
+      levelIntervalRef.current = null
+    }
+    setLevel(0)
+    showSnack('Microphone test stopped', 'warning')
+  }
+
+  const getLevelColor = (lvl: number) => {
+    if (lvl > 0.7) return 'var(--destructive)'
+    if (lvl > 0.3) return 'var(--primary)'
+    return 'var(--accent)'
+  }
+
+  if (loading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--accent)] border-t-transparent" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="animate-fade-in-up mx-auto flex h-full w-full max-w-2xl flex-col overflow-hidden">
+      <div className="space-y-1 px-6 pb-4 pt-6">
+        <h1 className="font-sans text-2xl font-bold tracking-tight text-[var(--text-primary)]">
+          Microphone
+        </h1>
+        <p className="text-sm text-[var(--text-muted)]">
+          Select and test your microphone
+        </p>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-6">
+        {/* System Default Card */}
+        <div
+          className={cn(
+            'card-hover rounded-xl border p-5 transition-colors',
+            isSystemDefault
+              ? 'border-[var(--accent)] bg-[var(--bg-subtle)]'
+              : 'border-[var(--border)] bg-[var(--bg-subtle)]',
+          )}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <HugeiconsIcon
+                icon={Mic02Icon}
+                className={cn(
+                  'h-5 w-5',
+                  isSystemDefault ? 'text-primary' : 'text-[var(--text-muted)]',
+                )}
+              />
+              <div>
+                <p className="text-sm font-semibold text-[var(--text-primary)]">
+                  System Default
+                </p>
+                <p className="text-xs text-[var(--text-muted)]">
+                  Use the operating system's default input device
+                </p>
+              </div>
+            </div>
+            {isSystemDefault ? (
+              <span className="inline-flex items-center rounded-md px-2.5 py-0.5 text-[10px] font-semibold border border-primary/20 bg-primary/10 text-primary">
+                Active
+              </span>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => useMicrophone(null)}
+              >
+                Use
+              </Button>
+            )}
+          </div>
+
+          {/* Level bar when active */}
+          {isSystemDefault && (
+            <div className="mt-3 h-1.5 w-full rounded-full bg-[var(--border)] overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-150"
+                style={{
+                  width: `${level * 100}%`,
+                  backgroundColor: getLevelColor(level),
+                }}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Microphone Test Area */}
+        <div className="flex items-center gap-3">
+          <Button
+            variant="default"
+            size="sm"
+            className="gap-1.5"
+            onClick={startTest}
+            disabled={testRunning}
+          >
+            <HugeiconsIcon icon={PlayIcon} className="h-3.5 w-3.5" />
+            Start Test
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={stopTest}
+            disabled={!testRunning}
+          >
+            <HugeiconsIcon icon={StopIcon} className="h-3.5 w-3.5" />
+            Stop Test
+          </Button>
+          <span className="text-xs text-[var(--text-muted)] ml-auto">
+            Level: {Math.round(level * 100)}%
+          </span>
+        </div>
+
+        {/* Available Microphones List */}
+        {microphones.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-3">
+            <HugeiconsIcon icon={MicOff01Icon} className="h-10 w-10 text-[var(--text-muted)] opacity-30" />
+            <p className="text-sm text-[var(--text-muted)]">No microphones found</p>
+            <p className="text-xs text-[var(--text-muted)] opacity-70">
+              Connect a microphone and restart
+            </p>
+          </div>
+        ) : (
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2 px-1">
+              Available Microphones
+            </p>
+            <div className="space-y-0">
+              {microphones.map((mic) => {
+                const micId = mic.id ?? String(mic.index)
+                const isActive = micId === activeMicId
+                return (
+                  <div
+                    key={micId}
+                    className={cn(
+                      'flex items-center justify-between px-5 py-3',
+                      'border-b border-[var(--border)] transition-colors hover:bg-[var(--surface-hover)]',
+                    )}
+                  >
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <HugeiconsIcon
+                        icon={isActive ? Mic02Icon : Mic02Icon}
+                        className={cn(
+                          'h-4 w-4 shrink-0',
+                          isActive ? 'text-primary' : 'text-[var(--text-muted)]',
+                        )}
+                      />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-[var(--text-primary)] truncate">
+                            {mic.name}
+                          </p>
+                          {mic.default && (
+                            <span className="shrink-0 inline-flex items-center rounded-full bg-[var(--accent)] px-2 py-0.5 text-[9px] font-semibold text-white">
+                              Default
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                          Channels: {mic.channels ?? 1} &middot; Rate: {mic.rate ?? 44100}Hz
+                        </p>
+                      </div>
+                    </div>
+                    {isActive ? (
+                      <span className="shrink-0 inline-flex items-center rounded-md px-2.5 py-0.5 text-[10px] font-semibold border border-primary/20 bg-primary/10 text-primary">
+                        Active
+                      </span>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0"
+                        onClick={() => useMicrophone(micId)}
+                      >
+                        Use
+                      </Button>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Snackbar */}
+      {snackbar && (
+        <div
+          className={cn(
+            'animate-slide-up fixed bottom-6 left-1/2 z-50 -translate-x-1/2',
+            'rounded-lg px-4 py-2.5 text-sm shadow-lg',
+            snackbar.type === 'success' && 'bg-primary text-primary-foreground',
+            snackbar.type === 'error' && 'bg-destructive text-white',
+            snackbar.type === 'warning' && 'bg-primary text-primary-foreground',
+          )}
+        >
+          {snackbar.message}
+        </div>
+      )}
+    </div>
+  )
+}

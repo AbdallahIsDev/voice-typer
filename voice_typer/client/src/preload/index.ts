@@ -8,3 +8,15 @@ contextBridge.exposeInMainWorld("python", {
     return () => { ipcRenderer.removeListener("python-event", handler); };
   },
 });
+
+contextBridge.exposeInMainWorld("window_", {
+  minimize: () => ipcRenderer.invoke("window:minimize"),
+  toggleMaximize: () => ipcRenderer.invoke("window:toggle-maximize") as Promise<boolean>,
+  close: () => ipcRenderer.invoke("window:close"),
+  isMaximized: () => ipcRenderer.invoke("window:is-maximized") as Promise<boolean>,
+  onMaximizedChanged: (callback: (maximized: boolean) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, maximized: unknown) => callback(Boolean(maximized));
+    ipcRenderer.on("window:maximized-changed", handler);
+    return () => { ipcRenderer.removeListener("window:maximized-changed", handler); };
+  },
+});

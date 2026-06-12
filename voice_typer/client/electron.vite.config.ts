@@ -30,7 +30,12 @@ export default defineConfig({
     plugins: [react(), tailwind()],
     resolve: {
       alias: {
-        '@': resolve(__dirname, 'src/renderer/src')
+        '@': resolve(__dirname, 'src/renderer/src'),
+        '#components': resolve(__dirname, 'src/renderer/src/components/index.ts'),
+        '#ui': resolve(__dirname, 'src/renderer/src/components/ui'),
+        '#lib': resolve(__dirname, 'src/renderer/src/lib/index.ts'),
+        '#utils': resolve(__dirname, 'src/renderer/src/lib/utils.ts'),
+        '#hooks': resolve(__dirname, 'src/renderer/src/hooks/index.ts')
       }
     }
   }

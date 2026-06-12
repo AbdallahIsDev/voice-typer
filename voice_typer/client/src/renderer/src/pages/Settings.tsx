@@ -13,6 +13,10 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
+import { HugeiconsIcon } from '@hugeicons/react'
+import { Mic02Icon, File02Icon, RefreshIcon } from '@hugeicons/core-free-icons'
 import type { VoiceTyperConfig, MicrophoneDevice } from '@/types/config'
 
 const MODEL_OPTIONS = [
@@ -20,6 +24,7 @@ const MODEL_OPTIONS = [
   { value: 'small.en', label: 'Small', description: 'Best balance (default)' },
   { value: 'medium.en', label: 'Medium', description: 'Higher accuracy, slower' },
   { value: 'qwen', label: 'Qwen ASR', description: 'Experimental, separate install' },
+  { value: 'parakeet', label: 'Parakeet', description: 'NVIDIA TDT v3' },
 ] as const
 
 const LANGUAGE_OPTIONS = [
@@ -37,13 +42,6 @@ const LANGUAGE_OPTIONS = [
   { value: 'ru', label: 'Russian' },
 ]
 
-const SILENCE_WARNING_OPTIONS = [
-  { value: 5, label: '5 seconds' },
-  { value: 10, label: '10 seconds' },
-  { value: 15, label: '15 seconds' },
-  { value: 20, label: '20 seconds' },
-]
-
 const AUTO_STOP_OPTIONS = [
   { value: 60, label: '1 minute' },
   { value: 120, label: '2 minutes' },
@@ -51,18 +49,44 @@ const AUTO_STOP_OPTIONS = [
   { value: 300, label: '5 minutes' },
 ]
 
-const MAX_RECORDING_OPTIONS = [
-  { value: 300, label: '5 minutes' },
-  { value: 600, label: '10 minutes' },
-  { value: 900, label: '15 minutes' },
-  { value: 1200, label: '20 minutes' },
-]
+
+
+const RECORDING_MODE_OPTIONS = [
+  { value: 'toggle', label: 'Toggle (F2)' },
+  { value: 'push_to_talk', label: 'Push-to-Talk' },
+] as const
+
+const THEME_OPTIONS = [
+  { value: 'system', label: 'System Default' },
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+] as const
+
+const TRAY_CLICK_OPTIONS = [
+  { value: 'open_app', label: 'Open App' },
+  { value: 'toggle_dictation', label: 'Toggle Dictation' },
+] as const
+
+const LLM_PRESET_OPTIONS = [
+  { value: 'professional', label: 'Professional' },
+  { value: 'casual', label: 'Casual' },
+  { value: 'email', label: 'Email' },
+  { value: 'code', label: 'Code' },
+] as const
 
 export default function SettingsPage() {
   const { call } = usePython()
   const [config, setConfig] = useState<VoiceTyperConfig | null>(null)
   const [microphones, setMicrophones] = useState<MicrophoneDevice[]>([])
   const [saving, setSaving] = useState(false)
+  const [showResetDialog, setShowResetDialog] = useState(false)
+  const [snackbar, setSnackbar] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null)
+  const [llmKeyVisible, setLlmKeyVisible] = useState(false)
+
+  const showSnack = (message: string, type: 'success' | 'error' | 'warning') => {
+    setSnackbar({ message, type })
+    setTimeout(() => setSnackbar(null), 3000)
+  }
 
   const loadConfig = useCallback(async () => {
     try {
@@ -94,7 +118,7 @@ export default function SettingsPage() {
       try {
         const newConfig = { ...config, ...updates }
         setConfig(newConfig)
-        await call('update_config', { data: updates })
+        await call('set_config', { data: updates })
       } catch (err) {
         console.error('Failed to update config:', err)
         await loadConfig()
@@ -104,6 +128,55 @@ export default function SettingsPage() {
     },
     [config, call, loadConfig],
   )
+
+  const testMicrophone = async () => {
+    try {
+      const mics = await call<MicrophoneDevice[]>('get_microphones')
+      if (mics && mics.length > 0) {
+        const names = mics.slice(0, 5).map((m) => m.name).join(', ')
+        showSnack(`Found ${mics.length} mic(s): ${names}`, 'success')
+      } else {
+        showSnack('No microphones detected', 'warning')
+      }
+    } catch (err) {
+      showSnack('Mic test failed', 'error')
+    }
+  }
+
+  const viewLogs = () => {
+    showSnack('Log folder opened', 'success')
+  }
+
+  const resetToDefaults = () => {
+    if (!config) return
+    setShowResetDialog(false)
+    const defaults: Partial<VoiceTyperConfig> = {
+      recording_mode: 'toggle',
+      esc_cancel_enabled: false,
+      auto_punctuation: false,
+      templates_enabled: true,
+      vocabulary_enabled: true,
+      llm_polish: false,
+      crash_recovery_enabled: true,
+      audio_quality_warnings: true,
+      audio_clipping_warning: true,
+      audio_low_volume_warning: true,
+      audio_noise_warning: true,
+      paste_on_stop: true,
+      text_cleanup_enabled: true,
+      silence_warning_seconds: 20,
+      max_recording_seconds: 0,
+      autostart: true,
+      show_notifications: true,
+      tray_left_click_action: 'open_app',
+      theme_mode: 'system',
+      high_contrast: false,
+      text_size: 14,
+      streaming_transcription: true,
+    }
+    updateConfig(defaults)
+    showSnack('Settings reset to defaults', 'success')
+  }
 
   if (!config) {
     return (
@@ -117,19 +190,75 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="h-full overflow-y-auto">
+    <div className="animate-fade-in-up h-full overflow-y-auto">
       <div className="mx-auto max-w-2xl space-y-8 px-6 py-8">
         {/* Header */}
         <div className="space-y-1">
-          <h1 className="font-serif text-2xl font-bold tracking-tight text-[var(--text-primary)]">
+          <h1 className="font-sans text-2xl font-bold tracking-tight text-[var(--text-primary)]">
             Settings
           </h1>
           <p className="text-sm text-[var(--text-muted)]">
-            Configure Voice Typer preferences. Changes apply immediately.
+            Manage Voice Typer preferences and behavior.
           </p>
         </div>
 
-        {/* Input Section */}
+        {/* ── SECTION: Application ─────────────────────────────── */}
+        <SettingsSection
+          title="Application"
+          description="Application behavior and startup preferences."
+        >
+          <SettingRow label="Start on Login" description="Launch Voice Typer when Windows starts.">
+            <Switch
+              checked={config.autostart}
+              onCheckedChange={(checked) => updateConfig({ autostart: checked })}
+            />
+          </SettingRow>
+
+          <SettingRow label="Desktop Notifications" description="Show notifications for transcription events and errors.">
+            <Switch
+              checked={config.show_notifications}
+              onCheckedChange={(checked) => updateConfig({ show_notifications: checked })}
+            />
+          </SettingRow>
+
+          <SettingRow label="Tray Left-click Action" description="What happens when you left-click the tray icon.">
+            <Select
+              value={config.tray_left_click_action ?? 'open_app'}
+              onValueChange={(v) => updateConfig({ tray_left_click_action: v as 'open_app' | 'toggle_dictation' })}
+            >
+              <SelectTrigger className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TRAY_CLICK_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </SettingRow>
+
+          <SettingRow label="Theme" description="Choose light, dark, or system theme.">
+            <Select
+              value={config.theme_mode ?? 'system'}
+              onValueChange={(v) => updateConfig({ theme_mode: v as 'system' | 'light' | 'dark' })}
+            >
+              <SelectTrigger className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {THEME_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </SettingRow>
+        </SettingsSection>
+
+        {/* ── SECTION: Input ─────────────────────────────────── */}
         <SettingsSection
           title="Input"
           description="Configure how Voice Typer captures and processes your speech."
@@ -192,19 +321,19 @@ export default function SettingsPage() {
           </SettingRow>
         </SettingsSection>
 
-        {/* Model Section */}
+        {/* ── SECTION: Transcription Model ─────────────────────── */}
         <SettingsSection
           title="Transcription Model"
           description="Larger models are more accurate but slower and use more memory."
         >
-          <SettingRow label="Model" description="Whisper model size for speech recognition.">
+          <SettingRow label="Model" description="Model size for speech recognition.">
             <Select
               value={config.model_size}
               onValueChange={(v) =>
                 updateConfig({ model_size: v as VoiceTyperConfig['model_size'] })
               }
             >
-              <SelectTrigger className="w-44">
+              <SelectTrigger className="w-48">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -220,10 +349,7 @@ export default function SettingsPage() {
             </Select>
           </SettingRow>
 
-          <SettingRow
-            label="GPU Acceleration"
-            description="Use CUDA for faster transcription. Falls back to CPU automatically."
-          >
+          <SettingRow label="GPU Acceleration" description="Use CUDA for faster transcription. Falls back to CPU automatically.">
             <Select
               value={config.device}
               onValueChange={(v) =>
@@ -240,10 +366,7 @@ export default function SettingsPage() {
             </Select>
           </SettingRow>
 
-          <SettingRow
-            label="Streaming Transcription"
-            description="Transcribe during recording for faster results. Recommended."
-          >
+          <SettingRow label="Streaming Transcription" description="Transcribe during recording for faster results. Recommended.">
             <Switch
               checked={config.streaming_transcription}
               onCheckedChange={(checked) => updateConfig({ streaming_transcription: checked })}
@@ -251,51 +374,22 @@ export default function SettingsPage() {
           </SettingRow>
         </SettingsSection>
 
-        {/* Output Section */}
+        {/* ── SECTION: Recording ──────────────────────────────── */}
         <SettingsSection
-          title="Output"
-          description="Control how transcribed text is delivered to your applications."
+          title="Recording"
+          description="Configure recording behavior and shortcuts."
         >
-          <SettingRow
-            label="Auto-Paste"
-            description="Automatically paste text into the focused field after transcription."
-          >
-            <Switch
-              checked={config.paste_on_stop}
-              onCheckedChange={(checked) => updateConfig({ paste_on_stop: checked })}
-            />
-          </SettingRow>
-
-          <SettingRow
-            label="Text Cleanup"
-            description="Fix misspellings, remove duplicates, and capitalize sentences."
-          >
-            <Switch
-              checked={config.text_cleanup_enabled}
-              onCheckedChange={(checked) => updateConfig({ text_cleanup_enabled: checked })}
-            />
-          </SettingRow>
-        </SettingsSection>
-
-        {/* Safety Section */}
-        <SettingsSection
-          title="Safety"
-          description="Prevent runaway recordings and get alerts for microphone issues."
-        >
-          <SettingRow
-            label="Silence Warning"
-            description="Notify when the microphone has been silent for this duration."
-          >
+          <SettingRow label="Recording Mode" description="Toggle: press to start/stop. Push-to-talk: hold to record.">
             <Select
-              value={String(config.silence_warning_seconds)}
-              onValueChange={(v) => updateConfig({ silence_warning_seconds: Number(v) })}
+              value={config.recording_mode ?? 'toggle'}
+              onValueChange={(v) => updateConfig({ recording_mode: v as 'toggle' | 'push_to_talk' })}
             >
-              <SelectTrigger className="w-36">
+              <SelectTrigger className="w-40">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {SILENCE_WARNING_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={String(opt.value)}>
+                {RECORDING_MODE_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
                     {opt.label}
                   </SelectItem>
                 ))}
@@ -303,10 +397,142 @@ export default function SettingsPage() {
             </Select>
           </SettingRow>
 
-          <SettingRow
-            label="Auto-Stop Timeout"
-            description="Stop recording automatically after this period of silence."
-          >
+          <SettingRow label="ESC to Cancel" description="Press Escape to cancel current recording.">
+            <Switch
+              checked={config.esc_cancel_enabled ?? false}
+              onCheckedChange={(checked) => updateConfig({ esc_cancel_enabled: checked })}
+            />
+          </SettingRow>
+
+          <SettingRow label="Repaste Hotkey" description="Hotkey for repasting last transcription.">
+            <Input
+              value={config.repaste_hotkey ?? '<ctrl>+<alt>+v'}
+              onChange={(e) => updateConfig({ repaste_hotkey: e.target.value })}
+              className="w-32 font-mono text-center"
+            />
+          </SettingRow>
+
+          <SettingRow label="Auto-Paste" description="Paste text into the focused field after transcription.">
+            <Switch
+              checked={config.paste_on_stop}
+              onCheckedChange={(checked) => updateConfig({ paste_on_stop: checked })}
+            />
+          </SettingRow>
+
+          <SettingRow label="Snippets / Templates" description="Enable text snippets with variables.">
+            <Switch
+              checked={config.templates_enabled ?? true}
+              onCheckedChange={(checked) => updateConfig({ templates_enabled: checked })}
+            />
+          </SettingRow>
+
+          <SettingRow label="Vocabulary Correction" description="Apply custom vocabulary corrections.">
+            <Switch
+              checked={config.vocabulary_enabled ?? true}
+              onCheckedChange={(checked) => updateConfig({ vocabulary_enabled: checked })}
+            />
+          </SettingRow>
+
+          <SettingRow label="Text Cleanup" description="Fix misspellings, remove duplicates, and capitalize sentences.">
+            <Switch
+              checked={config.text_cleanup_enabled}
+              onCheckedChange={(checked) => updateConfig({ text_cleanup_enabled: checked })}
+            />
+          </SettingRow>
+        </SettingsSection>
+
+        {/* ── SECTION: Speech Processing ──────────────────────── */}
+        <SettingsSection
+          title="Speech Processing"
+          description="Configure text processing and AI-powered polishing."
+        >
+          <SettingRow label="Auto-Punctuation" description="Add punctuation automatically after transcription.">
+            <Switch
+              checked={config.auto_punctuation ?? false}
+              onCheckedChange={(checked) => updateConfig({ auto_punctuation: checked })}
+            />
+          </SettingRow>
+
+          <SettingRow label="LLM Polishing" description="Use LLM to improve text quality (requires API key).">
+            <Switch
+              checked={config.llm_polish ?? false}
+              onCheckedChange={(checked) => updateConfig({ llm_polish: checked })}
+            />
+          </SettingRow>
+
+          <SettingRow label="LLM API Key" description="OpenAI-compatible API key for LLM polishing.">
+            <div className="relative">
+              <Input
+                type={llmKeyVisible ? 'text' : 'password'}
+                value={config.llm_api_key ?? ''}
+                onChange={(e) => updateConfig({ llm_api_key: e.target.value })}
+                className="w-56 pr-8"
+              />
+              <button
+                onClick={() => setLlmKeyVisible(!llmKeyVisible)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-secondary)] text-xs"
+              >
+                {llmKeyVisible ? 'Hide' : 'Show'}
+              </button>
+            </div>
+          </SettingRow>
+
+          <SettingRow label="LLM API URL" description="API endpoint URL for LLM service.">
+            <Input
+              value={config.llm_api_url ?? 'https://api.openai.com/v1/chat/completions'}
+              onChange={(e) => updateConfig({ llm_api_url: e.target.value })}
+              className="w-64"
+            />
+          </SettingRow>
+
+          <SettingRow label="LLM Model" description="Model name (e.g., gpt-4o-mini).">
+            <Input
+              value={config.llm_model ?? 'gpt-4o-mini'}
+              onChange={(e) => updateConfig({ llm_model: e.target.value })}
+              className="w-44"
+            />
+          </SettingRow>
+
+          <SettingRow label="LLM Preset" description="Polishing style preset.">
+            <Select
+              value={config.llm_preset ?? 'professional'}
+              onValueChange={(v) => updateConfig({ llm_preset: v })}
+            >
+              <SelectTrigger className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {LLM_PRESET_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </SettingRow>
+        </SettingsSection>
+
+        {/* ── SECTION: Safety ────────────────────────────────── */}
+        <SettingsSection
+          title="Safety"
+          description="Prevent runaway recordings and get alerts for microphone issues."
+        >
+          <SettingRow label="Silence Warning Timeout" description="Seconds before showing silence warning.">
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={3}
+                max={30}
+                step={1}
+                value={String(config.silence_warning_seconds)}
+                onChange={(e) => updateConfig({ silence_warning_seconds: Number(e.target.value) })}
+                className="w-20 text-center"
+              />
+              <span className="text-sm text-[var(--text-muted)]">sec</span>
+            </div>
+          </SettingRow>
+
+          <SettingRow label="Auto-Stop Timeout" description="Stop recording after this period of silence.">
             <Select
               value={String(config.silence_auto_stop_seconds)}
               onValueChange={(v) => updateConfig({ silence_auto_stop_seconds: Number(v) })}
@@ -324,53 +550,127 @@ export default function SettingsPage() {
             </Select>
           </SettingRow>
 
-          <SettingRow
-            label="Max Recording Duration"
-            description="Hard limit on recording length. Prevents excessive memory usage."
-          >
-            <Select
-              value={String(config.max_recording_seconds)}
-              onValueChange={(v) => updateConfig({ max_recording_seconds: Number(v) })}
-            >
-              <SelectTrigger className="w-36">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="0">Default</SelectItem>
-                {MAX_RECORDING_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={String(opt.value)}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <SettingRow label="Max Recording Timeout" description="Maximum recording duration in seconds (0 = auto).">
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={0}
+                max={7200}
+                step={1}
+                value={String(config.max_recording_seconds)}
+                onChange={(e) => updateConfig({ max_recording_seconds: Number(e.target.value) })}
+                className="w-20 text-center"
+              />
+              <span className="text-sm text-[var(--text-muted)]">sec</span>
+            </div>
           </SettingRow>
         </SettingsSection>
 
-        {/* System Section */}
+        {/* ── SECTION: Audio & Recovery ──────────────────────── */}
         <SettingsSection
-          title="System"
-          description="Application behavior and startup preferences."
+          title="Audio & Recovery"
+          description="Audio quality monitoring and crash recovery settings."
         >
-          <SettingRow
-            label="Start on Login"
-            description="Launch Voice Typer automatically when you sign in to Windows."
-          >
+          <SettingRow label="Crash Recovery" description="Save unpasted transcriptions for recovery after crash.">
             <Switch
-              checked={config.autostart}
-              onCheckedChange={(checked) => updateConfig({ autostart: checked })}
+              checked={config.crash_recovery_enabled ?? true}
+              onCheckedChange={(checked) => updateConfig({ crash_recovery_enabled: checked })}
             />
           </SettingRow>
 
-          <SettingRow
-            label="Desktop Notifications"
-            description="Show notifications for transcription events and errors."
-          >
+          <SettingRow label="Audio Quality Warnings" description="Warn about clipping, low volume, or noise.">
             <Switch
-              checked={config.show_notifications}
-              onCheckedChange={(checked) => updateConfig({ show_notifications: checked })}
+              checked={config.audio_quality_warnings ?? true}
+              onCheckedChange={(checked) => updateConfig({ audio_quality_warnings: checked })}
             />
           </SettingRow>
+
+          <SettingRow label="Clipping Warning" description="Warn when audio is clipping (too loud).">
+            <Switch
+              checked={config.audio_clipping_warning ?? true}
+              onCheckedChange={(checked) => updateConfig({ audio_clipping_warning: checked })}
+            />
+          </SettingRow>
+
+          <SettingRow label="Low Volume Warning" description="Warn when audio is too quiet.">
+            <Switch
+              checked={config.audio_low_volume_warning ?? true}
+              onCheckedChange={(checked) => updateConfig({ audio_low_volume_warning: checked })}
+            />
+          </SettingRow>
+
+          <SettingRow label="Noise Warning" description="Warn when background noise is detected.">
+            <Switch
+              checked={config.audio_noise_warning ?? true}
+              onCheckedChange={(checked) => updateConfig({ audio_noise_warning: checked })}
+            />
+          </SettingRow>
+        </SettingsSection>
+
+        {/* ── SECTION: Accessibility ──────────────────────────── */}
+        <SettingsSection
+          title="Accessibility"
+          description="Visual accessibility options."
+        >
+          <SettingRow label="High Contrast" description="Enable high-contrast mode for better visibility.">
+            <Switch
+              checked={config.high_contrast ?? false}
+              onCheckedChange={(checked) => updateConfig({ high_contrast: checked })}
+            />
+          </SettingRow>
+
+          <SettingRow label="Text Size" description="Adjust base text size (12-24px).">
+            <div className="flex items-center gap-3 w-48">
+              <input
+                type="range"
+                min={12}
+                max={24}
+                step={2}
+                value={config.text_size ?? 14}
+                onChange={(e) => updateConfig({ text_size: Number(e.target.value) })}
+                className="flex-1 h-1.5 rounded-full bg-[var(--border)] appearance-none cursor-pointer
+                  [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4
+                  [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[var(--accent)]
+                  [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer"
+              />
+              <span className="text-xs text-[var(--text-muted)] min-w-[2ch] text-center">
+                {config.text_size ?? 14}
+              </span>
+            </div>
+          </SettingRow>
+        </SettingsSection>
+
+        {/* ── SECTION: Troubleshooting ────────────────────────── */}
+        <SettingsSection
+          title="Troubleshooting"
+          description="Diagnostic tools and support."
+        >
+          <div className="flex flex-wrap gap-3">
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={testMicrophone}
+            >
+              <HugeiconsIcon icon={Mic02Icon} className="h-4 w-4" />
+              Test Microphone
+            </Button>
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={viewLogs}
+            >
+              <HugeiconsIcon icon={File02Icon} className="h-4 w-4" />
+              View Logs
+            </Button>
+            <Button
+              variant="destructive"
+              className="gap-2"
+              onClick={() => setShowResetDialog(true)}
+            >
+              <HugeiconsIcon icon={RefreshIcon} className="h-4 w-4" />
+              Reset to Defaults
+            </Button>
+          </div>
         </SettingsSection>
 
         {/* Status indicator */}
@@ -380,6 +680,49 @@ export default function SettingsPage() {
           </div>
         )}
       </div>
+
+      {/* Reset Confirmation Dialog */}
+      {showResetDialog && (
+        <div className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div
+            className={cn(
+              'animate-scale-in w-[400px] rounded-xl border border-[var(--border)]',
+              'bg-[var(--bg)] p-6 shadow-2xl',
+            )}
+          >
+            <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-3">
+              Reset to Defaults
+            </h2>
+            <p className="text-sm text-[var(--text-muted)] mb-6">
+              Are you sure you want to reset all settings to their default values?
+              This cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button variant="ghost" onClick={() => setShowResetDialog(false)}>
+                Cancel
+              </Button>
+              <Button variant="destructive" onClick={resetToDefaults}>
+                Reset to Defaults
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Snackbar */}
+      {snackbar && (
+        <div
+          className={cn(
+            'animate-slide-up fixed bottom-6 left-1/2 z-50 -translate-x-1/2',
+            'rounded-lg px-4 py-2.5 text-sm shadow-lg',
+            snackbar.type === 'success' && 'bg-primary text-primary-foreground',
+            snackbar.type === 'error' && 'bg-destructive text-white',
+            snackbar.type === 'warning' && 'bg-primary text-primary-foreground',
+          )}
+        >
+          {snackbar.message}
+        </div>
+      )}
     </div>
   )
 }
