@@ -8,6 +8,7 @@ Falls back gracefully on missing deps, CUDA errors, etc.
 import logging
 import os
 import threading
+import unicodedata
 from typing import Optional, Callable
 from pathlib import Path
 
@@ -17,15 +18,83 @@ from voice_typer.server.hallucination import should_reject_low_audio_hallucinati
 
 log = logging.getLogger(__name__)
 
+# Maximum allowed ratio of non-Latin-script characters before we reject
+# a transcription segment as a language-hallucination.
+# The model is English-only; output with >30% non-Latin characters is
+# almost certainly a decoding error, not valid speech.
+_NON_LATIN_RATIO_LIMIT = 0.30
+
+
+def _is_latin_char(ch: str) -> bool:
+    """Return True if *ch* belongs to the Latin script (or is whitespace/digit/punct)."""
+    cat = unicodedata.category(ch)
+    if cat.startswith("P") or cat.startswith("Z") or cat.startswith("S"):
+        return True
+    if ch.isdigit():
+        return True
+    script = unicodedata.name(ch, "").split(" ")[0] if ch else ""
+    return script == "LATIN"
+
+
+def _is_likely_english(text: str) -> bool:
+    """Return False if *text* contains too many non-Latin-script characters.
+
+    The Parakeet model is English-only but sometimes hallucinates text in
+    unrelated scripts (CJK, Arabic, Devanagari, etc.).  This filter rejects
+    those segments rather than pasting garbled text into the user's field.
+    """
+    if not text or not text.strip():
+        return True
+    non_latin = sum(1 for ch in text if not _is_latin_char(ch))
+    ratio = non_latin / len(text)
+    if ratio > _NON_LATIN_RATIO_LIMIT:
+        log.info(
+            "[PARAKEET] Rejected non-English output (%.0f%% non-Latin chars): %r",
+            ratio * 100, text[:80],
+        )
+        return False
+    return True
+
 _PARAKERT_MODEL_ID = "nvidia/parakeet-tdt-0.6b-v3"
+
+# Parakeet's Conformer encoder has a practical limit of ~30s of audio.
+# Longer recordings are split into non-overlapping chunks and merged by
+# simple concatenation.  Zero overlap avoids ASR boundary duplication.
+_CHUNK_SECONDS = 25
+_CHUNK_OVERLAP_SECONDS = 0
+
+# ── Resume metadata helpers (outside HF hub cache) ────────────────
+
+
+def _write_resume_meta(path: Path, data: dict) -> None:
+    """Write small JSON metadata alongside the partial so we can verify
+    etag/URL across reboots."""
+    import json
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
+def _cleanup_resume_meta(download_dir: Path, etag: str) -> None:
+    """Remove resume metadata files for a completed download."""
+    for p in download_dir.glob(f"*.{etag}.resume.json"):
+        try:
+            p.unlink()
+        except OSError:
+            pass
 
 
 def _ensure_model_file(progress_callback: Optional[Callable[[str], None]] = None) -> bool:
     """Download model.safetensors with Ctrl+C-safe resume.
 
-    HF hub deletes incomplete files on interruption, so we do the big
-    file download ourselves via ``requests`` with ``Range:`` header.
-    Once the file is complete, we place it in the HF cache so
+    HF hub deletes incomplete files on interruption AND may clean
+    up orphaned blobs on subsequent ``snapshot_download`` calls, so
+    we store the partial OUTSIDE the HF hub cache tree in
+    ``~/.voice-typer/downloads/`` where nothing else touches it.
+
+    A small ``.resume.json`` metadata file stores the etag, expected
+    size, and URL so we can verify the file is still valid across
+    reboots and CDN changes.
+
+    On completion we place a copy in the HF blob cache so
     ``from_pretrained`` finds it.
     """
     from voice_typer.server.asr_setup import _config_dir, ensure_hf_env
@@ -40,7 +109,14 @@ def _ensure_model_file(progress_callback: Optional[Callable[[str], None]] = None
 
     # Get etag and size (follow redirects — HF CDN)
     import requests as _requests
-    resp = _requests.head(url, headers=headers, timeout=30, allow_redirects=True)
+    try:
+        resp = _requests.head(url, headers=headers, timeout=30, allow_redirects=True)
+    except _requests.exceptions.ConnectionError as e:
+        log.warning("[PARAKEET] HEAD request failed (connection reset): %s", e)
+        return False
+    except _requests.exceptions.RequestException as e:
+        log.warning("[PARAKEET] HEAD request failed: %s", e)
+        return False
     if resp.status_code != 200:
         log.warning("[PARAKEET] HEAD request for %s returned %s", url, resp.status_code)
         return False
@@ -57,17 +133,36 @@ def _ensure_model_file(progress_callback: Optional[Callable[[str], None]] = None
         log.warning("[PARAKEET] Could not determine size of %s", filename)
         return False
 
-    # Build cache paths
+    # ── Download paths (outside HF hub cache) ──────────────────────
+    download_dir = _config_dir() / "downloads"
+    download_dir.mkdir(parents=True, exist_ok=True)
+
+    partial_path = download_dir / f"{filename}.{etag}.partial"
+    resume_meta_path = download_dir / f"{filename}.{etag}.resume.json"
+
+    # ── HF blob path (for from_pretrained to find) ─────────────────
     cache_dir = _config_dir() / "huggingface" / "hub"
     storage_folder = cache_dir / f"models--{_PARAKERT_MODEL_ID.replace('/', '--')}"
     blobs_dir = storage_folder / "blobs"
-    blobs_dir.mkdir(parents=True, exist_ok=True)
-
     blob_path = blobs_dir / etag
-    partial_path = blob_path.with_suffix(".partial")
 
-    # Already complete?
+    # Check if blob already exists in HF cache
     if blob_path.exists() and blob_path.stat().st_size >= expected_size:
+        return True
+
+    # Fallback: search blobs dir by size (etag may differ across CDN responses)
+    if expected_size > 0 and blobs_dir.exists():
+        for f in blobs_dir.iterdir():
+            if f.is_file() and f.stat().st_size >= expected_size:
+                log.info("[PARAKEET] Found existing blob by size match: %s", f.name)
+                return True
+
+    # Check if we already have a complete download in our own dir
+    if partial_path.exists() and partial_path.stat().st_size >= expected_size:
+        blobs_dir.mkdir(parents=True, exist_ok=True)
+        partial_path.replace(blob_path)
+        log.info("[PARAKEET] %s already complete in download dir, moved to HF cache", filename)
+        _cleanup_resume_meta(download_dir, etag)
         return True
 
     # Resume from partial
@@ -75,9 +170,18 @@ def _ensure_model_file(progress_callback: Optional[Callable[[str], None]] = None
     if partial_path.exists():
         start_byte = partial_path.stat().st_size
         if start_byte >= expected_size:
-            partial_path.rename(blob_path)
+            blobs_dir.mkdir(parents=True, exist_ok=True)
+            partial_path.replace(blob_path)
+            _cleanup_resume_meta(download_dir, etag)
             return True
         log.info("[PARAKEET] Resuming %s from byte %d / %d", filename, start_byte, expected_size)
+
+    # Write resume metadata
+    _write_resume_meta(resume_meta_path, {
+        "etag": etag,
+        "url": url,
+        "expected_size": expected_size,
+    })
 
     # Download with Range header
     dl_headers = dict(headers)
@@ -137,10 +241,18 @@ def _ensure_model_file(progress_callback: Optional[Callable[[str], None]] = None
             progress_callback(f"Download error: {exc}")
         return False
 
-    # Complete → move to blob path
-    partial_path.replace(blob_path)
-    log.info("[PARAKEET] %s downloaded (%d bytes)", filename, blob_path.stat().st_size)
-    return True
+    # Complete → copy to HF blob cache + clean up meta
+    blobs_dir.mkdir(parents=True, exist_ok=True)
+    import shutil
+    shutil.copy2(partial_path, blob_path)
+    if blob_path.exists() and blob_path.stat().st_size >= expected_size:
+        log.info("[PARAKEET] %s downloaded (%d bytes)", filename, blob_path.stat().st_size)
+        partial_path.unlink(missing_ok=True)
+        _cleanup_resume_meta(download_dir, etag)
+        return True
+    blob_path.unlink(missing_ok=True)
+    log.error("[PARAKEET] Downloaded file is incomplete or missing after copy")
+    return False
 
 
 class ParakeetEngine:
@@ -188,7 +300,11 @@ class ParakeetEngine:
             except Exception:
                 pass
 
-            # 1. Snapshot-download all small files first (config, tokenizer, etc.)
+            # 1. Snapshot-download all files (config, tokenizer, model weights).
+            #    Uses HF Hub's built-in cache with resume support.
+            #    Custom _ensure_model_file is NOT used here — it would duplicate
+            #    the 2.3GB download and cause cache structure issues with
+            #    from_pretrained (which expects proper snapshot symlinks).
             try:
                 from huggingface_hub import snapshot_download
 
@@ -204,21 +320,16 @@ class ParakeetEngine:
                     from huggingface_hub import snapshot_download
                     if progress_callback:
                         progress_callback("Downloading Parakeet model files (may take a moment)...")
-                    log.info("[PARAKEET] Downloading model metadata...")
+                    log.info("[PARAKEET] Downloading model files...")
                     snapshot_download(
                         repo_id=_PARAKERT_MODEL_ID,
                         resume_download=True,
                     )
                 except Exception as exc:
-                    log.error("[PARAKEET] Metadata download failed: %s", exc)
+                    log.error("[PARAKEET] Model download failed: %s", exc)
                     if progress_callback:
                         progress_callback(f"Download failed: {exc}")
                     return False
-
-            # 2. Ensure model.safetensors with resume support
-            if not _ensure_model_file(progress_callback):
-                log.warning("[PARAKEET] Model file download incomplete or failed")
-                return False
 
             # 3. Load model from cache
             try:
@@ -234,12 +345,25 @@ class ParakeetEngine:
                     log.warning("[PARAKEET] CUDA requested but not available, falling back to CPU")
                     effective_device = "cpu"
 
-                self._processor = AutoProcessor.from_pretrained(_PARAKERT_MODEL_ID)
-                self._model = AutoModelForTDT.from_pretrained(
-                    _PARAKERT_MODEL_ID,
-                    dtype=torch.float16 if effective_device == "cuda" else torch.float32,
-                    device_map=effective_device,
-                )
+                # Suppress Transformers' tqdm progress bar (printed directly to
+                # stderr, bypasses our log formatter so it can't be colored).
+                from contextlib import redirect_stderr
+                import io as _io
+
+                _stderr_buf = _io.StringIO()
+                with redirect_stderr(_stderr_buf):
+                    self._processor = AutoProcessor.from_pretrained(
+                        _PARAKERT_MODEL_ID,
+                        local_files_only=True,
+                    )
+                    self._model = AutoModelForTDT.from_pretrained(
+                        _PARAKERT_MODEL_ID,
+                        dtype=torch.float16 if effective_device == "cuda" else torch.float32,
+                        device_map=effective_device,
+                        low_cpu_mem_usage=True,
+                        local_files_only=True,
+                    )
+
                 log.info("[PARAKEET] Model loaded successfully")
                 if progress_callback:
                     progress_callback("Parakeet model ready")
@@ -264,7 +388,8 @@ class ParakeetEngine:
     def transcribe(self, audio: np.ndarray) -> str:
         """Transcribe audio array. Returns cleaned text string.
 
-        Raises RuntimeError if the model is not loaded.
+        Long audio (>CHUNK_SECONDS) is split into overlapping chunks
+        to stay within the Conformer encoder's input-length limit.
         """
         with self._lock:
             if self._model is None or self._processor is None:
@@ -275,31 +400,86 @@ class ParakeetEngine:
             if len(audio) == 0:
                 return ""
 
-            import torch
+            duration = len(audio) / 16000
+            if duration <= _CHUNK_SECONDS:
+                return self._transcribe_segment(audio)
 
-            try:
-                inputs = self._processor(
-                    [audio],
-                    sampling_rate=16000,
-                    return_tensors="pt",
-                )
-                inputs.to(device=self._model.device, dtype=self._model.dtype)
-                output = self._model.generate(**inputs, return_dict_in_generate=True)
-                text = self._processor.decode(
-                    output.sequences,
-                    skip_special_tokens=True,
-                )
-                text = text.strip()
-            except Exception as exc:
-                log.error("[PARAKEET] Transcription failed: %s", exc)
+            chunks = self._split_audio(audio, _CHUNK_SECONDS, _CHUNK_OVERLAP_SECONDS)
+            log.info("[PARAKEET] Splitting %.1fs audio into %d chunks", duration, len(chunks))
+
+            results = []
+            for i, chunk in enumerate(chunks):
+                log.info("[PARAKEET] Transcribing chunk %d/%d (%.1fs)", i + 1, len(chunks), len(chunk) / 16000)
+                text = self._transcribe_segment(chunk)
+                if text:
+                    results.append(text)
+
+            if not results:
                 return ""
 
-            rms = float(np.sqrt(np.mean(np.square(audio), dtype=np.float64)))
-            if should_reject_low_audio_hallucination(text, rms):
-                log.warning("[PARAKEET] Rejected likely hallucination: %r", text[:80])
-                return ""
+            merged = self._merge_chunks(results)
+            return merged
 
-            return text
+    def _transcribe_segment(self, audio: np.ndarray) -> str:
+        """Transcribe one audio segment (assumed to be within model limits)."""
+        import torch
+
+        try:
+            inputs = self._processor(
+                [audio],
+                sampling_rate=16000,
+                return_tensors="pt",
+            )
+            inputs.to(device=self._model.device, dtype=self._model.dtype)
+            output = self._model.generate(
+                **inputs,
+                return_dict_in_generate=True,
+                max_new_tokens=256,
+            )
+            text = self._processor.decode(
+                output.sequences,
+                skip_special_tokens=True,
+            )
+            if isinstance(text, list):
+                text = text[0] if text else ""
+            text = text.strip()
+        except Exception as exc:
+            log.error("[PARAKEET] Segment transcription failed: %s", exc)
+            return ""
+
+        # English-only filter: only active when language="en" is configured
+        if self.language == "en" and not _is_likely_english(text):
+            return ""
+
+        rms = float(np.sqrt(np.mean(np.square(audio), dtype=np.float64)))
+        if should_reject_low_audio_hallucination(text, rms):
+            log.warning("[PARAKEET] Rejected likely hallucination: %r", text[:80])
+            return ""
+
+        return text
+
+    def _split_audio(
+        self, audio: np.ndarray, chunk_sec: float, overlap_sec: float
+    ) -> list[np.ndarray]:
+        """Split audio into overlapping chunks."""
+        sr = 16000
+        chunk_len = int(chunk_sec * sr)
+        overlap_len = int(overlap_sec * sr)
+        step = chunk_len - overlap_len
+        chunks: list[np.ndarray] = []
+        start = 0
+        while start < len(audio):
+            end = min(start + chunk_len, len(audio))
+            chunks.append(audio[start:end])
+            if end == len(audio):
+                break
+            start += step
+        return chunks
+
+    def _merge_chunks(self, texts: list[str]) -> str:
+        """Concatenate chunk transcriptions.  Chunks are non-overlapping
+        so simple concatenation produces exact text with no duplication."""
+        return " ".join(t for t in texts if t).strip()
 
     def transcribe_with_fallback(self, audio: np.ndarray) -> str:
         """transcribe with GPU→CPU fallback on CUDA errors."""
@@ -327,26 +507,56 @@ class ParakeetEngine:
                 return ""
 
     def _transcribe_impl(self, audio: np.ndarray) -> str:
-        """Core transcription without lock or error handling for fallback."""
+        """Core transcription without lock or error handling for fallback.
+
+        Applies the same chunked approach as transcribe() for long audio.
+        """
+        duration = len(audio) / 16000
+        if duration <= _CHUNK_SECONDS:
+            return self._transcribe_segment_unlocked(audio)
+
+        chunks = self._split_audio(audio, _CHUNK_SECONDS, _CHUNK_OVERLAP_SECONDS)
+        results = []
+        for chunk in chunks:
+            text = self._transcribe_segment_unlocked(chunk)
+            if text:
+                results.append(text)
+        if not results:
+            return ""
+        return self._merge_chunks(results)
+
+    def _transcribe_segment_unlocked(self, audio: np.ndarray) -> str:
+        """Transcribe one segment without lock (for fallback path)."""
         import torch
-        inputs = self._processor(
-            [audio],
-            sampling_rate=16000,
-            return_tensors="pt",
-        )
-        inputs.to(device=self._model.device, dtype=self._model.dtype)
-        output = self._model.generate(**inputs, return_dict_in_generate=True)
-        text = self._processor.decode(
-            output.sequences,
-            skip_special_tokens=True,
-        )
-        text = text.strip()
+        try:
+            inputs = self._processor(
+                [audio],
+                sampling_rate=16000,
+                return_tensors="pt",
+            )
+            inputs.to(device=self._model.device, dtype=self._model.dtype)
+            output = self._model.generate(
+                **inputs,
+                return_dict_in_generate=True,
+                max_new_tokens=256,
+            )
+            text = self._processor.decode(
+                output.sequences,
+                skip_special_tokens=True,
+            )
+            if isinstance(text, list):
+                text = text[0] if text else ""
+            text = text.strip()
+        except Exception:
+            return ""
+
+        # English-only filter: only active when language="en" is configured
+        if self.language == "en" and not _is_likely_english(text):
+            return ""
 
         rms = float(np.sqrt(np.mean(np.square(audio), dtype=np.float64)))
         if should_reject_low_audio_hallucination(text, rms):
-            log.warning("[PARAKEET] Rejected likely hallucination: %r", text[:80])
             return ""
-
         return text
 
     def unload(self) -> None:

@@ -8,6 +8,37 @@ from .icons import icon
 log = logging.getLogger(__name__)
 
 
+_LANGUAGES = [
+    ("en", "English"),
+    ("zh", "Chinese"),
+    ("es", "Spanish"),
+    ("ar", "Arabic"),
+    ("fr", "French"),
+    ("ru", "Russian"),
+    ("pt", "Portuguese"),
+    ("de", "German"),
+    ("ja", "Japanese"),
+    ("ko", "Korean"),
+    ("it", "Italian"),
+    ("nl", "Dutch"),
+    ("pl", "Polish"),
+    ("tr", "Turkish"),
+    ("vi", "Vietnamese"),
+    ("th", "Thai"),
+    ("hi", "Hindi"),
+    ("id", "Indonesian"),
+    ("sv", "Swedish"),
+    ("da", "Danish"),
+    ("fi", "Finnish"),
+    ("no", "Norwegian"),
+    ("cs", "Czech"),
+    ("ro", "Romanian"),
+    ("hu", "Hungarian"),
+    ("el", "Greek"),
+    ("he", "Hebrew"),
+]
+
+
 class SettingsScreen:
     def __init__(self, page: ft.Page, config, settings_controller, reload=None):
         self.page = page
@@ -283,6 +314,12 @@ class SettingsScreen:
 
     def _build_speech_section(self) -> ft.Control:
         return self._section_card([
+            self._setting_row("Language",
+                self._dropdown(width=160,
+                    value=self.config.language,
+                    options=[self._drop_opt(code, label) for code, label in _LANGUAGES],
+                    on_select=lambda e: self._update_config("language", e.control.value)),
+                "Source language for transcription (English enables script-based hallucination filtering)"),
             self._setting_row("Auto-Punctuation",
                 self._switch("auto_punctuation", value=self.config.auto_punctuation,
                     on_change=lambda e: self._update_config("auto_punctuation", e.control.value)),
