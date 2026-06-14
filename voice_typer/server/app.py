@@ -428,10 +428,7 @@ class VoiceTyperApp:
                 from voice_typer.server.onboarding import OnboardingController
                 onboarding = OnboardingController()
                 if onboarding.is_first_run():
-                    log.info("[STARTUP] First run detected — opening Flet for onboarding")
-                    self.tray.open_flet_window()
-                    # Mark onboarding as complete after a brief delay
-                    # (The Flet onboarding UI would handle steps; here we just mark it)
+                    log.info("[STARTUP] First run detected — applying onboarding defaults")
                     onboarding.apply_settings(self.config)
                     onboarding.mark_complete()
                     self.config.onboarding_completed = True
@@ -530,16 +527,15 @@ class VoiceTyperApp:
             log.info("[STARTUP] Step 4: load Whisper model")
             self._try_load_model(notify_on_failure=True)
 
-        # After restart: auto-open the Flet window so it appears fresh
-        # once the new instance is fully ready (model loaded, hotkey registered,
-        # etc.).  The VOICE_TYPER_RESTART env var is set by restart_app() in
-        # the old process before launching the new one.
+        # After restart: auto-open the Electron window so it appears fresh
+        # once the new instance is fully ready.  The VOICE_TYPER_RESTART
+        # env var is set by restart_app() before launching the new process.
         if os.environ.get("VOICE_TYPER_RESTART"):
-            log.info("[STARTUP] Restart detected — opening Flet window")
+            log.info("[STARTUP] Restart detected — opening Electron window")
             try:
-                self.tray.open_flet_window()
+                self.tray.open_electron_window()
             except Exception as e:
-                log.warning("[STARTUP] Failed to open Flet window after restart: %s", e)
+                log.warning("[STARTUP] Failed to open Electron window after restart: %s", e)
 
         log.info("[STARTUP] _do_startup complete")
 
@@ -709,7 +705,7 @@ class VoiceTyperApp:
         # Cancel any stale pending timers from previous sessions
         self._cancel_pending_timers()
 
-        # Lazy-init engines if backend was changed via Flet UI after startup
+        # Lazy-init engines if backend was changed via Electron UI after startup
         if self.config.asr_backend == "parakeet" and self._parakeet_engine is None:
             self._init_parakeet_engine()
         if self.config.asr_backend == "qwen" and self._qwen_engine is None:
@@ -957,34 +953,6 @@ class VoiceTyperApp:
 
                 # Save for repaste
                 self._last_transcription = text
-                # Write to shared state file so Flet subprocess sees it too
-                try:
-                    import json
-                    import os
-                    import tempfile
-                    from voice_typer.server.config import _config_dir
-                    _state_path = _config_dir() / "flet_state.json"
-                    try:
-                        with open(_state_path, "r") as _f:
-                            _data = json.load(_f)
-                    except (FileNotFoundError, json.JSONDecodeError):
-                        _data = {}
-                    _data["last_text"] = text
-                    _fd, _tmp = tempfile.mkstemp(
-                        dir=str(_state_path.parent), suffix=".tmp"
-                    )
-                    try:
-                        with os.fdopen(_fd, "w") as _f:
-                            json.dump(_data, _f)
-                        os.replace(_tmp, str(_state_path))
-                    except BaseException:
-                        try:
-                            os.unlink(_tmp)
-                        except Exception:
-                            pass
-                        raise
-                except Exception:
-                    pass
 
                 if self.config.log_transcriptions:
                     log.info("[TRANSCRIBE] Transcription: %s", text[:200])
@@ -1477,13 +1445,7 @@ class VoiceTyperApp:
         """
         log.info("[QUIT] Quitting Voice Typer...")
 
-        # 1. Kill the Flet window first so it doesn't linger as orphan
-        try:
-            self.tray.close_flet_window()
-        except Exception as e:
-            log.warning("[QUIT] Failed to close Flet window: %s", e)
-
-        # 2. Quick cleanup before force-exit.
+        # 1. Quick cleanup before force-exit.
         #    NOTE: self.tray.stop() / self._icon.stop() is NOT called because
         #    it can hang when called from within a pystray callback (the tray
         #    menu's _wrap handler catches SystemExit, and _icon.stop() may not
@@ -1515,29 +1477,15 @@ class VoiceTyperApp:
     def restart_app(self) -> None:
         """TrayController protocol: restart the app.
 
-        Kills the old Flet window FIRST (so it doesn't linger showing "loading"
-        during the new process startup), then launches a fresh VoiceTyper
-        subprocess, and finally force-exits the current instance.
+        Launches a fresh VoiceTyper subprocess and force-exits the current instance.
 
         NOTE: Uses ``os._exit(0)`` instead of ``self.quit()`` → ``sys.exit(0)``
         because the tray menu callback wrapper (``_wrap`` in ``tray.py``)
         catches ``SystemExit`` and silently swallows it — meaning the process
-        would never actually terminate, leaving a zombie holding the Flet
-        window handles and the single-instance mutex.
+        would never actually terminate.
         """
         log.info("[RESTART] Restarting Voice Typer...")
         import subprocess
-
-        # 1. Kill the old Flet window immediately so it doesn't linger
-        #    as a stale window showing "loading" while the new process starts up.
-        try:
-            self.tray.close_flet_window()
-            log.info("[RESTART] Old Flet window closed")
-        except Exception as e:
-            log.warning("[RESTART] Failed to close old Flet window: %s", e)
-
-        # 1b. Brief pause for Windows to fully release window handles / clean
-        #     up zombie windows so they don't interfere with the new process.
         import time
         time.sleep(0.5)
 

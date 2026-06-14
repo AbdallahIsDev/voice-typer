@@ -35,10 +35,6 @@ def mock_heavy_imports(monkeypatch):
 
     monkeypatch.setitem(sys.modules, "pyperclip", MagicMock())
 
-    mock_flet = MagicMock()
-    monkeypatch.setitem(sys.modules, "flet", mock_flet)
-    monkeypatch.setitem(sys.modules, "flet.testing", MagicMock())
-
     # Prevent atexit handler from polluting test output
     try:
         monkeypatch.setattr("voice_typer.server.app.atexit.register", lambda *a, **kw: None)

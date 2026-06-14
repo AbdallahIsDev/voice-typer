@@ -2,7 +2,7 @@
 
 Analyzes audio during and after recording to detect quality issues
 that would degrade transcription accuracy. Produces warnings that
-can be shown as notifications or in the Flet microphone diagnostics screen.
+can be shown as notifications or in the microphone diagnostics screen.
 """
 
 import logging

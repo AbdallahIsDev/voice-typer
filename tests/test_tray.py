@@ -1,12 +1,14 @@
 """Tests for the tray Phase 2 minimal menu.
 
-Phase 2: Minimal 3-item right-click menu:
+Phase 2: Minimal right-click menu:
 - Toggle Dictation (hotkey)
+- Open App (Electron)
+- Models
 - Restart
 - Quit
 
-Left-click opens Flet window.
-All settings, history, templates, etc. live in the Flet window only.
+Left-click "Open App" launches the Electron app (or focuses it if already running).
+All settings, history, templates, etc. live in the Electron window only.
 """
 
 import gc
@@ -207,17 +209,17 @@ class TestPhase2MinimalMenu:
         assert any("Models" in l for l in labels)
 
     def test_no_microphone_submenu(self, tray):
-        """Phase 2: Microphone selection is in Flet window, not tray menu."""
+        """Microphone selection is in Electron app, not tray menu."""
         labels = _menu_labels(tray)
         assert "Microphone" not in labels
 
     def test_no_advanced_submenu(self, tray):
-        """Phase 2: Advanced settings are in Flet window, not tray menu."""
+        """Advanced settings are in Electron app, not tray menu."""
         labels = _menu_labels(tray)
         assert "Advanced" not in labels
 
     def test_no_hotkey_submenu(self, tray):
-        """Phase 2: Hotkey config is in Flet window, not tray menu."""
+        """Hotkey config is in Electron app, not tray menu."""
         labels = _menu_labels(tray)
         assert "Hotkey" not in labels
 
