@@ -381,12 +381,19 @@ class TestConfigWiring:
 
         from voice_typer.server.app import VoiceTyperApp
         app = VoiceTyperApp()
-        # TranscriptionEngine is now created in _do_startup, not __init__
+        # TranscriptionEngine is now created in _do_startup (background), not __init__
         app._sync_autostart = MagicMock()
+        app._sync_prewarm_task = MagicMock()
         app._load_microphones = MagicMock()
         app._register_hotkey = MagicMock()
         app._try_load_model = MagicMock()
         app._do_startup()
+        # Model load now runs in a daemon thread — wait for it so the
+        # assertions below don't race with the background worker.
+        load_thread = app._model_load_thread
+        if load_thread is not None:
+            load_thread.join(timeout=5)
+            assert not load_thread.is_alive(), "model load thread hung"
 
         _, kwargs = transcriber_cls.call_args
         assert kwargs["beam_size"] == 2
@@ -580,6 +587,154 @@ class TestToggleDictationDispatch:
         app._stop_dictation.assert_not_called()
 
 
+class TestModelLoadingQueue:
+    """When the model is still loading in the background, F2 queues the
+    dictation and auto-starts it once loading completes."""
+
+    def test_toggle_queues_when_model_loading(self, app):
+        """F2 during background model load sets _pending_dictation and
+        shows a LOADING state — does NOT call _start/_stop_dictation."""
+        app.recorder = MagicMock()
+        app.recorder.recording = False
+        app.tray = MagicMock()
+
+        # Simulate an in-flight background loader.
+        loader = MagicMock()
+        loader.is_alive.return_value = True
+        app._model_load_thread = loader
+
+        app._start_dictation = MagicMock()
+        app._stop_dictation = MagicMock()
+
+        app.toggle_dictation()
+
+        assert app._pending_dictation is True
+        app._start_dictation.assert_not_called()
+        app._stop_dictation.assert_not_called()
+        # Tray should reflect the loading state.
+        app.tray.set_state.assert_called()
+
+    def test_toggle_does_not_queue_when_load_complete(self, app):
+        """Once the loader thread has finished, F2 goes straight to
+        _start_dictation (no queueing)."""
+        app.recorder = MagicMock()
+        app.recorder.recording = False
+        app.tray = MagicMock()
+
+        # Loader finished (thread object exists but not alive).
+        loader = MagicMock()
+        loader.is_alive.return_value = False
+        app._model_load_thread = loader
+
+        started = []
+        app._start_dictation = lambda: started.append(True)
+        app._stop_dictation = MagicMock()
+
+        app.toggle_dictation()
+
+        assert app._pending_dictation is False
+        assert len(started) == 1
+
+    def test_toggle_survives_loader_cleared_during_is_alive(self, app):
+        """Regression for TOCTOU race: the background loader's finally
+        block sets self._model_load_thread = None.  If that runs while
+        toggle_dictation is between its `is not None` check and the
+        `.is_alive()` call, the old (two-LOAD_ATTR) code raised
+        ``AttributeError: 'NoneType' object has no attribute 'is_alive'``.
+
+        We simulate the race by making the loader's is_alive() clear the
+        attribute — exactly what the loader thread does in its finally
+        block — and assert toggle_dictation does not crash.  With the fix
+        (capture the reference into a local first), is_alive() runs on the
+        captured local, so the attribute becoming None is harmless.
+        """
+        app.recorder = MagicMock()
+        app.recorder.recording = False
+        app.tray = MagicMock()
+
+        loader = MagicMock()
+        # is_alive() simulates the loader finishing: clears the attribute
+        # (as the real finally block does) then returns True so the queuing
+        # path is exercised.
+        def clear_then_alive():
+            app._model_load_thread = None
+            return True
+        loader.is_alive.side_effect = clear_then_alive
+        app._model_load_thread = loader
+
+        # Must not raise AttributeError.  (The old code re-read the
+        # attribute for is_alive() and would hit None here.)
+        try:
+            app.toggle_dictation()
+        except AttributeError as exc:
+            pytest.fail(f"toggle_dictation crashed on race: {exc}")
+
+        assert app._pending_dictation is True
+
+    def test_background_load_auto_starts_pending_dictation(self, app, monkeypatch):
+        """When the loader finishes and _pending_dictation is set, it
+        schedules _start_dictation via a 0-delay timer."""
+        app.tray = MagicMock()
+        # Stub the engine init so the loader body doesn't do real work.
+        app._init_parakeet_engine = MagicMock()
+        app._init_qwen_engine = MagicMock()
+        app._try_load_model = MagicMock()
+        app._fallback_to_whisper = MagicMock()
+
+        # Simulate a queued F2 press.
+        app._pending_dictation = True
+
+        scheduled = []
+        def fake_schedule(delay, func):
+            scheduled.append((delay, func))
+        app._schedule_timer = fake_schedule
+
+        # Run the loader synchronously (it would normally be in a thread).
+        # Force the Whisper backend path (default) so it's a no-op with
+        # _try_load_model mocked.
+        app.config.asr_backend = "whisper"
+        app._load_transcription_engine_background()
+
+        # The pending dictation should have been cleared and a 0-delay
+        # _start_dictation scheduled.
+        assert app._pending_dictation is False
+        assert any(delay == 0 for delay, _ in scheduled), \
+            "pending dictation should schedule _start_dictation at delay=0"
+
+    def test_background_load_no_auto_start_when_not_pending(self, app):
+        """If the user did NOT press F2 during load, nothing is scheduled."""
+        app.tray = MagicMock()
+        app._init_parakeet_engine = MagicMock()
+        app._try_load_model = MagicMock()
+        app._fallback_to_whisper = MagicMock()
+        app._pending_dictation = False
+
+        scheduled = []
+        app._schedule_timer = lambda delay, func: scheduled.append((delay, func))
+
+        app.config.asr_backend = "whisper"
+        app._load_transcription_engine_background()
+
+        assert scheduled == [], "no pending dictation → nothing scheduled"
+
+    def test_background_load_catches_exception_and_sets_error(self, app):
+        """A crashing loader sets ERROR state but does not propagate."""
+        from unittest.mock import MagicMock as _MM
+        app.tray = MagicMock()
+        app._init_parakeet_engine = MagicMock()
+        app._try_load_model = _MM(side_effect=RuntimeError("disk on fire"))
+        app._pending_dictation = False
+        app.config.asr_backend = "whisper"
+
+        # Must not raise.
+        app._load_transcription_engine_background()
+
+        # Tray should show ERROR.
+        states = [c.args[0] for c in app.tray.set_state.call_args_list]
+        assert any("ERROR" in str(s) for s in states), \
+            f"expected ERROR state after crash, got {states}"
+
+
 class TestStartDictationBehavior:
     """Verify _start_dictation sets correct state and calls recorder.start()."""
 
@@ -715,7 +870,13 @@ class TestAppStartupIntegration:
         app = VoiceTyperApp()
 
         # Run _do_startup directly (normally called in a thread by tray.start)
+        app._sync_prewarm_task = MagicMock()
         app._do_startup()
+        # Model load runs in a background thread now — wait for it so the
+        # test doesn't tear down while the loader is mid-flight.
+        load_thread = app._model_load_thread
+        if load_thread is not None:
+            load_thread.join(timeout=5)
 
         # If we got here without exception, startup succeeded
         # Verify the tray was wired up
@@ -944,10 +1105,16 @@ class TestStartupResilience:
         app._register_hotkey = track_register_hotkey
         app._try_load_model = track_try_load
         app._sync_autostart = MagicMock()
+        app._sync_prewarm_task = MagicMock()
         app._load_microphones = MagicMock()
         app.tray = MagicMock()
 
         app._do_startup()
+        # Model load now runs in a background thread — wait for it so
+        # the "model" step has actually executed before asserting order.
+        load_thread = app._model_load_thread
+        if load_thread is not None:
+            load_thread.join(timeout=5)
 
         assert call_order == ["hotkey", "model"], (
             f"Expected hotkey before model, got {call_order}"
@@ -956,15 +1123,22 @@ class TestStartupResilience:
     def test_startup_survives_model_load_exception(self, app):
         """Even if model load raises, _do_startup should not crash."""
         app._sync_autostart = MagicMock()
+        app._sync_prewarm_task = MagicMock()
         app._load_microphones = MagicMock()
         app._register_hotkey = MagicMock()
-        app.transcriber = MagicMock()
-        app.transcriber.load = MagicMock(side_effect=RuntimeError("OOM"))
-        app.transcriber.is_loaded = False
+        # _try_load_model runs inside the background loader thread; make it
+        # raise to simulate a model-load failure.  The loader catches it.
+        app._try_load_model = MagicMock(side_effect=RuntimeError("OOM"))
         app.tray = MagicMock()
 
-        # Should not raise
+        # Should not raise — the exception is caught inside the loader thread.
         app._do_startup()
+        # Wait for the background loader so the assertion below sees the
+        # post-load state (hotkey registered, app still alive).
+        load_thread = app._model_load_thread
+        if load_thread is not None:
+            load_thread.join(timeout=5)
+            assert not load_thread.is_alive(), "loader thread hung"
 
         # Hotkey should still have been registered
         app._register_hotkey.assert_called_once()
@@ -1185,6 +1359,10 @@ class TestExternalCorrectionsWiring:
         # Patch the name in app's namespace (from X import Y creates local ref)
         monkeypatch.setattr("voice_typer.server.app.configure_corrections", spy)
         app._settings_window = None
+        app._sync_prewarm_task = MagicMock()
+        # Prevent the background model loader from doing real work — we
+        # only care that configure_corrections ran synchronously in Step 0.
+        app._load_transcription_engine_background = MagicMock()
         app._do_startup()
         assert called_with.get("config_dir") == app.config.config_dir, (
             f"configure_corrections should receive config_dir={app.config.config_dir}, "

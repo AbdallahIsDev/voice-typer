@@ -1,17 +1,23 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { Mic02Icon, StopIcon } from '@hugeicons/core-free-icons'
 import { usePython, usePythonEvent } from '@/hooks/usePython'
 import { cn } from '@/lib/utils'
-import type { RecordingState, TodayStats } from '@/types/ipc'
+import StatCards from '@/components/StatCards'
+import ActivityList from '@/components/ActivityList'
+import type { RecordingState, TodayStats, HistoryRecord, Page } from '@/types/ipc'
 import type { VoiceTyperConfig } from '@/types/config'
+
+// Module-level cache — persists across page navigations so the recent activity
+// section renders instantly on re-visit instead of appearing from nowhere.
+let _cachedRecent: HistoryRecord[] = []
 
 interface HomeProps {
   recordingState: RecordingState
   lastError: string | null
+  onNavigate?: (page: Page) => void
 }
 
-// FLIT styles.STATUS_COLORS keys we map our RecordingState into.
 const STATUS_COLORS: Record<string, string> = {
   idle: '#22C55E',
   recording: '#FF3333',
@@ -20,7 +26,6 @@ const STATUS_COLORS: Record<string, string> = {
   error: '#FF3333',
 }
 
-// FLIT styles.STATUS_LABELS for the same keys.
 const STATUS_LABELS: Record<string, string> = {
   idle: 'READY',
   recording: 'RECORDING',
@@ -35,12 +40,13 @@ function statusKeyFor(state: RecordingState, hasError: boolean): string {
   return state
 }
 
-export default function Home({ recordingState, lastError }: HomeProps) {
+export default function Home({ recordingState, lastError, onNavigate }: HomeProps) {
   const { call } = usePython()
 
   const [hotkey, setHotkey] = useState('F2')
   const [lastText, setLastText] = useState('')
   const [stats, setStats] = useState<TodayStats | null>(null)
+  const [recent, setRecent] = useState<HistoryRecord[]>(_cachedRecent)
   const [toggling, setToggling] = useState(false)
 
   useEffect(() => {
@@ -57,11 +63,15 @@ export default function Home({ recordingState, lastError }: HomeProps) {
         if (cancelled) return
         setStats(s)
       } catch {}
+      try {
+        const h = await call<HistoryRecord[]>('get_history', { limit: 4 })
+        if (cancelled) return
+        _cachedRecent = h ?? []
+        setRecent(_cachedRecent)
+      } catch {}
     }
     load()
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [call])
 
   usePythonEvent('transcription_final', (data) => {
@@ -73,6 +83,38 @@ export default function Home({ recordingState, lastError }: HomeProps) {
   usePythonEvent('recording_started', () => {
     setLastText('')
   })
+
+  // ── Proactive background refresh after new transcriptions ────────
+  //
+  // When a transcription_final event arrives, silently refresh the cached
+  // recent records and today's stats so the Home page shows accurate data
+  // on next visit (or immediately if already on Home).
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  usePythonEvent('transcription_final', useCallback(() => {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current)
+    refreshTimer.current = setTimeout(async () => {
+      try {
+        const [newRecent, newStats] = await Promise.all([
+          call<HistoryRecord[]>('get_history', { limit: 5 }),
+          call<TodayStats>('get_today_stats'),
+        ])
+        if (newRecent) {
+          _cachedRecent = newRecent
+          setRecent(newRecent)
+        }
+        if (newStats) setStats(newStats)
+      } catch {
+        // Silently ignore — next manual load picks up fresh data
+      }
+    }, 500)
+  }, [call]))
+
+  // Clean up pending refresh timer on unmount
+  useEffect(() => {
+    return () => {
+      if (refreshTimer.current) clearTimeout(refreshTimer.current)
+    }
+  }, [])
 
   const handleToggle = useCallback(async () => {
     setToggling(true)
@@ -91,77 +133,73 @@ export default function Home({ recordingState, lastError }: HomeProps) {
   const statusLabel = STATUS_LABELS[key] ?? 'READY'
 
   return (
-    <div className="animate-fade-in-up mx-auto flex h-full w-full max-w-2xl flex-col items-center gap-5 overflow-y-auto px-6 py-8">
-      {/* Status line: 8px dot + label, matches FLIT home.py:44-55 */}
+    <div className="animate-fade-in-up mx-auto flex min-h-full w-full max-w-2xl flex-col items-center justify-center gap-5 px-6 py-4">
       <div className="flex items-center gap-1.5">
         <span
           className="h-2 w-2 rounded-full"
           style={{ backgroundColor: statusColor }}
           aria-hidden
         />
-        <span className="text-[11px] font-medium uppercase tracking-wider text-[var(--text-muted)]">
+        <span className="text-[11px] font-medium uppercase tracking-wider text-(--text-muted)">
           {statusLabel}
         </span>
       </div>
 
-      {/* Record button: 72x72 circle, matches FLIT home.py:57-64.
-          Scale + shadow micro-interactions on hover/active. */}
-      <button
-        onClick={handleToggle}
-        disabled={toggling}
-        aria-label={isRecording ? 'Stop dictation' : 'Start dictation'}
-        className={cn(
-          'press-scale flex h-[72px] w-[72px] items-center justify-center rounded-full',
-          'transition-all duration-200 ease-out',
-          'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/30',
-          'hover:scale-105 hover:shadow-[0_8px_24px_rgba(255,51,51,0.35)]',
-          isRecording
-            ? 'bg-[rgba(255,255,255,0.18)] hover:bg-[rgba(255,255,255,0.28)] hover:shadow-[0_8px_24px_rgba(255,255,255,0.15)]'
-            : 'bg-[#FF3333]',
+      <div className="relative">
+        {isRecording && (
+          <span className="absolute inset-0 rounded-full animate-pulse-ring" />
         )}
-      >
-        {isRecording ? (
-          <HugeiconsIcon icon={StopIcon} className="h-7 w-7 text-white" />
-        ) : (
-          <HugeiconsIcon icon={Mic02Icon} className="h-7 w-7 text-white" />
-        )}
-      </button>
+        <button
+          onClick={handleToggle}
+          disabled={toggling}
+          aria-label={isRecording ? 'Stop dictation' : 'Start dictation'}
+          className={cn(
+            'press-scale relative z-10 flex h-21 w-21 items-center justify-center rounded-full',
+            'transition-all duration-200 ease-out',
+            'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/30',
+            'hover:scale-105',
+            isRecording
+              ? 'bg-black/15 dark:bg-white/18 hover:bg-black/25 dark:hover:bg-white/28'
+              : 'bg-destructive animate-glow-pulse hover:shadow-[0_8px_32px_rgba(255,51,51,0.5)]',
+          )}
+        >
+          {isRecording ? (
+            <HugeiconsIcon icon={StopIcon} className="h-8 w-8 text-white" />
+          ) : (
+            <HugeiconsIcon icon={Mic02Icon} className="h-8 w-8 text-white" />
+          )}
+        </button>
+      </div>
 
-      {/* Hotkey hint: "Press [F2] or click to dictate", matches FLIT home.py:66-92 */}
-      <p className="flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
+      <p className="flex items-center gap-1.5 text-[13px] text-(--text-muted)">
         <span>Press</span>
-        <span className="rounded border border-[var(--border)] bg-[var(--bg-subtle)] px-1.5 py-0.5 font-mono text-[11px] text-[var(--text-primary)]">
+        <span className="inline-flex items-center justify-center rounded-md border border-border bg-(--bg-subtle) px-1.75 py-0.75 font-mono text-[11px] font-medium text-(--text-primary) shadow-[0_1px_3px_rgba(0,0,0,0.06),inset_0_1px_0_rgba(255,255,255,0.4)] dark:shadow-[0_1px_3px_rgba(0,0,0,0.15),inset_0_1px_0_rgba(255,255,255,0.06)] leading-none tracking-tight">
           {hotkey}
         </span>
         <span>or click to dictate</span>
       </p>
 
-      {/* Last text preview, matches FLIT home.py:94-107 */}
       {lastText && (
-        <div className="w-[520px] max-w-full rounded-[10px] bg-[var(--bg-subtle)] px-4 py-3">
-          <p className="line-clamp-2 overflow-hidden text-ellipsis text-[13px] text-[var(--text-muted)]">
+        <div className="w-130 max-w-full rounded-[10px] bg-(--bg-subtle) px-4 py-3">
+          <p className="line-clamp-2 overflow-hidden text-ellipsis text-[13px] text-(--text-muted)">
             {lastText}
           </p>
         </div>
       )}
 
-      {/* Stats row: 2 cards (Today, Characters), matches FLIT home.py:109-142 */}
       {stats && (
-        <div className="mt-2 flex gap-3">
-          <div className="flex w-[140px] flex-col items-center gap-1 rounded-[10px] bg-[var(--bg-subtle)] px-6 py-3.5">
-            <span className="text-2xl font-semibold text-[var(--accent)]">
-              {stats.count}
-            </span>
-            <span className="text-[11px] text-[var(--text-muted)]">Today</span>
-          </div>
-          <div className="flex w-[140px] flex-col items-center gap-1 rounded-[10px] bg-[var(--bg-subtle)] px-6 py-3.5">
-            <span className="text-2xl font-semibold text-[var(--accent)]">
-              {stats.chars.toLocaleString()}
-            </span>
-            <span className="text-[11px] text-[var(--text-muted)]">Characters</span>
-          </div>
+        <div className="mt-4 w-full">
+          <StatCards stats={stats} />
         </div>
       )}
+
+      <ActivityList
+        items={recent}
+        lineClamp={2}
+        title="Recent Activity"
+        showViewAll
+        onViewAll={() => onNavigate?.('history')}
+      />
     </div>
   )
 }

@@ -17,7 +17,10 @@ export function usePython() {
   const call = useCallback(
     async <T = unknown>(type: string, data?: Record<string, unknown>): Promise<T> => {
       if (!api) throw new Error('Python bridge not available')
-      const result = await api.call({ type, ...data })
+      const result = (await api.call({ type, data })) as Record<string, unknown>
+      if (result && typeof result === 'object' && '_error' in result) {
+        throw new Error(result._error as string)
+      }
       return result as T
     },
     [api],

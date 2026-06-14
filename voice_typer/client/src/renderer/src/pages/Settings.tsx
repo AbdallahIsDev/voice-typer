@@ -1,5 +1,3 @@
-// src/renderer/src/pages/Settings.tsx
-
 import { useState, useEffect, useCallback } from 'react'
 import { usePython } from '@/hooks/usePython'
 import { SettingsSection } from '@/components/SettingsSection'
@@ -13,11 +11,17 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
+import PageHeading from '@/components/PageHeading'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { Mic02Icon, File02Icon, RefreshIcon } from '@hugeicons/core-free-icons'
 import type { VoiceTyperConfig, MicrophoneDevice } from '@/types/config'
+
+// Module-level cache — persists across page navigations so settings render
+// instantly on re-visit instead of showing a loading spinner.
+let _cachedConfig: VoiceTyperConfig | null = null
+let _cachedMicrophones: MicrophoneDevice[] = []
 
 const MODEL_OPTIONS = [
   { value: 'tiny.en', label: 'Tiny', description: 'Fastest, lower accuracy' },
@@ -28,18 +32,34 @@ const MODEL_OPTIONS = [
 ] as const
 
 const LANGUAGE_OPTIONS = [
-  { value: 'en', label: 'English' },
-  { value: 'es', label: 'Spanish' },
-  { value: 'fr', label: 'French' },
-  { value: 'de', label: 'German' },
-  { value: 'it', label: 'Italian' },
-  { value: 'pt', label: 'Portuguese' },
+  { value: 'auto', label: 'Auto-detect', description: 'Any language — no hallucination filtering' },
+  { value: 'en', label: 'English', description: 'Enables Latin-script hallucination filter' },
   { value: 'zh', label: 'Chinese' },
+  { value: 'es', label: 'Spanish' },
+  { value: 'ar', label: 'Arabic' },
+  { value: 'fr', label: 'French' },
+  { value: 'ru', label: 'Russian' },
+  { value: 'pt', label: 'Portuguese' },
+  { value: 'de', label: 'German' },
   { value: 'ja', label: 'Japanese' },
   { value: 'ko', label: 'Korean' },
-  { value: 'ar', label: 'Arabic' },
+  { value: 'it', label: 'Italian' },
+  { value: 'nl', label: 'Dutch' },
+  { value: 'pl', label: 'Polish' },
+  { value: 'tr', label: 'Turkish' },
+  { value: 'vi', label: 'Vietnamese' },
+  { value: 'th', label: 'Thai' },
   { value: 'hi', label: 'Hindi' },
-  { value: 'ru', label: 'Russian' },
+  { value: 'id', label: 'Indonesian' },
+  { value: 'sv', label: 'Swedish' },
+  { value: 'da', label: 'Danish' },
+  { value: 'fi', label: 'Finnish' },
+  { value: 'no', label: 'Norwegian' },
+  { value: 'cs', label: 'Czech' },
+  { value: 'ro', label: 'Romanian' },
+  { value: 'hu', label: 'Hungarian' },
+  { value: 'el', label: 'Greek' },
+  { value: 'he', label: 'Hebrew' },
 ]
 
 const AUTO_STOP_OPTIONS = [
@@ -76,8 +96,8 @@ const LLM_PRESET_OPTIONS = [
 
 export default function SettingsPage() {
   const { call } = usePython()
-  const [config, setConfig] = useState<VoiceTyperConfig | null>(null)
-  const [microphones, setMicrophones] = useState<MicrophoneDevice[]>([])
+  const [config, setConfig] = useState<VoiceTyperConfig | null>(_cachedConfig)
+  const [microphones, setMicrophones] = useState<MicrophoneDevice[]>(_cachedMicrophones)
   const [saving, setSaving] = useState(false)
   const [showResetDialog, setShowResetDialog] = useState(false)
   const [snackbar, setSnackbar] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null)
@@ -91,6 +111,7 @@ export default function SettingsPage() {
   const loadConfig = useCallback(async () => {
     try {
       const result = await call<VoiceTyperConfig>('get_config')
+      _cachedConfig = result
       setConfig(result)
     } catch (err) {
       console.error('Failed to load config:', err)
@@ -100,6 +121,7 @@ export default function SettingsPage() {
   const loadMicrophones = useCallback(async () => {
     try {
       const result = await call<MicrophoneDevice[]>('get_microphones')
+      _cachedMicrophones = result
       setMicrophones(result)
     } catch (err) {
       console.error('Failed to load microphones:', err)
@@ -117,8 +139,9 @@ export default function SettingsPage() {
       setSaving(true)
       try {
         const newConfig = { ...config, ...updates }
+        _cachedConfig = newConfig
         setConfig(newConfig)
-        await call('set_config', { data: updates })
+        await call('set_config', updates)
       } catch (err) {
         console.error('Failed to update config:', err)
         await loadConfig()
@@ -168,6 +191,7 @@ export default function SettingsPage() {
       max_recording_seconds: 0,
       autostart: true,
       show_notifications: true,
+      fast_startup: true,
       tray_left_click_action: 'open_app',
       theme_mode: 'system',
       high_contrast: false,
@@ -178,29 +202,25 @@ export default function SettingsPage() {
     showSnack('Settings reset to defaults', 'success')
   }
 
-  if (!config) {
+  if (!_cachedConfig && !config) {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="space-y-2 text-center">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--accent)] border-t-transparent mx-auto" />
-          <p className="text-sm text-[var(--text-muted)]">Loading settings...</p>
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-accent border-t-transparent mx-auto" />
+          <p className="text-sm text-(--text-muted)">Loading settings...</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="animate-fade-in-up h-full overflow-y-auto">
-      <div className="mx-auto max-w-2xl space-y-8 px-6 py-8">
+    <div className="animate-fade-in-up min-h-full">
+      <div className="mx-auto max-w-2xl space-y-8 px-6 py-6">
         {/* Header */}
-        <div className="space-y-1">
-          <h1 className="font-sans text-2xl font-bold tracking-tight text-[var(--text-primary)]">
-            Settings
-          </h1>
-          <p className="text-sm text-[var(--text-muted)]">
-            Manage Voice Typer preferences and behavior.
-          </p>
-        </div>
+        <PageHeading
+          title="Settings"
+          description="Manage Voice Typer preferences and behavior."
+        />
 
         {/* ── SECTION: Application ─────────────────────────────── */}
         <SettingsSection
@@ -211,6 +231,16 @@ export default function SettingsPage() {
             <Switch
               checked={config.autostart}
               onCheckedChange={(checked) => updateConfig({ autostart: checked })}
+            />
+          </SettingRow>
+
+          <SettingRow
+            label="Fast Startup"
+            description="Keep the speech model cached in memory between reboots so the app starts in seconds instead of ~45s. Runs a brief background task shortly after login. Recommended."
+          >
+            <Switch
+              checked={config.fast_startup ?? true}
+              onCheckedChange={(checked) => updateConfig({ fast_startup: checked })}
             />
           </SettingRow>
 
@@ -298,22 +328,7 @@ export default function SettingsPage() {
                 {microphones.map((mic) => (
                   <SelectItem key={mic.index} value={String(mic.index)}>
                     {mic.name}
-                    <span className="ml-2 text-xs text-[var(--text-muted)]">({mic.host_api})</span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </SettingRow>
-
-          <SettingRow label="Language" description="Primary language for transcription accuracy.">
-            <Select value={config.language} onValueChange={(v) => updateConfig({ language: v })}>
-              <SelectTrigger className="w-40">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {LANGUAGE_OPTIONS.map((lang) => (
-                  <SelectItem key={lang.value} value={lang.value}>
-                    {lang.label}
+                    <span className="ml-2 text-xs text-(--text-muted)">({mic.host_api})</span>
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -340,7 +355,7 @@ export default function SettingsPage() {
                 {MODEL_OPTIONS.map((model) => (
                   <SelectItem key={model.value} value={model.value}>
                     <span>{model.label}</span>
-                    <span className="ml-2 text-xs text-[var(--text-muted)]">
+                    <span className="ml-2 text-xs text-(--text-muted)">
                       {model.description}
                     </span>
                   </SelectItem>
@@ -444,8 +459,31 @@ export default function SettingsPage() {
         {/* ── SECTION: Speech Processing ──────────────────────── */}
         <SettingsSection
           title="Speech Processing"
-          description="Configure text processing and AI-powered polishing."
+          description="Configure language, text processing, and AI-powered polishing."
         >
+          <SettingRow
+            label="Language"
+            description="Auto-detect lets the model identify any language. Selecting a specific language improves accuracy and enables hallucination filtering for English."
+          >
+            <Select value={config.language || 'auto'} onValueChange={(v) => updateConfig({ language: v === 'auto' ? '' : v })}>
+              <SelectTrigger className="w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {LANGUAGE_OPTIONS.map((lang) => (
+                  <SelectItem key={lang.value} value={lang.value}>
+                    <span>{lang.label}</span>
+                    {lang.description && (
+                      <span className="ml-2 text-[10px] text-(--text-muted)">
+                        {lang.description}
+                      </span>
+                    )}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </SettingRow>
+
           <SettingRow label="Auto-Punctuation" description="Add punctuation automatically after transcription.">
             <Switch
               checked={config.auto_punctuation ?? false}
@@ -470,7 +508,7 @@ export default function SettingsPage() {
               />
               <button
                 onClick={() => setLlmKeyVisible(!llmKeyVisible)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-secondary)] text-xs"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-(--text-muted) hover:text-(--text-secondary) text-xs"
               >
                 {llmKeyVisible ? 'Hide' : 'Show'}
               </button>
@@ -528,13 +566,13 @@ export default function SettingsPage() {
                 onChange={(e) => updateConfig({ silence_warning_seconds: Number(e.target.value) })}
                 className="w-20 text-center"
               />
-              <span className="text-sm text-[var(--text-muted)]">sec</span>
+              <span className="text-sm text-(--text-muted)">sec</span>
             </div>
           </SettingRow>
 
           <SettingRow label="Auto-Stop Timeout" description="Stop recording after this period of silence.">
             <Select
-              value={String(config.silence_auto_stop_seconds)}
+              value={String(config.silence_auto_stop_seconds ?? 60)}
               onValueChange={(v) => updateConfig({ silence_auto_stop_seconds: Number(v) })}
             >
               <SelectTrigger className="w-36">
@@ -561,7 +599,7 @@ export default function SettingsPage() {
                 onChange={(e) => updateConfig({ max_recording_seconds: Number(e.target.value) })}
                 className="w-20 text-center"
               />
-              <span className="text-sm text-[var(--text-muted)]">sec</span>
+              <span className="text-sm text-(--text-muted)">sec</span>
             </div>
           </SettingRow>
         </SettingsSection>
@@ -628,12 +666,12 @@ export default function SettingsPage() {
                 step={2}
                 value={config.text_size ?? 14}
                 onChange={(e) => updateConfig({ text_size: Number(e.target.value) })}
-                className="flex-1 h-1.5 rounded-full bg-[var(--border)] appearance-none cursor-pointer
+                className="flex-1 h-1.5 rounded-full bg-border appearance-none cursor-pointer
                   [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4
-                  [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[var(--accent)]
+                  [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent
                   [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer"
               />
-              <span className="text-xs text-[var(--text-muted)] min-w-[2ch] text-center">
+              <span className="text-xs text-text-muted min-w-[2ch] text-center">
                 {config.text_size ?? 14}
               </span>
             </div>
@@ -645,7 +683,7 @@ export default function SettingsPage() {
           title="Troubleshooting"
           description="Diagnostic tools and support."
         >
-          <div className="flex flex-wrap gap-3">
+          <div className="px-3.5 py-3.5 flex flex-wrap gap-3">
             <Button
               variant="outline"
               className="gap-2"
@@ -675,7 +713,7 @@ export default function SettingsPage() {
 
         {/* Status indicator */}
         {saving && (
-          <div className="fixed bottom-4 right-4 rounded-lg bg-[var(--surface)] border border-[var(--border)] px-4 py-2 text-sm text-[var(--text-muted)] shadow-lg">
+          <div className="fixed bottom-4 right-4 rounded-lg bg-(--surface) border border-border px-4 py-2 text-sm text-(--text-muted) shadow-lg">
             Saving...
           </div>
         )}
@@ -686,14 +724,14 @@ export default function SettingsPage() {
         <div className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div
             className={cn(
-              'animate-scale-in w-[400px] rounded-xl border border-[var(--border)]',
-              'bg-[var(--bg)] p-6 shadow-2xl',
+              'animate-scale-in w-100 rounded-xl border border-border',
+              'bg-(--bg) p-6 shadow-2xl',
             )}
           >
-            <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-3">
+            <h2 className="text-lg font-semibold text-(--text-primary) mb-3">
               Reset to Defaults
             </h2>
-            <p className="text-sm text-[var(--text-muted)] mb-6">
+            <p className="text-sm text-(--text-muted) mb-6">
               Are you sure you want to reset all settings to their default values?
               This cannot be undone.
             </p>

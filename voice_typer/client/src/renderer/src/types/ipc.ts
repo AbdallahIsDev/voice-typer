@@ -1,12 +1,10 @@
-// src/renderer/src/types/ipc.ts
-
 import type { VoiceTyperConfig, MicrophoneDevice } from './config'
 
 // ── Recording states ──────────────────────────────────────────────
 
 export type RecordingState = 'idle' | 'listening' | 'recording' | 'processing' | 'error'
 
-export type Page = 'home' | 'history' | 'templates' | 'vocabulary' | 'models' | 'microphone' | 'privacy' | 'settings'
+export type Page = 'home' | 'history' | 'templates' | 'vocabulary' | 'models' | 'microphone' | 'dashboard' | 'settings'
 
 // ── History data shapes (from Python history_db) ───────────────────
 
@@ -26,6 +24,8 @@ export interface HistoryRecord {
 export interface TodayStats {
   count: number
   chars: number
+  word_count: number
+  duration: number
 }
 
 // ── Push events from Python (no id field) ─────────────────────────
@@ -103,11 +103,44 @@ export interface RestartRequest {
 
 export interface GetHistoryRequest {
   type: 'get_history'
-  data?: { limit?: number }
+  data?: { limit?: number; offset?: number }
+}
+
+export interface DeleteHistoryRequest {
+  type: 'delete_history'
+  data: { id: number }
+}
+
+export interface ClearHistoryRequest {
+  type: 'clear_history'
+}
+
+export interface ToggleFavoriteRequest {
+  type: 'toggle_favorite'
+  data: { id: number }
+}
+
+export interface GetFavoritesRequest {
+  type: 'get_favorites'
+  data?: { limit?: number; offset?: number }
+}
+
+export interface SearchHistoryRequest {
+  type: 'search_history'
+  data: { query: string; limit?: number; offset?: number }
 }
 
 export interface GetTodayStatsRequest {
   type: 'get_today_stats'
+}
+
+export interface GetVocabularyRequest {
+  type: 'get_vocabulary'
+}
+
+export interface SaveVocabularyRequest {
+  type: 'save_vocabulary'
+  data: Record<string, unknown>
 }
 
 export type PythonRequest =
@@ -117,7 +150,14 @@ export type PythonRequest =
   | ToggleDictationRequest
   | RestartRequest
   | GetHistoryRequest
+  | DeleteHistoryRequest
+  | ClearHistoryRequest
+  | ToggleFavoriteRequest
+  | GetFavoritesRequest
+  | SearchHistoryRequest
   | GetTodayStatsRequest
+  | GetVocabularyRequest
+  | SaveVocabularyRequest
 
 // ── Response data shapes (the `data` field in Python responses) ───
 
@@ -129,6 +169,32 @@ export interface RestartResult {
   status: string
 }
 
+export interface ToggleFavoriteResult {
+  favorite: number
+}
+
+export interface SaveVocabularyResult {
+  imported_categories: number
+}
+
+// ── Vocabulary types (mirrors Python VocabularyManager) ────────────
+
+export interface VocabularyData {
+  misspellings?: Record<string, string>
+  technical_terms?: Record<string, string>
+  names?: Record<string, string>
+  products?: Record<string, string>
+  phrase_corrections?: Array<[string, string]>
+  extra_word_patterns?: Array<[string, string]>
+}
+
+export interface VocabularyEntry {
+  category: string
+  original: string
+  correction: string
+  index?: number
+}
+
 // ── Helper: map request type to its response data ─────────────────
 
 export type ResponseData<T extends PythonRequest['type']> =
@@ -137,7 +203,14 @@ export type ResponseData<T extends PythonRequest['type']> =
   T extends 'get_microphones' ? MicrophoneDevice[] :
   T extends 'toggle_dictation' ? ToggleDictationResult :
   T extends 'get_history' ? HistoryRecord[] :
+  T extends 'delete_history' ? void :
+  T extends 'clear_history' ? void :
+  T extends 'toggle_favorite' ? ToggleFavoriteResult :
+  T extends 'get_favorites' ? HistoryRecord[] :
+  T extends 'search_history' ? HistoryRecord[] :
   T extends 'get_today_stats' ? TodayStats :
+  T extends 'get_vocabulary' ? VocabularyData :
+  T extends 'save_vocabulary' ? SaveVocabularyResult :
   T extends 'restart' ? RestartResult :
   unknown
 
@@ -156,6 +229,8 @@ export interface WindowBridge {
   close: () => Promise<void>
   isMaximized: () => Promise<boolean>
   onMaximizedChanged: (callback: (maximized: boolean) => void) => () => void
+  move: (x: number, y: number) => Promise<void>
+  exportHistory: (data: Record<string, unknown>[], format: 'json' | 'csv') => Promise<{ success: boolean; path?: string; error?: string }>
 }
 
 declare global {

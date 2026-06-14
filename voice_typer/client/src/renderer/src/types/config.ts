@@ -1,5 +1,3 @@
-// src/renderer/src/types/config.ts
-
 export type ModelSize = 'tiny.en' | 'small.en' | 'medium.en' | 'qwen' | 'parakeet'
 
 export interface VoiceTyperConfig {
@@ -103,6 +101,9 @@ export interface VoiceTyperConfig {
 
   // Wayland
   wayland_warned: boolean
+
+  // Fast startup
+  fast_startup: boolean
 
   // Silence / max recording
   silence_warning_seconds: number

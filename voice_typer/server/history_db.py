@@ -176,24 +176,24 @@ class HistoryDB:
             log.error("[HISTORY] Failed to add transcription: %s", e)
             return -1
 
-    def get_recent(self, limit: int = 50) -> list[dict]:
-        """Get recent transcriptions."""
+    def get_recent(self, limit: int = 50, offset: int = 0) -> list[dict]:
+        """Get recent transcriptions with offset-based pagination."""
         try:
             conn = self._get_conn()
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT * FROM transcriptions
                 ORDER BY timestamp DESC
-                LIMIT ?
-            """, (limit,))
+                LIMIT ? OFFSET ?
+            """, (limit, offset))
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
         except Exception as e:
             log.error("[HISTORY] Failed to get recent transcriptions: %s", e)
             return []
 
-    def search(self, query: str, limit: int = 50) -> list[dict]:
-        """Search transcriptions by text."""
+    def search(self, query: str, limit: int = 50, offset: int = 0) -> list[dict]:
+        """Search transcriptions by text with offset-based pagination."""
         try:
             conn = self._get_conn()
             cursor = conn.cursor()
@@ -201,8 +201,8 @@ class HistoryDB:
                 SELECT * FROM transcriptions
                 WHERE text LIKE ?
                 ORDER BY timestamp DESC
-                LIMIT ?
-            """, (f"%{query}%", limit))
+                LIMIT ? OFFSET ?
+            """, (f"%{query}%", limit, offset))
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
         except Exception as e:
@@ -252,8 +252,8 @@ class HistoryDB:
             log.error("[HISTORY] Failed to toggle favorite: %s", e)
             return False
 
-    def get_favorites(self, limit: int = 50) -> list[dict]:
-        """Get favorited transcriptions."""
+    def get_favorites(self, limit: int = 50, offset: int = 0) -> list[dict]:
+        """Get favorited transcriptions with offset-based pagination."""
         try:
             conn = self._get_conn()
             cursor = conn.cursor()
@@ -261,8 +261,8 @@ class HistoryDB:
                 SELECT * FROM transcriptions
                 WHERE favorite = 1
                 ORDER BY timestamp DESC
-                LIMIT ?
-            """, (limit,))
+                LIMIT ? OFFSET ?
+            """, (limit, offset))
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
         except Exception as e:
@@ -345,7 +345,9 @@ class HistoryDB:
             cursor.execute("""
                 SELECT
                     COUNT(*) as count,
-                    SUM(char_count) as chars
+                    SUM(char_count) as chars,
+                    SUM(word_count) as word_count,
+                    SUM(duration) as duration
                 FROM transcriptions
                 WHERE DATE(timestamp) = DATE('now')
             """)
@@ -353,7 +355,9 @@ class HistoryDB:
             return {
                 "count": row[0] or 0,
                 "chars": row[1] or 0,
+                "word_count": row[2] or 0,
+                "duration": row[3] or 0,
             }
         except Exception as e:
             log.error("[HISTORY] Failed to get today stats: %s", e)
-            return {"count": 0, "chars": 0}
+            return {"count": 0, "chars": 0, "word_count": 0, "duration": 0}

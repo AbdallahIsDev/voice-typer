@@ -10,12 +10,14 @@ export function SettingsSection({ title, description, children }: SettingsSectio
   return (
     <section className="space-y-4">
       <div className="space-y-1">
-        <h2 className="font-sans text-lg font-semibold text-[var(--text-primary)]">{title}</h2>
+        <h2 className="font-sans text-lg font-semibold text-(--text-primary)">{title}</h2>
         {description && (
-          <p className="text-sm text-[var(--text-muted)]">{description}</p>
+          <p className="text-sm text-(--text-muted)">{description}</p>
         )}
       </div>
-      <div className="space-y-3">{children}</div>
+      <div className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
+        {children}
+      </div>
     </section>
   )
 }

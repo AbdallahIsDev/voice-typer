@@ -80,6 +80,9 @@ class Recorder:
         self.on_silence_auto_stop = None  # type: Optional[callable]
         self.on_max_duration_auto_stop = None  # type: Optional[callable]
 
+        # Waveform bubble: fired from audio callback on every chunk (wired by app.py)
+        self.on_rms_level = None  # type: Optional[callable]
+
     @property
     def recording(self) -> bool:
         return self._recording_event.is_set()
@@ -317,6 +320,11 @@ class Recorder:
 
                 self._recent_rms_values.append(chunk_rms)
 
+                # Waveform bubble: capture the listener + peak; call outside the lock
+                rms_callback = self.on_rms_level
+                cb_rms = chunk_rms
+                cb_peak = chunk_peak
+
                 # Voice detected by loudness → reset
                 if chunk_rms > 0.005 or chunk_peak > 0.01:
                     self._silence_timer = 0.0
@@ -397,6 +405,13 @@ class Recorder:
                         self._chunk_count,
                         len(self._buffer),
                     )
+
+            # Fire RMS callback OUTSIDE the lock so it cannot stall the audio path
+            if rms_callback is not None:
+                try:
+                    rms_callback(cb_rms, cb_peak)
+                except Exception:
+                    log.debug("[RECORDING] on_rms_level callback raised", exc_info=True)
 
         last_error = None
         selected_device = None

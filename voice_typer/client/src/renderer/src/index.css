@@ -64,7 +64,7 @@
     --muted-foreground: oklch(0.552 0.016 285.938);
     --accent: oklch(0.967 0.001 286.375);
     --accent-foreground: oklch(0.21 0.006 285.885);
-    --destructive: oklch(0.577 0.245 27.325);
+    --destructive: oklch(0.55 0.25 27);
     --border: oklch(0.92 0.004 286.32);
     --input: oklch(0.92 0.004 286.32);
     --ring: oklch(0.705 0.015 286.067);
@@ -85,7 +85,7 @@
 }
 
 .dark {
-    --background: oklch(0.141 0.005 285.823);
+    --background: oklch(18.674% 0 271.152);
     --foreground: oklch(0.985 0 0);
     --card: oklch(0.21 0.006 285.885);
     --card-foreground: oklch(0.985 0 0);
@@ -99,8 +99,8 @@
     --muted-foreground: oklch(0.705 0.015 286.067);
     --accent: oklch(0.274 0.006 286.033);
     --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
+    --destructive: oklch(0.55 0.25 27);
+    --border: oklab(0 0 0);
     --input: oklch(1 0 0 / 15%);
     --ring: oklch(0.552 0.016 285.938);
     --chart-1: oklch(0.809 0.105 251.813);
@@ -120,7 +120,7 @@
 
 :root {
     --bg: var(--background);
-    --bg-subtle: oklch(0.96 0 0);
+    --bg-subtle: oklch(0.970 0 0);
     --surface-page: var(--background);
     --surface-hover: oklch(0.93 0 0);
     --text-primary: var(--foreground);
@@ -134,7 +134,7 @@
 
 .dark {
     --bg: var(--background);
-    --bg-subtle: oklch(0.17 0 0);
+    --bg-subtle: oklch(0.168 0 0);
     --surface-page: var(--background);
     --surface-hover: oklch(0.22 0 0);
     --text-primary: var(--foreground);
@@ -150,8 +150,12 @@
   * {
     @apply border-border outline-ring/50;
     }
+  html, body {
+    background: transparent !important;
+    scrollbar-gutter: stable;
+    }
   body {
-    @apply bg-background text-foreground;
+    @apply text-foreground;
     }
   html {
     @apply font-sans;
@@ -159,6 +163,47 @@
   button[data-slot="button"] {
     border-radius: var(--radius-md);
   }
+  button:not(:disabled),
+  label,
+  select:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+/* ── Custom scrollbar ─────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb, oklch(0.85 0 0));
+  border-radius: 8px;
+  border: 4px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover, oklch(0.75 0 0));
+  border: 4px solid transparent;
+  background-clip: content-box;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb, oklch(0.35 0 0));
+  border: 4px solid transparent;
+  background-clip: content-box;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover, oklch(0.45 0 0));
+  border: 4px solid transparent;
+  background-clip: content-box;
 }
 
 /* Custom title bar drag regions (Electron). The strip itself is a drag
@@ -231,9 +276,18 @@
 
 /* Recording pulse ring (used behind the record button when active). */
 @keyframes pulseRing {
-  0%   { transform: scale(1);   opacity: 0.6; }
-  100% { transform: scale(1.8); opacity: 0;   }
+  0%   { transform: scale(1);   opacity: 0.5; }
+  100% { transform: scale(2.2); opacity: 0;   }
 }
 .animate-pulse-ring {
-  animation: pulseRing 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  animation: pulseRing 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Subtle glow pulse for the mic button idle state. */
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 18px rgba(255, 51, 51, 0.2); }
+  50%      { box-shadow: 0 0 32px rgba(255, 51, 51, 0.4);  }
+}
+.animate-glow-pulse {
+  animation: glowPulse 2.5s ease-in-out infinite;
 }

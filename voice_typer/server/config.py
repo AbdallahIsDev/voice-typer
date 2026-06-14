@@ -177,6 +177,12 @@ class Config:
     # Wayland hotkey fallback warning
     wayland_warned: bool = False
 
+    # Fast startup: keep torch + transformers + model weights in the OS
+    # file cache by running a low-priority prewarm on login/idle.  Cuts
+    # cold-boot startup from ~45s to a few seconds.  Disable on low-RAM
+    # machines where pinning ~6 GB of file cache is undesirable.
+    fast_startup: bool = True
+
     # Silent mic disconnection (H12)
     silence_warning_seconds: float = 20.0
     silence_auto_stop_seconds: float = 120.0
@@ -279,6 +285,7 @@ class Config:
             "audio_noise_warning",
             "templates_enabled", "vocabulary_enabled",
             "waveform_bubble", "onboarding_completed", "wayland_warned",
+            "fast_startup",
         }
         str_fields = {
             "hotkey", "language", "device", "asr_backend",

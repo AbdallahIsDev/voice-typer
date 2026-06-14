@@ -1,5 +1,3 @@
-// src/renderer/src/pages/Models.tsx
-
 import { useState, useEffect, useCallback } from 'react'
 import { usePython } from '@/hooks/usePython'
 import { HugeiconsIcon } from '@hugeicons/react'
@@ -15,8 +13,13 @@ import {
 } from '@hugeicons/core-free-icons'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import PageHeading from '@/components/PageHeading'
 import { cn } from '@/lib/utils'
 import type { VoiceTyperConfig } from '@/types/config'
+
+// Module-level cache — persists across page navigations so the models view
+// renders instantly on re-visit instead of showing a loading spinner.
+let _cachedConfig: VoiceTyperConfig | null = null
 
 interface ModelInfo {
   name: string
@@ -44,7 +47,7 @@ const INITIAL_MODELS: ModelInfo[] = [
 
 export default function ModelsPage() {
   const { call } = usePython()
-  const [config, setConfig] = useState<VoiceTyperConfig | null>(null)
+  const [config, setConfig] = useState<VoiceTyperConfig | null>(_cachedConfig)
   const [models, setModels] = useState<ModelInfo[]>(INITIAL_MODELS)
   const [loading, setLoading] = useState(true)
   const [downloadProgress, setDownloadProgress] = useState(0)
@@ -67,6 +70,7 @@ export default function ModelsPage() {
     setLoading(true)
     try {
       const cfg = await call<any>('get_config')
+      _cachedConfig = cfg
       setConfig(cfg)
 
       // Update models based on config
@@ -98,7 +102,7 @@ export default function ModelsPage() {
 
   const updateConfig = async (updates: Partial<VoiceTyperConfig>) => {
     try {
-      await call('set_config', { data: updates })
+      await call('set_config', updates)
     } catch (err) {
       console.error('Failed to update config:', err)
     }
@@ -135,7 +139,6 @@ export default function ModelsPage() {
     setIsDownloading(true)
     setDownloadProgress(0)
     setDownloadStatus(`Preparing ${model.name}...`)
-    reloadModels()
 
     // Simulate download progress
     for (let i = 0; i <= 100; i += 10) {
@@ -159,7 +162,6 @@ export default function ModelsPage() {
     )
     setIsDownloading(false)
     showSnack(`Model '${model.name}' downloaded!`, 'success')
-    reloadModels()
   }
 
   const deleteModelConfirm = (model: ModelInfo) => {
@@ -206,10 +208,7 @@ export default function ModelsPage() {
     setIsBenchmarking(false)
   }
 
-  const reloadModels = () => {
-    setLoading(true)
-    setTimeout(() => setLoading(false), 100)
-  }
+  const allDownloaded = models.every((m) => m.downloaded)
 
   const getStatusBadge = (model: ModelInfo) => {
     if (model.isActive) return { label: 'Active', bg: 'color-mix(in srgb, var(--primary) 12%, transparent)', color: 'var(--primary)' }
@@ -218,136 +217,120 @@ export default function ModelsPage() {
     return { label: 'Available', bg: 'color-mix(in srgb, var(--primary) 10%, transparent)', color: 'var(--primary)' }
   }
 
-  if (loading || !config) {
+  if (!_cachedConfig && !config) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--accent)] border-t-transparent" />
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
       </div>
     )
   }
 
   return (
-    <div className="animate-fade-in-up mx-auto flex h-full w-full max-w-2xl flex-col overflow-hidden">
-      <div className="space-y-1 px-6 pb-4 pt-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="font-sans text-2xl font-bold tracking-tight text-[var(--text-primary)]">
-              Models
-            </h1>
-            <p className="text-sm text-[var(--text-muted)] mt-0.5">
-              Configure your speech-to-text engines
-            </p>
-          </div>
-          <Button
-            variant="default"
-            className="gap-2"
-            onClick={() => downloadModel(models.find((m) => !m.downloaded) ?? models[0])}
-            disabled={isDownloading}
-          >
-            <HugeiconsIcon icon={Download01Icon} className="h-4 w-4" />
-            Download Model
-          </Button>
-        </div>
-      </div>
+    <div className="animate-fade-in-up mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 py-6">
+      <PageHeading
+        title="Models"
+        description="Configure your speech-to-text engines"
+      >
+        <Button
+          variant="default"
+          className="gap-2"
+          onClick={() => downloadModel(models.find((m) => !m.downloaded) ?? models[0])}
+          disabled={isDownloading || allDownloaded}
+          title={allDownloaded ? 'All models already downloaded' : 'Download a model'}
+        >
+          <HugeiconsIcon icon={Download01Icon} className="h-4 w-4" />
+          {allDownloaded ? 'All Downloaded' : 'Download Model'}
+        </Button>
+      </PageHeading>
 
-      <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-6">
+      <div className="space-y-6">
         {/* Download Progress */}
         {isDownloading && (
           <div className="space-y-2">
-            <div className="h-1.5 w-full rounded-full bg-[var(--border)] overflow-hidden">
+            <div className="h-1.5 w-full rounded-full bg-border overflow-hidden">
               <div
-                className="h-full rounded-full bg-[var(--accent)] transition-all duration-300"
+                className="h-full rounded-full bg-accent transition-all duration-300"
                 style={{ width: `${downloadProgress}%` }}
               />
             </div>
-            <p className="text-xs text-[var(--text-muted)]">{downloadStatus}</p>
+            <p className="text-xs text-(--text-muted)">{downloadStatus}</p>
           </div>
         )}
 
         {/* Model Cards */}
-        <div className="space-y-2">
+        <div className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
           {models.map((model) => {
             const badge = getStatusBadge(model)
             return (
-              <div
-                key={model.name}
-                className={cn(
-                  'card-hover rounded-xl border p-5 transition-colors',
-                  model.isActive
-                    ? 'border-[var(--accent)] bg-[var(--bg-subtle)]'
-                    : 'border-[var(--border)] bg-[var(--bg-subtle)]',
-                )}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-3">
-                      <h3 className="text-base font-semibold text-[var(--text-primary)]">
-                        {model.name}
-                      </h3>
-                      <span
-                        className="inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-semibold border"
-                        style={{
-                          backgroundColor: badge.bg,
-                          color: badge.color,
-                          borderColor: badge.color + '40',
-                        }}
-                      >
-                        {badge.label}
-                      </span>
-                    </div>
-                    <p className="text-xs text-[var(--text-muted)] mt-1">
-                      {model.name === 'parakeet' ? 'NVIDIA Parakeet TDT v3  ·  ' : ''}Size: {model.size}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0 ml-4">
-                    {model.name === 'parakeet' && !model.depsOk ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="gap-1.5"
-                        onClick={() => downloadModel(model)}
-                        disabled={isDownloading}
-                      >
-                        <HugeiconsIcon icon={Download01Icon} className="h-3.5 w-3.5" />
-                        Install Deps
-                      </Button>
-                    ) : (
-                      <Button
-                        variant={model.isActive ? 'secondary' : 'outline'}
-                        size="sm"
-                        className="gap-1.5"
-                        onClick={() => useModel(model)}
-                        disabled={model.isActive || (!model.downloaded && model.name !== 'qwen')}
-                      >
-                        <HugeiconsIcon
-                          icon={model.isActive ? Tick02Icon : PlayIcon}
-                          className="h-3.5 w-3.5"
-                        />
-                        {model.isActive ? 'Active' : 'Use'}
-                      </Button>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => deleteModelConfirm(model)}
-                      disabled={model.isActive}
-                      className="text-[var(--text-muted)] hover:text-destructive"
+              <div key={model.name} className="flex items-center gap-3 px-3.5 py-2.5">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-semibold text-(--text-primary) truncate">
+                      {model.name}
+                    </h3>
+                    <span
+                      className="shrink-0 inline-flex items-center rounded-md px-2 py-0.5 text-[9px] font-semibold border"
+                      style={{
+                        backgroundColor: badge.bg,
+                        color: badge.color,
+                        borderColor: badge.color + '40',
+                      }}
                     >
+                      {badge.label}
+                    </span>
+                  </div>
+                  <p className="text-xs text-(--text-muted) mt-0.5">
+                    {model.name === 'parakeet' ? 'NVIDIA Parakeet TDT v3  ·  ' : ''}Size: {model.size}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {model.name === 'parakeet' && !model.depsOk ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1"
+                      onClick={() => downloadModel(model)}
+                      disabled={isDownloading}
+                    >
+                      <HugeiconsIcon icon={Download01Icon} className="h-3 w-3" />
+                      Install Deps
+                    </Button>
+                  ) : (
+                    <Button
+                      variant={model.isActive ? 'secondary' : 'outline'}
+                      size="sm"
+                      className="gap-1"
+                      onClick={() => useModel(model)}
+                      disabled={model.isActive || (!model.downloaded && model.name !== 'qwen')}
+                    >
+                      <HugeiconsIcon
+                        icon={model.isActive ? Tick02Icon : PlayIcon}
+                        className="h-3 w-3"
+                      />
+                      {model.isActive ? 'Active' : 'Use'}
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={() => deleteModelConfirm(model)}
+                    disabled={model.isActive}
+                    className="text-(--text-muted) hover:text-destructive"
+                  >
                       <HugeiconsIcon icon={Delete01Icon} className="h-3.5 w-3.5" />
                     </Button>
                   </div>
                 </div>
-              </div>
             )
           })}
         </div>
 
         {/* Cloud ASR Providers */}
         <div className="space-y-4">
-          <h2 className="font-sans text-lg font-semibold text-[var(--text-primary)]">
+          <h2 className="font-sans text-lg font-semibold text-(--text-primary)">
             Cloud ASR Providers
           </h2>
-          <p className="text-sm text-[var(--text-muted)] -mt-3">
+          <p className="text-sm text-(--text-muted) -mt-3">
             Configure cloud-based transcription services
           </p>
 
@@ -355,20 +338,20 @@ export default function ModelsPage() {
             {CLOUD_PROVIDERS.map((provider) => (
               <div
                 key={provider.key}
-                className="rounded-xl border border-[var(--border)] bg-[var(--bg-subtle)] p-6"
+                className="rounded-xl border border-border bg-(--bg-subtle) p-6"
               >
                 <div className="flex items-center gap-2.5 mb-4">
                   <HugeiconsIcon
                     icon={Shield01Icon}
-                    className="h-5 w-5 text-[var(--accent)]"
+                    className="h-5 w-5 text-accent"
                   />
-                  <h3 className="text-base font-semibold text-[var(--text-primary)]">
+                  <h3 className="text-base font-semibold text-(--text-primary)">
                     {provider.label} Settings
                   </h3>
                 </div>
 
                 <div className="mb-4">
-                  <label className="text-sm font-medium text-[var(--text-primary)] mb-1.5 block">
+                  <label className="text-sm font-medium text-(--text-primary) mb-1.5 block">
                     API Key
                   </label>
                   <Input
@@ -407,7 +390,7 @@ export default function ModelsPage() {
                           ? 'text-primary'
                           : testResults[provider.key].includes('Failed') || testResults[provider.key].includes('error')
                             ? 'text-destructive'
-                            : 'text-[var(--text-muted)]',
+                            : 'text-[(--text-muted)]',
                       )}
                     >
                       {testResults[provider.key]}
@@ -420,11 +403,11 @@ export default function ModelsPage() {
         </div>
 
         {/* Model Benchmark */}
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-subtle)] p-6">
-          <h2 className="font-sans text-lg font-semibold text-[var(--text-primary)]">
+        <div className="rounded-xl border border-border bg-(--bg-subtle) p-6">
+          <h2 className="font-sans text-lg font-semibold text-(--text-primary)">
             Model Benchmark
           </h2>
-          <p className="text-sm text-[var(--text-muted)] mt-0.5 mb-4">
+          <p className="text-sm text-(--text-muted) mt-0.5 mb-4">
             Compare model performance on your system
           </p>
           <Button
@@ -437,7 +420,7 @@ export default function ModelsPage() {
             {isBenchmarking ? 'Running...' : 'Run Benchmark'}
           </Button>
           {benchmarkResult && (
-            <p className="text-sm text-[var(--text-muted)] mt-3">{benchmarkResult}</p>
+            <p className="text-sm text-(--text-muted) mt-3">{benchmarkResult}</p>
           )}
         </div>
       </div>

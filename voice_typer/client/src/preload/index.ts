@@ -9,6 +9,18 @@ contextBridge.exposeInMainWorld("python", {
   },
 });
 
+contextBridge.exposeInMainWorld("bubble", {
+  onLevel: (callback: (data: { rms: number; peak: number }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: unknown) =>
+      callback(data as { rms: number; peak: number });
+    ipcRenderer.on("bubble:level", handler);
+    return () => { ipcRenderer.removeListener("bubble:level", handler); };
+  },
+  signalReady: () => {
+    ipcRenderer.send("bubble:ready");
+  },
+});
+
 contextBridge.exposeInMainWorld("window_", {
   minimize: () => ipcRenderer.invoke("window:minimize"),
   toggleMaximize: () => ipcRenderer.invoke("window:toggle-maximize") as Promise<boolean>,
@@ -19,4 +31,7 @@ contextBridge.exposeInMainWorld("window_", {
     ipcRenderer.on("window:maximized-changed", handler);
     return () => { ipcRenderer.removeListener("window:maximized-changed", handler); };
   },
+  move: (x: number, y: number) => ipcRenderer.invoke("window:move", { x, y }),
+  exportHistory: (data: Record<string, unknown>[], format: 'json' | 'csv') =>
+    ipcRenderer.invoke("history:export", { data, format }) as Promise<{ success: boolean; path?: string; error?: string }>,
 });

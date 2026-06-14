@@ -1,76 +1,125 @@
-"""Waveform visualization bubble — scaffolding module.
+"""Waveform visualization bubble — Electron-side overlay controller.
 
-A small floating overlay that appears during recording showing a
-waveform visualizer responding to voice input. Currently scaffolding;
-full implementation requires platform-specific overlay APIs.
+The bubble itself is a small, frameless, always-on-top ``BrowserWindow``
+that the Electron main process creates on demand.  This module owns the
+state and the listener wiring on the Python side:
 
-Planned behavior:
-- Appears when user presses hotkey to start recording
-- Waveform moves/changes when user is speaking
-- Flat line when silent
-- Disappears when recording stops
-- Always on top, draggable, semi-transparent
+- ``show()`` / ``hide()`` notify listeners that the bubble should
+  appear/disappear in the user's primary display.
+- ``update_level(rms, peak)`` is fired from the audio callback on every
+  chunk (called by ``recorder.on_rms_level``) so the bubble can render a
+  live waveform that responds to the user's voice.
+
+The listeners (registered by ``app.py``) forward these events through
+the IPC server so Electron can drive the renderer.
 """
 
 import logging
-from typing import Optional
+import threading
+from typing import Callable, Optional
 
 log = logging.getLogger(__name__)
 
 
 class WaveformBubble:
-    """Scaffolding for the waveform visualization overlay.
+    """State + listener registry for the waveform bubble overlay.
 
-    The full implementation requires:
-    - Windows: transparent borderless window with SetWindowPos(TOPMOST)
-    - macOS: NSPanel with NSFloatingWindowLevel
-    - Linux: GTK overlay window
+    The actual UI is rendered by the Electron renderer process.  This
+    class is a thin coordinator that:
 
-    This scaffolding provides the API surface and state management
-    without requiring any GUI toolkit at import time.
+    - tracks whether the bubble should currently be visible
+    - tracks the latest RMS/peak level
+    - emits show/hide/level notifications to subscribed listeners
+    - is thread-safe (callbacks may fire from the audio callback thread)
     """
 
-    def __init__(self):
-        self._visible = False
-        self._rms_level = 0.0
-        self._is_speaking = False
+    def __init__(self) -> None:
+        self._visible: bool = False
+        self._rms_level: float = 0.0
+        self._peak_level: float = 0.0
+        self._is_speaking: bool = False
+        self._lock = threading.Lock()
+
+        # Listener slots, set by app.py after IPC server is up.
+        # Each is ``Optional[Callable[[dict], None]]`` and runs on the
+        # calling thread; they should be cheap and non-blocking.
+        self.on_show: Optional[Callable[[], None]] = None
+        self.on_hide: Optional[Callable[[], None]] = None
+        self.on_level: Optional[Callable[[float, float], None]] = None
+
+    # ── Visibility ───────────────────────────────────────────────────
 
     @property
     def visible(self) -> bool:
-        """Whether the bubble is currently shown."""
         return self._visible
 
     def show(self) -> None:
-        """Show the waveform bubble overlay."""
-        if self._visible:
-            return
-        self._visible = True
+        with self._lock:
+            if self._visible:
+                return
+            self._visible = True
+            cb = self.on_show
         log.info("[WAVEFORM] Bubble shown")
-        # TODO: Create platform-specific overlay window
+        if cb is not None:
+            try:
+                cb()
+            except Exception:
+                log.debug("[WAVEFORM] on_show callback raised", exc_info=True)
 
     def hide(self) -> None:
-        """Hide the waveform bubble overlay."""
-        if not self._visible:
-            return
-        self._visible = False
+        with self._lock:
+            if not self._visible:
+                return
+            self._visible = False
+            self._rms_level = 0.0
+            self._peak_level = 0.0
+            self._is_speaking = False
+            cb = self.on_hide
         log.info("[WAVEFORM] Bubble hidden")
-        # TODO: Destroy platform-specific overlay window
+        if cb is not None:
+            try:
+                cb()
+            except Exception:
+                log.debug("[WAVEFORM] on_hide callback raised", exc_info=True)
 
-    def update_level(self, rms: float) -> None:
-        """Update the waveform display with the current RMS level.
+    # ── Live level updates (called from the audio callback thread) ──
 
-        Called from the audio callback or a consumer thread.
+    def update_level(self, rms: float, peak: float = 0.0) -> None:
+        """Push a new RMS/peak sample to subscribers.
+
+        The ``rms`` value is typically in ``[0, ~0.3]`` for speech and
+        ``0.0`` for silence.  ``peak`` is the per-chunk absolute max in
+        ``[0, 1.0]`` and is used by the renderer to spike the waveform
+        on transients.
         """
-        self._rms_level = rms
-        self._is_speaking = rms > 0.01
-        # TODO: Update the waveform visualization in the overlay
+        with self._lock:
+            # Cheap low-pass smoothing so the bubble doesn't jitter
+            # chunk-to-chunk; the visualizer still reacts quickly to
+            # voice onset because we lerp toward the new value.
+            self._rms_level = (self._rms_level * 0.55) + (rms * 0.45)
+            self._peak_level = max(self._peak_level * 0.7, peak)
+            self._is_speaking = self._rms_level > 0.01
+            cb = self.on_level
+            rms_out = self._rms_level
+            peak_out = self._peak_level
+        if cb is not None:
+            try:
+                cb(rms_out, peak_out)
+            except Exception:
+                # Drop frame, audio path must not stall
+                pass
 
     @property
     def is_speaking(self) -> bool:
-        """Whether speech is currently detected."""
-        return self._is_speaking
+        with self._lock:
+            return self._is_speaking
 
     @property
     def rms_level(self) -> float:
-        """Current RMS level."""
-        return self._rms_level
+        with self._lock:
+            return self._rms_level
+
+    @property
+    def peak_level(self) -> float:
+        with self._lock:
+            return self._peak_level

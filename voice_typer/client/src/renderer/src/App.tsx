@@ -1,24 +1,62 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { usePython, usePythonEvent } from '@/hooks/usePython'
 import { Sidebar } from '@/components/Sidebar'
 import { StatusBar } from '@/components/StatusBar'
 import { TitleBar } from '@/components/TitleBar'
+import { Toaster } from '@/components/ui/sonner'
 import Home from '@/pages/Home'
 import HistoryPage from '@/pages/History'
 import TemplatesPage from '@/pages/Templates'
 import VocabularyPage from '@/pages/Vocabulary'
 import ModelsPage from '@/pages/Models'
 import MicrophonePage from '@/pages/Microphone'
-import PrivacyPage from '@/pages/Privacy'
+import DashboardPage from '@/pages/Dashboard'
 import SettingsPage from '@/pages/Settings'
 import { cn } from '@/lib/utils'
-import type { RecordingState, Page } from '@/types/ipc'
+import type { RecordingState, Page, WindowBridge } from '@/types/ipc'
 import type { VoiceTyperConfig } from '@/types/config'
 
 export default function App() {
   // ── Routing ───────────────────────────────────────────────────
 
   const [currentPage, setCurrentPage] = useState<Page>('home')
+  const navHistory = useRef<Page[]>(['home'])
+  const navIndex = useRef(0)
+
+  const navigate = useCallback((page: Page) => {
+    navHistory.current = [...navHistory.current.slice(0, navIndex.current + 1), page]
+    navIndex.current++
+    setCurrentPage(page)
+  }, [])
+
+  const goBack = useCallback(() => {
+    if (navIndex.current > 0) {
+      navIndex.current--
+      setCurrentPage(navHistory.current[navIndex.current])
+    }
+  }, [])
+
+  const goForward = useCallback(() => {
+    if (navIndex.current < navHistory.current.length - 1) {
+      navIndex.current++
+      setCurrentPage(navHistory.current[navIndex.current])
+    }
+  }, [])
+
+  // Mouse forward/back buttons (X1/X2) navigate like a browser
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (e.button === 3) {
+        e.preventDefault()
+        goBack()
+      } else if (e.button === 4) {
+        e.preventDefault()
+        goForward()
+      }
+    }
+    document.addEventListener('mouseup', handler)
+    return () => document.removeEventListener('mouseup', handler)
+  }, [goBack, goForward])
 
   // ── Global state (pushed down from app level) ─────────────────
 
@@ -28,6 +66,7 @@ export default function App() {
   >('connecting')
   const [lastError, setLastError] = useState<string | null>(null)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [isMaximized, setIsMaximized] = useState(false)
 
   const { call, isReady } = usePython()
   const [themeMode, setThemeMode] = useState<VoiceTyperConfig['theme_mode']>('system')
@@ -74,13 +113,25 @@ export default function App() {
     loadTheme()
   }, [isReady, call])
 
+  // ── Window maximize state (for removing border-radius when maximized) ──
+
+  const bridge = typeof window !== 'undefined' ? window.window_ as WindowBridge : undefined
+
+  useEffect(() => {
+    if (!bridge) return
+    let cancelled = false
+    bridge.isMaximized().then((v) => { if (!cancelled) setIsMaximized(v) }).catch(() => {})
+    const unsub = bridge.onMaximizedChanged((v) => { if (!cancelled) setIsMaximized(v) })
+    return () => { cancelled = true; unsub() }
+  }, [bridge])
+
   // ── Connection lifecycle ──────────────────────────────────────
 
   useEffect(() => {
     if (!isReady) return
 
     let retries = 0
-    const maxRetries = 10
+    const maxRetries = 5
     let timer: ReturnType<typeof setTimeout>
     let cancelled = false
 
@@ -92,7 +143,7 @@ export default function App() {
       } catch {
         retries++
         if (!cancelled && retries < maxRetries) {
-          timer = setTimeout(checkConnection, 1000)
+          timer = setTimeout(checkConnection, 2000)
         } else if (!cancelled) {
           setConnectionStatus('disconnected')
         }
@@ -119,7 +170,7 @@ export default function App() {
       } catch {
         if (!cancelled) setConnectionStatus('disconnected')
       }
-    }, 30_000)
+    }, 60_000)
 
     return () => {
       cancelled = true
@@ -148,7 +199,7 @@ export default function App() {
   const handleThemeChange = useCallback(async (mode: VoiceTyperConfig['theme_mode']): Promise<void> => {
     setThemeMode(mode)
     try {
-      await call('set_config', { data: { theme_mode: mode } })
+      await call('set_config', { theme_mode: mode })
     } catch {
       // Theme is local-only if backend unavailable
     }
@@ -171,7 +222,7 @@ export default function App() {
   const renderPage = () => {
     switch (currentPage) {
       case 'home':
-        return <Home recordingState={recordingState} lastError={lastError} />
+        return <Home recordingState={recordingState} lastError={lastError} onNavigate={navigate} />
       case 'history':
         return <HistoryPage />
       case 'templates':
@@ -182,8 +233,8 @@ export default function App() {
         return <ModelsPage />
       case 'microphone':
         return <MicrophonePage />
-      case 'privacy':
-        return <PrivacyPage />
+      case 'dashboard':
+        return <DashboardPage onNavigate={navigate} />
       case 'settings':
         return <SettingsPage />
     }
@@ -192,24 +243,24 @@ export default function App() {
   // ── Render ────────────────────────────────────────────────────
 
   return (
-    <div className="flex h-screen flex-col bg-[var(--bg)] font-sans text-[var(--text-primary)]">
+    <div className={cn('flex h-screen flex-col bg-(--bg-subtle) font-sans text-(--text-primary) overflow-hidden', !isMaximized && 'rounded-lg border border-border')}>
       <TitleBar onToggleSidebar={() => setSidebarCollapsed((c) => !c)} />
 
       <div className="flex min-h-0 flex-1">
         <Sidebar
           currentPage={currentPage}
-          onNavigate={setCurrentPage}
+          onNavigate={navigate}
           themeMode={themeMode}
           onThemeChange={handleThemeChange}
           collapsed={sidebarCollapsed}
         />
 
-        <div className="flex min-w-0 flex-1 flex-col">
-          <main className="flex-1 overflow-hidden">
+          <div className="flex min-w-0 flex-1 flex-col">
+          <main className="flex-1 overflow-y-auto rounded-l-xl border-border border border-r-0 border-b-0 bg-(--bg)" style={{ scrollbarGutter: 'stable' }}>
             {connectionStatus === 'connecting' ? (
               <div className="flex h-full flex-col items-center justify-center gap-3">
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--accent)] border-t-transparent" />
-                <p className="text-sm text-[var(--text-muted)]">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+                <p className="text-sm text-(--text-muted)">
                   Starting Python backend...
                 </p>
               </div>
@@ -221,9 +272,9 @@ export default function App() {
                 <button
                   onClick={handleRetryConnection}
                   className={cn(
-                    'rounded-lg bg-[var(--surface)] px-4 py-2 text-sm',
-                    'text-[var(--text-secondary)] transition-colors',
-                    'hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]',
+                    'rounded-lg bg-(--surface) px-4 py-2 text-sm',
+                    'text-(--text-secondary) transition-colors',
+                    'hover:bg-(--surface-hover) hover:text-text-primary',
                   )}
                 >
                   Retry Connection
@@ -234,12 +285,13 @@ export default function App() {
             )}
           </main>
 
-          <StatusBar
+          {/* <StatusBar
             connectionStatus={connectionStatus}
             recordingState={recordingState}
-          />
+          /> */}
         </div>
       </div>
+      <Toaster />
     </div>
   )
 }

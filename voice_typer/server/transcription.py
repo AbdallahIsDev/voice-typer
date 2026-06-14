@@ -223,7 +223,7 @@ class TranscriptionEngine:
         for device, compute_type, model_size in chain:
             try:
                 log.info(
-                    "Loading Whisper model '%s' on %s (%s)...",
+                    "[MODEL] Loading Whisper model '%s' on %s (%s)...",
                     model_size, device, compute_type,
                 )
                 if progress_callback:

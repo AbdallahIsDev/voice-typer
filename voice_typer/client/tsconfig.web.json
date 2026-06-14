@@ -13,8 +13,8 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "baseUrl": ".",
-    "ignoreDeprecations": "6.0",
     "allowImportingTsExtensions": true,
+    "emitDeclarationOnly": true,
     "paths": {
       "@/*": ["./src/renderer/src/*"],
       "#components": ["./src/renderer/src/components/index.ts"],

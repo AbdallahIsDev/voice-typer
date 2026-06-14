@@ -1,5 +1,3 @@
-// src/renderer/src/pages/Templates.tsx
-
 import { useState, useEffect, useCallback } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import {
@@ -17,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import PageHeading from '@/components/PageHeading'
 import { cn } from '@/lib/utils'
 
 // Templates are stored client-side in localStorage because the Python Config
@@ -148,38 +147,29 @@ export default function TemplatesPage() {
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--accent)] border-t-transparent" />
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
       </div>
     )
   }
 
   return (
-    <div className="animate-fade-in-up mx-auto flex h-full w-full max-w-2xl flex-col overflow-hidden">
-      <div className="space-y-1 px-6 pb-4 pt-6">
-        <div className="flex items-center justify-between">
-          <h1 className="font-sans text-2xl font-bold tracking-tight text-[var(--text-primary)]">
-            Templates
-          </h1>
-          <Button
-            variant="default"
-            className="gap-2"
-            onClick={openAddDialog}
-          >
-            <HugeiconsIcon icon={Add01Icon} className="h-4 w-4" />
-            Add Template
-          </Button>
-        </div>
-        <p className="text-sm text-[var(--text-muted)]">
-          Create voice shortcuts that expand into full text
-        </p>
-      </div>
+    <div className="animate-fade-in-up mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 py-6">
+      <PageHeading
+        title="Templates"
+        description="Create voice shortcuts that expand into full text"
+      >
+        <Button variant="default" className="gap-2" onClick={openAddDialog}>
+          <HugeiconsIcon icon={Add01Icon} className="h-4 w-4" />
+          Add Template
+        </Button>
+      </PageHeading>
 
-      <div className="flex-1 overflow-y-auto px-4 pb-4">
+      <div>
         {templates.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-4 py-20">
-            <HugeiconsIcon icon={File02Icon} className="h-12 w-12 text-[var(--text-muted)] opacity-30" />
-            <p className="text-base font-medium text-[var(--text-muted)]">No templates yet</p>
-            <p className="text-sm text-[var(--text-muted)] opacity-70">
+            <HugeiconsIcon icon={File02Icon} className="h-12 w-12 text-(--text-muted) opacity-30" />
+            <p className="text-base font-medium text-(--text-muted)">No templates yet</p>
+            <p className="text-sm text-(--text-muted) opacity-70">
               Say a phrase to trigger a text expansion
             </p>
             <Button variant="default" className="mt-2 gap-2" onClick={openAddDialog}>
@@ -188,45 +178,39 @@ export default function TemplatesPage() {
             </Button>
           </div>
         ) : (
-          <div className="space-y-0">
+          <div className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
             {templates.map((t) => (
               <div
                 key={t.index}
-                className={cn(
-                  'flex items-center justify-between px-5 py-3.5',
-                  'border-b border-[var(--border)] transition-colors hover:bg-[var(--surface-hover)]',
-                )}
+                className="flex items-center gap-3 px-3.5 py-2.5"
               >
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-[var(--text-primary)]">
+                  <p className="text-sm font-semibold text-(--text-primary)">
                     {t.trigger}
                   </p>
-                  <div className="mt-1 flex items-center gap-3">
-                    <p className="max-w-[300px] truncate text-sm text-[var(--text-muted)]">
+                  <div className="mt-0.5 flex items-center gap-3">
+                    <p className="max-w-75 truncate text-xs text-(--text-muted)">
                       {t.expansion}
                     </p>
-                    <span className="text-xs text-[var(--text-muted)]">
-                      Variables: {t.variables}
-                    </span>
-                    <span className="text-xs text-[var(--text-muted)]">
-                      Mode: {t.match_mode}
+                    <span className="text-[10px] text-(--text-muted) opacity-60">
+                      {t.variables}v &middot; {t.match_mode}
                     </span>
                   </div>
                 </div>
-                <div className="ml-3 flex shrink-0 items-center gap-1">
+                <div className="flex shrink-0 items-center gap-0.5">
                   <button
                     onClick={() => openEditDialog(t)}
-                    className="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-secondary)]"
+                    className="rounded p-1 text-(--text-muted) hover:text-(--text-secondary) transition-colors cursor-pointer bg-transparent border-none"
                     title="Edit template"
                   >
-                    <HugeiconsIcon icon={Edit01Icon} className="h-4 w-4" />
+                    <HugeiconsIcon icon={Edit01Icon} className="h-3.5 w-3.5" />
                   </button>
                   <button
                     onClick={() => deleteTemplate(t)}
-                    className="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-destructive"
+                    className="rounded p-1 text-(--text-muted) hover:text-destructive transition-colors cursor-pointer bg-transparent border-none"
                     title="Delete template"
                   >
-                    <HugeiconsIcon icon={Delete01Icon} className="h-4 w-4" />
+                    <HugeiconsIcon icon={Delete01Icon} className="h-3.5 w-3.5" />
                   </button>
                 </div>
               </div>
@@ -240,17 +224,17 @@ export default function TemplatesPage() {
         <div className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div
             className={cn(
-              'animate-scale-in w-[420px] rounded-xl border border-[var(--border)]',
-              'bg-[var(--bg)] p-6 shadow-2xl',
+              'animate-scale-in w-105 rounded-xl border border-border',
+              'bg-(--bg) p-6 shadow-2xl',
             )}
           >
-            <h2 className="mb-5 text-lg font-semibold text-[var(--text-primary)]">
+            <h2 className="mb-5 text-lg font-semibold text-(--text-primary)">
               {editingTemplate ? 'Edit Template' : 'Add Template'}
             </h2>
 
             <div className="space-y-4">
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-[var(--text-primary)]">
+                <label className="mb-1.5 block text-sm font-medium text-(--text-primary)">
                   Trigger phrase
                 </label>
                 <Input
@@ -262,7 +246,7 @@ export default function TemplatesPage() {
               </div>
 
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-[var(--text-primary)]">
+                <label className="mb-1.5 block text-sm font-medium text-(--text-primary)">
                   Output text
                 </label>
                 <textarea
@@ -271,16 +255,16 @@ export default function TemplatesPage() {
                   placeholder="e.g., john.doe@example.com"
                   rows={3}
                   className={cn(
-                    'w-full resize-y rounded-lg border border-[var(--border)]',
-                    'bg-transparent px-3 py-2 text-sm text-[var(--text-primary)]',
-                    'placeholder:text-[var(--text-muted)]',
-                    'focus:border-[var(--accent)] focus:outline-none',
+                    'w-full resize-y rounded-lg border border-border',
+                    'bg-transparent px-3 py-2 text-sm text-(--text-primary)',
+                    'placeholder:text-(--text-muted)',
+                    'focus:border-accent focus:outline-none',
                   )}
                 />
               </div>
 
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-[var(--text-primary)]">
+                <label className="mb-1.5 block text-sm font-medium text-(--text-primary)">
                   Match mode
                 </label>
                 <Select value={matchMode} onValueChange={(v) => setMatchMode(v as 'exact' | 'contains')}>

@@ -22,9 +22,9 @@ export function StatusBar({ connectionStatus, recordingState }: StatusBarProps) 
     <footer
       className={cn(
         'flex h-8 shrink-0 items-center justify-between px-4',
-        'border-t border-[var(--border)] bg-[var(--bg-subtle)]',
+        // 'border-t border-border',
         'transition-colors duration-300',
-        isRecording && 'border-t-[var(--accent)]',
+        isRecording && 'border-t-accent',
       )}
     >
       {/* Connection */}
@@ -37,7 +37,7 @@ export function StatusBar({ connectionStatus, recordingState }: StatusBarProps) 
             connectionStatus === 'connecting' && 'bg-primary animate-pulse',
           )}
         />
-        <span className="text-[11px] text-[var(--text-muted)]">
+        <span className="text-[11px] text-(--text-muted)">
           {connectionStatus === 'connected' && 'Python connected'}
           {connectionStatus === 'disconnected' && 'Python disconnected'}
           {connectionStatus === 'connecting' && 'Connecting to Python...'}
@@ -47,13 +47,13 @@ export function StatusBar({ connectionStatus, recordingState }: StatusBarProps) 
       {/* Recording state */}
       <div className="flex items-center gap-2">
         {isRecording && (
-          <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--accent)] animate-pulse" />
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
         )}
         <span
           className={cn(
             'text-[11px]',
-            isConnected ? 'text-[var(--text-muted)]' : 'text-[var(--text-muted)] opacity-50',
-            isRecording && 'text-[var(--accent)]',
+            isConnected ? 'text-(--text-muted)' : 'text-(--text-muted) opacity-50',
+            isRecording && 'text-accent',
             recordingState === 'error' && 'text-destructive',
           )}
         >

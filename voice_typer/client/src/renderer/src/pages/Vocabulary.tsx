@@ -1,6 +1,5 @@
-// src/renderer/src/pages/Vocabulary.tsx
-
 import { useState, useEffect, useCallback } from 'react'
+import { usePython } from '@/hooks/usePython'
 import { HugeiconsIcon } from '@hugeicons/react'
 import {
   BookOpen02Icon,
@@ -8,21 +7,14 @@ import {
   Edit01Icon,
   Delete01Icon,
 } from '@hugeicons/core-free-icons'
+import { Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import PageHeading from '@/components/PageHeading'
 import { cn } from '@/lib/utils'
+import type { VocabularyData, VocabularyEntry } from '@/types/ipc'
 
-// Vocabulary is stored client-side in localStorage because the Python Config
-// dataclass has no `vocabulary_data` field and the IPC server drops writes
-// for unknown keys. See docs/agents/gap-fix-prompt.md and the user's brief.
-const STORAGE_KEY = 'vocabulary_data'
+// ── Backend categories (kept internally for save-back, hidden from UI) ──
 
 const CATEGORIES = [
   'misspellings',
@@ -33,64 +25,12 @@ const CATEGORIES = [
   'products',
 ] as const
 
-const CATEGORY_LABELS: Record<string, string> = {
-  misspellings: 'Misspellings',
-  phrase_corrections: 'Phrase Corrections',
-  extra_word_patterns: 'Extra Word Patterns',
-  technical_terms: 'Technical Terms',
-  names: 'Names',
-  products: 'Products',
-}
-
-const CATEGORY_DESCRIPTIONS: Record<string, string> = {
-  misspellings: 'Common word misspellings → corrections',
-  phrase_corrections: 'Phrase-level corrections',
-  extra_word_patterns: 'Patterns to remove or replace',
-  technical_terms: 'Technical jargon corrections',
-  names: 'Proper name corrections',
-  products: 'Product name corrections',
-}
-
-interface VocabularyData {
-  misspellings?: Record<string, string>
-  technical_terms?: Record<string, string>
-  names?: Record<string, string>
-  products?: Record<string, string>
-  phrase_corrections?: Array<[string, string]>
-  extra_word_patterns?: Array<[string, string]>
-}
-
-interface VocabularyEntry {
-  category: string
-  original: string
-  correction: string
-  index?: number
-}
-
-function loadVocabularyData(): VocabularyData {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY) ?? '{}'
-    const parsed = JSON.parse(raw)
-    return typeof parsed === 'object' && parsed !== null ? parsed : {}
-  } catch {
-    return {}
-  }
-}
-
-function saveVocabularyData(data: VocabularyData): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
-}
-
+/** Flatten category-shaped VocabularyData into a flat array. */
 function flattenEntries(data: VocabularyData): VocabularyEntry[] {
   const items: VocabularyEntry[] = []
   for (const cat of CATEGORIES) {
     const catData = (data as Record<string, unknown>)[cat]
-    if (
-      cat === 'misspellings' ||
-      cat === 'technical_terms' ||
-      cat === 'names' ||
-      cat === 'products'
-    ) {
+    if (cat === 'misspellings' || cat === 'technical_terms' || cat === 'names' || cat === 'products') {
       if (typeof catData === 'object' && catData !== null) {
         for (const [key, val] of Object.entries(catData as Record<string, string>)) {
           items.push({ category: cat, original: key, correction: String(val) })
@@ -98,31 +38,52 @@ function flattenEntries(data: VocabularyData): VocabularyEntry[] {
       }
     } else if (cat === 'phrase_corrections' || cat === 'extra_word_patterns') {
       if (Array.isArray(catData)) {
-        catData.forEach((entry: unknown, i: number) => {
+        for (const entry of catData) {
           if (Array.isArray(entry) && entry.length >= 2) {
-            items.push({
-              category: cat,
-              original: entry[0] as string,
-              correction: entry[1] as string,
-              index: i,
-            })
+            items.push({ category: cat, original: entry[0] as string, correction: entry[1] as string })
           }
-        })
+        }
       }
     }
   }
   return items
 }
 
+/** Auto-detect category: phrases (spaces) go to phrase_corrections, single words to misspellings. */
+function detectCategory(trigger: string): 'misspellings' | 'phrase_corrections' {
+  return trigger.includes(' ') ? 'phrase_corrections' : 'misspellings'
+}
+
+/** Rebuild category-shaped VocabularyData from a flat array for server save. */
+function rebuildData(entries: VocabularyEntry[]): VocabularyData {
+  const data: VocabularyData = {}
+  for (const cat of CATEGORIES) {
+    const filtered = entries.filter((e) => e.category === cat)
+    if (cat === 'misspellings' || cat === 'technical_terms' || cat === 'names' || cat === 'products') {
+      const dict: Record<string, string> = {}
+      for (const e of filtered) {
+        dict[e.original] = e.correction
+      }
+      data[cat] = dict
+    } else {
+      data[cat] = filtered.map((e) => [e.original, e.correction] as [string, string])
+    }
+  }
+  return data
+}
+
+// ── Component ──────────────────────────────────────────────────────
+
 export default function VocabularyPage() {
+  const { call } = usePython()
   const [entries, setEntries] = useState<VocabularyEntry[]>([])
-  const [activeCategory, setActiveCategory] = useState<string>(CATEGORIES[0])
+  const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
   const [showDialog, setShowDialog] = useState(false)
   const [editingEntry, setEditingEntry] = useState<VocabularyEntry | null>(null)
-  const [original, setOriginal] = useState('')
-  const [correction, setCorrection] = useState('')
-  const [dialogCategory, setDialogCategory] = useState(activeCategory)
+  const [trigger, setTrigger] = useState('')
+  const [replacement, setReplacement] = useState('')
   const [snackbar, setSnackbar] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null)
 
   const showSnack = (message: string, type: 'success' | 'error' | 'warning') => {
@@ -130,207 +91,189 @@ export default function VocabularyPage() {
     setTimeout(() => setSnackbar(null), 3000)
   }
 
-  const loadVocabulary = useCallback(() => {
-    const data = loadVocabularyData()
-    setEntries(flattenEntries(data))
-    setLoading(false)
-  }, [])
+  const loadVocabulary = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await call<VocabularyData>('get_vocabulary')
+      setEntries(flattenEntries(data ?? {}))
+    } catch (err) {
+      console.error('Failed to load vocabulary:', err)
+      setEntries([])
+    } finally {
+      setLoading(false)
+    }
+  }, [call])
 
   useEffect(() => {
     loadVocabulary()
   }, [loadVocabulary])
 
-  const filteredEntries = entries.filter((e) => e.category === activeCategory)
+  const persistVocabulary = useCallback(async (updated: VocabularyEntry[]) => {
+    const data = rebuildData(updated)
+    setSaving(true)
+    try {
+      await call('save_vocabulary', data as unknown as Record<string, unknown>)
+    } catch (err) {
+      console.error('Failed to save vocabulary:', err)
+      throw err
+    } finally {
+      setSaving(false)
+    }
+  }, [call])
+
+  // ── Search ─────────────────────────────────────────────────────────
+
+  const filtered = searchQuery.trim()
+    ? entries.filter((e) =>
+        e.original.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        e.correction.toLowerCase().includes(searchQuery.toLowerCase()),
+      )
+    : entries
+
+  // ── Add / Edit dialog ─────────────────────────────────────────────
 
   const openAddDialog = () => {
     setEditingEntry(null)
-    setOriginal('')
-    setCorrection('')
-    setDialogCategory(activeCategory)
+    setTrigger('')
+    setReplacement('')
     setShowDialog(true)
   }
 
   const openEditDialog = (entry: VocabularyEntry) => {
     setEditingEntry(entry)
-    setOriginal(entry.original)
-    setCorrection(entry.correction)
-    setDialogCategory(entry.category)
+    setTrigger(entry.original)
+    setReplacement(entry.correction)
     setShowDialog(true)
   }
 
-  const saveEntry = () => {
-    if (!original.trim() || !correction.trim()) {
+  const saveEntry = async () => {
+    const t = trigger.trim()
+    const r = replacement.trim()
+    if (!t || !r) {
       showSnack('Please fill in both fields', 'warning')
       return
     }
     try {
-      const data = loadVocabularyData()
-      const cat = dialogCategory
-      const origTrim = original.trim()
-      const corrTrim = correction.trim()
-
-      if (
-        cat === 'misspellings' ||
-        cat === 'technical_terms' ||
-        cat === 'names' ||
-        cat === 'products'
-      ) {
-        const bucket = (data[cat as 'misspellings'] ??= {})
-        if (editingEntry && editingEntry.category === cat) {
-          delete bucket[editingEntry.original]
-        }
-        bucket[origTrim] = corrTrim
+      let updated: VocabularyEntry[]
+      if (editingEntry) {
+        updated = entries.map((e) =>
+          e === editingEntry
+            ? { category: detectCategory(t), original: t, correction: r }
+            : e,
+        )
       } else {
-        const arr = (data[cat as 'phrase_corrections'] ??= [])
-        if (editingEntry && editingEntry.index !== undefined && editingEntry.category === cat) {
-          arr[editingEntry.index] = [origTrim, corrTrim]
-        } else {
-          arr.push([origTrim, corrTrim])
-        }
+        updated = [...entries, { category: detectCategory(t), original: t, correction: r }]
       }
-
-      saveVocabularyData(data)
+      await persistVocabulary(updated)
+      setEntries(updated)
+      setShowDialog(false)
       showSnack(
-        editingEntry
-          ? `Updated: ${origTrim} → ${corrTrim}`
-          : `Added: ${origTrim} → ${corrTrim}`,
+        editingEntry ? `Updated: ${t} → ${r}` : `Added: ${t} → ${r}`,
         'success',
       )
-      setShowDialog(false)
-      loadVocabulary()
-    } catch (err) {
-      console.error('Failed to save entry', err)
+    } catch {
       showSnack('Failed to save entry', 'error')
     }
   }
 
-  const deleteEntry = (entry: VocabularyEntry) => {
+  const deleteEntry = async (entry: VocabularyEntry) => {
     try {
-      const data = loadVocabularyData()
-      const cat = entry.category
-
-      if (
-        cat === 'misspellings' ||
-        cat === 'technical_terms' ||
-        cat === 'names' ||
-        cat === 'products'
-      ) {
-        const bucket = data[cat as 'misspellings']
-        if (bucket && entry.original in bucket) {
-          delete bucket[entry.original]
-        }
-      } else {
-        const arr = data[cat as 'phrase_corrections']
-        if (arr && entry.index !== undefined) {
-          arr.splice(entry.index, 1)
-        }
-      }
-
-      saveVocabularyData(data)
+      const updated = entries.filter((e) => e !== entry)
+      await persistVocabulary(updated)
+      setEntries(updated)
       showSnack(`Deleted: ${entry.original}`, 'warning')
-      loadVocabulary()
-    } catch (err) {
-      console.error('Failed to delete entry', err)
+    } catch {
       showSnack('Failed to delete entry', 'error')
     }
   }
 
+  // ── Render ────────────────────────────────────────────────────────
+
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--accent)] border-t-transparent" />
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
       </div>
     )
   }
 
   return (
-    <div className="animate-fade-in-up mx-auto flex h-full w-full max-w-2xl flex-col overflow-hidden">
-      <div className="space-y-1 px-6 pb-4 pt-6">
-        <div className="flex items-center justify-between">
-          <h1 className="font-sans text-2xl font-bold tracking-tight text-[var(--text-primary)]">
-            Custom Vocabulary
-          </h1>
-          <Button variant="default" className="gap-2" onClick={openAddDialog}>
-            <HugeiconsIcon icon={Add01Icon} className="h-4 w-4" />
-            Add Word
-          </Button>
-        </div>
-        <p className="text-sm text-[var(--text-muted)]">
-          Add custom words and corrections to improve accuracy
-        </p>
+    <div className="animate-fade-in-up mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 py-6">
+      <PageHeading
+        title="Custom Vocabulary"
+        description="Add custom words and corrections to improve accuracy"
+      >
+        <Button
+          variant="default"
+          className="gap-2"
+          onClick={openAddDialog}
+          disabled={saving}
+        >
+          <HugeiconsIcon icon={Add01Icon} className="h-4 w-4" />
+          Add Word
+        </Button>
+      </PageHeading>
+
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-(--text-muted) pointer-events-none" />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search vocabulary..."
+          className="w-full h-9 rounded-xl border border-border bg-(--bg-subtle) pl-9 pr-3 text-sm text-(--text-primary) outline-none placeholder:text-(--text-muted) focus:border-ring transition-colors"
+        />
       </div>
 
-      {/* Category Tabs */}
-      <div className="px-4">
-        <div className="flex gap-0.5 rounded-lg bg-[var(--bg-subtle)] p-0.5">
-          {CATEGORIES.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setActiveCategory(cat)}
-              className={cn(
-                'flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-all',
-                activeCategory === cat
-                  ? 'bg-[var(--bg)] text-[var(--text-primary)] shadow-sm'
-                  : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]',
-              )}
-            >
-              {CATEGORY_LABELS[cat]}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="mt-4 flex-1 overflow-y-auto px-4 pb-4">
-        {filteredEntries.length === 0 ? (
+      {/* List */}
+      <div className="mt-4">
+        {entries.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-4 py-16">
-            <HugeiconsIcon icon={BookOpen02Icon} className="h-10 w-10 text-[var(--text-muted)] opacity-30" />
-            <p className="text-sm text-[var(--text-muted)]">
-              No {CATEGORY_LABELS[activeCategory].toLowerCase()}
-            </p>
-            <p className="text-xs text-[var(--text-muted)] opacity-70">
-              {CATEGORY_DESCRIPTIONS[activeCategory]}
+            <HugeiconsIcon icon={BookOpen02Icon} className="h-10 w-10 text-(--text-muted) opacity-30" />
+            <p className="text-sm text-(--text-muted)">No vocabulary entries yet</p>
+            <p className="text-xs text-(--text-muted) opacity-70">
+              Add words or phrases that Voice Typer should correct
             </p>
             <Button variant="default" className="mt-2 gap-2" onClick={openAddDialog}>
               <HugeiconsIcon icon={Add01Icon} className="h-4 w-4" />
-              Add First Word
+              Add Your First Word
             </Button>
           </div>
+        ) : filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-3">
+            <HugeiconsIcon icon={BookOpen02Icon} className="h-8 w-8 text-(--text-muted) opacity-30" />
+            <p className="text-sm text-(--text-muted)">No results found</p>
+          </div>
         ) : (
-          <div className="space-y-1">
-            {filteredEntries.map((entry, idx) => (
+          <div className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
+            {filtered.map((entry, idx) => (
               <div
-                key={`${entry.original}-${idx}`}
-                className={cn(
-                  'flex items-center justify-between rounded-lg px-5 py-3.5',
-                  'border border-[var(--border)] bg-[var(--bg-subtle)]',
-                  'transition-colors hover:bg-[var(--surface-hover)]',
-                )}
+                key={`${entry.original}-${entry.category}-${idx}`}
+                className="flex items-start gap-3 px-3.5 py-2.5"
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2.5">
                     <span className="text-sm font-medium text-destructive">
                       {entry.original}
                     </span>
-                    <span className="text-sm text-[var(--text-muted)]">→</span>
+                    <span className="text-sm text-(--text-muted)">→</span>
                     <span className="text-sm font-semibold text-primary">
                       {entry.correction}
                     </span>
                   </div>
-                  <p className="mt-0.5 text-xs text-[var(--text-muted)]">
-                    {CATEGORY_LABELS[entry.category]}
-                  </p>
                 </div>
-                <div className="ml-3 flex shrink-0 items-center gap-1">
+                <div className="flex shrink-0 items-center gap-1">
                   <button
                     onClick={() => openEditDialog(entry)}
-                    className="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--accent)]"
+                    className="rounded p-1.5 text-(--text-muted) transition-colors hover:bg-(--surface-hover) hover:text-accent"
                     title="Edit"
                   >
                     <HugeiconsIcon icon={Edit01Icon} className="h-4 w-4" />
                   </button>
                   <button
                     onClick={() => deleteEntry(entry)}
-                    className="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-destructive"
+                    className="rounded p-1.5 text-(--text-muted) transition-colors hover:bg-(--surface-hover) hover:text-destructive"
                     title="Delete"
                   >
                     <HugeiconsIcon icon={Delete01Icon} className="h-4 w-4" />
@@ -342,70 +285,58 @@ export default function VocabularyPage() {
         )}
       </div>
 
+      {/* Count footer */}
+      {entries.length > 0 && !searchQuery.trim() && (
+        <p className="mt-3 text-[10px] text-(--text-muted) text-center opacity-50">
+          {entries.length} entr{entries.length === 1 ? 'y' : 'ies'}
+        </p>
+      )}
+
       {/* Add/Edit Dialog */}
       {showDialog && (
         <div className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div
             className={cn(
-              'animate-scale-in w-[420px] rounded-xl border border-[var(--border)]',
-              'bg-[var(--bg)] p-6 shadow-2xl',
+              'animate-scale-in w-105 rounded-xl border border-border',
+              'bg-(--bg) p-6 shadow-2xl',
             )}
           >
-            <h2 className="mb-5 text-lg font-semibold text-[var(--text-primary)]">
+            <h2 className="mb-5 text-lg font-semibold text-(--text-primary)">
               {editingEntry ? 'Edit Vocabulary Entry' : 'Add Vocabulary Entry'}
             </h2>
 
             <div className="space-y-4">
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-[var(--text-primary)]">
-                  Original (misrecognized word)
+                <label className="mb-1.5 block text-sm font-medium text-(--text-primary)">
+                  What you say
                 </label>
                 <Input
-                  value={original}
-                  onChange={(e) => setOriginal(e.target.value)}
-                  placeholder="e.g., their"
+                  value={trigger}
+                  onChange={(e) => setTrigger(e.target.value)}
+                  placeholder='e.g., "teh" or "treat 3"'
                   className="w-full"
+                  autoFocus
                 />
               </div>
 
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-[var(--text-primary)]">
-                  Correction
+                <label className="mb-1.5 block text-sm font-medium text-(--text-primary)">
+                  What gets typed instead
                 </label>
                 <Input
-                  value={correction}
-                  onChange={(e) => setCorrection(e.target.value)}
-                  placeholder="e.g., there"
+                  value={replacement}
+                  onChange={(e) => setReplacement(e.target.value)}
+                  placeholder='e.g., "the" or "treat this"'
                   className="w-full"
                 />
               </div>
-
-              {!editingEntry && (
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium text-[var(--text-primary)]">
-                    Category
-                  </label>
-                  <Select value={dialogCategory} onValueChange={setDialogCategory}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {CATEGORIES.map((cat) => (
-                        <SelectItem key={cat} value={cat}>
-                          {CATEGORY_LABELS[cat]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
             </div>
 
             <div className="mt-6 flex justify-end gap-3">
               <Button variant="ghost" onClick={() => setShowDialog(false)}>
                 Cancel
               </Button>
-              <Button variant="default" onClick={saveEntry}>
+              <Button variant="default" onClick={saveEntry} disabled={!trigger.trim() || !replacement.trim()}>
                 Save
               </Button>
             </div>

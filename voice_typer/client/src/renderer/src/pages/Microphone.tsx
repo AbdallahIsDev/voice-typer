@@ -1,5 +1,3 @@
-// src/renderer/src/pages/Microphone.tsx
-
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { usePython } from '@/hooks/usePython'
 import { HugeiconsIcon } from '@hugeicons/react'
@@ -9,9 +7,15 @@ import {
   PlayIcon,
   StopIcon,
 } from '@hugeicons/core-free-icons'
+import PageHeading from '@/components/PageHeading'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { VoiceTyperConfig } from '@/types/config'
+
+// Module-level cache — persists across page navigations so microphone settings
+// render instantly on re-visit instead of showing a loading spinner.
+let _cachedMicrophones: MicDevice[] = []
+let _cachedConfig: VoiceTyperConfig | null = null
 
 interface MicDevice {
   index: number
@@ -25,8 +29,8 @@ interface MicDevice {
 
 export default function MicrophonePage() {
   const { call } = usePython()
-  const [microphones, setMicrophones] = useState<MicDevice[]>([])
-  const [config, setConfig] = useState<VoiceTyperConfig | null>(null)
+  const [microphones, setMicrophones] = useState<MicDevice[]>(_cachedMicrophones)
+  const [config, setConfig] = useState<VoiceTyperConfig | null>(_cachedConfig)
   const [loading, setLoading] = useState(true)
   const [testRunning, setTestRunning] = useState(false)
   const [level, setLevel] = useState(0)
@@ -45,7 +49,9 @@ export default function MicrophonePage() {
         call<MicDevice[]>('get_microphones'),
         call<any>('get_config'),
       ])
-      setMicrophones(Array.isArray(mics) ? mics : [])
+      _cachedMicrophones = Array.isArray(mics) ? mics : []
+      _cachedConfig = cfg
+      setMicrophones(_cachedMicrophones)
       setConfig(cfg)
     } catch (err) {
       console.error('Failed to load microphone data:', err)
@@ -70,7 +76,7 @@ export default function MicrophonePage() {
 
   const useMicrophone = async (micId: string | null) => {
     try {
-      await call('set_config', { data: { microphone: micId } })
+      await call('set_config', { microphone: micId })
       setConfig((prev) => (prev ? { ...prev, microphone: micId } : prev))
       const label = micId === null ? 'System Default' : microphones.find((m) => (m.id ?? String(m.index)) === micId)?.name ?? 'Microphone'
       showSnack(`Using: ${label}`, 'success')
@@ -108,33 +114,32 @@ export default function MicrophonePage() {
     return 'var(--accent)'
   }
 
-  if (loading) {
+  // Only show the full-page spinner on cold start (no cache).
+  // On revisit with cached data, the content renders immediately
+  // while loadData() refreshes silently in the background.
+  if (!_cachedMicrophones.length && !_cachedConfig && loading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--accent)] border-t-transparent" />
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
       </div>
     )
   }
 
   return (
-    <div className="animate-fade-in-up mx-auto flex h-full w-full max-w-2xl flex-col overflow-hidden">
-      <div className="space-y-1 px-6 pb-4 pt-6">
-        <h1 className="font-sans text-2xl font-bold tracking-tight text-[var(--text-primary)]">
-          Microphone
-        </h1>
-        <p className="text-sm text-[var(--text-muted)]">
-          Select and test your microphone
-        </p>
-      </div>
+    <div className="animate-fade-in-up mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 py-6">
+      <PageHeading
+        title="Microphone"
+        description="Select and test your microphone"
+      />
 
-      <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-6">
+      <div className="space-y-6">
         {/* System Default Card */}
         <div
           className={cn(
-            'card-hover rounded-xl border p-5 transition-colors',
+            'rounded-xl border p-5 transition-colors',
             isSystemDefault
-              ? 'border-[var(--accent)] bg-[var(--bg-subtle)]'
-              : 'border-[var(--border)] bg-[var(--bg-subtle)]',
+              ? 'border-accent bg-(--bg-subtle)'
+              : 'border-border bg-(--bg-subtle)',
           )}
         >
           <div className="flex items-center justify-between">
@@ -143,14 +148,14 @@ export default function MicrophonePage() {
                 icon={Mic02Icon}
                 className={cn(
                   'h-5 w-5',
-                  isSystemDefault ? 'text-primary' : 'text-[var(--text-muted)]',
+                  isSystemDefault ? 'text-primary' : 'text-(--text-muted)',
                 )}
               />
               <div>
-                <p className="text-sm font-semibold text-[var(--text-primary)]">
+                <p className="text-sm font-semibold text-(--text-primary)">
                   System Default
                 </p>
-                <p className="text-xs text-[var(--text-muted)]">
+                <p className="text-xs text-(--text-muted)">
                   Use the operating system's default input device
                 </p>
               </div>
@@ -172,7 +177,7 @@ export default function MicrophonePage() {
 
           {/* Level bar when active */}
           {isSystemDefault && (
-            <div className="mt-3 h-1.5 w-full rounded-full bg-[var(--border)] overflow-hidden">
+            <div className="mt-3 h-1.5 w-full rounded-full bg-border overflow-hidden">
               <div
                 className="h-full rounded-full transition-all duration-150"
                 style={{
@@ -206,7 +211,7 @@ export default function MicrophonePage() {
             <HugeiconsIcon icon={StopIcon} className="h-3.5 w-3.5" />
             Stop Test
           </Button>
-          <span className="text-xs text-[var(--text-muted)] ml-auto">
+          <span className="text-xs text-(--text-muted) ml-auto">
             Level: {Math.round(level * 100)}%
           </span>
         </div>
@@ -214,52 +219,41 @@ export default function MicrophonePage() {
         {/* Available Microphones List */}
         {microphones.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
-            <HugeiconsIcon icon={MicOff01Icon} className="h-10 w-10 text-[var(--text-muted)] opacity-30" />
-            <p className="text-sm text-[var(--text-muted)]">No microphones found</p>
-            <p className="text-xs text-[var(--text-muted)] opacity-70">
+            <HugeiconsIcon icon={MicOff01Icon} className="h-10 w-10 text-(--text-muted) opacity-30" />
+            <p className="text-sm text-(--text-muted)">No microphones found</p>
+            <p className="text-xs text-(--text-muted) opacity-70">
               Connect a microphone and restart
             </p>
           </div>
         ) : (
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2 px-1">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-(--text-muted) mb-2 px-1">
               Available Microphones
             </p>
-            <div className="space-y-0">
+            <div className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
               {microphones.map((mic) => {
                 const micId = mic.id ?? String(mic.index)
                 const isActive = micId === activeMicId
                 return (
-                  <div
-                    key={micId}
-                    className={cn(
-                      'flex items-center justify-between px-5 py-3',
-                      'border-b border-[var(--border)] transition-colors hover:bg-[var(--surface-hover)]',
-                    )}
-                  >
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <HugeiconsIcon
-                        icon={isActive ? Mic02Icon : Mic02Icon}
-                        className={cn(
-                          'h-4 w-4 shrink-0',
-                          isActive ? 'text-primary' : 'text-[var(--text-muted)]',
-                        )}
-                      />
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium text-[var(--text-primary)] truncate">
-                            {mic.name}
-                          </p>
-                          {mic.default && (
-                            <span className="shrink-0 inline-flex items-center rounded-full bg-[var(--accent)] px-2 py-0.5 text-[9px] font-semibold text-white">
-                              Default
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-[var(--text-muted)] mt-0.5">
-                          Channels: {mic.channels ?? 1} &middot; Rate: {mic.rate ?? 44100}Hz
+                  <div key={micId} className="flex items-center gap-3 px-3.5 py-2.5">
+                    <HugeiconsIcon
+                      icon={Mic02Icon}
+                      className={cn('h-4 w-4 shrink-0', isActive ? 'text-primary' : 'text-(--text-muted)')}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-(--text-primary) truncate">
+                          {mic.name}
                         </p>
+                        {mic.default && (
+                          <span className="shrink-0 inline-flex items-center rounded-full bg-accent px-2 py-0.5 text-[9px] font-semibold text-white">
+                            Default
+                          </span>
+                        )}
                       </div>
+                      <p className="text-xs text-(--text-muted) mt-0.5">
+                        Channels: {mic.channels ?? 1} &middot; Rate: {mic.rate ?? 44100}Hz
+                      </p>
                     </div>
                     {isActive ? (
                       <span className="shrink-0 inline-flex items-center rounded-md px-2.5 py-0.5 text-[10px] font-semibold border border-primary/20 bg-primary/10 text-primary">
@@ -269,7 +263,7 @@ export default function MicrophonePage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        className="shrink-0"
+                        className="shrink-0 cursor-pointer"
                         onClick={() => useMicrophone(micId)}
                       >
                         Use

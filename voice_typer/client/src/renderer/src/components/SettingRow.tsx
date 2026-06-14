@@ -14,17 +14,16 @@ export function SettingRow({ label, description, children, align = 'center' }: S
   return (
     <div
       className={cn(
-        'flex items-start justify-between gap-6 rounded-lg px-4 py-3 transition-colors',
-        'hover:bg-[var(--surface-hover)]',
+        'flex items-start justify-between gap-6 px-3.5 py-2.5',
         align === 'center' && 'items-center',
       )}
     >
       <div className="space-y-0.5 min-w-0">
-        <label className="text-sm font-medium text-[var(--text-primary)] cursor-default">
+        <label className="text-sm font-medium text-(--text-primary) cursor-default">
           {label}
         </label>
         {description && (
-          <p className="text-xs text-[var(--text-muted)] leading-relaxed">{description}</p>
+          <p className="text-xs text-(--text-muted) leading-relaxed">{description}</p>
         )}
       </div>
       <div className="shrink-0">{children}</div>
