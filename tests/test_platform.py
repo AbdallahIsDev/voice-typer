@@ -5,6 +5,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
+from voice_typer.server import platform as platform_mod
 from voice_typer.server.platform import (
     _autostart_command,
     _generate_icon_ico,
@@ -18,9 +19,12 @@ from voice_typer.server.platform import (
 
 
 class TestAutostartCommand:
-    def test_uses_python_m_voice_typer(self):
+    def test_uses_autostart_launcher(self):
+        """The autostart command must run autostart_launcher.py, which
+        spawns npm run dev (Electron dev mode) hidden — not the
+        standalone ``-m voice_typer`` tray app."""
         cmd = _autostart_command()
-        assert "-m voice_typer" in cmd
+        assert "autostart_launcher.py" in cmd
 
     @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only test")
     def test_windows_uses_pythonw_if_available(self):
@@ -33,6 +37,90 @@ class TestAutostartCommand:
         cmd = _autostart_command()
         assert cmd.startswith('"')
         assert sys.executable in cmd
+
+
+class TestLinuxDesktopExec:
+    """The Linux .desktop Exec= field must preserve the quoting produced
+    by _autostart_command().  A previous version stripped the outer
+    quotes, which corrupts the first argument."""
+
+    def test_exec_field_is_command_verbatim(self, monkeypatch, tmp_path):
+        # Force the Linux path regardless of host platform.
+        monkeypatch.setattr(platform_mod, "SYSTEM", "linux")
+        monkeypatch.setattr(platform_mod, "get_autostart_dir", lambda: tmp_path)
+        monkeypatch.setattr(
+            platform_mod, "_autostart_command",
+            lambda: '"/usr/bin/python3" "/opt/voice_typer/launcher.py"',
+        )
+        assert platform_mod._enable_autostart_linux() is True
+
+        desktop = (tmp_path / "voice-typer.desktop").read_text()
+        # The Exec line must contain the FULL command with quotes intact.
+        # If strip('"') were applied, the line would read:
+        #   Exec=/usr/bin/python3" "/opt/voice_typer/launcher.py
+        # which is malformed per the Desktop Entry Spec.
+        for line in desktop.splitlines():
+            if line.startswith("Exec="):
+                exec_val = line[len("Exec="):]
+                assert exec_val == '"/usr/bin/python3" "/opt/voice_typer/launcher.py"', (
+                    f"Exec field must be the verbatim quoted command, got: {exec_val}"
+                )
+                break
+        else:
+            pytest.fail("no Exec= line in .desktop file")
+
+    def test_exec_field_handles_paths_with_spaces(self, monkeypatch, tmp_path):
+        """Paths with spaces must remain quoted (freedesktop spec)."""
+        monkeypatch.setattr(platform_mod, "SYSTEM", "linux")
+        monkeypatch.setattr(platform_mod, "get_autostart_dir", lambda: tmp_path)
+        monkeypatch.setattr(
+            platform_mod, "_autostart_command",
+            lambda: '"/usr/bin/python3" "/home/my user/voice typer/launcher.py"',
+        )
+        assert platform_mod._enable_autostart_linux() is True
+
+        desktop = (tmp_path / "voice-typer.desktop").read_text()
+        for line in desktop.splitlines():
+            if line.startswith("Exec="):
+                exec_val = line[len("Exec="):]
+                assert exec_val == '"/usr/bin/python3" "/home/my user/voice typer/launcher.py"', (
+                    f"spaces in path must stay quoted, got: {exec_val}"
+                )
+                return
+        pytest.fail("no Exec= line in .desktop file")
+
+
+class TestMacOsAutostartUnload:
+    """disable_autostart on macOS must unload the running job via
+    launchctl (bootout/remove) BEFORE deleting the plist, otherwise the
+    job lingers until logout."""
+
+    def test_disable_calls_launchctl_bootout_then_remove(self, monkeypatch, tmp_path):
+        import subprocess as _sp
+        monkeypatch.setattr(platform_mod, "SYSTEM", "darwin")
+        monkeypatch.setattr(platform_mod, "get_autostart_dir", lambda: tmp_path)
+        # Pretend the plist exists so the unlink path runs.
+        (tmp_path / "com.voicetyper.plist").write_text("dummy")
+
+        calls: list[list[str]] = []
+        def fake_run(args, **kw):
+            calls.append(list(args))
+            r = MagicMock()
+            r.returncode = 0
+            r.stdout = b""
+            r.stderr = b""
+            return r
+        monkeypatch.setattr(_sp, "run", fake_run)
+        # Ensure os.getuid is available even on Windows test host.
+        monkeypatch.setattr(platform_mod, "_os_uid", lambda: 501)
+
+        assert platform_mod._disable_autostart_macos() is True
+
+        # Must have invoked launchctl to unload the job.
+        assert any("launchctl" in c and "bootout" in c for c in calls), \
+            f"expected launchctl bootout, got: {calls}"
+        # Plist must be deleted.
+        assert not (tmp_path / "com.voicetyper.plist").exists()
 
 
 class TestListMicrophones:

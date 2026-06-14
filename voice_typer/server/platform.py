@@ -103,19 +103,24 @@ def find_microphone_by_id(mic_id: str) -> Optional[dict]:
 def _autostart_command() -> str:
     """Build the command that the autostart entry should run.
 
-    Uses the currently-running Python interpreter with ``-m voice_typer``.
-    This requires the package to be installed (``pip install .``).
+    Runs the ``autostart_launcher`` module, which starts ``npm run dev``
+    in the client directory hidden (Electron dev mode) — this is the
+    correct behaviour for the Electron-based app, and ensures the
+    autostarted instance is compatible with a manually-started
+    ``npm run dev`` (same backend, no mutex conflict).
 
-    On Windows, prefers pythonw.exe (no console window) when available.
-    pythonw startup has been verified via Start-Process, but actual
-    reboot/login-startup has not been manually tested yet.
+    On Windows, prefers ``pythonw.exe`` (no console window) when
+    available so login doesn't flash a console.  Falls back to
+    ``python.exe`` if ``pythonw.exe`` is absent.
     """
+    # The launcher lives next to this module (voice_typer/server/).
+    launcher = Path(__file__).resolve().parent / "autostart_launcher.py"
     if sys.platform == "win32":
         pythonw = Path(sys.executable).parent / "pythonw.exe"
-        if pythonw.exists():
-            return f'"{pythonw}" -m voice_typer'
-        return f'"{sys.executable}" -m voice_typer'
-    return f'"{sys.executable}" -m voice_typer'
+        python_bin = pythonw if pythonw.exists() else Path(sys.executable)
+        return f'"{python_bin}" "{launcher}"'
+    # macOS / Linux: use the current interpreter, quoted.
+    return f'"{sys.executable}" "{launcher}"'
 
 
 def get_autostart_dir() -> Path:
@@ -225,7 +230,7 @@ def _enable_autostart_macos() -> bool:
     plist_dir = get_autostart_dir()
     plist_dir.mkdir(parents=True, exist_ok=True)
     plist_path = plist_dir / "com.voicetyper.plist"
-    cmd = _autostart_command()
+    launcher = Path(__file__).resolve().parent / "autostart_launcher.py"
 
     plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -236,8 +241,7 @@ def _enable_autostart_macos() -> bool:
     <key>ProgramArguments</key>
     <array>
         <string>{escape(sys.executable)}</string>
-        <string>-m</string>
-        <string>voice_typer</string>
+        <string>{escape(str(launcher))}</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -245,6 +249,10 @@ def _enable_autostart_macos() -> bool:
     <false/>
     <key>WorkingDirectory</key>
     <string>~</string>
+    <key>StandardOutPath</key>
+    <string>/tmp/voice-typer-autostart.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/voice-typer-autostart.log</string>
 </dict>
 </plist>"""
     plist_path.write_text(plist_content)
@@ -259,11 +267,36 @@ def _enable_autostart_macos() -> bool:
 
 
 def _disable_autostart_macos() -> bool:
+    import subprocess
     plist_path = get_autostart_dir() / "com.voicetyper.plist"
+    # Unload the running job BEFORE deleting the plist, otherwise the
+    # job keeps running until next logout even though it's "disabled".
+    # Prefer the modern `launchctl bootout` (macOS 10.10+) and fall back
+    # to the legacy `launchctl remove` for older systems.  Both are
+    # best-effort — failure here just means the job lingers until logout.
+    label = "com.voicetyper"
+    for args in (
+        ["launchctl", "bootout", f"gui/{_os_uid()}/{label}"],
+        ["launchctl", "remove", label],
+    ):
+        try:
+            subprocess.run(
+                args, check=False, capture_output=True, timeout=5,
+            )
+        except Exception:
+            pass
     if plist_path.exists():
         plist_path.unlink()
     log.info("[CONFIG] Autostart disabled (macOS)")
     return True
+
+
+def _os_uid() -> int:
+    """Return the current user's numeric uid (for launchctl bootout target)."""
+    try:
+        return os.getuid()
+    except (AttributeError, OSError):
+        return 501  # default first user on macOS
 
 
 def _is_autostart_macos() -> bool:
@@ -273,16 +306,22 @@ def _is_autostart_macos() -> bool:
 # ─── Linux ─────────────────────────────────────────────────────────────
 
 def _enable_autostart_linux() -> bool:
-    import shlex
     autostart_dir = get_autostart_dir()
     autostart_dir.mkdir(parents=True, exist_ok=True)
     desktop_path = autostart_dir / "voice-typer.desktop"
+
+    # _autostart_command() returns each space-containing argument already
+    # double-quoted per the Desktop Entry Spec's Exec quoting rules
+    # (https://specifications.freedesktop.org/desktop-entry/latest/exec-variables.html).
+    # Use the command VERBATIM — stripping quotes corrupts the first arg
+    # (e.g. "/usr/bin/python3" "/path/launcher.py" -> python3" "/path...).
+    exec_field = _autostart_command()
 
     desktop_content = f"""[Desktop Entry]
 Type=Application
 Name=Voice Typer
 Comment=Background voice-to-text utility
-Exec={shlex.quote(sys.executable)} -m voice_typer
+Exec={exec_field}
 Icon=audio-input-microphone
 Hidden=false
 NoDisplay=true
