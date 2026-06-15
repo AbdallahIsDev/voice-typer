@@ -106,12 +106,15 @@ class ParakeetEngine:
     def _ensure_imports(cls):
         if cls._imports_loaded:
             return
-        import torch
-        from transformers import AutoModelForTDT, AutoProcessor
-        cls._torch = torch
-        cls._AutoModelForTDT = AutoModelForTDT
-        cls._AutoProcessor = AutoProcessor
-        cls._imports_loaded = True
+        try:
+            import torch
+            from transformers import AutoModelForTDT, AutoProcessor
+            cls._torch = torch
+            cls._AutoModelForTDT = AutoModelForTDT
+            cls._AutoProcessor = AutoProcessor
+            cls._imports_loaded = True
+        except ImportError:
+            cls._imports_loaded = False
 
     @staticmethod
     def _is_cached() -> bool:
@@ -145,6 +148,11 @@ class ParakeetEngine:
         """
         # Ensure torch + transformers are imported before any model ops.
         self._ensure_imports()
+        if not self._imports_loaded:
+            log.warning("[PARAKEET] torch/transformers not installed, cannot load")
+            if progress_callback:
+                progress_callback("Missing dependencies: torch + transformers")
+            return False
 
         with self._lock:
             if self._model is not None:
