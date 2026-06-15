@@ -116,6 +116,7 @@ class _ColorFormatter(logging.Formatter):
         "ATEXIT": "38;5;102",
         "PIPELINE": "38;5;102",
         "IPC": "38;5;102",
+        "TCP": "38;5;244",
     }
     # For unlabeled lines, infer topic from keyword presence.
     # First match wins -- order matters (list narrower keywords first).
