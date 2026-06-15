@@ -5,7 +5,79 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 
+// Augment Electron's App interface with isQuitting so the close-to-tray
+// handler can distinguish a real quit (tray Quit → let the window close)
+// from the X button (→ hide instead).
+// The electron module uses `export =`, so we must augment via the global
+// Electron namespace rather than `declare module "electron"`.
+declare global {
+  namespace Electron {
+    interface App {
+      isQuitting?: boolean;
+    }
+  }
+}
+
 const IPC_PORT = 9876;
+
+// When set (autostart at login), the dashboard window is created hidden.
+// The process + tray + bubble still work; the window appears on demand
+// via the Start Menu (second-instance) or tray "Open app".
+const START_HIDDEN = process.env.VT_START_HIDDEN === "1";
+
+/**
+ * Single-instance gate.
+ *
+ * Acquiring the lock is Electron's native, OS-level mechanism for "only one
+ * of me may run." It uses a named pipe on Windows / a lockfile on POSIX —
+ * no port scanning, no process killing, no Python involvement. When a
+ * SECOND Electron process starts:
+ *
+ *   • the second instance: requestSingleInstanceLock() returns false → quit
+ *   • the first instance:  emits "second-instance" → we show+focus the
+ *     dashboard window (creating it if it was never created, e.g. after a
+ *     hidden autostart).
+ *
+ * This is how the user "opens" the app from Start Menu / Desktop when it's
+ * already running in the background: the shortcut launches a throwaway
+ * Electron process whose only job is to fail the lock and wake the real one.
+ *
+ * MUST run before app.whenReady() — the lock is checked at process start.
+ */
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  // We are the duplicate.  The first instance has already received (or is
+  // about to receive) the "second-instance" event and will show itself.
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    // Another launch attempt happened.  Show + focus the dashboard so it
+    // feels like the app "opened."  Create it lazily if autostart started
+    // us hidden and the user never opened it yet.
+    showMainWindow();
+  });
+}
+
+/**
+ * Show + focus the dashboard window, creating it if needed.
+ *
+ * Used by:
+ *   • second-instance event  (Start Menu / Desktop click while running)
+ *   • tray "Open app" IPC path (see showMainWindow IPC handler below)
+ */
+function showMainWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createMainWindow(/* forceShow */ true);
+    return;
+  }
+  if (!mainWindow.isVisible()) {
+    mainWindow.show();
+  }
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  mainWindow.focus();
+}
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
@@ -198,6 +270,12 @@ function handleMessage(msg: Record<string, unknown>) {
       hideBubbleWindow();
     } else if (msg.type === "bubble_level") {
       bubbleWindow?.webContents.send("bubble:level", msg.data);
+    } else if (msg.type === "show_window") {
+      // Tray "Open app": Python asks us to show + focus the dashboard.
+      // Single hop over the always-up TCP channel; falls back to the
+      // Win32 EnumWindows path in tray.open_electron_window() if this
+      // never arrives (TCP momentarily down).
+      showMainWindow();
     }
     BrowserWindow.getAllWindows().forEach((win) => {
       win.webContents.send("python-event", msg);
@@ -225,11 +303,15 @@ function sendToPython(msg: Record<string, unknown>): Promise<unknown> {
   });
 }
 
-function createMainWindow() {
+function createMainWindow(forceShow = false) {
   if (mainWindow) return;
   pythonReady = true;
-  const isMac = process.platform === 'darwin'
-  const isWin = process.platform === 'win32'
+
+  // When autostarted hidden, the window is created but not shown — the
+  // React app still boots (so opening it later is instant) while staying
+  // off the taskbar.  forceShow overrides this (second-instance / tray
+  // open) so the window appears immediately.
+  const shouldShow = forceShow || !START_HIDDEN;
 
   mainWindow = new BrowserWindow({
     width: 1000,
@@ -240,12 +322,34 @@ function createMainWindow() {
     frame: false,
     transparent: true,
     hasShadow: false,
+    show: shouldShow,
+    // skipTaskbar when hidden so an autostarted background instance leaves
+    // no taskbar entry until the user actually opens it.
+    skipTaskbar: !shouldShow,
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
     },
   })
 
   Menu.setApplicationMenu(null);
+
+  // Close-to-tray: the X button hides the window instead of quitting the
+  // app.  The process (tray icon, Python backend, bubble) stays alive.
+  // Full quit only happens via the tray "Quit" menu item → stopPython().
+  mainWindow.on("close", (event) => {
+    if (!app.isQuitting) {
+      event.preventDefault();
+      mainWindow?.hide();
+      // Remove from taskbar while hidden.
+      mainWindow?.setSkipTaskbar(true);
+    }
+  });
+
+  // When the window is shown again (second-instance / tray open), restore
+  // the taskbar entry.
+  mainWindow.on("show", () => {
+    mainWindow?.setSkipTaskbar(false);
+  });
 
   mainWindow.on("maximize", () => broadcastMaximized(true));
   mainWindow.on("unmaximize", () => broadcastMaximized(false));
@@ -683,7 +787,42 @@ ipcMain.handle("history:export", async (_event, { data, format }: { data: Record
   }
 })
 
-app.on("before-quit", () => stopPython());
+// Tracks a genuine quit (tray Quit / Cmd+Q) so the close-to-tray handler
+// on the window knows to let the close proceed instead of hiding.
+app.isQuitting = false;
+
+app.on("before-quit", () => {
+  app.isQuitting = true;
+  stopPython();
+});
+
+// With close-to-tray, closing the dashboard window just hides it — the
+// process keeps running.  So window-all-closed only fires on a real quit
+// (last window destroyed) or on macOS when all windows are closed by the
+// user.  Guard accordingly.
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  if (app.isQuitting) return;
+  if (process.platform !== "darwin") {
+    // Don't quit: the tray icon + backend keep the app alive.  Quit only
+    // happens explicitly via the tray menu.
+  }
+});
+
+// macOS: clicking the dock icon when no windows are open should re-show
+// the dashboard (mirrors second-instance on the other platforms).
+app.on("activate", () => {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createMainWindow(/* forceShow */ true);
+  } else {
+    showMainWindow();
+  }
+});
+
+// Allow the Python backend (tray "Open app") to request showing the
+// dashboard over TCP — a clean, single-hop alternative to the Win32
+// EnumWindows focus hack in tray._bring_electron_to_front.  The tray
+// tries this first; the Win32 path remains as a fallback.
+ipcMain.handle("window:show", () => {
+  showMainWindow();
+  return true;
 });

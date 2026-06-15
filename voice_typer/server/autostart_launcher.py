@@ -139,24 +139,113 @@ def _write_pid_file(launcher_pid: int, child_pid: int | None) -> None:
         log.warning("[AUTOSTART] could not write pid file: %s", exc)
 
 
+def _electron_binary() -> str | None:
+    """Return the path to the dev-mode electron binary, or None if absent.
+
+    In dev mode Electron ships under ``node_modules/electron/dist/electron.exe``
+    (Windows) / ``.../electron`` (POSIX).  Returns None when not found, in
+    which case the launcher falls back to ``npm run dev``.
+    """
+    if sys.platform == "win32":
+        candidate = CLIENT_DIR / "node_modules" / "electron" / "dist" / "electron.exe"
+    else:
+        candidate = CLIENT_DIR / "node_modules" / "electron" / "dist" / "electron"
+    return str(candidate) if candidate.exists() else None
+
+
+def _main_entry_built() -> bool:
+    """Return True if the compiled Electron main bundle exists.
+
+    ``electron .`` loads ``out/main/index.js`` (the electron-vite build
+    output).  If the client has never been built (fresh checkout, deleted
+    ``out/``), this is False and we must fall back to ``npm run dev``,
+    which both builds and runs.
+    """
+    return (CLIENT_DIR / "out" / "main" / "index.js").exists()
+
+
+def _focus_running_app() -> bool:
+    """Wake an already-running Electron instance via its single-instance lock.
+
+    Spawns a LEAN second ``electron .`` process.  That process:
+      1. loads the prebuilt main bundle,
+      2. calls requestSingleInstanceLock() → returns false,
+      3. quits, which is what triggers the FIRST instance's
+         ``second-instance`` event → it shows + focuses the dashboard.
+
+    This is the cheap path (~100ms, no Vite, no extra ports) for "user
+    clicked Start Menu while app is already in the background."  Returns
+    True if the lean electron was spawned, False if it couldn't be.
+    """
+    exe = _electron_binary()
+    if not exe or not _main_entry_built():
+        # No lean binary available — caller falls back to npm run dev,
+        # which itself will fail the lock and focus the existing window
+        # (at the cost of spinning up a Vite server briefly).
+        log.info("[AUTOSTART] lean electron unavailable; will use npm run dev to focus")
+        return False
+
+    spawn_kwargs: dict = dict(
+        cwd=str(CLIENT_DIR),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+    )
+    spawn_kwargs.update(_spawn_flags())
+    try:
+        # ``electron .`` runs the app pointed at by package.json "main",
+        # i.e. ./out/main/index.js.  VT_FOCUS_ONLY is a marker env var the
+        # duplicate reads to know it should not attempt any heavy init.
+        env = dict(os.environ)
+        env["VT_FOCUS_ONLY"] = "1"
+        child = subprocess.Popen([exe, "."], env=env, **spawn_kwargs)
+        log.info(
+            "[AUTOSTART] spawned lean electron to focus running instance (pid=%s)",
+            getattr(child, "pid", "?"),
+        )
+        return True
+    except Exception:
+        log.exception("[AUTOSTART] failed to spawn lean electron for focus")
+        return False
+
+
 def launch() -> int:
-    """Launch ``npm run dev`` hidden and exit.
+    """Universal launcher for Voice Typer.
+
+    Two paths, decided by whether the backend port is already listening:
+
+    A) **App already running** (port open):
+       Spawn a lean ``electron .`` that fails the single-instance lock,
+       firing ``second-instance`` on the real instance → it shows + focuses
+       its window.  The duplicate quits within ~100ms.  No Python, no Vite,
+       no second backend.
+
+    B) **App not running** (port closed):
+       Spawn ``npm run dev`` (builds + runs the dev server).  If invoked
+       with ``--hidden`` (the OS autostart entry), sets ``VT_START_HIDDEN=1``
+       so the dashboard starts hidden — the process + tray + bubble run in
+       the background without a visible window.
 
     Returns a process exit code (0 = success).
     """
     _setup_logging()
-    log.info("[AUTOSTART] launcher starting (pid=%d)", os.getpid())
+    hidden = "--hidden" in sys.argv[1:]
+    log.info(
+        "[AUTOSTART] launcher starting (pid=%d, hidden=%s)",
+        os.getpid(), hidden,
+    )
 
-    # 1. Idempotency: if the backend port is already listening, an
-    #    Electron session is already up — don't start a second one.
+    # A) App already running — wake it via single-instance lock.
     if _is_port_open(IPC_HOST, IPC_PORT):
-        log.info(
-            "[AUTOSTART] port %d already in use — backend already running, "
-            "exiting without launching", IPC_PORT,
-        )
+        log.info("[AUTOSTART] backend already running — focusing existing instance")
+        _focus_running_app()
+        # Brief wait so the lean electron process has time to fail the lock
+        # and trigger second-instance before we exit.  It self-quits, so
+        # this is just a courtesy delay; the focus already happened.
+        time.sleep(0.5)
         return 0
 
-    # 2. Locate the client directory.
+    # B) App not running — fresh start.
     if not _client_dir_exists():
         log.error(
             "[AUTOSTART] client directory not found at %s — cannot launch "
@@ -164,7 +253,6 @@ def launch() -> int:
         )
         return 1
 
-    # 3. Spawn ``npm run dev`` detached + hidden.
     spawn_kwargs: dict = dict(
         cwd=str(CLIENT_DIR),
         stdout=subprocess.DEVNULL,
@@ -173,20 +261,26 @@ def launch() -> int:
     )
     spawn_kwargs.update(_spawn_flags())
 
+    # Hidden autostart: tell Electron to create its window hidden.  User-
+    # initiated launches (Start Menu / Desktop, no --hidden) show normally.
+    env = dict(os.environ)
+    if hidden:
+        env["VT_START_HIDDEN"] = "1"
+
     child: subprocess.Popen | None = None
     try:
         if sys.platform == "win32":
             # shell=True lets cmd.exe resolve npm.cmd via PATHEXT.
             child = subprocess.Popen(
-                "npm run dev", shell=True, **spawn_kwargs,
+                "npm run dev", shell=True, env=env, **spawn_kwargs,
             )
         else:
             child = subprocess.Popen(
-                ["npm", "run", "dev"], **spawn_kwargs,
+                ["npm", "run", "dev"], env=env, **spawn_kwargs,
             )
         log.info(
-            "[AUTOSTART] spawned 'npm run dev' in %s (child pid=%s)",
-            CLIENT_DIR, getattr(child, "pid", "?"),
+            "[AUTOSTART] spawned 'npm run dev' in %s (child pid=%s, hidden=%s)",
+            CLIENT_DIR, getattr(child, "pid", "?"), hidden,
         )
     except FileNotFoundError as exc:
         log.error("[AUTOSTART] npm not found: %s", exc)
@@ -195,12 +289,12 @@ def launch() -> int:
         log.exception("[AUTOSTART] failed to spawn npm run dev")
         return 1
 
-    # 4. Record PIDs so the reaper can find this session later.
+    # Record PIDs so the reaper can find this session later.
     _write_pid_file(os.getpid(), getattr(child, "pid", None))
 
-    # 5. Brief wait to let the child initialize, then exit.  The child is
-    #    detached, so it keeps running after we exit.  We don't wait for
-    #    Electron fully (it may take 10-30s) — login shouldn't block.
+    # Brief wait to let the child initialize, then exit.  The child is
+    # detached, so it keeps running after we exit.  We don't wait for
+    # Electron fully (it may take 10-30s) — login shouldn't block.
     time.sleep(2)
     log.info("[AUTOSTART] launcher exiting; child continues detached")
     return 0

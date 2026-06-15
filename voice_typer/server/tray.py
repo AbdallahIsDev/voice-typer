@@ -264,8 +264,15 @@ class TrayIcon:
             if found_hwnd is None:
                 return False
 
+            # Restore from minimized, OR reveal if hidden via close-to-tray.
+            # SW_SHOW (5) makes a hidden window visible without activating;
+            # SW_RESTORE (9) both restores a minimized window and shows it.
+            # We handle both states so the tray "Open app" works whether the
+            # window was minimized normally or hidden to tray.
             if ctypes.windll.user32.IsIconic(found_hwnd):
                 ctypes.windll.user32.ShowWindow(found_hwnd, 9)  # SW_RESTORE
+            elif not ctypes.windll.user32.IsWindowVisible(found_hwnd):
+                ctypes.windll.user32.ShowWindow(found_hwnd, 5)  # SW_SHOW
 
             our_tid = ctypes.windll.kernel32.GetCurrentThreadId()
             target_tid = ctypes.windll.user32.GetWindowThreadProcessId(found_hwnd, None)
@@ -292,20 +299,34 @@ class TrayIcon:
             return False
 
     def open_electron_window(self) -> None:
-        """Open (or focus) the Electron app window.
+        """Open (or focus) the Electron dashboard window.
 
-        1. Try to find an existing Voice Typer window by title and bring it to front.
-        2. If not found, launch the Electron app in development mode (``npm run dev``).
+        Primary path (1 hop): push ``show_window`` over the TCP channel that
+        is always up between us (the backend) and our parent Electron
+        process.  Electron's ``showMainWindow()`` then shows + focuses the
+        dashboard (creating it lazily if autostart started it hidden).
 
-        Note: In production (installed via NSIS), the Electron app should already
-        be running since it spawned this Python process.  The window-focus path
-        (step 1) handles that case.  The fallback dev-launch is for development
-        only and will fail silently in production builds.
+        Fallback: if the push doesn't land (TCP momentarily down, or this
+        backend was started standalone without Electron), use the Win32
+        ``_bring_electron_to_front`` focus path, then finally launch
+        Electron dev mode as a last resort.
         """
+        # 1. Primary: push show_window over TCP.  Cheap, cross-platform,
+        #    and works whether the window is hidden (close-to-tray) or
+        #    minimized.
+        try:
+            from voice_typer.server.ipc_server import _push_event_now
+            if _push_event_now({"type": "show_window"}):
+                log.info("[TRAY] show_window pushed to Electron")
+                return
+        except Exception:
+            log.debug("[TRAY] show_window push failed, trying Win32 focus")
+
+        # 2. Fallback: Win32 EnumWindows focus on an existing window.
         if self._bring_electron_to_front():
             return
 
-        # Launch Electron in development mode
+        # 3. Last resort: Electron isn't running — launch it (dev mode).
         try:
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             client_dir = os.path.join(project_root, "voice_typer", "client")

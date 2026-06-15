@@ -564,11 +564,6 @@ class VoiceTyperApp:
 
         log.info("[STARTUP] initial setup complete -- model loading continues in background")
 
-        # When launched via pythonw.exe (no console), the user gets no visible
-        # feedback.  Show a brief toast so they know the app is alive.
-        if sys.executable.endswith("pythonw.exe"):
-            self.tray.notify_safety("Voice Typer", "Running in system tray")
-
     def _load_transcription_engine_background(self) -> None:
         """Background worker: create + load the transcription engine.
 
@@ -676,11 +671,31 @@ class VoiceTyperApp:
             log.warning("[CONFIG] Prewarm task sync failed: %s", e)
 
     def _ensure_desktop_shortcut(self) -> None:
-        """Create desktop .bat launcher on first run if it doesn't exist."""
+        """Create the Desktop + Start Menu shortcuts on first run.
+
+        Also migrates away the legacy backend-only ``Voice Typer.bat`` that
+        pointed at ``pythonw -m voice_typer`` (which started the backend
+        with no Electron, so the bubble overlay never worked).  That .bat
+        is removed so the user is left with only the correct universal
+        launcher shortcut.
+        """
         if sys.platform != "win32":
             return
-        bat_path = Path.home() / "Desktop" / "Voice Typer.bat"
-        if bat_path.exists():
+        desktop = Path.home() / "Desktop"
+        lnk_path = desktop / "Voice Typer.lnk"
+        legacy_bat = desktop / "Voice Typer.bat"
+
+        # 1. Migrate: remove the legacy backend-only .bat so the broken
+        #    "no bubble" shortcut stops shadowing the correct one.
+        try:
+            if legacy_bat.exists() and "-m voice_typer" in legacy_bat.read_text():
+                legacy_bat.unlink()
+                log.info("[STARTUP] Removed legacy backend-only shortcut: %s", legacy_bat)
+        except OSError:
+            pass
+
+        # 2. Ensure the universal-launcher shortcut exists.
+        if lnk_path.exists():
             return
         try:
             result = create_launcher_shortcut()

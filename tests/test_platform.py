@@ -240,9 +240,9 @@ class TestCreateLauncherShortcut:
         assert result is not None
         assert result.name == "Voice Typer.lnk"
         assert str(result) == str(desktop / "Voice Typer.lnk")
-        mock_shortcut.save.assert_called_once()
+        assert mock_shortcut.save.call_count == 2  # Desktop + Start Menu
         assert str(pythonw) == mock_shortcut.Targetpath
-        assert "-m voice_typer" in mock_shortcut.Arguments
+        assert "autostart_launcher.py" in mock_shortcut.Arguments
 
     @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only test")
     def test_falls_back_to_bat_when_win32com_missing(self, tmp_path, monkeypatch):
@@ -273,7 +273,7 @@ class TestCreateLauncherShortcut:
         assert result.name == "Voice Typer.bat"
         content = result.read_text(encoding="utf-8")
         assert "pythonw" in content
-        assert "-m voice_typer" in content
+        assert "autostart_launcher.py" in content
 
     def test_returns_none_on_non_windows(self, monkeypatch):
         import voice_typer.server.platform as mod

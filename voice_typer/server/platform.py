@@ -101,13 +101,15 @@ def find_microphone_by_id(mic_id: str) -> Optional[dict]:
 # ─── Autostart ─────────────────────────────────────────────────────────
 
 def _autostart_command() -> str:
-    """Build the command that the autostart entry should run.
+    """Build the command that the OS autostart entry should run.
 
-    Runs the ``autostart_launcher`` module, which starts ``npm run dev``
-    in the client directory hidden (Electron dev mode) — this is the
-    correct behaviour for the Electron-based app, and ensures the
-    autostarted instance is compatible with a manually-started
-    ``npm run dev`` (same backend, no mutex conflict).
+    Runs the universal ``autostart_launcher`` module with ``--hidden``,
+    which:
+      • if the app is already running → focuses its window via the
+        single-instance lock and exits (idempotent re-login, etc.);
+      • if not running → spawns ``npm run dev`` with ``VT_START_HIDDEN=1``,
+        so Electron starts its dashboard HIDDEN (tray + bubble still work)
+        instead of popping a window over the user's desktop at login.
 
     On Windows, prefers ``pythonw.exe`` (no console window) when
     available so login doesn't flash a console.  Falls back to
@@ -118,9 +120,9 @@ def _autostart_command() -> str:
     if sys.platform == "win32":
         pythonw = Path(sys.executable).parent / "pythonw.exe"
         python_bin = pythonw if pythonw.exists() else Path(sys.executable)
-        return f'"{python_bin}" "{launcher}"'
+        return f'"{python_bin}" "{launcher}" --hidden'
     # macOS / Linux: use the current interpreter, quoted.
-    return f'"{sys.executable}" "{launcher}"'
+    return f'"{sys.executable}" "{launcher}" --hidden'
 
 
 def get_autostart_dir() -> Path:
@@ -379,15 +381,63 @@ def _generate_icon_ico() -> Optional[Path]:
         return None
 
 
+def _universal_launcher_path() -> Path:
+    """Path to autostart_launcher.py — the single universal launch entry point."""
+    return Path(__file__).resolve().parent / "autostart_launcher.py"
+
+
+def _start_menu_programs_dir() -> Path:
+    """Windows Start Menu → Programs directory for the current user.
+
+    Shortcuts placed here are discoverable via Start Menu search, so the
+    user can type "Voice Typer" to open/focus the app.
+    """
+    return Path(os.environ.get("APPDATA", Path.home())) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
+
+
+def _create_lnk_shortcut(
+    lnk_path: Path,
+    target: str,
+    arguments: str,
+    icon_ico: Optional[Path],
+    description: str,
+) -> bool:
+    """Create a single .lnk shortcut via win32com. Returns True on success."""
+    try:
+        import win32com.client  # noqa: F811
+
+        shell = win32com.client.Dispatch("WScript.Shell")
+        shortcut = shell.CreateShortCut(str(lnk_path))
+        shortcut.Targetpath = target
+        shortcut.Arguments = arguments
+        shortcut.WorkingDirectory = str(Path.home())
+        shortcut.Description = description
+        if icon_ico:
+            shortcut.IconLocation = str(icon_ico)
+        shortcut.save()
+        return True
+    except ImportError:
+        log.debug("[STARTUP] win32com unavailable — .lnk path skipped")
+    except OSError as e:
+        log.warning("[STARTUP] Failed to create .lnk (%s): %s", lnk_path, e)
+    return False
+
+
 def create_launcher_shortcut() -> Optional[Path]:
-    """Create a desktop shortcut for Voice Typer.
+    """Create Desktop + Start Menu shortcuts for Voice Typer.
 
-    On Windows, attempts to create a ``.lnk`` shortcut via ``win32com``
-    with a custom microphone icon.  Falls back to a ``.bat`` launcher
-    if ``win32com`` is unavailable.
+    Both shortcuts point at the **universal launcher** (autostart_launcher.py)
+    WITHOUT ``--hidden``, so a user click:
+      • if the app is already running → focuses its window (via the
+        Electron single-instance lock), no second instance;
+      • if not running → starts Electron + backend with the dashboard visible.
 
-    Returns the path to the created shortcut, or None on unsupported
-    platforms / failure.
+    This fixes the old bug where the desktop shortcut ran the backend ONLY
+    (``pythonw -m voice_typer``), which meant the bubble overlay never
+    appeared and Electron never connected to that process.
+
+    Returns the path to the Desktop shortcut (the primary one), or None on
+    unsupported platforms / failure.
     """
     if SYSTEM != "win32":
         log.info("[STARTUP] Launcher shortcut only supported on Windows")
@@ -398,39 +448,47 @@ def create_launcher_shortcut() -> Optional[Path]:
         log.warning("[STARTUP] pythonw.exe not found at %s — cannot create console-free launcher", pythonw)
         return None
 
+    launcher = _universal_launcher_path()
     desktop = Path.home() / "Desktop"
+    start_menu = _start_menu_programs_dir()
+    icon_ico = _generate_icon_ico()
 
-    # Try .lnk shortcut via win32com
+    # Primary: Desktop .lnk pointing at the universal launcher (no --hidden).
+    primary_path: Optional[Path] = None
+    lnk_desktop = desktop / "Voice Typer.lnk"
+    if _create_lnk_shortcut(
+        lnk_desktop,
+        target=str(pythonw),
+        arguments=f'"{launcher}"',
+        icon_ico=icon_ico,
+        description="Voice Typer — voice-to-text dictation",
+    ):
+        log.info("[STARTUP] Desktop .lnk created: %s", lnk_desktop)
+        primary_path = lnk_desktop
+    else:
+        # Fallback: .bat launcher (same target, no --hidden).
+        bat_path = desktop / "Voice Typer.bat"
+        bat_content = f'@echo off\r\nstart "" "{pythonw}" "{launcher}"\r\n'
+        try:
+            bat_path.write_text(bat_content, encoding="utf-8")
+            log.info("[STARTUP] Desktop .bat created (fallback): %s", bat_path)
+            primary_path = bat_path
+        except OSError as e:
+            log.error("[STARTUP] Failed to create desktop shortcut: %s", e)
+
+    # Secondary: Start Menu copy so Start search finds "Voice Typer".
     try:
-        import win32com.client  # noqa: F811
-
-        lnk_path = desktop / "Voice Typer.lnk"
-        shell = win32com.client.Dispatch("WScript.Shell")
-        shortcut = shell.CreateShortCut(str(lnk_path))
-        shortcut.Targetpath = str(pythonw)
-        shortcut.Arguments = "-m voice_typer"
-        shortcut.WorkingDirectory = str(Path.home())
-        shortcut.Description = "Voice Typer — background voice-to-text"
-
-        icon_ico = _generate_icon_ico()
-        if icon_ico:
-            shortcut.IconLocation = str(icon_ico)
-        shortcut.save()
-
-        log.info("[STARTUP] Launcher shortcut created: %s", lnk_path)
-        return lnk_path
-    except ImportError:
-        log.info("[STARTUP] win32com not available — falling back to .bat launcher")
+        start_menu.mkdir(parents=True, exist_ok=True)
+        lnk_start = start_menu / "Voice Typer.lnk"
+        if _create_lnk_shortcut(
+            lnk_start,
+            target=str(pythonw),
+            arguments=f'"{launcher}"',
+            icon_ico=icon_ico,
+            description="Voice Typer — voice-to-text dictation",
+        ):
+            log.info("[STARTUP] Start Menu .lnk created: %s", lnk_start)
     except OSError as e:
-        log.warning("[STARTUP] Failed to create .lnk shortcut: %s — falling back to .bat", e)
+        log.debug("[STARTUP] Start Menu shortcut skipped: %s", e)
 
-    # Fallback: .bat launcher
-    bat_path = desktop / "Voice Typer.bat"
-    bat_content = f'@echo off\r\nstart "" "{pythonw}" -m voice_typer\r\n'
-    try:
-        bat_path.write_text(bat_content, encoding="utf-8")
-        log.info("[STARTUP] Launcher shortcut created (fallback .bat): %s", bat_path)
-        return bat_path
-    except OSError as e:
-        log.error("[STARTUP] Failed to create launcher shortcut: %s", e)
-        return None
+    return primary_path
