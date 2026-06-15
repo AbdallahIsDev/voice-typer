@@ -25,7 +25,22 @@ let pythonExitedEarly = false;
 // Bubble geometry (logical px).
 const BUBBLE_WIDTH = 400;
 const BUBBLE_HEIGHT = 160;
-const BUBBLE_VERSION = "2025-06-13.bubble-v2";
+
+// ANSI color constants — match the Python backend's _ColorFormatter so
+// Electron and Python log lines look identical in the terminal.
+const DIM = "\x1b[38;5;242m";      // dim grey for timestamps
+const RESET = "\x1b[0m";
+const BUBBLE_CLR = "\x1b[38;5;39m"; // bright cyan for [BUBBLE] tags
+
+/**
+ * Format current time as HH:MM:SS (24h), wrapped in ANSI dim-grey,
+ * matching the Python backend's timestamp format/color so the terminal
+ * output is visually consistent across both processes.
+ */
+function ts(): string {
+  const d = new Date();
+  return `${DIM}${d.toLocaleTimeString("en-US", { hour12: false })}${RESET}`;
+}
 
 /**
  * Kill any leftover `voice_typer` Python processes from previous
@@ -173,10 +188,10 @@ function handleMessage(msg: Record<string, unknown>) {
     // window (not the main app) so the floating overlay updates without
     // re-rendering the sidebar.
     if (msg.type === "bubble_show") {
-      console.log("[BUBBLE] received bubble_show from Python");
+      console.log(`${ts()}  ${BUBBLE_CLR}[BUBBLE] received bubble_show from Python${RESET}`);
       showBubbleWindow();
     } else if (msg.type === "bubble_hide") {
-      console.log("[BUBBLE] received bubble_hide from Python");
+      console.log(`${ts()}  ${BUBBLE_CLR}[BUBBLE] received bubble_hide from Python${RESET}`);
       hideBubbleWindow();
     } else if (msg.type === "bubble_level") {
       bubbleWindow?.webContents.send("bubble:level", msg.data);
@@ -267,7 +282,7 @@ function createBubbleWindow(): BrowserWindow {
     return bubbleWindow;
   }
   const { x, y } = centerOnPrimaryDisplay();
-  console.log(`[BUBBLE v=${BUBBLE_VERSION}] creating window at (${x}, ${y}) ${BUBBLE_WIDTH}x${BUBBLE_HEIGHT}`);
+  console.log(`${ts()}  ${BUBBLE_CLR}[BUBBLE] creating window at (${x}, ${y}) ${BUBBLE_WIDTH}x${BUBBLE_HEIGHT}${RESET}`);
 
   const win = new BrowserWindow({
     width: BUBBLE_WIDTH,
@@ -295,7 +310,7 @@ function createBubbleWindow(): BrowserWindow {
   });
 
   try { win.setAlwaysOnTop(true, "screen-saver"); }
-  catch (e) { console.warn("[BUBBLE] screen-saver failed, trying floating:", e);
+  catch (e) { console.warn(`${ts()}  ${BUBBLE_CLR}[BUBBLE] screen-saver failed, trying floating:${RESET}`, e);
     try { win.setAlwaysOnTop(true, "floating"); } catch {} }
   try { win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }); } catch {}
   if (process.platform === "win32") {
@@ -303,28 +318,29 @@ function createBubbleWindow(): BrowserWindow {
   }
 
   win.webContents.on("did-fail-load", (_e, code, desc, url) => {
-    console.error(`[BUBBLE] did-fail-load code=${code} desc=${desc} url=${url}`);
+    console.error(`${ts()}  ${BUBBLE_CLR}[BUBBLE] did-fail-load code=${code} desc=${desc} url=${url}${RESET}`);
   });
   win.webContents.on("did-finish-load", () => {
-    console.log("[BUBBLE] did-finish-load");
+    console.log(`${ts()}  ${BUBBLE_CLR}[BUBBLE] did-finish-load${RESET}`);
   });
   win.webContents.on("render-process-gone", (_e, details) => {
-    console.error("[BUBBLE] render-process-gone:", details);
+    console.error(`${ts()}  ${BUBBLE_CLR}[BUBBLE] render-process-gone:${RESET}`, details);
   });
   win.webContents.on("preload-error", (_e, file, err) => {
-    console.error(`[BUBBLE] preload-error file=${file}`, err);
+    console.error(`${ts()}  ${BUBBLE_CLR}[BUBBLE] preload-error file=${file}${RESET}`, err);
   });
   win.webContents.on("console-message", (_e, level, message, line, source) => {
+    if (message.includes("Content-Security-Policy")) return; // suppress dev warning
     if (level >= 2) {
       const tag = ["VRB", "INF", "WRN", "ERR"][level] ?? "LOG";
-      console.log(`[BUBBLE renderer ${tag}] ${message} (${source}:${line})`);
+      console.log(`${ts()}  ${BUBBLE_CLR}[BUBBLE renderer ${tag}] ${message} (${source}:${line})${RESET}`);
     }
   });
 
   const loadTarget = process.env.ELECTRON_RENDERER_URL
-    ? process.env.ELECTRON_RENDERER_URL + "bubble.html"
+    ? process.env.ELECTRON_RENDERER_URL + "/bubble.html"
     : path.join(__dirname, "../renderer/bubble.html");
-  console.log(`[BUBBLE] loading ${loadTarget}`);
+  console.log(`${ts()}  ${BUBBLE_CLR}[BUBBLE] loading ${loadTarget}${RESET}`);
   if (process.env.ELECTRON_RENDERER_URL) {
     void win.loadURL(loadTarget);
   } else {
@@ -333,7 +349,7 @@ function createBubbleWindow(): BrowserWindow {
 
   bubbleWindow = win;
   win.on("closed", () => {
-    console.log("[BUBBLE] closed");
+    console.log(`${ts()}  ${BUBBLE_CLR}[BUBBLE] closed${RESET}`);
     if (bubbleWindow === win) bubbleWindow = null;
     bubblePageReady = false;
   });
@@ -346,7 +362,7 @@ function showBubbleWindow(): void {
   }
   const win = bubbleWindow;
   if (!win) {
-    console.error("[BUBBLE] showBubbleWindow: no window to show");
+    console.error(`${ts()}  ${BUBBLE_CLR}[BUBBLE] showBubbleWindow: no window to show${RESET}`);
     return;
   }
 
@@ -359,7 +375,7 @@ function showBubbleWindow(): void {
   try {
     if (!win.isVisible()) { win.show(); }
   } catch (e) {
-    console.error("[BUBBLE] show() failed:", e);
+    console.error(`${ts()}  ${BUBBLE_CLR}[BUBBLE] show() failed:${RESET}`, e);
   }
   try { win.moveTop(); } catch {}
   try { win.setAlwaysOnTop(true, "screen-saver"); } catch {}
@@ -367,7 +383,7 @@ function showBubbleWindow(): void {
   setImmediate(() => {
     if (!win || win.isDestroyed()) return;
     if (!win.isVisible()) {
-      console.warn("[BUBBLE] not visible after show() — retrying");
+      console.warn(`${ts()}  ${BUBBLE_CLR}[BUBBLE] not visible after show() -- retrying${RESET}`);
       try { win.show(); } catch {}
       try { win.moveTop(); } catch {}
       try { win.setAlwaysOnTop(true, "screen-saver"); } catch {}
@@ -379,12 +395,12 @@ function hideBubbleWindow(): void {
   const win = bubbleWindow;
   if (win && !win.isDestroyed() && win.isVisible()) {
     win.hide();
-    console.log("[BUBBLE] hidden");
+    console.log(`${ts()}  ${BUBBLE_CLR}[BUBBLE] hidden${RESET}`);
   }
 }
 
 ipcMain.on("bubble:ready", () => {
-  console.log("[BUBBLE] renderer reports ready");
+  console.log(`${ts()}  ${BUBBLE_CLR}[BUBBLE] renderer reports ready${RESET}`);
   bubblePageReady = true;
 });
 
@@ -519,7 +535,7 @@ app.whenReady().then(() => {
   killStalePython();
 
   if (process.env.VT_BUBBLE_TEST === "1") {
-    console.log("[BUBBLE] VT_BUBBLE_TEST=1 — showing bubble for diagnostics");
+    console.log(`${ts()}  ${BUBBLE_CLR}[BUBBLE] VT_BUBBLE_TEST=1 -- showing bubble for diagnostics${RESET}`);
     setTimeout(() => {
       showBubbleWindow();
       const id = setInterval(() => {

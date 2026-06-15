@@ -1,13 +1,13 @@
 # Voice Typer
 
-Premium offline background voice-to-text utility for Windows. Runs in your system tray. Press F2, talk, press F2 again -- final text is copied to your clipboard and pasted safely when a text field is focused.
+Premium offline background voice-to-text utility for Windows. Runs in your system tray. Press the hotkey, talk, press it again — final text is copied to your clipboard and pasted safely when a text field is focused.
 
 ## How It Works
 
 1. App starts in the system tray (appears in <200ms, model loads in the background)
-2. Press **F2** anywhere to start recording
-3. Talk freely -- switch apps, browse, do whatever
-4. Press **F2** again to stop (or let silence/max duration stop it automatically)
+2. Press the hotkey anywhere to start recording (configurable in Settings)
+3. Talk freely — switch apps, browse, do whatever
+4. Press the hotkey again to stop (or let silence/max duration stop it automatically)
 5. Audio is transcribed locally (faster-whisper or optional Qwen3-ASR, your GPU if available)
 6. Text is cleaned (dedup, misspellings, self-corrections, capitalization)
 7. Text is copied to clipboard
@@ -18,7 +18,7 @@ No cloud. No API keys. No rate limits. Fully offline after first model download.
 ## Quick Install (Windows — Easiest)
 
 1. Go to **[Releases](https://github.com/AbdallahIsDev/voice-typer/releases)**
-2. Download `VoiceTyper-Setup-1.0.0.exe`
+2. Download the latest `VoiceTyper-Setup-*.exe`
 3. Double-click the installer
 4. Click Next → Install → Finish
 5. Voice Typer starts automatically — look for the microphone icon in your system tray
@@ -29,7 +29,7 @@ No Python, no terminal, no commands needed.
 
 - Windows 10/11 (primary target; platform.py has stubs for macOS/Linux autostart but the app is not tested on those platforms)
 - A microphone
-- Internet on first run (downloads the Whisper model ~466MB)
+- Internet on first run (downloads the Whisper model for the selected model size)
 
 ## For Developers (from source)
 
@@ -95,7 +95,7 @@ A desktop shortcut with a microphone icon is automatically created on first star
 
 ## Fast Startup
 
-The tray icon appears in under 200ms. The transcription engine is created in a background thread while the UI becomes immediately responsive. F2 is usable in approximately 4 seconds once the model finishes loading. If the model hasn't loaded yet when you press F2, you'll see a "Starting up — please wait" message.
+The tray icon appears in under 200ms. The transcription engine is created in a background thread while the UI becomes immediately responsive. The hotkey is usable in approximately 4 seconds once the model finishes loading. If the model hasn't loaded yet when you press it, you'll see a "Starting up — please wait" message.
 
 ## Settings
 
@@ -107,12 +107,26 @@ Settings are stored in JSON for troubleshooting:
 
 Use Settings for normal changes. Use the advanced settings button to open the raw config file only when troubleshooting.
 
+All configurable fields, their defaults, and descriptions are defined in
+`voice_typer/server/config.py` — that file is the canonical source of truth
+for every setting. Key categories:
+
+| Category | Settings |
+|---|---|
+| Hotkey | `hotkey`, `recording_mode`, `push_to_talk_hotkey`, `repaste_hotkey` |
+| Recording | `microphone`, `sample_rate`, `silence_warning_seconds`, `silence_auto_stop_seconds`, `max_recording_seconds` |
+| Transcription | `model_size`, `language`, `device`, `beam_size`, `streaming_transcription` |
+| Behavior | `autostart`, `paste_on_stop`, `show_notifications`, `text_cleanup_enabled` |
+| ASR backend | `asr_backend` (whisper/qwen/parakeet), `qwen_model_path`, `parakeet_model_path` |
+| Audio warnings | `audio_quality_warnings`, `audio_clipping_warning`, `audio_low_volume_warning`, `audio_noise_warning` |
+| History | `history_retention_days`, `history_retention_count`, `history_max_entries` |
+
 ### Tray Menu Structure
 
 ```
-Toggle Dictation (F2)
+Toggle Dictation (current hotkey)
 ─────────────────────
-Hotkey          → F2, F3, ... F12, Ctrl+1..5, Custom
+Hotkey          → current, F3, ... F12, Ctrl+1..5, Custom
 Microphone      → System Default, [device list]
 Model           → tiny.en, small.en, medium.en, qwen
 Advanced        → Start on Login
@@ -132,45 +146,14 @@ Select **Custom** in the Hotkey submenu to open a dialog where you can type any 
 
 ### Model Selection
 
-All four models are available from the tray menu:
+Available models (subject to Whisper upstream naming and sizes):
 
-| Model | Size | Speed | Notes |
-|---|---|---|---|
-| `tiny.en` | ~75MB | Fastest | Lower accuracy, good for quick notes |
-| `small.en` | ~466MB | Fast | Default, best balance of speed and accuracy |
-| `medium.en` | ~1.5GB | Slow | Higher accuracy for difficult audio |
-| `qwen` | varies | varies | Qwen3-ASR, requires separate installation |
-
-### Config Reference
-
-| Setting | Default | Description |
-|---|---|---|
-| `hotkey` | `<f2>` | Global hotkey to toggle dictation |
-| `microphone` | `null` | Microphone device index (string), or `null` for system default |
-| `model_size` | `small.en` | User-facing Whisper model: `tiny.en`, `small.en`, `medium.en`, or `qwen` |
-| `language` | `en` | Language for transcription |
-| `device` | `cuda` | CUDA-first runtime policy. Falls back to CPU automatically if CUDA is unavailable or fails |
-| `beam_size` | `1` | Decode beam size. `1` is fastest; higher values can improve accuracy but slow transcription |
-| `best_of` | `1` | Candidate count for decoding. Keep `1` for fastest voice typing |
-| `condition_on_previous_text` | `false` | Reuse previous decoded text as context. Disabled by default for lower latency |
-| `streaming_transcription` | `true` | Hidden streaming is enabled for faster long recordings. Emergency override: `VOICE_TYPER_STREAMING=0` |
-| `autostart` | `true` | Start automatically on login |
-| `paste_on_stop` | `true` | Auto-paste into focused field after transcription |
-| `show_notifications` | `true` | Show desktop notifications for dictation events (completion, errors). Safety alerts always fire regardless |
-| `text_cleanup_enabled` | `true` | Apply post-transcription text cleanup (dedup, misspellings, self-corrections, capitalization) |
-| `unsafe_paste_on_unknown_focus` | `false` | Paste even when focus detection can't determine a text input is focused |
-| `log_transcriptions` | `false` | Log transcription text to the log file |
-| `asr_backend` | `"whisper"` | ASR backend: `"whisper"` or `"qwen"` |
-| `qwen_model_path` | `""` | Path to Qwen3-ASR model files (local directory) |
-| `corrections_path` | `""` | Path to external corrections.json file (overrides bundled defaults) |
-| `silence_warning_seconds` | `20.0` | Seconds of silence before warning notification. Configurable from tray (5s, 10s, 15s, 20s, Custom) |
-| `silence_auto_stop_seconds` | `120.0` | Seconds of silence before auto-stopping recording. Configurable from tray (1min, 2min, 3min, 5min, Custom) |
-| `max_recording_seconds` | `0` | Max recording duration override in seconds. `0` = use device-specific default. Configurable from tray (5min, 10min, 15min, 20min, Custom) |
-| `max_recording_seconds_gpu` | `1200` | Default max recording for GPU mode (20 minutes) |
-| `max_recording_seconds_cpu` | `600` | Default max recording for CPU mode (10 minutes) |
-| `schema_version` | `1` | Config schema version for migration support |
-
-Advanced streaming timing settings (`streaming_chunk_seconds`, `streaming_step_seconds`, `streaming_left_overlap_seconds`, `streaming_right_guard_seconds`, `streaming_min_first_chunk_seconds`, `streaming_silence_threshold`) are also available in the config file.
+| Model | Notes |
+|---|---|
+| `tiny.en` | Fastest, lower accuracy |
+| `small.en` | Default, best balance of speed and accuracy |
+| `medium.en` | Higher accuracy for difficult audio |
+| `qwen` | Qwen3-ASR, requires separate installation (`pip install qwen-asr torch`) |
 
 ## Silence Detection and Auto-Stop
 
@@ -182,11 +165,11 @@ Uses variance-based analysis to detect when the microphone stops capturing audio
 
 ### Auto-Stop Timeout
 
-Recording automatically stops after a configurable silence period (default 2 minutes). This prevents runaway recordings if you walk away or forget to press F2. Configure from **tray menu → Advanced → Auto-Stop Timeout**.
+Recording automatically stops after a configurable silence period (default 2 minutes). This prevents runaway recordings if you walk away or forget to press the hotkey. Configure from **tray menu → Advanced → Auto-Stop Timeout**.
 
 ### Max Recording Duration
 
-Recording automatically stops after reaching a maximum time limit. GPU default is 20 minutes; CPU default is 10 minutes (longer recordings may use significant RAM during transcription). Configure from **tray menu → Advanced → Max Recording**.
+Recording automatically stops after reaching a maximum time limit. Configure from **tray menu → Advanced → Max Recording**.
 
 All three features fire **safety notifications** that bypass the notification toggle — you will always be alerted when recording stops due to silence or max duration.
 
@@ -217,8 +200,6 @@ python -c "import sounddevice as sd; [print(i, d['name'], sd.query_hostapis(d['h
 ## Autostart
 
 Enable or disable from **Settings -> Advanced -> Start on login**.
-
-Alternatively, set `"autostart": true` in the config file and restart.
 
 The app registers itself in `HKCU\...\Run` (uses `pythonw.exe` for background execution, no console window). Hotkey uses Win32 RegisterHotKey with GetAsyncKeyState polling for reliable detection. The package must be installed (`pip install .`) for autostart to work.
 
@@ -269,20 +250,21 @@ but the app is primarily developed and tested on Windows.
 - Focus detection for safe auto-paste (Win32 API)
 - Win32 console control handler keeps the tray app alive when the console is closed
 - GPU acceleration via CUDA if available (NVIDIA wheel DLL paths configured automatically)
-- Composite hotkeys with modifiers (`<ctrl>+<alt>+f2`) supported via both Win32 RegisterHotKey and pynput fallback
+- Composite hotkeys with modifiers supported via both Win32 RegisterHotKey and pynput fallback
 
 ## Architecture
 
 ```
 voice_typer/
-├── __init__.py         # Package init
+├── __init__.py         # Package init, __version__
 ├── __main__.py         # Entry point (python -m voice_typer)
-├── app.py              # Main orchestrator -- startup, state machine, callbacks, thread safety
+├── app.py              # Main orchestrator — startup, state machine, callbacks, thread safety
 ├── asr_setup.py        # ASR auto-setup: GPU detection, dependency checking, weight downloading
 ├── config.py           # Configuration with platform-aware paths, validation, and schema versioning
 ├── recording.py        # Session-based audio recording with device fallback chain and silence detection
 ├── transcription.py    # faster-whisper engine with 4-level GPU->CPU fallback
 ├── qwen_engine.py      # Optional Qwen3-ASR-0.6B backend (self-contained, graceful fallback)
+├── parakeet_engine.py  # Optional NVIDIA Parakeet backend
 ├── streaming.py        # Hidden streaming transcription with overlapping audio windows and retry counter
 ├── text_cleanup.py     # Post-transcription cleanup pipeline (dedup, misspellings, self-corrections, capitalization)
 ├── clipboard.py        # Clipboard copy + safe auto-paste with terminal detection
@@ -291,32 +273,36 @@ voice_typer/
 ├── platform.py         # OS-specific autostart adapters + mic listing + desktop shortcut creation
 ├── settings.py         # Tkinter-based settings window + SettingsController
 ├── tray.py             # System tray icon (pystray) with dynamic menu, state indication, and safety notifications
-└── corrections.json    # Bundled misspellings, phrase corrections, and extra-word patterns
+├── corrections.json    # Bundled misspellings, phrase corrections, and extra-word patterns
+├── client/             # Electron frontend (TypeScript/React/Vite)
+│   ├── src/main/       # Electron main process
+│   ├── src/renderer/   # React renderer
+│   └── src/preload/    # Context bridge (IPC)
+└── tests/              # Test suite
 ```
 
 Key design decisions:
 
-- **Fast startup**: Tray icon appears in <200ms. TranscriptionEngine created in background thread. F2 usable in ~4s.
-- **Hidden streaming transcription**: Records the full session while transcribing safe overlapping chunks in the background. On stop, it finalizes the unconfirmed tail and falls back to full-session batch transcription if streaming state is unsafe. Overlapping windows with timestamp-based dedup prevent duplicate words across chunk boundaries. A retry counter tolerates transient errors (3 consecutive failures before fallback). Committed words are preserved during streaming.
-- **Dual ASR backends**: Whisper (default, via faster-whisper) with 4-level GPU->CPU fallback, and optional Qwen3-ASR-0.6B. Backend selection via `asr_backend` config key.
-- **ASR auto-setup**: `asr_setup.py` handles GPU detection, dependency verification, and weight downloading at startup.
-- **Text cleanup pipeline**: High-confidence adjacent duplicate removal (preserving intentional repeats like "no no no", "very very good"), self-correction cleanup with improved thresholds (min 5 chars or half word length), misspelling correction via bundled `corrections.json`, known Whisper phrase substitutions, extra-word removal, sentence capitalization, pronoun-I capitalization with Roman numeral awareness, and case-preserving phrase corrections. No forced terminal punctuation (avoids corrupting URLs, commands, and code).
-- **Low-audio hallucination guard**: Rejects known boilerplate phrases ("Thanks for watching", "See you next time") only when audio evidence indicates near-silence or a weak mostly-silent long recording.
-- **Fast default decoding**: Uses greedy decoding (`beam_size=1`) with VAD filter and no timestamp decoding for lower voice-typing latency.
-- **Safe auto-paste**: Paste keystrokes only sent when a text input is confirmed focused. Terminal emulators get Shift+Insert. Clipboard always populated. With `unsafe_paste_on_unknown_focus: true`, pastes even when focus can't be determined.
-- **Composite hotkey support**: Hotkeys with modifiers like `<ctrl>+<alt>+f2` via both Win32 RegisterHotKey and pynput fallback. Custom hotkey input via dialog.
-- **Microphone fallback chain**: Same-name candidate discovery across host APIs, ranked by reliability (MME > WASAPI > WDM-KS > DirectSound). Falls back further to all available input devices if the configured mic fails.
-- **Silence detection**: Variance-based mic disconnect detection with repeating warnings (exponential backoff). Auto-stop on prolonged silence. Max recording duration with device-specific defaults (GPU: 20min, CPU: 10min). Safety notifications bypass the notification toggle.
-- **Notification split**: Safety alerts (silence, auto-stop, max duration) always fire. Dictation notifications (completion, errors) controlled by user toggle.
-- **Single instance**: Windows named mutex prevents duplicate processes. Restart flow uses env var to bypass the check.
-- **Desktop shortcut**: Auto-created on first startup with microphone icon. Uses `pythonw.exe` for console-free execution.
-- **Buffer management**: O(1) deque buffer with hard cap at 30k chunks (~30 min). Telemetry warnings at 1k and 5k chunks.
-- **Console survival**: Win32 console control handler lets the tray app survive console closure (FreeConsole + orphan guard with 60s timeout).
-- **Tray-first**: The tray icon is the primary UI. It appears before model loading starts so you always know the app is running.
-- **Graceful degradation**: If GPU not available, falls back to CPU. If MKL int8 allocation fails, falls back to float32 with tiny.en. If auto-paste fails, clipboard still has the text. If hotkey fails, tray menu still works. If model loading fails entirely, the app stays alive and F2 retries loading.
-- **Settings window**: Tkinter-based GUI for all config options, with an "Advanced" collapsible section for autostart and notifications.
-- **Thread safety**: Busy state guarded by `threading.Event`, streaming session access protected by `threading.Lock`. Timers tracked and cancelled across recording sessions. Watchdog timer recovers from stuck transcriptions after 60s.
-- **Config schema versioning**: `schema_version` field in config file enables future migration support.
+- **Fast startup**: Tray icon appears in <200ms. TranscriptionEngine created in background thread.
+- **Hidden streaming transcription**: Records the full session while transcribing safe overlapping chunks in the background. On stop, it finalizes the unconfirmed tail and falls back to full-session batch transcription if streaming state is unsafe.
+- **Dual ASR backends**: Whisper (default, via faster-whisper) with 4-level GPU->CPU fallback, optional Qwen3-ASR-0.6B, and optional NVIDIA Parakeet. Backend selection via `asr_backend` config key.
+- **ASR auto-setup**: GPU detection, dependency verification, and weight downloading at startup.
+- **Text cleanup pipeline**: High-confidence adjacent duplicate removal, self-correction cleanup, misspelling correction, phrase substitutions, extra-word removal, sentence capitalization, pronoun-I capitalization with Roman numeral awareness, and case-preserving phrase corrections.
+- **Low-audio hallucination guard**: Rejects known boilerplate phrases only when audio evidence indicates near-silence.
+- **Fast default decoding**: Greedy decoding with VAD filter and no timestamp decoding for low latency.
+- **Safe auto-paste**: Paste keystrokes only sent when a text input is confirmed focused. Terminal emulators get Shift+Insert. Clipboard always populated.
+- **Composite hotkey support**: Hotkeys with modifiers via both Win32 RegisterHotKey and pynput fallback. Custom hotkey input via dialog.
+- **Microphone fallback chain**: Same-name candidate discovery across host APIs, ranked by reliability. Falls back further to all available input devices if the configured mic fails.
+- **Silence detection**: Variance-based mic disconnect detection with repeating warnings (exponential backoff). Auto-stop on prolonged silence.
+- **Notification split**: Safety alerts always fire. Dictation notifications controlled by user toggle.
+- **Single instance**: Windows named mutex prevents duplicate processes.
+- **Desktop shortcut**: Auto-created on first startup with microphone icon.
+- **Buffer management**: O(1) deque buffer with hard cap. Telemetry warnings at configurable thresholds.
+- **Console survival**: Win32 console control handler lets the tray app survive console closure.
+- **Tray-first**: The tray icon is the primary UI. It appears before model loading starts.
+- **Graceful degradation**: GPU → CPU → tiny.en fallback chain. If auto-paste fails, clipboard still has the text. If hotkey fails, tray menu still works. If model loading fails, app stays alive and retries.
+- **Thread safety**: Busy state guarded by `threading.Event`, streaming session access protected by `threading.Lock`.
+- **Config schema versioning**: `schema_version` field enables future migration support.
 
 ## Log File
 
@@ -329,8 +315,8 @@ Uses `RotatingFileHandler` (1MB max, 2 backups) with structured logging (session
 ### Word drops
 
 - Keep hidden streaming enabled unless diagnosing: it finalizes the tail and falls back to batch transcription if timestamps are unsafe.
-- Streaming now preserves committed words and tolerates transient errors (3 consecutive failures before fallback).
-- Check the log for `[STREAMING] Finalizing streaming transcript`, fallback messages, and transcription length.
+- Streaming preserves committed words and tolerates transient errors (3 consecutive failures before fallback).
+- Check the log for `[STREAMING]` messages.
 - For emergency batch-only mode, run with `VOICE_TYPER_STREAMING=0`.
 
 ### Duplicate words
@@ -359,10 +345,9 @@ Uses `RotatingFileHandler` (1MB max, 2 backups) with structured logging (session
 ### Recording stops unexpectedly
 
 - Check if **Auto-Stop Timeout** or **Max Recording** triggered. Both fire safety notifications.
-- Auto-stop defaults to 2 minutes of silence. Max recording defaults to 20min (GPU) or 10min (CPU).
 - Adjust these from **tray menu → Advanced**.
 
-### Slow stop after F2
+### Slow stop after pressing the hotkey
 
 - Current logs include `Stop timing` with stream, concat, stats, resample, and total milliseconds.
 - The resampler is warmed at startup. If stop is slow, check whether `Resampler warmed up` appears before the recording.
@@ -372,7 +357,7 @@ Uses `RotatingFileHandler` (1MB max, 2 backups) with structured logging (session
 
 - Voice Typer tries CUDA first. If CUDA/cuBLAS/cuDNN fails during load or transcription, it falls back to CPU.
 - On Windows, NVIDIA wheel DLL paths are added automatically when installed.
-- The fallback chain: configured device -> CPU/int8 with original model -> CPU/int8 with tiny.en -> CPU/float32 with tiny.en (last resort avoiding MKL int8 path).
+- The fallback chain: configured device → CPU/int8 with original model → CPU/int8 with tiny.en → CPU/float32 with tiny.en.
 
 ### Autostart
 
@@ -391,9 +376,8 @@ Uses `RotatingFileHandler` (1MB max, 2 backups) with structured logging (session
 - Self-correction detection uses a higher threshold (min 5 chars or half word length) to reduce false positives.
 - Phrase corrections preserve ALL-CAPS, Title Case, and mixed case patterns.
 - Roman numeral detection prevents false capitalization of "i" in academic/numbered contexts.
-- Bundled corrections are in `voice_typer/corrections.json` (misspellings, phrase corrections, extra-word patterns).
+- Bundled corrections are in `voice_typer/corrections.json`.
 - Place a `voice-typer-corrections.json` in the config directory (or set `corrections_path` in config) to override bundled entries.
-- External file format: `{"misspellings": {...}, "phrase_corrections": [["bad", "good"], ...], "extra_word_patterns": [["bad", "good"], ...]}`.
 
 ### Already running
 
@@ -401,77 +385,16 @@ Uses `RotatingFileHandler` (1MB max, 2 backups) with structured logging (session
 - If you see "Voice Typer is already running", check the system tray for the existing instance.
 - Use **Restart** from the tray menu to cleanly restart the app.
 
-## Manual Verification Checklist
-
-Run:
-
-```bash
-python -m voice_typer
-```
-
-Verify:
-
-- Tray icon appears in <200ms
-- F2 starts recording and tray shows recording.
-- F2 stops recording and tray shows transcribing, then idle.
-- Short phrase copies to clipboard and pastes into focused text input.
-- Duplicate-risk phrase does not duplicate words.
-- Intentional repetition stays repeated.
-- 30-60s phrase preserves words across streaming chunks.
-- Quiet speech either transcribes or reports no speech with microphone guidance.
-- 3s silence does not copy/paste boilerplate hallucinations.
-- Silence warning fires after configured threshold (default 20s).
-- Auto-stop fires after configured silence period (default 2min).
-- Max recording duration stops recording at limit (20min GPU, 10min CPU).
-- Safety notifications fire even when dictation notifications are disabled.
-- Custom hotkey dialog accepts and applies new key combos.
-- Restart launches new instance and quits current one.
-- Second instance shows "already running" and exits.
-- Desktop shortcut created on first run and works from tray menu.
-- All four models selectable from tray (tiny.en, small.en, medium.en, qwen).
-- Settings opens and saves hotkey/microphone/model changes.
-- Quit exits cleanly with no orphan app process.
-
-## Verification Status
-
-| Feature | Verified | Notes |
-|---|---|---|
-| Tray startup | Yes | `python.exe` and `pythonw.exe` |
-| F2 hotkey | Yes | Both launch modes |
-| Transcription + clipboard | Yes | Full F2 cycle tested |
-| Auto-paste (focused input) | Yes | Chrome, Warp, Windows Terminal, Codex |
-| Paste skip (non-text window) | Yes | Explorer, Settings correctly excluded |
-| pythonw via Start-Process | Yes | Same launch path as Windows autostart |
-| Single instance enforcement | Yes | Windows named mutex |
-| Desktop shortcut | Yes | Auto-created + manual from tray |
-| Fast startup (<200ms tray) | Yes | Background model loading |
-| Silence detection | Yes | Variance-based with exponential backoff warnings |
-| Auto-stop timeout | Yes | Configurable from tray |
-| Max recording duration | Yes | Device-specific defaults |
-| Safety notifications | Yes | Bypass notification toggle |
-| Custom hotkey input | Yes | Dialog-based key combo entry |
-| Restart button | Yes | New instance + clean quit |
-| Model selection (4 models) | Yes | Including qwen backend |
-| Streaming retry counter | Yes | 3 consecutive failures before fallback |
-| Streaming word preservation | Yes | Committed words kept across chunks |
-| Case-preserving corrections | Yes | ALL-CAPS, Title Case, mixed |
-| Roman numeral detection | Yes | Context-aware "i" capitalization |
-| Config schema versioning | Yes | Migration-ready |
-| ASR auto-setup | Yes | GPU detection + dependency check |
-| **Reboot/login autostart** | **No** | Registry entry correct, pythonw survives Start-Process, but actual reboot has not been manually verified |
-
-To verify reboot autostart: reboot, confirm the tray icon appears automatically, press F2 and run one short dictation cycle.
-
 ## Known Limitations
 
 - Focus detection (for safe auto-paste) only works on Windows
-- First model download requires internet (~466MB for small.en)
+- First model download requires internet (the default model is ~466MB)
 - Very long recordings (>10 min) may use significant RAM during transcription
 - The standalone installer bundles Python + dependencies (no Python installation needed)
 
 ## Project Status
 
-Actively maintained. Uses proper type checking via Pyrefly. ~4000 lines of tests across 14 test files. Standalone Windows installer available.
+Actively maintained. Uses proper type checking via Pyrefly. Standalone Windows installer available for each release.
 
 ## License
 

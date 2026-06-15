@@ -454,6 +454,55 @@ class TestSettingsWindowIntegration:
         old_backend.stop.assert_called_once()
         app._register_hotkey.assert_called_once()
 
+    def test_restart_app_forwards_port_argument(self, app, monkeypatch):
+        """restart_app() must forward --port to the new process so the
+        restarted backend listens on the same TCP port Electron is
+        connected to.  Without this, push events (including waveform
+        bubble show/hide/level) never reach Electron after a restart."""
+        import subprocess as _sp
+        captured = {}
+        def fake_popen(args, **kw):
+            captured["args"] = args
+            captured["env"] = kw.get("env", {})
+            return MagicMock()
+        monkeypatch.setattr(_sp, "Popen", fake_popen)
+        monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+        # Simulate having been started with --port 9876 (Electron mode)
+        monkeypatch.setattr(sys, "argv", ["voice_typer", "--port", "9876"])
+
+        try:
+            app.restart_app()
+        except SystemExit:
+            pass  # os._exit is mocked, but just in case
+
+        args = captured.get("args", [])
+        assert "--port" in args, f"restart must forward --port, got: {args}"
+        port_idx = args.index("--port")
+        assert port_idx + 1 < len(args), "missing port value"
+        assert args[port_idx + 1] == "9876", f"wrong port: {args[port_idx + 1]}"
+        assert "voice_typer.server.ipc_server" in args
+
+    def test_restart_app_without_port_uses_stdin_mode(self, app, monkeypatch):
+        """If started without --port (standalone mode), restart should
+        also not add --port (preserves stdin/stdout mode)."""
+        import subprocess as _sp
+        captured = {}
+        def fake_popen(args, **kw):
+            captured["args"] = args
+            return MagicMock()
+        monkeypatch.setattr(_sp, "Popen", fake_popen)
+        monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+        # No --port in argv
+        monkeypatch.setattr(sys, "argv", ["voice_typer"])
+
+        try:
+            app.restart_app()
+        except SystemExit:
+            pass
+
+        args = captured.get("args", [])
+        assert "--port" not in args, f"should not add --port, got: {args}"
+
     def test_model_change_uses_config_device(self, app, monkeypatch):
         """_change_model should use self.config.device, not hardcoded cuda."""
         transcriber_cls = MagicMock()

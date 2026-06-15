@@ -19,7 +19,7 @@ import socket
 import sys
 import threading
 
-log = logging.getLogger(__name__)
+log = logging.getLogger("voice_typer.server.ipc_server")
 
 
 # Module-level push hook.  Set by the active IPCServer instance when it
@@ -531,8 +531,12 @@ class IPCServer:
             elif self._tcp_mode:
                 self._pending_tcp.append(line)
             else:
-                sys.stdout.write(line + "\n")
-                sys.stdout.flush()
+                # No IPC client connected (e.g. the ``voice-typer`` console
+                # script running without an Electron frontend).  Do NOT dump
+                # raw JSON to stdout — it pollutes the terminal and interleaves
+                # with structured logs.  Push events are only meaningful to an
+                # IPC client; with none attached, they are silently dropped.
+                log.debug("[IPC] no client connected; dropping push event")
 
 
 # ── Entry point ─────────────────────────────────────────────────────────
@@ -551,6 +555,21 @@ def main() -> None:
     during the heavy torch import.  Push events reach the frontend
     via TCP, and the terminal sees normal log output.
     """
+    # When run as ``python -m voice_typer.server.ipc_server``, this
+    # module is loaded as ``__main__`` and is NOT registered in
+    # ``sys.modules`` under its canonical dotted name.  Any code that
+    # later does ``from voice_typer.server.ipc_server import ...``
+    # (notably ``app._wire_waveform_bubble``, which imports
+    # ``_push_event_now``) would trigger a SECOND module load with
+    # fresh, uninitialized globals — so ``_push_event`` would be ``None``
+    # in the copy the bubble callbacks read from, and every push event
+    # would silently fail (``push=NO IPC``).  Register the canonical name
+    # to point at THIS running module so all imports return the same
+    # single instance whose ``_push_event`` is set by ``IPCServer.start()``.
+    _CANONICAL = "voice_typer.server.ipc_server"
+    if _CANONICAL not in sys.modules:
+        sys.modules[_CANONICAL] = sys.modules["__main__"]
+
     from voice_typer.server.app import VoiceTyperApp, _setup_logging, _ensure_single_instance
 
     _setup_logging()

@@ -81,19 +81,19 @@ class _ColorFormatter(logging.Formatter):
     }
     _TOPIC_COLOR = {
         "PARAKEET": "38;5;69",
-        "QWEN": "38;5;69",          # same blue — ASR engine family
+        "QWEN": "38;5;69",          # same blue -- ASR engine family
         "MODEL": "38;5;69",
-        "CUDA-PROBE": "38;5;75",      # lighter blue — hardware verification
+        "CUDA-PROBE": "38;5;75",      # lighter blue -- hardware verification
         "HOTKEY": "38;5;141",
         "HOTKEY FIRED": "38;5;141",
         "HOTKEY FALLBACK": "38;5;141",
         "RECORDING": "38;5;79",
         "DICTATION": "38;5;215",
         "TRANSCRIBE": "38;5;120",
-        "CLIPBOARD": "38;5;120",    # paste pipeline — same green as TRANSCRIBE
+        "CLIPBOARD": "38;5;120",    # paste pipeline -- same green as TRANSCRIBE
         "STARTUP": "38;5;103",
         "STREAMING": "38;5;110",
-        "CLOUD": "38;5;110",        # cloud engines — same light blue as STREAMING
+        "CLOUD": "38;5;110",        # cloud engines -- same light blue as STREAMING
         "FOCUS": "38;5;102",
         "CLEANUP": "38;5;102",
         "TEMPLATE": "38;5;102",
@@ -101,7 +101,7 @@ class _ColorFormatter(logging.Formatter):
         "SIGNAL": "38;5;102",
         "HISTORY": "38;5;102",
         "HISTORY_DB": "38;5;102",
-        "SHUTDOWN": "38;5;95",      # brownish dim — distinct from infra grey
+        "SHUTDOWN": "38;5;95",      # brownish dim -- distinct from infra grey
         "QUIT": "38;5;95",
         "RESTART": "38;5;95",
         "CANCEL": "38;5;215",       # same orange as DICTATION
@@ -115,9 +115,10 @@ class _ColorFormatter(logging.Formatter):
         "RECOVERY": "38;5;102",
         "ATEXIT": "38;5;102",
         "PIPELINE": "38;5;102",
+        "IPC": "38;5;102",
     }
     # For unlabeled lines, infer topic from keyword presence.
-    # First match wins — order matters (list narrower keywords first).
+    # First match wins -- order matters (list narrower keywords first).
     _TOPIC_KEYWORDS: dict[str, list[str]] = {
         "PARAKEET": ["parakeet", "loading model", "model loaded", "loaded successfully"],
         "STARTUP": ["voice typer starting", "startup", "tray icon created",
@@ -161,9 +162,9 @@ class _ColorFormatter(logging.Formatter):
         if record.levelno >= logging.WARNING:
             c = self._LVL_COLOR.get(record.levelno, "0")
             sym = self._LVL_SYM.get(record.levelno, "????")
-            return f"\033[{c}m{ts} {sym:<5s}  {msg}\033[0m"
+            return f"\033[{c}m{ts}  {sym} {msg}\033[0m"
 
-        # INFO — dim timestamp, no level label, full line colored by topic
+        # INFO -- dim timestamp, no level label, full line colored by topic
         prefix = f"\033[{self._DIM}m{ts}\033[0m"
         tc = None
         if topic:
@@ -248,7 +249,7 @@ class VoiceTyperApp:
     def __init__(self):
         self.config = Config.load()
 
-        # Startup banner — first visible log, before any subsystem init
+        # Startup banner -- first visible log, before any subsystem init
         log.info(
             "Voice Typer starting -- model=%s, hotkey=%s, mic=%s, sample_rate=%s",
             self.config.model_size, self.config.hotkey,
@@ -456,7 +457,7 @@ class VoiceTyperApp:
         # Register atexit handler to log any unexpected process exit
         atexit.register(self._atexit_log)
 
-        # Enter pystray event loop — MUST be on the main thread
+        # Enter pystray event loop -- MUST be on the main thread
         log.info("[TRAY] Entering tray event loop on main thread")
         self.tray.run()
 
@@ -464,13 +465,13 @@ class VoiceTyperApp:
         """Background work: sync autostart, load mics, load model, register hotkey."""
         log.info("[STARTUP] _do_startup begin")
 
-        # UX-006: Onboarding — check if this is first run
+        # UX-006: Onboarding -- check if this is first run
         if not self.config.onboarding_completed:
             try:
                 from voice_typer.server.onboarding import OnboardingController
                 onboarding = OnboardingController()
                 if onboarding.is_first_run():
-                    log.info("[STARTUP] First run detected — applying onboarding defaults")
+                    log.info("[STARTUP] First run detected -- applying onboarding defaults")
                     onboarding.apply_settings(self.config)
                     onboarding.mark_complete()
                     self.config.onboarding_completed = True
@@ -484,7 +485,7 @@ class VoiceTyperApp:
         except Exception:
             log.debug("[STARTUP] External corrections load failed, using built-in defaults")
 
-        # P2: Crash recovery — check for unpasted transcriptions
+        # P2: Crash recovery -- check for unpasted transcriptions
         if self.config.crash_recovery_enabled:
             try:
                 unpasted = self._crash_recovery.check_on_startup()
@@ -500,7 +501,7 @@ class VoiceTyperApp:
         # PLAT-WAYLAND: Warn if running on Wayland
         if sys.platform.startswith("linux") and os.environ.get("XDG_SESSION_TYPE") == "wayland":
             if not self.config.wayland_warned:
-                log.warning("[STARTUP] Wayland detected — global hotkeys may not work")
+                log.warning("[STARTUP] Wayland detected -- global hotkeys may not work")
                 self.config.wayland_warned = True
                 self.config.save()
 
@@ -527,14 +528,14 @@ class VoiceTyperApp:
 
         # Warmup handled synchronously in recording.py on first recording start.
 
-        # 4. Create transcription engine and load model — IN THE BACKGROUND.
+        # 4. Create transcription engine and load model -- IN THE BACKGROUND.
         #
         # The model load is the dominant cost on a cold boot (~30-45s the
         # first time after Windows starts, dominated by reading ~6 GB of
         # torch + model-weight files off disk).  Running it in a daemon
         # thread lets the app reach "Ready" (well, "Loading model…") within
         # ~1s of launch; the user sees the tray icon, can open settings,
-        # and — if they press F2 before the load finishes — gets queued
+        # and -- if they press F2 before the load finishes -- gets queued
         # and auto-started once it completes.  See toggle_dictation().
         log.info("[STARTUP] Step 4: create transcription engine (background)")
         self._model_load_thread = threading.Thread(
@@ -548,13 +549,13 @@ class VoiceTyperApp:
         # once the new instance is fully ready.  The VOICE_TYPER_RESTART
         # env var is set by restart_app() before launching the new process.
         if os.environ.get("VOICE_TYPER_RESTART"):
-            log.info("[STARTUP] Restart detected — opening Electron window")
+            log.info("[STARTUP] Restart detected -- opening Electron window")
             try:
                 self.tray.open_electron_window()
             except Exception as e:
                 log.warning("[STARTUP] Failed to open Electron window after restart: %s", e)
 
-        log.info("[STARTUP] _do_startup complete (model load continues in background)")
+        log.info("[STARTUP] initial setup complete -- model loading continues in background")
 
     def _load_transcription_engine_background(self) -> None:
         """Background worker: create + load the transcription engine.
@@ -577,11 +578,11 @@ class VoiceTyperApp:
                     self.transcriber = None
                     # Set state before heavy import so user sees progress
                     self.tray.set_state(
-                        AppState.LOADING, "Loading model — press F2 to queue…"
+                        AppState.LOADING, "Loading model -- press F2 to queue…"
                     )
                     self._parakeet_engine.load()
                     if self._parakeet_engine.is_loaded:
-                        self.tray.set_state(AppState.IDLE, "Ready — Parakeet ASR")
+                        self.tray.set_state(AppState.IDLE, "Ready -- Parakeet ASR")
                     else:
                         log.warning("[STARTUP] Parakeet load failed")
                         if self._shutting_down:
@@ -594,11 +595,11 @@ class VoiceTyperApp:
             elif self.config.asr_backend == "qwen" and self._qwen_engine is not None:
                 log.info("[STARTUP] Qwen backend active, loading Qwen model")
                 self.tray.set_state(
-                    AppState.LOADING, "Loading model — press F2 to queue…"
+                    AppState.LOADING, "Loading model -- press F2 to queue…"
                 )
                 self._qwen_engine.load()
                 if self._qwen_engine.is_loaded:
-                    self.tray.set_state(AppState.IDLE, "Ready — Qwen ASR")
+                    self.tray.set_state(AppState.IDLE, "Ready -- Qwen ASR")
                 else:
                     log.warning("[STARTUP] Qwen load failed")
                     if self._shutting_down:
@@ -619,13 +620,13 @@ class VoiceTyperApp:
         except Exception:
             log.exception("[STARTUP] Background model load crashed")
             self.tray.set_state(
-                AppState.ERROR, "Model load failed — press F2 to retry"
+                AppState.ERROR, "Model load failed -- press F2 to retry"
             )
         finally:
             self._model_load_thread = None
             # If the user pressed F2 during load, honour it now.
             if self._pending_dictation and not self._shutting_down:
-                log.info("[STARTUP] Pending dictation — auto-starting now")
+                log.info("[STARTUP] Pending dictation -- auto-starting now")
                 self._pending_dictation = False
                 # Schedule off this loader thread to avoid nesting
                 self._schedule_timer(0, self._start_dictation)
@@ -654,10 +655,10 @@ class VoiceTyperApp:
         try:
             registered = task_scheduler.is_prewarm_registered()
             if self.config.fast_startup and not registered:
-                log.info("[CONFIG] fast_startup enabled — registering prewarm task")
+                log.info("[CONFIG] fast_startup enabled -- registering prewarm task")
                 task_scheduler.register_prewarm_task()
             elif not self.config.fast_startup and registered:
-                log.info("[CONFIG] fast_startup disabled — removing prewarm task")
+                log.info("[CONFIG] fast_startup disabled -- removing prewarm task")
                 task_scheduler.unregister_prewarm_task()
         except Exception as e:
             log.warning("[CONFIG] Prewarm task sync failed: %s", e)
@@ -715,13 +716,13 @@ class VoiceTyperApp:
 
             self.transcriber.load(progress_callback=on_progress)
             self.tray.set_state(
-                AppState.IDLE, f"Ready — {self.transcriber.device_info}"
+                AppState.IDLE, f"Ready -- {self.transcriber.device_info}"
             )
             log.info("[MODEL] Loaded successfully via %s", self.transcriber.loaded_via)
         except Exception as e:
             log.exception("[MODEL] Load FAILED")
             self.tray.set_state(
-                AppState.ERROR, "Model failed to load — press F2 to retry"
+                AppState.ERROR, "Model failed to load -- press F2 to retry"
             )
             if notify_on_failure:
                 self.tray.notify(
@@ -741,7 +742,7 @@ class VoiceTyperApp:
             self._hotkey_backend = create_hotkey_backend(hotkey_str)
             log.info("[HOTKEY] Backend created: %s", type(self._hotkey_backend).__name__)
             self._hotkey_backend.start(self.toggle_dictation)
-            # P1: Push-to-talk mode — set release callback
+            # P1: Push-to-talk mode -- set release callback
             if self.config.recording_mode == "push_to_talk":
                 self._hotkey_backend.set_on_release(self._stop_dictation)
             log.info(
@@ -750,14 +751,14 @@ class VoiceTyperApp:
                 type(self._hotkey_backend).__name__,
             )
         except Exception:
-            log.warning("[HOTKEY] Registration FAILED — %s", hotkey_str)
+            log.warning("[HOTKEY] Registration FAILED -- %s", hotkey_str)
             log.debug("Hotkey registration error", exc_info=True)
             self.tray.notify(
                 "Voice Typer",
                 "Hotkey registration failed. Use the tray menu to toggle dictation.",
             )
 
-        # Feature: ESC to cancel — register ESC hotkey when enabled
+        # Feature: ESC to cancel -- register ESC hotkey when enabled
         if self.config.esc_cancel_enabled:
             try:
                 self._esc_backend = create_hotkey_backend("<esc>")
@@ -809,18 +810,18 @@ class VoiceTyperApp:
         loader = self._model_load_thread
         if loader is not None and loader.is_alive():
             log.info(
-                "[HOTKEY FIRED] Model still loading — queuing dictation (cycle=%s)",
+                "[HOTKEY FIRED] Model still loading -- queuing dictation (cycle=%s)",
                 self._cycle_id,
             )
             self._pending_dictation = True
             self.tray.set_state(
                 AppState.LOADING,
-                "Loading model — your dictation will start automatically…",
+                "Loading model -- your dictation will start automatically…",
             )
             return
 
         if active is None:
-            self.tray.set_state(AppState.LOADING, "Starting up — please wait...")
+            self.tray.set_state(AppState.LOADING, "Starting up -- please wait...")
             return
 
         if self.recorder.recording:
@@ -869,7 +870,7 @@ class VoiceTyperApp:
                     log.error("[DICTATION] Whisper fallback also failed, cannot record")
                     self._schedule_timer(
                         3.0, lambda: self.tray.set_state(
-                            AppState.ERROR, "Model failed to load — press F2 to retry"
+                            AppState.ERROR, "Model failed to load -- press F2 to retry"
                         )
                     )
                     return
@@ -885,7 +886,7 @@ class VoiceTyperApp:
                     log.error("[DICTATION] Whisper fallback also failed, cannot record")
                     self._schedule_timer(
                         3.0, lambda: self.tray.set_state(
-                            AppState.ERROR, "Model failed to load — press F2 to retry"
+                            AppState.ERROR, "Model failed to load -- press F2 to retry"
                         )
                     )
                     return
@@ -897,7 +898,7 @@ class VoiceTyperApp:
                     log.error("[DICTATION] Model reload failed, cannot record")
                     self._schedule_timer(
                         3.0, lambda: self.tray.set_state(
-                            AppState.ERROR, "Model failed to load — press F2 to retry"
+                            AppState.ERROR, "Model failed to load -- press F2 to retry"
                         )
                     )
                     return
@@ -971,7 +972,7 @@ class VoiceTyperApp:
         if duration < 0.5:
             log.info("[DICTATION] Audio too short, skipping transcription")
             self._cancel_streaming_session()
-            self.tray.set_state(AppState.IDLE, "Too short — ignored")
+            self.tray.set_state(AppState.IDLE, "Too short -- ignored")
             self._busy_event.set()  # busy = False
             self._schedule_timer(2.0, lambda: self.tray.set_state(AppState.IDLE))
             return
@@ -1012,7 +1013,7 @@ class VoiceTyperApp:
                     if recorded_rms < 0.005:
                         self.tray.set_state(
                             AppState.IDLE,
-                            "No speech — check microphone",
+                            "No speech -- check microphone",
                         )
                         self.tray.notify(
                             "Voice Typer",
@@ -1105,10 +1106,10 @@ class VoiceTyperApp:
                 else:
                     log.info("[TRANSCRIBE] Transcription: %d chars", len(text))
 
-                # Copy to clipboard — only attempt paste if copy succeeded.
+                # Copy to clipboard -- only attempt paste if copy succeeded.
                 if not self.clipboard.copy(text):
                     log.error("[CLIPBOARD] Clipboard copy failed -- not attempting paste (cycle=%s)", _captured_cycle_id)
-                    self.tray.set_state(AppState.IDLE, "Done — clipboard unavailable")
+                    self.tray.set_state(AppState.IDLE, "Done -- clipboard unavailable")
                     self.tray.notify(
                         "Voice Typer",
                         "Transcription complete, but clipboard was unavailable.\n"
@@ -1119,7 +1120,7 @@ class VoiceTyperApp:
                         3.0,
                         lambda di=_device_info: self.tray.set_state(
                             AppState.IDLE,
-                            f"Ready — {di}",
+                            f"Ready -- {di}",
                         ),
                     )
                     return
@@ -1137,9 +1138,9 @@ class VoiceTyperApp:
                         pass
 
                 if pasted:
-                    status = f"Done — {len(text)} chars (pasted)"
+                    status = f"Done -- {len(text)} chars (pasted)"
                 else:
-                    status = f"Done — {len(text)} chars (in clipboard)"
+                    status = f"Done -- {len(text)} chars (in clipboard)"
 
                 self.tray.set_state(AppState.IDLE, status)
                 self.tray.notify("Voice Typer", f"Transcribed {len(text)} characters")
@@ -1149,7 +1150,7 @@ class VoiceTyperApp:
                     3.0,
                     lambda di=_device_info: self.tray.set_state(
                         AppState.IDLE,
-                        f"Ready — {di}",
+                        f"Ready -- {di}",
                     ),
                 )
 
@@ -1264,7 +1265,7 @@ class VoiceTyperApp:
 
         log.warning("[RECOVERY] FORCE RECOVER: transcription watchdog fired, resetting state")
         self._busy_event.set()  # busy = False
-        self.tray.set_state(AppState.IDLE, "Recovered — transcription timed out")
+        self.tray.set_state(AppState.IDLE, "Recovered -- transcription timed out")
         self.tray.notify(
             "Voice Typer",
             "Transcription took too long and was cancelled.\n"
@@ -1295,7 +1296,7 @@ class VoiceTyperApp:
             )
         except Exception:
             pass
-        # Must NOT call _stop_dictation() directly here — this callback runs
+        # Must NOT call _stop_dictation() directly here -- this callback runs
         # inside the audio callback while Recorder._lock is held.  Calling
         # recorder.stop() would deadlock on the same lock.  Schedule it on a
         # separate thread instead.
@@ -1331,7 +1332,7 @@ class VoiceTyperApp:
             self.tray.notify("Voice Typer", "No previous transcription to re-paste.")
 
     def _cancel_dictation(self):
-        """Feature: ESC to cancel — cancel current recording/transcription."""
+        """Feature: ESC to cancel -- cancel current recording/transcription."""
         log.info("[CANCEL] Cancelling current dictation (cycle=%s)", self._cycle_id)
         self._cancel_pending_timers()
         if self.recorder.recording:
@@ -1511,7 +1512,7 @@ class VoiceTyperApp:
                     self.tray.set_state(AppState.ERROR, f"Parakeet load failed: {e}")
                     return
                 if self._parakeet_engine.is_loaded:
-                    self.tray.set_state(AppState.IDLE, f"Ready — Parakeet ASR")
+                    self.tray.set_state(AppState.IDLE, f"Ready -- Parakeet ASR")
                     self.tray.invalidate_menu_cache()
                 else:
                     log.warning("[MODEL] Parakeet model failed to load")
@@ -1530,7 +1531,7 @@ class VoiceTyperApp:
                     self.tray.set_state(AppState.ERROR, f"Qwen load failed: {e}")
                     return
                 if self._qwen_engine.is_loaded:
-                    self.tray.set_state(AppState.IDLE, f"Ready — Qwen ASR")
+                    self.tray.set_state(AppState.IDLE, f"Ready -- Qwen ASR")
                     self.tray.invalidate_menu_cache()
                 else:
                     log.warning("[MODEL] Qwen model failed to load")
@@ -1551,7 +1552,7 @@ class VoiceTyperApp:
                 self.tray.set_state(AppState.LOADING, msg)
             self.transcriber.load(progress_callback=on_progress)
             self.tray.set_state(
-                AppState.IDLE, f"Ready — {self.transcriber.device_info}"
+                AppState.IDLE, f"Ready -- {self.transcriber.device_info}"
             )
             self.tray.invalidate_menu_cache()
         except Exception as exc:
@@ -1586,7 +1587,7 @@ class VoiceTyperApp:
         Uses inline cleanup + ``os._exit(0)`` instead of ``self.quit()`` →
         ``sys.exit(0)`` because the tray menu callback wrapper
         (``_wrap`` in ``tray.py``) catches ``SystemExit`` and silently
-        swallows it — meaning the process would never actually terminate,
+        swallows it -- meaning the process would never actually terminate,
         leaving the terminal stuck with a zombie process.
         """
         log.info("[QUIT] Quitting Voice Typer...")
@@ -1627,7 +1628,7 @@ class VoiceTyperApp:
 
         NOTE: Uses ``os._exit(0)`` instead of ``self.quit()`` → ``sys.exit(0)``
         because the tray menu callback wrapper (``_wrap`` in ``tray.py``)
-        catches ``SystemExit`` and silently swallows it — meaning the process
+        catches ``SystemExit`` and silently swallows it -- meaning the process
         would never actually terminate.
         """
         log.info("[RESTART] Restarting Voice Typer...")
@@ -1642,11 +1643,24 @@ class VoiceTyperApp:
         # IMPORTANT: the restarter spawns the SAME module the Electron
         # main process spawns.  If we used a different module here
         # we'd end up with two Python processes that don't share the
-        # same IPC channel — the Electron main would be reading the
+        # same IPC channel -- the Electron main would be reading the
         # old process's stdout, the new process's bubble pushes
         # would go nowhere, and the bubble window would never appear.
+        # Forward the --port argument so the restarted backend listens on
+        # the SAME TCP port Electron is connected to.  Without this the new
+        # process starts in stdin/stdout mode and Electron (still connected
+        # to the old port) never receives push events - including waveform
+        # bubble show/hide/level events.
+        restart_args = [sys.executable, "-m", "voice_typer.server.ipc_server"]
+        try:
+            if "--port" in sys.argv:
+                _pidx = sys.argv.index("--port")
+                if _pidx + 1 < len(sys.argv):
+                    restart_args += ["--port", sys.argv[_pidx + 1]]
+        except (ValueError, IndexError):
+            pass
         subprocess.Popen(
-            [sys.executable, "-m", "voice_typer.server.ipc_server"],
+            restart_args,
             cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
             env=env,
             start_new_session=True,
@@ -1850,11 +1864,19 @@ def _ensure_single_instance(silent=False):
     ----------
     silent : bool
         If True, skip the MessageBoxW dialog (caller handles UX).
+
+    On duplicate launch, Windows returns ``ERROR_ALREADY_EXISTS`` from
+    ``CreateMutexW`` — this is the authoritative signal that another
+    instance owns the lock.  We bail immediately.  (Previously the code
+    second-guessed Windows with a flaky ``wmic``-based process scan and,
+    when that scan returned False, proceeded to create a *new* mutex —
+    which let duplicate backends run simultaneously, causing each
+    recording to be transcribed and pasted N times.)
     """
     if sys.platform != "win32":
         return None
 
-    # Skip mutex check during restart — old instance releases mutex on quit
+    # Skip mutex check during restart -- old instance releases mutex on quit
     if os.environ.get("VOICE_TYPER_RESTART"):
         return None
 
@@ -1865,46 +1887,40 @@ def _ensure_single_instance(silent=False):
     ERROR_ACCESS_DENIED = 5
 
     # Use CreateMutexW with bInitialOwner=True so WE own the handle.
-    # This matters because the Windows mutex handle is inheritable
-    # across CreateProcess / subprocess.Popen, so a child spawned by
-    # the parent will see the mutex as already owned.  We can't
-    # disable handle inheritance from Python, so as a defence in
-    # depth the Electron main kills any stale voice_typer processes
-    # before spawning the new one (see killStalePython in the
-    # Electron main).
+    # The Windows mutex handle is inheritable across CreateProcess /
+    # subprocess.Popen, so a child spawned by the parent will see the
+    # mutex as already owned.  We can't disable handle inheritance from
+    # Python; the inheritance concern is real but handled separately:
+    # Electron's main process kills stale backends before spawning, and
+    # the restart path sets VOICE_TYPER_RESTART to skip this check.
     mutex = ctypes.windll.kernel32.CreateMutexW(
         None, True, "VoiceTyperSingleInstance"
     )
     last_error = ctypes.windll.kernel32.GetLastError()
     if last_error == ERROR_ALREADY_EXISTS:
-        # Another process owns the mutex.  Before bailing, find that
-        # process and check whether it is still a voice_typer
-        # process.  If it isn't (e.g. the owner died and a stale
-        # handle remained), wait briefly and retry.
-        if _another_voice_typer_alive():
-            if not silent:
-                try:
-                    ctypes.windll.user32.MessageBoxW(
-                        0,
-                        "Voice Typer is already running. Only one instance is allowed.",
-                        "Voice Typer",
-                        0x00000030 | 0x00000000,  # MB_ICONWARNING | MB_OK
-                    )
-                except Exception:
-                    if sys.stderr is not None:
-                        print("Voice Typer is already running.", file=sys.stderr)
-            sys.exit(0)
-        # Owner died but mutex persisted.  The handle we got above is
-        # actually the existing one but it belongs to a dead process,
-        # so we can safely treat ourselves as the new owner.  We
-        # close our handle (which is just a reference, not the
-        # original) and create a new one.
+        # Windows guarantees: this means another process holds the mutex
+        # RIGHT NOW.  Trust it — do not second-guess with a process scan.
+        # Best-effort log of who owns it (informational only).
+        try:
+            if _another_voice_typer_alive():
+                log.info("[STARTUP] Duplicate launch blocked: another Voice Typer is running")
+            else:
+                log.info("[STARTUP] Duplicate launch blocked (mutex already held)")
+        except Exception:
+            pass
+        if not silent:
+            msg = "Voice Typer is already running. Only one instance is allowed."
+            try:
+                ctypes.windll.user32.MessageBoxW(
+                    0, msg, "Voice Typer",
+                    0x00000030 | 0x00000000,  # MB_ICONWARNING | MB_OK
+                )
+            except Exception:
+                if sys.stderr is not None:
+                    print(msg, file=sys.stderr)
         if mutex:
             ctypes.windll.kernel32.CloseHandle(mutex)
-        time.sleep(0.5)
-        mutex = ctypes.windll.kernel32.CreateMutexW(
-            None, True, "VoiceTyperSingleInstance"
-        )
+        sys.exit(0)
     elif last_error == ERROR_ACCESS_DENIED:
         # Couldn't even open the mutex; bail safely.
         if not silent and sys.stderr is not None:
@@ -1922,7 +1938,7 @@ def _another_voice_typer_alive() -> bool:
     exit.
 
     Checks both executables because the autostart launcher runs as
-    ``pythonw.exe`` — scanning only ``python.exe`` would miss it and let
+    ``pythonw.exe`` -- scanning only ``python.exe`` would miss it and let
     two instances race for the mutex.
     """
     import subprocess as _sp
@@ -1967,45 +1983,18 @@ def _another_voice_typer_alive() -> bool:
 
 
 def main():
-    """Entry point.
+    """Entry point for the ``voice-typer`` console script (pyproject).
 
-    Starts both the application and the IPC server.  Older revisions
-    only started the app, which meant users running the ``voice-typer``
-    console script (whose entry point is this function via pyproject)
-    never got a working IPC bridge.  Now we create the IPCServer
-    ourselves so every entry point ends up with a live bridge.
+    Delegates to ``voice_typer.server.ipc_server.main`` so there is exactly
+    ONE backend entry point in the project.  Both ``voice-typer`` and the
+    Electron-spawned ``python -m voice_typer.server.ipc_server`` run the
+    identical code path; the only difference is whether ``--port`` is passed
+    (Electron passes it for TCP mode; the console script runs without it).
+
+    Previously this function duplicated ~20 lines of IPC/setup logic that
+    diverged from ``ipc_server.main`` (notably: it never called
+    ``start_tcp()``, so push events had no sink).  The duplication caused
+    the two entry points to behave differently for no good reason.
     """
-    _setup_logging()
-
-    # Must be called early; handle must stay alive for the process lifetime.
-    _single_instance_mutex = _ensure_single_instance()
-
-    try:
-        app = VoiceTyperApp()
-    except Exception as e:
-        log.exception("Fatal error during initialization")
-        if sys.stderr is not None:
-            print(f"Voice Typer failed to start: {e}", file=sys.stderr)
-        sys.exit(1)
-
-    # Start the IPC server.  The dedicated ``voice_typer.server.ipc_server``
-    # module does the same thing in its own ``main()``; we duplicate the
-    # three lines here so the ``voice-typer`` console script (which
-    # points here) also gets a live bridge for the Electron renderer.
-    try:
-        from voice_typer.server.ipc_server import IPCServer
-        _ipc_server = IPCServer(app)
-        _ipc_server.start()
-        app._ipc_server = _ipc_server
-        _ipc_server.push({"type": "ready"})
-        log.info("[IPC] server started from app.main() (console-script entry point)")
-    except Exception:
-        log.exception("[IPC] failed to start from app.main(); continuing without bridge")
-
-    try:
-        app.start()  # blocks on main thread (tray event loop)
-    except Exception as e:
-        log.exception("Fatal error")
-        if sys.stderr is not None:
-            print(f"Voice Typer crashed: {e}", file=sys.stderr)
-        sys.exit(1)
+    from voice_typer.server.ipc_server import main as ipc_main
+    ipc_main()

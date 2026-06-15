@@ -379,7 +379,7 @@ class WindowsNativeHotkey(HotkeyBackend):
                 else:
                     self._registered = True
                     log.info(
-                        "RegisterHotKey succeeded: hotkey=%s vk=0x%X id=%d",
+                        "[HOTKEY] RegisterHotKey succeeded: hotkey=%s vk=0x%X id=%d",
                         self.hotkey_str,
                         self._vk,
                         self._hotkey_id,

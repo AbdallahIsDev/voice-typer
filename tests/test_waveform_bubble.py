@@ -273,7 +273,7 @@ class TestAppMainWiresIpcHook:
 
         monkeypatch.setattr(app_module, "_setup_logging", lambda: None)
         monkeypatch.setattr(
-            app_module, "_ensure_single_instance", lambda: object(),
+            app_module, "_ensure_single_instance", lambda **kw: object(),
         )
 
         class FakeApp:

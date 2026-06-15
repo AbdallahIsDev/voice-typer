@@ -259,9 +259,22 @@ def _warm_file(path: Path) -> int:
 
 # ─── Orchestration ───────────────────────────────────────────────────────
 
-def run(min_ram_mb: int = DEFAULT_MIN_FREE_RAM_MB, force: bool = False) -> int:
-    """Run the prewarm pipeline.  Returns an exit code (see module docstring)."""
+def run(
+    min_ram_mb: int = DEFAULT_MIN_FREE_RAM_MB,
+    force: bool = False,
+    delay: float = 0.0,
+) -> int:
+    """Run the prewarm pipeline.  Returns an exit code (see module docstring).
+
+    ``delay`` seconds sleeps before doing anything.  This replaces the
+    Task Scheduler logon-trigger delay for the HKCU Run-key fallback
+    path (which has no native delay), letting login settle so prewarm
+    does not contend with every other startup program hitting disk.
+    """
     _setup_logging()
+    if delay > 0:
+        log.info("[PREWARM] delaying %.0fs to let login settle", delay)
+        time.sleep(delay)
     log.info("[PREWARM] starting (force=%s, min_ram_mb=%d)", force, min_ram_mb)
 
     if not force and not _fast_startup_enabled():
@@ -325,12 +338,19 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--force", action="store_true",
         help="Skip config and RAM guards (run unconditionally).",
     )
+    p.add_argument(
+        "--delay", type=float, default=0.0,
+        help=(
+            "Sleep this many seconds before starting.  Used by the HKCU "
+            "Run-key fallback (which has no native delay) to let login settle."
+        ),
+    )
     return p.parse_args(argv)
 
 
 def main() -> int:
     args = _parse_args()
-    return run(min_ram_mb=args.min_ram_mb, force=args.force)
+    return run(min_ram_mb=args.min_ram_mb, force=args.force, delay=args.delay)
 
 
 if __name__ == "__main__":
