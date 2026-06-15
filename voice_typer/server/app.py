@@ -115,7 +115,7 @@ class _ColorFormatter(logging.Formatter):
         "RECOVERY": "38;5;102",
         "ATEXIT": "38;5;102",
         "PIPELINE": "38;5;102",
-        "IPC": "38;5;102",
+        "IPC": "38;5;75",
     }
     # For unlabeled lines, infer topic from keyword presence.
     # First match wins -- order matters (list narrower keywords first).
