@@ -288,6 +288,10 @@ function handleMessage(msg: Record<string, unknown>) {
       // Win32 EnumWindows path in tray.open_electron_window() if this
       // never arrives (TCP momentarily down).
       showMainWindow();
+    } else if (msg.type === "quit_app") {
+      // Tray "Quit": Python is about to force-exit.  Close Electron too
+      // so the user isn't left with a window that has no backend.
+      app.quit();
     }
     BrowserWindow.getAllWindows().forEach((win) => {
       win.webContents.send("python-event", msg);

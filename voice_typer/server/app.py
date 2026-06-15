@@ -1616,8 +1616,16 @@ class VoiceTyperApp:
         (``_wrap`` in ``tray.py``) catches ``SystemExit`` and silently
         swallows it -- meaning the process would never actually terminate,
         leaving the terminal stuck with a zombie process.
+
+        Before force-exit, pushes a ``quit_app`` event over the TCP channel
+        so the Electron frontend knows to call ``app.quit()`` and shut down
+        cleanly (instead of being left orphaned with no backend).
         """
         log.info("[QUIT] Quitting Voice Typer...")
+
+        # 0. Notify Electron frontend over TCP so it can quit cleanly.
+        from voice_typer.server.ipc_server import _push_event_now
+        _push_event_now({"type": "quit_app"})
 
         # 1. Quick cleanup before force-exit.
         #    NOTE: self.tray.stop() / self._icon.stop() is NOT called because
