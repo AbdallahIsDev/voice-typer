@@ -33,13 +33,16 @@ const RESET = "\x1b[0m";
 const BUBBLE_CLR = "\x1b[38;5;39m"; // bright cyan for [BUBBLE] tags
 
 /**
- * Format current time as HH:MM:SS (24h), wrapped in ANSI dim-grey,
- * matching the Python backend's timestamp format/color so the terminal
- * output is visually consistent across both processes.
+ * Format current time as H:MM:SS (12h, no leading zero), wrapped in ANSI
+ * dim-grey, matching the Python backend's timestamp format/color so the
+ * terminal output is visually consistent across both processes.
  */
 function ts(): string {
   const d = new Date();
-  return `${DIM}${d.toLocaleTimeString("en-US", { hour12: false })}${RESET}`;
+  const h = d.getHours() % 12 || 12;
+  const m = String(d.getMinutes()).padStart(2, "0");
+  const s = String(d.getSeconds()).padStart(2, "0");
+  return `${DIM}${h}:${m}:${s}${RESET}`;
 }
 
 /**
