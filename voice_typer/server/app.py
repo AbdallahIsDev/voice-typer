@@ -235,15 +235,14 @@ def _setup_logging():
         except OSError:
             pass
 
-    # Also log to stderr with ANSI colors.
-    # We do NOT gate on isatty() because the Electron dev-mode parent
-    # (electron-vite) spawns Electron with piped stdio, and Python
-    # inherits that pipe -- so isatty() returns False even though the
-    # output ultimately reaches a terminal.  Removing the guard means
-    # ANSI codes flow through the pipe and render correctly on the
-    # terminal; under pythonw.exe sys.stderr is devnull so the handler
-    # is a harmless no-op.
-    if sys.stderr is not None:
+    # Also log to stderr with ANSI colors when the output reaches a
+    # terminal.  In Electron dev mode, electron-vite spawns Electron with
+    # piped stdio; Python inherits the pipe so isatty() returns False
+    # even though the output goes to a terminal.  We detect this case by
+    # checking for ``--port`` in argv (Electron passes --port, standalone
+    # ``voice-typer`` does not) and add colors then too.
+    do_color = sys.stderr.isatty() or ("--port" in sys.argv)
+    if sys.stderr is not None and do_color:
         stream = logging.StreamHandler()
         stream.setLevel(logging.INFO)
         stream.setFormatter(_ColorFormatter())
