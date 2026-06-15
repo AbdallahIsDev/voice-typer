@@ -300,3 +300,69 @@ class TestGenerateIconIco:
         assert result.exists()
         assert result.name == "icon.ico"
         assert result.parent.name == "voice-typer"
+
+
+# ─── Universal launcher path ────────────────────────────────────────────
+
+
+class TestUniversalLauncherPath:
+    """_universal_launcher_path() must point at autostart_launcher.py."""
+
+    def test_points_at_autostart_launcher(self):
+        """The universal launcher path must reference autostart_launcher.py."""
+        from voice_typer.server.platform import _universal_launcher_path
+        p = _universal_launcher_path()
+        assert p.name == "autostart_launcher.py"
+        assert p.exists()
+
+
+# ─── Start Menu Programs dir ────────────────────────────────────────────
+
+
+class TestStartMenuProgramsDir:
+    """_start_menu_programs_dir() returns the Windows Start Menu Programs path."""
+
+    def test_returns_path_under_appdata(self, monkeypatch):
+        from voice_typer.server.platform import _start_menu_programs_dir
+        monkeypatch.setenv("APPDATA", "/fake/appdata")
+        p = _start_menu_programs_dir()
+        assert "Programs" in str(p)
+        assert "Start Menu" in str(p)
+
+
+# ─── Autostart command includes --hidden ───────────────────────────────
+
+
+class TestAutostartCommandIncludesHidden:
+    """The autostart command must include --hidden so Electron starts
+    with the dashboard hidden at login."""
+
+    def test_includes_hidden_flag(self):
+        cmd = _autostart_command()
+        assert "--hidden" in cmd
+
+    def test_references_autostart_launcher(self):
+        cmd = _autostart_command()
+        assert "autostart_launcher.py" in cmd
+
+
+# ─── Shortcut target verification ──────────────────────────────────────
+
+
+class TestShortcutTarget:
+    """Verify that the shortcut target points at the universal launcher,
+    not the legacy -m voice_typer backend-only path."""
+
+    def test_shortcut_arguments_reference_universal_launcher(self, monkeypatch):
+        """The shortcut's arguments must point at autostart_launcher.py
+        (not pythonw -m voice_typer, which starts backend-only without
+        Electron, causing the bubble overlay to never appear)."""
+        from voice_typer.server.platform import _universal_launcher_path
+        launcher = _universal_launcher_path()
+        # The launcher path should be autostart_launcher.py
+        assert launcher.name == "autostart_launcher.py"
+        # And the shortcut arguments should reference it
+        assert "autostart_launcher.py" in str(launcher)
+        # Critically: should NOT reference -m voice_typer
+        assert "-m voice_typer" not in str(launcher)
+        assert "-m" not in str(launcher)

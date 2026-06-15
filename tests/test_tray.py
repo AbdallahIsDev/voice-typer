@@ -12,12 +12,27 @@ All settings, history, templates, etc. live in the Electron window only.
 """
 
 import gc
+import subprocess
 import sys
 import time
 import warnings
 import pytest
 from types import SimpleNamespace
 from unittest.mock import MagicMock
+
+# Mock pystray + PIL at module level so the tray module can be imported
+# without needing an X display (headless CI).
+_mock_pystray = MagicMock()
+_mock_pystray.Menu = MagicMock
+_mock_pystray.Menu.SEPARATOR = "SEP"
+_mock_pystray.MenuItem = MagicMock
+_mock_pystray.Icon = MagicMock
+sys.modules.setdefault("pystray", _mock_pystray)
+sys.modules.setdefault("PIL", MagicMock())
+sys.modules.setdefault("PIL.Image", MagicMock())
+sys.modules.setdefault("PIL.ImageDraw", MagicMock())
+
+from voice_typer.server.tray import TrayIcon
 
 
 class _FakeMenu:
@@ -344,3 +359,89 @@ class TestNotifySafety:
         tray.run()
         # notify should not add to pending when disabled and icon exists
         tray.notify("Test", "Normal message")
+
+
+# ─── open_electron_window: TCP push + fallback ─────────────────────────
+
+class TestOpenElectronWindow:
+    """open_electron_window() pushes show_window over TCP first, then
+    falls back to Win32 focus, then to launching Electron."""
+
+    def test_primary_path_pushes_show_window_over_tcp(self, tray, monkeypatch):
+        """The primary path should push {"type": "show_window"} via TCP."""
+        pushed = []
+        monkeypatch.setattr(
+            "voice_typer.server.ipc_server._push_event_now",
+            lambda msg: (pushed.append(msg) or True),
+        )
+        tray.open_electron_window()
+        assert len(pushed) == 1
+        assert pushed[0] == {"type": "show_window"}
+
+    def test_falls_back_to_bring_electron_to_front(self, tray, monkeypatch):
+        """When TCP push fails, should try _bring_electron_to_front."""
+        monkeypatch.setattr(
+            "voice_typer.server.ipc_server._push_event_now",
+            lambda msg: False,
+        )
+        called = []
+        monkeypatch.setattr(
+            TrayIcon,
+            "_bring_electron_to_front",
+            lambda self: (called.append(True) or True),
+        )
+        tray.open_electron_window()
+        assert called
+
+    def test_falls_back_to_launching_electron(self, tray, monkeypatch):
+        """When TCP push and Win32 focus both fail, should launch Electron."""
+        monkeypatch.setattr(
+            "voice_typer.server.ipc_server._push_event_now",
+            lambda msg: False,
+        )
+        monkeypatch.setattr(
+            TrayIcon,
+            "_bring_electron_to_front",
+            lambda self: False,
+        )
+        launched = []
+        monkeypatch.setattr(
+            subprocess,
+            "Popen",
+            lambda *a, **kw: (launched.append(True) or MagicMock()),
+        )
+        tray.open_electron_window()
+        assert launched
+
+    def test_primary_path_skips_win32_and_launch(self, tray, monkeypatch):
+        """When TCP push succeeds, neither Win32 focus nor launch should run."""
+        monkeypatch.setattr(
+            "voice_typer.server.ipc_server._push_event_now",
+            lambda msg: True,
+        )
+        win32_called = []
+        monkeypatch.setattr(
+            TrayIcon,
+            "_bring_electron_to_front",
+            lambda self: (win32_called.append(True) or True),
+        )
+        launched = []
+        monkeypatch.setattr(
+            subprocess,
+            "Popen",
+            lambda *a, **kw: (launched.append(True) or MagicMock()),
+        )
+        tray.open_electron_window()
+        assert not win32_called
+        assert not launched
+
+
+class TestBringElectronToFront:
+    """_bring_electron_to_front() is a Win32-only fallback that handles
+    hidden (close-to-tray) and minimized windows."""
+
+    def test_returns_false_on_non_windows(self, monkeypatch):
+        """On non-Windows platforms, should return False immediately."""
+        monkeypatch.setattr(sys, "platform", "linux")
+        result = TrayIcon._bring_electron_to_front()
+        assert result is False

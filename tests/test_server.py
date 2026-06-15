@@ -6,9 +6,22 @@ implements the minimal VoiceTyperApp interface the server depends on.
 
 import io
 import json
+import sys
 import threading
 import pytest
 from unittest.mock import MagicMock, PropertyMock
+
+# Mock pystray + PIL before importing tray (which is imported by ipc_server
+# transitively).  Without this, pystray tries to connect to an X display on
+# Linux and crashes in headless CI.
+_mock_pystray = MagicMock()
+_mock_pystray.Menu.SEPARATOR = "SEP"
+_mock_pystray.MenuItem = MagicMock
+_mock_pystray.Icon = MagicMock
+sys.modules.setdefault("pystray", _mock_pystray)
+sys.modules.setdefault("PIL", MagicMock())
+sys.modules.setdefault("PIL.Image", MagicMock())
+sys.modules.setdefault("PIL.ImageDraw", MagicMock())
 
 from voice_typer.server.ipc_server import IPCServer
 from voice_typer.server.tray import AppState
@@ -37,7 +50,7 @@ class MockConfig:
 class MockHistoryDB:
     """Minimal history db mock."""
 
-    def get_recent(self, limit=50):
+    def get_recent(self, limit=50, offset=0):
         return [
             {"id": 1, "text": "hello world", "timestamp": "2025-01-01"},
         ]
@@ -216,12 +229,12 @@ class TestDispatchGetHistory:
             "type": "get_history",
             "data": {"limit": 10},
         })
-        mock_app.history_db.get_recent.assert_called_with(10)
+        mock_app.history_db.get_recent.assert_called_with(10, 0)
 
     def test_default_limit_is_50(self, server, mock_app):
         mock_app.history_db.get_recent = MagicMock(return_value=[])
         server._dispatch({"id": 1, "type": "get_history"})
-        mock_app.history_db.get_recent.assert_called_with(50)
+        mock_app.history_db.get_recent.assert_called_with(50, 0)
 
 
 class TestDispatchGetTodayStats:
@@ -480,3 +493,53 @@ class TestErrorHandling:
         assert len(lines) == 2
         assert json.loads(lines[0])["type"] == "error"
         assert json.loads(lines[1])["type"] == "status"
+
+
+# ── _push_event_now ────────────────────────────────────────────────────
+
+
+class TestPushEventNow:
+    """_push_event_now sends events to the active IPC server instance."""
+
+    def test_returns_false_when_no_server(self, monkeypatch):
+        """With no active push function, should return False."""
+        import voice_typer.server.ipc_server as ipc_mod
+        original = ipc_mod._push_event
+        ipc_mod._push_event = None
+        try:
+            result = ipc_mod._push_event_now({"type": "show_window"})
+            assert result is False
+        finally:
+            ipc_mod._push_event = original
+
+    def test_returns_true_when_server_active(self, server, monkeypatch):
+        """With an active server, _push_event_now should succeed."""
+        server._send = MagicMock()
+        server.start()
+        import voice_typer.server.ipc_server as ipc_mod
+        result = ipc_mod._push_event_now({"type": "show_window"})
+        assert result is True
+        server.stop()
+
+    def test_show_window_message_reaches_push(self, server, monkeypatch):
+        """The show_window message type used by tray.open_electron_window
+        should be pushable through _push_event_now."""
+        server._send = MagicMock()
+        server.start()
+        import voice_typer.server.ipc_server as ipc_mod
+        ipc_mod._push_event_now({"type": "show_window"})
+        # _push_event_now delegates to server.push → _send
+        server._send.assert_called()
+        server.stop()
+
+    def test_exception_in_push_returns_false(self, server, monkeypatch):
+        """If the push function raises, _push_event_now should return False."""
+        import voice_typer.server.ipc_server as ipc_mod
+        def broken_fn(msg):
+            raise RuntimeError("broken")
+        ipc_mod._push_event = broken_fn
+        try:
+            result = ipc_mod._push_event_now({"type": "show_window"})
+            assert result is False
+        finally:
+            ipc_mod._push_event = None

@@ -26,14 +26,14 @@ const IPC_PORT = 9876;
 const START_HIDDEN = process.env.VT_START_HIDDEN === "1";
 
 /**
- * Single-instance gate.
+ * Single-instance gate + focus-only guard.
  *
  * Acquiring the lock is Electron's native, OS-level mechanism for "only one
  * of me may run." It uses a named pipe on Windows / a lockfile on POSIX —
  * no port scanning, no process killing, no Python involvement. When a
  * SECOND Electron process starts:
  *
- *   • the second instance: requestSingleInstanceLock() returns false → quit
+ *   • the second instance: requestSingleInstanceLock() returns false → exit
  *   • the first instance:  emits "second-instance" → we show+focus the
  *     dashboard window (creating it if it was never created, e.g. after a
  *     hidden autostart).
@@ -43,12 +43,24 @@ const START_HIDDEN = process.env.VT_START_HIDDEN === "1";
  * Electron process whose only job is to fail the lock and wake the real one.
  *
  * MUST run before app.whenReady() — the lock is checked at process start.
+ *
+ * VT_FOCUS_ONLY is set by autostart_launcher._focus_running_app() as a
+ * defensive guard: if this env var is set, this process is a lightweight
+ * duplicate that must exit without doing ANY heavy init (Python, TCP,
+ * windows).  The single-instance lock check below handles the normal case;
+ * FOCUS_ONLY catches edge cases where the lock might not work as expected.
  */
 const gotTheLock = app.requestSingleInstanceLock();
-if (!gotTheLock) {
-  // We are the duplicate.  The first instance has already received (or is
-  // about to receive) the "second-instance" event and will show itself.
-  app.quit();
+if (!gotTheLock || process.env.VT_FOCUS_ONLY === "1") {
+  // We are the duplicate (or a focus-only probe).  The first instance has
+  // already received (or is about to receive) the "second-instance" event
+  // and will show itself.
+  //
+  // Use app.exit(0) instead of app.quit() to guarantee immediate
+  // termination — app.quit() allows the event loop to drain (which can
+  // fire whenReady and start Python before the process exits), while
+  // app.exit(0) terminates without waiting.
+  app.exit(0);
 } else {
   app.on("second-instance", () => {
     // Another launch attempt happened.  Show + focus the dashboard so it
