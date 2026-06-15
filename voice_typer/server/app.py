@@ -564,6 +564,11 @@ class VoiceTyperApp:
 
         log.info("[STARTUP] initial setup complete -- model loading continues in background")
 
+        # When launched via pythonw.exe (no console), the user gets no visible
+        # feedback.  Show a brief toast so they know the app is alive.
+        if sys.executable.endswith("pythonw.exe"):
+            self.tray.notify_safety("Voice Typer", "Running in system tray")
+
     def _load_transcription_engine_background(self) -> None:
         """Background worker: create + load the transcription engine.
 
