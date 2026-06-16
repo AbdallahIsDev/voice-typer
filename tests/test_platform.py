@@ -245,8 +245,8 @@ class TestCreateLauncherShortcut:
         assert "autostart_launcher.py" in mock_shortcut.Arguments
 
     @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only test")
-    def test_falls_back_to_bat_when_win32com_missing(self, tmp_path, monkeypatch):
-        """Should create a .bat file when win32com is not importable."""
+    def test_falls_back_to_powershell_when_win32com_missing(self, tmp_path, monkeypatch):
+        """Should create a .lnk via PowerShell when win32com is not importable."""
         pythonw = tmp_path / "pythonw.exe"
         pythonw.touch()
         monkeypatch.setattr(sys, "executable", str(tmp_path / "python.exe"))
@@ -270,10 +270,7 @@ class TestCreateLauncherShortcut:
         result = create_launcher_shortcut()
         assert result is not None
         assert result.exists()
-        assert result.name == "Voice Typer.bat"
-        content = result.read_text(encoding="utf-8")
-        assert "pythonw" in content
-        assert "autostart_launcher.py" in content
+        assert result.name == "Voice Typer.lnk"
 
     def test_returns_none_on_non_windows(self, monkeypatch):
         import voice_typer.server.platform as mod

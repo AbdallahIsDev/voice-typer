@@ -402,7 +402,13 @@ def _create_lnk_shortcut(
     icon_ico: Optional[Path],
     description: str,
 ) -> bool:
-    """Create a single .lnk shortcut via win32com. Returns True on success."""
+    """Create a single .lnk shortcut. Returns True on success.
+
+    Tries win32com first (fast, native COM).  Falls back to a PowerShell
+    script written to a temp file — always available on Windows, no extra
+    packages needed, and avoids string-escaping problems.
+    """
+    # 1) win32com path (native COM, fastest).
     try:
         import win32com.client  # noqa: F811
 
@@ -417,10 +423,57 @@ def _create_lnk_shortcut(
         shortcut.save()
         return True
     except ImportError:
-        log.debug("[STARTUP] win32com unavailable — .lnk path skipped")
+        log.debug("[STARTUP] win32com unavailable — trying PowerShell fallback")
     except OSError as e:
         log.warning("[STARTUP] Failed to create .lnk (%s): %s", lnk_path, e)
-    return False
+        return False
+
+    # 2) PowerShell fallback — write a temp .ps1 to avoid escaping issues.
+    import os as _os
+    import subprocess
+    import tempfile
+
+    tmp = None
+    try:
+
+        def _q(s):
+            """Double every ``"`` for embedding in a PS double-quoted string."""
+            return str(s).replace('"', '""')
+
+        lines = [
+            "$s = New-Object -ComObject WScript.Shell",
+            f'$l = $s.CreateShortcut("{_q(lnk_path)}")',
+            f'$l.TargetPath = "{_q(target)}"',
+            # arguments already has surrounding double quotes — use _q() escaping
+            f'$l.Arguments = "{_q(arguments)}"',
+            f'$l.Description = "{_q(description)}"',
+            f'$l.WorkingDirectory = "{_q(Path.home())}"',
+        ]
+        if icon_ico:
+            lines.append(f'$l.IconLocation = "{_q(icon_ico)}"')
+        lines.append("$l.Save()")
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".ps1", delete=False, encoding="utf-8-sig"
+        ) as f:
+            f.write("\n".join(lines))
+            tmp = f.name
+
+        subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", tmp],
+            check=True, capture_output=True, timeout=30,
+        )
+        log.info("[STARTUP] .lnk created via PowerShell fallback: %s", lnk_path)
+        return True
+    except Exception as e:
+        log.warning("[STARTUP] PowerShell .lnk creation failed: %s", e)
+        return False
+    finally:
+        if tmp is not None:
+            try:
+                _os.unlink(tmp)
+            except OSError:
+                pass
 
 
 def create_launcher_shortcut() -> Optional[Path]:
@@ -466,15 +519,7 @@ def create_launcher_shortcut() -> Optional[Path]:
         log.info("[STARTUP] Desktop .lnk created: %s", lnk_desktop)
         primary_path = lnk_desktop
     else:
-        # Fallback: .bat launcher (same target, no --hidden).
-        bat_path = desktop / "Voice Typer.bat"
-        bat_content = f'@echo off\r\nstart "" "{pythonw}" "{launcher}"\r\n'
-        try:
-            bat_path.write_text(bat_content, encoding="utf-8")
-            log.info("[STARTUP] Desktop .bat created (fallback): %s", bat_path)
-            primary_path = bat_path
-        except OSError as e:
-            log.error("[STARTUP] Failed to create desktop shortcut: %s", e)
+        log.warning("[STARTUP] Could not create desktop .lnk — install pywin32 or check logs")
 
     # Secondary: Start Menu copy so Start search finds "Voice Typer".
     try:
