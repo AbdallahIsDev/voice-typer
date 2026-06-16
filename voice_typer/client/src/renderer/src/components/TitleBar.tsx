@@ -97,7 +97,12 @@ export function TitleBar({ onToggleSidebar }: TitleBarProps) {
   useEffect(() => {
     const el = barRef.current
     if (!el || !bridge) return
-    const handler = () => bridge.toggleMaximize().catch(() => {})
+    const handler = (e: MouseEvent) => {
+      // Don't maximize when double-clicking the sidebar toggle button
+      const t = e.target as HTMLElement
+      if (t.closest('[aria-label="Toggle sidebar"]')) return
+      bridge.toggleMaximize().catch(() => {})
+    }
     el.addEventListener('dblclick', handler)
     return () => el.removeEventListener('dblclick', handler)
   }, [bridge])

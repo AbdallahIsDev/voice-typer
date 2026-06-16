@@ -336,7 +336,6 @@ function createMainWindow(forceShow = false) {
     minHeight: 550,
     icon: path.join(__dirname, "../../resources/icon.png"),
     frame: false,
-    transparent: true,
     hasShadow: false,
     show: shouldShow,
     // skipTaskbar when hidden so an autostarted background instance leaves
@@ -682,67 +681,15 @@ ipcMain.handle("python-call", async (_event, msg) => {
 });
 
 ipcMain.handle("window:move", (_event, { x, y }: { x: number; y: number }) => {
-  cancelAnim()
   mainWindow?.setBounds({ x, y })
 })
 
-// ── Window animation helpers ──────────────────────────────────────
-
-let animTimer: ReturnType<typeof setTimeout> | null = null
-let preMaximizeBounds: Electron.Rectangle | null = null
-
-function cancelAnim() {
-  if (animTimer) { clearTimeout(animTimer); animTimer = null }
-}
-
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t
-}
-
-function animateWindow(
-  win: BrowserWindow,
-  from: Electron.Rectangle,
-  to: Electron.Rectangle,
-  duration: number,
-): Promise<void> {
-  return new Promise((resolve) => {
-    cancelAnim()
-    const start = performance.now()
-    const tick = () => {
-      const t = Math.min((performance.now() - start) / duration, 1)
-      const e = 1 - (1 - t) ** 3
-      try {
-        win.setBounds({
-          x: Math.round(lerp(from.x, to.x, e)),
-          y: Math.round(lerp(from.y, to.y, e)),
-          width: Math.round(lerp(from.width, to.width, e)),
-          height: Math.round(lerp(from.height, to.height, e)),
-        })
-      } catch {}
-      if (t < 1) {
-        animTimer = setTimeout(tick, 16)
-      } else {
-        resolve()
-      }
-    }
-    tick()
-  })
-}
-
 // ── Window control IPC (used by the custom title bar) ──────────────
 
-ipcMain.handle("window:minimize", async () => {
-  const win = mainWindow
-  if (!win) return
-  const b = win.getBounds()
-  const display = screen.getPrimaryDisplay()
-  await animateWindow(win, b, {
-    x: Math.round(b.x + b.width * 0.05),
-    y: display.workArea.y + display.workArea.height,
-    width: Math.round(b.width * 0.9),
-    height: Math.round(b.height * 0.05),
-  }, 180)
-  win.minimize()
+let preMaximizeBounds: Electron.Rectangle | null = null
+
+ipcMain.handle("window:minimize", () => {
+  mainWindow?.minimize();
 });
 
 ipcMain.handle("window:toggle-maximize", async () => {
@@ -750,8 +697,6 @@ ipcMain.handle("window:toggle-maximize", async () => {
   if (!win) return false
 
   if (win.isMaximized()) {
-    const target = preMaximizeBounds ?? { x: 100, y: 100, width: 1000, height: 700 }
-    await animateWindow(win, win.getBounds(), target, 200)
     win.unmaximize()
     if (preMaximizeBounds) {
       win.setBounds(preMaximizeBounds)
@@ -759,8 +704,6 @@ ipcMain.handle("window:toggle-maximize", async () => {
     }
   } else {
     preMaximizeBounds = win.getBounds()
-    const display = screen.getPrimaryDisplay()
-    await animateWindow(win, preMaximizeBounds, display.workArea, 200)
     win.maximize()
   }
   return win.isMaximized()
