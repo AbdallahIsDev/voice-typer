@@ -694,13 +694,13 @@ class VoiceTyperApp:
         except OSError:
             pass
 
-        # 2. Ensure the universal-launcher shortcut exists.
-        if lnk_path.exists():
-            return
+        # 2. Ensure the universal-launcher shortcut exists (always recreate
+        #    so old .lnk files pointing at the legacy -m voice_typer backend
+        #    get upgraded to the universal launcher).
         try:
             result = create_launcher_shortcut()
             if result:
-                log.info("[STARTUP] Desktop shortcut created: %s", result)
+                log.info("[STARTUP] Desktop shortcut synced: %s", result)
         except Exception as e:
             log.debug("[STARTUP] Desktop shortcut creation skipped: %s", e)
 

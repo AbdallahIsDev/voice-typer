@@ -63,6 +63,12 @@ class TestTaskRegistration:
             task_scheduler, "_prewarm_command",
             lambda: '"python.exe" -m voice_typer.server.prewarm',
         )
+        # Also prevent the HKCU Run-key fallback from succeeding on real
+        # Windows — we want to test the schtasks failure path only.
+        monkeypatch.setattr(
+            task_scheduler, "_register_prewarm_registry",
+            lambda _cmd: False,
+        )
         assert task_scheduler.register_prewarm_task() is False
 
     def test_register_returns_false_when_command_unresolvable(self, monkeypatch):
@@ -108,6 +114,17 @@ class TestTaskRegistration:
             return r
 
         monkeypatch.setattr(subprocess, "run", fake_run)
+        # Prevent the HKCU Run-key cleanup from succeeding on real Windows.
+        monkeypatch.setattr(
+            task_scheduler, "_unregister_prewarm_registry",
+            lambda: False,
+        )
+        # Also prevent is_prewarm_registered from short-circuiting on a
+        # real HKCU Run key that exists on the test machine.
+        monkeypatch.setattr(
+            task_scheduler, "is_prewarm_registered",
+            lambda: True,
+        )
         assert task_scheduler.unregister_prewarm_task() is False
 
     def test_is_registered_true_when_query_succeeds(self, monkeypatch):
@@ -191,12 +208,13 @@ class TestTaskXml:
 
 
 class TestPrewarmCommand:
-    """_prewarm_command prefers the app venv, falls back to sys.executable."""
+    """_prewarm_command prefers the app venv's pythonw, falls back to
+    sys.executable's sibling pythonw."""
 
-    def test_prefers_venv_python(self, monkeypatch, tmp_path):
-        """If ~/.voice-typer/venv/Scripts/python.exe exists, use it."""
+    def test_prefers_venv_pythonw(self, monkeypatch, tmp_path):
+        """If ~/.voice-typer/venv/Scripts/pythonw.exe exists, use it."""
         fake_home = tmp_path
-        venv_py = fake_home / ".voice-typer" / "venv" / "Scripts" / "python.exe"
+        venv_py = fake_home / ".voice-typer" / "venv" / "Scripts" / "pythonw.exe"
         venv_py.parent.mkdir(parents=True)
         venv_py.write_text("")  # exists() must return True
         monkeypatch.setattr(Path, "home", lambda: fake_home)
@@ -204,8 +222,11 @@ class TestPrewarmCommand:
         assert "prewarm" in cmd
         assert str(venv_py.resolve()) in cmd.replace('"', '')
 
-    def test_falls_back_to_sys_executable(self, monkeypatch, tmp_path):
-        """No venv → sys.executable."""
-        monkeypatch.setattr(Path, "home", lambda: tmp_path)  # no venv here
+    def test_falls_back_to_sys_pythonw(self, monkeypatch, tmp_path):
+        """No venv → pythonw.exe next to sys.executable."""
+        fake_home = tmp_path
+        # No venv pythonw at this path — fallback to sys.executable sibling.
+        monkeypatch.setattr(Path, "home", lambda: fake_home)
         cmd = task_scheduler._prewarm_command()
-        assert sys.executable in cmd
+        expected_pythonw = str(Path(sys.executable).parent / "pythonw.exe")
+        assert expected_pythonw in cmd.replace('"', '')

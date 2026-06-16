@@ -70,15 +70,24 @@ _IDLE_DELAY = "PT15M"  # 15 minutes
 def _prewarm_command() -> str | None:
     """Return the full command line for the prewarm action, or None.
 
+    Prefers ``pythonw.exe`` (no console window) over ``python.exe``, so
+    the prewarm runs silently in the background even when launched via
+    ``cmd.exe /c`` in the Task Scheduler action.
+
     Mirrors ``asr_setup.get_voice_typer_python()``: prefer the app venv
     at ``~/.voice-typer/venv/`` (the interpreter Electron spawns), and
     fall back to ``sys.executable``.
     """
-    venv_python = Path.home() / ".voice-typer" / "venv" / "Scripts" / "python.exe"
-    if venv_python.exists():
-        python = str(venv_python.resolve())
+    # Try pythonw.exe first (no console window).
+    venv_pythonw = Path.home() / ".voice-typer" / "venv" / "Scripts" / "pythonw.exe"
+    if venv_pythonw.exists():
+        python = str(venv_pythonw.resolve())
     else:
-        python = sys.executable
+        pythonw = Path(sys.executable).parent / "pythonw.exe"
+        if pythonw.exists():
+            python = str(pythonw.resolve())
+        else:
+            python = sys.executable
     if not Path(python).exists():
         log.warning("[TASK] Python interpreter not found: %s", python)
         return None
