@@ -49,10 +49,10 @@ def mock_win32(monkeypatch):
 
 
 class TestRegisterHotKeyFailure:
-    """When RegisterHotKey fails, start() must raise within timeout."""
+    """When RegisterHotKey fails, start() falls back to polling."""
 
-    def test_raises_on_register_failure(self, mock_win32):
-        """RegisterHotKey returns 0 -> start() raises RuntimeError."""
+    def test_fallback_on_register_failure(self, mock_win32):
+        """RegisterHotKey returns 0 -> polling fallback, no raise."""
         mock_user32, mock_kernel32 = mock_win32
         mock_user32.RegisterHotKey.return_value = 0  # BOOL FALSE
         mock_kernel32.GetLastError.return_value = 1409
@@ -60,25 +60,31 @@ class TestRegisterHotKeyFailure:
         from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<f2>")
-        with pytest.raises(RuntimeError, match="Failed to register hotkey"):
+        try:
             backend.start(MagicMock())
+            assert backend._using_polling
+            assert backend._last_error == 1409
+        finally:
+            backend.stop()
 
-    def test_raises_within_timeout(self, mock_win32):
-        """start() should raise quickly on RegisterHotKey failure."""
+    def test_fallback_completes_quickly(self, mock_win32):
+        """start() returns quickly on RegisterHotKey failure (polling fallback)."""
         mock_user32, mock_kernel32 = mock_win32
         mock_user32.RegisterHotKey.return_value = 0
 
         from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<f2>")
-        start_time = time.monotonic()
-        with pytest.raises(RuntimeError):
+        try:
+            start_time = time.monotonic()
             backend.start(MagicMock())
-        elapsed = time.monotonic() - start_time
-        assert elapsed < 7.0, f"Took too long: {elapsed:.1f}s"
+            elapsed = time.monotonic() - start_time
+            assert elapsed < 7.0, f"Took too long: {elapsed:.1f}s"
+        finally:
+            backend.stop()
 
-    def test_error_code_in_message(self, mock_win32):
-        """The error message should include the Win32 error code."""
+    def test_error_code_captured(self, mock_win32):
+        """RegisterHotKey failure should capture the Win32 error code."""
         mock_user32, mock_kernel32 = mock_win32
         mock_user32.RegisterHotKey.return_value = 0
         mock_kernel32.GetLastError.return_value = 1409
@@ -86,8 +92,11 @@ class TestRegisterHotKeyFailure:
         from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<f2>")
-        with pytest.raises(RuntimeError, match="1409"):
+        try:
             backend.start(MagicMock())
+            assert backend._last_error == 1409
+        finally:
+            backend.stop()
 
 
 # ─── Success scenario ────────────────────────────────────────────────────────
@@ -166,18 +175,20 @@ class TestDiagnoseMethod:
         backend.stop()
 
     def test_diagnose_on_register_failure(self, mock_win32):
-        """After RegisterHotKey failure, _ready_event is set and _success is False."""
+        """After RegisterHotKey failure, falls back to polling (no raise)."""
         mock_user32, _ = mock_win32
         mock_user32.RegisterHotKey.return_value = 0
 
         from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<f2>")
-        with pytest.raises(RuntimeError):
+        try:
             backend.start(MagicMock())
-
-        assert backend._ready_event.is_set()
-        assert backend._success is False
+            assert backend._ready_event.is_set()
+            assert backend._success is True  # polling fallback, not an error
+            assert backend._using_polling
+        finally:
+            backend.stop()
 
 
 # ─── Mocking verification ────────────────────────────────────────────────────

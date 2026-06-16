@@ -247,21 +247,24 @@ class IPCServer:
             iterator = iter(stdin)
         except OSError:
             return  # stdin not available (e.g. during testing)
-        for line in iterator:
-            if not self._running:
-                break
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                msg = json.loads(line)
-                result = self._dispatch(msg)
-                self._send(result, _out=stdout)
-            except json.JSONDecodeError:
-                self._send({
-                    "type": "error",
-                    "data": {"message": "invalid JSON"},
-                }, _out=stdout)
+        try:
+            for line in iterator:
+                if not self._running:
+                    break
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    msg = json.loads(line)
+                    result = self._dispatch(msg)
+                    self._send(result, _out=stdout)
+                except json.JSONDecodeError:
+                    self._send({
+                        "type": "error",
+                        "data": {"message": "invalid JSON"},
+                    }, _out=stdout)
+        except OSError:
+            pass  # stdin closed (e.g. during test teardown)
 
     # ── Dispatcher ──────────────────────────────────────────────────────
 
