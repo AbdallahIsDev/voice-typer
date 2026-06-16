@@ -254,7 +254,7 @@ function pythonArgs(): [string, string[]] {
   const home = os.homedir();
   const base = path.join(home, ".voice-typer", "venv");
   const exe = process.platform === "win32"
-    ? path.join(base, "Scripts", "python.exe")
+    ? path.join(base, "Scripts", "pythonw.exe")
     : path.join(base, "bin", "python3");
   return [exe, ["-m", "voice_typer.server.ipc_server", "--port", String(IPC_PORT)]];
 }

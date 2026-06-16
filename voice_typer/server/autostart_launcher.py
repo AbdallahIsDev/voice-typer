@@ -253,6 +253,31 @@ def launch() -> int:
         )
         return 1
 
+    # Path C: pre-built electron binary + compiled main bundle →
+    # skip npm entirely (no node console, no Vite compile).
+    if hidden:
+        exe = _electron_binary()
+        if exe and _main_entry_built():
+            sk = dict(
+                cwd=str(CLIENT_DIR),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL,
+            )
+            sk.update(_spawn_flags())
+            env = dict(os.environ, VT_START_HIDDEN="1")
+            try:
+                child = subprocess.Popen([exe, "."], env=env, **sk)
+                log.info(
+                    "[AUTOSTART] spawned electron . (built) — skipped npm"
+                    " (child pid=%s)", getattr(child, "pid", "?"),
+                )
+                _write_pid_file(os.getpid(), getattr(child, "pid", None))
+                time.sleep(2)
+                return 0
+            except Exception:
+                log.exception("[AUTOSTART] electron . failed — falling back to npm run dev")
+
     spawn_kwargs: dict = dict(
         cwd=str(CLIENT_DIR),
         stdout=subprocess.DEVNULL,
@@ -260,9 +285,6 @@ def launch() -> int:
         stdin=subprocess.DEVNULL,
     )
     spawn_kwargs.update(_spawn_flags())
-
-    # Hidden autostart: tell Electron to create its window hidden.  User-
-    # initiated launches (Start Menu / Desktop, no --hidden) show normally.
     env = dict(os.environ)
     if hidden:
         env["VT_START_HIDDEN"] = "1"
