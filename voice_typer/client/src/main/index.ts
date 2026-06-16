@@ -343,6 +343,7 @@ function createMainWindow(forceShow = false) {
     skipTaskbar: !shouldShow,
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
+      backgroundThrottling: false,
     },
   })
 
@@ -680,8 +681,8 @@ ipcMain.handle("python-call", async (_event, msg) => {
   return await sendToPython(msg);
 });
 
-ipcMain.handle("window:move", (_event, { x, y }: { x: number; y: number }) => {
-  mainWindow?.setBounds({ x, y })
+ipcMain.on("window:move", (_event, { x, y }: { x: number; y: number }) => {
+  mainWindow?.setPosition(x, y)
 })
 
 // ── Window control IPC (used by the custom title bar) ──────────────
