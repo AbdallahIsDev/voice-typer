@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { PanelLeftIcon } from '@hugeicons/core-free-icons'
 import { cn } from '@/lib/utils'
@@ -58,7 +58,7 @@ function TitleBarButton({ onClick, ariaLabel, variant = 'default', children }: T
       aria-label={ariaLabel}
       tabIndex={-1}
       className={cn(
-        'press-scale group flex items-center justify-center',
+        'no-drag press-scale group flex items-center justify-center',
         'h-8 w-11.5',
         'text-(--text-muted) transition-colors duration-75',
         'focus:outline-none',
@@ -81,9 +81,6 @@ function TitleBarButton({ onClick, ariaLabel, variant = 'default', children }: T
 export function TitleBar({ onToggleSidebar }: TitleBarProps) {
   const [isMaximized, setIsMaximized] = useState(false)
   const bridge = typeof window !== 'undefined' ? window.window_ as WindowBridge : undefined
-  const barRef = useRef<HTMLDivElement>(null)
-  const dragging = useRef(false)
-  const dragOffset = useRef({ x: 0, y: 0 })
 
   useEffect(() => {
     if (!bridge) return
@@ -93,67 +90,19 @@ export function TitleBar({ onToggleSidebar }: TitleBarProps) {
     return () => { cancelled = true; unsub() }
   }, [bridge])
 
-  // Native dblclick – no -webkit-app-region to block it.
-  useEffect(() => {
-    const el = barRef.current
-    if (!el || !bridge) return
-    const handler = (e: MouseEvent) => {
-      // Don't maximize when double-clicking the sidebar toggle button
-      const t = e.target as HTMLElement
-      if (t.closest('[aria-label="Toggle sidebar"]')) return
-      bridge.toggleMaximize().catch(() => {})
-    }
-    el.addEventListener('dblclick', handler)
-    return () => el.removeEventListener('dblclick', handler)
-  }, [bridge])
-
-  // Manual window dragging (no -webkit-app-region, so dblclick works).
-  const onMouseDown = useCallback((e: React.MouseEvent) => {
-    const t = e.target as HTMLElement
-    if (t.closest('button')) return
-    if (!bridge) return
-
-    dragging.current = true
-    dragOffset.current = {
-      x: e.screenX - window.screenX,
-      y: e.screenY - window.screenY,
-    }
-
-    const onMove = (ev: MouseEvent) => {
-      if (!dragging.current) return
-      bridge.move(ev.screenX - dragOffset.current.x, ev.screenY - dragOffset.current.y)
-    }
-    const onUp = () => {
-      dragging.current = false
-      document.removeEventListener('mousemove', onMove)
-      document.removeEventListener('mouseup', onUp)
-    }
-    document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup', onUp)
-  }, [bridge])
-
   const handleMinimize = () => bridge?.minimize().catch(() => {})
   const handleToggleMaximize = () => bridge?.toggleMaximize().catch(() => {})
   const handleClose = () => bridge?.close().catch(() => {})
 
   return (
-    <div
-      ref={barRef}
-      onMouseDown={onMouseDown}
-      className={cn(
-        'flex w-full shrink-0 items-center',
-        'select-none cursor-default',
-        'h-8',
-      )}
-    >
+    <div className="drag-region flex w-full shrink-0 items-center select-none h-8">
       <button
         type="button"
         onClick={onToggleSidebar}
-        onDoubleClick={(e) => e.stopPropagation()}
         aria-label="Toggle sidebar"
         title="Toggle sidebar"
         className={cn(
-          'press-scale flex h-10 w-10 items-center justify-center',
+          'no-drag press-scale flex h-10 w-10 items-center justify-center',
           'text-(--text-muted)',
           'hover:text-(--text-primary)',
           'focus:outline-none',

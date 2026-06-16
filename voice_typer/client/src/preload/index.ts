@@ -31,7 +31,6 @@ contextBridge.exposeInMainWorld("window_", {
     ipcRenderer.on("window:maximized-changed", handler);
     return () => { ipcRenderer.removeListener("window:maximized-changed", handler); };
   },
-  move: (x: number, y: number) => ipcRenderer.send("window:move", { x, y }),
   exportHistory: (data: Record<string, unknown>[], format: 'json' | 'csv') =>
     ipcRenderer.invoke("history:export", { data, format }) as Promise<{ success: boolean; path?: string; error?: string }>,
 });

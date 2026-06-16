@@ -681,10 +681,6 @@ ipcMain.handle("python-call", async (_event, msg) => {
   return await sendToPython(msg);
 });
 
-ipcMain.on("window:move", (_event, { x, y }: { x: number; y: number }) => {
-  mainWindow?.setPosition(x, y)
-})
-
 // ── Window control IPC (used by the custom title bar) ──────────────
 
 let preMaximizeBounds: Electron.Rectangle | null = null

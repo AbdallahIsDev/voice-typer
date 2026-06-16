@@ -229,7 +229,6 @@ export interface WindowBridge {
   close: () => Promise<void>
   isMaximized: () => Promise<boolean>
   onMaximizedChanged: (callback: (maximized: boolean) => void) => () => void
-  move: (x: number, y: number) => void
   exportHistory: (data: Record<string, unknown>[], format: 'json' | 'csv') => Promise<{ success: boolean; path?: string; error?: string }>
 }
 

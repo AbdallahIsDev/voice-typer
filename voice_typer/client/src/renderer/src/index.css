@@ -152,7 +152,9 @@
     }
   html, body {
     background: transparent !important;
-    scrollbar-gutter: stable;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
     }
   body {
     @apply text-foreground;
