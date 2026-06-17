@@ -56,6 +56,25 @@ class TestHistoryDBCRUD:
         assert len(results) == 1
         assert "quick" in results[0]["text"]
 
+    def test_search_treats_like_wildcards_as_literals(self, db):
+        db.add_transcription("Progress is 100% complete")
+        db.add_transcription("plain text without percent")
+        db.add_transcription("snake_case_token")
+        db.add_transcription("snake case token")
+
+        percent_results = db.search("%")
+        underscore_results = db.search("_")
+
+        assert [row["text"] for row in percent_results] == ["Progress is 100% complete"]
+        assert [row["text"] for row in underscore_results] == ["snake_case_token"]
+
+    def test_search_caps_query_at_200_characters(self, db):
+        db.add_transcription("a" * 200)
+
+        results = db.search(("a" * 200) + "b")
+
+        assert [row["text"] for row in results] == ["a" * 200]
+
     def test_delete(self, db):
         row_id = db.add_transcription("To delete")
         assert db.delete(row_id) is True

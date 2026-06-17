@@ -20,6 +20,7 @@ from typing import Optional
 log = logging.getLogger(__name__)
 
 _CURRENT_SCHEMA_VERSION = 2
+_MAX_SEARCH_QUERY_CHARS = 200
 
 _MIGRATION_V2 = """
     ALTER TABLE transcriptions ADD COLUMN favorite INTEGER DEFAULT 0;
@@ -29,6 +30,18 @@ _MIGRATION_V2 = """
 _MIGRATIONS = {
     2: _MIGRATION_V2,
 }
+
+
+def _prepare_like_search_pattern(query: str) -> str:
+    """Build a bounded LIKE pattern where user wildcards stay literal."""
+    capped_query = query[:_MAX_SEARCH_QUERY_CHARS]
+    escaped_query = (
+        capped_query
+        .replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
+    return f"%{escaped_query}%"
 
 
 class HistoryDB:
@@ -197,12 +210,13 @@ class HistoryDB:
         try:
             conn = self._get_conn()
             cursor = conn.cursor()
+            pattern = _prepare_like_search_pattern(query)
             cursor.execute("""
                 SELECT * FROM transcriptions
-                WHERE text LIKE ?
+                WHERE text LIKE ? ESCAPE '\\'
                 ORDER BY timestamp DESC
                 LIMIT ? OFFSET ?
-            """, (f"%{query}%", limit, offset))
+            """, (pattern, limit, offset))
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
         except Exception as e:
