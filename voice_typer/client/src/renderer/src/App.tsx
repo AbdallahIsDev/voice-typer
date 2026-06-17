@@ -226,6 +226,9 @@ export default function App() {
     setThemeMode(mode)
     try {
       await call('set_config', { theme_mode: mode })
+      // Sync nativeTheme in Electron so the bubble window receives the
+      // correct theme via nativeTheme.on("updated") → bubble:theme event.
+      ;(window as any).bubble?.setThemeSource?.(mode)
     } catch {
       // Theme is local-only if backend unavailable
     }

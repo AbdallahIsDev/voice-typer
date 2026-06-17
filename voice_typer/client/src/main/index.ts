@@ -351,9 +351,15 @@ function createMainWindow(forceShow = false) {
   })
 
   nativeTheme.on("updated", () => {
+    const isDark = nativeTheme.shouldUseDarkColors;
     if (mainWindow) {
-      const name = nativeTheme.shouldUseDarkColors ? "icon-dark.png" : "icon.png";
+      const name = isDark ? "icon-dark.png" : "icon.png";
       mainWindow.setIcon(path.join(__dirname, `../../resources/${name}`));
+    }
+    // Forward resolved theme to the bubble window so its Tailwind dark:
+    // variants match the app's actual theme (not just OS preference).
+    if (bubbleWindow && !bubbleWindow.isDestroyed()) {
+      bubbleWindow.webContents.send("bubble:theme", isDark);
     }
   });
 
@@ -523,6 +529,8 @@ function showBubbleWindow(): void {
     // Sync the current draggable state on every show (handles initial state
     // and ensures the bubble renderer is always in sync with the backend)
     win.webContents.send("bubble:draggable", bubbleDraggable);
+    // Sync the current theme so Tailwind dark: variants are correct
+    syncBubbleTheme();
   } catch (e) {
     console.error(`${ts()}  ${BUBBLE_CLR}[BUBBLE] show() failed:${RESET}`, e);
   }
@@ -783,6 +791,21 @@ ipcMain.handle("python-call", async (_event, msg) => {
   }
   return await sendToPython(msg);
 });
+
+// ── Theme sync IPC ────────────────────────────────────────────────
+
+ipcMain.handle("set-theme-source", (_event, source: 'system' | 'light' | 'dark') => {
+  nativeTheme.themeSource = source;
+  // nativeTheme.on("updated") fires automatically and forwards to bubble
+  return true;
+});
+
+// When showing the bubble, sync the current theme so dark: variants match
+function syncBubbleTheme(): void {
+  if (bubbleWindow && !bubbleWindow.isDestroyed()) {
+    bubbleWindow.webContents.send("bubble:theme", nativeTheme.shouldUseDarkColors);
+  }
+}
 
 // ── Window control IPC (used by the custom title bar) ──────────────
 

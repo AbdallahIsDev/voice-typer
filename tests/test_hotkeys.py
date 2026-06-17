@@ -160,11 +160,12 @@ class TestPynputHotkey:
         monkeypatch.setitem(sys.modules, "pynput.keyboard", mock_kb)
         return mock_kb
 
-    def test_start_creates_global_hotkeys(self, monkeypatch):
+    def test_start_creates_listener(self, monkeypatch):
+        """PynputHotkey.start() creates a pynput Listener with on_press and on_release."""
         mock_kb = self._make_mock_modules(monkeypatch)
         mock_listener = MagicMock()
         mock_listener.is_alive.return_value = True
-        mock_kb.GlobalHotKeys = MagicMock(return_value=mock_listener)
+        mock_kb.Listener = MagicMock(return_value=mock_listener)
 
         from voice_typer.server.hotkeys import PynputHotkey
 
@@ -172,15 +173,36 @@ class TestPynputHotkey:
         cb = MagicMock()
         backend.start(cb)
 
-        mock_kb.GlobalHotKeys.assert_called_once()
+        # Listener should be created with on_press and on_release kwargs
+        mock_kb.Listener.assert_called_once()
+        kwargs = mock_kb.Listener.call_args[1]
+        assert "on_press" in kwargs
+        assert "on_release" in kwargs
         mock_listener.start.assert_called_once()
         assert backend.is_alive() is True
+
+    def test_release_callback_wired_through_listener(self, monkeypatch):
+        """The on_release callback should check _on_release_callback."""
+        mock_kb = self._make_mock_modules(monkeypatch)
+        mock_listener = MagicMock()
+        mock_listener.is_alive.return_value = True
+        mock_kb.Listener = MagicMock(return_value=mock_listener)
+
+        from voice_typer.server.hotkeys import PynputHotkey
+
+        backend = PynputHotkey("<f2>")
+        backend.start(MagicMock())
+
+        kwargs = mock_kb.Listener.call_args[1]
+        assert "on_release" in kwargs
+        # on_release should be a callable
+        assert callable(kwargs["on_release"])
 
     def test_stop_calls_listener_stop(self, monkeypatch):
         mock_kb = self._make_mock_modules(monkeypatch)
         mock_listener = MagicMock()
         mock_listener.is_alive.return_value = True
-        mock_kb.GlobalHotKeys = MagicMock(return_value=mock_listener)
+        mock_kb.Listener = MagicMock(return_value=mock_listener)
 
         from voice_typer.server.hotkeys import PynputHotkey
 
@@ -191,36 +213,19 @@ class TestPynputHotkey:
         backend.stop()
         mock_listener.stop.assert_called_once()
 
-    def test_fallback_on_global_hotkeys_failure(self, monkeypatch):
-        """If GlobalHotKeys raises, PynputHotkey should try Listener fallback."""
+    def test_start_raises_on_parse_failure(self, monkeypatch):
+        """PynputHotkey raises RuntimeError if hotkey cannot be parsed."""
         mock_kb = self._make_mock_modules(monkeypatch)
-        mock_kb.GlobalHotKeys = MagicMock(side_effect=Exception("no display"))
-
-        fallback_listener = MagicMock()
-        fallback_listener.is_alive.return_value = True
-        mock_kb.Listener = MagicMock(return_value=fallback_listener)
+        mock_listener = MagicMock()
+        mock_listener.is_alive.return_value = True
+        mock_kb.Listener = MagicMock(return_value=mock_listener)
 
         from voice_typer.server.hotkeys import PynputHotkey
 
-        backend = PynputHotkey("<f2>")
-        backend.start(MagicMock())
-
-        mock_kb.Listener.assert_called_once()
-        fallback_listener.start.assert_called_once()
-        assert backend._fallback is True
-
-    def test_total_failure_does_not_raise(self, monkeypatch):
-        """If both GlobalHotKeys and Listener raise, start() should not crash."""
-        mock_kb = self._make_mock_modules(monkeypatch)
-        mock_kb.GlobalHotKeys = MagicMock(side_effect=Exception("no display"))
-        mock_kb.Listener = MagicMock(side_effect=Exception("no input"))
-
-        from voice_typer.server.hotkeys import PynputHotkey
-
-        backend = PynputHotkey("<f2>")
-        # Should not raise
-        backend.start(MagicMock())
-        assert backend.is_alive() is False
+        # Use a hotkey with no valid key part (only modifiers)
+        backend = PynputHotkey("<ctrl>+<alt>")
+        with pytest.raises(RuntimeError, match="Cannot parse"):
+            backend.start(MagicMock())
 
     def test_is_alive_reflects_thread_state(self, monkeypatch):
         mock_kb = self._make_mock_modules(monkeypatch)
@@ -233,7 +238,7 @@ class TestPynputHotkey:
         # After start with alive listener
         mock_listener = MagicMock()
         mock_listener.is_alive.return_value = True
-        mock_kb.GlobalHotKeys = MagicMock(return_value=mock_listener)
+        mock_kb.Listener = MagicMock(return_value=mock_listener)
         backend.start(MagicMock())
         assert backend.is_alive() is True
 
@@ -255,7 +260,7 @@ class TestPynputHotkey:
         mock_listener.is_alive.return_value = True
         mock_listener.name = "TestThread"
         mock_listener.daemon = True
-        mock_kb.GlobalHotKeys = MagicMock(return_value=mock_listener)
+        mock_kb.Listener = MagicMock(return_value=mock_listener)
 
         from voice_typer.server.hotkeys import PynputHotkey
 
@@ -264,14 +269,13 @@ class TestPynputHotkey:
 
         info = backend.diagnose()
         assert "PynputHotkey" in info
-        assert "GlobalHotKeys" in info
         assert "<f2>" in info
 
     def test_stop_is_idempotent(self, monkeypatch):
         mock_kb = self._make_mock_modules(monkeypatch)
         mock_listener = MagicMock()
         mock_listener.is_alive.return_value = True
-        mock_kb.GlobalHotKeys = MagicMock(return_value=mock_listener)
+        mock_kb.Listener = MagicMock(return_value=mock_listener)
 
         from voice_typer.server.hotkeys import PynputHotkey
 

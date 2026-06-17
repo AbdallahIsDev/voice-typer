@@ -18,8 +18,149 @@ import os
 import socket
 import sys
 import threading
+from typing import Any, Callable
+from urllib.parse import urlparse
 
 log = logging.getLogger("voice_typer.server.ipc_server")
+
+_INVALID_CONFIG_VALUE = object()
+
+
+def _bool_config(value: Any) -> bool | object:
+    return value if isinstance(value, bool) else _INVALID_CONFIG_VALUE
+
+
+def _str_config(max_chars: int = 512, *, allow_empty: bool = True) -> Callable[[Any], str | object]:
+    def validate(value: Any) -> str | object:
+        if not isinstance(value, str):
+            return _INVALID_CONFIG_VALUE
+        if not allow_empty and not value:
+            return _INVALID_CONFIG_VALUE
+        if len(value) > max_chars:
+            return _INVALID_CONFIG_VALUE
+        return value
+
+    return validate
+
+
+def _optional_str_config(max_chars: int = 512) -> Callable[[Any], str | None | object]:
+    def validate(value: Any) -> str | None | object:
+        if value is None:
+            return None
+        return _str_config(max_chars)(value)
+
+    return validate
+
+
+def _enum_config(*allowed: str) -> Callable[[Any], str | object]:
+    allowed_values = set(allowed)
+
+    def validate(value: Any) -> str | object:
+        return value if isinstance(value, str) and value in allowed_values else _INVALID_CONFIG_VALUE
+
+    return validate
+
+
+def _number_config(
+    *,
+    minimum: float,
+    maximum: float,
+    as_int: bool = False,
+) -> Callable[[Any], int | float | object]:
+    def validate(value: Any) -> int | float | object:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return _INVALID_CONFIG_VALUE
+        if value < minimum or value > maximum:
+            return _INVALID_CONFIG_VALUE
+        return int(value) if as_int else value
+
+    return validate
+
+
+def _url_config(value: Any) -> str | object:
+    if not isinstance(value, str) or len(value) > 2048:
+        return _INVALID_CONFIG_VALUE
+    if value == "":
+        return value
+    parsed = urlparse(value)
+    if parsed.scheme == "https" and parsed.netloc:
+        return value
+    if parsed.scheme == "http" and parsed.hostname in {"localhost", "127.0.0.1", "::1"}:
+        return value
+    return _INVALID_CONFIG_VALUE
+
+
+# Deny-by-default allowlist for renderer-driven settings. This prevents IPC
+# mass assignment from mutating internal or future Config fields accidentally.
+_CONFIG_UPDATE_VALIDATORS: dict[str, Callable[[Any], Any]] = {
+    "hotkey": _str_config(100, allow_empty=False),
+    "microphone": _optional_str_config(512),
+    "model_size": _enum_config("tiny.en", "small.en", "medium.en", "qwen", "parakeet"),
+    "language": _str_config(16),
+    "device": _enum_config("cuda", "cpu"),
+    "asr_backend": _enum_config("whisper", "qwen", "parakeet"),
+    "autostart": _bool_config,
+    "paste_on_stop": _bool_config,
+    "show_notifications": _bool_config,
+    "text_cleanup_enabled": _bool_config,
+    "recording_mode": _enum_config("toggle", "push_to_talk"),
+    "push_to_talk_hotkey": _str_config(100),
+    "esc_cancel_enabled": _bool_config,
+    "repaste_hotkey": _str_config(100),
+    "auto_punctuation": _bool_config,
+    "templates_enabled": _bool_config,
+    "vocabulary_enabled": _bool_config,
+    "openai_api_key": _str_config(4096),
+    "groq_api_key": _str_config(4096),
+    "deepgram_api_key": _str_config(4096),
+    "llm_polish": _bool_config,
+    "llm_api_key": _str_config(4096),
+    "llm_api_url": _url_config,
+    "llm_model": _str_config(128, allow_empty=False),
+    "llm_preset": _enum_config("professional", "casual", "email", "code"),
+    "crash_recovery_enabled": _bool_config,
+    "audio_quality_warnings": _bool_config,
+    "audio_clipping_warning": _bool_config,
+    "audio_low_volume_warning": _bool_config,
+    "audio_noise_warning": _bool_config,
+    "waveform_bubble": _bool_config,
+    "bubble_position": _enum_config("top", "bottom"),
+    "bubble_behavior": _enum_config("show_on_record", "always_visible", "hidden"),
+    "bubble_draggable": _bool_config,
+    "bubble_show_on_startup": _bool_config,
+    "history_retention_days": _number_config(minimum=0, maximum=3650, as_int=True),
+    "history_retention_count": _number_config(minimum=0, maximum=100000, as_int=True),
+    "history_max_entries": _number_config(minimum=1, maximum=100000, as_int=True),
+    "onboarding_completed": _bool_config,
+    "tray_left_click_action": _enum_config("open_app", "toggle_dictation"),
+    "theme_mode": _enum_config("system", "light", "dark"),
+    "high_contrast": _bool_config,
+    "text_size": _number_config(minimum=10, maximum=24, as_int=True),
+    "wayland_warned": _bool_config,
+    "fast_startup": _bool_config,
+    "silence_warning_seconds": _number_config(minimum=3, maximum=30),
+    "silence_auto_stop_seconds": _number_config(minimum=5, maximum=3600),
+    "max_recording_seconds": _number_config(minimum=0, maximum=7200, as_int=True),
+    "streaming_transcription": _bool_config,
+}
+
+
+def _validated_config_updates(data: Any) -> dict[str, Any]:
+    if not isinstance(data, dict):
+        return {}
+
+    updates: dict[str, Any] = {}
+    for key, value in data.items():
+        validator = _CONFIG_UPDATE_VALIDATORS.get(key)
+        if validator is None:
+            log.warning("[IPC] ignored unsupported config key: %s", key)
+            continue
+        validated = validator(value)
+        if validated is _INVALID_CONFIG_VALUE:
+            log.warning("[IPC] ignored invalid config value for key: %s", key)
+            continue
+        updates[key] = validated
+    return updates
 
 
 # Module-level push hook.  Set by the active IPCServer instance when it
@@ -48,6 +189,12 @@ def _push_event_now(msg: dict) -> bool:
     try:
         fn(msg)
         return True
+    except (ConnectionError, OSError) as e:
+        # Expected during shutdown/reload — Electron closes the TCP socket
+        # while push events are still firing (WinError 10053/10054).
+        # Log cleanly without the scary traceback; this is a normal disconnect.
+        log.debug("[IPC] push dropped (client gone): %s", e)
+        return False
     except Exception:
         log.debug("[IPC] _push_event_now raised", exc_info=True)
         return False
@@ -199,8 +346,14 @@ class IPCServer:
                         "type": "error",
                         "data": {"message": "invalid JSON"},
                     })
+        except (ConnectionError, OSError) as e:
+            # Expected when Electron closes/restarts the TCP socket (app
+            # quit, window reload, Dev server restart).  WinError 10054
+            # (ConnectionResetError) lands here.  Log cleanly without the
+            # scary full traceback — this is a normal disconnect.
+            log.debug("[TCP] client connection lost: %s", e)
         except Exception:
-            log.debug("[TCP] client connection lost", exc_info=True)
+            log.exception("[TCP] unexpected error in client loop")
         finally:
             self._tcp_client.close()
             self._tcp_client = None
@@ -297,48 +450,110 @@ class IPCServer:
 
         elif cmd == "set_config":
             try:
+                updates = _validated_config_updates(data)
                 if isinstance(data, dict):
                     # Side-effect: live-register/unregister the prewarm
                     # scheduled task when fast_startup changes, so the
                     # Settings toggle takes effect without a restart.
                     if (
-                        "fast_startup" in data
-                        and data["fast_startup"] != getattr(self.app.config, "fast_startup", None)
+                        "fast_startup" in updates
+                        and updates["fast_startup"] != getattr(self.app.config, "fast_startup", None)
                     ):
-                        self.app.config.fast_startup = bool(data["fast_startup"])
+                        self.app.config.fast_startup = updates["fast_startup"]
                         # _sync_prewarm_task reads config.fast_startup.
                         try:
                             self.app._sync_prewarm_task()
                         except Exception as e:
                             log.warning("[IPC] prewarm sync failed: %s", e)
-                    for k, v in data.items():
-                        if hasattr(self.app.config, k):
-                            setattr(self.app.config, k, v)
+                    # Snapshot: save old bubble_behavior BEFORE the main loop
+                    # updates config, so _sync_bubble_behavior can detect the
+                    # transition away from "always_visible" even though the
+                    # main loop below has already overwritten the value.
+                    if "bubble_behavior" in updates:
+                        _old_bubble_behavior = getattr(self.app.config, "bubble_behavior", "show_on_record")
+                    else:
+                        _old_bubble_behavior = None
+                    for k, v in updates.items():
+                        setattr(self.app.config, k, v)
                 self.app.config.save()
                 # Side-effect: when the autostart toggle changes, sync
                 # the OS autostart entry (registry/plist/.desktop) live
                 # so the user doesn't need to restart for the setting to
                 # take effect.  _sync_autostart reads config.autostart.
-                if isinstance(data, dict) and "autostart" in data:
+                if "autostart" in updates:
                     try:
                         self.app._sync_autostart()
                     except Exception as e:
                         log.warning("[IPC] autostart sync failed: %s", e)
                 # Side-effect: live-register/unregister the ESC cancel hotkey
-                if isinstance(data, dict) and "esc_cancel_enabled" in data:
+                if "esc_cancel_enabled" in updates:
                     try:
-                        if data["esc_cancel_enabled"]:
+                        if updates["esc_cancel_enabled"]:
                             self.app._register_esc_hotkey()
                         else:
                             self.app._unregister_esc_hotkey()
                     except Exception as e:
                         log.warning("[IPC] ESC hotkey sync failed: %s", e)
                 # Side-effect: live-register the repaste hotkey
-                if isinstance(data, dict) and "repaste_hotkey" in data:
+                if "repaste_hotkey" in updates:
                     try:
                         self.app._register_repaste_hotkey()
                     except Exception as e:
                         log.warning("[IPC] repaste hotkey sync failed: %s", e)
+                # Side-effect: re-register the main hotkey when recording mode
+                # or PTT hotkey changes, so the new mode's callbacks (release
+                # handler for push-to-talk) take effect without a restart.
+                if "recording_mode" in updates or "push_to_talk_hotkey" in updates:
+                    try:
+                        self.app._restart_hotkey(self.app.config.hotkey)
+                        log.info(
+                            "[IPC] hotkey re-registered for recording_mode=%s",
+                            self.app.config.recording_mode,
+                        )
+                    except Exception as e:
+                        log.warning("[IPC] hotkey re-registration failed: %s", e)
+                # Side-effect: live-update notifications setting
+                if "show_notifications" in updates:
+                    try:
+                        self.app._set_notifications(updates["show_notifications"])
+                    except Exception as e:
+                        log.warning("[IPC] notifications sync failed: %s", e)
+                # Side-effect: live-update paste_on_stop setting
+                if "paste_on_stop" in updates:
+                    try:
+                        self.app._set_paste_on_stop(updates["paste_on_stop"])
+                    except Exception as e:
+                        log.warning("[IPC] paste_on_stop sync failed: %s", e)
+                # Side-effect: re-register hotkey when hotkey string changes
+                if "hotkey" in updates:
+                    try:
+                        self.app._restart_hotkey(updates["hotkey"])
+                        log.info("[IPC] hotkey re-registered: %s", updates["hotkey"])
+                    except Exception as e:
+                        log.warning("[IPC] hotkey re-registration failed: %s", e)
+                # Side-effect: rebuild tray menu when left-click action changes
+                if "tray_left_click_action" in updates:
+                    try:
+                        self.app.tray.rebuild_menu()
+                        log.info(
+                            "[IPC] tray menu rebuilt for left-click action: %s",
+                            updates["tray_left_click_action"],
+                        )
+                    except Exception as e:
+                        log.warning("[IPC] tray menu rebuild failed: %s", e)
+                # Side-effect: live-update bubble behavior using the snapshot
+                # (``_old_bubble_behavior`` is always set when ``bubble_behavior``
+                # is in data, via the snapshot block above.  The ``is not None``
+                # guard is NOT needed — it breaks when ``getattr`` returns None
+                # for a missing field, e.g. in tests.)
+                if "bubble_behavior" in updates:
+                    try:
+                        self.app._sync_bubble_behavior(
+                            updates["bubble_behavior"],
+                            old_mode=_old_bubble_behavior,
+                        )
+                    except Exception as e:
+                        log.warning("[IPC] bubble_behavior sync failed: %s", e)
                 resp["type"] = "ack"
             except Exception as e:
                 log.error("[IPC] set_config failed: %s", e, exc_info=True)

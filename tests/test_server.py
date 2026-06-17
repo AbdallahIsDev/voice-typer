@@ -34,10 +34,15 @@ class MockConfig:
     """Minimal config mock with __dict__ and save()."""
 
     def __init__(self):
+        self.schema_version = 1
         self.hotkey = "<f2>"
         self.model_size = "small.en"
+        self.asr_backend = "whisper"
         self.device = "cuda"
         self.language = "en"
+        self.show_notifications = True
+        self.llm_api_url = "https://api.openai.com/v1/chat/completions"
+        self.silence_warning_seconds = 20.0
         self._saved = False
 
     def save(self):
@@ -72,10 +77,17 @@ class MockTray:
 
 
 class MockApp:
-    """Minimal VoiceTyperApp mock for IPC server tests."""
+    """Minimal VoiceTyperApp mock for IPC server tests.
+
+    Side-effect methods (``_sync_prewarm_task``, ``_sync_autostart``,
+    ``_set_notifications``, ``_set_paste_on_stop``, ``_sync_bubble_behavior``,
+    ``_restart_hotkey``) are ``MagicMock`` instances so tests can
+    ``assert_called_once_with(...)`` on them directly.
+    """
 
     def __init__(self):
         self.tray = MockTray()
+        self.tray.rebuild_menu = MagicMock()
         self.config = MockConfig()
         self.history_db = MockHistoryDB()
         self._microphones = [
@@ -85,6 +97,15 @@ class MockApp:
         self.toggle_called = False
         self.restart_called = False
         self.quit_called = False
+        # Side-effect mock methods — each is a MagicMock so call-count
+        # assertions work out of the box.
+        self._sync_prewarm_task = MagicMock()
+        self._sync_autostart = MagicMock()
+        self._set_notifications = MagicMock()
+        self._set_paste_on_stop = MagicMock()
+        self._sync_bubble_behavior = MagicMock()
+        self._restart_hotkey = MagicMock()
+        self._register_repaste_hotkey = MagicMock()
 
     def toggle_dictation(self):
         self.toggle_called = True
@@ -213,6 +234,47 @@ class TestDispatchSetConfig:
         # Config fields should not have been overwritten
         assert mock_app.config.hotkey == "<f2>"
 
+    def test_rejects_unallowlisted_existing_config_fields(self, server, mock_app):
+        result = server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"schema_version": 999},
+        })
+
+        assert result == {"id": 1, "type": "ack"}
+        assert mock_app.config.schema_version == 1
+
+    def test_rejects_invalid_enum_values(self, server, mock_app):
+        result = server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"asr_backend": "evil"},
+        })
+
+        assert result == {"id": 1, "type": "ack"}
+        assert mock_app.config.asr_backend == "whisper"
+
+    def test_rejects_invalid_bool_values_without_side_effects(self, server, mock_app):
+        result = server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"show_notifications": "false"},
+        })
+
+        assert result == {"id": 1, "type": "ack"}
+        assert mock_app.config.show_notifications is True
+        mock_app._set_notifications.assert_not_called()
+
+    def test_rejects_invalid_numeric_ranges(self, server, mock_app):
+        result = server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"silence_warning_seconds": 3600},
+        })
+
+        assert result == {"id": 1, "type": "ack"}
+        assert mock_app.config.silence_warning_seconds == 20.0
+
 
 class TestDispatchEscCancelLive:
     """Live registration of ESC cancel hotkey via set_config."""
@@ -256,6 +318,311 @@ class TestDispatchEscCancelLive:
         })
         assert result == {"id": 1, "type": "ack"}
         mock_app._register_repaste_hotkey.assert_called_once()
+
+
+class TestDispatchShowNotifications:
+    """Side-effect: show_notifications → _set_notifications."""
+
+    def test_enable_calls_set_notifications(self, server, mock_app):
+        result = server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"show_notifications": True},
+        })
+        assert result == {"id": 1, "type": "ack"}
+        mock_app._set_notifications.assert_called_once_with(True)
+
+    def test_disable_calls_set_notifications(self, server, mock_app):
+        result = server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"show_notifications": False},
+        })
+        assert result == {"id": 1, "type": "ack"}
+        mock_app._set_notifications.assert_called_once_with(False)
+
+    def test_does_not_call_when_not_in_data(self, server, mock_app):
+        server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"hotkey": "<f3>"},
+        })
+        mock_app._set_notifications.assert_not_called()
+
+
+class TestDispatchPasteOnStop:
+    """Side-effect: paste_on_stop → _set_paste_on_stop."""
+
+    def test_enable_calls_set_paste_on_stop(self, server, mock_app):
+        result = server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"paste_on_stop": True},
+        })
+        assert result == {"id": 1, "type": "ack"}
+        mock_app._set_paste_on_stop.assert_called_once_with(True)
+
+    def test_disable_calls_set_paste_on_stop(self, server, mock_app):
+        result = server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"paste_on_stop": False},
+        })
+        assert result == {"id": 1, "type": "ack"}
+        mock_app._set_paste_on_stop.assert_called_once_with(False)
+
+    def test_does_not_call_when_not_in_data(self, server, mock_app):
+        server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"hotkey": "<f3>"},
+        })
+        mock_app._set_paste_on_stop.assert_not_called()
+
+
+class TestDispatchHotkey:
+    """Side-effect: hotkey → _restart_hotkey(new_hotkey)."""
+
+    def test_changing_hotkey_calls_restart_hotkey(self, server, mock_app):
+        result = server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"hotkey": "<f7>"},
+        })
+        assert result == {"id": 1, "type": "ack"}
+        mock_app._restart_hotkey.assert_called_once_with("<f7>")
+
+    def test_does_not_call_when_not_in_data(self, server, mock_app):
+        server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"model_size": "tiny.en"},
+        })
+        mock_app._restart_hotkey.assert_not_called()
+
+
+class TestDispatchRecordingMode:
+    """Side-effect: recording_mode / push_to_talk_hotkey → _restart_hotkey."""
+
+    def test_changing_recording_mode_calls_restart_hotkey(self, server, mock_app):
+        result = server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"recording_mode": "push_to_talk"},
+        })
+        assert result == {"id": 1, "type": "ack"}
+        # Should call _restart_hotkey with the *current* hotkey from config
+        mock_app._restart_hotkey.assert_called_once_with("<f2>")
+
+    def test_changing_push_to_talk_hotkey_calls_restart_hotkey(self, server, mock_app):
+        result = server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"push_to_talk_hotkey": "<ctrl>+<f2>"},
+        })
+        assert result == {"id": 1, "type": "ack"}
+        mock_app._restart_hotkey.assert_called_once_with("<f2>")
+
+    def test_does_not_call_when_not_in_data(self, server, mock_app):
+        server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"model_size": "tiny.en"},
+        })
+        mock_app._restart_hotkey.assert_not_called()
+
+
+class TestDispatchTrayLeftClickAction:
+    """Side-effect: tray_left_click_action → tray.rebuild_menu()."""
+
+    def test_changing_action_rebuilds_menu(self, server, mock_app):
+        result = server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"tray_left_click_action": "toggle_dictation"},
+        })
+        assert result == {"id": 1, "type": "ack"}
+        mock_app.tray.rebuild_menu.assert_called_once()
+
+    def test_does_not_call_when_not_in_data(self, server, mock_app):
+        server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"hotkey": "<f3>"},
+        })
+        mock_app.tray.rebuild_menu.assert_not_called()
+
+
+class TestDispatchBubbleBehavior:
+    """Side-effect: bubble_behavior → _sync_bubble_behavior(mode, old_mode=...).
+
+    The IPC handler now passes a snapshot of the old value (captured BEFORE
+    the main config update loop) as the ``old_mode`` keyword argument so the
+    transition from ``always_visible`` is detected correctly.
+    """
+
+    def test_always_visible_calls_sync_with_old_mode(self, server, mock_app):
+        """When bubble_behavior changes, old_mode should be the pre-update value."""
+        result = server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"bubble_behavior": "always_visible"},
+        })
+        assert result == {"id": 1, "type": "ack"}
+        # MockConfig's __getattr__ returns None for unknown fields, so
+        # the snapshot is the default "show_on_record" from getattr(..., "show_on_record").
+        # MockConfig.__getattr__ returns None for unknown attributes,
+        # so the snapshot is None rather than the default "show_on_record".
+        mock_app._sync_bubble_behavior.assert_called_once_with(
+            "always_visible",
+            old_mode=None,
+        )
+
+    def test_show_on_record_calls_sync_with_old_mode(self, server, mock_app):
+        result = server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"bubble_behavior": "show_on_record"},
+        })
+        assert result == {"id": 1, "type": "ack"}
+        mock_app._sync_bubble_behavior.assert_called_once_with(
+            "show_on_record",
+            old_mode=None,
+        )
+
+    def test_hidden_calls_sync_with_old_mode(self, server, mock_app):
+        result = server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"bubble_behavior": "hidden"},
+        })
+        assert result == {"id": 1, "type": "ack"}
+        mock_app._sync_bubble_behavior.assert_called_once_with(
+            "hidden",
+            old_mode=None,
+        )
+
+    def test_does_not_call_when_not_in_data(self, server, mock_app):
+        server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"hotkey": "<f3>"},
+        })
+        mock_app._sync_bubble_behavior.assert_not_called()
+
+
+class TestDispatchAutostart:
+    """Side-effect: autostart → _sync_autostart()."""
+
+    def test_enable_calls_sync_autostart(self, server, mock_app):
+        result = server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"autostart": True},
+        })
+        assert result == {"id": 1, "type": "ack"}
+        mock_app._sync_autostart.assert_called_once()
+
+    def test_disable_calls_sync_autostart(self, server, mock_app):
+        result = server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"autostart": False},
+        })
+        assert result == {"id": 1, "type": "ack"}
+        mock_app._sync_autostart.assert_called_once()
+
+    def test_does_not_call_when_not_in_data(self, server, mock_app):
+        server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"hotkey": "<f3>"},
+        })
+        mock_app._sync_autostart.assert_not_called()
+
+
+class TestDispatchFastStartup:
+    """Side-effect: fast_startup → _sync_prewarm_task() on value change."""
+
+    def test_enable_calls_sync_prewarm(self, server, mock_app):
+        result = server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"fast_startup": True},
+        })
+        assert result == {"id": 1, "type": "ack"}
+        mock_app._sync_prewarm_task.assert_called_once()
+
+    def test_disable_calls_sync_prewarm(self, server, mock_app):
+        result = server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"fast_startup": False},
+        })
+        assert result == {"id": 1, "type": "ack"}
+        mock_app._sync_prewarm_task.assert_called_once()
+
+    def test_does_not_call_when_not_in_data(self, server, mock_app):
+        server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"hotkey": "<f3>"},
+        })
+        mock_app._sync_prewarm_task.assert_not_called()
+
+
+class TestDispatchSetConfigSideEffectsEdgeCases:
+    """Edge cases for multiple side-effects in a single set_config."""
+
+    def test_multiple_side_effects_all_fire(self, server, mock_app):
+        """Sending multiple trigger keys at once should fire all handlers."""
+        result = server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {
+                "show_notifications": False,
+                "paste_on_stop": False,
+                "autostart": True,
+                "hotkey": "<f8>",
+                "tray_left_click_action": "toggle_dictation",
+                "bubble_behavior": "always_visible",
+            },
+        })
+        assert result == {"id": 1, "type": "ack"}
+        mock_app._set_notifications.assert_called_once_with(False)
+        mock_app._set_paste_on_stop.assert_called_once_with(False)
+        mock_app._sync_autostart.assert_called_once()
+        mock_app._restart_hotkey.assert_called_once_with("<f8>")
+        mock_app.tray.rebuild_menu.assert_called_once()
+        mock_app._sync_bubble_behavior.assert_called_once_with("always_visible", old_mode=None)
+
+    def test_side_effect_exception_does_not_crash(self, server, mock_app):
+        """If a side-effect raises, the ack should still be returned."""
+        mock_app._set_notifications.side_effect = RuntimeError("tray busy")
+        result = server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"show_notifications": True},
+        })
+        # Should still get ack and not crash
+        assert result == {"id": 1, "type": "ack"}
+
+    def test_does_not_affect_other_side_effects_when_one_fails(self, server, mock_app):
+        """A failure in one side-effect should not prevent others from firing."""
+        mock_app._set_notifications.side_effect = RuntimeError("tray busy")
+        result = server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {
+                "show_notifications": True,
+                "paste_on_stop": False,
+                "bubble_behavior": "always_visible",
+            },
+        })
+        assert result == {"id": 1, "type": "ack"}
+        # _set_notifications raised, but others should still have fired
+        mock_app._set_paste_on_stop.assert_called_once_with(False)
+        mock_app._sync_bubble_behavior.assert_called_once_with("always_visible", old_mode=None)
 
 
 class TestDispatchGetHistory:

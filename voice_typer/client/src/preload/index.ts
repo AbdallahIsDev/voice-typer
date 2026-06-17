@@ -38,6 +38,10 @@ contextBridge.exposeInMainWorld("bubble", {
   endDrag: () => {
     ipcRenderer.send("bubble:drag-end");
   },
+  // ── Theme sync ────────────────────────────────────────────────
+  setThemeSource: (source: 'system' | 'light' | 'dark') => {
+    ipcRenderer.invoke("set-theme-source", source);
+  },
   // ── Enter/exit animations ────────────────────────────────
   onShow: (callback: () => void) => {
     const handler = () => callback();
@@ -53,6 +57,11 @@ contextBridge.exposeInMainWorld("bubble", {
     const handler = (_event: Electron.IpcRendererEvent, draggable: unknown) => callback(Boolean(draggable));
     ipcRenderer.on("bubble:draggable", handler);
     return () => { ipcRenderer.removeListener("bubble:draggable", handler); };
+  },
+  onThemeChange: (callback: (isDark: boolean) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, isDark: unknown) => callback(Boolean(isDark));
+    ipcRenderer.on("bubble:theme", handler);
+    return () => { ipcRenderer.removeListener("bubble:theme", handler); };
   },
   hideComplete: () => {
     ipcRenderer.send("bubble:hidden");

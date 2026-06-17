@@ -524,33 +524,27 @@ class TestHotkeyMapping:
     def test_register_hotkey_creates_backend(self, app, monkeypatch):
         """_register_hotkey should create a hotkey backend and call start()."""
         from voice_typer.server.hotkeys import PynputHotkey
-        from pynput.keyboard import GlobalHotKeys
 
-        # Ensure GlobalHotKeys works (mock returns a MagicMock with is_alive=True)
+        # Ensure Listener works (mock returns a MagicMock with is_alive=True)
         mock_listener = MagicMock()
         mock_listener.is_alive.return_value = True
-        mock_ghk_cls = MagicMock(return_value=mock_listener)
-
         mock_kb = sys.modules['pynput.keyboard']
-        # pyrefly: ignore [missing-attribute]
-        mock_kb.GlobalHotKeys = mock_ghk_cls
+        mock_kb.Listener = MagicMock(return_value=mock_listener)
 
         app._register_hotkey()
 
         assert app._hotkey_backend is not None
-        # Main hotkey + repaste hotkey both call GlobalHotKeys.start
-        assert mock_ghk_cls.call_count >= 1
+        assert mock_kb.Listener.call_count >= 1  # Main hotkey + repaste
         assert mock_listener.start.call_count >= 1
 
     def test_register_hotkey_failure_does_not_crash(self, app):
-        """If both GlobalHotKeys AND fallback Listener raise, app should not crash."""
+        """If Listener creation raises, app should not crash."""
         mock_kb = sys.modules['pynput.keyboard']
         # pyrefly: ignore [missing-attribute]
-        mock_kb.GlobalHotKeys = MagicMock(side_effect=Exception("no display"))
-        # pyrefly: ignore [missing-attribute]
+        # PynputHotkey.start imports Listener from pynput.keyboard, make it raise
         mock_kb.Listener = MagicMock(side_effect=Exception("no input"))
 
-        # Should not raise
+        # Should not raise - _register_hotkey catches exceptions
         app._register_hotkey()
         # Backend was created but start() failed -> not alive or None
         if app._hotkey_backend is not None:
@@ -558,21 +552,19 @@ class TestHotkeyMapping:
 
     def test_register_esc_hotkey_creates_and_starts_backend(self, app, monkeypatch):
         """_register_esc_hotkey should create a backend and call start()."""
-        from pynput.keyboard import GlobalHotKeys
-
-        mock_listener = MagicMock()
-        mock_listener.is_alive.return_value = True
-        mock_ghk_cls = MagicMock(return_value=mock_listener)
-
         mock_kb = sys.modules['pynput.keyboard']
-        mock_kb.GlobalHotKeys = mock_ghk_cls
+        # pyrefly: ignore [missing-attribute]
+        mock_kb.Listener = MagicMock(return_value=MagicMock(is_alive=lambda: True))
 
+        # The backend factory is already monkeypatched in mock_heavy_imports
+        # to return PynputHotkey, which uses Listener.
+        # For the ESC backend specifically, create_hotkey_backend is called
+        # which returns a PynputHotkey. We need Listener to be properly mocked.
         assert app._esc_backend is None
         app._register_esc_hotkey()
 
         assert app._esc_backend is not None
-        mock_ghk_cls.assert_called_once_with({"<esc>": app._cancel_dictation})
-        mock_listener.start.assert_called_once()
+        mock_kb.Listener.assert_called()
 
     def test_unregister_esc_hotkey_stops_and_clears_backend(self, app, monkeypatch):
         """_unregister_esc_hotkey should stop the backend and set it to None."""
@@ -603,14 +595,8 @@ class TestHotkeyMapping:
 
     def test_register_hotkey_includes_esc_when_enabled(self, app, monkeypatch):
         """When esc_cancel_enabled is True, _register_hotkey should also call _register_esc_hotkey."""
-        from pynput.keyboard import GlobalHotKeys
-
-        mock_listener = MagicMock()
-        mock_listener.is_alive.return_value = True
-        mock_ghk_cls = MagicMock(return_value=mock_listener)
-
         mock_kb = sys.modules['pynput.keyboard']
-        mock_kb.GlobalHotKeys = mock_ghk_cls
+        mock_kb.Listener = MagicMock(return_value=MagicMock(is_alive=lambda: True))
 
         app.config.esc_cancel_enabled = True
         app._register_hotkey()
@@ -619,14 +605,8 @@ class TestHotkeyMapping:
 
     def test_register_hotkey_skips_esc_when_disabled(self, app, monkeypatch):
         """When esc_cancel_enabled is False, _register_hotkey should skip ESC registration."""
-        from pynput.keyboard import GlobalHotKeys
-
-        mock_listener = MagicMock()
-        mock_listener.is_alive.return_value = True
-        mock_ghk_cls = MagicMock(return_value=mock_listener)
-
         mock_kb = sys.modules['pynput.keyboard']
-        mock_kb.GlobalHotKeys = mock_ghk_cls
+        mock_kb.Listener = MagicMock(return_value=MagicMock(is_alive=lambda: True))
 
         app.config.esc_cancel_enabled = False
         app._register_hotkey()
@@ -918,38 +898,49 @@ class TestHotkeyCallbackChain:
         assert args[0][0] == AppState.RECORDING
 
     def test_callback_chain_register_then_fire(self, app):
-        """Register hotkey, extract the callback, call it, verify recording starts."""
-        captured_mapping = {}
+        """Register hotkey, simulate hotkey press, verify recording starts."""
+        captured_callbacks = []
 
-        class FakeGlobalHotKeys:
-            def __init__(self, mapping):
-                captured_mapping.update(mapping)
-            def start(self):
-                pass
+        # Monkeypatch PynputHotkey.start to capture the callback
+        from voice_typer.server.hotkeys import PynputHotkey
+        original_start = PynputHotkey.start
+        def capturing_start(self, callback):
+            captured_callbacks.append(callback)
+            # Still create the listener so _register_hotkey succeeds
+            original_start(self, callback)
+        monkeypatch = pytest.MonkeyPatch()
+        monkeypatch.setattr(PynputHotkey, "start", capturing_start)
 
+        # Also ensure Listener mock works for the real start() call
         mock_kb = sys.modules['pynput.keyboard']
-        # pyrefly: ignore [missing-attribute]
-        mock_kb.GlobalHotKeys = FakeGlobalHotKeys
+        mock_listener = MagicMock()
+        mock_listener.is_alive.return_value = True
+        mock_kb.Listener = MagicMock(return_value=mock_listener)
 
         app.recorder = MagicMock()
         app.recorder.recording = False
         app.tray = MagicMock()
         app._busy_event.set()  # not busy
+        app.transcriber = MagicMock()
+        app.transcriber.is_loaded = True
 
-        # Register hotkey - this captures the mapping
-        app._register_hotkey()
+        try:
+            # Register hotkey - this captures the toggle_dictation callback
+            app._register_hotkey()
 
-        assert '<f2>' in captured_mapping
-        callback = captured_mapping['<f2>']
-        assert callback == app.toggle_dictation
+            # The callback from app._register_hotkey (toggle_dictation) is the first one
+            assert len(captured_callbacks) >= 1
+            toggle_callback = captured_callbacks[0]
 
-        # Simulate the hotkey being pressed
-        callback()
+            # Simulate the hotkey being pressed
+            toggle_callback()
 
-        from voice_typer.server.tray import AppState
-        app.recorder.start.assert_called_once()
-        args = app.tray.set_state.call_args
-        assert args[0][0] == AppState.RECORDING
+            from voice_typer.server.tray import AppState
+            app.recorder.start.assert_called_once()
+            args = app.tray.set_state.call_args
+            assert args[0][0] == AppState.RECORDING
+        finally:
+            monkeypatch.undo()
 
 
 class TestMicrophoneSelection:

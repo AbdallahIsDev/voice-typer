@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
+import { NumberInput } from '@/components/ui/number-input'
 import PageHeading from '@/components/PageHeading'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -23,8 +24,8 @@ import type { VoiceTyperConfig } from '@/types/config'
 let _cachedConfig: VoiceTyperConfig | null = null
 
 const LANGUAGE_OPTIONS = [
-  { value: 'auto', label: 'Auto-detect', description: 'Any language — no hallucination filtering' },
-  { value: 'en', label: 'English', description: 'Enables Latin-script hallucination filter' },
+  { value: 'auto', label: 'Auto-detect' },
+  { value: 'en', label: 'English' },
   { value: 'zh', label: 'Chinese' },
   { value: 'es', label: 'Spanish' },
   { value: 'ar', label: 'Arabic' },
@@ -59,11 +60,6 @@ const AUTO_STOP_OPTIONS = [
   { value: 180, label: '3 minutes' },
   { value: 300, label: '5 minutes' },
 ]
-
-const RECORDING_MODE_OPTIONS = [
-  { value: 'toggle', label: 'Toggle (F2)' },
-  { value: 'push_to_talk', label: 'Push-to-Talk' },
-] as const
 
 const THEME_OPTIONS = [
   { value: 'system', label: 'System Default' },
@@ -385,7 +381,10 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {RECORDING_MODE_OPTIONS.map((opt) => (
+                {[
+                  { value: 'toggle', label: 'Toggle' },
+                  { value: 'push_to_talk', label: 'Push-to-Talk' },
+                ].map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>
                     {opt.label}
                   </SelectItem>
@@ -438,14 +437,13 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
 
           <SettingRow label="Silence Warning" info="Seconds of silence before showing a warning to help catch microphone issues.">
             <div className="flex items-center gap-2">
-              <Input
-                type="number"
+              <NumberInput
                 min={3}
                 max={30}
                 step={1}
                 value={String(config.silence_warning_seconds)}
                 onChange={(e) => updateConfig({ silence_warning_seconds: Number(e.target.value) })}
-                className="w-20 text-center"
+                className="w-11 text-center"
               />
               <span className="text-sm text-(--text-muted)">sec</span>
             </div>
@@ -453,14 +451,13 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
 
           <SettingRow label="Max Duration" info="Maximum recording length. Set to 0 for automatic (varies by device).">
             <div className="flex items-center gap-2">
-              <Input
-                type="number"
+              <NumberInput
                 min={0}
                 max={7200}
                 step={1}
                 value={String(config.max_recording_seconds)}
                 onChange={(e) => updateConfig({ max_recording_seconds: Number(e.target.value) })}
-                className="w-20 text-center"
+                className="w-16 text-center"
               />
               <span className="text-sm text-(--text-muted)">sec</span>
             </div>
@@ -483,12 +480,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
               <SelectContent>
                 {LANGUAGE_OPTIONS.map((lang) => (
                   <SelectItem key={lang.value} value={lang.value}>
-                    <span>{lang.label}</span>
-                    {lang.description && (
-                      <span className="ml-2 text-[10px] text-(--text-muted)">
-                        {lang.description}
-                      </span>
-                    )}
+                    {lang.label}
                   </SelectItem>
                 ))}
               </SelectContent>

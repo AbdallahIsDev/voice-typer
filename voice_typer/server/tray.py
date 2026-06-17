@@ -358,6 +358,17 @@ class TrayIcon:
         """Mark the menu cache as stale so it rebuilds on next right-click."""
         self._menu_cache_valid = False
 
+    def rebuild_menu(self) -> None:
+        """Force the tray menu to rebuild immediately.
+
+        Unlike ``invalidate_menu_cache`` (which defers the rebuild until
+        the next right-click), this rebuilds the ``pystray.Menu`` object
+        right now so changes like ``tray_left_click_action`` take effect
+        without requiring the user to right-click first.
+        """
+        self._menu_cache_valid = False
+        if self._icon is not None:
+            self._icon._menu = pystray.Menu(self._build_menu)
 
     def _build_menu(self) -> tuple:
         """Build the Phase 2 minimal tray menu with Models submenu."""
@@ -367,17 +378,22 @@ class TrayIcon:
         items = []
         hotkey = self._display_hotkey()
 
+        # Determine which menu item is the left-click default based on
+        # tray_left_click_action config ("toggle_dictation" or "open_app").
+        left_click_action = getattr(self._config, "tray_left_click_action", "open_app")
+
         items.append(
             pystray.MenuItem(
                 f"Toggle Dictation ({hotkey})",
                 self._wrap(self._controller.toggle_dictation),
-                default=True,
+                default=(left_click_action == "toggle_dictation"),
             )
         )
         items.append(
             pystray.MenuItem(
                 "Open App",
                 self._wrap(self.open_electron_window),
+                default=(left_click_action == "open_app"),
             )
         )
 

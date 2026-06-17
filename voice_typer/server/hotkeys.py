@@ -2,8 +2,10 @@
 
 Provides platform-aware hotkey listening with two implementations:
 
-- PynputHotkey: Uses pynput.keyboard.GlobalHotKeys (cross-platform).
-- WindowsNativeHotkey: Uses Win32 RegisterHotKey via ctypes (Windows only).
+- PynputHotkey: Uses pynput.keyboard.Listener with both press and release
+  callbacks so push-to-talk mode can detect key-release events.
+- WindowsNativeHotkey: Uses Win32 GetAsyncKeyState polling with key-up
+  detection for push-to-talk release callbacks.
 
 The factory function ``create_hotkey_backend`` picks the best available backend.
 
@@ -12,6 +14,7 @@ All backends share a common interface:
     - stop() -> None
     - is_alive() -> bool
     - diagnose() -> str
+    - set_on_release(callback) -> None
 """
 
 import logging
@@ -59,76 +62,64 @@ class HotkeyBackend(ABC):
 
 
 class PynputHotkey(HotkeyBackend):
-    """Hotkey backend using pynput.keyboard.GlobalHotKeys.
+    """Hotkey backend using pynput.keyboard.Listener.
 
-    Falls back to a regular ``Listener`` with manual key matching if
-    ``GlobalHotKeys`` fails (common on some Windows / WSL setups).
+    Uses a ``Listener`` with both ``on_press`` and ``on_release`` callbacks
+    so push-to-talk mode can detect key-release events and stop recording
+    when the user lets go of the hotkey.
+
+    This replaces the older ``GlobalHotKeys`` approach because
+    ``GlobalHotKeys`` only fires on key press and cannot be extended to
+    support the release callback needed by push-to-talk mode.
     """
 
     def __init__(self, hotkey_str: str):
         super().__init__(hotkey_str)
         self._listener = None
-        self._fallback = False
 
     def start(self, callback: Callable[[], None]) -> None:
-        from pynput.keyboard import GlobalHotKeys, Listener, Key, KeyCode
+        from pynput.keyboard import Listener, Key, KeyCode
 
         log.info(
-            "Registering hotkey via pynput: %r -> callback", self.hotkey_str
+            "Registering hotkey via pynput Listener: %r -> callback", self.hotkey_str
         )
 
         try:
-            self._listener = GlobalHotKeys(
-                {self.hotkey_str: callback}
-            )
+            target = _parse_hotkey_to_pynput(self.hotkey_str, Key, KeyCode)
+            if target is None:
+                raise RuntimeError(
+                    f"Cannot parse hotkey {self.hotkey_str!r}"
+                )
+
+            # For composite hotkeys (tuple), extract the target key only.
+            # Modifier checking is skipped for simplicity — this matches
+            # the existing behaviour of the old fallback path.
+            match_key = target[1] if isinstance(target, tuple) else target
+
+            def on_press(key):
+                if key == match_key:
+                    log.info("[HOTKEY] Pynput matched key-down: %s", key)
+                    callback()
+
+            def on_release(key):
+                if key == match_key and self._on_release_callback is not None:
+                    log.info("[HOTKEY] Pynput matched key-up: %s", key)
+                    self._on_release_callback()
+
+            self._listener = Listener(on_press=on_press, on_release=on_release)
             self._listener.start()
             time.sleep(0.5)
             alive = self._listener.is_alive()
             log.info(
-                "Pynput GlobalHotKeys started (alive=%s, daemon=%s)",
+                "[HOTKEY] Pynput Listener started (alive=%s, daemon=%s)",
                 alive,
                 getattr(self._listener, "daemon", "?"),
             )
             if not alive:
-                log.error(
-                    "GlobalHotKeys thread died immediately; "
-                    "falling back to manual Listener"
-                )
-                self._stop_listener()
-                self._start_fallback(callback, Listener, Key, KeyCode)
+                raise RuntimeError("Listener thread died immediately")
         except Exception:
-            log.exception("[HOTKEY] GlobalHotKeys failed; trying fallback Listener")
-            try:
-                self._start_fallback(callback, Listener, Key, KeyCode)
-            except Exception:
-                log.exception("[HOTKEY] Fallback Listener also failed")
-
-    # --- internal helpers ---------------------------------------------------
-
-    def _start_fallback(self, callback, Listener, Key, KeyCode) -> None:
-        target = _parse_hotkey_to_pynput(self.hotkey_str, Key, KeyCode)
-        if target is None:
-            raise RuntimeError(
-                f"Cannot parse hotkey {self.hotkey_str!r} for fallback"
-            )
-
-        # For composite hotkeys (tuple), extract the target key only
-        match_key = target[1] if isinstance(target, tuple) else target
-
-        def on_press(key):
-            if key == match_key:
-                log.info("[HOTKEY FALLBACK] Matched key: %s", key)
-                callback()
-
-        self._listener = Listener(on_press=on_press)
-        self._listener.start()
-        time.sleep(0.5)
-        self._fallback = True
-        log.info(
-            "[HOTKEY] Fallback listener started, watching for %s (alive=%s)",
-            match_key,
-            self._listener.is_alive(),
-        )
+            log.exception("[HOTKEY] Pynput Listener failed to start")
+            raise
 
     def _stop_listener(self) -> None:
         if self._listener is not None:
@@ -154,9 +145,8 @@ class PynputHotkey(HotkeyBackend):
         alive = self._listener.is_alive()
         daemon = getattr(self._listener, "daemon", "?")
         name = getattr(self._listener, "name", "?")
-        mode = "fallback" if self._fallback else "GlobalHotKeys"
         return (
-            f"PynputHotkey ({mode})\n"
+            "PynputHotkey (Listener)\n"
             f"Hotkey: {self.hotkey_str}\n"
             f"Thread name: {name}\n"
             f"Thread alive: {alive}\n"
@@ -165,7 +155,7 @@ class PynputHotkey(HotkeyBackend):
 
 
 def _parse_hotkey_to_pynput(hotkey_str, Key, KeyCode):
-    """Parse '<f2>' or '<ctrl>+1' -> pynput Key/KeyCode for fallback matching.
+    """Parse '<f2>' or '<ctrl>+1' -> pynput Key/KeyCode for matching.
 
     Handles composite hotkeys with modifiers (ctrl, alt, shift, cmd/win).
     Returns a tuple of (modifier_keys, target_key) for composite hotkeys,
@@ -319,6 +309,10 @@ class WindowsNativeHotkey(HotkeyBackend):
     Uses GetAsyncKeyState polling in a daemon thread for reliable
     hotkey detection.  RegisterHotKey is still called so that other
     applications cannot register the same hotkey.
+
+    Push-to-talk support: the polling loop tracks key-down *and* key-up
+    transitions.  When the user releases the hotkey, ``_on_release_callback``
+    is called so recording stops.
     """
 
     def __init__(self, hotkey_str: str):
@@ -451,10 +445,14 @@ class WindowsNativeHotkey(HotkeyBackend):
             )
 
     def _run_polling_loop(self, callback):
-        """GetAsyncKeyState polling fallback for hotkey detection.
+        """GetAsyncKeyState polling loop for hotkey detection.
 
-        Polls the key state every 33ms (~30Hz).  Detects key-down
+        Polls the key state every 50ms (~20Hz).  Detects key-down
         transitions by checking the high bit of GetAsyncKeyState.
+
+        Push-to-talk support: when ``_on_release_callback`` is set,
+        fires it on key-up transitions so recording stops when the
+        user releases the hotkey.
         """
         import ctypes
         vk = self._vk
@@ -467,6 +465,10 @@ class WindowsNativeHotkey(HotkeyBackend):
             if is_pressed and not was_pressed:
                 log.info("[HOTKEY FIRED] GetAsyncKeyState detected key-down")
                 callback()
+            elif not is_pressed and was_pressed:
+                log.info("[HOTKEY FIRED] Key released")
+                if self._on_release_callback is not None:
+                    self._on_release_callback()
             was_pressed = is_pressed
             # pyrefly: ignore [missing-attribute]
             self._kernel32.Sleep(50)  # ~20Hz polling rate

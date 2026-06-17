@@ -770,9 +770,20 @@ class VoiceTyperApp:
     # ─── Hotkey ────────────────────────────────────────────────────────
 
     def _register_hotkey(self):
-        """Register global hotkey using the platform-appropriate backend."""
-        hotkey_str = self.config.hotkey
-        log.info("[HOTKEY] Registering: %r -> toggle_dictation", hotkey_str)
+        """Register global hotkey using the platform-appropriate backend.
+
+        When ``recording_mode`` is ``push_to_talk`` and a separate
+        ``push_to_talk_hotkey`` is configured, that hotkey is used
+        instead of the main ``hotkey``.  The release callback is wired
+        so that the backend calls ``_stop_dictation`` when the user
+        releases the key (hold-to-talk behavior).
+        """
+        # Use push_to_talk_hotkey if set, else fall back to main hotkey
+        if self.config.recording_mode == "push_to_talk" and self.config.push_to_talk_hotkey:
+            hotkey_str = self.config.push_to_talk_hotkey
+        else:
+            hotkey_str = self.config.hotkey
+        log.info("[HOTKEY] Registering: %r -> toggle_dictation (mode=%s)", hotkey_str, self.config.recording_mode)
 
         try:
             self._hotkey_backend = create_hotkey_backend(hotkey_str)
@@ -781,10 +792,12 @@ class VoiceTyperApp:
             # P1: Push-to-talk mode -- set release callback
             if self.config.recording_mode == "push_to_talk":
                 self._hotkey_backend.set_on_release(self._stop_dictation)
+                log.info("[HOTKEY] Release callback set for push-to-talk mode")
             log.info(
-                "[HOTKEY] Registration OK (alive=%s, backend=%s)",
+                "[HOTKEY] Registration OK (alive=%s, backend=%s, hotkey=%s)",
                 self._hotkey_backend.is_alive(),
                 type(self._hotkey_backend).__name__,
+                hotkey_str,
             )
         except Exception:
             log.warning("[HOTKEY] Registration FAILED -- %s", hotkey_str)
@@ -1416,7 +1429,8 @@ class VoiceTyperApp:
                 self.recorder.on_rms_level = None
                 # Push a final zero-level event to reset the bubble visualizer
                 self._waveform_bubble.reset_level()
-                self._background_audio_monitor.stop()
+                if getattr(self, "_background_audio_monitor", None) is not None:
+                    self._background_audio_monitor.stop()
                 self.recorder.discard()
                 log.info("[CANCEL] Recording discarded (cycle=%s)", self._cycle_id)
             except Exception as e:
@@ -1456,6 +1470,51 @@ class VoiceTyperApp:
         self.config.save()
         self.tray.set_notifications_enabled(enabled)
         log.info("[CONFIG] Notifications set to %s", enabled)
+
+    def _set_paste_on_stop(self, enabled: bool) -> None:
+        """Live-update paste_on_stop without restarting."""
+        self.config.paste_on_stop = enabled
+        self.config.save()
+        self.clipboard.paste_enabled = enabled
+        log.info("[CONFIG] paste_on_stop set to %s", enabled)
+
+    def _sync_bubble_behavior(self, mode: str, old_mode: str | None = None) -> None:
+        """Live-update bubble behavior without restarting.
+
+        If switching to ``always_visible``, show the bubble immediately.
+        If switching away from ``always_visible`` while not recording,
+        hide the bubble.
+
+        Parameters
+        ----------
+        mode : str
+            The new bubble behavior value.
+        old_mode : str | None
+            The previous bubble behavior value.  When ``None`` (the default
+            for callers that don't know the old value, e.g. the native
+            settings window), ``self.config.bubble_behavior`` is read
+            before updating.  The IPC handler passes the pre-update
+            snapshot so the transition is detected correctly even though
+            the config was already updated.
+        """
+        if old_mode is None:
+            old_mode = self.config.bubble_behavior
+        self.config.bubble_behavior = mode
+        self.config.save()
+        log.info("[CONFIG] bubble_behavior changed: %s -> %s", old_mode, mode)
+
+        if mode == "always_visible":
+            try:
+                self._waveform_bubble.show()
+                log.info("[WAVEFORM] Bubble shown after behavior change to always_visible")
+            except Exception as e:
+                log.warning("[WAVEFORM] Failed to show bubble: %s", e)
+        elif old_mode == "always_visible" and not self.recorder.recording:
+            try:
+                self._waveform_bubble.hide()
+                log.info("[WAVEFORM] Bubble hidden after behavior change from always_visible")
+            except Exception as e:
+                log.warning("[WAVEFORM] Failed to hide bubble: %s", e)
 
     def _select_microphone(self, mic_name: str | None):
         """Handle microphone selection from tray menu."""
