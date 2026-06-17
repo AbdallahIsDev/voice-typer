@@ -1,4 +1,5 @@
-import { Mic, Type, Clock } from 'lucide-react'
+import { HugeiconsIcon } from '@hugeicons/react'
+import { Mic02Icon, TextIcon, Time02Icon } from '@hugeicons/core-free-icons'
 import type { TodayStats } from '@/types/ipc'
 
 function formatCompactNumber(n: number): string {
@@ -25,12 +26,12 @@ function formatDuration(seconds: number): string {
 const CARDS: {
   label: string
   key: keyof TodayStats
-  icon: typeof Mic
+  icon: typeof Mic02Icon
   format: (v: number) => string
 }[] = [
-  { label: 'Voice Dictations', key: 'count', icon: Mic, format: formatCompactNumber },
-  { label: 'Text Transcribed', key: 'chars', icon: Type, format: formatCompactNumber },
-  { label: 'Dictation Time', key: 'duration', icon: Clock, format: formatDuration },
+  { label: 'Voice Dictations', key: 'count', icon: Mic02Icon, format: formatCompactNumber },
+  { label: 'Text Transcribed', key: 'chars', icon: TextIcon, format: formatCompactNumber },
+  { label: 'Dictation Time', key: 'duration', icon: Time02Icon, format: formatDuration },
 ]
 
 interface StatCardsProps {
@@ -41,11 +42,10 @@ export default function StatCards({ stats }: StatCardsProps) {
   return (
     <div className="flex gap-2 w-full">
       {CARDS.map((card) => {
-        const Icon = card.icon
         return (
           <div key={card.label} className="rounded-lg bg-(--bg-subtle) px-4 py-3 flex-1 border border-border">
             <div className="flex items-center gap-1.5 mb-1.5">
-              <Icon className="h-3.5 w-3.5 text-(--text-muted)" />
+              <HugeiconsIcon icon={card.icon} strokeWidth={1.625} className="h-4 w-4 text-(--text-muted)" />
               <span className="text-[11px] text-(--text-muted) font-medium">
                 {card.label}
               </span>

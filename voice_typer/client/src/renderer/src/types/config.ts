@@ -81,6 +81,18 @@ export interface VoiceTyperConfig {
   // Waveform
   waveform_bubble: boolean
 
+  // Bubble position on screen
+  bubble_position: 'top' | 'bottom'
+
+  // Bubble behavior: show when recording starts, or always visible
+  bubble_behavior: 'show_on_record' | 'always_visible'
+
+  // Whether the bubble can be dragged by the mouse
+  bubble_draggable: boolean
+
+  // Whether to show the bubble at app startup (only applies when bubble_behavior is 'always_visible')
+  bubble_show_on_startup: boolean
+
   // History
   history_retention_days: number
   history_retention_count: number

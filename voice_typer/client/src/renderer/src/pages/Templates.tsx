@@ -3,7 +3,7 @@ import { HugeiconsIcon } from '@hugeicons/react'
 import {
   File02Icon,
   Add01Icon,
-  Edit01Icon,
+  PencilEdit02Icon,
   Delete01Icon,
 } from '@hugeicons/core-free-icons'
 import { Button } from '@/components/ui/button'
@@ -147,86 +147,107 @@ export default function TemplatesPage() {
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+        <div className="h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent" />
       </div>
     )
   }
 
   return (
-    <div className="animate-fade-in-up mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 py-6">
-      <PageHeading
-        title="Templates"
-        description="Create voice shortcuts that expand into full text"
-      >
-        <Button variant="default" className="gap-2" onClick={openAddDialog}>
-          <HugeiconsIcon icon={Add01Icon} className="h-4 w-4" />
-          Add Template
-        </Button>
-      </PageHeading>
+    <>
+      <div className="animate-fade-in-up mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 py-6">
+        <PageHeading
+          title="Templates"
+          description="Create voice shortcuts that expand into full text"
+        >
+          <Button variant="default" className="gap-2" onClick={openAddDialog}>
+            <HugeiconsIcon icon={Add01Icon} strokeWidth={1.625} className="h-4 w-4" />
+            Add Template
+          </Button>
+        </PageHeading>
 
-      <div>
-        {templates.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-4 py-20">
-            <HugeiconsIcon icon={File02Icon} className="h-12 w-12 text-(--text-muted) opacity-30" />
-            <p className="text-base font-medium text-(--text-muted)">No templates yet</p>
-            <p className="text-sm text-(--text-muted) opacity-70">
-              Say a phrase to trigger a text expansion
-            </p>
-            <Button variant="default" className="mt-2 gap-2" onClick={openAddDialog}>
-              <HugeiconsIcon icon={Add01Icon} className="h-4 w-4" />
-              Create First Template
-            </Button>
-          </div>
-        ) : (
-          <div className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
-            {templates.map((t) => (
-              <div
-                key={t.index}
-                className="flex items-center gap-3 px-3.5 py-2.5"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-(--text-primary)">
-                    {t.trigger}
-                  </p>
-                  <div className="mt-0.5 flex items-center gap-3">
-                    <p className="max-w-75 truncate text-xs text-(--text-muted)">
-                      {t.expansion}
+        <div>
+          {templates.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-4 py-20">
+              <HugeiconsIcon icon={File02Icon} strokeWidth={1.625} className="h-12 w-12 text-(--text-muted) opacity-30" />
+              <p className="text-base font-medium text-(--text-muted)">No templates yet</p>
+              <p className="text-sm text-(--text-muted) opacity-70">
+                Say a phrase to trigger a text expansion
+              </p>
+              <Button variant="default" className="mt-2 gap-2" onClick={openAddDialog}>
+                <HugeiconsIcon icon={Add01Icon} strokeWidth={1.625} className="h-4 w-4" />
+                Create First Template
+              </Button>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
+              {templates.map((t) => (
+                <div
+                  key={t.index}
+                  className="flex items-center gap-3 px-3.5 py-2.5"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-(--text-primary)">
+                      {t.trigger}
                     </p>
-                    <span className="text-[10px] text-(--text-muted) opacity-60">
-                      {t.variables}v &middot; {t.match_mode}
-                    </span>
+                    <div className="mt-0.5 flex items-center gap-3">
+                      <p className="max-w-75 truncate text-xs text-(--text-muted)">
+                        {t.expansion}
+                      </p>
+                      <span className="text-[10px] text-(--text-muted) opacity-60">
+                        {t.variables}v &middot; {t.match_mode}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-0.5">
+                    <button
+                      onClick={() => openEditDialog(t)}
+                      className="rounded p-1 text-(--text-muted) hover:text-(--text-secondary) transition-colors cursor-pointer bg-transparent border-none"
+                      title="Edit template"
+                    >
+                      <HugeiconsIcon icon={PencilEdit02Icon} strokeWidth={1.625} className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => deleteTemplate(t)}
+                      className="rounded p-1 text-(--text-muted) hover:text-destructive transition-colors cursor-pointer bg-transparent border-none"
+                      title="Delete template"
+                    >
+                      <HugeiconsIcon icon={Delete01Icon} strokeWidth={1.625} className="h-4 w-4" />
+                    </button>
                   </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-0.5">
-                  <button
-                    onClick={() => openEditDialog(t)}
-                    className="rounded p-1 text-(--text-muted) hover:text-(--text-secondary) transition-colors cursor-pointer bg-transparent border-none"
-                    title="Edit template"
-                  >
-                    <HugeiconsIcon icon={Edit01Icon} className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    onClick={() => deleteTemplate(t)}
-                    className="rounded p-1 text-(--text-muted) hover:text-destructive transition-colors cursor-pointer bg-transparent border-none"
-                    title="Delete template"
-                  >
-                    <HugeiconsIcon icon={Delete01Icon} className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Snackbar */}
+        {snackbar && (
+          <div
+            className={cn(
+              'animate-slide-up fixed bottom-6 left-1/2 z-50 -translate-x-1/2',
+              'rounded-lg px-4 py-2.5 text-sm shadow-lg',
+              snackbar.type === 'success' && 'bg-primary text-primary-foreground',
+              snackbar.type === 'error' && 'bg-destructive text-white',
+              snackbar.type === 'warning' && 'bg-primary text-primary-foreground',
+            )}
+          >
+            {snackbar.message}
           </div>
         )}
       </div>
 
-      {/* Add/Edit Dialog */}
+      {/* Add/Edit Dialog — full-viewport backdrop with centered dialog */}
       {showDialog && (
-        <div className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={() => setShowDialog(false)}
+        >
           <div
             className={cn(
               'animate-scale-in w-105 rounded-xl border border-border',
-              'bg-(--bg) p-6 shadow-2xl',
+              'bg-(--bg) p-6',
             )}
+            onClick={(e) => e.stopPropagation()}
           >
             <h2 className="mb-5 text-lg font-semibold text-(--text-primary)">
               {editingTemplate ? 'Edit Template' : 'Add Template'}
@@ -240,8 +261,9 @@ export default function TemplatesPage() {
                 <Input
                   value={trigger}
                   onChange={(e) => setTrigger(e.target.value)}
-                  placeholder="e.g., my email"
+                  placeholder="my email"
                   className="w-full"
+                  autoFocus
                 />
               </div>
 
@@ -252,8 +274,8 @@ export default function TemplatesPage() {
                 <textarea
                   value={expansion}
                   onChange={(e) => setExpansion(e.target.value)}
-                  placeholder="e.g., john.doe@example.com"
-                  rows={3}
+                  placeholder="john.doe@example.com"
+                  rows={5}
                   className={cn(
                     'w-full resize-y rounded-lg border border-border',
                     'bg-transparent px-3 py-2 text-sm text-(--text-primary)',
@@ -290,21 +312,6 @@ export default function TemplatesPage() {
           </div>
         </div>
       )}
-
-      {/* Snackbar */}
-      {snackbar && (
-        <div
-          className={cn(
-            'animate-slide-up fixed bottom-6 left-1/2 z-50 -translate-x-1/2',
-            'rounded-lg px-4 py-2.5 text-sm shadow-lg',
-            snackbar.type === 'success' && 'bg-primary text-primary-foreground',
-            snackbar.type === 'error' && 'bg-destructive text-white',
-            snackbar.type === 'warning' && 'bg-primary text-primary-foreground',
-          )}
-        >
-          {snackbar.message}
-        </div>
-      )}
-    </div>
+    </>
   )
 }

@@ -8,9 +8,17 @@ interface StatusBarProps {
 
 const RECORDING_LABELS: Record<RecordingState, string> = {
   idle: 'Ready',
-  listening: 'Listening',
+  listening: 'Ready',
   recording: 'Recording',
-  processing: 'Transcribing',
+  processing: 'Processing',
+  transcribing: 'Transcribing',
+  loading: 'Loading',
+  warming_up: 'Warming Up',
+  downloading: 'Downloading',
+  paused: 'Paused',
+  cancelling: 'Cancelling',
+  setup: 'Setting Up',
+  not_configured: 'Not Configured',
   error: 'Error',
 }
 

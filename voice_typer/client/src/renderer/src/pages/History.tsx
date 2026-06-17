@@ -2,13 +2,12 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { usePython, usePythonEvent } from '@/hooks/usePython'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { HistoryIcon } from '@hugeicons/core-free-icons'
-import { Search, Trash2, Star, Download, ChevronDown } from 'lucide-react'
+import { Search01Icon, Delete01Icon, StarIcon, ArrowDown01Icon } from '@hugeicons/core-free-icons'
 import { toast } from 'sonner'
 import PageHeading from '@/components/PageHeading'
 import ActivityList from '@/components/ActivityList'
+import ExportFormatMenu from '@/components/ExportFormatMenu'
 import type { HistoryRecord, TodayStats, WindowBridge } from '@/types/ipc'
-
-const wb = window.window_ as WindowBridge
 
 // Module-level cache — persists across page navigations so the records list
 // and stats render instantly on re-visit instead of showing a spinner.
@@ -29,18 +28,6 @@ export default function HistoryPage() {
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [confirmClear, setConfirmClear] = useState(false)
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    const el = document.getElementById('export-format-menu')
-    if (!el) return
-    const close = (e: MouseEvent) => {
-      if (!el.contains(e.target as Node) && !(e.target as HTMLElement)?.closest?.('[data-export-btn]')) {
-        el.classList.add('hidden')
-      }
-    }
-    document.addEventListener('click', close)
-    return () => document.removeEventListener('click', close)
-  }, [])
 
   const load = useCallback(async (query?: string, favs?: boolean) => {
     setLoading(true)
@@ -193,16 +180,7 @@ export default function HistoryPage() {
     }
   }, [call, confirmClear, records.length])
 
-  const handleExport = useCallback(async () => {
-    const el = document.getElementById('export-format-menu')
-    if (el) {
-      el.classList.toggle('hidden')
-    }
-  }, [])
-
   const doExport = useCallback(async (format: 'json' | 'csv') => {
-    const el = document.getElementById('export-format-menu')
-    el?.classList.add('hidden')
     if (records.length === 0) {
       toast.error('Nothing to export — history is empty')
       return
@@ -214,7 +192,8 @@ export default function HistoryPage() {
         const filename = result.path!.split(/[\\/]/).pop()!
         toast.success(`${filename} saved successfully`)
       }
-    } catch {
+    } catch (err) {
+      console.error('History export failed:', err)
       toast.error('Export failed')
     }
   }, [call, records.length])
@@ -228,7 +207,7 @@ export default function HistoryPage() {
 
       {/* Search */}
       <div className="relative mt-4">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-(--text-muted) pointer-events-none" />
+        <HugeiconsIcon icon={Search01Icon} strokeWidth={1.625} className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-(--text-muted) pointer-events-none" />
         <input
           type="text"
           value={searchQuery}
@@ -248,7 +227,7 @@ export default function HistoryPage() {
               : 'bg-(--bg-subtle) text-(--text-muted) hover:text-(--text-primary)'
           }`}
         >
-          <Star className={`h-3.5 w-3.5 ${favoritesOnly ? 'fill-amber-400' : ''}`} />
+          <HugeiconsIcon icon={StarIcon} strokeWidth={1.625} className={`h-4 w-4 ${favoritesOnly ? 'text-amber-400' : ''}`} />
           Favorites
         </button>
         <button
@@ -259,46 +238,20 @@ export default function HistoryPage() {
               : 'bg-(--bg-subtle) text-(--text-muted) hover:text-red-400'
           }`}
         >
-          <Trash2 className="h-3.5 w-3.5" />
+          <HugeiconsIcon icon={Delete01Icon} strokeWidth={1.625} className="h-4 w-4" />
           {confirmClear ? 'Click again to confirm' : 'Clear All'}
-        </button>
-        <div className="relative ml-auto">
-          <button
-            data-export-btn
-            onClick={handleExport}
-            disabled={records.length === 0}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-(--bg-subtle) text-(--text-muted) hover:text-(--text-primary) transition-colors border border-border disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-(--text-muted)"
-          >
-            <Download className="h-3.5 w-3.5" />
-            Export
-          </button>
-          <div
-            id="export-format-menu"
-            className="hidden absolute right-0 top-full mt-1 z-10 w-30 rounded-xl border border-border bg-(--bg-subtle) shadow-lg overflow-hidden"
-          >
-            <button
-              onClick={() => doExport('json')}
-              className="w-full px-3 py-2 text-xs text-left text-(--text-primary) hover:bg-(--surface-hover) transition-colors"
-            >
-              Export as JSON
-            </button>
-            <button
-              onClick={() => doExport('csv')}
-              className="w-full px-3 py-2 text-xs text-left text-(--text-primary) hover:bg-(--surface-hover) transition-colors"
-            >
-              Export as CSV
-            </button>
+        </button>          <div className="ml-auto">
+            <ExportFormatMenu onExport={doExport} disabled={records.length === 0} />
           </div>
-        </div>
       </div>
 
       {loading && records.length === 0 ? (
         <div className="flex min-h-full items-center justify-center py-20">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent" />
         </div>
       ) : records.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 gap-3">
-          <HugeiconsIcon icon={HistoryIcon} className="h-8 w-8 text-(--text-muted) opacity-30" />
+          <HugeiconsIcon icon={HistoryIcon} strokeWidth={1.625} className="h-8 w-8 text-(--text-muted) opacity-30" />
           <p className="text-sm text-(--text-muted) opacity-50">
             {searchQuery ? 'No results found' : favoritesOnly ? 'No favorites yet' : 'No transcriptions yet'}
           </p>
@@ -320,12 +273,12 @@ export default function HistoryPage() {
             >
               {loadingMore ? (
                 <>
-                  <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
                   Loading...
                 </>
               ) : (
                 <>
-                  <ChevronDown className="h-3.5 w-3.5" />
+                  <HugeiconsIcon icon={ArrowDown01Icon} strokeWidth={1.625} className="h-4 w-4" />
                   Load More
                 </>
               )}

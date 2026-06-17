@@ -1,17 +1,17 @@
-import { HugeiconsIcon } from "@hugeicons/react"
+import { HugeiconsIcon } from '@hugeicons/react'
 import type { IconSvgElement } from "@hugeicons/react"
 import {
   Sun01Icon,
-  Moon01Icon,
-  ComputerIcon,
+  Moon02Icon,
+  ModernTvIcon,
 } from "@hugeicons/core-free-icons"
 import type { VoiceTyperConfig } from '@/types/config'
 import { cn } from '@/lib/utils'
 
 const THEME_BUTTONS: { mode: VoiceTyperConfig['theme_mode']; icon: IconSvgElement; label: string }[] = [
   { mode: 'light', icon: Sun01Icon, label: 'Light' },
-  { mode: 'system', icon: ComputerIcon, label: 'System' },
-  { mode: 'dark', icon: Moon01Icon, label: 'Dark' },
+  { mode: 'system', icon: ModernTvIcon, label: 'System' },
+  { mode: 'dark', icon: Moon02Icon, label: 'Dark' },
 ]
 
 interface ThemeSwitchProps {
@@ -24,7 +24,7 @@ export function ThemeSwitch({ themeMode, onThemeChange, collapsed = false }: The
   return (
     <div
       className={cn(
-        'w-fit h-fit bg-(--surface-hover) p-0.5 flex rounded-full border border-border gap-1',
+        'flex w-fit gap-1 bg-(--surface-hover) p-0.5 rounded-full border border-border',
         collapsed ? 'flex-col' : 'items-center justify-center',
       )}
     >
@@ -40,7 +40,7 @@ export function ThemeSwitch({ themeMode, onThemeChange, collapsed = false }: The
           )}
           title={`${btn.label} mode`}
         >
-          <HugeiconsIcon icon={btn.icon} className="h-3.5 w-3.5" />
+          <HugeiconsIcon icon={btn.icon} strokeWidth={1.625} className="h-3.5 w-3.5" />
         </button>
       ))}
     </div>

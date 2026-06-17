@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, screen } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, screen, nativeTheme } from "electron";
 import { spawn, ChildProcess } from "child_process";
 import net from "net";
 import fs from "fs";
@@ -107,8 +107,11 @@ let pythonReady = false;
 let pythonExitedEarly = false;
 
 // Bubble geometry (logical px).
-const BUBBLE_WIDTH = 400;
-const BUBBLE_HEIGHT = 160;
+const BUBBLE_WIDTH = 220;
+const BUBBLE_HEIGHT = 60;
+
+// Bubble screen position preference (persisted via IPC from renderer).
+let bubblePosition: 'top' | 'bottom' = 'top';
 
 // ANSI color constants — match the Python backend's _ColorFormatter so
 // Electron and Python log lines look identical in the terminal.
@@ -334,7 +337,7 @@ function createMainWindow(forceShow = false) {
     height: 700,
     minWidth: 850,
     minHeight: 550,
-    icon: path.join(__dirname, "../../resources/icon.png"),
+    icon: path.join(__dirname, `../../resources/icon${nativeTheme.shouldUseDarkColors ? '-dark' : ''}.png`),
     frame: false,
     hasShadow: false,
     show: shouldShow,
@@ -346,6 +349,13 @@ function createMainWindow(forceShow = false) {
       backgroundThrottling: false,
     },
   })
+
+  nativeTheme.on("updated", () => {
+    if (mainWindow) {
+      const name = nativeTheme.shouldUseDarkColors ? "icon-dark.png" : "icon.png";
+      mainWindow.setIcon(path.join(__dirname, `../../resources/${name}`));
+    }
+  });
 
   Menu.setApplicationMenu(null);
 
@@ -390,13 +400,16 @@ function createMainWindow(forceShow = false) {
 // ── Bubble window (always-on-top waveform overlay) ──────────────────
 
 function centerOnPrimaryDisplay(): { x: number; y: number } {
-  const display = screen.getPrimaryDisplay();
-  const wa = display.workArea;
-  return {
-    x: Math.round(wa.x + (wa.width - BUBBLE_WIDTH) / 2),
-    y: Math.round(wa.y + (wa.height - BUBBLE_HEIGHT) / 2),
-  };
-}
+    const display = screen.getPrimaryDisplay();
+    const wa = display.workArea;
+    const y = bubblePosition === 'top'
+      ? Math.round(wa.y + 16)   // breathing room from top
+      : Math.round(wa.y + wa.height - BUBBLE_HEIGHT - 16);  // breathing room from bottom
+    return {
+      x: Math.round(wa.x + (wa.width - BUBBLE_WIDTH) / 2),
+      y,
+    };
+  }
 
 let bubblePageReady = false;
 
@@ -414,15 +427,15 @@ function createBubbleWindow(): BrowserWindow {
     y,
     show: false,
     frame: false,
-    transparent: false,
-    backgroundColor: "#0a0a0c",
+    transparent: true,
+    backgroundColor: "#00000000",
     resizable: false,
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
     skipTaskbar: true,
     alwaysOnTop: true,
-    hasShadow: true,
+    hasShadow: false,
     focusable: false,
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
@@ -436,9 +449,6 @@ function createBubbleWindow(): BrowserWindow {
   catch (e) { console.warn(`${ts()}  ${BUBBLE_CLR}[BUBBLE] screen-saver failed, trying floating:${RESET}`, e);
     try { win.setAlwaysOnTop(true, "floating"); } catch {} }
   try { win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }); } catch {}
-  if (process.platform === "win32") {
-    try { (win as any).setFocusable?.(false); } catch {}
-  }
 
   win.webContents.on("did-fail-load", (_e, code, desc, url) => {
     console.error(`${ts()}  ${BUBBLE_CLR}[BUBBLE] did-fail-load code=${code} desc=${desc} url=${url}${RESET}`);
@@ -479,6 +489,8 @@ function createBubbleWindow(): BrowserWindow {
   return win;
 }
 
+let _hideTimeout: ReturnType<typeof setTimeout> | null = null;
+
 function showBubbleWindow(): void {
   if (!bubbleWindow || bubbleWindow.isDestroyed()) {
     createBubbleWindow();
@@ -489,6 +501,15 @@ function showBubbleWindow(): void {
     return;
   }
 
+  // Rapid-toggle guard: cancel any pending hide timeout/animation so the
+  // bubble doesn't flicker when show is called while a hide is in flight.
+  if (_hideTimeout) {
+    clearTimeout(_hideTimeout);
+    _hideTimeout = null;
+    // Remove any pending one-shot listener to prevent stale hide callbacks.
+    try { ipcMain.removeAllListeners("bubble:hidden"); } catch {}
+  }
+
   const c = centerOnPrimaryDisplay();
   win.setBounds({ x: c.x, y: c.y, width: BUBBLE_WIDTH, height: BUBBLE_HEIGHT });
 
@@ -497,6 +518,11 @@ function showBubbleWindow(): void {
 
   try {
     if (!win.isVisible()) { win.show(); }
+    // Signal the renderer to reset its closing state and play enter animation
+    win.webContents.send("bubble:show");
+    // Sync the current draggable state on every show (handles initial state
+    // and ensures the bubble renderer is always in sync with the backend)
+    win.webContents.send("bubble:draggable", bubbleDraggable);
   } catch (e) {
     console.error(`${ts()}  ${BUBBLE_CLR}[BUBBLE] show() failed:${RESET}`, e);
   }
@@ -516,11 +542,88 @@ function showBubbleWindow(): void {
 
 function hideBubbleWindow(): void {
   const win = bubbleWindow;
-  if (win && !win.isDestroyed() && win.isVisible()) {
-    win.hide();
-    console.log(`${ts()}  ${BUBBLE_CLR}[BUBBLE] hidden${RESET}`);
+  if (!win || win.isDestroyed() || !win.isVisible()) return;
+
+  // Rapid-toggle guard: cancel any previous hide timeout to avoid overlap.
+  if (_hideTimeout) {
+    clearTimeout(_hideTimeout);
+    _hideTimeout = null;
   }
+
+  // Send hide animation event to the renderer, then wait for it to
+  // signal back before actually hiding the window.
+  try {
+    win.webContents.send("bubble:hide");
+  } catch {}
+
+  // Use a timeout as fallback in case the renderer is unresponsive.
+  _hideTimeout = setTimeout(() => {
+    _hideTimeout = null;
+    try {
+      if (!win.isDestroyed() && win.isVisible()) {
+        win.hide();
+        console.log(`${ts()}  ${BUBBLE_CLR}[BUBBLE] hidden (fallback)${RESET}`);
+      }
+    } catch {}
+  }, 300);
+
+  // Listen for the renderer's animation-complete signal (once per hide).
+  const onHidden = () => {
+    if (_hideTimeout) {
+      clearTimeout(_hideTimeout);
+      _hideTimeout = null;
+    }
+    try {
+      if (!win.isDestroyed()) {
+        win.hide();
+        console.log(`${ts()}  ${BUBBLE_CLR}[BUBBLE] hidden (animated)${RESET}`);
+      }
+    } catch {}
+  };
+  ipcMain.once("bubble:hidden", onHidden);
 }
+
+// ── Bubble drag-to-move (IPC-based, works with focusable:false) ──
+
+let bubbleDragging = false;
+
+ipcMain.on("bubble:drag-start", () => {
+  bubbleDragging = true;
+});
+
+ipcMain.on("bubble:drag", (_event, { deltaX, deltaY }: { deltaX: number; deltaY: number }) => {
+  if (!bubbleDragging || !bubbleWindow || bubbleWindow.isDestroyed()) return;
+  const [x, y] = bubbleWindow.getPosition();
+  bubbleWindow.setPosition(x + deltaX, y + deltaY);
+});
+
+ipcMain.on("bubble:drag-end", () => {
+  bubbleDragging = false;
+});
+
+let bubbleDraggable = true;
+
+ipcMain.on("bubble:draggable", (_event, draggable: boolean) => {
+  bubbleDraggable = draggable;
+  if (bubbleWindow && !bubbleWindow.isDestroyed()) {
+    bubbleWindow.webContents.send("bubble:draggable", draggable);
+  }
+});
+
+ipcMain.on("bubble:show-from-renderer", () => {
+  showBubbleWindow();
+});
+
+ipcMain.on("set_bubble_position", (_event, position: 'top' | 'bottom') => {
+  if (position === 'top' || position === 'bottom') {
+    bubblePosition = position;
+    // If the bubble window is visible, reposition it immediately.
+    if (bubbleWindow && !bubbleWindow.isDestroyed() && bubbleWindow.isVisible()) {
+      const c = centerOnPrimaryDisplay();
+      bubbleWindow.setBounds({ x: c.x, y: c.y, width: BUBBLE_WIDTH, height: BUBBLE_HEIGHT });
+    }
+  }
+});
 
 ipcMain.on("bubble:ready", () => {
   console.log(`${ts()}  ${BUBBLE_CLR}[BUBBLE] renderer reports ready${RESET}`);
@@ -736,6 +839,41 @@ ipcMain.handle("history:export", async (_event, { data, format }: { data: Record
       fs.writeFileSync(filePath, [header, ...rows].join('\n'), 'utf-8')
     } else {
       fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8')
+    }
+    return { success: true, path: filePath }
+  } catch (e: unknown) {
+    return { success: false, error: (e as Error).message }
+  }
+})
+
+// ── Vocabulary export ──────────────────────────────────────────
+
+ipcMain.handle("vocabulary:export", async (_event, { data, format }: { data: Record<string, unknown>; format: 'json' | 'csv' }) => {
+  const filters = format === 'csv'
+    ? [{ name: 'CSV', extensions: ['csv'] }]
+    : [{ name: 'JSON', extensions: ['json'] }]
+
+  const { canceled, filePath } = await dialog.showSaveDialog({
+    title: 'Export Vocabulary',
+    defaultPath: `voice-typer-vocabulary.${format}`,
+    filters,
+  })
+
+  if (canceled || !filePath) return { success: false }
+
+  try {
+    if (format === 'csv') {
+      const rows: string[] = ['original,correction']
+      const vocab = data as Record<string, unknown>
+      const entries = (vocab.entries ?? []) as Array<Record<string, string>>
+      for (const entry of entries) {
+        const esc = (s: string) => String(s).replace(/"/g, '""')
+        rows.push(`"${esc(entry.original ?? '')}","${esc(entry.correction ?? '')}"`)
+      }
+      fs.writeFileSync(filePath, rows.join('\n'), 'utf-8')
+    } else {
+      const vocab = data as Record<string, unknown>
+      fs.writeFileSync(filePath, JSON.stringify(vocab.entries ?? [], null, 2), 'utf-8')
     }
     return { success: true, path: filePath }
   } catch (e: unknown) {

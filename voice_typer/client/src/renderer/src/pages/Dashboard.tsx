@@ -3,7 +3,6 @@ import { usePython, usePythonEvent } from '@/hooks/usePython'
 import { HugeiconsIcon } from '@hugeicons/react'
 import type { IconSvgElement } from '@hugeicons/react'
 import {
-  DashboardSquare01Icon,
   Time02Icon,
   SpeechToTextIcon,
   File02Icon,
@@ -11,16 +10,10 @@ import {
   Activity03Icon,
   Calendar01Icon,
   LayoutGridIcon,
-  ArrowDataTransferHorizontalIcon,
-  Folder01Icon,
-  Delete01Icon,
 } from '@hugeicons/core-free-icons'
 import PageHeading from '@/components/PageHeading'
-import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
 import type { TodayStats, HistoryRecord, Page } from '@/types/ipc'
 import type { VoiceTyperConfig } from '@/types/config'
-import ActivityList from '@/components/ActivityList'
 
 // ── Module-level cache ────────────────────────────────────────────
 let _cachedData: DashboardData | null = null
@@ -40,7 +33,6 @@ interface DashboardData {
   currentStreak: number
   maxStreak: number
   activeDays: number
-  recentRecords: HistoryRecord[]
 }
 
 /** Format seconds into a human-readable duration string. */
@@ -167,13 +159,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
   const { call } = usePython()
   const [data, setData] = useState<DashboardData | null>(_cachedData)
   const [loading, setLoading] = useState(true)
-  const [showClearDialog, setShowClearDialog] = useState(false)
-  const [snackbar, setSnackbar] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null)
 
-  const showSnack = (message: string, type: 'success' | 'error' | 'warning') => {
-    setSnackbar({ message, type })
-    setTimeout(() => setSnackbar(null), 3000)
-  }
 
   /** Fetch all dashboard data from the Python backend. */
   const refreshData = useCallback(async () => {
@@ -211,7 +197,6 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
         currentStreak: streaks.current,
         maxStreak: streaks.max,
         activeDays: streaks.activeDays,
-        recentRecords: recs.slice(0, 5),
       }
       _cachedData = newData
       setData(newData)
@@ -241,42 +226,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
 
   useEffect(() => { loadData() }, [loadData])
 
-  // ── Data Management Actions ──────────────────────────────────────
 
-  const exportTranscriptions = async () => {
-    try {
-      const history = await call<HistoryRecord[]>('get_history', { limit: 10000 })
-      const json = JSON.stringify(history, null, 2)
-      await navigator.clipboard.writeText(json)
-      showSnack(`Exported ${(history ?? []).length} transcriptions to clipboard`, 'success')
-    } catch {
-      showSnack('Export failed: Could not fetch history', 'error')
-    }
-  }
-
-  const exportVocabulary = async () => {
-    try {
-      const raw = localStorage.getItem('vocabulary_data') ?? '{}'
-      const vocabData = JSON.parse(raw)
-      const json = JSON.stringify(vocabData, null, 2)
-      await navigator.clipboard.writeText(json)
-      showSnack('Vocabulary exported to clipboard', 'success')
-    } catch {
-      showSnack('Export failed', 'error')
-    }
-  }
-
-  const clearAllData = async () => {
-    setShowClearDialog(false)
-    try {
-      localStorage.removeItem('vocabulary_data')
-      localStorage.removeItem('templates_data')
-      showSnack('All data cleared', 'success')
-      await loadData()
-    } catch {
-      showSnack('Clear failed', 'error')
-    }
-  }
 
   // ── Stat Card Component ──────────────────────────────────────────
 
@@ -292,7 +242,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
     sublabel?: string
   }) => (
     <div className="card-hover rounded-xl border border-border bg-(--bg-subtle) p-5 flex flex-col items-center justify-center gap-2 text-center">
-      <HugeiconsIcon icon={icon} className="h-5 w-5 text-accent" />
+      <HugeiconsIcon icon={icon} strokeWidth={1.625} className="h-4 w-4 text-accent" />
       <p className="text-2xl font-bold text-(--text-primary) leading-none tracking-tight">{value}</p>
       <p className="text-xs text-(--text-muted)">{label}</p>
       {sublabel && (
@@ -306,7 +256,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
   if (!_cachedData && !data) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+        <div className="h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent" />
       </div>
     )
   }
@@ -319,8 +269,8 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
   return (
     <div className="animate-fade-in-up mx-auto flex min-h-full w-full max-w-3xl flex-col px-6 py-6">
       <PageHeading
-        title="Dashboard"
-        description="Your voice typing activity and usage overview."
+        title="Analytics"
+        description="Your voice typing activity and usage insights."
       />
 
       <div className="space-y-8">
@@ -359,7 +309,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
               <h2 className="font-sans text-sm font-semibold text-(--text-primary)">7-Day Activity</h2>
               <p className="text-xs text-(--text-muted)">Transcriptions per day</p>
             </div>
-            <HugeiconsIcon icon={Activity03Icon} className="h-4 w-4 text-(--text-muted)" />
+            <HugeiconsIcon icon={Activity03Icon} strokeWidth={1.625} className="h-4 w-4 text-(--text-muted)" />
           </div>
           <div className="flex items-end justify-between gap-2 h-20">
             {d.dailyActivity.map((day) => (
@@ -380,7 +330,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
         <div className="grid grid-cols-3 gap-3">
           <div className="rounded-lg border border-border bg-(--bg-subtle) p-3.5 flex items-center gap-3">
             <div className="rounded-lg bg-accent/10 p-2">
-              <HugeiconsIcon icon={AiBrain03Icon} className="h-4 w-4 text-accent" />
+              <HugeiconsIcon icon={AiBrain03Icon} strokeWidth={1.625} className="h-4 w-4 text-accent" />
             </div>
             <div className="min-w-0">
               <p className="text-[11px] text-(--text-muted) font-medium">Model</p>
@@ -389,7 +339,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
           </div>
           <div className="rounded-lg border border-border bg-(--bg-subtle) p-3.5 flex items-center gap-3">
             <div className="rounded-lg bg-accent/10 p-2">
-              <HugeiconsIcon icon={LayoutGridIcon} className="h-4 w-4 text-accent" />
+              <HugeiconsIcon icon={LayoutGridIcon} strokeWidth={1.625} className="h-4 w-4 text-accent" />
             </div>
             <div className="min-w-0">
               <p className="text-[11px] text-(--text-muted) font-medium">Device</p>
@@ -398,54 +348,12 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
           </div>
           <div className="rounded-lg border border-border bg-(--bg-subtle) p-3.5 flex items-center gap-3">
             <div className="rounded-lg bg-accent/10 p-2">
-              <HugeiconsIcon icon={Activity03Icon} className="h-4 w-4 text-accent" />
+              <HugeiconsIcon icon={Activity03Icon} strokeWidth={1.625} className="h-4 w-4 text-accent" />
             </div>
             <div className="min-w-0">
               <p className="text-[11px] text-(--text-muted) font-medium">Language</p>
               <p className="text-sm font-semibold text-(--text-primary) truncate">{d.language}</p>
             </div>
-          </div>
-        </div>
-
-        {/* ── Recent Activity ──────────────────────────────────────── */}
-        <ActivityList
-          items={d.recentRecords}
-          lineClamp={2}
-          title="Recent Activity"
-          showViewAll
-          onViewAll={() => onNavigate?.('history')}
-        />
-
-        {/* ── Data Management ──────────────────────────────────────── */}
-        <div className="rounded-xl border border-border bg-(--bg-subtle) p-5">
-          <h2 className="font-sans text-sm font-semibold text-(--text-primary) mb-4">
-            Data Management
-          </h2>
-          <div className="flex flex-wrap gap-3">
-            <Button
-              variant="outline"
-              className="gap-2"
-              onClick={exportTranscriptions}
-            >
-              <HugeiconsIcon icon={ArrowDataTransferHorizontalIcon} className="h-4 w-4" />
-              Export Transcriptions
-            </Button>
-            <Button
-              variant="outline"
-              className="gap-2"
-              onClick={exportVocabulary}
-            >
-              <HugeiconsIcon icon={Folder01Icon} className="h-4 w-4" />
-              Export Vocabulary
-            </Button>
-            <Button
-              variant="destructive"
-              className="gap-2"
-              onClick={() => setShowClearDialog(true)}
-            >
-              <HugeiconsIcon icon={Delete01Icon} className="h-4 w-4" />
-              Clear All Data
-            </Button>
           </div>
         </div>
 
@@ -455,41 +363,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
         </p>
       </div>
 
-      {/* ── Clear Data Confirmation Dialog ────────────────────────── */}
-      {showClearDialog && (
-        <div className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className={cn('animate-scale-in w-100 rounded-xl border border-border', 'bg-(--bg) p-6 shadow-2xl')}>
-            <h2 className="text-lg font-semibold text-(--text-primary) mb-3">
-              Clear All Data
-            </h2>
-            <p className="text-sm text-(--text-muted) mb-6">
-              Are you sure you want to clear all data (history, vocabulary, templates)?
-              This cannot be undone.
-            </p>
-            <div className="flex justify-end gap-3">
-              <Button variant="ghost" onClick={() => setShowClearDialog(false)}>
-                Cancel
-              </Button>
-              <Button variant="destructive" onClick={clearAllData}>
-                Clear All Data
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* ── Snackbar ──────────────────────────────────────────────── */}
-      {snackbar && (
-        <div className={cn(
-          'animate-slide-up fixed bottom-6 left-1/2 z-50 -translate-x-1/2',
-          'rounded-lg px-4 py-2.5 text-sm shadow-lg',
-          snackbar.type === 'success' && 'bg-primary text-primary-foreground',
-          snackbar.type === 'error' && 'bg-destructive text-white',
-          snackbar.type === 'warning' && 'bg-primary text-primary-foreground',
-        )}>
-          {snackbar.message}
-        </div>
-      )}
     </div>
   )
 }

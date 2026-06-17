@@ -16,8 +16,46 @@ contextBridge.exposeInMainWorld("bubble", {
     ipcRenderer.on("bubble:level", handler);
     return () => { ipcRenderer.removeListener("bubble:level", handler); };
   },
+  show: () => {
+    ipcRenderer.send("bubble:show-from-renderer");
+  },
   signalReady: () => {
     ipcRenderer.send("bubble:ready");
+  },
+  setPosition: (position: 'top' | 'bottom') => {
+    ipcRenderer.send("set_bubble_position", position);
+  },
+  setDraggable: (draggable: boolean) => {
+    ipcRenderer.send("bubble:draggable", draggable);
+  },
+  // ── Drag-to-move ─────────────────────────────────────────
+  startDrag: () => {
+    ipcRenderer.send("bubble:drag-start");
+  },
+  drag: (deltaX: number, deltaY: number) => {
+    ipcRenderer.send("bubble:drag", { deltaX, deltaY });
+  },
+  endDrag: () => {
+    ipcRenderer.send("bubble:drag-end");
+  },
+  // ── Enter/exit animations ────────────────────────────────
+  onShow: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on("bubble:show", handler);
+    return () => { ipcRenderer.removeListener("bubble:show", handler); };
+  },
+  onHide: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on("bubble:hide", handler);
+    return () => { ipcRenderer.removeListener("bubble:hide", handler); };
+  },
+  onDraggable: (callback: (draggable: boolean) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, draggable: unknown) => callback(Boolean(draggable));
+    ipcRenderer.on("bubble:draggable", handler);
+    return () => { ipcRenderer.removeListener("bubble:draggable", handler); };
+  },
+  hideComplete: () => {
+    ipcRenderer.send("bubble:hidden");
   },
 });
 
@@ -33,4 +71,6 @@ contextBridge.exposeInMainWorld("window_", {
   },
   exportHistory: (data: Record<string, unknown>[], format: 'json' | 'csv') =>
     ipcRenderer.invoke("history:export", { data, format }) as Promise<{ success: boolean; path?: string; error?: string }>,
+  exportVocabulary: (data: Record<string, unknown>, format: 'json' | 'csv') =>
+    ipcRenderer.invoke("vocabulary:export", { data, format }) as Promise<{ success: boolean; path?: string; error?: string }>,
 });

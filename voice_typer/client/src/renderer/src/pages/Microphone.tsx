@@ -120,7 +120,7 @@ export default function MicrophonePage() {
   if (!_cachedMicrophones.length && !_cachedConfig && loading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+        <div className="h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent" />
       </div>
     )
   }
@@ -146,8 +146,9 @@ export default function MicrophonePage() {
             <div className="flex items-center gap-3">
               <HugeiconsIcon
                 icon={Mic02Icon}
+                strokeWidth={1.625}
                 className={cn(
-                  'h-5 w-5',
+                  'h-4 w-4',
                   isSystemDefault ? 'text-primary' : 'text-(--text-muted)',
                 )}
               />
@@ -197,8 +198,7 @@ export default function MicrophonePage() {
             className="gap-1.5"
             onClick={startTest}
             disabled={testRunning}
-          >
-            <HugeiconsIcon icon={PlayIcon} className="h-3.5 w-3.5" />
+          >              <HugeiconsIcon icon={PlayIcon} strokeWidth={1.625} className="h-4 w-4" />
             Start Test
           </Button>
           <Button
@@ -208,7 +208,7 @@ export default function MicrophonePage() {
             onClick={stopTest}
             disabled={!testRunning}
           >
-            <HugeiconsIcon icon={StopIcon} className="h-3.5 w-3.5" />
+            <HugeiconsIcon icon={StopIcon} strokeWidth={1.625} className="h-4 w-4" />
             Stop Test
           </Button>
           <span className="text-xs text-(--text-muted) ml-auto">
@@ -219,7 +219,7 @@ export default function MicrophonePage() {
         {/* Available Microphones List */}
         {microphones.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
-            <HugeiconsIcon icon={MicOff01Icon} className="h-10 w-10 text-(--text-muted) opacity-30" />
+            <HugeiconsIcon icon={MicOff01Icon} strokeWidth={1.625} className="h-10 w-10 text-(--text-muted) opacity-30" />
             <p className="text-sm text-(--text-muted)">No microphones found</p>
             <p className="text-xs text-(--text-muted) opacity-70">
               Connect a microphone and restart
@@ -238,6 +238,7 @@ export default function MicrophonePage() {
                   <div key={micId} className="flex items-center gap-3 px-3.5 py-2.5">
                     <HugeiconsIcon
                       icon={Mic02Icon}
+                      strokeWidth={1.625}
                       className={cn('h-4 w-4 shrink-0', isActive ? 'text-primary' : 'text-(--text-muted)')}
                     />
                     <div className="flex-1 min-w-0">

@@ -2,9 +2,22 @@ import type { VoiceTyperConfig, MicrophoneDevice } from './config'
 
 // ── Recording states ──────────────────────────────────────────────
 
-export type RecordingState = 'idle' | 'listening' | 'recording' | 'processing' | 'error'
+export type RecordingState =
+  | 'idle'
+  | 'listening'
+  | 'recording'
+  | 'processing'
+  | 'transcribing'
+  | 'loading'
+  | 'warming_up'
+  | 'downloading'
+  | 'paused'
+  | 'cancelling'
+  | 'setup'
+  | 'not_configured'
+  | 'error'
 
-export type Page = 'home' | 'history' | 'templates' | 'vocabulary' | 'models' | 'microphone' | 'dashboard' | 'settings'
+export type Page = 'home' | 'history' | 'templates' | 'vocabulary' | 'models' | 'microphone' | 'analytics' | 'settings'
 
 // ── History data shapes (from Python history_db) ───────────────────
 
@@ -230,6 +243,7 @@ export interface WindowBridge {
   isMaximized: () => Promise<boolean>
   onMaximizedChanged: (callback: (maximized: boolean) => void) => () => void
   exportHistory: (data: Record<string, unknown>[], format: 'json' | 'csv') => Promise<{ success: boolean; path?: string; error?: string }>
+  exportVocabulary: (data: Record<string, unknown>, format: 'json' | 'csv') => Promise<{ success: boolean; path?: string; error?: string }>
 }
 
 declare global {

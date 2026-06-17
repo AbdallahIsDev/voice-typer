@@ -2,15 +2,16 @@
 
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
+import { InfoTooltip } from './InfoTooltip'
 
 interface SettingRowProps {
   label: string
-  description?: string
+  info?: string
   children: ReactNode
   align?: 'start' | 'center'
 }
 
-export function SettingRow({ label, description, children, align = 'center' }: SettingRowProps) {
+export function SettingRow({ label, info, children, align = 'center' }: SettingRowProps) {
   return (
     <div
       className={cn(
@@ -18,13 +19,11 @@ export function SettingRow({ label, description, children, align = 'center' }: S
         align === 'center' && 'items-center',
       )}
     >
-      <div className="space-y-0.5 min-w-0">
+      <div className="flex min-w-0 items-center gap-1.5">
         <label className="text-sm font-medium text-(--text-primary) cursor-default">
           {label}
         </label>
-        {description && (
-          <p className="text-xs text-(--text-muted) leading-relaxed">{description}</p>
-        )}
+        {info && <InfoTooltip text={info} />}
       </div>
       <div className="shrink-0">{children}</div>
     </div>

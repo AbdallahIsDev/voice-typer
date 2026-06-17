@@ -22,20 +22,36 @@ const STATUS_COLORS: Record<string, string> = {
   idle: '#22C55E',
   recording: '#FF3333',
   processing: '#2563EB',
+  transcribing: '#7C3AED',
   loading: '#F59E0B',
+  warming_up: '#E67E22',
+  downloading: '#34495E',
+  paused: '#9B59B6',
+  cancelling: '#C0392B',
+  setup: '#2980B9',
+  not_configured: '#95A5A6',
   error: '#FF3333',
 }
 
 const STATUS_LABELS: Record<string, string> = {
   idle: 'READY',
   recording: 'RECORDING',
-  processing: 'TRANSCRIBING',
+  processing: 'PROCESSING',
+  transcribing: 'TRANSCRIBING',
   loading: 'LOADING',
+  warming_up: 'WARMING UP',
+  downloading: 'DOWNLOADING',
+  paused: 'PAUSED',
+  cancelling: 'CANCELLING',
+  setup: 'SETTING UP',
+  not_configured: 'NOT CONFIGURED',
   error: 'ERROR',
 }
 
 function statusKeyFor(state: RecordingState, hasError: boolean): string {
+  // Normalize listening → idle
   if (state === 'listening') return 'idle'
+  // When there's an error and the state is error, keep it as error
   if (state === 'error' && hasError) return 'error'
   return state
 }
@@ -164,9 +180,9 @@ export default function Home({ recordingState, lastError, onNavigate }: HomeProp
           )}
         >
           {isRecording ? (
-            <HugeiconsIcon icon={StopIcon} className="h-8 w-8 text-white" />
+            <HugeiconsIcon icon={StopIcon} strokeWidth={1.625} className="h-8 w-8 text-white" />
           ) : (
-            <HugeiconsIcon icon={Mic02Icon} className="h-8 w-8 text-white" />
+            <HugeiconsIcon icon={Mic02Icon} strokeWidth={1.625} className="h-8 w-8 text-white" />
           )}
         </button>
       </div>

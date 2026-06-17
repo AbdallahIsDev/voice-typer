@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
-import { Copy, Check, Trash2, Star } from 'lucide-react'
+import { HugeiconsIcon } from '@hugeicons/react'
+import { Copy01Icon, Tick02Icon, Delete01Icon, StarIcon } from '@hugeicons/core-free-icons'
 import { toast } from 'sonner'
 import type { HistoryRecord } from '@/types/ipc'
 
@@ -98,31 +99,35 @@ export default function ActivityList({
                 )}
               </span>
             </div>
-            <button
-              onClick={() => handleFavorite(item.id)}
-              className="shrink-0 mt-0.5 text-(--text-muted) hover:text-amber-400 transition-colors bg-transparent border-none p-0 cursor-pointer"
-              title={item.favorite ? 'Remove from favorites' : 'Add to favorites'}
-            >
-              <Star className={`h-3.5 w-3.5 ${item.favorite ? 'fill-amber-400 text-amber-400' : ''}`} />
-            </button>
+            {onToggleFavorite && (
+              <button
+                onClick={() => handleFavorite(item.id)}
+                className="shrink-0 mt-0.5 text-(--text-muted) hover:text-amber-400 transition-colors bg-transparent border-none p-0 cursor-pointer"
+                title={item.favorite ? 'Remove from favorites' : 'Add to favorites'}
+              >
+                <HugeiconsIcon icon={StarIcon} strokeWidth={1.625} className={`h-4 w-4 ${item.favorite ? 'text-amber-400' : ''}`} />
+              </button>
+            )}
             <button
               onClick={() => handleCopy(item)}
               className="shrink-0 mt-0.5 text-(--text-muted) hover:text-(--text-primary) transition-colors bg-transparent border-none p-0 cursor-pointer"
               title="Copy text"
             >
               {copiedId === item.id ? (
-                <Check className="h-3.5 w-3.5" />
+                <HugeiconsIcon icon={Tick02Icon} strokeWidth={1.625} className="h-4 w-4" />
               ) : (
-                <Copy className="h-3.5 w-3.5" />
+                <HugeiconsIcon icon={Copy01Icon} strokeWidth={1.625} className="h-4 w-4" />
               )}
             </button>
-            <button
-              onClick={() => handleDelete(item.id)}
-              className="shrink-0 mt-0.5 text-(--text-muted) hover:text-red-400 transition-colors bg-transparent border-none p-0 cursor-pointer"
-              title="Delete"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
+            {onDelete && (
+              <button
+                onClick={() => handleDelete(item.id)}
+                className="shrink-0 mt-0.5 text-(--text-muted) hover:text-red-400 transition-colors bg-transparent border-none p-0 cursor-pointer"
+                title="Delete"
+              >
+                <HugeiconsIcon icon={Delete01Icon} strokeWidth={1.625} className="h-4 w-4" />
+              </button>
+            )}
           </div>
         ))}
       </div>

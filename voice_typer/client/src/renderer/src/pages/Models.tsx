@@ -220,7 +220,7 @@ export default function ModelsPage() {
   if (!_cachedConfig && !config) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+        <div className="h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent" />
       </div>
     )
   }
@@ -238,7 +238,7 @@ export default function ModelsPage() {
           disabled={isDownloading || allDownloaded}
           title={allDownloaded ? 'All models already downloaded' : 'Download a model'}
         >
-          <HugeiconsIcon icon={Download01Icon} className="h-4 w-4" />
+          <HugeiconsIcon icon={Download01Icon} strokeWidth={1.625} className="h-4 w-4" />
           {allDownloaded ? 'All Downloaded' : 'Download Model'}
         </Button>
       </PageHeading>
@@ -292,7 +292,7 @@ export default function ModelsPage() {
                       onClick={() => downloadModel(model)}
                       disabled={isDownloading}
                     >
-                      <HugeiconsIcon icon={Download01Icon} className="h-3 w-3" />
+                      <HugeiconsIcon icon={Download01Icon} strokeWidth={1.625} className="h-4 w-4" />
                       Install Deps
                     </Button>
                   ) : (
@@ -305,7 +305,8 @@ export default function ModelsPage() {
                     >
                       <HugeiconsIcon
                         icon={model.isActive ? Tick02Icon : PlayIcon}
-                        className="h-3 w-3"
+                        strokeWidth={1.625}
+                        className="h-4 w-4"
                       />
                       {model.isActive ? 'Active' : 'Use'}
                     </Button>
@@ -317,7 +318,7 @@ export default function ModelsPage() {
                     disabled={model.isActive}
                     className="text-(--text-muted) hover:text-destructive"
                   >
-                      <HugeiconsIcon icon={Delete01Icon} className="h-3.5 w-3.5" />
+                      <HugeiconsIcon icon={Delete01Icon} strokeWidth={1.625} className="h-4 w-4" />
                     </Button>
                   </div>
                 </div>
@@ -343,7 +344,8 @@ export default function ModelsPage() {
                 <div className="flex items-center gap-2.5 mb-4">
                   <HugeiconsIcon
                     icon={Shield01Icon}
-                    className="h-5 w-5 text-accent"
+                    strokeWidth={1.625}
+                    className="h-4 w-4 text-accent"
                   />
                   <h3 className="text-base font-semibold text-(--text-primary)">
                     {provider.label} Settings
@@ -379,7 +381,7 @@ export default function ModelsPage() {
                     className="gap-1.5"
                     onClick={() => testConnection(provider.key)}
                   >
-                    <HugeiconsIcon icon={SparklesIcon} className="h-3.5 w-3.5" />
+                    <HugeiconsIcon icon={SparklesIcon} strokeWidth={1.625} className="h-4 w-4" />
                     Test Connection
                   </Button>
                   {testResults[provider.key] && (
@@ -416,7 +418,7 @@ export default function ModelsPage() {
             onClick={runBenchmark}
             disabled={isBenchmarking}
           >
-            <HugeiconsIcon icon={ZapIcon} className="h-4 w-4" />
+            <HugeiconsIcon icon={ZapIcon} strokeWidth={1.625} className="h-4 w-4" />
             {isBenchmarking ? 'Running...' : 'Run Benchmark'}
           </Button>
           {benchmarkResult && (

@@ -138,8 +138,37 @@ export default function App() {
     const checkConnection = async () => {
       if (cancelled) return
       try {
-        await call('get_config')
-        if (!cancelled) setConnectionStatus('connected')
+        const cfg = await call<any>('get_config')
+        if (!cancelled) {
+          setConnectionStatus('connected')
+          // Sync current state from backend (status_change events sent before
+          // the React app mounted are lost — this ensures we catch up)
+          call<{ status: string }>('get_status').then((s) => {
+            if (!cancelled && s?.status) {
+              setRecordingState(s.status as RecordingState)
+            }
+          }).catch(() => {})
+          // Send saved bubble_position to the Electron main process
+          // so it persists across restarts (main process initializes to 'top')
+          const pos = (cfg as any)?.bubble_position as string | undefined
+          if (pos === 'bottom' || pos === 'top') {
+            ;(window as any).bubble?.setPosition?.(pos)
+          }
+          // Sync saved bubble_draggable state so the main process has the
+          // correct value before the bubble is ever shown
+          const draggable = (cfg as any)?.bubble_draggable
+          if (typeof draggable === 'boolean') {
+            ;(window as any).bubble?.setDraggable?.(draggable)
+          }
+          // Show the bubble at startup if always_visible + show_on_startup is enabled.
+          // This is a reliable fallback in case the TCP push event from Python's
+          // _do_startup arrives before Electron is fully ready to render the bubble.
+          const behavior = (cfg as any)?.bubble_behavior as string | undefined
+          const showOnStartup = (cfg as any)?.bubble_show_on_startup
+          if (behavior === 'always_visible' && showOnStartup !== false) {
+            ;(window as any).bubble?.show?.()
+          }
+        }
       } catch {
         retries++
         if (!cancelled && retries < maxRetries) {
@@ -182,10 +211,7 @@ export default function App() {
 
   usePythonEvent('status_change', useCallback((data) => {
     if (data?.status) {
-      const state = data.status as string
-      if (state === 'idle' || state === 'recording' || state === 'processing' || state === 'error') {
-        setRecordingState(state as RecordingState)
-      }
+      setRecordingState(data.status as RecordingState)
       setLastError(null)
     }
   }, []))
@@ -233,10 +259,10 @@ export default function App() {
         return <ModelsPage />
       case 'microphone':
         return <MicrophonePage />
-      case 'dashboard':
+      case 'analytics':
         return <DashboardPage onNavigate={navigate} />
       case 'settings':
-        return <SettingsPage />
+        return <SettingsPage onThemeChange={handleThemeChange} />
     }
   }
 
@@ -259,7 +285,7 @@ export default function App() {
           <main className="flex-1 overflow-y-auto rounded-l-xl border-border border border-r-0 border-b-0 bg-(--bg)" style={{ scrollbarGutter: 'stable' }}>
             {connectionStatus === 'connecting' ? (
               <div className="flex h-full flex-col items-center justify-center gap-3">
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent" />
                 <p className="text-sm text-(--text-muted)">
                   Starting Python backend...
                 </p>
