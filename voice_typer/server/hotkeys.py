@@ -248,6 +248,25 @@ def _init_vk_map():
     # Letters a-z
     for c in "abcdefghijklmnopqrstuvwxyz":
         _VK_MAP[c] = ord(c.upper())
+    # Common special keys
+    _VK_MAP["esc"] = 0x1B      # VK_ESCAPE
+    _VK_MAP["escape"] = 0x1B
+    _VK_MAP["space"] = 0x20    # VK_SPACE
+    _VK_MAP["enter"] = 0x0D    # VK_RETURN
+    _VK_MAP["return"] = 0x0D
+    _VK_MAP["tab"] = 0x09      # VK_TAB
+    _VK_MAP["backspace"] = 0x08  # VK_BACK
+    _VK_MAP["del"] = 0x2E      # VK_DELETE
+    _VK_MAP["delete"] = 0x2E
+    _VK_MAP["insert"] = 0x2D   # VK_INSERT
+    _VK_MAP["home"] = 0x24     # VK_HOME
+    _VK_MAP["end"] = 0x23      # VK_END
+    _VK_MAP["pageup"] = 0x21   # VK_PRIOR
+    _VK_MAP["pagedown"] = 0x22 # VK_NEXT
+    _VK_MAP["up"] = 0x26       # VK_UP
+    _VK_MAP["down"] = 0x28     # VK_DOWN
+    _VK_MAP["left"] = 0x25     # VK_LEFT
+    _VK_MAP["right"] = 0x27    # VK_RIGHT
 
 
 def parse_hotkey_to_vk(hotkey_str: str) -> Optional[int]:

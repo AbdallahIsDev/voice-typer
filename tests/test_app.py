@@ -556,6 +556,83 @@ class TestHotkeyMapping:
         if app._hotkey_backend is not None:
             assert app._hotkey_backend.is_alive() is False
 
+    def test_register_esc_hotkey_creates_and_starts_backend(self, app, monkeypatch):
+        """_register_esc_hotkey should create a backend and call start()."""
+        from pynput.keyboard import GlobalHotKeys
+
+        mock_listener = MagicMock()
+        mock_listener.is_alive.return_value = True
+        mock_ghk_cls = MagicMock(return_value=mock_listener)
+
+        mock_kb = sys.modules['pynput.keyboard']
+        mock_kb.GlobalHotKeys = mock_ghk_cls
+
+        assert app._esc_backend is None
+        app._register_esc_hotkey()
+
+        assert app._esc_backend is not None
+        mock_ghk_cls.assert_called_once_with({"<esc>": app._cancel_dictation})
+        mock_listener.start.assert_called_once()
+
+    def test_unregister_esc_hotkey_stops_and_clears_backend(self, app, monkeypatch):
+        """_unregister_esc_hotkey should stop the backend and set it to None."""
+        mock_backend = MagicMock()
+        monkeypatch.setattr("voice_typer.server.app.create_hotkey_backend", MagicMock(return_value=mock_backend))
+
+        app._register_esc_hotkey()
+        assert app._esc_backend is mock_backend
+
+        app._unregister_esc_hotkey()
+
+        assert app._esc_backend is None
+        mock_backend.stop.assert_called_once()
+
+    def test_unregister_esc_hotkey_noop_when_none(self, app):
+        """_unregister_esc_hotkey should not crash when _esc_backend is None."""
+        app._esc_backend = None
+        app._unregister_esc_hotkey()  # Must not raise
+
+    def test_register_esc_hotkey_failure_does_not_crash(self, app, monkeypatch):
+        """If ESC hotkey registration fails, app should not crash."""
+        def failing_create(*args):
+            raise RuntimeError("no display")
+        monkeypatch.setattr("voice_typer.server.app.create_hotkey_backend", failing_create)
+        # Should not raise even though create_hotkey_backend raises
+        app._register_esc_hotkey()
+        assert app._esc_backend is None
+
+    def test_register_hotkey_includes_esc_when_enabled(self, app, monkeypatch):
+        """When esc_cancel_enabled is True, _register_hotkey should also call _register_esc_hotkey."""
+        from pynput.keyboard import GlobalHotKeys
+
+        mock_listener = MagicMock()
+        mock_listener.is_alive.return_value = True
+        mock_ghk_cls = MagicMock(return_value=mock_listener)
+
+        mock_kb = sys.modules['pynput.keyboard']
+        mock_kb.GlobalHotKeys = mock_ghk_cls
+
+        app.config.esc_cancel_enabled = True
+        app._register_hotkey()
+
+        assert app._esc_backend is not None
+
+    def test_register_hotkey_skips_esc_when_disabled(self, app, monkeypatch):
+        """When esc_cancel_enabled is False, _register_hotkey should skip ESC registration."""
+        from pynput.keyboard import GlobalHotKeys
+
+        mock_listener = MagicMock()
+        mock_listener.is_alive.return_value = True
+        mock_ghk_cls = MagicMock(return_value=mock_listener)
+
+        mock_kb = sys.modules['pynput.keyboard']
+        mock_kb.GlobalHotKeys = mock_ghk_cls
+
+        app.config.esc_cancel_enabled = False
+        app._register_hotkey()
+
+        assert app._esc_backend is None
+
 
 class TestFallbackHotkeyParser:
     """Verify parse_hotkey_to_vk correctly converts hotkey strings."""

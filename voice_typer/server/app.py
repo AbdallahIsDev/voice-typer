@@ -562,6 +562,15 @@ class VoiceTyperApp:
             except Exception as e:
                 log.warning("[STARTUP] Failed to open Electron window after restart: %s", e)
 
+        # Show the bubble at startup if always_visible mode is enabled AND
+        # bubble_show_on_startup is True (user's preference in Settings).
+        if self.config.bubble_behavior == 'always_visible' and self.config.bubble_show_on_startup:
+            try:
+                self._waveform_bubble.show()
+                log.info("[STARTUP] Bubble shown at startup (always_visible mode)")
+            except Exception as e:
+                log.warning("[STARTUP] Failed to show bubble at startup: %s", e)
+
         log.info("[STARTUP] initial setup complete -- model loading continues in background")
 
     def _load_transcription_engine_background(self) -> None:
@@ -787,14 +796,46 @@ class VoiceTyperApp:
 
         # Feature: ESC to cancel -- register ESC hotkey when enabled
         if self.config.esc_cancel_enabled:
-            try:
-                self._esc_backend = create_hotkey_backend("<esc>")
-                self._esc_backend.start(self._cancel_dictation)
-                log.info("[HOTKEY] ESC cancel hotkey registered")
-            except Exception:
-                log.warning("[HOTKEY] ESC cancel hotkey registration failed")
+            self._register_esc_hotkey()
 
         # Feature: Repaste hotkey
+        if self.config.repaste_hotkey:
+            self._register_repaste_hotkey()
+
+    def _register_esc_hotkey(self):
+        """Register the ESC hotkey for cancelling dictation."""
+        # Stop any existing backend first (same pattern as _register_repaste_hotkey)
+        if self._esc_backend:
+            try:
+                self._esc_backend.stop()
+            except Exception:
+                pass
+            self._esc_backend = None
+        try:
+            self._esc_backend = create_hotkey_backend("<esc>")
+            self._esc_backend.start(self._cancel_dictation)
+            log.info("[HOTKEY] ESC cancel hotkey registered")
+        except Exception:
+            log.warning("[HOTKEY] ESC cancel hotkey registration failed")
+
+    def _unregister_esc_hotkey(self):
+        """Unregister the ESC hotkey."""
+        if self._esc_backend:
+            try:
+                self._esc_backend.stop()
+            except Exception:
+                pass
+            self._esc_backend = None
+            log.info("[HOTKEY] ESC cancel hotkey unregistered")
+
+    def _register_repaste_hotkey(self):
+        """Register the repaste hotkey."""
+        if self._repaste_backend:
+            try:
+                self._repaste_backend.stop()
+            except Exception:
+                pass
+            self._repaste_backend = None
         if self.config.repaste_hotkey:
             try:
                 self._repaste_backend = create_hotkey_backend(self.config.repaste_hotkey)
@@ -977,7 +1018,13 @@ class VoiceTyperApp:
         # Detach the RMS callback and hide the bubble so the audio path
         # cannot keep pushing levels after the stream is closed.
         self.recorder.on_rms_level = None
-        self._waveform_bubble.hide()
+        # Push a final zero-level event so the renderer resets its animation
+        # envelope. Without this, the dots stay frozen at their last active
+        # height because rawLevelRef is never set back to 0.
+        self._waveform_bubble.reset_level()
+        # Hide bubble unless always_visible mode (bubble stays on screen)
+        if self.config.bubble_behavior != 'always_visible':
+            self._waveform_bubble.hide()
 
         try:
             audio = self.recorder.stop()
@@ -1362,13 +1409,25 @@ class VoiceTyperApp:
         """Feature: ESC to cancel -- cancel current recording/transcription."""
         log.info("[CANCEL] Cancelling current dictation (cycle=%s)", self._cycle_id)
         self._cancel_pending_timers()
+
         if self.recorder.recording:
             try:
+                # Detach RMS callback and stop background audio first
+                self.recorder.on_rms_level = None
+                # Push a final zero-level event to reset the bubble visualizer
+                self._waveform_bubble.reset_level()
+                self._background_audio_monitor.stop()
                 self.recorder.discard()
                 log.info("[CANCEL] Recording discarded (cycle=%s)", self._cycle_id)
             except Exception as e:
                 log.warning("[CANCEL] Failed to discard recording: %s (cycle=%s)", e, self._cycle_id)
+
         self._cancel_streaming_session()
+
+        # Hide bubble unless always_visible mode
+        if self.config.bubble_behavior != 'always_visible':
+            self._waveform_bubble.hide()
+
         self.tray.set_state(AppState.IDLE, "Cancelled")
         self._busy_event.set()
 

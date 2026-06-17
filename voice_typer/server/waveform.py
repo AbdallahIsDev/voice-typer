@@ -82,6 +82,26 @@ class WaveformBubble:
             except Exception:
                 log.debug("[WAVEFORM] on_hide callback raised", exc_info=True)
 
+    # ── Level reset (called when recording stops) ────────────────
+
+    def reset_level(self) -> None:
+        """Reset the level to zero and push a final event to the renderer.
+
+        Called after detaching the audio callback so the renderer's animation
+        envelope decays back to idle (dots shrink to minimum size) instead of
+        staying frozen at the last active level.
+        """
+        with self._lock:
+            self._rms_level = 0.0
+            self._peak_level = 0.0
+            self._is_speaking = False
+            cb = self.on_level
+        if cb is not None:
+            try:
+                cb(0.0, 0.0)
+            except Exception:
+                log.debug("[WAVEFORM] reset_level callback raised", exc_info=True)
+
     # ── Live level updates (called from the audio callback thread) ──
 
     def update_level(self, rms: float, peak: float = 0.0) -> None:

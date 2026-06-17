@@ -203,7 +203,15 @@ class TrayIcon:
         """Apply state to the live icon (safe from any thread)."""
         if not self._icon:
             return
-        self._icon.icon = _make_icon(state)
+        try:
+            self._icon.icon = _make_icon(state)
+        except OSError:
+            # pystray Windows bug: DestroyIcon on stale handle (WinError 1402)
+            # during rapid icon updates.  The stale handle prevents any future
+            # icon updates from working, so clear it to let pystray re-create
+            # the icon handle on the next call.
+            if hasattr(self._icon, '_icon_handle'):
+                self._icon._icon_handle = None
         title = "Voice Typer"
         if message:
             title += f" — {message}"
@@ -326,17 +334,23 @@ class TrayIcon:
         if self._bring_electron_to_front():
             return
 
-        # 3. Last resort: Electron isn't running — launch it (dev mode).
+        # 3. Last resort: Electron isn't running — build + launch with
+        #    electron . (production path, no Vite).
+        from voice_typer.server.autostart_launcher import _ensure_built_and_launch
+        if _ensure_built_and_launch(hidden=False):
+            log.info("[TRAY] Electron app launched (build-first)")
+            return
+        # If build-first also failed, try dev mode as absolute last resort.
         try:
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             client_dir = os.path.join(project_root, "voice_typer", "client")
-            log.info("[TRAY] Launching Electron app from %s", client_dir)
+            log.info("[TRAY] Build-first failed, trying dev mode from %s", client_dir)
             subprocess.Popen(
                 ["npm", "run", "dev"],
                 cwd=client_dir,
                 shell=True,
             )
-            log.info("[TRAY] Electron app launched")
+            log.info("[TRAY] Electron app launched (dev mode fallback)")
         except Exception as e:
             log.error("[TRAY] Failed to launch Electron app: %s", e)
 

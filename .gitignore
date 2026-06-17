@@ -26,3 +26,7 @@ artifacts/
 audit/
 FEATURES.md
 FORENSIC_REVIEW.md
+docs/Qwen_integation.md
+FORENSIC_REVIEW_2026-06-17.md
+rebuild-and-launch.ps1
+voice_typer/server/assets/

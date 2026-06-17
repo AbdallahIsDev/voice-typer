@@ -324,6 +324,21 @@ class IPCServer:
                         self.app._sync_autostart()
                     except Exception as e:
                         log.warning("[IPC] autostart sync failed: %s", e)
+                # Side-effect: live-register/unregister the ESC cancel hotkey
+                if isinstance(data, dict) and "esc_cancel_enabled" in data:
+                    try:
+                        if data["esc_cancel_enabled"]:
+                            self.app._register_esc_hotkey()
+                        else:
+                            self.app._unregister_esc_hotkey()
+                    except Exception as e:
+                        log.warning("[IPC] ESC hotkey sync failed: %s", e)
+                # Side-effect: live-register the repaste hotkey
+                if isinstance(data, dict) and "repaste_hotkey" in data:
+                    try:
+                        self.app._register_repaste_hotkey()
+                    except Exception as e:
+                        log.warning("[IPC] repaste hotkey sync failed: %s", e)
                 resp["type"] = "ack"
             except Exception as e:
                 log.error("[IPC] set_config failed: %s", e, exc_info=True)

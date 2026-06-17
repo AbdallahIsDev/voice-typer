@@ -1,19 +1,29 @@
-"""Hidden launcher that starts Electron dev mode at login.
+"""Universal launcher for Voice Typer (production preferred, dev fallback).
 
 Called by the OS autostart entry (Windows Registry Run key, macOS
-LaunchAgent, or Linux ``.desktop``) at login.  Runs via ``pythonw`` /
-``&`` so no console window flashes.  It spawns ``npm run dev`` in the
-client directory, detached and hidden, then exits — the long-lived
-processes are Electron + the Python IPC backend that ``npm run dev``
-itself spawns.
+LaunchAgent, or Linux ``.desktop``) at login, and by the ``create_launcher_shortcut``
+Desktop / Start Menu entries.
+
+Architecture
+------------
+The launcher uses a **build-first** strategy: if the Electron app has been
+built (``out/main/index.js`` exists), it runs ``electron .`` directly —
+no Vite dev server, no HMR watcher, just the compiled production bundles.
+If the build output is missing, it runs ``npm run build`` first, then
+``electron .``.  ``npm run dev`` is used ONLY as a last-resort fallback
+when the build fails or when the user explicitly passes ``--dev``.
+
+This means the app starts faster and uses less memory in normal use;
+the Vite dev server is exclusively for development.
 
 Cross-platform behaviour
 ------------------------
 - **Windows**: launched as ``pythonw.exe autostart_launcher.py`` (no
-  console).  ``npm run dev`` is spawned with ``CREATE_NO_WINDOW``.
+  console).  ``npm run build`` / ``npm run dev`` are spawned with
+  ``CREATE_NO_WINDOW``.
 - **macOS / Linux**: launched as ``python3 autostart_launcher.py``.
-  ``npm run dev`` is spawned detached (``start_new_session=True``) so it
-  survives this launcher exiting.
+  Build/dev are spawned detached (``start_new_session=True``) so they
+  survive this launcher exiting.
 
 Idempotency
 -----------
@@ -34,7 +44,8 @@ Usage
 Invoked directly by the OS; not intended to be run by hand, but safe to
 invoke for diagnostics::
 
-    python -m voice_typer.server.autostart_launcher
+    python -m voice_typer.server.autostart_launcher       # build + run
+    python -m voice_typer.server.autostart_launcher --dev  # force dev mode
 """
 
 from __future__ import annotations
@@ -104,7 +115,7 @@ def _client_dir_exists() -> bool:
 
 
 def _spawn_flags() -> dict:
-    """Platform-specific kwargs for spawning ``npm run dev`` hidden."""
+    """Platform-specific kwargs for spawning child processes hidden."""
     kwargs: dict = {}
     if sys.platform == "win32":
         # CREATE_NO_WINDOW (0x08000000) prevents a console from flashing.
@@ -115,16 +126,99 @@ def _spawn_flags() -> dict:
     return kwargs
 
 
-def _npm_command() -> list[str] | None:
-    """Return the command list to run ``npm run dev``, or None if npm
-    can't be resolved on this platform."""
-    # On Windows npm is npm.cmd (a batch file) — must go through cmd.exe
-    # when shell=True, or resolve the .cmd path directly.
+def _npm_command(script: str = "dev") -> list[str] | None:
+    """Return the command list to run ``npm run <script>``, or None if npm
+    can't be resolved on this platform.
+
+    Parameters
+    ----------
+    script : str
+        npm script name, e.g. ""dev"" or ""build"".
+
+    On Windows npm is npm.cmd (a batch file) — must go through cmd.exe
+    when shell=True, or resolve the .cmd path directly.
+    """
+    # On Windows ``shell=True`` with "npm run <script>" finds npm.cmd via PATHEXT.
     if sys.platform == "win32":
-        # ``shell=True`` with "npm run dev" finds npm.cmd via PATHEXT.
         return None  # signal: use shell=True form
     # POSIX: npm is on PATH.
-    return ["npm", "run", "dev"]
+    return ["npm", "run", script]
+
+
+def _build_electron() -> bool:
+    """Run ``npm run build`` to produce the compiled Electron bundles.
+
+    Returns True on success, False on failure.
+    ``out/main/index.js``, ``out/preload/index.js``, and the renderer
+    bundles will be present on success.
+    """
+    log.info("[AUTOSTART] Building Electron app (npm run build)...")
+    try:
+        if sys.platform == "win32":
+            result = subprocess.run(
+                "npm run build",
+                cwd=str(CLIENT_DIR),
+                shell=True,
+                capture_output=True,
+                timeout=180,
+            )
+        else:
+            result = subprocess.run(
+                ["npm", "run", "build"],
+                cwd=str(CLIENT_DIR),
+                capture_output=True,
+                timeout=180,
+            )
+        if result.returncode == 0:
+            log.info("[AUTOSTART] npm run build succeeded")
+            return True
+        log.warning(
+            "[AUTOSTART] npm run build failed (exit=%d): %s",
+            result.returncode,
+            result.stderr.decode("utf-8", errors="replace")[-500:],
+        )
+        return False
+    except subprocess.TimeoutExpired:
+        log.warning("[AUTOSTART] npm run build timed out after 180s")
+        return False
+    except Exception as exc:
+        log.warning("[AUTOSTART] npm run build raised: %s", exc)
+        return False
+
+
+def _launch_electron_built(exe: str, hidden: bool = False) -> subprocess.Popen | None:
+    """Launch the pre-built Electron app with ``electron .``.
+
+    Parameters
+    ----------
+    exe : str
+        Path to the electron binary.
+    hidden : bool
+        If True, sets ``VT_START_HIDDEN=1`` so the dashboard starts
+        in the background (tray + bubble only).
+
+    Returns the child process on success, or None on failure.
+    """
+    sk = dict(
+        cwd=str(CLIENT_DIR),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+    )
+    sk.update(_spawn_flags())
+    env = dict(os.environ)
+    if hidden:
+        env["VT_START_HIDDEN"] = "1"
+    try:
+        child = subprocess.Popen([exe, "."], env=env, **sk)
+        log.info(
+            "[AUTOSTART] spawned electron . (child pid=%s, hidden=%s)",
+            getattr(child, "pid", "?"), hidden,
+        )
+        return child
+    except Exception:
+        log.exception("[AUTOSTART] electron . failed")
+        return None
 
 
 def _write_pid_file(launcher_pid: int, child_pid: int | None) -> None:
@@ -137,6 +231,41 @@ def _write_pid_file(launcher_pid: int, child_pid: int | None) -> None:
         )
     except OSError as exc:
         log.warning("[AUTOSTART] could not write pid file: %s", exc)
+
+
+def _ensure_built_and_launch(hidden: bool = False) -> bool:
+    """Build the Electron app if needed, then launch with ``electron .``.
+
+    Returns True if the app was launched successfully, False otherwise.
+
+    Strategy:
+      1. Find the dev-mode electron binary (``node_modules/electron/dist/``).
+      2. If the build output (``out/main/index.js``) is absent, run
+         ``npm run build`` first.
+      3. Launch ``electron .`` with the compiled bundles.
+      4. If any step fails, return False so the caller can decide what
+         to do (fall back to dev mode, show error, etc.).
+    """
+    exe = _electron_binary()
+    if not exe:
+        log.warning("[AUTOSTART] electron binary not found -- cannot build+launch")
+        return False
+
+    if not _main_entry_built():
+        log.info("[AUTOSTART] No pre-built output found -- building first")
+        if not _build_electron():
+            log.warning("[AUTOSTART] Build failed; cannot launch built app")
+            return False
+        if not _main_entry_built():
+            log.warning("[AUTOSTART] Build succeeded but out/main/index.js still missing")
+            return False
+
+    child = _launch_electron_built(exe, hidden=hidden)
+    if child is None:
+        return False
+
+    _write_pid_file(os.getpid(), getattr(child, "pid", None))
+    return True
 
 
 def _electron_binary() -> str | None:
@@ -209,76 +338,12 @@ def _focus_running_app() -> bool:
         return False
 
 
-def launch() -> int:
-    """Universal launcher for Voice Typer.
+def _spawn_npm_run_dev(hidden: bool = False) -> subprocess.Popen | None:
+    """Launch ``npm run dev`` (Vite dev server + Electron).
 
-    Two paths, decided by whether the backend port is already listening:
-
-    A) **App already running** (port open):
-       Spawn a lean ``electron .`` that fails the single-instance lock,
-       firing ``second-instance`` on the real instance → it shows + focuses
-       its window.  The duplicate quits within ~100ms.  No Python, no Vite,
-       no second backend.
-
-    B) **App not running** (port closed):
-       Spawn ``npm run dev`` (builds + runs the dev server).  If invoked
-       with ``--hidden`` (the OS autostart entry), sets ``VT_START_HIDDEN=1``
-       so the dashboard starts hidden — the process + tray + bubble run in
-       the background without a visible window.
-
-    Returns a process exit code (0 = success).
+    This is the LAST-RESORT fallback path, used only when the build
+    fails or when ``--dev`` is explicitly passed.
     """
-    _setup_logging()
-    hidden = "--hidden" in sys.argv[1:]
-    log.info(
-        "[AUTOSTART] launcher starting (pid=%d, hidden=%s)",
-        os.getpid(), hidden,
-    )
-
-    # A) App already running — wake it via single-instance lock.
-    if _is_port_open(IPC_HOST, IPC_PORT):
-        log.info("[AUTOSTART] backend already running — focusing existing instance")
-        _focus_running_app()
-        # Brief wait so the lean electron process has time to fail the lock
-        # and trigger second-instance before we exit.  It self-quits, so
-        # this is just a courtesy delay; the focus already happened.
-        time.sleep(0.5)
-        return 0
-
-    # B) App not running — fresh start.
-    if not _client_dir_exists():
-        log.error(
-            "[AUTOSTART] client directory not found at %s — cannot launch "
-            "Electron dev mode", CLIENT_DIR,
-        )
-        return 1
-
-    # Path C: pre-built electron binary + compiled main bundle →
-    # skip npm entirely (no node console, no Vite compile, faster start).
-    exe = _electron_binary()
-    if exe and _main_entry_built():
-        sk = dict(
-            cwd=str(CLIENT_DIR),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            stdin=subprocess.DEVNULL,
-        )
-        sk.update(_spawn_flags())
-        env = dict(os.environ)
-        if hidden:
-            env["VT_START_HIDDEN"] = "1"
-        try:
-            child = subprocess.Popen([exe, "."], env=env, **sk)
-            log.info(
-                "[AUTOSTART] spawned electron . (built) — skipped npm"
-                " (child pid=%s)", getattr(child, "pid", "?"),
-            )
-            _write_pid_file(os.getpid(), getattr(child, "pid", None))
-            time.sleep(2)
-            return 0
-        except Exception:
-            log.exception("[AUTOSTART] electron . failed — falling back to npm run dev")
-
     spawn_kwargs: dict = dict(
         cwd=str(CLIENT_DIR),
         stdout=subprocess.DEVNULL,
@@ -290,10 +355,8 @@ def launch() -> int:
     if hidden:
         env["VT_START_HIDDEN"] = "1"
 
-    child: subprocess.Popen | None = None
     try:
         if sys.platform == "win32":
-            # shell=True lets cmd.exe resolve npm.cmd via PATHEXT.
             child = subprocess.Popen(
                 "npm run dev", shell=True, env=env, **spawn_kwargs,
             )
@@ -305,25 +368,80 @@ def launch() -> int:
             "[AUTOSTART] spawned 'npm run dev' in %s (child pid=%s, hidden=%s)",
             CLIENT_DIR, getattr(child, "pid", "?"), hidden,
         )
+        return child
     except FileNotFoundError as exc:
         log.error("[AUTOSTART] npm not found: %s", exc)
-        return 1
+        return None
     except Exception:
         log.exception("[AUTOSTART] failed to spawn npm run dev")
+        return None
+
+
+def launch() -> int:
+    """Universal launcher for Voice Typer.
+
+    Decision tree, checked in order:
+
+    1. **Already running** (port 9876 open): focus via single-instance lock
+       (lean ``electron .``, ~100ms, no Vite or Python).
+
+    2. **Fresh start, build-first**:
+       a. Build the Electron app if needed (``npm run build`` → ``electron .``).
+       b. If ``--dev`` is passed OR the build path fails, fall back to
+          ``npm run dev`` as a last resort.
+
+    This means ``npm run dev`` (Vite dev mode) is NEVER the default — it is
+    exclusively a fallback when the build fails or when the user explicitly
+    requests it via ``--dev``.
+
+    Returns a process exit code (0 = success).
+    """
+    _setup_logging()
+    force_dev = "--dev" in sys.argv[1:]
+    hidden = "--hidden" in sys.argv[1:]
+    log.info(
+        "[AUTOSTART] launcher starting (pid=%d, force_dev=%s, hidden=%s)",
+        os.getpid(), force_dev, hidden,
+    )
+
+    # 1) App already running — wake it via single-instance lock.
+    if _is_port_open(IPC_HOST, IPC_PORT):
+        log.info("[AUTOSTART] backend already running — focusing existing instance")
+        _focus_running_app()
+        time.sleep(0.5)
+        return 0
+
+    # 2) Fresh start.
+    if not _client_dir_exists():
+        log.error(
+            "[AUTOSTART] client directory not found at %s — cannot launch",
+            CLIENT_DIR,
+        )
         return 1
 
-    # Record PIDs so the reaper can find this session later.
-    _write_pid_file(os.getpid(), getattr(child, "pid", None))
+    # 2a) Build-first: build if needed, then launch with electron .
+    if not force_dev:
+        log.info("[AUTOSTART] Trying build-first path...")
+        if _ensure_built_and_launch(hidden=hidden):
+            log.info("[AUTOSTART] Build-first launch succeeded")
+            time.sleep(2)
+            return 0
+        log.warning("[AUTOSTART] Build-first path failed — falling back to dev mode")
 
-    # Brief wait to let the child initialize, then exit.  The child is
-    # detached, so it keeps running after we exit.  We don't wait for
-    # Electron fully (it may take 10-30s) — login shouldn't block.
+    # 2b) Last-resort: npm run dev (Vite dev server).
+    log.info("[AUTOSTART] Starting dev mode (npm run dev)...")
+    child = _spawn_npm_run_dev(hidden=hidden)
+    if child is None:
+        return 1
+
+    _write_pid_file(os.getpid(), getattr(child, "pid", None))
     time.sleep(2)
     log.info("[AUTOSTART] launcher exiting; child continues detached")
     return 0
 
 
 def main() -> int:
+    """Entry point. Supports --hidden (autostart) and --dev (force dev mode)."""
     return launch()
 
 

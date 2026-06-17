@@ -214,6 +214,50 @@ class TestDispatchSetConfig:
         assert mock_app.config.hotkey == "<f2>"
 
 
+class TestDispatchEscCancelLive:
+    """Live registration of ESC cancel hotkey via set_config."""
+
+    def test_enable_esc_cancel_calls_register_esc_hotkey(self, server, mock_app):
+        """set_config with esc_cancel_enabled=true should call _register_esc_hotkey."""
+        mock_app._register_esc_hotkey = MagicMock()
+        mock_app._unregister_esc_hotkey = MagicMock()
+
+        result = server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"esc_cancel_enabled": True},
+        })
+        assert result == {"id": 1, "type": "ack"}
+        mock_app._register_esc_hotkey.assert_called_once()
+        mock_app._unregister_esc_hotkey.assert_not_called()
+
+    def test_disable_esc_cancel_calls_unregister_esc_hotkey(self, server, mock_app):
+        """set_config with esc_cancel_enabled=false should call _unregister_esc_hotkey."""
+        mock_app._register_esc_hotkey = MagicMock()
+        mock_app._unregister_esc_hotkey = MagicMock()
+
+        result = server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"esc_cancel_enabled": False},
+        })
+        assert result == {"id": 1, "type": "ack"}
+        mock_app._unregister_esc_hotkey.assert_called_once()
+        mock_app._register_esc_hotkey.assert_not_called()
+
+    def test_enable_repaste_hotkey_calls_register_repaste_hotkey(self, server, mock_app):
+        """set_config with repaste_hotkey should call _register_repaste_hotkey."""
+        mock_app._register_repaste_hotkey = MagicMock()
+
+        result = server._dispatch({
+            "id": 1,
+            "type": "set_config",
+            "data": {"repaste_hotkey": "<ctrl>+<v>"},
+        })
+        assert result == {"id": 1, "type": "ack"}
+        mock_app._register_repaste_hotkey.assert_called_once()
+
+
 class TestDispatchGetHistory:
     def test_returns_recent_history(self, server, mock_app):
         result = server._dispatch({"id": 1, "type": "get_history"})

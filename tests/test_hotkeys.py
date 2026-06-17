@@ -83,6 +83,48 @@ class TestParseHotkeyToVk:
         assert parse_hotkey_to_vk("<ctrl>") is None
         assert parse_hotkey_to_vk("<super>") is None
 
+    def test_esc(self):
+        from voice_typer.server.hotkeys import parse_hotkey_to_vk
+        assert parse_hotkey_to_vk("<esc>") == 0x1B
+        assert parse_hotkey_to_vk("<escape>") == 0x1B
+
+    def test_space(self):
+        from voice_typer.server.hotkeys import parse_hotkey_to_vk
+        assert parse_hotkey_to_vk("<space>") == 0x20
+
+    def test_enter(self):
+        from voice_typer.server.hotkeys import parse_hotkey_to_vk
+        assert parse_hotkey_to_vk("<enter>") == 0x0D
+        assert parse_hotkey_to_vk("<return>") == 0x0D
+
+    def test_tab(self):
+        from voice_typer.server.hotkeys import parse_hotkey_to_vk
+        assert parse_hotkey_to_vk("<tab>") == 0x09
+
+    def test_backspace(self):
+        from voice_typer.server.hotkeys import parse_hotkey_to_vk
+        assert parse_hotkey_to_vk("<backspace>") == 0x08
+
+    def test_arrow_keys(self):
+        from voice_typer.server.hotkeys import parse_hotkey_to_vk
+        assert parse_hotkey_to_vk("<up>") == 0x26
+        assert parse_hotkey_to_vk("<down>") == 0x28
+        assert parse_hotkey_to_vk("<left>") == 0x25
+        assert parse_hotkey_to_vk("<right>") == 0x27
+
+    def test_delete_insert_home_end(self):
+        from voice_typer.server.hotkeys import parse_hotkey_to_vk
+        assert parse_hotkey_to_vk("<delete>") == 0x2E
+        assert parse_hotkey_to_vk("<del>") == 0x2E
+        assert parse_hotkey_to_vk("<insert>") == 0x2D
+        assert parse_hotkey_to_vk("<home>") == 0x24
+        assert parse_hotkey_to_vk("<end>") == 0x23
+
+    def test_page_up_down(self):
+        from voice_typer.server.hotkeys import parse_hotkey_to_vk
+        assert parse_hotkey_to_vk("<pageup>") == 0x21
+        assert parse_hotkey_to_vk("<pagedown>") == 0x22
+
     def test_angle_brackets_stripped(self):
         from voice_typer.server.hotkeys import parse_hotkey_to_vk
         assert parse_hotkey_to_vk("<f5>") == parse_hotkey_to_vk("f5")

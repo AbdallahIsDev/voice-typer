@@ -154,6 +154,18 @@ class Config:
     # Waveform visualization bubble
     waveform_bubble: bool = False
 
+    # Bubble screen position (top / bottom)
+    bubble_position: str = "top"
+
+    # Bubble behavior: show on record, or always visible
+    bubble_behavior: str = "show_on_record"  # "show_on_record" or "always_visible"
+
+    # Whether the bubble can be dragged by the user
+    bubble_draggable: bool = True
+
+    # Whether to show the bubble at app startup (only applies when bubble_behavior is 'always_visible')
+    bubble_show_on_startup: bool = True
+
     # History database
     history_retention_days: int = 90  # 0 = keep forever
     history_retention_count: int = 0  # 0 = unlimited
@@ -286,6 +298,7 @@ class Config:
             "templates_enabled", "vocabulary_enabled",
             "waveform_bubble", "onboarding_completed", "wayland_warned",
             "fast_startup",
+            "bubble_draggable", "bubble_show_on_startup",
         }
         str_fields = {
             "hotkey", "language", "device", "asr_backend",
@@ -296,6 +309,7 @@ class Config:
             "repaste_hotkey",
             "tray_left_click_action",
             "parakeet_model_path",
+            "bubble_position", "bubble_behavior",
         }
         defaults = cls()
 
