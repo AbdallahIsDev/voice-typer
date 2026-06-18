@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { usePython } from '@/hooks/usePython'
+import { useSnackbar } from '@/hooks/useSnackbar'
 import { HugeiconsIcon } from '@hugeicons/react'
 import {
   Mic02Icon,
@@ -34,13 +35,9 @@ export default function MicrophonePage() {
   const [loading, setLoading] = useState(true)
   const [testRunning, setTestRunning] = useState(false)
   const [level, setLevel] = useState(0)
-  const [snackbar, setSnackbar] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null)
+  // UX-013: use extracted useSnackbar hook instead of inline implementation
+  const { snackbar, showSnack } = useSnackbar()
   const levelIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  const showSnack = (message: string, type: 'success' | 'error' | 'warning') => {
-    setSnackbar({ message, type })
-    setTimeout(() => setSnackbar(null), 3000)
-  }
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -125,7 +122,7 @@ export default function MicrophonePage() {
   }
 
   return (
-    <div className="animate-fade-in-up mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 py-6">
+    <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
       <PageHeading
         title="Microphone"
         description="Select and test your microphone"
@@ -194,7 +191,7 @@ export default function MicrophonePage() {
           <Button
             variant="default"
             size="sm"
-            className="gap-1.5"
+            className="gap-2"
             onClick={startTest}
             disabled={testRunning}
           >              <HugeiconsIcon icon={PlayIcon} strokeWidth={1.625} className="h-4 w-4" />
@@ -203,7 +200,7 @@ export default function MicrophonePage() {
           <Button
             variant="outline"
             size="sm"
-            className="gap-1.5"
+            className="gap-2"
             onClick={stopTest}
             disabled={!testRunning}
           >

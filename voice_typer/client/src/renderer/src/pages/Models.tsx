@@ -227,17 +227,18 @@ export default function ModelsPage() {
   }
 
   return (
-    <div className="animate-fade-in-up mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 py-6">
+    <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
       <PageHeading
         title="Models"
         description="Configure your speech-to-text engines"
       >
         <Button
-          variant="default"
-          className="gap-2"
+          variant="outline"
+          size="sm"
           onClick={() => downloadModel(models.find((m) => !m.downloaded) ?? models[0])}
           disabled={isDownloading || allDownloaded}
           title={allDownloaded ? 'All models already downloaded' : 'Download a model'}
+          className="gap-2"
         >
           <HugeiconsIcon icon={Download01Icon} strokeWidth={1.625} className="h-4 w-4" />
           {allDownloaded ? 'All Downloaded' : 'Download Model'}
@@ -284,7 +285,7 @@ export default function ModelsPage() {
                     {model.name === 'parakeet' ? 'NVIDIA Parakeet TDT v3  ·  ' : ''}Size: {model.size}
                   </p>
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex items-center gap-2 shrink-0">
                   {model.name === 'parakeet' && !model.depsOk ? (
                     <Button
                       variant="outline"
@@ -379,7 +380,7 @@ export default function ModelsPage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="gap-1.5"
+                    className="gap-2"
                     onClick={() => testConnection(provider.key)}
                   >
                     <HugeiconsIcon icon={SparklesIcon} strokeWidth={1.625} className="h-4 w-4" />

@@ -26,7 +26,7 @@ export function SettingRow({ label, info, children, align = 'center' }: SettingR
         align === 'center' && 'items-center',
       )}
     >
-      <div className="flex min-w-0 items-center gap-1.5">
+      <div className="flex min-w-0 items-center gap-2">
         <label htmlFor={id} className="text-sm font-medium text-(--text-primary) cursor-default">
           {label}
         </label>

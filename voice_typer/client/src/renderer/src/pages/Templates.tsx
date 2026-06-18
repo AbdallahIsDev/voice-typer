@@ -154,12 +154,17 @@ export default function TemplatesPage() {
 
   return (
     <>
-      <div className="animate-fade-in-up mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 py-6">
+      <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
         <PageHeading
           title="Templates"
           description="Create voice shortcuts that expand into full text"
         >
-          <Button variant="default" className="gap-2" onClick={openAddDialog}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={openAddDialog}
+            className="gap-2"
+          >
             <HugeiconsIcon icon={Add01Icon} strokeWidth={1.625} className="h-4 w-4" />
             Add Template
           </Button>
@@ -199,20 +204,24 @@ export default function TemplatesPage() {
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-0.5">
-                    <button
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
                       onClick={() => openEditDialog(t)}
-                      className="rounded p-1 text-(--text-muted) hover:text-(--text-secondary) transition-colors cursor-pointer bg-transparent border-none"
+                      className="text-(--text-muted) hover:text-(--text-secondary)"
                       title="Edit template"
                     >
                       <HugeiconsIcon icon={PencilEdit02Icon} strokeWidth={1.625} className="h-4 w-4" />
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
                       onClick={() => deleteTemplate(t)}
-                      className="rounded p-1 text-(--text-muted) hover:text-destructive transition-colors cursor-pointer bg-transparent border-none"
+                      className="text-(--text-muted) hover:text-destructive"
                       title="Delete template"
                     >
                       <HugeiconsIcon icon={Delete01Icon} strokeWidth={1.625} className="h-4 w-4" />
-                    </button>
+                    </Button>
                   </div>
                 </div>
               ))}

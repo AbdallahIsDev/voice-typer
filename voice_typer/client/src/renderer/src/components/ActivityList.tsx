@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
+import { Button } from '@/components/ui/button'
 import { Copy01Icon, Tick02Icon, Delete01Icon, StarIcon } from '@hugeicons/core-free-icons'
 import { toast } from 'sonner'
 import type { HistoryRecord } from '@/types/ipc'
@@ -64,12 +65,14 @@ export default function ActivityList({
           {title}
         </span>
         {showViewAll && onViewAll && (
-          <button
+          <Button
             onClick={onViewAll}
-            className="text-[12px] font-semibold text-(--text-muted) hover:text-(--text-primary) bg-transparent border-none p-0 cursor-pointer transition-colors"
+            variant="link"
+            size="xs"
+            className="text-[12px] font-semibold text-(--text-muted) hover:text-(--text-primary) p-0"
           >
             View all
-          </button>
+          </Button>
         )}
       </div>
       <div className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
@@ -100,17 +103,21 @@ export default function ActivityList({
               </span>
             </div>
             {onToggleFavorite && (
-              <button
+              <Button
+                variant="ghost"
+                size="icon-xs"
                 onClick={() => handleFavorite(item.id)}
-                className="shrink-0 mt-0.5 text-(--text-muted) hover:text-amber-400 transition-colors bg-transparent border-none p-0 cursor-pointer"
+                className="shrink-0 mt-0.5 text-(--text-muted) hover:text-amber-400"
                 title={item.favorite ? 'Remove from favorites' : 'Add to favorites'}
               >
                 <HugeiconsIcon icon={StarIcon} strokeWidth={1.625} className={`h-4 w-4 ${item.favorite ? 'text-amber-400' : ''}`} />
-              </button>
+              </Button>
             )}
-            <button
+            <Button
+              variant="ghost"
+              size="icon-xs"
               onClick={() => handleCopy(item)}
-              className="shrink-0 mt-0.5 text-(--text-muted) hover:text-(--text-primary) transition-colors bg-transparent border-none p-0 cursor-pointer"
+              className="shrink-0 mt-0.5 text-(--text-muted) hover:text-(--text-primary)"
               title="Copy text"
             >
               {copiedId === item.id ? (
@@ -118,15 +125,17 @@ export default function ActivityList({
               ) : (
                 <HugeiconsIcon icon={Copy01Icon} strokeWidth={1.625} className="h-4 w-4" />
               )}
-            </button>
+            </Button>
             {onDelete && (
-              <button
+              <Button
+                variant="ghost"
+                size="icon-xs"
                 onClick={() => handleDelete(item.id)}
-                className="shrink-0 mt-0.5 text-(--text-muted) hover:text-red-400 transition-colors bg-transparent border-none p-0 cursor-pointer"
+                className="shrink-0 mt-0.5 text-(--text-muted) hover:text-red-400"
                 title="Delete"
               >
                 <HugeiconsIcon icon={Delete01Icon} strokeWidth={1.625} className="h-4 w-4" />
-              </button>
+              </Button>
             )}
           </div>
         ))}

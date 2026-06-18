@@ -1,10 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { Mic02Icon, StopIcon } from '@hugeicons/core-free-icons'
+import { Mic02Icon, StopIcon, Share08Icon } from '@hugeicons/core-free-icons'
 import { usePython, usePythonEvent } from '@/hooks/usePython'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 import StatCards from '@/components/StatCards'
 import ActivityList from '@/components/ActivityList'
+import { StatsShareImage } from '@/components/StatsShareImage'
+import { useStatsShare, computeShareStats } from '@/hooks/useStatsShare'
 import type { RecordingState, TodayStats, HistoryRecord, Page } from '@/types/ipc'
 import type { VoiceTyperConfig } from '@/types/config'
 
@@ -64,12 +67,15 @@ export default function Home({ recordingState, lastError, onNavigate }: HomeProp
   const [stats, setStats] = useState<TodayStats | null>(null)
   const [recent, setRecent] = useState<HistoryRecord[]>(_cachedRecent)
   const [toggling, setToggling] = useState(false)
+  const [cfg, setCfg] = useState<VoiceTyperConfig | null>(null)
+  const { imageRef, shareAsImage } = useStatsShare()
 
   useEffect(() => {
     let cancelled = false
     const load = async () => {
       try {
         const cfg = await call<VoiceTyperConfig>('get_config')
+        if (!cancelled) setCfg(cfg)
         if (cancelled) return
         const raw = cfg?.hotkey ?? '<F2>'
         setHotkey(raw.replace(/[<>]/g, ''))
@@ -152,6 +158,12 @@ export default function Home({ recordingState, lastError, onNavigate }: HomeProp
     }
   }, [])
 
+  const shareStats = useCallback(() => {
+    if (!stats || !cfg) return
+    const share = computeShareStats(stats, cfg.asr_backend)
+    shareAsImage('voice-typer-stats')
+  }, [stats, cfg, shareAsImage])
+
   const handleToggle = useCallback(async () => {
     setToggling(true)
     try {
@@ -169,8 +181,8 @@ export default function Home({ recordingState, lastError, onNavigate }: HomeProp
   const statusLabel = STATUS_LABELS[key] ?? 'READY'
 
   return (
-    <div className="animate-fade-in-up mx-auto flex min-h-full w-full max-w-2xl flex-col items-center justify-center gap-5 px-6 py-4">
-      <div className="flex items-center gap-1.5">
+    <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col items-center justify-center gap-5 px-6 py-4">
+      <div className="flex items-center gap-2">
         <span
           className="h-2 w-2 rounded-full"
           style={{ backgroundColor: statusColor }}
@@ -207,7 +219,7 @@ export default function Home({ recordingState, lastError, onNavigate }: HomeProp
         </button>
       </div>
 
-      <p className="flex items-center gap-1.5 text-[13px] text-(--text-muted)">
+      <p className="flex items-center gap-2 text-[13px] text-(--text-muted)">
         <span>Press</span>
         <span className="inline-flex items-center justify-center rounded-md border border-border bg-(--bg-subtle) px-1.75 py-0.75 font-mono text-[11px] font-medium text-(--text-primary) shadow-[0_1px_3px_rgba(0,0,0,0.06),inset_0_1px_0_rgba(255,255,255,0.4)] dark:shadow-[0_1px_3px_rgba(0,0,0,0.15),inset_0_1px_0_rgba(255,255,255,0.06)] leading-none tracking-tight">
           {hotkey}
@@ -225,9 +237,31 @@ export default function Home({ recordingState, lastError, onNavigate }: HomeProp
 
       {stats && (
         <div className="mt-4 w-full">
+          <div className="mb-3 flex items-center justify-between">
+            <span className="text-xs font-medium text-(--text-muted) uppercase tracking-wider">
+              Today's Stats
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={shareStats}
+              disabled={!cfg || stats.count === 0}
+              className="gap-2"
+            >
+              <HugeiconsIcon icon={Share08Icon} strokeWidth={1.625} className="h-4 w-4" />
+              Share Stats
+            </Button>
+          </div>
           <StatCards stats={stats} />
         </div>
       )}
+
+      {/* ── Hidden share image capture target ──────────────── */}
+      <div ref={imageRef} style={{ position: 'fixed', left: -9999, top: 0 }}>
+        {stats && cfg && (
+          <StatsShareImage stats={computeShareStats(stats, cfg.asr_backend)} />
+        )}
+      </div>
 
       <ActivityList
         items={recent}

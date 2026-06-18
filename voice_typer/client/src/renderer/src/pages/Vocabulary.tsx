@@ -226,7 +226,7 @@ export default function VocabularyPage() {
 
   return (
     <>
-      <div className="animate-fade-in-up mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 py-6">
+      <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
         <PageHeading
           title="Custom Vocabulary"
           description="Add custom words and corrections to improve accuracy"
@@ -235,9 +235,10 @@ export default function VocabularyPage() {
             <ExportFormatMenu onExport={doExport} disabled={entries.length === 0} />
             <Button
               variant="outline"
-              className="gap-2"
+              size="sm"
               onClick={openAddDialog}
               disabled={saving}
+              className="gap-2"
             >
               <HugeiconsIcon icon={Add01Icon} strokeWidth={1.625} className="h-4 w-4" />
               Add Word
@@ -295,20 +296,24 @@ export default function VocabularyPage() {
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
-                    <button
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
                       onClick={() => openEditDialog(entry)}
-                      className="rounded p-1.5 text-(--text-muted) transition-colors hover:bg-(--surface-hover) hover:text-accent"
+                      className="text-(--text-muted) hover:text-accent"
                       title="Edit"
                     >
                       <HugeiconsIcon icon={PencilEdit02Icon} strokeWidth={1.625} className="h-4 w-4" />
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
                       onClick={() => deleteEntry(entry)}
-                      className="rounded p-1.5 text-(--text-muted) transition-colors hover:bg-(--surface-hover) hover:text-destructive"
+                      className="text-(--text-muted) hover:text-destructive"
                       title="Delete"
                     >
                       <HugeiconsIcon icon={Delete01Icon} strokeWidth={1.625} className="h-4 w-4" />
-                    </button>
+                    </Button>
                   </div>
                 </div>
               ))}

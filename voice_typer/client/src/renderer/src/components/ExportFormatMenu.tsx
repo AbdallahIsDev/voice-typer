@@ -40,7 +40,7 @@ export default function ExportFormatMenu({ onExport, disabled }: ExportFormatMen
         ref={btnRef}
         onClick={() => setShow(prev => !prev)}
         disabled={disabled}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-(--bg-subtle) text-(--text-muted) hover:text-(--text-primary) transition-colors border border-border disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-(--text-muted)"
+        className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium bg-(--bg-subtle) text-(--text-muted) hover:text-(--text-primary) transition-colors border border-border disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-(--text-muted)"
       >
         <HugeiconsIcon icon={Download01Icon} strokeWidth={1.625} className="h-4 w-4" />
         Export

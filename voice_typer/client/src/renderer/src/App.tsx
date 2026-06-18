@@ -3,6 +3,7 @@ import { usePython, usePythonEvent } from '@/hooks/usePython'
 import { Sidebar } from '@/components/Sidebar'
 import { TitleBar } from '@/components/TitleBar'
 import { Toaster } from '@/components/ui/sonner'
+import { Button } from '@/components/ui/button'
 import Home from '@/pages/Home'
 import HistoryPage from '@/pages/History'
 import TemplatesPage from '@/pages/Templates'
@@ -269,7 +270,13 @@ export default function App() {
 
   return (
     <div className={cn('flex h-screen flex-col bg-(--bg-subtle) font-sans text-(--text-primary) overflow-hidden', !isMaximized && 'rounded-lg border border-border')}>
-      <TitleBar onToggleSidebar={() => setSidebarCollapsed((c) => !c)} />
+      <TitleBar
+        onToggleSidebar={() => setSidebarCollapsed((c) => !c)}
+        onGoBack={goBack}
+        onGoForward={goForward}
+        canGoBack={navIndex.current > 0}
+        canGoForward={navIndex.current < navHistory.current.length - 1}
+      />
 
       <div className="flex min-h-0 flex-1">
         <Sidebar
@@ -281,31 +288,6 @@ export default function App() {
         />
 
           <div className="flex min-w-0 flex-1 flex-col">
-          {/* UX-015: visible back/forward navigation buttons */}
-          <div className="flex items-center gap-1 border-b border-border bg-(--bg) px-3 py-1">
-            <button
-              onClick={goBack}
-              disabled={navIndex.current <= 0}
-              className="rounded p-1 text-(--text-muted) hover:bg-(--bg-hover) hover:text-(--text-primary) disabled:opacity-30 disabled:cursor-not-allowed"
-              aria-label="Go back"
-              title="Back (or mouse back button)"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M10 12L6 8L10 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
-            <button
-              onClick={goForward}
-              disabled={navIndex.current >= navHistory.current.length - 1}
-              className="rounded p-1 text-(--text-muted) hover:bg-(--bg-hover) hover:text-(--text-primary) disabled:opacity-30 disabled:cursor-not-allowed"
-              aria-label="Go forward"
-              title="Forward (or mouse forward button)"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M6 4L10 8L6 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
-          </div>
           <main className="flex-1 overflow-y-auto rounded-l-xl border-border border border-r-0 border-b-0 bg-(--bg)" style={{ scrollbarGutter: 'stable' }}>
             {connectionStatus === 'connecting' ? (
               <div className="flex h-full flex-col items-center justify-center gap-3">
@@ -319,16 +301,13 @@ export default function App() {
                 <p className="text-sm text-destructive">
                   Lost connection to Python backend
                 </p>
-                <button
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={handleRetryConnection}
-                  className={cn(
-                    'rounded-lg bg-(--surface) px-4 py-2 text-sm',
-                    'text-(--text-secondary) transition-colors',
-                    'hover:bg-(--surface-hover) hover:text-text-primary',
-                  )}
                 >
                   Retry Connection
-                </button>
+                </Button>
               </div>
             ) : (
               renderPage()

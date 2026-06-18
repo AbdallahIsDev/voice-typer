@@ -44,7 +44,7 @@ export default function StatCards({ stats }: StatCardsProps) {
       {CARDS.map((card) => {
         return (
           <div key={card.label} className="rounded-lg bg-(--bg-subtle) px-4 py-3 flex-1 border border-border">
-            <div className="flex items-center gap-1.5 mb-1.5">
+            <div className="flex items-center gap-2 mb-1.5">
               <HugeiconsIcon icon={card.icon} strokeWidth={1.625} className="h-4 w-4 text-(--text-muted)" />
               <span className="text-[11px] text-(--text-muted) font-medium">
                 {card.label}

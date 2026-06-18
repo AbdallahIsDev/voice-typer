@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
+import { NumberInput } from '@/components/ui/number-input'
 import PageHeading from '@/components/PageHeading'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -244,8 +245,8 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
   }
 
   return (
-    <div className="animate-fade-in-up min-h-full">
-      <div className="mx-auto max-w-2xl space-y-8 px-6 py-6">
+    <div className="min-h-full">
+      <div className="mx-auto max-w-2xl space-y-8 px-6 pt-28 pb-6">
         {/* Header */}
         <PageHeading
           title="Settings"
@@ -475,8 +476,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
 
           <SettingRow label="Silence Warning" info="Seconds of silence before showing a warning to help catch microphone issues.">
             <div className="flex items-center gap-2">
-              <Input
-                type="number"
+              <NumberInput
                 min={3}
                 max={30}
                 step={1}
@@ -490,8 +490,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
 
           <SettingRow label="Max Duration" info="Maximum recording length. Set to 0 for automatic (varies by device).">
             <div className="flex items-center gap-2">
-              <Input
-                type="number"
+              <NumberInput
                 min={0}
                 max={7200}
                 step={1}
@@ -589,12 +588,14 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
                     placeholder={config.llm_api_key === '<redacted>' ? '•••••••• (configured)' : ''}
                     className="w-56 pr-8"
                   />
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="xs"
                     onClick={() => setLlmKeyVisible(!llmKeyVisible)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-(--text-muted) hover:text-(--text-secondary) text-xs cursor-pointer"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 text-xs"
                   >
                     {llmKeyVisible ? 'Hide' : 'Show'}
-                  </button>
+                  </Button>
                 </div>
               </SettingRow>
 

@@ -10,8 +10,11 @@ import {
   Activity03Icon,
   Calendar01Icon,
   LayoutGridIcon,
+  Share08Icon,
 } from '@hugeicons/core-free-icons'
 import PageHeading from '@/components/PageHeading'
+import { StatsShareImage } from '@/components/StatsShareImage'
+import { useStatsShare, computeShareStats } from '@/hooks/useStatsShare'
 import type { TodayStats, HistoryRecord, Page } from '@/types/ipc'
 import type { VoiceTyperConfig } from '@/types/config'
 
@@ -21,6 +24,7 @@ let _cachedData: DashboardData | null = null
 interface DashboardData {
   todayCount: number
   todayChars: number
+  todayWordCount: number
   todayDuration: number
   totalCount: number
   totalChars: number
@@ -159,6 +163,8 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
   const { call } = usePython()
   const [data, setData] = useState<DashboardData | null>(_cachedData)
   const [loading, setLoading] = useState(true)
+  const [configRaw, setConfigRaw] = useState<VoiceTyperConfig | null>(null)
+  const { imageRef, shareAsImage } = useStatsShare()
 
 
   /** Fetch all dashboard data from the Python backend. */
@@ -185,6 +191,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
       const newData: DashboardData = {
         todayCount: todayStats?.count ?? 0,
         todayChars: todayStats?.chars ?? 0,
+        todayWordCount: todayStats?.word_count ?? 0,
         todayDuration: todayStats?.duration ?? 0,
         totalCount: recs.length,
         totalChars,
@@ -200,6 +207,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
       }
       _cachedData = newData
       setData(newData)
+      setConfigRaw(cfg ?? null)
     } catch {
       // Silently ignore — next load picks up fresh data
     }
@@ -267,11 +275,27 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
   const maxCount = Math.max(1, ...d.dailyActivity.map(a => a.count))
 
   return (
-    <div className="animate-fade-in-up mx-auto flex min-h-full w-full max-w-3xl flex-col px-6 py-6">
+    <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
       <PageHeading
         title="Analytics"
         description="Your voice typing activity and usage insights."
-      />
+      >
+        {data && configRaw && data.todayCount > 0 && (
+          <button
+            onClick={() => {
+              const share = computeShareStats(
+                { count: data.todayCount, chars: data.todayChars, word_count: data.todayWordCount, duration: data.todayDuration },
+                configRaw.asr_backend,
+              )
+              shareAsImage('voice-typer-stats')
+            }}
+            className="flex items-center gap-2 rounded-xl border border-border bg-(--bg-subtle) px-3 py-1.5 text-xs font-medium text-(--text-muted) transition-colors hover:text-(--text-primary)"
+          >
+            <HugeiconsIcon icon={Share08Icon} strokeWidth={1.625} className="h-4 w-4 shrink-0" />
+            Share Stats
+          </button>
+        )}
+      </PageHeading>
 
       <div className="space-y-8">
         {/* ── Today's Stats Grid ──────────────────────────────────── */}
@@ -313,7 +337,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
           </div>
           <div className="flex items-end justify-between gap-2 h-20">
             {d.dailyActivity.map((day) => (
-              <div key={day.date} className="flex flex-1 flex-col items-center gap-1.5">
+              <div key={day.date} className="flex flex-1 flex-col items-center gap-2">
                 <span className="text-[10px] text-(--text-muted) font-medium tabular-nums">{day.count}</span>
                 <div
                   className="w-full max-w-10 rounded-sm bg-accent/60 transition-all duration-300"
@@ -363,7 +387,17 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
         </p>
       </div>
 
-
+      {/* ── Hidden share image capture target ──────────────── */}
+      <div ref={imageRef} style={{ position: 'fixed', left: -9999, top: 0 }}>
+        {data && configRaw && (
+          <StatsShareImage
+            stats={computeShareStats(
+              { count: data.todayCount, chars: data.todayChars, word_count: data.todayWordCount, duration: data.todayDuration },
+              configRaw.asr_backend,
+            )}
+          />
+        )}
+      </div>
     </div>
   )
 }
