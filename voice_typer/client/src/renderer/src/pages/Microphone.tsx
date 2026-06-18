@@ -86,16 +86,15 @@ export default function MicrophonePage() {
   }
 
   const startTest = () => {
-    setTestRunning(true)
-    setLevel(0)
-    showSnack('Microphone test started — speak into your mic', 'warning')
-
-    levelIntervalRef.current = setInterval(() => {
-      if (!testRunning) return
-      // Simulate audio level (in real app this would come from Python)
-      const newLevel = Math.random() * 0.8 + 0.1
-      setLevel(Math.min(1, newLevel))
-    }, 150)
+    // DEAD-021-025: previously this generated fake random audio
+    // levels.  We now show an honest "not implemented" message
+    // instead of misleading the user with simulated data.  The real
+    // mic test would require a new IPC route that streams audio
+    // levels from the Python backend.
+    showSnack(
+      'Microphone test is not yet implemented. Try recording a short dictation to verify your mic works.',
+      'warning',
+    )
   }
 
   const stopTest = () => {

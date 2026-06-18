@@ -156,8 +156,20 @@ def configure_corrections(
     _active_misspellings, _active_phrases, _active_extra_words = result
 
 
-def clean_transcribed_text(text: str, *, auto_punctuation: bool = False) -> str:
-    """Apply conservative cleanup without changing the user's meaning."""
+def clean_transcribed_text(
+    text: str,
+    *,
+    auto_punctuation: bool = False,
+    skip_corrections: bool = False,
+) -> str:
+    """Apply conservative cleanup without changing the user's meaning.
+
+    ARCH-009: when ``skip_corrections=True``, the misspelling, phrase,
+    and extra-word corrections are skipped.  This is used when
+    ``VocabularyManager`` will apply the same corrections later in the
+    pipeline (avoiding double-application).  The structural cleanup
+    (spacing, self-corrections, capitalization) always runs.
+    """
     cleaned = text.strip()
     if not cleaned:
         return ""
@@ -165,9 +177,10 @@ def clean_transcribed_text(text: str, *, auto_punctuation: bool = False) -> str:
     cleaned = _clean_self_corrections(cleaned)
     cleaned = _remove_adjacent_duplicate_phrases(cleaned)
     cleaned = _remove_near_duplicate_words(cleaned)
-    cleaned = _fix_common_misspellings(cleaned)
-    cleaned = _correct_whisper_phrases(cleaned)
-    cleaned = _remove_extra_words(cleaned)
+    if not skip_corrections:
+        cleaned = _fix_common_misspellings(cleaned)
+        cleaned = _correct_whisper_phrases(cleaned)
+        cleaned = _remove_extra_words(cleaned)
     cleaned = _capitalize_sentences(cleaned)
     # M2: Fix file extensions AFTER capitalization to prevent "features.Md" bug
     cleaned = _fix_file_extensions(cleaned)

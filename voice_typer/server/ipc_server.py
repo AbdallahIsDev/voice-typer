@@ -18,8 +18,171 @@ import os
 import socket
 import sys
 import threading
+import time
+from collections import deque
+
+from voice_typer.server.config import validate_config_update
 
 log = logging.getLogger("voice_typer.server.ipc_server")
+
+
+# ── RELIABILITY-006: per-connection rate limiter ─────────────────────────
+#
+# A crash-looping or buggy Electron client can flood the IPC socket
+# with thousands of malformed messages per second, exhausting file
+# descriptors and starving the tray thread.  ``_RateLimiter`` is a
+# sliding-window per-connection limiter: each connection gets a
+# bounded number of messages per window.  Over-budget messages are
+# dropped (with an error response) rather than dispatched.
+#
+# The limits are intentionally generous (60 msg/s sustained, 200 msg
+# burst) — a well-behaved Electron client sends maybe 1-5 msg/s.
+
+_RATE_LIMIT_WINDOW_SECONDS = 1.0
+_RATE_LIMIT_BURST = 200
+_RATE_LIMIT_SUSTAINED = 60  # per second
+
+
+class _RateLimiter:
+    """Sliding-window per-connection rate limiter.
+
+    Each IPC connection gets its own ``_RateLimiter`` instance.  The
+    limiter tracks the timestamp of each accepted message in a deque;
+    when the deque exceeds the burst size, the oldest entries are
+    evicted and the message is rejected if the sustained rate would
+    be exceeded.
+    """
+
+    def __init__(
+        self,
+        *,
+        burst: int = _RATE_LIMIT_BURST,
+        sustained_per_sec: int = _RATE_LIMIT_SUSTAINED,
+        window: float = _RATE_LIMIT_WINDOW_SECONDS,
+    ) -> None:
+        self._burst = burst
+        self._sustained = sustained_per_sec
+        self._window = window
+        self._timestamps: "deque[float]" = deque()
+        self._lock = threading.Lock()
+
+    def allow(self, *, now: float | None = None) -> bool:
+        """Return True if the message should be accepted.
+
+        Parameters
+        ----------
+        now : float, optional
+            Current monotonic time.  If omitted, ``time.monotonic()``
+            is used.  Passing ``now`` explicitly makes the limiter
+            trivially testable.
+        """
+        ts = now if now is not None else time.monotonic()
+        cutoff = ts - self._window
+        with self._lock:
+            # Evict timestamps older than the window
+            while self._timestamps and self._timestamps[0] < cutoff:
+                self._timestamps.popleft()
+            # Reject if we're at the burst cap or would exceed the
+            # sustained rate.
+            if len(self._timestamps) >= self._burst:
+                return False
+            if len(self._timestamps) >= self._sustained:
+                # Allow bursts up to ``burst``, but if we've already
+                # hit the sustained rate within the window, reject.
+                # This prevents a slow trickle from saturating the
+                # dispatcher indefinitely.
+                return False
+            self._timestamps.append(ts)
+            return True
+
+    @property
+    def rejected_count(self) -> int:
+        """Total messages rejected since this limiter was created.
+
+        Not currently exposed via IPC, but useful for tests.
+        """
+        return getattr(self, "_rejected", 0)
+
+    def reject(self) -> None:
+        """Increment the rejected counter (called when allow() returns False)."""
+        with self._lock:
+            self._rejected = getattr(self, "_rejected", 0) + 1
+
+
+# ── SEC-003: config sanitization for IPC ─────────────────────────────────
+#
+# ``get_config`` must NOT echo secret fields back to the IPC client.
+# Even though the IPC socket is loopback-only, any local process can
+# connect to it (see SEC-018 for the auth fix).  We return a sanitized
+# view where API keys are replaced with a presence indicator so the
+# renderer can render "key configured" UI without ever holding the
+# actual key value.
+
+# Fields whose values are secrets and must never be echoed back.
+_SECRET_CONFIG_FIELDS = frozenset({
+    "cloud_api_key",
+    "openai_api_key",
+    "groq_api_key",
+    "deepgram_api_key",
+    "llm_api_key",
+})
+
+# Sentinel returned in place of a secret value.  The renderer treats
+# this as "key is set, do not display" — it must NOT treat this as the
+# actual key value (which would be a regression of SEC-003).
+_REDACTED_SENTINEL = "<redacted>"
+
+
+# SEC-010: maximum number of history rows a single IPC call can
+# materialize.  Without this cap, ``{"limit": 100000000}`` would
+# force SQLite to scan and the dispatcher to materialize a million
+# rows before slicing — a trivial DoS.
+_HISTORY_LIMIT_MAX = 500
+_HISTORY_LIMIT_DEFAULT = 50
+
+
+def _bound_history_limit(raw) -> int:
+    """Clamp a caller-supplied history ``limit`` to a safe range.
+
+    Accepts ints, floats, and numeric strings (the renderer sometimes
+    sends strings from form inputs).  Rejects anything else with the
+    default.  Result is always in ``[1, _HISTORY_LIMIT_MAX]``.
+    """
+    if raw is None:
+        return _HISTORY_LIMIT_DEFAULT
+    try:
+        v = int(raw)
+    except (TypeError, ValueError):
+        return _HISTORY_LIMIT_DEFAULT
+    return max(1, min(v, _HISTORY_LIMIT_MAX))
+
+
+def _bound_history_offset(raw) -> int:
+    """Clamp a caller-supplied history ``offset`` to a non-negative int."""
+    if raw is None:
+        return 0
+    try:
+        v = int(raw)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, v)
+
+
+def _sanitize_config_for_ipc(config) -> dict:
+    """Return a copy of ``config.__dict__`` with secret fields redacted.
+
+    A secret field is any field in :data:`_SECRET_CONFIG_FIELDS`.  If
+    the field's value is truthy (a key was set), it is replaced with
+    ``"<redacted>"``.  If falsy (empty string or None), the original
+    value (``""`` / ``None``) is preserved so the renderer can
+    distinguish "no key set" from "key set but hidden".
+    """
+    out = config.__dict__.copy()
+    for k in _SECRET_CONFIG_FIELDS:
+        if k in out:
+            v = out[k]
+            out[k] = _REDACTED_SENTINEL if v else v
+    return out
 
 
 # Module-level push hook.  Set by the active IPCServer instance when it
@@ -71,7 +234,25 @@ class _TCPLineIO:
         pass  # sendall is immediate
 
     def readline(self) -> str:
-        line = self._reader.readline()
+        """Read one line from the TCP socket.
+
+        SEC-009: cap line size to prevent OOM DoS.  ``socket.makefile``
+        ``readline`` with no size limit would happily allocate a 1 GB
+        buffer if the client sent a single huge line with no newline.
+        We cap at 1 MB (a single IPC message should be far under 1 KB;
+        transcription text + metadata is well under 100 KB even for
+        long dictations).  When the cap is exceeded, we return an
+        empty string to signal EOF — the caller closes the connection.
+        """
+        _MAX_LINE_BYTES = 1 * 1024 * 1024  # 1 MB
+        _MAX_LINE_CHARS = _MAX_LINE_BYTES  # conservative (UTF-8 worst case)
+        line = self._reader.readline(_MAX_LINE_CHARS + 1)
+        if len(line) > _MAX_LINE_CHARS:
+            log.warning(
+                "[TCP] client sent line exceeding %d char cap; closing connection",
+                _MAX_LINE_CHARS,
+            )
+            return ""  # signal EOF
         return line
 
     def __iter__(self):
@@ -162,7 +343,34 @@ class IPCServer:
         t.start()
 
     def _accept_tcp(self, port: int) -> None:
-        """Accept one connection, then run the TCP IPC loop."""
+        """Accept one connection, then run the TCP IPC loop.
+
+        SEC-018: the first line from the client must be a JSON object
+        with ``{"type": "auth", "token": "<session-token>"}`` matching
+        the ``VOICE_TYPER_IPC_TOKEN`` env var set by the Electron
+        parent.  If the token is missing or doesn't match, the
+        connection is dropped immediately.  This prevents any local
+        process from connecting to 127.0.0.1:9876 and sending
+        ``quit_app`` / ``set_config`` / etc.
+
+        The token is generated by the Electron main process (see
+        ``client/src/main/index.ts:startPython``) and passed to the
+        Python subprocess via the ``VOICE_TYPER_IPC_TOKEN`` env var.
+        Both sides see the same random per-launch value; no other
+        process can know it.
+        """
+        # Read the expected token from the env var set by Electron.
+        expected_token = os.environ.get("VOICE_TYPER_IPC_TOKEN", "")
+        if not expected_token:
+            # No token configured — fall back to the legacy unauthenticated
+            # path.  This happens when running the IPC server standalone
+            # (e.g. ``python -m voice_typer.server.ipc_server`` from a
+            # terminal).  We log a warning so the user knows the server
+            # is accepting unauthenticated connections.
+            log.warning(
+                "[TCP] VOICE_TYPER_IPC_TOKEN not set — accepting UNAUTHENTICATED connections"
+            )
+
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
@@ -178,16 +386,79 @@ class IPCServer:
 
         with self._lock:
             self._tcp_client = _TCPLineIO(conn)
+            # SEC-018: authenticate the connection.  The first line
+            # from the client must be a JSON auth message with the
+            # correct session token.  If it doesn't match (or the
+            # token env var was set but no auth message arrives
+            # within the timeout), drop the connection.
+            if expected_token:
+                try:
+                    auth_line = self._tcp_client.readline()
+                    if not auth_line:
+                        log.warning("[TCP] client disconnected before sending auth")
+                        self._tcp_client.close()
+                        self._tcp_client = None
+                        return
+                    auth_msg = json.loads(auth_line.strip())
+                    if (
+                        not isinstance(auth_msg, dict)
+                        or auth_msg.get("type") != "auth"
+                        or auth_msg.get("token") != expected_token
+                    ):
+                        log.warning("[TCP] auth failed — invalid token")
+                        # Send an error response so the client knows
+                        # why it was dropped.
+                        try:
+                            self._tcp_client.write(
+                                json.dumps({
+                                    "type": "error",
+                                    "data": {"message": "authentication failed"},
+                                }) + "\n"
+                            )
+                            self._tcp_client.flush()
+                        except Exception:
+                            pass
+                        self._tcp_client.close()
+                        self._tcp_client = None
+                        return
+                    log.info("[TCP] auth OK")
+                except json.JSONDecodeError:
+                    log.warning("[TCP] auth failed — invalid JSON on first line")
+                    self._tcp_client.close()
+                    self._tcp_client = None
+                    return
+                except Exception:
+                    log.warning("[TCP] auth handshake raised", exc_info=True)
+                    self._tcp_client.close()
+                    self._tcp_client = None
+                    return
+
             # Flush any push events queued before the client connected
             for p in self._pending_tcp:
                 self._tcp_client.write(p + "\n")
                 self._tcp_client.flush()
             self._pending_tcp.clear()
 
+        # RELIABILITY-006: per-connection rate limiter.  A buggy or
+        # malicious Electron client that flood-dispatches commands
+        # would otherwise starve the tray thread.
+        rate_limiter = _RateLimiter()
+
         try:
             for line in self._tcp_client:
                 line = line.strip()
                 if not line:
+                    continue
+                if not rate_limiter.allow():
+                    rate_limiter.reject()
+                    self._send({
+                        "type": "error",
+                        "data": {"message": "rate limit exceeded; backing off"},
+                    })
+                    log.warning(
+                        "[TCP] rate limit hit (%d rejected)",
+                        rate_limiter.rejected_count,
+                    )
                     continue
                 try:
                     msg = json.loads(line)
@@ -293,27 +564,63 @@ class IPCServer:
 
         elif cmd == "get_config":
             resp["type"] = "config"
-            resp["data"] = self.app.config.__dict__.copy()
+            # SEC-003: previously this returned config.__dict__.copy()
+            # which exposed every *_api_key field in cleartext over the
+            # loopback TCP socket.  Any local process could netcat the
+            # IPC port and exfiltrate OpenAI/Groq/Deepgram/LLM keys.
+            # We now return a sanitized view where secret fields are
+            # replaced with a presence indicator ("" if unset,
+            # "<redacted>" if set) so the renderer can show "key
+            # configured" without ever receiving the key value.
+            resp["data"] = _sanitize_config_for_ipc(self.app.config)
+
+        elif cmd == "get_defaults":
+            # UX-018: return the default Config() values so the
+            # renderer's "Reset to Defaults" button doesn't have to
+            # hardcode 22+ field defaults (which silently drift from
+            # the Python Config dataclass).  The renderer calls this
+            # once, then sends the result via set_config.
+            try:
+                from voice_typer.server.config import Config
+                defaults = Config()
+                resp["type"] = "defaults"
+                resp["data"] = _sanitize_config_for_ipc(defaults)
+            except Exception as e:
+                log.error("[IPC] get_defaults failed: %s", e, exc_info=True)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
 
         elif cmd == "set_config":
             try:
                 if isinstance(data, dict):
+                    # SEC-002: validate the caller payload against the
+                    # explicit IPC allowlist BEFORE touching the Config
+                    # object.  Unknown keys are silently dropped (debug-
+                    # logged); type/range/enum violations abort the
+                    # entire payload atomically and return an error so
+                    # the renderer can surface the rejection.
+                    validated, errors = validate_config_update(data)
+                    if errors:
+                        log.warning("[IPC] set_config rejected: %s", "; ".join(errors))
+                        resp["type"] = "error"
+                        resp["data"] = {"message": errors[0]}
+                        return resp
                     # Side-effect: live-register/unregister the prewarm
                     # scheduled task when fast_startup changes, so the
                     # Settings toggle takes effect without a restart.
                     if (
-                        "fast_startup" in data
-                        and data["fast_startup"] != getattr(self.app.config, "fast_startup", None)
+                        "fast_startup" in validated
+                        and validated["fast_startup"] != getattr(self.app.config, "fast_startup", None)
                     ):
-                        self.app.config.fast_startup = bool(data["fast_startup"])
+                        self.app.config.fast_startup = bool(validated["fast_startup"])
                         # _sync_prewarm_task reads config.fast_startup.
                         try:
                             self.app._sync_prewarm_task()
                         except Exception as e:
                             log.warning("[IPC] prewarm sync failed: %s", e)
-                    for k, v in data.items():
-                        if hasattr(self.app.config, k):
-                            setattr(self.app.config, k, v)
+                    # Apply only allowlisted, validated values.
+                    for k, v in validated.items():
+                        setattr(self.app.config, k, v)
                 self.app.config.save()
                 # Side-effect: when the autostart toggle changes, sync
                 # the OS autostart entry (registry/plist/.desktop) live
@@ -347,8 +654,10 @@ class IPCServer:
 
         elif cmd == "get_history":
             try:
-                limit = (data or {}).get("limit", 50) if isinstance(data, dict) else 50
-                offset = (data or {}).get("offset", 0) if isinstance(data, dict) else 0
+                # SEC-010: bound limit/offset to prevent DoS via huge values.
+                raw = (data or {}) if isinstance(data, dict) else {}
+                limit = _bound_history_limit(raw.get("limit", 50))
+                offset = _bound_history_offset(raw.get("offset", 0))
                 resp["type"] = "history"
                 resp["data"] = self.app.history_db.get_recent(limit, offset)
             except Exception as e:
@@ -401,8 +710,10 @@ class IPCServer:
 
         elif cmd == "get_favorites":
             try:
-                limit = (data or {}).get("limit", 50) if isinstance(data, dict) else 50
-                offset = (data or {}).get("offset", 0) if isinstance(data, dict) else 0
+                # SEC-010: bound limit/offset.
+                raw = (data or {}) if isinstance(data, dict) else {}
+                limit = _bound_history_limit(raw.get("limit", 50))
+                offset = _bound_history_offset(raw.get("offset", 0))
                 resp["type"] = "history"
                 resp["data"] = self.app.history_db.get_favorites(limit, offset)
             except Exception as e:
@@ -412,9 +723,11 @@ class IPCServer:
 
         elif cmd == "search_history":
             try:
-                query = data.get("query") if isinstance(data, dict) else ""
-                limit = data.get("limit", 50) if isinstance(data, dict) else 50
-                offset = data.get("offset", 0) if isinstance(data, dict) else 0
+                raw = data if isinstance(data, dict) else {}
+                query = raw.get("query", "")
+                # SEC-010: bound limit/offset.
+                limit = _bound_history_limit(raw.get("limit", 50))
+                offset = _bound_history_offset(raw.get("offset", 0))
                 resp["type"] = "history"
                 resp["data"] = self.app.history_db.search(query, limit, offset)
             except Exception as e:
@@ -542,12 +855,40 @@ class IPCServer:
             elif self._tcp_client is not None:
                 self._tcp_client.write(line + "\n")
                 self._tcp_client.flush()
-                for p in self._pending_tcp:
-                    self._tcp_client.write(p + "\n")
-                    self._tcp_client.flush()
-                self._pending_tcp.clear()
+                # PERF-NEW-014 / SEC-008: drain at most the most recent
+                # K pending entries, not the whole list.  When the
+                # client was disconnected for a while, _pending_tcp
+                # could have grown to thousands of entries (16 Hz
+                # waveform bubble * minutes of disconnect).  Draining
+                # all of them on every push event was O(n) per push
+                # and blocked the audio thread.
+                _DRAIN_CAP = 100
+                if self._pending_tcp:
+                    pending = self._pending_tcp[-_DRAIN_CAP:]
+                    self._pending_tcp.clear()
+                    for p in pending:
+                        try:
+                            self._tcp_client.write(p + "\n")
+                            self._tcp_client.flush()
+                        except Exception:
+                            log.debug("[IPC] client write failed during pending drain")
+                            break
             elif self._tcp_mode:
+                # SEC-008: cap _pending_tcp to prevent unbounded
+                # memory growth while the client is disconnected.
+                # When the cap is hit, drop the OLDEST entries
+                # (waveform bubble level events are stale by the
+                # time the client reconnects; transcription-complete
+                # events are also in history_db).
+                _PENDING_CAP = 1000
                 self._pending_tcp.append(line)
+                if len(self._pending_tcp) > _PENDING_CAP:
+                    dropped = len(self._pending_tcp) - _PENDING_CAP
+                    del self._pending_tcp[:dropped]
+                    log.warning(
+                        "[IPC] _pending_tcp cap exceeded; dropped %d old entries",
+                        dropped,
+                    )
             else:
                 # No IPC client connected (e.g. the ``voice-typer`` console
                 # script running without an Electron frontend).  Do NOT dump

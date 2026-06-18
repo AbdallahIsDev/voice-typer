@@ -20,6 +20,12 @@ from typing import Optional
 from urllib.request import Request, urlopen
 from urllib.error import URLError
 
+from voice_typer.server._secrets import (
+    assert_url_allowed,
+    redact_secret,
+    redact_url,
+)
+
 log = logging.getLogger(__name__)
 
 # ─── Preset prompts ─────────────────────────────────────────────────────
@@ -96,23 +102,47 @@ class LLMPolisher:
                 return result.strip()
             return text
         except Exception as exc:
-            log.warning("[LLM_POLISH] Polish failed: %s (returning original)", exc)
+            # RELIABILITY-004: redact any secret-looking string from
+            # the exception before logging, so a leaked API key in
+            # an error response body doesn't end up in the log file.
+            log.warning("[LLM_POLISH] Polish failed: %s (returning original)",
+                        redact_secret(str(exc)))
             return text
 
     def test_connection(self) -> tuple[bool, str]:
-        """Test the LLM API connection. Returns (success, message)."""
+        """Test the LLM API connection. Returns (success, message).
+
+        RELIABILITY-004: redacts the exception string in the failure
+        message and asserts the configured URL is in the allowlist.
+        """
         if not self.api_key:
             return False, "API key not configured"
+        try:
+            assert_url_allowed(
+                self.api_url, field_name="llm_api_url", client_name="llm_polish"
+            )
+        except ValueError as exc:
+            return False, str(exc)
         try:
             result = self._call_api("Hello", _PRESETS["professional"])
             return True, f"Connected (model: {self.model})"
         except Exception as exc:
-            return False, f"Connection failed: {exc}"
+            return False, f"Connection failed: {redact_secret(str(exc))}"
 
     # ── API call ─────────────────────────────────────────────────────
 
     def _call_api(self, text: str, system_prompt: str) -> str:
-        """Call the OpenAI-compatible chat completions API."""
+        """Call the OpenAI-compatible chat completions API.
+
+        RELIABILITY-004: asserts ``self.api_url`` is in the trusted
+        allowlist before sending any text.  This prevents an
+        endpoint-swap attack from exfiltrating transcribed speech
+        text even if SEC-002's allowlist is somehow bypassed.
+        """
+        assert_url_allowed(
+            self.api_url, field_name="llm_api_url", client_name="llm_polish"
+        )
+
         payload = json.dumps({
             "model": self.model,
             "messages": [
@@ -130,9 +160,20 @@ class LLMPolisher:
 
         req = Request(self.api_url, data=payload, headers=headers, method="POST")
 
-        with urlopen(req, timeout=30) as resp:
-            result = json.loads(resp.read().decode("utf-8"))
-            choices = result.get("choices", [])
-            if choices:
-                return choices[0].get("message", {}).get("content", "")
-            return ""
+        try:
+            with urlopen(req, timeout=30) as resp:
+                result = json.loads(resp.read().decode("utf-8"))
+                choices = result.get("choices", [])
+                if choices:
+                    return choices[0].get("message", {}).get("content", "")
+                return ""
+        except URLError as exc:
+            # RELIABILITY-004: redact URL and any secret-looking
+            # substring from the exception before propagating.
+            raise RuntimeError(
+                f"LLM API error: {redact_secret(redact_url(str(exc)))}"
+            ) from exc
+        except Exception as exc:
+            raise RuntimeError(
+                f"LLM API error: {redact_secret(str(exc))}"
+            ) from exc

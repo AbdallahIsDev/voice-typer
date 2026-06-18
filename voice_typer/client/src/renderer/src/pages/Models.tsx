@@ -87,9 +87,12 @@ export default function ModelsPage() {
       }))
 
       setApiKeys({
-        openai: cfg?.openai_api_key ?? '',
-        groq: cfg?.groq_api_key ?? '',
-        deepgram: cfg?.deepgram_api_key ?? '',
+        // SEC-003: backend redacts keys to '<redacted>'.  Show empty
+        // in the input fields so the user can type a new key to
+        // replace it; the placeholder conveys "configured".
+        openai: cfg?.openai_api_key && cfg.openai_api_key !== '<redacted>' ? cfg.openai_api_key : '',
+        groq: cfg?.groq_api_key && cfg.groq_api_key !== '<redacted>' ? cfg.groq_api_key : '',
+        deepgram: cfg?.deepgram_api_key && cfg.deepgram_api_key !== '<redacted>' ? cfg.deepgram_api_key : '',
       })
     } catch (err) {
       console.error('Failed to load config:', err)
@@ -135,33 +138,14 @@ export default function ModelsPage() {
   }
 
   const downloadModel = async (model: ModelInfo) => {
-    if (isDownloading) return
-    setIsDownloading(true)
-    setDownloadProgress(0)
-    setDownloadStatus(`Preparing ${model.name}...`)
-
-    // Simulate download progress
-    for (let i = 0; i <= 100; i += 10) {
-      setDownloadProgress(i)
-      setDownloadStatus(
-        i < 30
-          ? `Preparing ${model.name}...`
-          : i < 70
-            ? `Downloading ${model.name} (${model.size})...`
-            : i < 100
-              ? `Finalizing ${model.name}...`
-              : 'Download complete!',
-      )
-      await new Promise((r) => setTimeout(r, 300))
-    }
-
-    setModels((prev) =>
-      prev.map((m) =>
-        m.name === model.name ? { ...m, downloaded: true, depsOk: true } : m,
-      ),
+    // DEAD-021-025: previously this was a fake setTimeout loop that
+    // pretended to download.  We now show an honest "not implemented"
+    // message instead of misleading the user into thinking the model
+    // was downloaded.  The real download flow is tracked as UX-005.
+    showSnack(
+      `Model download is not yet implemented. Use 'voice-typer setup' from the terminal to download ${model.name}.`,
+      'warning',
     )
-    setIsDownloading(false)
-    showSnack(`Model '${model.name}' downloaded!`, 'success')
   }
 
   const deleteModelConfirm = (model: ModelInfo) => {
@@ -183,29 +167,22 @@ export default function ModelsPage() {
   }
 
   const testConnection = async (provider: string) => {
+    // DEAD-021-025: previously this faked success for any key > 10
+    // chars.  We now show an honest "not implemented" message.
+    // The backend's cloud_engines.test_connection() exists but is
+    // not yet exposed via IPC (tracked as future work).
     const key = apiKeys[provider] ?? ''
     if (!key) {
       setTestResults((prev) => ({ ...prev, [provider]: 'Please enter an API key first' }))
       return
     }
-    setTestResults((prev) => ({ ...prev, [provider]: 'Testing...' }))
-
-    // Simulate connection test
-    await new Promise((r) => setTimeout(r, 1000))
-    if (key.length > 10) {
-      setTestResults((prev) => ({ ...prev, [provider]: 'Connection successful!' }))
-    } else {
-      setTestResults((prev) => ({ ...prev, [provider]: 'Connection failed: Invalid API key format' }))
-    }
+    setTestResults((prev) => ({ ...prev, [provider]: 'Connection test not yet implemented — key saved.' }))
   }
 
   const runBenchmark = async () => {
-    if (isBenchmarking) return
-    setIsBenchmarking(true)
-    setBenchmarkResult('Running benchmark...')
-    await new Promise((r) => setTimeout(r, 2000))
-    setBenchmarkResult(`Benchmark complete: ~2.3s for 10 iterations on ${config?.device ?? 'unknown'} device`)
-    setIsBenchmarking(false)
+    // DEAD-021-025: previously this returned a hardcoded "~2.3s".
+    // We now show an honest "not implemented" message.
+    setBenchmarkResult('Benchmark not yet implemented.')
   }
 
   const allDownloaded = models.every((m) => m.downloaded)

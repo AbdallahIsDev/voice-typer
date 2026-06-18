@@ -202,22 +202,58 @@ class TestModuleLevelPushHook:
         from voice_typer.server import ipc_server
         from voice_typer.server.app import VoiceTyperApp
         from voice_typer.server.waveform import WaveformBubble as RealBubble
+        import queue as _queue
+        import threading as _threading
 
         real_bubble = RealBubble()
         app = MagicMock(spec=VoiceTyperApp)
         app._waveform_bubble = real_bubble
+        # PERF-NEW-001: _wire_waveform_bubble now sets up a background
+        # queue + worker thread.  We need to provide the queue, the
+        # threading event, AND a None worker (so the wiring code's
+        # "is the worker already alive?" check doesn't get fooled by
+        # MagicMock's auto-attribute behavior).
+        app._bubble_level_queue = _queue.Queue(maxsize=64)
+        app._bubble_level_worker_stop = _threading.Event()
+        app._bubble_level_worker = None
+        # Reset the throttle timestamp so the first update_level call
+        # isn't dropped by the 33ms throttle (other tests in the suite
+        # may have set it recently).
+        app._last_bubble_level_push_ts = 0.0
         VoiceTyperApp._wire_waveform_bubble(app)
 
         sent: list = []
         ipc_server._set_push_event(sent.append)
 
+        # Force the throttle to allow the first push.
+        app._last_bubble_level_push_ts = 0.0
         real_bubble.update_level(0.05, 0.12)
+        # PERF-NEW-001: pushes are now async (drained by a background
+        # worker thread).  Wait briefly for the worker to drain.
+        # The queue has maxsize=64 so a single item drains in well
+        # under 100 ms.
+        import time as _time
+        deadline = _time.monotonic() + 2.0
+        while _time.monotonic() < deadline:
+            if any(m.get("type") == "bubble_level" for m in sent):
+                break
+            _time.sleep(0.02)
         # Find the bubble_level event in the sent stream
         levels = [m for m in sent if m.get("type") == "bubble_level"]
-        assert len(levels) >= 1
+        assert len(levels) >= 1, (
+            f"expected >= 1 bubble_level event, got {len(levels)}; "
+            f"sent={sent}"
+        )
         last = levels[-1]["data"]
         assert "rms" in last and "peak" in last
         assert 0.0 < last["rms"] <= 1.0
+
+        # Cleanup: stop the worker thread
+        app._bubble_level_worker_stop.set()
+        try:
+            app._bubble_level_queue.put_nowait(None)
+        except _queue.Full:
+            pass
 
     def test_push_event_now_returns_false_when_no_hook(self):
         from voice_typer.server import ipc_server

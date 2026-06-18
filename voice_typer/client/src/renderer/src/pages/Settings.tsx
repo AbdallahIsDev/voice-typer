@@ -143,36 +143,52 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
     [config, call, loadConfig],
   )
 
-  const viewLogs = () => {
-    showSnack('Log folder opened', 'success')
+  const viewLogs = async () => {
+    // UX-008: actually open the log folder via the main process.
+    // Previously this just showed a snackbar without opening anything.
+    try {
+      const result = await (window as any).window_.openLogs()
+      if (result?.success) {
+        showSnack('Log folder opened', 'success')
+      } else {
+        showSnack(result?.error || 'Could not open log folder', 'error')
+      }
+    } catch (err) {
+      console.error('Failed to open logs:', err)
+      showSnack('Could not open log folder', 'error')
+    }
   }
 
-  const resetToDefaults = () => {
+  const resetToDefaults = async () => {
     if (!config) return
     setShowResetDialog(false)
-    const defaults: Partial<VoiceTyperConfig> = {
-      recording_mode: 'toggle',
-      esc_cancel_enabled: false,
-      auto_punctuation: false,
-      templates_enabled: true,
-      vocabulary_enabled: true,
-      llm_polish: false,
-      crash_recovery_enabled: true,
-      audio_quality_warnings: true,
-      paste_on_stop: true,
-      text_cleanup_enabled: true,
-      silence_warning_seconds: 20,
-      max_recording_seconds: 0,
-      autostart: true,
-      show_notifications: true,
-      fast_startup: true,
-      bubble_show_on_startup: true,
-      tray_left_click_action: 'open_app',
-      theme_mode: 'system',
-      streaming_transcription: true,
+    // UX-018: fetch defaults from the Python backend instead of
+    // hardcoding 22+ field values here (which silently drift from
+    // the Config dataclass).  The backend returns a sanitized dict
+    // (API keys redacted) which we send back via set_config.
+    try {
+      const defaults = await call('get_defaults')
+      if (defaults && typeof defaults === 'object') {
+        // Filter out the redacted sentinels and any non-allowlisted
+        // keys before sending back via set_config.
+        const safeDefaults: Record<string, unknown> = {}
+        for (const [key, value] of Object.entries(defaults as Record<string, unknown>)) {
+          // Skip redacted API keys — we don't want to overwrite the
+          // user's real keys with "<redacted>".
+          if (value === '<redacted>') continue
+          // Skip schema_version and internal state fields.
+          if (['schema_version', 'wayland_warned', 'onboarding_completed'].includes(key)) continue
+          safeDefaults[key] = value
+        }
+        await updateConfig(safeDefaults as Partial<VoiceTyperConfig>)
+        showSnack('Settings reset to defaults', 'success')
+      } else {
+        showSnack('Failed to fetch defaults from backend', 'error')
+      }
+    } catch (err) {
+      console.error('Failed to reset to defaults:', err)
+      showSnack('Failed to reset to defaults', 'error')
     }
-    updateConfig(defaults)
-    showSnack('Settings reset to defaults', 'success')
   }
 
   const handleThemeChange = (mode: string) => {
@@ -542,8 +558,14 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
                 <div className="relative">
                   <Input
                     type={llmKeyVisible ? 'text' : 'password'}
-                    value={config.llm_api_key ?? ''}
+                    /* SEC-003: backend redacts the key to '<redacted>' in
+                     * get_config responses.  Show empty in that case so
+                     * the user isn't tempted to "save" the sentinel back.
+                     * When the user types a real key, updateConfig sends
+                     * it via set_config (which is allowlisted). */
+                    value={config.llm_api_key && config.llm_api_key !== '<redacted>' ? config.llm_api_key : ''}
                     onChange={(e) => updateConfig({ llm_api_key: e.target.value })}
+                    placeholder={config.llm_api_key === '<redacted>' ? '•••••••• (configured)' : ''}
                     className="w-56 pr-8"
                   />
                   <button

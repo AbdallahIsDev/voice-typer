@@ -58,13 +58,7 @@ class TrayController(Protocol):
     def change_model(self, model: str) -> None: ...
     def change_hotkey(self, hotkey: str) -> None: ...
     def quit_app(self) -> None: ...
-    def toggle_autostart(self) -> None: ...
-    def set_notifications(self, enabled: bool) -> None: ...
     def set_hotkey(self, hotkey: str) -> None: ...
-    def set_silence_warning_seconds(self, seconds: float) -> None: ...
-    def set_silence_auto_stop_seconds(self, seconds: float) -> None: ...
-    def set_max_recording_seconds(self, seconds: int) -> None: ...
-    def create_desktop_shortcut(self) -> None: ...
     def restart_app(self) -> None: ...
     def repaste_last(self) -> None: ...
 
@@ -493,14 +487,28 @@ class TrayIcon:
     def _wrap(fn):
         """Wrap callback so pystray doesn't break on extra args.
 
-        Catches ``SystemExit`` raised by ``quit()`` / ``restart_app()``
-        so pystray doesn't log it as an unhandled error.
+        RELIABILITY-001: previously this wrapper silently swallowed
+        ``SystemExit``, which forced ``quit_app`` and ``restart_app``
+        to use ``os._exit(0)`` to actually terminate the process.
+        That bypassed Python cleanup (atexit, ``__del__``, ``finally``)
+        and leaked the Win32 mutex, PortAudio handles, and
+        ``RegisterHotKey`` registrations until the OS reaped them.
+
+        We now log and re-raise ``SystemExit`` so the process can exit
+        cleanly via the normal ``sys.exit(0)`` path.  ``self.quit()``
+        (called by ``quit_app``) and ``restart_app`` both call
+        ``self.tray.stop()`` before raising ``SystemExit``, which
+        breaks the pystray event loop so ``_icon.run()`` returns and
+        the main thread can exit.
         """
+        log = logging.getLogger("voice_typer.server.tray")
         def wrapper(icon, item):
             try:
                 fn()
-            except SystemExit:
-                pass
+            except SystemExit as _se:
+                log.info("[TRAY] callback %r raised SystemExit(%s); re-raising",
+                         getattr(fn, "__name__", "<lambda>"), _se.code)
+                raise
         return wrapper
 
 

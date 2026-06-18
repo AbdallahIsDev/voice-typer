@@ -1,15 +1,17 @@
-"""ASR auto-setup: GPU detection, dependency check, pip install, weight download.
+"""ASR auto-setup: GPU detection, dependency check, weight download.
 
 This module provides utilities for automatically setting up the ASR
-environment, including GPU detection, dependency installation, and
-model weight downloading.
+environment, including GPU detection, dependency checking, and model
+weight downloading.
+
+ARCH-001: ``pip_install`` and ``download_weights`` were removed from
+this module.  See ``archive/asr_setup_dead_code.py`` for the verbatim
+bodies in case they're needed for the future UX-005 on-demand
+dependency install feature.
 """
 
 import logging
 import os
-import platform
-import shutil
-import subprocess
 import sys
 from pathlib import Path
 from typing import Optional, Callable
@@ -128,126 +130,10 @@ def check_dependencies() -> dict:
     return deps
 
 
-def pip_install(
-    packages: list[str],
-    progress_callback: Optional[Callable[[str], None]] = None,
-) -> bool:
-    """Install packages via pip.
-
-    Args:
-        packages: List of package specifiers (e.g., ['faster-whisper>=1.0']).
-        progress_callback: Optional callable(message: str) for progress updates.
-
-    Returns:
-        True if all packages installed successfully, False otherwise.
-    """
-    if not packages:
-        return True
-
-    pip_path = shutil.which('pip') or sys.executable
-    cmd = [pip_path, '-m', 'pip', 'install', '--quiet'] + packages
-    if pip_path == sys.executable:
-        cmd = [sys.executable, '-m', 'pip', 'install', '--quiet'] + packages
-
-    msg = f"Installing packages: {', '.join(packages)}"
-    log.info("[ASR_SETUP] %s", msg)
-    if progress_callback:
-        progress_callback(msg)
-
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=600,
-        )
-        if result.returncode != 0:
-            log.error(
-                "[ASR_SETUP] pip install failed (rc=%d): %s",
-                result.returncode, result.stderr,
-            )
-            if progress_callback:
-                progress_callback(f"Installation failed: {result.stderr[:200]}")
-            return False
-
-        msg = "Package installation complete"
-        log.info("[ASR_SETUP] %s", msg)
-        if progress_callback:
-            progress_callback(msg)
-        return True
-    except subprocess.TimeoutExpired:
-        log.error("[ASR_SETUP] pip install timed out")
-        if progress_callback:
-            progress_callback("Installation timed out")
-        return False
-    except Exception as e:
-        log.error("[ASR_SETUP] pip install error: %s", e)
-        if progress_callback:
-            progress_callback(f"Installation error: {e}")
-        return False
-
-
-def download_weights(
-    model_size: str = 'small.en',
-    progress_callback: Optional[Callable[[str], None]] = None,
-) -> bool:
-    """Download model weights via huggingface_hub.
-
-    Args:
-        model_size: The model size to download (e.g., 'small.en').
-        progress_callback: Optional callable(message: str) for progress updates.
-
-    Returns:
-        True if download succeeded or weights already cached, False otherwise.
-    """
-    ensure_hf_env()
-    try:
-        from huggingface_hub import snapshot_download
-    except ImportError:
-        log.error("[ASR_SETUP] huggingface_hub not available for weight download")
-        if progress_callback:
-            progress_callback("huggingface_hub not installed, cannot download weights")
-        return False
-
-    if model_size == "parakeet":
-        return download_parakeet_weights(progress_callback)
-
-    repo_id = f"Systran/faster-whisper-{model_size}"
-
-    # Check if already cached
-    msg = f"Checking model cache for '{model_size}'..."
-    log.info("[ASR_SETUP] %s", msg)
-    if progress_callback:
-        progress_callback(msg)
-
-    try:
-        snapshot_download(repo_id=repo_id, local_files_only=True)
-        msg = f"Model '{model_size}' already cached"
-        log.info("[ASR_SETUP] %s", msg)
-        if progress_callback:
-            progress_callback(msg)
-        return True
-    except Exception:
-        pass
-
-    # Download
-    msg = f"Downloading model '{model_size}'..."
-    log.info("[ASR_SETUP] %s", msg)
-    if progress_callback:
-        progress_callback(msg)
-
-    try:
-        snapshot_download(repo_id=repo_id, resume_download=True)
-        msg = f"Model '{model_size}' download complete"
-        log.info("[ASR_SETUP] %s", msg)
-        if progress_callback:
-            progress_callback(msg)
-        return True
-    except Exception as e:
-        log.error("[ASR_SETUP] Weight download failed: %s", e)
-        if progress_callback:
-            progress_callback(f"Download failed: {e}")
-        return False
+# ARCH-001: ``pip_install`` and ``download_weights`` were removed from
+# this module because they had no production call sites.  See
+# ``archive/asr_setup_dead_code.py`` for the verbatim bodies in case
+# they're needed for the future UX-005 on-demand dependency install.
 
 
 def download_parakeet_weights(

@@ -127,20 +127,9 @@ class _MockController:
     def quit_app(self) -> None:
         pass
 
-    def toggle_autostart(self) -> None:
-        pass
-
-    def set_notifications(self, enabled: bool) -> None:
-        pass
-
-    def set_silence_warning_seconds(self, seconds: float) -> None:
-        pass
-
-    def set_silence_auto_stop_seconds(self, seconds: float) -> None:
-        pass
-
-    def create_desktop_shortcut(self) -> None:
-        pass
+    # DEAD-008: toggle_autostart, set_notifications, set_silence_*,
+    # set_max_recording_seconds, create_desktop_shortcut removed from
+    # TrayController protocol — no caller existed.
 
     def restart_app(self) -> None:
         pass
@@ -154,8 +143,6 @@ def tray():
     for method_name in [
         "toggle_dictation", "change_microphone", "change_model",
         "change_hotkey", "open_settings", "quit_app",
-        "toggle_autostart", "set_notifications",
-        "set_silence_warning_seconds", "set_silence_auto_stop_seconds",
         "restart_app",
     ]:
         setattr(controller, method_name, MagicMock())
@@ -445,3 +432,71 @@ class TestBringElectronToFront:
         monkeypatch.setattr(sys, "platform", "linux")
         result = TrayIcon._bring_electron_to_front()
         assert result is False
+
+
+# ── RELIABILITY-001: _wrap must not silently swallow SystemExit ──────────
+
+
+class TestWrapSystemExitHandling:
+    """RELIABILITY-001: the tray callback wrapper used to silently
+    swallow ``SystemExit``, which forced ``quit_app`` and
+    ``restart_app`` to use ``os._exit(0)`` to actually terminate the
+    process.  That bypassed Python cleanup (atexit, __del__, finally),
+    leaving the Win32 mutex unreleased, mic handles open, and hotkey
+    registrations leaked.
+
+    The fix: ``_wrap`` logs the SystemExit and re-raises it so the
+    process can exit cleanly via the normal ``sys.exit(0)`` path.
+    """
+
+    def test_wrap_re_raises_system_exit(self):
+        """If the wrapped callback raises SystemExit, _wrap must
+        re-raise it, not swallow it."""
+        from voice_typer.server.tray import TrayIcon
+
+        def cb_that_exits():
+            raise SystemExit(0)
+
+        wrapper = TrayIcon._wrap(cb_that_exits)
+        with pytest.raises(SystemExit):
+            wrapper(icon=MagicMock(), item=MagicMock())
+
+    def test_wrap_does_not_swallow_system_exit_from_quit(self):
+        """Simulates the real-world scenario: a controller's quit_app
+        calls sys.exit(0), which raises SystemExit.  _wrap must let it
+        propagate so the process actually exits."""
+        from voice_typer.server.tray import TrayIcon
+
+        class _ControllerThatExits:
+            def quit_app(self):
+                raise SystemExit(0)
+
+        ctrl = _ControllerThatExits()
+        wrapper = TrayIcon._wrap(ctrl.quit_app)
+        with pytest.raises(SystemExit):
+            wrapper(icon=MagicMock(), item=MagicMock())
+
+    def test_wrap_passes_through_normal_callback(self):
+        """Non-SystemExit callbacks should still work normally."""
+        from voice_typer.server.tray import TrayIcon
+
+        called = []
+        def cb():
+            called.append("yes")
+
+        wrapper = TrayIcon._wrap(cb)
+        wrapper(icon=MagicMock(), item=MagicMock())
+        assert called == ["yes"]
+
+    def test_wrap_propagates_non_system_exceptions(self):
+        """Non-SystemExit exceptions must also propagate (not be
+        converted to silent failures)."""
+        from voice_typer.server.tray import TrayIcon
+
+        def cb_that_errors():
+            raise RuntimeError("boom")
+
+        wrapper = TrayIcon._wrap(cb_that_errors)
+        with pytest.raises(RuntimeError, match="boom"):
+            wrapper(icon=MagicMock(), item=MagicMock())
+

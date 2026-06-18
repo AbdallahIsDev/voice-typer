@@ -9,6 +9,7 @@ import signal
 import sys
 import threading
 import time
+import queue
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -31,7 +32,7 @@ from voice_typer.server.platform import (
 from voice_typer.server.hotkeys import create_hotkey_backend, HotkeyBackend
 from voice_typer.server.history_db import HistoryDB
 from voice_typer.server.crash_recovery import CrashRecovery
-from voice_typer.server.audio_quality import AudioQualityAnalyzer
+from voice_typer.server.audio_quality import AudioQualityAnalyzer  # noqa: F401  # DEAD-014: kept for future re-wiring
 from voice_typer.server.waveform import WaveformBubble
 from voice_typer.server import task_scheduler
 
@@ -304,7 +305,13 @@ class VoiceTyperApp:
         # ─── P1/P2 New Feature Components ────────────────────────────
         self.history_db = HistoryDB()
         self._crash_recovery = CrashRecovery()
-        self._audio_quality = AudioQualityAnalyzer()
+        # DEAD-014: AudioQualityAnalyzer was instantiated but never
+        # called.  Removed to avoid the import cost and the misleading
+        # appearance of a wired-up feature.  The audio_quality config
+        # fields are kept (they're in the IPC allowlist and the
+        # Settings UI) so a future wiring doesn't require a schema
+        # migration.  When re-wiring, import AudioQualityAnalyzer here
+        # and assign to self._audio_quality.
         self._waveform_bubble = WaveformBubble()
         self._wire_waveform_bubble()
         self._last_transcription: str = ""  # For repaste
@@ -317,44 +324,67 @@ class VoiceTyperApp:
 
     def _init_qwen_engine(self):
         """Conditionally initialise the Qwen ASR engine."""
-        try:
-            from voice_typer.server.qwen_engine import QwenEngine
-
-            self._qwen_engine = QwenEngine(
-                model_path=self.config.qwen_model_path,  # pyrefly: ignore[bad-argument-type]
+        # ARCH-013: delegate to the generic _init_asr_engine dispatcher.
+        self._qwen_engine = self._init_asr_engine(
+            backend_name="qwen",
+            module_path="voice_typer.server.qwen_engine",
+            class_name="QwenEngine",
+            log_prefix="[QWEN]",
+            kwargs=dict(
+                model_path=self.config.qwen_model_path,
                 device=self.config.device,
                 language=self.config.language,
-            )
-            log.info("[QWEN] QwenEngine created (will load on first use)")
-        except ImportError:
-            log.warning(
-                "[QWEN] qwen-asr package not installed, Qwen backend unavailable"
-            )
-            self._qwen_engine = None
-        except Exception as exc:
-            log.error("[QWEN] Failed to initialise QwenEngine: %s", exc)
-            self._qwen_engine = None
+            ),
+        )
 
     # ─── Parakeet Engine (P0) ────────────────────────────────────────
 
     def _init_parakeet_engine(self):
         """Conditionally initialise the Parakeet ASR engine."""
-        try:
-            from voice_typer.server.parakeet_engine import ParakeetEngine
-
-            self._parakeet_engine = ParakeetEngine(
+        # ARCH-013: delegate to the generic _init_asr_engine dispatcher.
+        self._parakeet_engine = self._init_asr_engine(
+            backend_name="parakeet",
+            module_path="voice_typer.server.parakeet_engine",
+            class_name="ParakeetEngine",
+            log_prefix="[PARAKEET]",
+            kwargs=dict(
                 device=self.config.device,
                 language=self.config.language,
-            )
-            log.info("[PARAKEET] ParakeetEngine created (will load on first use)")
+            ),
+        )
+
+    def _init_asr_engine(
+        self,
+        *,
+        backend_name: str,
+        module_path: str,
+        class_name: str,
+        log_prefix: str,
+        kwargs: dict,
+    ):
+        """Generic ASR engine initializer (ARCH-013).
+
+        Consolidates the 95%-identical _init_qwen_engine and
+        _init_parakeet_engine into one method.  Dynamically imports
+        the engine class, constructs it with ``kwargs``, and returns
+        the instance (or None on ImportError / construction failure).
+        """
+        try:
+            import importlib
+            mod = importlib.import_module(module_path)
+            engine_cls = getattr(mod, class_name)
+            engine = engine_cls(**kwargs)
+            log.info("%s %s created (will load on first use)", log_prefix, class_name)
+            return engine
         except ImportError:
             log.warning(
-                "[PARAKEET] transformers package not installed, Parakeet backend unavailable"
+                "%s %s package not installed, %s backend unavailable",
+                log_prefix, backend_name, backend_name,
             )
-            self._parakeet_engine = None
+            return None
         except Exception as exc:
-            log.error("[PARAKEET] Failed to initialise ParakeetEngine: %s", exc)
-            self._parakeet_engine = None
+            log.error("%s Failed to initialise %s: %s", log_prefix, class_name, exc)
+            return None
 
     def _get_active_transcriber(self):
         """Return the active transcriber: Parakeet, Qwen, or Whisper."""
@@ -427,10 +457,65 @@ class VoiceTyperApp:
             _push_event_now({"type": "bubble_hide"})
 
         def _push_bubble_level(rms: float, peak: float) -> None:
-            _push_event_now({
-                "type": "bubble_level",
-                "data": {"rms": float(rms), "peak": float(peak)},
-            })
+            # PERF-NEW-001 / PERF-NEW-015: this callback fires from the
+            # PortAudio thread at ~16 Hz.  Calling _push_event_now
+            # directly was holding the IPC server's _lock for
+            # json.dumps + socket.sendall, which on a slow Electron
+            # receive window stalled the audio thread and triggered
+            # xruns.  We now throttle to ~30 Hz max (every 33 ms) and
+            # push the actual IPC send to a background queue drained
+            # by a low-priority daemon thread.
+            now = time.monotonic()
+            last = getattr(self, "_last_bubble_level_push_ts", 0.0)
+            if now - last < 0.033:  # 33 ms = ~30 Hz
+                return
+            self._last_bubble_level_push_ts = now
+            q = getattr(self, "_bubble_level_queue", None)
+            if q is None:
+                return  # wiring not complete yet
+            try:
+                q.put_nowait({
+                    "type": "bubble_level",
+                    "data": {"rms": float(rms), "peak": float(peak)},
+                })
+            except queue.Full:
+                # Queue is full — the worker thread fell behind.  Drop
+                # this sample; the next one will pick up the latest
+                # smoothed level from update_level's low-pass filter.
+                pass
+
+        # PERF-NEW-001: dedicated queue + worker thread for bubble
+        # level pushes.  Bounded so a stuck Electron client can't
+        # cause unbounded memory growth on the Python side.  Created
+        # idempotently — if _wire_waveform_bubble is called twice
+        # (e.g. in tests after a stop/start cycle), the existing
+        # queue and worker are reused.
+        if not hasattr(self, "_bubble_level_queue") or self._bubble_level_queue is None:
+            self._bubble_level_queue: "queue.Queue[Optional[dict]]" = queue.Queue(maxsize=64)
+        if not hasattr(self, "_bubble_level_worker_stop") or self._bubble_level_worker_stop is None:
+            self._bubble_level_worker_stop = threading.Event()
+
+        def _bubble_level_worker() -> None:
+            """Drain the bubble_level queue and push events to the IPC server."""
+            q = self._bubble_level_queue
+            stop = self._bubble_level_worker_stop
+            while not stop.is_set():
+                try:
+                    item = q.get(timeout=0.5)
+                except queue.Empty:
+                    continue
+                if item is None:
+                    break
+                _push_event_now(item)
+                q.task_done()
+
+        if not hasattr(self, "_bubble_level_worker") or self._bubble_level_worker is None or not self._bubble_level_worker.is_alive():
+            self._bubble_level_worker = threading.Thread(
+                target=_bubble_level_worker,
+                name="bubble-level-pusher",
+                daemon=True,
+            )
+            self._bubble_level_worker.start()
 
         self._waveform_bubble.on_show = _push_bubble_show
         self._waveform_bubble.on_hide = _push_bubble_hide
@@ -770,7 +855,13 @@ class VoiceTyperApp:
     # ─── Hotkey ────────────────────────────────────────────────────────
 
     def _register_hotkey(self):
-        """Register global hotkey using the platform-appropriate backend."""
+        """Register global hotkey using the platform-appropriate backend.
+
+        UX-002: when registration fails (typically because another app
+        has already claimed the same hotkey via Win32 ``RegisterHotKey``
+        or X11 grab), surface a tray notification that names the hotkey
+        so the user can pick a different one in Settings.
+        """
         hotkey_str = self.config.hotkey
         log.info("[HOTKEY] Registering: %r -> toggle_dictation", hotkey_str)
 
@@ -786,12 +877,17 @@ class VoiceTyperApp:
                 self._hotkey_backend.is_alive(),
                 type(self._hotkey_backend).__name__,
             )
-        except Exception:
-            log.warning("[HOTKEY] Registration FAILED -- %s", hotkey_str)
+        except Exception as exc:
+            # UX-002: name the hotkey in the notification so the user
+            # knows which one to rebind.  Common cause: another app
+            # (Snipping Tool, GeForce Overlay, etc.) already claimed it.
+            log.warning("[HOTKEY] Registration FAILED -- %s: %s", hotkey_str, exc)
             log.debug("Hotkey registration error", exc_info=True)
             self.tray.notify(
                 "Voice Typer",
-                "Hotkey registration failed. Use the tray menu to toggle dictation.",
+                f"Hotkey {hotkey_str} could not be registered. "
+                "It may be in use by another app. "
+                "Use the tray menu to toggle dictation, or pick a different hotkey in Settings.",
             )
 
         # Feature: ESC to cancel -- register ESC hotkey when enabled
@@ -1103,7 +1199,18 @@ class VoiceTyperApp:
 
                 raw_text = text
                 if self.config.text_cleanup_enabled:
-                    text = clean_transcribed_text(text, auto_punctuation=False)  # auto-punct after templates
+                    # ARCH-009: skip corrections in clean_transcribed_text
+                    # when VocabularyManager is enabled — it applies the
+                    # same corrections later in the pipeline, so running
+                    # them here too would double-apply.  Structural
+                    # cleanup (spacing, self-corrections, capitalization)
+                    # always runs.
+                    vocab_enabled = getattr(self.config, "vocabulary_enabled", True)
+                    text = clean_transcribed_text(
+                        text,
+                        auto_punctuation=False,
+                        skip_corrections=vocab_enabled,
+                    )
                     if text != raw_text:
                         log.info(
                             "[CLEANUP] Text cleaned: len %d -> %d",
@@ -1140,7 +1247,16 @@ class VoiceTyperApp:
                     text = _add_safe_terminal_punctuation(text)
 
                 # P2: LLM text polishing
-                if self.config.llm_polish and self.config.llm_api_key:
+                # PRIVACY-001: require explicit user consent before
+                # sending any text to an LLM API.  The consent flag is
+                # separate from ``llm_polish`` so that turning the
+                # toggle off doesn't silently revoke consent (and
+                # turning it back on doesn't bypass the dialog).
+                if (
+                    self.config.llm_polish
+                    and self.config.llm_api_key
+                    and getattr(self.config, "llm_polish_consent", False)
+                ):
                     try:
                         if self._llm_polisher is None:
                             from voice_typer.server.llm_polish import LLMPolisher
@@ -1154,6 +1270,21 @@ class VoiceTyperApp:
                         text = self._llm_polisher.polish(text)
                     except Exception as exc:
                         log.warning("[LLM_POLISH] Polish failed: %s", exc)
+                elif (
+                    self.config.llm_polish
+                    and self.config.llm_api_key
+                    and not getattr(self.config, "llm_polish_consent", False)
+                ):
+                    # Log once per session so the user can see in logs
+                    # why polish isn't running.  Avoid spamming on every
+                    # transcription by tracking whether we've warned.
+                    if not getattr(self, "_llm_consent_warned", False):
+                        log.info(
+                            "[LLM_POLISH] llm_polish is enabled but "
+                            "llm_polish_consent is False — skipping polish. "
+                            "Show the consent dialog in the renderer to enable."
+                        )
+                        self._llm_consent_warned = True
 
                 # P2: Store in history and crash recovery
                 try:
@@ -1670,15 +1801,25 @@ class VoiceTyperApp:
     def quit_app(self) -> None:
         """TrayController protocol: quit the app.
 
-        Uses inline cleanup + ``os._exit(0)`` instead of ``self.quit()`` →
-        ``sys.exit(0)`` because the tray menu callback wrapper
-        (``_wrap`` in ``tray.py``) catches ``SystemExit`` and silently
-        swallows it -- meaning the process would never actually terminate,
-        leaving the terminal stuck with a zombie process.
+        RELIABILITY-001: previously this method duplicated cleanup
+        inline and ended with ``os._exit(0)`` because ``_wrap`` in
+        ``tray.py`` swallowed ``SystemExit``, preventing the audited
+        ``self.quit()`` path from terminating the process.  ``os._exit``
+        skips Python atexit handlers, ``__del__`` methods, and
+        ``finally`` blocks — leaking the Win32 named mutex, leaving
+        PortAudio mic handles open, and not unregistering
+        ``RegisterHotKey`` registrations.
 
-        Before force-exit, pushes a ``quit_app`` event over the TCP channel
-        so the Electron frontend knows to call ``app.quit()`` and shut down
-        cleanly (instead of being left orphaned with no backend).
+        Now that ``_wrap`` re-raises ``SystemExit`` (see RELIABILITY-001
+        fix in ``tray.py``), we delegate to ``self.quit()`` which does
+        the full cleanup (cancel timers, signal streaming cancel,
+        discard recorder, join transcription thread, stop all three
+        hotkey backends, ``self.tray.stop()`` to break the pystray
+        loop, close devnull FDs, ``sys.exit(0)``).
+
+        Before cleanup, pushes a ``quit_app`` event over the TCP channel
+        so the Electron frontend knows to call ``app.quit()`` and shut
+        down cleanly (instead of being left orphaned with no backend).
         """
         log.info("[QUIT] Quitting Voice Typer...")
 
@@ -1686,44 +1827,31 @@ class VoiceTyperApp:
         from voice_typer.server.ipc_server import _push_event_now
         _push_event_now({"type": "quit_app"})
 
-        # 1. Quick cleanup before force-exit.
-        #    NOTE: self.tray.stop() / self._icon.stop() is NOT called because
-        #    it can hang when called from within a pystray callback (the tray
-        #    menu's _wrap handler catches SystemExit, and _icon.stop() may not
-        #    return reliably).  os._exit(0) terminates the process immediately,
-        #    and the OS cleans up the tray icon.
-        try:
-            self._cancel_pending_timers()
-        except Exception:
-            pass
-        try:
-            if self._hotkey_backend:
-                self._hotkey_backend.stop()
-        except Exception:
-            pass
-        try:
-            if self._esc_backend:
-                self._esc_backend.stop()
-        except Exception:
-            pass
-        try:
-            if self._repaste_backend:
-                self._repaste_backend.stop()
-        except Exception:
-            pass
-
-        log.info("[QUIT] Force-exiting")
-        os._exit(0)
+        # 1. Delegate to the audited cleanup path.  self.quit() raises
+        #    SystemExit(0) at the end; _wrap re-raises it, and pystray
+        #    unwinds because self.tray.stop() was called inside quit().
+        self.quit()
 
     def restart_app(self) -> None:
         """TrayController protocol: restart the app.
 
-        Launches a fresh VoiceTyper subprocess and force-exits the current instance.
+        Launches a fresh VoiceTyper subprocess and exits the current
+        instance via the clean ``sys.exit(0)`` path.
 
-        NOTE: Uses ``os._exit(0)`` instead of ``self.quit()`` → ``sys.exit(0)``
-        because the tray menu callback wrapper (``_wrap`` in ``tray.py``)
-        catches ``SystemExit`` and silently swallows it -- meaning the process
-        would never actually terminate.
+        RELIABILITY-001: previously this method ended with
+        ``os._exit(0)`` because ``_wrap`` in ``tray.py`` swallowed
+        ``SystemExit``, preventing ``sys.exit(0)`` from terminating
+        the process.  ``os._exit(0)`` skips Python atexit handlers,
+        ``__del__`` methods, and ``finally`` blocks, leaking the same
+        set of resources as ``quit_app`` did (Win32 mutex, PortAudio
+        handles, ``RegisterHotKey`` registrations).
+
+        RELIABILITY-003: this method now also stops ``_esc_backend``
+        and ``_repaste_backend`` (previously only ``_hotkey_backend``
+        was stopped, leaving ESC and repaste hotkeys registered on the
+        old process while the new process tried to register them
+        again — causing "hotkey busy" errors until the OS reaped the
+        old registrations).
         """
         log.info("[RESTART] Restarting Voice Typer...")
         import subprocess
@@ -1731,7 +1859,7 @@ class VoiceTyperApp:
 
         time.sleep(0.5)
 
-        # 2. Launch the new instance
+        # 1. Launch the new instance
         env = os.environ.copy()
         env["VOICE_TYPER_RESTART"] = "1"
         # IMPORTANT: the restarter spawns the SAME module the Electron
@@ -1760,13 +1888,9 @@ class VoiceTyperApp:
             start_new_session=True,
         )
 
-        # 3. Minimal cleanup before force-exit.
-        #    self.quit() is NOT called because its sys.exit(0) gets swallowed
-        #    by tray.py's _wrap SystemExit handler, leaving the process alive
-        #    as a zombie with no tray icon.
-        #    NOTE: self.tray.stop() / self._icon.stop() is also NOT called
-        #    because it can hang when called from within a pystray callback,
-        #    preventing os._exit(0) from ever running.
+        # 2. Stop all three hotkey backends so the new instance can
+        #    re-register them without "hotkey busy" errors.
+        #    RELIABILITY-003: previously only _hotkey_backend was stopped.
         try:
             self._cancel_pending_timers()
         except Exception:
@@ -1776,46 +1900,47 @@ class VoiceTyperApp:
                 self._hotkey_backend.stop()
         except Exception:
             pass
+        try:
+            if self._esc_backend:
+                self._esc_backend.stop()
+        except Exception:
+            pass
+        try:
+            if self._repaste_backend:
+                self._repaste_backend.stop()
+        except Exception:
+            pass
 
-        log.info("[RESTART] Force-exiting old process")
-        os._exit(0)
+        # 3. Break the pystray event loop so the main thread can exit.
+        #    _icon.stop() is safe to call from within a pystray callback
+        #    on all supported backends (Win32 message loop, GTK, AppKit):
+        #    it sets a flag that the loop checks after the current
+        #    callback returns.  Combined with the SystemExit re-raise
+        #    in _wrap (RELIABILITY-001), this lets the process exit
+        #    via sys.exit(0) instead of os._exit(0).
+        try:
+            self.tray.stop()
+        except Exception as e:
+            log.warning("[RESTART] tray.stop() failed: %s", e)
 
-    def toggle_autostart(self) -> None:
-        """TrayController protocol: toggle autostart on/off."""
-        self._toggle_autostart()
+        # 4. Exit via the clean path.  sys.exit(0) raises SystemExit,
+        #    which _wrap re-raises, which lets pystray unwind (because
+        #    tray.stop() was called in step 3).  Python atexit handlers
+        #    and __del__ methods run, releasing the Win32 mutex,
+        #    PortAudio handles, and any other resources held by C
+        #    extensions.
+        log.info("[RESTART] Exiting old process via sys.exit(0)")
+        sys.exit(0)
 
-    def create_desktop_shortcut(self) -> None:
-        """Create (or overwrite) the desktop launcher .bat shortcut."""
-        result = create_launcher_shortcut()
-        if result:
-            self.tray.notify("Voice Typer", f"Desktop shortcut created:\n{result}")
-        else:
-            self.tray.notify(
-                "Voice Typer",
-                "Could not create desktop shortcut.\nCheck the log for details.",
-            )
-
-    def set_notifications(self, enabled: bool) -> None:
-        """TrayController protocol: enable/disable notifications."""
-        self._set_notifications(enabled)
-
-    def set_silence_warning_seconds(self, seconds: float) -> None:
-        """TrayController protocol: set silence warning timeout."""
-        self.config.silence_warning_seconds = seconds
-        self.config.save()
-        self.tray.invalidate_menu_cache()
-
-    def set_silence_auto_stop_seconds(self, seconds: float) -> None:
-        """TrayController protocol: set silence auto-stop timeout."""
-        self.config.silence_auto_stop_seconds = seconds
-        self.config.save()
-        self.tray.invalidate_menu_cache()
-
-    def set_max_recording_seconds(self, seconds: int) -> None:
-        """TrayController protocol: set max recording duration override."""
-        self.config.max_recording_seconds = seconds
-        self.config.save()
-        self.tray.invalidate_menu_cache()
+    # DEAD-008: the following 6 TrayController protocol methods were
+    # removed because no IPC route, tray menu item, or UI invoked them:
+    #   - toggle_autostart (use _toggle_autostart directly)
+    #   - create_desktop_shortcut
+    #   - set_notifications (use _set_notifications directly)
+    #   - set_silence_warning_seconds (use set_config via IPC)
+    #   - set_silence_auto_stop_seconds (use set_config via IPC)
+    #   - set_max_recording_seconds (use set_config via IPC)
+    # The corresponding TrayController Protocol entries were also removed.
 
     # ─── Shutdown ──────────────────────────────────────────────────────
 
@@ -1856,6 +1981,46 @@ class VoiceTyperApp:
 
         if self._hotkey_backend:
             self._hotkey_backend.stop()
+
+        # RELIABILITY-003: also stop ESC cancel and repaste hotkey
+        # backends so their RegisterHotKey / GlobalHotKeys registrations
+        # are released before the next instance tries to claim them.
+        if self._esc_backend:
+            try:
+                self._esc_backend.stop()
+            except Exception as e:
+                log.warning("[SHUTDOWN] ESC backend stop failed: %s", e)
+        if self._repaste_backend:
+            try:
+                self._repaste_backend.stop()
+            except Exception as e:
+                log.warning("[SHUTDOWN] repaste backend stop failed: %s", e)
+
+        # RELIABILITY-005: flush any pending crash-recovery writes
+        # before the process exits, so the latest state is persisted.
+        # Short timeout — if the disk is genuinely slow we'd rather
+        # exit and lose the in-flight snapshot than hang the shutdown.
+        if self._crash_recovery is not None:
+            try:
+                self._crash_recovery.flush(timeout=2.0)
+                self._crash_recovery.shutdown()
+            except Exception as e:
+                log.warning("[SHUTDOWN] crash recovery flush failed: %s", e)
+
+        # PERF-NEW-001: stop the bubble level worker so it doesn't
+        # try to push to a torn-down IPC server during shutdown.
+        if hasattr(self, "_bubble_level_worker_stop") and self._bubble_level_worker_stop is not None:
+            try:
+                self._bubble_level_worker_stop.set()
+                if hasattr(self, "_bubble_level_queue") and self._bubble_level_queue is not None:
+                    try:
+                        self._bubble_level_queue.put_nowait(None)  # sentinel
+                    except queue.Full:
+                        pass
+                if hasattr(self, "_bubble_level_worker") and self._bubble_level_worker is not None:
+                    self._bubble_level_worker.join(timeout=1.0)
+            except Exception as e:
+                log.debug("[SHUTDOWN] bubble level worker stop failed: %s", e)
 
         self.tray.stop()
         log.info("[SHUTDOWN] Shutdown complete, exiting")
@@ -1925,8 +2090,19 @@ class VoiceTyperApp:
             )
             try:
                 self._kernel32.FreeConsole()
-                self._devnull = open(os.devnull, 'w')
-                _devnull_files.append(self._devnull)
+                # PERF-004: previously this opened a NEW devnull file
+                # object on every CTRL_CLOSE_EVENT and appended it to
+                # ``_devnull_files`` without ever closing the previous
+                # one.  After ~250 events (e.g. RDP logout cycles),
+                # the process would hit Windows' per-process handle
+                # cap (10,000) and ``open()`` would start failing.
+                #
+                # Fix: reuse the existing devnull object if one was
+                # already opened for this handler.  We track it on
+                # ``self._devnull`` so subsequent events are no-ops.
+                if getattr(self, "_devnull", None) is None or self._devnull.closed:
+                    self._devnull = open(os.devnull, 'w')
+                    _devnull_files.append(self._devnull)
                 sys.stdout = self._devnull
                 sys.stderr = self._devnull
                 log.info("[WIN32] Detached from console (FreeConsole)")
@@ -2031,14 +2207,41 @@ def _another_voice_typer_alive() -> bool:
     Used by ``_ensure_single_instance`` to decide whether to actually
     exit.
 
-    Checks both executables because the autostart launcher runs as
-    ``pythonw.exe`` -- scanning only ``python.exe`` would miss it and let
-    two instances race for the mutex.
+    ARCH-012 / XPLAT-001: previously this used ``wmic`` (deprecated
+    since Win10 21H1, may be absent on Win11 24H2+).  Now uses
+    ``psutil`` which is already a project dependency and works on
+    all platforms.  Falls back to the wmic path if psutil is somehow
+    unavailable (e.g. broken install) so we don't regress.
     """
+    import os as _os
+    try:
+        import psutil
+    except ImportError:
+        psutil = None
+
+    if psutil is not None:
+        try:
+            my_pid = _os.getpid()
+            my_ppid = _os.getppid()
+            for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+                try:
+                    info = proc.info
+                    if info["pid"] in (my_pid, my_ppid):
+                        continue
+                    name = (info.get("name") or "").lower()
+                    if not (name.endswith("python.exe") or name.endswith("pythonw.exe")):
+                        continue
+                    cmdline = " ".join(info.get("cmdline") or [])
+                    if re.search(r"voice[_-]?typer", cmdline, re.IGNORECASE):
+                        return True
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+            return False
+        except Exception:
+            log.debug("[STARTUP] psutil scan failed; falling back to wmic", exc_info=True)
+
+    # Fallback: wmic (deprecated but might still be present on older builds)
     import subprocess as _sp
-    # WMIC's WHERE clause doesn't support OR cleanly with the Name=
-    # predicate on all builds, so we query each image name separately
-    # and merge the output.
     chunks: list[str] = []
     for image in ("python.exe", "pythonw.exe"):
         try:
@@ -2049,13 +2252,10 @@ def _another_voice_typer_alive() -> bool:
             )
             chunks.append(out)
         except Exception:
-            # wmic may be deprecated/absent on newer Windows builds;
-            # if either query works we can still decide.
             continue
     if not chunks:
         return False
 
-    import os as _os
     for out in chunks:
         for chunk in out.split("\n\n"):
             m_pid = re.search(r"ProcessId=(\d+)", chunk)

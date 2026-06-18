@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { usePython, usePythonEvent } from '@/hooks/usePython'
 import { Sidebar } from '@/components/Sidebar'
-import { StatusBar } from '@/components/StatusBar'
 import { TitleBar } from '@/components/TitleBar'
 import { Toaster } from '@/components/ui/sonner'
 import Home from '@/pages/Home'
@@ -310,11 +309,6 @@ export default function App() {
               renderPage()
             )}
           </main>
-
-          {/* <StatusBar
-            connectionStatus={connectionStatus}
-            recordingState={recordingState}
-          /> */}
         </div>
       </div>
       <Toaster />

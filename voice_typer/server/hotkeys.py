@@ -115,12 +115,35 @@ class PynputHotkey(HotkeyBackend):
         # For composite hotkeys (tuple), extract the target key only
         match_key = target[1] if isinstance(target, tuple) else target
 
+        # UX-001: track whether the matched key is currently held down
+        # so we can fire the on_release callback exactly once per
+        # press-release cycle (pynput fires repeated on_press events
+        # while a key is held).
+        held = {"value": False}
+
         def on_press(key):
             if key == match_key:
-                log.info("[HOTKEY FALLBACK] Matched key: %s", key)
-                callback()
+                if not held["value"]:
+                    held["value"] = True
+                    log.info("[HOTKEY FALLBACK] Matched key: %s", key)
+                    callback()
 
-        self._listener = Listener(on_press=on_press)
+        def on_release(key):
+            # UX-001: invoke the on_release callback (used by
+            # push-to-talk mode) when the matched key is released.
+            # The check ``held["value"]`` ensures we only fire on the
+            # transition from held -> released, not on every spurious
+            # release event pynput may emit.
+            if key == match_key and held["value"]:
+                held["value"] = False
+                log.info("[HOTKEY FALLBACK] Key released: %s", key)
+                if self._on_release_callback is not None:
+                    try:
+                        self._on_release_callback()
+                    except Exception:
+                        log.exception("[HOTKEY FALLBACK] on_release callback raised")
+
+        self._listener = Listener(on_press=on_press, on_release=on_release)
         self._listener.start()
         time.sleep(0.5)
         self._fallback = True
