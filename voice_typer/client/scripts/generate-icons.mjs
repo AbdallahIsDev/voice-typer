@@ -30,12 +30,25 @@ async function generateIcons(svg, label, suffix) {
   // PNG favicons
   for (const size of sizes.favicon) {
     await sharp(Buffer.from(svg)).resize(size, size).png().toFile(resolve(publicDir, `favicon${suffix}-${size}.png`))
-  }
-  if (!suffix) {
-    writeFileSync(resolve(publicDir, 'favicon.svg'), svg)
-    console.log('Created public/favicon.svg')
-    await sharp(Buffer.from(svg)).resize(180, 180).png().toFile(resolve(publicDir, 'apple-touch-icon.png'))
-  }
+  }    if (!suffix) {
+      // Write a theme-aware favicon.svg that uses prefers-color-scheme media query
+      // instead of currentColor, which doesn't reliably work in SVG favicons.
+      const faviconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+  <style>
+    .bar { fill: #1a1a1a; }
+    @media (prefers-color-scheme: dark) {
+      .bar { fill: #f0f0f0; }
+    }
+  </style>
+  <rect class="bar" x="15" y="48" width="14" height="32" rx="7"/>
+  <rect class="bar" x="43" y="32" width="14" height="64" rx="7"/>
+  <rect class="bar" x="71" y="16" width="14" height="96" rx="7"/>
+  <rect class="bar" x="99" y="40" width="14" height="48" rx="7"/>
+</svg>`
+      writeFileSync(resolve(publicDir, 'favicon.svg'), faviconSvg)
+      console.log('Created public/favicon.svg (theme-aware)')
+      await sharp(Buffer.from(svg)).resize(180, 180).png().toFile(resolve(publicDir, 'apple-touch-icon.png'))
+    }
   console.log(`Created public favicons${suffix && ' (dark)'}`)
 }
 
