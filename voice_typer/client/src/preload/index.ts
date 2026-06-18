@@ -38,10 +38,6 @@ contextBridge.exposeInMainWorld("bubble", {
   endDrag: () => {
     ipcRenderer.send("bubble:drag-end");
   },
-  // ── Theme sync ────────────────────────────────────────────────
-  setThemeSource: (source: 'system' | 'light' | 'dark') => {
-    ipcRenderer.invoke("set-theme-source", source);
-  },
   // ── Enter/exit animations ────────────────────────────────
   onShow: (callback: () => void) => {
     const handler = () => callback();
@@ -57,11 +53,6 @@ contextBridge.exposeInMainWorld("bubble", {
     const handler = (_event: Electron.IpcRendererEvent, draggable: unknown) => callback(Boolean(draggable));
     ipcRenderer.on("bubble:draggable", handler);
     return () => { ipcRenderer.removeListener("bubble:draggable", handler); };
-  },
-  onThemeChange: (callback: (isDark: boolean) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, isDark: unknown) => callback(Boolean(isDark));
-    ipcRenderer.on("bubble:theme", handler);
-    return () => { ipcRenderer.removeListener("bubble:theme", handler); };
   },
   hideComplete: () => {
     ipcRenderer.send("bubble:hidden");
@@ -82,4 +73,9 @@ contextBridge.exposeInMainWorld("window_", {
     ipcRenderer.invoke("history:export", { data, format }) as Promise<{ success: boolean; path?: string; error?: string }>,
   exportVocabulary: (data: Record<string, unknown>, format: 'json' | 'csv') =>
     ipcRenderer.invoke("vocabulary:export", { data, format }) as Promise<{ success: boolean; path?: string; error?: string }>,
+  // UX-008: actually open the log folder in the OS file manager.
+  // Previously the Settings page just showed a snackbar saying
+  // "Log folder opened" without opening anything.
+  openLogs: () =>
+    ipcRenderer.invoke("window:open-logs") as Promise<{ success: boolean; path?: string; error?: string }>,
 });

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, screen, nativeTheme } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, screen, nativeTheme, shell } from "electron";
 import { spawn, ChildProcess } from "child_process";
 import net from "net";
 import fs from "fs";
@@ -19,6 +19,18 @@ declare global {
 }
 
 const IPC_PORT = 9876;
+
+// SEC-018: per-launch random session token.  Passed to the Python
+// subprocess via the VOICE_TYPER_IPC_TOKEN env var and sent as the
+// first JSON line after TCP connect.  The Python IPC server validates
+// it and drops the connection if it doesn't match.  This prevents any
+// local process from connecting to 127.0.0.1:9876 and sending
+// quit_app / set_config / etc.
+//
+// Generated once per Electron process lifetime using crypto.randomBytes
+// (32 bytes = 256 bits of entropy, base64-encoded for transport).
+import { randomBytes } from "crypto";
+const IPC_TOKEN = randomBytes(32).toString("base64");
 
 // When set (autostart at login), the dashboard window is created hidden.
 // The process + tray + bubble still work; the window appears on demand
@@ -296,9 +308,14 @@ function handleMessage(msg: Record<string, unknown>) {
       // so the user isn't left with a window that has no backend.
       app.quit();
     }
-    BrowserWindow.getAllWindows().forEach((win) => {
-      win.webContents.send("python-event", msg);
-    });
+    // SEC-017: previously this broadcast every Python event to every
+    // window.  Transcription text and history records were thus sent
+    // to the bubble window too — a data leak (the bubble only needs
+    // waveform level + show/hide events).  Filter to the main window
+    // only; the bubble gets its own dedicated channel for waveform.
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("python-event", msg);
+    }
   }
 }
 
@@ -347,19 +364,24 @@ function createMainWindow(forceShow = false) {
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
       backgroundThrottling: false,
+      // SEC-014: explicit hardening.  These are Electron defaults
+      // for most fields, but setting them explicitly guards against
+      // future Electron version changes flipping a default to a
+      // less-safe value.
+      contextIsolation: true,        // renderer can't touch Node require
+      nodeIntegration: false,        // no require() in renderer
+      sandbox: true,                 // preload runs in sandboxed context
+      webSecurity: true,             // enforce same-origin policy
+      allowRunningInsecureContent: false,  // block mixed-content
+      // spellcheck adds a tiny IPC surface; we don't need it.
+      spellcheck: false,
     },
   })
 
   nativeTheme.on("updated", () => {
-    const isDark = nativeTheme.shouldUseDarkColors;
     if (mainWindow) {
-      const name = isDark ? "icon-dark.png" : "icon.png";
+      const name = nativeTheme.shouldUseDarkColors ? "icon-dark.png" : "icon.png";
       mainWindow.setIcon(path.join(__dirname, `../../resources/${name}`));
-    }
-    // Forward resolved theme to the bubble window so its Tailwind dark:
-    // variants match the app's actual theme (not just OS preference).
-    if (bubbleWindow && !bubbleWindow.isDestroyed()) {
-      bubbleWindow.webContents.send("bubble:theme", isDark);
     }
   });
 
@@ -392,7 +414,13 @@ function createMainWindow(forceShow = false) {
       input.shift &&
       input.key.toLowerCase() === "i"
     ) {
-      mainWindow?.webContents.toggleDevTools();
+      // SEC-013: DevTools should only be available in dev builds.
+      // In production (app.isPackaged === true), the toggle is a
+      // no-op so end users (and any XSS that tries to trigger it
+      // via synthetic keyboard events) can't open DevTools.
+      if (!app.isPackaged) {
+        mainWindow?.webContents.toggleDevTools();
+      }
     }
   });
 
@@ -448,6 +476,15 @@ function createBubbleWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       backgroundThrottling: false,
+      // SEC-014: harden the bubble window the same way as the main
+      // window.  The bubble renders waveform data and is always-on-top;
+      // an XSS'd renderer hijacking it as a phishing overlay is a
+      // real risk (see SEC-016 for the senderFrame check on its IPC
+      // handlers).
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      spellcheck: false,
     },
   });
 
@@ -529,8 +566,6 @@ function showBubbleWindow(): void {
     // Sync the current draggable state on every show (handles initial state
     // and ensures the bubble renderer is always in sync with the backend)
     win.webContents.send("bubble:draggable", bubbleDraggable);
-    // Sync the current theme so Tailwind dark: variants are correct
-    syncBubbleTheme();
   } catch (e) {
     console.error(`${ts()}  ${BUBBLE_CLR}[BUBBLE] show() failed:${RESET}`, e);
   }
@@ -595,34 +630,64 @@ function hideBubbleWindow(): void {
 
 let bubbleDragging = false;
 
-ipcMain.on("bubble:drag-start", () => {
+// SEC-016: helper that rejects IPC messages not coming from the bubble
+// window's webContents.  Without this check, any XSS'd renderer (or a
+// malicious third party that got code into the main window) could
+// hijack the always-on-top bubble as a phishing overlay by sending
+// drag/position commands.
+function assertFromBubble(event: Electron.IpcMainEvent): boolean {
+  if (!bubbleWindow || bubbleWindow.isDestroyed()) return false;
+  // Compare senderFrame to the bubble window's main frame.  Electron
+  // exposes event.senderFrame (an Electron.WebFrameMain) which is the
+  // origin of the IPC message.
+  return event.senderFrame === bubbleWindow.webContents.mainFrame;
+}
+
+ipcMain.on("bubble:drag-start", (event) => {
+  // SEC-016: only the bubble window may start a drag.
+  if (!assertFromBubble(event)) return;
   bubbleDragging = true;
 });
 
-ipcMain.on("bubble:drag", (_event, { deltaX, deltaY }: { deltaX: number; deltaY: number }) => {
+ipcMain.on("bubble:drag", (event, { deltaX, deltaY }: { deltaX: number; deltaY: number }) => {
+  // SEC-016: only the bubble window may drag itself.
+  if (!assertFromBubble(event)) return;
   if (!bubbleDragging || !bubbleWindow || bubbleWindow.isDestroyed()) return;
   const [x, y] = bubbleWindow.getPosition();
   bubbleWindow.setPosition(x + deltaX, y + deltaY);
 });
 
-ipcMain.on("bubble:drag-end", () => {
+ipcMain.on("bubble:drag-end", (event) => {
+  // SEC-016: only the bubble window may end a drag.
+  if (!assertFromBubble(event)) return;
   bubbleDragging = false;
 });
 
 let bubbleDraggable = true;
 
-ipcMain.on("bubble:draggable", (_event, draggable: boolean) => {
+ipcMain.on("bubble:draggable", (event, draggable: boolean) => {
+  // SEC-016: bubble draggable toggle is also scoped to the bubble.
+  // (The main window has its own settings UI for the same field;
+  // it goes through `set_config`, not this IPC channel.)
+  if (!assertFromBubble(event)) return;
   bubbleDraggable = draggable;
   if (bubbleWindow && !bubbleWindow.isDestroyed()) {
     bubbleWindow.webContents.send("bubble:draggable", draggable);
   }
 });
 
-ipcMain.on("bubble:show-from-renderer", () => {
+ipcMain.on("bubble:show-from-renderer", (event) => {
+  // SEC-016: bubble show/hide from the bubble's own UI is allowed;
+  // the main window uses `set_config` (allowlisted) for global toggle.
+  if (!assertFromBubble(event)) return;
   showBubbleWindow();
 });
 
-ipcMain.on("set_bubble_position", (_event, position: 'top' | 'bottom') => {
+ipcMain.on("set_bubble_position", (event, position: 'top' | 'bottom') => {
+  // SEC-016: only the bubble window may set its position via this
+  // channel.  (Main window uses `set_config` with the allowlisted
+  // `bubble_position` field.)
+  if (!assertFromBubble(event)) return;
   if (position === 'top' || position === 'bottom') {
     bubblePosition = position;
     // If the bubble window is visible, reposition it immediately.
@@ -633,7 +698,9 @@ ipcMain.on("set_bubble_position", (_event, position: 'top' | 'bottom') => {
   }
 });
 
-ipcMain.on("bubble:ready", () => {
+ipcMain.on("bubble:ready", (event) => {
+  // SEC-016: only the bubble window signals readiness.
+  if (!assertFromBubble(event)) return;
   console.log(`${ts()}  ${BUBBLE_CLR}[BUBBLE] renderer reports ready${RESET}`);
   bubblePageReady = true;
 });
@@ -644,7 +711,10 @@ function tcpConnect(port: number) {
     tcpSocket = client;
 
     client.connect(port, "127.0.0.1", () => {
-      // nothing — Python logs will follow, no need for a banner
+      // SEC-018: send the auth message as the first line.  The Python
+      // IPC server reads this before processing any other commands.
+      // If the token doesn't match, the server drops the connection.
+      client.write(JSON.stringify({ type: "auth", token: IPC_TOKEN }) + "\n");
       // Python is running and its TCP server accepted us.
       // Create the main window immediately.
       createMainWindow();
@@ -704,6 +774,11 @@ function startPython() {
       // KMP_DUPLICATE_LIB_OK avoids libiomp5 deadlock when process
       // has no console stdin.
       KMP_DUPLICATE_LIB_OK: "TRUE",
+      // SEC-018: per-launch IPC session token.  The Python IPC server
+      // reads this from the env and requires the Electron client to
+      // send a matching {"type":"auth","token":"..."} message as the
+      // first TCP line.
+      VOICE_TYPER_IPC_TOKEN: IPC_TOKEN,
     },
   });
 
@@ -792,21 +867,6 @@ ipcMain.handle("python-call", async (_event, msg) => {
   return await sendToPython(msg);
 });
 
-// ── Theme sync IPC ────────────────────────────────────────────────
-
-ipcMain.handle("set-theme-source", (_event, source: 'system' | 'light' | 'dark') => {
-  nativeTheme.themeSource = source;
-  // nativeTheme.on("updated") fires automatically and forwards to bubble
-  return true;
-});
-
-// When showing the bubble, sync the current theme so dark: variants match
-function syncBubbleTheme(): void {
-  if (bubbleWindow && !bubbleWindow.isDestroyed()) {
-    bubbleWindow.webContents.send("bubble:theme", nativeTheme.shouldUseDarkColors);
-  }
-}
-
 // ── Window control IPC (used by the custom title bar) ──────────────
 
 let preMaximizeBounds: Electron.Rectangle | null = null
@@ -857,8 +917,22 @@ ipcMain.handle("history:export", async (_event, { data, format }: { data: Record
 
   try {
     if (format === 'csv') {
-      const header = Object.keys(data[0] ?? {}).join(',')
-      const rows = data.map(r => Object.values(r).map(v => JSON.stringify(v ?? '')).join(','))
+      // SEC-015: CSV formula injection defense.  Cells starting
+      // with =, +, -, @, TAB, or CR are interpreted as formulas by
+      // Excel/LibreOffice when the user opens the exported file.
+      // Prefix them with a single quote so the spreadsheet treats
+      // them as literal text.  Also wrap in double quotes (with
+      // embedded quotes doubled) to prevent injection via newlines
+      // or commas.
+      const csvEscape = (s: string): string => {
+        let v = String(s ?? '')
+        if (/^[=+\-@\t\r]/.test(v)) {
+          v = "'" + v
+        }
+        return '"' + v.replace(/"/g, '""') + '"'
+      }
+      const header = Object.keys(data[0] ?? {}).map(csvEscape).join(',')
+      const rows = data.map(r => Object.values(r).map(csvEscape).join(','))
       fs.writeFileSync(filePath, [header, ...rows].join('\n'), 'utf-8')
     } else {
       fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8')
@@ -886,12 +960,19 @@ ipcMain.handle("vocabulary:export", async (_event, { data, format }: { data: Rec
 
   try {
     if (format === 'csv') {
+      // SEC-015: CSV formula injection defense (see history:export).
+      const csvEscape = (s: string): string => {
+        let v = String(s ?? '')
+        if (/^[=+\-@\t\r]/.test(v)) {
+          v = "'" + v
+        }
+        return '"' + v.replace(/"/g, '""') + '"'
+      }
       const rows: string[] = ['original,correction']
       const vocab = data as Record<string, unknown>
       const entries = (vocab.entries ?? []) as Array<Record<string, string>>
       for (const entry of entries) {
-        const esc = (s: string) => String(s).replace(/"/g, '""')
-        rows.push(`"${esc(entry.original ?? '')}","${esc(entry.correction ?? '')}"`)
+        rows.push(`${csvEscape(entry.original ?? '')},${csvEscape(entry.correction ?? '')}`)
       }
       fs.writeFileSync(filePath, rows.join('\n'), 'utf-8')
     } else {
@@ -903,6 +984,32 @@ ipcMain.handle("vocabulary:export", async (_event, { data, format }: { data: Rec
     return { success: false, error: (e as Error).message }
   }
 })
+
+// ── UX-008: Open log folder ─────────────────────────────────────
+// Previously the Settings page's "View Logs" button just showed a
+// snackbar saying "Log folder opened" without actually opening
+// anything.  This handler opens the Python backend's log directory
+// in the OS file manager.  The path mirrors what
+// voice_typer/server/app.py:_setup_logging() writes to.
+
+ipcMain.handle("window:open-logs", async () => {
+  try {
+    const os = require("os");
+    const path = require("path");
+    // Mirror voice_typer/server/config.py:_config_dir()
+    const logDir = path.join(os.homedir(), ".voice-typer");
+    // Create the directory if it doesn't exist yet (first run).
+    try { fs.mkdirSync(logDir, { recursive: true }); } catch (_) { /* ignore */ }
+    const result = await shell.openPath(logDir);
+    if (result) {
+      // openPath returns an error string on failure, empty string on success.
+      return { success: false, error: result, path: logDir };
+    }
+    return { success: true, path: logDir };
+  } catch (e: unknown) {
+    return { success: false, error: (e as Error).message };
+  }
+});
 
 // Tracks a genuine quit (tray Quit / Cmd+Q) so the close-to-tray handler
 // on the window knows to let the close proceed instead of hiding.
