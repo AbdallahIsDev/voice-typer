@@ -145,125 +145,34 @@ function ts(): string {
 }
 
 /**
- * Kill any leftover `voice_typer` Python processes from previous
- * sessions (console-script runs, prior Electron launches, restart
- * attempts, autostart launcher, etc.).
+ * RELIABILITY-002: the old `killStalePython()` function used `wmic`
+ * (deprecated in Win11 24H2+) and `taskkill /T /F` to scan for and
+ * kill stale Python backend processes.  This was fragile and
+ * dangerous:
  *
- * Scans BOTH `python.exe` and `pythonw.exe` — the autostart launcher
- * runs as `pythonw.exe`, so scanning only `python.exe` would let a
- * stale autostarted instance survive and cause mutex conflicts.
+ *   1. `wmic` is deprecated and may be absent on newer Windows builds.
+ *   2. `taskkill /T /F` killed legitimate autostart sessions when the
+ *      user started Electron manually.
+ *   3. Any process with "voice_typer" in its command line (e.g. a
+ *      backup tool) was fair game for killing.
  *
- * Additionally tree-kills any orphaned Electron / npm / node process
- * whose command line mentions voice-typer.  Without this, killing only
- * the Python backend leaves the OLD Electron window orphaned (Windows
- * doesn't cascade child kills without a Job Object or /T), resulting in
- * two visible windows after a manual `npm run dev`.  We use `taskkill
- * /T /F` (the documented Windows process-tree kill) so the whole
- * npm→electron→python chain dies atomically.
+ * The function has been removed.  Single-instance enforcement is now
+ * handled by two independent mechanisms that were already in place:
+ *
+ *   - Electron side: `app.requestSingleInstanceLock()` (above) ensures
+ *     only one Electron process runs.
+ *   - Python side: `_ensure_single_instance()` in app.py uses a Win32
+ *     named mutex (`VoiceTyperSingleInstance`) to ensure only one
+ *     Python backend runs.
+ *
+ * If Electron starts and a Python backend is already running (e.g.
+ * from autostart), `tcpConnect()` will successfully connect to it and
+ * adopt it — no killing needed.  If no Python is listening, Electron
+ * spawns a new one via `startPython()`.
+ *
+ * This eliminates all `wmic`/`tasklist`/`taskkill` usage from the
+ * Electron main process.
  */
-function killStalePython(): void {
-  if (process.platform !== "win32") return;
-  const myPyPid = (globalThis as { __myPyPid?: number }).__myPyPid;
-
-  /**
-   * Read a process's ParentProcessId via WMIC (best-effort).
-   * Returns 0 on failure.
-   */
-  const parentPidOf = (pid: number): number => {
-    try {
-      const out = require("child_process").execSync(
-        `wmic process where "ProcessId=${pid}" get ParentProcessId /format:list`,
-        { encoding: "utf8", timeout: 5000, windowsHide: true },
-      ) as string;
-      const m = out.match(/ParentProcessId=(\d+)/);
-      return m ? parseInt(m[1], 10) : 0;
-    } catch { return 0; }
-  };
-
-  /**
-   * Read a process's command line via WMIC (best-effort).
-   */
-  const commandLineOf = (pid: number): string => {
-    try {
-      return require("child_process").execSync(
-        `wmic process where "ProcessId=${pid}" get CommandLine /format:list`,
-        { encoding: "utf8", timeout: 5000, windowsHide: true },
-      ) as string;
-    } catch { return ""; }
-  };
-
-  /**
-   * Tree-kill a PID and ALL its descendants via taskkill /T /F — the
-   * documented way to atomically kill a Windows process tree.
-   */
-  const treeKill = (pid: number): void => {
-    try {
-      require("child_process").execSync(
-        `taskkill /PID ${pid} /T /F`,
-        { encoding: "utf8", timeout: 8000, windowsHide: true, stdio: "ignore" },
-      );
-    } catch { /* process may already be gone */ }
-  };
-
-  /**
-   * Kill a stale Python PID.  If it was spawned by an autostart npm/
-   * electron chain, walk UP to the electron.exe/node.exe ancestor and
-   * tree-kill from there so the orphaned Electron window dies too.
-   */
-  const reapPythonPid = (pid: number): void => {
-    if (pid === process.pid) return;
-    if (myPyPid && pid === myPyPid) return;
-    const cmd = commandLineOf(pid);
-    if (!/voice[_-]?typer/i.test(cmd)) return;
-    // Don't kill the Flet UI subprocess or the wmic query itself.
-    if (/ui\.app/i.test(cmd)) return;
-    if (/imt\.exe|wmic\.exe/i.test(cmd)) return;
-
-    // Walk up the process tree looking for an electron.exe / node.exe
-    // ancestor that also belongs to voice-typer.  If found, tree-kill
-    // from that ancestor (kills npm + electron + python together).
-    // Otherwise fall back to SIGTERM on just the Python PID.
-    let cursor = pid;
-    for (let hop = 0; hop < 6; hop++) {  // bound the walk
-      const parent = parentPidOf(cursor);
-      if (!parent || parent === process.pid) break;
-      const parentCmd = commandLineOf(parent);
-      if (
-        /electron\.exe/i.test(parentCmd) ||
-        (/node\.exe/i.test(parentCmd) && /voice[_-]?typer/i.test(parentCmd))
-      ) {
-        console.log(`[VT] reaper: tree-killing ancestor (PID=${parent}) of stale python (PID=${pid})`);
-        treeKill(parent);
-        return;
-      }
-      cursor = parent;
-    }
-    console.log(`[VT] reaper: KILLING stale voice_typer python (PID=${pid})`);
-    try { process.kill(pid, "SIGTERM"); } catch {}
-  };
-
-  // Scan both image names.  We run tasklist once per name because
-  // tasklist's /FI filter only accepts a single IMAGENAME.
-  for (const image of ["python.exe", "pythonw.exe"]) {
-    try {
-      const tasklist = require("child_process").execSync(
-        `tasklist /FI "IMAGENAME eq ${image}" /FO CSV /NH`,
-        { encoding: "utf8", timeout: 5000, windowsHide: true },
-      ) as string;
-      const lines = tasklist.split(/\r?\n/);
-      // The CSV line looks like: "python.exe","1234",...  — match the
-      // image name + PID, tolerant of pythonw.exe.
-      const pidRe = new RegExp(`^"${image.replace(/\./g, "\\.")}","(\\d+)"`, "i");
-      for (const line of lines) {
-        const m = line.trim().match(pidRe);
-        if (!m) continue;
-        reapPythonPid(parseInt(m[1], 10));
-      }
-    } catch (e) {
-      console.warn(`[VT] killStalePython (${image}) failed:`, e);
-    }
-  }
-}
 
 function pythonArgs(): [string, string[]] {
   const home = os.homedir();
@@ -841,7 +750,10 @@ app.whenReady().then(() => {
     console.error("[VT] unhandledRejection:", err);
   });
 
-  killStalePython();
+  // RELIABILITY-002: killStalePython() removed — single-instance
+  // enforcement is handled by requestSingleInstanceLock() (Electron)
+  // and the Win32 named mutex (Python).  See the comment block above
+  // for details.
 
   if (process.env.VT_BUBBLE_TEST === "1") {
     console.log(`${ts()}  ${BUBBLE_CLR}[BUBBLE] VT_BUBBLE_TEST=1 -- showing bubble for diagnostics${RESET}`);

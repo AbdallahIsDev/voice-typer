@@ -476,8 +476,12 @@ class WindowsNativeHotkey(HotkeyBackend):
     def _run_polling_loop(self, callback):
         """GetAsyncKeyState polling fallback for hotkey detection.
 
-        Polls the key state every 33ms (~30Hz).  Detects key-down
-        transitions by checking the high bit of GetAsyncKeyState.
+        PERF-003: polls the key state every 100ms (~10Hz).  Detects
+        key-down transitions by checking the high bit of GetAsyncKeyState.
+        Previously polled at 50ms (20Hz) which caused ~3-5% battery
+        drain per hour on laptops.  10Hz is still responsive enough
+        for a push-to-talk hotkey (max 100ms latency) while halving
+        the wakeups.
         """
         import ctypes
         vk = self._vk
@@ -491,8 +495,9 @@ class WindowsNativeHotkey(HotkeyBackend):
                 log.info("[HOTKEY FIRED] GetAsyncKeyState detected key-down")
                 callback()
             was_pressed = is_pressed
+            # PERF-003: 100ms = 10Hz (was 50ms = 20Hz)
             # pyrefly: ignore [missing-attribute]
-            self._kernel32.Sleep(50)  # ~20Hz polling rate
+            self._kernel32.Sleep(100)
 
     def _modifiers_pressed(self) -> bool:
         if self._modifiers & _MOD_CONTROL:

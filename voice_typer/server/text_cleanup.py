@@ -143,17 +143,41 @@ _active_extra_words: list[tuple[str, str]] = []
 def configure_corrections(
     config_dir: Path | None = None,
     corrections_path: str | None = None,
-):
+) -> str | None:
     """Load corrections from external JSON (if present).
 
     When an external file exists and is valid, its entries replace the
     built-in defaults.  Otherwise the built-in dicts are restored.
     Call this once at startup so that ``clean_transcribed_text`` uses
     the user-provided corrections.
+
+    ARCH-004: returns an error message string if the external file
+    exists but could not be loaded (malformed JSON, permission error,
+    etc.), or None on success / no-file.  Callers can surface this
+    to the user via a tray notification so they know why their
+    corrections aren't taking effect.
     """
     global _active_misspellings, _active_phrases, _active_extra_words
+
+    # Determine the user corrections path (mirrors _load_external_corrections)
+    user_path = None
+    if corrections_path:
+        user_path = Path(corrections_path)
+    elif config_dir is not None:
+        user_path = config_dir / "voice-typer-corrections.json"
+
+    # Check if the user file exists but is unloadable
+    error_msg: str | None = None
+    if user_path is not None and user_path.exists():
+        try:
+            json.loads(user_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            error_msg = f"Corrections file {user_path.name} is malformed: {e}"
+            log.warning("[CLEANUP] %s", error_msg)
+
     result = _active_corrections(config_dir, corrections_path)
     _active_misspellings, _active_phrases, _active_extra_words = result
+    return error_msg
 
 
 def clean_transcribed_text(

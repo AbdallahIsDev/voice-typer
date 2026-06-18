@@ -562,6 +562,16 @@ class IPCServer:
                 resp["type"] = "error"
                 resp["data"] = {"message": str(e)}
 
+        elif cmd == "undo_last":
+            # UX-003: undo last transcription via backspace keystrokes
+            try:
+                self.app.undo_last()
+                resp["type"] = "ack"
+            except Exception as e:
+                log.error("[IPC] undo_last failed: %s", e, exc_info=True)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
         elif cmd == "get_config":
             resp["type"] = "config"
             # SEC-003: previously this returned config.__dict__.copy()
