@@ -1480,3 +1480,149 @@ class TestGetDefaultsIpc:
         # still be <f9>.
         assert result["data"]["hotkey"] == "<f2>"
         assert mock_app.config.hotkey == "<f9>"
+
+
+# ── TEST-001: IPC DoS/flood test ─────────────────────────────────────────
+
+
+class TestIpcFloodResistance:
+    """TEST-001: verify the IPC server can handle a flood of messages
+    without crashing or exhausting resources.  The rate limiter
+    (RELIABILITY-006) should kick in and reject over-budget messages."""
+
+    def test_flood_of_get_status_does_not_crash(self, server, mock_app):
+        """Sending 1000 get_status messages in rapid succession should
+        not crash the server.  The rate limiter will reject most of
+        them, but the server must stay alive and responsive."""
+        rejected = 0
+        accepted = 0
+        for i in range(1000):
+            result = server._dispatch({"id": i, "type": "get_status"})
+            if result.get("type") == "error" and "rate limit" in result.get("data", {}).get("message", ""):
+                rejected += 1
+            elif result.get("type") == "status":
+                accepted += 1
+        # The server should still be alive
+        assert accepted + rejected == 1000
+        # At least some should have been accepted (the first few before
+        # the rate limit kicks in)
+        assert accepted > 0
+
+    def test_flood_of_malformed_json_does_not_crash(self, server):
+        """Malformed JSON lines should be rejected without crashing."""
+        import io
+        import json
+        stdin = io.StringIO()
+        stdout = io.StringIO()
+        # 100 malformed JSON lines
+        for i in range(100):
+            stdin.write(f'{{"invalid": "json", missing_colon}}\n')
+        stdin.seek(0)
+        server._running = True
+        server._run(_stdin=stdin, _stdout=stdout)
+        # Each line should produce an error response
+        lines = stdout.getvalue().strip().split("\n")
+        assert len(lines) == 100
+        for line in lines:
+            msg = json.loads(line)
+            assert msg["type"] == "error"
+
+    def test_large_limit_does_not_oom(self, server, mock_app):
+        """A history request with limit=10^9 should be clamped, not OOM."""
+        mock_app.history_db.get_recent = MagicMock(return_value=[])
+        result = server._dispatch({
+            "id": 1, "type": "get_history",
+            "data": {"limit": 10**9},
+        })
+        # Should succeed (clamped to 500), not crash
+        assert result["type"] == "history"
+        # get_recent must be called with 500, not 10^9
+        mock_app.history_db.get_recent.assert_called_once_with(500, 0)
+
+
+# ── TEST-002: End-to-end happy-path test ─────────────────────────────────
+
+
+class TestEndToEndHappyPath:
+    """TEST-002: exercise the full IPC dispatch roundtrip from
+    get_status → toggle_dictation → get_history → set_config.
+
+    This test doesn't test the actual audio recording (that requires
+    hardware), but it verifies that the IPC dispatcher correctly
+    routes commands to the app, the app processes them, and the
+    response shape is correct end-to-end."""
+
+    def test_full_ipc_roundtrip(self, server, mock_app):
+        """Verify a sequence of IPC commands produces correct responses."""
+        import json
+
+        # 1. Check initial status
+        result = server._dispatch({"id": 1, "type": "get_status"})
+        assert result["type"] == "status"
+        assert result["data"]["status"] == "idle"
+
+        # 2. Toggle dictation (start)
+        result = server._dispatch({"id": 2, "type": "toggle_dictation"})
+        assert result["type"] == "ack"
+        assert mock_app.toggle_called is True
+
+        # 3. Get config (verify it's sanitized)
+        mock_app.config.cloud_api_key = "sk-test-key"
+        result = server._dispatch({"id": 3, "type": "get_config"})
+        assert result["type"] == "config"
+        assert result["data"]["cloud_api_key"] == "<redacted>"
+
+        # 4. Set config (verify allowlist)
+        result = server._dispatch({
+            "id": 4, "type": "set_config",
+            "data": {"hotkey": "<f5>"},
+        })
+        assert result["type"] == "ack"
+        assert mock_app.config.hotkey == "<f5>"
+
+        # 5. Get history
+        result = server._dispatch({"id": 5, "type": "get_history"})
+        assert result["type"] == "history"
+        assert len(result["data"]) >= 1
+
+        # 6. Get today stats
+        result = server._dispatch({"id": 6, "type": "get_today_stats"})
+        assert result["type"] == "today_stats"
+        assert "count" in result["data"]
+
+        # 7. Toggle dictation (stop)
+        result = server._dispatch({"id": 7, "type": "toggle_dictation"})
+        assert result["type"] == "ack"
+
+        # 8. Verify the app processed everything
+        assert mock_app.toggle_called is True
+        assert mock_app.config._saved is True
+
+    def test_undo_last_ipc_command(self, server, mock_app):
+        """TEST-002: undo_last IPC command is dispatched correctly."""
+        # Add undo_last to mock_app
+        mock_app.undo_called = False
+        def undo_last():
+            mock_app.undo_called = True
+        mock_app.undo_last = undo_last
+
+        result = server._dispatch({"id": 1, "type": "undo_last"})
+        assert result == {"id": 1, "type": "ack"}
+        assert mock_app.undo_called is True
+
+    def test_error_recovery_after_failed_command(self, server, mock_app):
+        """TEST-002: after a failed command, the server should still
+        process subsequent commands."""
+        # Make toggle_dictation fail
+        def failing_toggle():
+            raise RuntimeError("toggle failed")
+        mock_app.toggle_dictation = failing_toggle
+
+        result = server._dispatch({"id": 1, "type": "toggle_dictation"})
+        assert result["type"] == "error"
+        assert "toggle failed" in result["data"]["message"]
+
+        # Next command should still work
+        result = server._dispatch({"id": 2, "type": "get_status"})
+        assert result["type"] == "status"
+        assert result["data"]["status"] == "idle"

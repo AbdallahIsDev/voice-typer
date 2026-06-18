@@ -1713,3 +1713,86 @@ class TestWin32ConsoleHandler:
         """Unknown event types should return False."""
         result = app._win32_console_handler(99)
         assert result is False
+
+
+# ── TEST-004: restart_app cleanup path ───────────────────────────────────
+
+
+class TestRestartAppCleanupPath:
+    """TEST-004: verify that restart_app stops all three hotkey backends
+    (hotkey, esc, repaste) and calls tray.stop() before exiting.
+
+    This is a regression test for RELIABILITY-003, which was fixed
+    alongside RELIABILITY-001 in round 3."""
+
+    def test_restart_stops_all_backends(self, app, monkeypatch):
+        """restart_app must stop _hotkey_backend, _esc_backend, and
+        _repaste_backend — not just _hotkey_backend."""
+        import subprocess as _sp
+        monkeypatch.setattr(_sp, "Popen", lambda *a, **kw: MagicMock())
+        monkeypatch.setattr("voice_typer.server.app.os.environ", {})
+        monkeypatch.setattr(sys, "argv", ["voice_typer"])
+        monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
+        monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+        monkeypatch.setattr("voice_typer.server.app.sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
+        app._hotkey_backend = MagicMock()
+        app._esc_backend = MagicMock()
+        app._repaste_backend = MagicMock()
+        app._cancel_pending_timers = MagicMock()
+        app.tray = MagicMock()
+
+        try:
+            app.restart_app()
+        except SystemExit:
+            pass
+
+        app._hotkey_backend.stop.assert_called_once()
+        app._esc_backend.stop.assert_called_once()
+        app._repaste_backend.stop.assert_called_once()
+
+    def test_restart_calls_tray_stop(self, app, monkeypatch):
+        """restart_app must call tray.stop() to break the pystray loop."""
+        import subprocess as _sp
+        monkeypatch.setattr(_sp, "Popen", lambda *a, **kw: MagicMock())
+        monkeypatch.setattr("voice_typer.server.app.os.environ", {})
+        monkeypatch.setattr(sys, "argv", ["voice_typer"])
+        monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
+        monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+        monkeypatch.setattr("voice_typer.server.app.sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
+        app._hotkey_backend = MagicMock()
+        app._esc_backend = MagicMock()
+        app._repaste_backend = MagicMock()
+        app._cancel_pending_timers = MagicMock()
+        app.tray = MagicMock()
+
+        try:
+            app.restart_app()
+        except SystemExit:
+            pass
+
+        app.tray.stop.assert_called_once()
+
+    def test_restart_does_not_use_os_exit(self, app, monkeypatch):
+        """restart_app must exit via sys.exit(0), not os._exit(0).
+        os._exit skips Python cleanup (atexit, __del__, finally)."""
+        import subprocess as _sp
+        os_exit_calls = []
+        monkeypatch.setattr(_sp, "Popen", lambda *a, **kw: MagicMock())
+        monkeypatch.setattr("voice_typer.server.app.os.environ", {})
+        monkeypatch.setattr(sys, "argv", ["voice_typer"])
+        monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
+        monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: os_exit_calls.append(code))
+        sys_exit_called = []
+        monkeypatch.setattr("voice_typer.server.app.sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
+        app._hotkey_backend = MagicMock()
+        app._esc_backend = MagicMock()
+        app._repaste_backend = MagicMock()
+        app._cancel_pending_timers = MagicMock()
+        app.tray = MagicMock()
+
+        try:
+            app.restart_app()
+        except SystemExit:
+            pass
+
+        assert os_exit_calls == [], f"restart_app must not call os._exit; got {os_exit_calls}"
