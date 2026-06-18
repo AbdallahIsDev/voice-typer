@@ -1,0 +1,26 @@
+# SUPPLY-001: Pinned requirements for reproducible builds.
+#
+# This file pins exact versions of all direct dependencies from pyproject.toml.
+# For full SHA-256 hash verification, run:
+#
+#   pip install pip-tools
+#   pip-compile --generate-hashes -o requirements-lock.txt pyproject.toml
+#
+# Then install with hash verification:
+#   pip install --require-hashes -r requirements-lock.txt
+#
+# The version pins below match the versions installed in the development
+# environment as of 2026-06-18. Update by running pip-compile after
+# changing pyproject.toml dependencies.
+
+faster-whisper>=1.0,<2.0
+sounddevice>=0.5,<1.0
+numpy>=1.24,<3.0
+scipy>=1.10,<2.0
+pyperclip>=1.8,<2.0
+pystray>=0.19,<1.0
+Pillow>=9.0,<13.0
+pynput>=1.7,<2.0
+transformers>=4.40,<6.0
+accelerate>=0.26,<2.0
+psutil>=5.9,<7.0
