@@ -1,7 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
+
+// ── Bubble bridge API (exposed by preload) ───────────────────────
 
 interface BubbleBridge {
-  onLevel: (callback: (data: { rms: number; peak: number }) => void) => () => void
+  onLevel: (cb: (data: { rms: number; peak: number }) => void) => () => void
+  onShow: (cb: () => void) => () => void
+  onHide: (cb: () => void) => () => void
+  onDraggable: (cb: (draggable: boolean) => void) => () => void
+  hideComplete: () => void
+  signalReady: () => void
 }
 
 declare global {
@@ -10,182 +17,216 @@ declare global {
   }
 }
 
-const BAR_COUNT = 28
-const TARGET_FPS = 60
-const FRAME_MS = 1000 / TARGET_FPS
+// ── Constants ────────────────────────────────────────────────────
 
-function rmsToHeight(rms: number): number {
-  // Audio RMS in [0, ~0.3] for speech; map to [0, 1] with a soft
-  // compressor so loud sounds don't peg the bars.
-  const v = Math.min(1, rms * 6)
-  return v
+const DOT_COUNT = 7
+const MIN_HEIGHT = 4       // px — resting bar height
+const MAX_HEIGHT = 30      // px — peak bar height
+
+/**
+ * Per-bar response weights.  A gentle bell shape so the spectrum looks
+ * organic (centre bars tallest) instead of every bar moving in lockstep
+ * like a single volume meter.
+ */
+const DOT_WEIGHTS = [0.55, 0.8, 1.0, 0.9, 1.0, 0.8, 0.55]
+
+/**
+ * RMS → normalised level [0, 1].
+ * Speech RMS typically lives in [0, ~0.3].  We apply a soft compressor
+ * so loud transients don't peg every bar.
+ */
+function rmsToNorm(rms: number): number {
+  return Math.min(1, rms * 5)
 }
 
-function useLevels() {
-  const [levels, setLevels] = useState<number[]>(() =>
-    new Array(BAR_COUNT).fill(0).map(() => 0.04 + Math.random() * 0.02),
-  )
-  const [speaking, setSpeaking] = useState(false)
-  const idxRef = useRef(0)
-  const rafRef = useRef<number | null>(null)
-  const nextTickRef = useRef(0)
+// ── Custom hook: direct-DOM animation at 60fps ────────────────────
+// React state is intentionally NOT used for the per-frame bar heights.
+// Instead we grab a ref to each <span> and mutate style directly from
+// requestAnimationFrame — zero React re-render overhead at 60 Hz.
+
+function useAudioLevels(dotRefs: React.RefObject<(HTMLSpanElement | null)[]>) {
+  const rawLevelRef = useRef(0)       // smoothed RMS (0–1 scale)
+  const frameRef = useRef<number | null>(null)
 
   useEffect(() => {
     const api = window.bubble
     if (!api) return
 
-    // Push the latest sample into a rolling window.  The animation
-    // loop drains this window on requestAnimationFrame and advances
-    // the index, producing a left-to-right scrolling waveform.
+    // ── Level listener ──────────────────────────────────────────
+    // Asymmetric smoothing: fast attack (reacts the instant the user
+    // speaks), slower release (graceful decay back to rest).  This is
+    // what makes a visualizer feel "live" rather than laggy.
     const onLevel = (data: { rms: number; peak: number }) => {
-      const h = rmsToHeight(data.rms)
-      setLevels((prev) => {
-        const next = prev.slice()
-        next[idxRef.current % BAR_COUNT] = h
-        idxRef.current = (idxRef.current + 1) % BAR_COUNT
-        return next
-      })
-      setSpeaking(data.rms > 0.012)
+      const norm = rmsToNorm(data.rms)
+      const cur = rawLevelRef.current
+      if (norm > cur) {
+        rawLevelRef.current = cur * 0.3 + norm * 0.7   // fast attack
+      } else {
+        rawLevelRef.current = cur * 0.86 + norm * 0.14 // slower release
+      }
     }
+
     const off = api.onLevel(onLevel)
 
-    const tick = (t: number) => {
-      if (t >= nextTickRef.current) {
-        nextTickRef.current = t + FRAME_MS
-        // Idle decay: while not receiving new samples, ease every bar
-        // toward a low baseline so the waveform looks "alive" without
-        // speech.
-        setLevels((prev) => {
-          const out = prev.slice()
-          for (let i = 0; i < out.length; i++) {
-            const v = out[i]
-            if (v > 0.06) out[i] = v * 0.92 + 0.05
-            else out[i] = v * 0.96 + 0.02
-          }
-          return out
-        })
+    // ── Animation loop ───────────────────────────────────────────
+    const animate = () => {
+      const dots = dotRefs.current
+      if (!dots) return
+
+      const level = rawLevelRef.current
+
+      // Bar colour tracks the current theme so the direct-DOM
+      // mutations stay in sync with Tailwind's dark: variants.
+      const isDark = document.documentElement.classList.contains('dark')
+      const barColor = isDark ? '#fff' : '#18181b' // zinc-900
+
+      for (let i = 0; i < DOT_COUNT; i++) {
+        const el = dots[i]
+        if (!el) continue
+        const weight = DOT_WEIGHTS[i] ?? 1
+        // Target height = resting + (level × weight) × dynamic range.
+        // Loud voice → bars climb toward MAX; quiet/low → bars sit near MIN.
+        const target = MIN_HEIGHT + level * weight * (MAX_HEIGHT - MIN_HEIGHT)
+        // Ease the rendered bar toward the target so motion is smooth.
+        const cur = parseFloat(el.style.height) || MIN_HEIGHT
+        const next = cur + (target - cur) * 0.32
+        el.style.height = `${Math.max(MIN_HEIGHT, next)}px`
+        el.style.backgroundColor = barColor
+        // Opacity tracks level: dim at rest, fully visible when speaking.
+        el.style.opacity = `${0.3 + level * 0.7}`
       }
-      rafRef.current = requestAnimationFrame(tick)
+
+      frameRef.current = requestAnimationFrame(animate)
     }
-    rafRef.current = requestAnimationFrame(tick)
+
+    frameRef.current = requestAnimationFrame(animate)
+
     return () => {
       off()
-      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
+    }
+  }, [dotRefs])
+}
+
+// ── Enter / exit animation state ───────────────────────────────────
+
+type AnimState = 'enter' | 'exit' | ''
+
+// ── Theme sync — keeps the bubble's <html> in sync with the main
+//    app's theme so Tailwind dark: variants resolve correctly. ───────
+
+function useThemeSync() {
+  useEffect(() => {
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)')
+
+    const apply = () => {
+      // The bubble has no config of its own, so we follow the OS
+      // preference directly.  When the main app sets theme_mode to
+      // 'light' or 'dark', the OS-level nativeTheme was already
+      // changed by Electron, so prefers-color-scheme reflects it.
+      document.documentElement.classList.toggle('dark', prefersDark.matches)
+    }
+
+    apply()
+    prefersDark.addEventListener('change', apply)
+    return () => prefersDark.removeEventListener('change', apply)
+  }, [])
+}
+
+// ── Bubble component ───────────────────────────────────────────────
+
+export function Bubble() {
+  const dotRefs = useRef<(HTMLSpanElement | null)[]>([])
+  const [animState, setAnimState] = useState<AnimState>('enter')
+  const [draggable, setDraggable] = useState(true)
+
+  useThemeSync()
+  useAudioLevels(dotRefs)
+
+  // ── Enter / exit animation handlers ──────────────────────────────
+  useEffect(() => {
+    const api = window.bubble
+    if (!api) return
+
+    const offShow = api.onShow(() => {
+      setAnimState('enter')
+    })
+
+    const offHide = api.onHide(() => {
+      setAnimState('exit')
+    })
+
+    return () => {
+      offShow()
+      offHide()
     }
   }, [])
 
-  return { levels, speaking }
-}
+  // ── Listen for draggable state ───────────────────────────────────
+  useEffect(() => {
+    const api = window.bubble
+    if (!api) return
 
-function Waveform({ levels, speaking }: { levels: number[]; speaking: boolean }) {
-  const w = 220
-  const h = 56
-  const barW = w / BAR_COUNT
-  const gap = Math.max(1, barW * 0.25)
-  const fill = barW - gap
+    const off = api.onDraggable((d) => setDraggable(d))
+    return off
+  }, [])
 
-  return (
-    <svg
-      width={w}
-      height={h}
-      viewBox={`0 0 ${w} ${h}`}
-      className="select-none"
-      aria-hidden
-    >
-      <defs>
-        <linearGradient id="wf-grad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#818cf8" stopOpacity="0.95" />
-          <stop offset="100%" stopColor="#4f46e5" stopOpacity="0.6" />
-        </linearGradient>
-      </defs>
-      {levels.map((v, i) => {
-        const norm = Math.max(0.04, Math.min(1, v))
-        const bh = norm * (h - 6)
-        const y = (h - bh) / 2
-        const x = i * barW + gap / 2
-        return (
-          <rect
-            key={i}
-            x={x}
-            y={y}
-            width={fill}
-            height={bh}
-            rx={Math.min(3, fill / 2)}
-            ry={Math.min(3, fill / 2)}
-            fill="url(#wf-grad)"
-            opacity={speaking ? 1 : 0.55}
-          />
-        )
-      })}
-    </svg>
-  )
-}
+  // ── Animation-end callback ──────────────────────────────────────
+  // When the exit CSS transition completes, tell the main process
+  // it's safe to actually hide() the BrowserWindow.
+  const handleAnimEnd = useCallback(() => {
+    if (animState === 'exit') {
+      setAnimState('')
+      window.bubble?.hideComplete?.()
+    } else if (animState === 'enter') {
+      setAnimState('')
+    }
+  }, [animState])
 
-function MicIcon({ active }: { active: boolean }) {
-  return (
-    <svg
-      width="22"
-      height="22"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={active ? 'text-indigo-500' : 'text-zinc-400'}
-      aria-label="microphone"
-    >
-      <rect x="9" y="2" width="6" height="13" rx="3" />
-      <path d="M5 11a7 7 0 0 0 14 0" />
-      <line x1="12" y1="18" x2="12" y2="22" />
-    </svg>
-  )
-}
+  // ── Build bar spans ──────────────────────────────────────────────
+  const dots = Array.from({ length: DOT_COUNT }, (_, i) => i)
 
-function LogoMark() {
-  // Inline copy of the project's logo (matches Logo.tsx in the main
-  // app).  Kept here so the bubble is self-contained.
-  return (
-    <svg
-      width="28"
-      height="28"
-      viewBox="0 0 128 109"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-label="Voice Typer"
-    >
-      <rect width="13.5631" height="108.504" rx="6.78154" className="fill-black dark:fill-white" />
-      <path
-        d="M77.0728 3.9668C71.5231 34.1984 57.8119 48.3888 27.125 55.7925C51.6092 61.0367 69.2379 69.3659 77.0728 104.842C84.2548 72.4507 97.6396 63.1961 128 55.7925C99.2718 49.3143 83.9284 36.9748 77.0728 3.9668Z"
-        className="fill-black dark:fill-white"
-      />
-    </svg>
-  )
-}
+  // ── Drag approach ──────────────────────────────────────────────
+  // We use the same CSS `-webkit-app-region: drag` / `no-drag` approach
+  // as the main window's custom title bar (TitleBar.tsx + .drag-region
+  // class in index.css).  This is stateless and handled at the
+  // Chromium/OS level, so it survives window hide/show cycles — unlike
+  // JavaScript pointer-capture which breaks after BrowserWindow.hide().
+  //
+  // The outer wrapper is the drag region (full width).  The inner pill
+  // carries `no-drag` so the visualizer bars remain clickable/visible
+  // without triggering a drag.  An invisible drag-handle element sits
+  // behind the pill to provide a grab target that doesn't interfere
+  // with the visual content.
 
-export function Bubble() {
-  const { levels, speaking } = useLevels()
-  console.log(`[bubble] render levels=${levels.length} speaking=${speaking} dom=${typeof document !== 'undefined'}`)
   return (
     <div
-      className="flex h-screen w-screen items-center justify-center p-2"
-      style={{ background: '#0a0a0c' }}
+      className={`
+        inline-flex items-center justify-center
+        ${animState === 'enter' ? 'animate-bubble-enter' : ''}
+        ${animState === 'exit'  ? 'animate-bubble-exit'  : ''}
+      `}
+      onAnimationEnd={handleAnimEnd}
     >
       <div
-        className="flex items-center gap-4 rounded-2xl border border-white/10 bg-zinc-900 px-5 py-4 shadow-2xl ring-1 ring-black/40"
-        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+        className={`
+          drag-region inline-flex items-center gap-3 rounded-full
+          border border-zinc-200 dark:border-white/10
+          bg-white dark:bg-zinc-900
+          px-4 py-2.5
+          ${draggable ? '' : 'no-drag'}
+        `}
       >
-        <div className="flex flex-col items-center gap-1">
-          <LogoMark />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-zinc-300">
-            <MicIcon active={speaking} />
-            <span className={speaking ? 'text-indigo-300' : 'text-zinc-400'}>
-              {speaking ? 'Listening' : 'Recording'}
-            </span>
-          </div>
-          <Waveform levels={levels} speaking={speaking} />
+        {/* ── Voice level visualiser ──────────────────────────── */}
+        <div className="flex items-center gap-[3px]">
+          {dots.map((i) => (
+            <span
+              key={i}
+              ref={(el) => { dotRefs.current[i] = el }}
+              className="inline-block w-[3px] rounded-full bg-zinc-900 dark:bg-white"
+              style={{ height: MIN_HEIGHT, opacity: 0.3 }}
+            />
+          ))}
         </div>
       </div>
     </div>
