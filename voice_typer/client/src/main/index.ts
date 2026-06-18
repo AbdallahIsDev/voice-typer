@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, screen, nativeTheme, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, screen, nativeTheme, shell, session } from "electron";
 import { spawn, ChildProcess } from "child_process";
 import net from "net";
 import fs from "fs";
@@ -574,11 +574,12 @@ ipcMain.on("bubble:drag-end", (event) => {
 
 let bubbleDraggable = true;
 
-ipcMain.on("bubble:draggable", (event, draggable: boolean) => {
-  // SEC-016: bubble draggable toggle is also scoped to the bubble.
-  // (The main window has its own settings UI for the same field;
-  // it goes through `set_config`, not this IPC channel.)
-  if (!assertFromBubble(event)) return;
+ipcMain.on("bubble:draggable", (_event, draggable: boolean) => {
+  // The draggable toggle is a config value that BOTH the main window
+  // (Settings page, via window.bubble.setDraggable) and the bubble
+  // renderer need to sync, so it is NOT restricted to the bubble frame.
+  // (Position/draggable are config values, not hijack vectors — unlike
+  // the drag-move commands below, which stay bubble-only.)
   bubbleDraggable = draggable;
   if (bubbleWindow && !bubbleWindow.isDestroyed()) {
     bubbleWindow.webContents.send("bubble:draggable", draggable);
@@ -592,11 +593,11 @@ ipcMain.on("bubble:show-from-renderer", (event) => {
   showBubbleWindow();
 });
 
-ipcMain.on("set_bubble_position", (event, position: 'top' | 'bottom') => {
-  // SEC-016: only the bubble window may set its position via this
-  // channel.  (Main window uses `set_config` with the allowlisted
-  // `bubble_position` field.)
-  if (!assertFromBubble(event)) return;
+ipcMain.on("set_bubble_position", (_event, position: 'top' | 'bottom') => {
+  // Position is a config value that BOTH the main window (Settings
+  // page, via window.bubble.setPosition) and the bubble renderer need
+  // to sync, so it is NOT restricted to the bubble frame.  It is a
+  // benign enum ('top' | 'bottom'), not a hijack vector.
   if (position === 'top' || position === 'bottom') {
     bubblePosition = position;
     // If the bubble window is visible, reposition it immediately.
@@ -743,6 +744,36 @@ function broadcastMaximized(maximized: boolean) {
 
 app.whenReady().then(() => {
 
+  // ── Content Security Policy (HTTP headers) ───────────────────
+  // SEC-012: CSP is also set via <meta> tags in index.html and
+  // bubble.html for production file:// loads, but certain directives
+  // (frame-ancestors, form-action) are only honored when delivered
+  // as actual HTTP headers.  Setting them here via Electron's
+  // onHeadersReceived ensures they're properly enforced in dev mode
+  // (http://localhost:5173) and silences the Electron security warning.
+  const CSP = [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data:",
+    "font-src 'self' data:",
+    "connect-src 'self'",
+    "frame-ancestors 'none'",
+    "form-action 'none'",
+    "base-uri 'self'",
+  ].join("; ")
+
+  session.defaultSession.webRequest.onHeadersReceived(
+    (details: Electron.OnHeadersReceivedListenerDetails, callback: (headers: Electron.HeadersReceivedResponse) => void) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          "Content-Security-Policy": [CSP],
+        },
+      })
+    },
+  )
+
   process.on("uncaughtException", (err) => {
     console.error("[VT] uncaughtException:", err);
   });
@@ -844,7 +875,7 @@ ipcMain.handle("history:export", async (_event, { data, format }: { data: Record
         return '"' + v.replace(/"/g, '""') + '"'
       }
       const header = Object.keys(data[0] ?? {}).map(csvEscape).join(',')
-      const rows = data.map(r => Object.values(r).map(csvEscape).join(','))
+      const rows = data.map(r => Object.values(r).map(v => csvEscape(v as string)).join(','))
       fs.writeFileSync(filePath, [header, ...rows].join('\n'), 'utf-8')
     } else {
       fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8')
