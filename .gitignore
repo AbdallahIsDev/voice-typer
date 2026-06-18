@@ -5,6 +5,12 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 
+# DEAD-003: Electron/Vite build outputs — never commit these.
+# They're regenerated on every `npm run build` and bloat the repo.
+voice_typer/client/out/
+voice_typer/client/src/renderer/dist/
+*.tsbuildinfo
+
 # Runtime/debug output
 *.log
 runtime_log*.txt
@@ -24,19 +30,17 @@ _cuda_test.py
 Thumbs.db
 artifacts/
 audit/
+docs/*
 FEATURES.md
 FORENSIC_REVIEW.md
 docs/Qwen_integation.md
 FORENSIC_REVIEW_2026-06-17.md
 rebuild-and-launch.ps1
 voice_typer/server/assets/
-
-# Infinity Loop System
-.loop/
-.opencode/FEATURESv1.md
-README.loop.md
+.opencode/
 
 # Workspace Manager
 .workspace/
 README.ws.md
 bubble.md
+docs/auto-update-feature.md
