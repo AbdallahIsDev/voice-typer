@@ -90,6 +90,26 @@ export default function Home({ recordingState, lastError, onNavigate }: HomeProp
     return () => { cancelled = true }
   }, [call])
 
+  // UX-016: listen for status_change events to re-fetch the hotkey
+  // config.  When the user changes the hotkey in Settings, the
+  // status_change event fires (because toggle_dictation triggers a
+  // state change), and we re-fetch the config to update the chip.
+  // This is a lightweight way to keep the hotkey chip in sync without
+  // a dedicated config-changed event.
+  usePythonEvent('status_change', () => {
+    let cancelled = false
+    const reloadHotkey = async () => {
+      try {
+        const cfg = await call<VoiceTyperConfig>('get_config')
+        if (cancelled) return
+        const raw = cfg?.hotkey ?? '<F2>'
+        setHotkey(raw.replace(/[<>]/g, ''))
+      } catch {}
+    }
+    reloadHotkey()
+    return () => { cancelled = true }
+  })
+
   usePythonEvent('transcription_final', (data) => {
     if (typeof data?.text === 'string' && data.text.trim()) {
       setLastText(data.text)

@@ -29,6 +29,11 @@ interface ModelInfo {
   downloaded: boolean
   depsOk: boolean
   isActive: boolean
+  // UX-010: replaces the magic string `!model.alwaysAvailable` check.
+  // Qwen doesn't need a separate download step (it auto-downloads
+  // from HuggingFace on first use), so the "Download" button is
+  // hidden for models where alwaysAvailable is true.
+  alwaysAvailable?: boolean
 }
 
 const CLOUD_PROVIDERS = [
@@ -41,7 +46,8 @@ const INITIAL_MODELS: ModelInfo[] = [
   { name: 'tiny.en', size: '~75MB', speed: 'Fastest', backend: 'whisper', downloaded: false, depsOk: true, isActive: false },
   { name: 'small.en', size: '~466MB', speed: 'Fast', backend: 'whisper', downloaded: false, depsOk: true, isActive: false },
   { name: 'medium.en', size: '~1.5GB', speed: 'Slow', backend: 'whisper', downloaded: false, depsOk: true, isActive: false },
-  { name: 'qwen', size: 'Variable', speed: 'Fast', backend: 'qwen', downloaded: false, depsOk: true, isActive: false },
+  // UX-010: alwaysAvailable replaces the magic string `!model.alwaysAvailable`
+  { name: 'qwen', size: 'Variable', speed: 'Fast', backend: 'qwen', downloaded: false, depsOk: true, isActive: false, alwaysAvailable: true },
   { name: 'parakeet', size: '~2.5GB', speed: 'Fast', backend: 'parakeet', downloaded: false, depsOk: false, isActive: false },
 ]
 
@@ -116,7 +122,7 @@ export default function ModelsPage() {
       showSnack('Dependencies required for Parakeet. Download first.', 'warning')
       return
     }
-    if (!model.downloaded && model.name !== 'qwen') {
+    if (!model.downloaded && !model.alwaysAvailable) {
       showSnack(`Model "${model.name}" not downloaded yet. Download it first.`, 'warning')
       return
     }
@@ -188,10 +194,12 @@ export default function ModelsPage() {
   const allDownloaded = models.every((m) => m.downloaded)
 
   const getStatusBadge = (model: ModelInfo) => {
-    if (model.isActive) return { label: 'Active', bg: 'color-mix(in srgb, var(--primary) 12%, transparent)', color: 'var(--primary)' }
-    if (model.downloaded) return { label: 'Downloaded', bg: 'color-mix(in srgb, var(--primary) 12%, transparent)', color: 'var(--primary)' }
-    if (!model.depsOk) return { label: 'Dependencies required', bg: 'color-mix(in srgb, var(--primary) 12%, transparent)', color: 'var(--primary)' }
-    return { label: 'Available', bg: 'color-mix(in srgb, var(--primary) 10%, transparent)', color: 'var(--primary)' }
+    // UX-009: distinct colors per state so users can tell at a glance
+    // which models are active, downloaded, need deps, or available.
+    if (model.isActive) return { label: 'Active', bg: 'color-mix(in srgb, #22c55e 15%, transparent)', color: '#22c55e' }
+    if (model.downloaded) return { label: 'Downloaded', bg: 'color-mix(in srgb, #3b82f6 15%, transparent)', color: '#3b82f6' }
+    if (!model.depsOk) return { label: 'Dependencies required', bg: 'color-mix(in srgb, #f59e0b 15%, transparent)', color: '#f59e0b' }
+    return { label: 'Available', bg: 'color-mix(in srgb, var(--text-muted) 12%, transparent)', color: 'var(--text-muted)' }
   }
 
   if (!_cachedConfig && !config) {
@@ -278,7 +286,7 @@ export default function ModelsPage() {
                       size="sm"
                       className="gap-1"
                       onClick={() => useModel(model)}
-                      disabled={model.isActive || (!model.downloaded && model.name !== 'qwen')}
+                      disabled={model.isActive || (!model.downloaded && !model.alwaysAvailable)}
                     >
                       <HugeiconsIcon
                         icon={model.isActive ? Tick02Icon : PlayIcon}
