@@ -1,6 +1,7 @@
 """Tests for config load/save and field behavior."""
 
 import json
+import sys
 import pytest
 from pathlib import Path
 from unittest.mock import patch
@@ -440,3 +441,56 @@ class TestM4SaveErrorHandling:
         c = Config()
         result = c.save()
         assert result is True
+
+
+# ── SEC-007: config file permissions ─────────────────────────────────────
+
+
+class TestSec007ConfigFilePermissions:
+    """SEC-007: on POSIX, the config file must be 0o600 and the
+    config directory 0o700 so API keys and other settings are not
+    world-readable.  On Windows these checks are skipped (NTFS ACLs
+    are the relevant control, and the config dir is already under
+    %APPDATA% which is per-user)."""
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
+    def test_save_creates_config_file_with_0600_permissions(self, tmp_path, monkeypatch):
+        import os, stat
+        from voice_typer.server.config import Config
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+        cfg = Config()
+        cfg.cloud_api_key = "sk-test-secret"
+        cfg.save()
+        config_file = tmp_path / "config.json"
+        assert config_file.exists()
+        mode = stat.S_IMODE(os.stat(config_file).st_mode)
+        assert mode == 0o600, f"expected 0o600, got 0o{mode:o}"
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
+    def test_save_creates_config_dir_with_0700_permissions(self, tmp_path, monkeypatch):
+        import os, stat
+        from voice_typer.server.config import Config
+        # Use a subdir that doesn't exist yet so save() creates it
+        config_dir = tmp_path / "nested" / ".voice-typer"
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: config_dir)
+        cfg = Config()
+        cfg.save()
+        assert config_dir.exists()
+        mode = stat.S_IMODE(os.stat(config_dir).st_mode)
+        assert mode == 0o700, f"expected 0o700, got 0o{mode:o}"
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
+    def test_save_preserves_0600_on_existing_file(self, tmp_path, monkeypatch):
+        """A second save() must keep the 0o600 permissions, not drift
+        back to default umask."""
+        import os, stat
+        from voice_typer.server.config import Config
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+        cfg = Config()
+        cfg.cloud_api_key = "first"
+        cfg.save()
+        cfg.cloud_api_key = "second"
+        cfg.save()
+        config_file = tmp_path / "config.json"
+        mode = stat.S_IMODE(os.stat(config_file).st_mode)
+        assert mode == 0o600
