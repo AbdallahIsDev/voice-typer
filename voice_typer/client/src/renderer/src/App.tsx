@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { usePython, usePythonEvent } from '@/hooks/usePython'
 import { Sidebar } from '@/components/Sidebar'
-import { StatusBar } from '@/components/StatusBar'
 import { TitleBar } from '@/components/TitleBar'
 import { Toaster } from '@/components/ui/sonner'
 import Home from '@/pages/Home'
@@ -226,9 +225,6 @@ export default function App() {
     setThemeMode(mode)
     try {
       await call('set_config', { theme_mode: mode })
-      // Sync nativeTheme in Electron so the bubble window receives the
-      // correct theme via nativeTheme.on("updated") → bubble:theme event.
-      ;(window as any).bubble?.setThemeSource?.(mode)
     } catch {
       // Theme is local-only if backend unavailable
     }
@@ -313,11 +309,6 @@ export default function App() {
               renderPage()
             )}
           </main>
-
-          {/* <StatusBar
-            connectionStatus={connectionStatus}
-            recordingState={recordingState}
-          /> */}
         </div>
       </div>
       <Toaster />

@@ -11,7 +11,6 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
-import { NumberInput } from '@/components/ui/number-input'
 import PageHeading from '@/components/PageHeading'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -24,8 +23,8 @@ import type { VoiceTyperConfig } from '@/types/config'
 let _cachedConfig: VoiceTyperConfig | null = null
 
 const LANGUAGE_OPTIONS = [
-  { value: 'auto', label: 'Auto-detect' },
-  { value: 'en', label: 'English' },
+  { value: 'auto', label: 'Auto-detect', description: 'Any language — no hallucination filtering' },
+  { value: 'en', label: 'English', description: 'Enables Latin-script hallucination filter' },
   { value: 'zh', label: 'Chinese' },
   { value: 'es', label: 'Spanish' },
   { value: 'ar', label: 'Arabic' },
@@ -60,6 +59,11 @@ const AUTO_STOP_OPTIONS = [
   { value: 180, label: '3 minutes' },
   { value: 300, label: '5 minutes' },
 ]
+
+const RECORDING_MODE_OPTIONS = [
+  { value: 'toggle', label: 'Toggle (F2)' },
+  { value: 'push_to_talk', label: 'Push-to-Talk' },
+] as const
 
 const THEME_OPTIONS = [
   { value: 'system', label: 'System Default' },
@@ -139,36 +143,52 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
     [config, call, loadConfig],
   )
 
-  const viewLogs = () => {
-    showSnack('Log folder opened', 'success')
+  const viewLogs = async () => {
+    // UX-008: actually open the log folder via the main process.
+    // Previously this just showed a snackbar without opening anything.
+    try {
+      const result = await (window as any).window_.openLogs()
+      if (result?.success) {
+        showSnack('Log folder opened', 'success')
+      } else {
+        showSnack(result?.error || 'Could not open log folder', 'error')
+      }
+    } catch (err) {
+      console.error('Failed to open logs:', err)
+      showSnack('Could not open log folder', 'error')
+    }
   }
 
-  const resetToDefaults = () => {
+  const resetToDefaults = async () => {
     if (!config) return
     setShowResetDialog(false)
-    const defaults: Partial<VoiceTyperConfig> = {
-      recording_mode: 'toggle',
-      esc_cancel_enabled: false,
-      auto_punctuation: false,
-      templates_enabled: true,
-      vocabulary_enabled: true,
-      llm_polish: false,
-      crash_recovery_enabled: true,
-      audio_quality_warnings: true,
-      paste_on_stop: true,
-      text_cleanup_enabled: true,
-      silence_warning_seconds: 20,
-      max_recording_seconds: 0,
-      autostart: true,
-      show_notifications: true,
-      fast_startup: true,
-      bubble_show_on_startup: true,
-      tray_left_click_action: 'open_app',
-      theme_mode: 'system',
-      streaming_transcription: true,
+    // UX-018: fetch defaults from the Python backend instead of
+    // hardcoding 22+ field values here (which silently drift from
+    // the Config dataclass).  The backend returns a sanitized dict
+    // (API keys redacted) which we send back via set_config.
+    try {
+      const defaults = await call('get_defaults')
+      if (defaults && typeof defaults === 'object') {
+        // Filter out the redacted sentinels and any non-allowlisted
+        // keys before sending back via set_config.
+        const safeDefaults: Record<string, unknown> = {}
+        for (const [key, value] of Object.entries(defaults as Record<string, unknown>)) {
+          // Skip redacted API keys — we don't want to overwrite the
+          // user's real keys with "<redacted>".
+          if (value === '<redacted>') continue
+          // Skip schema_version and internal state fields.
+          if (['schema_version', 'wayland_warned', 'onboarding_completed'].includes(key)) continue
+          safeDefaults[key] = value
+        }
+        await updateConfig(safeDefaults as Partial<VoiceTyperConfig>)
+        showSnack('Settings reset to defaults', 'success')
+      } else {
+        showSnack('Failed to fetch defaults from backend', 'error')
+      }
+    } catch (err) {
+      console.error('Failed to reset to defaults:', err)
+      showSnack('Failed to reset to defaults', 'error')
     }
-    updateConfig(defaults)
-    showSnack('Settings reset to defaults', 'success')
   }
 
   const handleThemeChange = (mode: string) => {
@@ -381,10 +401,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {[
-                  { value: 'toggle', label: 'Toggle' },
-                  { value: 'push_to_talk', label: 'Push-to-Talk' },
-                ].map((opt) => (
+                {RECORDING_MODE_OPTIONS.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>
                     {opt.label}
                   </SelectItem>
@@ -437,13 +454,14 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
 
           <SettingRow label="Silence Warning" info="Seconds of silence before showing a warning to help catch microphone issues.">
             <div className="flex items-center gap-2">
-              <NumberInput
+              <Input
+                type="number"
                 min={3}
                 max={30}
                 step={1}
                 value={String(config.silence_warning_seconds)}
                 onChange={(e) => updateConfig({ silence_warning_seconds: Number(e.target.value) })}
-                className="w-11 text-center"
+                className="w-20 text-center"
               />
               <span className="text-sm text-(--text-muted)">sec</span>
             </div>
@@ -451,13 +469,14 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
 
           <SettingRow label="Max Duration" info="Maximum recording length. Set to 0 for automatic (varies by device).">
             <div className="flex items-center gap-2">
-              <NumberInput
+              <Input
+                type="number"
                 min={0}
                 max={7200}
                 step={1}
                 value={String(config.max_recording_seconds)}
                 onChange={(e) => updateConfig({ max_recording_seconds: Number(e.target.value) })}
-                className="w-16 text-center"
+                className="w-20 text-center"
               />
               <span className="text-sm text-(--text-muted)">sec</span>
             </div>
@@ -480,7 +499,12 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
               <SelectContent>
                 {LANGUAGE_OPTIONS.map((lang) => (
                   <SelectItem key={lang.value} value={lang.value}>
-                    {lang.label}
+                    <span>{lang.label}</span>
+                    {lang.description && (
+                      <span className="ml-2 text-[10px] text-(--text-muted)">
+                        {lang.description}
+                      </span>
+                    )}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -534,8 +558,14 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
                 <div className="relative">
                   <Input
                     type={llmKeyVisible ? 'text' : 'password'}
-                    value={config.llm_api_key ?? ''}
+                    /* SEC-003: backend redacts the key to '<redacted>' in
+                     * get_config responses.  Show empty in that case so
+                     * the user isn't tempted to "save" the sentinel back.
+                     * When the user types a real key, updateConfig sends
+                     * it via set_config (which is allowlisted). */
+                    value={config.llm_api_key && config.llm_api_key !== '<redacted>' ? config.llm_api_key : ''}
                     onChange={(e) => updateConfig({ llm_api_key: e.target.value })}
+                    placeholder={config.llm_api_key === '<redacted>' ? '•••••••• (configured)' : ''}
                     className="w-56 pr-8"
                   />
                   <button
