@@ -94,3 +94,198 @@ class TestCloudEngineTestConnection:
         success, msg = engine.test_connection()
         assert success is False
         assert "API key" in msg
+
+
+# ── RELIABILITY-004: URL allowlist + API key redaction ───────────────────
+
+
+class TestCloudEngineUrlAllowlist:
+    """RELIABILITY-004: CloudEngine must refuse to send audio to any
+    URL whose host is not in the trusted allowlist.  This is the
+    last-line defense against SEC-002 endpoint-swap attacks: even
+    if an attacker finds a way to write ``config.cloud_api_url``,
+    the cloud engine itself refuses to send audio to an untrusted
+    host."""
+
+    def test_openai_compatible_rejects_untrusted_url(self):
+        """_send_openai_compatible raises ValueError before any HTTP
+        request is made when api_url points to an untrusted host."""
+        from voice_typer.server.cloud_engines import CloudEngine
+        import numpy as np
+        engine = CloudEngine(
+            provider="openai",
+            api_key="sk-test",
+            api_url="https://evil.example.com/exfiltrate",
+            model="whisper-1",
+        )
+        with pytest.raises(ValueError, match="not in the trusted allowlist"):
+            engine.transcribe(np.zeros(16000, dtype=np.float32))
+
+    def test_deepgram_rejects_untrusted_url(self):
+        from voice_typer.server.cloud_engines import CloudEngine
+        import numpy as np
+        engine = CloudEngine(
+            provider="deepgram",
+            api_key="test-token",
+            api_url="https://evil.example.com/v1/listen",
+            model="nova-2",
+        )
+        with pytest.raises(ValueError, match="not in the trusted allowlist"):
+            engine.transcribe(np.zeros(16000, dtype=np.float32))
+
+    def test_openai_default_url_allowed(self):
+        """The default provider URL must pass the allowlist check."""
+        from voice_typer.server.cloud_engines import CloudEngine
+        import numpy as np
+        engine = CloudEngine(provider="openai", api_key="sk-test")
+        # Should not raise on the allowlist check; the actual HTTP
+        # request will fail (no network) but the error should be a
+        # RuntimeError, not a ValueError.
+        with pytest.raises(RuntimeError):
+            engine.transcribe(np.zeros(16000, dtype=np.float32))
+
+    def test_localhost_self_hosted_allowed(self):
+        """Local self-hosted endpoints (Ollama, vLLM) must work."""
+        from voice_typer.server.cloud_engines import CloudEngine
+        import numpy as np
+        engine = CloudEngine(
+            provider="openai",
+            api_key="sk-test",
+            api_url="http://localhost:11434/v1/audio/transcriptions",
+        )
+        # Allowlist check passes; HTTP fails (no server) -> RuntimeError
+        with pytest.raises(RuntimeError):
+            engine.transcribe(np.zeros(16000, dtype=np.float32))
+
+    def test_test_connection_rejects_untrusted_url(self):
+        """test_connection returns (False, msg) for untrusted URLs."""
+        from voice_typer.server.cloud_engines import CloudEngine
+        engine = CloudEngine(
+            provider="openai",
+            api_key="sk-test",
+            api_url="https://evil.example.com/exfiltrate",
+        )
+        success, msg = engine.test_connection()
+        assert success is False
+        assert "not in the trusted allowlist" in msg
+
+
+class TestCloudEngineKeyRedaction:
+    """RELIABILITY-004: error messages from the HTTP layer must not
+    leak the API key.  ``URLError`` exceptions can include the full
+    request URL (with query string) in some Python versions; the
+    cloud engine must redact any secret-looking substring before
+    logging or returning the message."""
+
+    def test_runtime_error_message_excludes_key(self):
+        """The RuntimeError raised on HTTP failure must not contain
+        the API key, even if the underlying URLError did."""
+        from voice_typer.server.cloud_engines import CloudEngine
+        from urllib.error import URLError
+        import numpy as np
+
+        engine = CloudEngine(
+            provider="openai",
+            api_key="sk-abcdefghijklmnopqrstuvwxyz1234567890ABCDEF",
+        )
+        # Patch urlopen to raise a URLError whose str includes the
+        # request URL (which the engine constructs with the key in
+        # the Authorization header — not the URL, but if a future
+        # change puts the key in the URL this test will catch it).
+        key = engine.api_key
+        with patch(
+            "voice_typer.server.cloud_engines.urlopen",
+            side_effect=URLError("connection refused to https://api.openai.com/"),
+        ):
+            with pytest.raises(RuntimeError) as exc_info:
+                engine.transcribe(np.zeros(16000, dtype=np.float32))
+        assert key not in str(exc_info.value)
+
+    def test_test_connection_redacts_key_in_message(self):
+        """test_connection's failure message must not contain the key."""
+        from voice_typer.server.cloud_engines import CloudEngine
+        from urllib.error import URLError
+
+        key = "sk-abcdefghijklmnopqrstuvwxyz1234567890ABCDEF"
+        engine = CloudEngine(provider="openai", api_key=key)
+        with patch(
+            "voice_typer.server.cloud_engines.urlopen",
+            side_effect=URLError(f"refused: Bearer {key}"),
+        ):
+            success, msg = engine.test_connection()
+        assert success is False
+        assert key not in msg
+
+
+# ── SEC-005: Deepgram URL parameter injection ────────────────────────────
+
+
+class TestDeepgramUrlParameterInjection:
+    """SEC-005: previously the Deepgram URL was built via f-string
+    interpolation of ``self.model_name`` and ``self.language``,
+    allowing an attacker to inject extra query parameters via
+    ``config.cloud_model`` (e.g. ``"nova-2&punctuate=false"``).
+
+    The fix URL-encodes the parameters AND enforces a conservative
+    alphanumeric allowlist, since Deepgram's identifiers never
+    legitimately contain special characters."""
+
+    def test_rejects_model_name_with_ampersand(self):
+        """A model_name containing '&' must be rejected before any
+        HTTP request is made."""
+        from voice_typer.server.cloud_engines import CloudEngine
+        import numpy as np
+        engine = CloudEngine(
+            provider="deepgram",
+            api_key="test-token",
+            api_url="https://api.deepgram.com/v1/listen",
+            model="nova-2&punctuate=false",  # injection attempt
+        )
+        with pytest.raises(RuntimeError, match="invalid characters"):
+            engine.transcribe(np.zeros(16000, dtype=np.float32))
+
+    def test_rejects_language_with_special_chars(self):
+        from voice_typer.server.cloud_engines import CloudEngine
+        import numpy as np
+        engine = CloudEngine(
+            provider="deepgram",
+            api_key="test-token",
+            api_url="https://api.deepgram.com/v1/listen",
+            model="nova-2",
+            language="en&smart_format=true",  # injection attempt
+        )
+        with pytest.raises(RuntimeError, match="invalid characters"):
+            engine.transcribe(np.zeros(16000, dtype=np.float32))
+
+    def test_accepts_valid_model_name(self):
+        """Valid model names like 'nova-2' must pass validation."""
+        from voice_typer.server.cloud_engines import CloudEngine
+        engine = CloudEngine(
+            provider="deepgram",
+            api_key="test-token",
+            api_url="https://api.deepgram.com/v1/listen",
+            model="nova-2",
+            language="en",
+        )
+        # The validation happens inside _send_deepgram; we verify it
+        # passes the validation step by checking that the engine
+        # raises RuntimeError from urlopen (not from validation).
+        import numpy as np
+        with pytest.raises(RuntimeError) as exc_info:
+            engine.transcribe(np.zeros(16000, dtype=np.float32))
+        # "invalid characters" appears only when validation fails;
+        # a URLError-based RuntimeError means validation passed.
+        assert "invalid characters" not in str(exc_info.value)
+
+    def test_rejects_path_traversal_in_model(self):
+        """Model name containing '../' must be rejected."""
+        from voice_typer.server.cloud_engines import CloudEngine
+        import numpy as np
+        engine = CloudEngine(
+            provider="deepgram",
+            api_key="test-token",
+            api_url="https://api.deepgram.com/v1/listen",
+            model="../../etc/passwd",
+        )
+        with pytest.raises(RuntimeError, match="invalid characters"):
+            engine.transcribe(np.zeros(16000, dtype=np.float32))

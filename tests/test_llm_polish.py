@@ -106,3 +106,78 @@ class TestLLMPolisherTestConnection:
         with patch("voice_typer.server.llm_polish.urlopen", side_effect=Exception("timeout")):
             success, msg = polisher.test_connection()
             assert success is False
+
+
+# ── RELIABILITY-004: LLM polish URL allowlist + redaction ────────────────
+
+
+class TestLLMPolishUrlAllowlist:
+    """RELIABILITY-004: LLMPolisher must refuse to send transcribed
+    text to any URL whose host is not in the trusted allowlist.
+    This is the last-line defense against SEC-002 endpoint-swap
+    attacks against the LLM polish endpoint — an attacker who
+    manages to set ``llm_api_url`` to an exfiltration endpoint
+    would otherwise receive the user's transcribed speech text in
+    cleartext."""
+
+    def test_polish_rejects_untrusted_url(self):
+        """polish() must raise / return original when the URL is
+        untrusted (polish catches exceptions and returns original)."""
+        from voice_typer.server.llm_polish import LLMPolisher
+        p = LLMPolisher(
+            api_key="sk-test",
+            api_url="https://evil.example.com/exfiltrate",
+            enabled=True,
+        )
+        # polish() catches exceptions and returns the original text,
+        # so we just verify the input is returned unchanged (no
+        # network call made).
+        result = p.polish("Hello, world!")
+        assert result == "Hello, world!"
+
+    def test_test_connection_rejects_untrusted_url(self):
+        """test_connection returns (False, msg) for untrusted URLs."""
+        from voice_typer.server.llm_polish import LLMPolisher
+        p = LLMPolisher(
+            api_key="sk-test",
+            api_url="https://evil.example.com/exfiltrate",
+            enabled=True,
+        )
+        success, msg = p.test_connection()
+        assert success is False
+        assert "not in the trusted allowlist" in msg
+
+    def test_default_openai_url_allowed(self):
+        """The default OpenAI URL must pass the allowlist check."""
+        from voice_typer.server.llm_polish import LLMPolisher
+        from urllib.error import URLError
+        p = LLMPolisher(api_key="sk-test", enabled=True)
+        # Default URL is api.openai.com — allowlist check passes,
+        # but HTTP fails (no network).  We just verify the error is
+        # NOT a ValueError from the allowlist.
+        with patch(
+            "voice_typer.server.llm_polish.urlopen",
+            side_effect=URLError("no network"),
+        ):
+            success, msg = p.test_connection()
+        assert success is False
+        assert "allowlist" not in msg
+
+    def test_polish_redacts_key_in_log(self, caplog):
+        """When polish() catches an exception, the log message must
+        not contain the API key."""
+        from voice_typer.server.llm_polish import LLMPolisher
+        import logging
+
+        key = "sk-abcdefghijklmnopqrstuvwxyz1234567890ABCDEF"
+        p = LLMPolisher(api_key=key, enabled=True)
+        # Force an exception by patching _call_api to raise
+        with patch.object(
+            p, "_call_api", side_effect=RuntimeError(f"auth failed: {key}")
+        ):
+            with caplog.at_level(logging.WARNING, logger="voice_typer.server.llm_polish"):
+                result = p.polish("Hello, world!")
+        assert result == "Hello, world!"  # original returned
+        # Verify the key does not appear in any log record
+        for record in caplog.records:
+            assert key not in record.getMessage()
