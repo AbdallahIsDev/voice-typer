@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = resolve(__dirname, '..')
 const projectRoot = resolve(__dirname, '..', '..', '..')
-const svgPath = resolve(projectRoot, 'voice_typer', 'logo.svg')
+const svgPath = resolve(__dirname, 'logo.svg')
 
 const sizes = {
   favicon: [16, 32, 48],
