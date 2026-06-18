@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = resolve(__dirname, '..')
 const projectRoot = resolve(__dirname, '..', '..', '..')
-const svgPath = resolve(projectRoot, 'voice_typer', 'vt_logo.svg')
+const svgPath = resolve(projectRoot, 'voice_typer', 'logo.svg')
 
 const sizes = {
   favicon: [16, 32, 48],
@@ -52,8 +52,10 @@ print("ICO generated")
 }
 
 async function main() {
-  const lightSvg = readFileSync(svgPath, 'utf-8')
-  const darkSvg = lightSvg.replace(/fill="black"/g, 'fill="white"')
+  const rawSvg = readFileSync(svgPath, 'utf-8')
+  // The source SVG uses currentColor — replace with explicit colors for rendering
+  const lightSvg = rawSvg.replace(/currentColor/g, 'black')
+  const darkSvg = rawSvg.replace(/currentColor/g, 'white')
 
   // Light icons (black logo on transparent)
   await generateIcons(lightSvg, 'light', '')
@@ -71,18 +73,18 @@ async function main() {
     resolve(resourcesDir, 'icon-dark.ico')
   )
 
-  // Tray icons (white elements on transparent, used by Python colorization)
-  const micSvg = `<svg width="128" height="109" viewBox="0 0 128 109" xmlns="http://www.w3.org/2000/svg"><rect width="13.5631" height="108.504" rx="6.78154" fill="white"/><path d="M77.0728 3.9668C71.5231 34.1984 57.8119 48.3888 27.125 55.7925C51.6092 61.0367 69.2379 69.3659 77.0728 104.842C84.2548 72.4507 97.6396 63.1961 128 55.7925C99.2718 49.3143 83.9284 36.9748 77.0728 3.9668Z" fill="white"/></svg>`
+  // Tray icons (transparent background, white bars for colorization)
+  const traySvg = `<svg width="148" height="148" viewBox="0 0 148 148" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="18.5" y="55.5" width="18.5" height="37" rx="9.25" fill="white"/><rect x="49.3333" y="37" width="18.5" height="74" rx="9.25" fill="white"/><rect x="80.1667" y="18.5" width="18.5" height="111" rx="9.25" fill="white"/><rect x="111" y="45.0938" width="18.5" height="57.8125" rx="9.25" fill="white"/></svg>`
 
   const trayDir = resolve(projectRoot, 'voice_typer', 'server', 'assets')
   mkdirSync(trayDir, { recursive: true })
   for (const size of sizes.tray) {
-    await sharp(Buffer.from(micSvg)).resize(size, size).png().toFile(resolve(trayDir, `tray-mic-${size}.png`))
+    await sharp(Buffer.from(traySvg)).resize(size, size).png().toFile(resolve(trayDir, `tray-mic-${size}.png`))
   }
-  await sharp(Buffer.from(micSvg)).resize(64, 64).png().toFile(resolve(trayDir, 'tray-mic.png'))
+  await sharp(Buffer.from(traySvg)).resize(64, 64).png().toFile(resolve(trayDir, 'tray-mic.png'))
   console.log('Created server/assets/tray-mic-*.png')
 
-  // Logo PNGs for Python server
+  // Logo PNGs for Python server (transparent background)
   for (const size of [64, 256]) {
     await sharp(Buffer.from(lightSvg)).resize(size, size).png().toFile(resolve(trayDir, `logo-${size}.png`))
   }

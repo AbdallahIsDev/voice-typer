@@ -8,16 +8,16 @@ export function Logo({ size = 20, className }: LogoProps) {
     <svg
       width={size}
       height={size}
-      viewBox="0 0 128 109"
+      viewBox="0 0 148 148"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
     >
-      <rect width="13.5631" height="108.504" rx="6.78154" className="fill-black dark:fill-white" />
-      <path
-        d="M77.0728 3.9668C71.5231 34.1984 57.8119 48.3888 27.125 55.7925C51.6092 61.0367 69.2379 69.3659 77.0728 104.842C84.2548 72.4507 97.6396 63.1961 128 55.7925C99.2718 49.3143 83.9284 36.9748 77.0728 3.9668Z"
-        className="fill-black dark:fill-white"
-      />
+      {/* Transparent background — uses currentColor for light/dark compatibility */}
+      <rect x="18.5" y="55.5" width="18.5" height="37" rx="9.25" className="fill-current text-(--text-primary)" />
+      <rect x="49.3333" y="37" width="18.5" height="74" rx="9.25" className="fill-current text-(--text-primary)" />
+      <rect x="80.1667" y="18.5" width="18.5" height="111" rx="9.25" className="fill-current text-(--text-primary)" />
+      <rect x="111" y="45.0938" width="18.5" height="57.8125" rx="9.25" className="fill-current text-(--text-primary)" />
     </svg>
   )
 }

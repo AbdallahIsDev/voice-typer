@@ -1,0 +1,7 @@
+<svg width="148" height="148" viewBox="0 0 148 148" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Transparent background — no white rect. Works on any background. -->
+  <rect x="18.5" y="55.5" width="18.5" height="37" rx="9.25" fill="currentColor"/>
+  <rect x="49.3333" y="37" width="18.5" height="74" rx="9.25" fill="currentColor"/>
+  <rect x="80.1667" y="18.5" width="18.5" height="111" rx="9.25" fill="currentColor"/>
+  <rect x="111" y="45.0938" width="18.5" height="57.8125" rx="9.25" fill="currentColor"/>
+</svg>
