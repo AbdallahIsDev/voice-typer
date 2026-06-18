@@ -92,6 +92,22 @@ export default function ModelsPage() {
         return { ...m, isActive }
       }))
 
+      // Item 10/11: fetch real model download status from the backend
+      try {
+        const status = await call<Record<string, { downloaded: boolean; deps_ok: boolean }>>('get_model_status')
+        if (status && typeof status === 'object') {
+          setModels(prev => prev.map(m => {
+            const s = status[m.name]
+            if (s) {
+              return { ...m, downloaded: s.downloaded, depsOk: s.deps_ok }
+            }
+            return m
+          }))
+        }
+      } catch (err) {
+        console.error('Failed to get model status:', err)
+      }
+
       setApiKeys({
         // SEC-003: backend redacts keys to '<redacted>'.  Show empty
         // in the input fields so the user can type a new key to

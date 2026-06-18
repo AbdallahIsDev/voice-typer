@@ -754,6 +754,47 @@ class IPCServer:
                 resp["type"] = "error"
                 resp["data"] = {"message": str(e)}
 
+        elif cmd == "get_model_status":
+            # Item 10/11: check which models are actually on disk.
+            # Returns a dict mapping model name → {downloaded: bool, deps_ok: bool}.
+            try:
+                from voice_typer.server.config import _config_dir
+                from pathlib import Path
+                import sys as _sys
+
+                hf_cache = _config_dir() / "huggingface" / "hub"
+                status: dict[str, dict] = {}
+
+                # Check Whisper models (faster-whisper caches under models--Systran--faster-whisper-*)
+                for name in ("tiny.en", "small.en", "medium.en"):
+                    repo_dir = hf_cache / f"models--Systran--faster-whisper-{name}"
+                    # Check if snapshots dir has content
+                    snapshots = repo_dir / "snapshots"
+                    is_downloaded = snapshots.exists() and any(snapshots.iterdir())
+                    status[name] = {"downloaded": is_downloaded, "deps_ok": True}
+
+                # Check Qwen (always available — auto-downloads on first use)
+                status["qwen"] = {"downloaded": True, "deps_ok": True}
+
+                # Check Parakeet (needs transformers + torch)
+                parakeet_dir = hf_cache / "models--nvidia--parakeet-tdt-0.6b-v2"
+                parakeet_snapshots = parakeet_dir / "snapshots"
+                parakeet_downloaded = parakeet_snapshots.exists() and any(parakeet_snapshots.iterdir())
+                # Check if torch is available for Parakeet
+                try:
+                    import torch  # noqa: F401
+                    parakeet_deps = True
+                except ImportError:
+                    parakeet_deps = False
+                status["parakeet"] = {"downloaded": parakeet_downloaded, "deps_ok": parakeet_deps}
+
+                resp["type"] = "model_status"
+                resp["data"] = status
+            except Exception as e:
+                log.error("[IPC] get_model_status failed: %s", e, exc_info=True)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
         elif cmd == "get_vocabulary":
             try:
                 from voice_typer.server.vocabulary import VocabularyManager
