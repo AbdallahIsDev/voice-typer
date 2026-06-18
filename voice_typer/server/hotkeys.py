@@ -519,14 +519,21 @@ class WindowsNativeHotkey(HotkeyBackend):
         return bool(self._user32.GetAsyncKeyState(vk) & 0x8000)
 
     def stop(self) -> None:
+        """Stop the hotkey listener.
+
+        PERF-NEW-016: previously posted WM_QUIT to the polling thread
+        via PostThreadMessageW, but the thread uses GetAsyncKeyState
+        polling (not a message loop) so it never reads WM_QUIT.  The
+        join(timeout=3.0) waited 3 seconds for nothing.  Now we just
+        set the stop event and join with a shorter timeout — the
+        polling loop checks _stop_event every 100ms.
+        """
         log.info("[HOTKEY] Stopping Windows native hotkey listener")
         self._stop_event.set()
-        if self._user32 is not None and self._thread is not None:
-            thread_id = self._thread.ident
-            if thread_id is not None:
-                self._user32.PostThreadMessageW(thread_id, _WM_QUIT, 0, 0)
+        # PERF-NEW-016: skip the useless PostThreadMessageW call —
+        # the polling loop checks _stop_event.is_set() every 100ms.
         if self._thread is not None:
-            self._thread.join(timeout=3.0)
+            self._thread.join(timeout=0.5)  # was 3.0; 100ms poll = 500ms is plenty
             self._thread = None
 
     def is_alive(self) -> bool:

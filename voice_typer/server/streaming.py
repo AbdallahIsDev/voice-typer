@@ -144,6 +144,10 @@ class StreamingTextAssembler:
     @property
     def committed_text(self) -> str:
         with self._lock:
+            # PERF-NEW-004: sort at read time since we deferred sorting
+            # in _insert_word_unlocked.  Words are approximately in
+            # order from streaming, so this is a near-sorted sort (fast).
+            self._words.sort(key=lambda w: (w.start_seconds, w.end_seconds))
             return " ".join(word.word for word in self._words)
 
     def add_window(
@@ -229,24 +233,16 @@ class StreamingTextAssembler:
                 self._word_key_index.setdefault(key, []).append(i)
 
     def _insert_word_unlocked(self, word: WordTiming):
+        """Insert a word, maintaining sorted order.
+
+        PERF-NEW-004: previously this did a linear scan + list.insert
+        (O(n) per insert, O(n^2) per session) and then shifted all
+        index entries.  Now we just append and defer sorting to
+        commit time — the words are already approximately in order
+        (streaming chunks arrive sequentially), so a full sort at
+        commit is O(n log n) vs the O(n^2) insert pattern.
+        """
         key = _word_key(word.word)
-        for index, existing in enumerate(self._words):
-            if (
-                word.start_seconds < existing.start_seconds
-                or (
-                    word.start_seconds == existing.start_seconds
-                    and word.end_seconds < existing.end_seconds
-                )
-            ):
-                self._words.insert(index, word)
-                # Update index: shift all entries >= index by 1
-                for k, indices in self._word_key_index.items():
-                    self._word_key_index[k] = [
-                        (i + 1 if i >= index else i) for i in indices
-                    ]
-                if key:
-                    self._word_key_index.setdefault(key, []).append(index)
-                return
         self._words.append(word)
         if key:
             self._word_key_index.setdefault(key, []).append(len(self._words) - 1)

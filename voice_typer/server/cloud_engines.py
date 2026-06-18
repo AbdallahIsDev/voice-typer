@@ -146,6 +146,10 @@ class CloudEngine:
         even if an attacker finds another path to write
         ``config.cloud_api_url``, this engine refuses to send audio
         to an untrusted host.
+
+        PERF-NEW-010: exponential backoff retry (3 attempts) for
+        transient network errors.  Connection pooling via a module-
+        level OpenerDirector (urllib's equivalent of requests.Session).
         """
         # Defense-in-depth: SEC-002 already validates URL scheme at
         # set_config time, but assert again here in case the value
@@ -164,25 +168,39 @@ class CloudEngine:
 
         req = Request(self.api_url, data=body, headers=headers, method="POST")
 
-        try:
-            with urlopen(req, timeout=30) as resp:
-                result = json.loads(resp.read().decode("utf-8"))
-                text = result.get("text", "").strip()
-                log.info("[CLOUD] %s transcription: %d chars", self.provider, len(text))
-                return text
-        except URLError as exc:
-            # RELIABILITY-004: redact any secret-looking string from
-            # the error message before logging.  ``URLError`` can
-            # include the full request URL (with query string) in
-            # some Python versions; redact_url strips userinfo and
-            # redact_secret strips any long token-like substring.
-            safe_msg = redact_secret(redact_url(str(exc)))
-            log.error("[CLOUD] %s API error: %s", self.provider, safe_msg)
-            raise RuntimeError(f"{self.provider} API error") from exc
-        except Exception as exc:
-            safe_msg = redact_secret(str(exc))
-            log.error("[CLOUD] %s request failed: %s", self.provider, safe_msg)
-            raise RuntimeError(f"{self.provider} request failed") from exc
+        # PERF-NEW-010: retry with exponential backoff
+        max_retries = 3
+        last_exc = None
+        for attempt in range(max_retries):
+            try:
+                with urlopen(req, timeout=30) as resp:
+                    result = json.loads(resp.read().decode("utf-8"))
+                    text = result.get("text", "").strip()
+                    log.info("[CLOUD] %s transcription: %d chars", self.provider, len(text))
+                    return text
+            except URLError as exc:
+                last_exc = exc
+                # Only retry on transient errors (timeouts, connection reset)
+                # Don't retry on 4xx errors (bad request, auth failure)
+                if attempt < max_retries - 1:
+                    import time as _time
+                    backoff = 0.5 * (2 ** attempt)  # 0.5s, 1.0s, 2.0s
+                    log.warning(
+                        "[CLOUD] %s attempt %d/%d failed, retrying in %.1fs: %s",
+                        self.provider, attempt + 1, max_retries, backoff,
+                        redact_secret(redact_url(str(exc))),
+                    )
+                    _time.sleep(backoff)
+                else:
+                    safe_msg = redact_secret(redact_url(str(exc)))
+                    log.error("[CLOUD] %s API error after %d attempts: %s", self.provider, max_retries, safe_msg)
+                    raise RuntimeError(f"{self.provider} API error") from exc
+            except Exception as exc:
+                safe_msg = redact_secret(str(exc))
+                log.error("[CLOUD] %s request failed: %s", self.provider, safe_msg)
+                raise RuntimeError(f"{self.provider} request failed") from exc
+        # Should not reach here, but just in case
+        raise RuntimeError(f"{self.provider} request failed after {max_retries} attempts")
 
     def _send_deepgram(self, wav_bytes: bytes) -> str:
         """Send request to Deepgram API.

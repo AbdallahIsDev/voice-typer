@@ -67,10 +67,37 @@ EXIT_IMPORT_FAILED = 40     # torch/transformers missing or broken
 
 
 def _setup_logging() -> None:
-    """Minimal logging — prewarm runs detached, so log to the app log file."""
+    """Minimal logging — prewarm runs detached, so log to the app log file.
+
+    PERF-NEW-011: previously this imported the full app.py (which
+    pulls in sounddevice, faster_whisper, pynput, pystray, PIL, etc.)
+    just to call _setup_logging().  That doubled the cold-start cost
+    of the prewarm task.  Now we replicate the logging setup locally
+    without importing app.py at all.
+    """
+    import os
+    from pathlib import Path
+    from datetime import datetime
+
     try:
-        from voice_typer.server.app import _setup_logging as _app_setup
-        _app_setup()
+        # Mirror app.py's _setup_logging: log to ~/.voice-typer/voice-typer.log
+        log_dir = Path.home() / ".voice-typer"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / "voice-typer.log"
+
+        # Use a rotating file handler so the log doesn't grow unbounded
+        from logging.handlers import RotatingFileHandler
+        handler = RotatingFileHandler(
+            str(log_file), maxBytes=2_000_000, backupCount=3, encoding="utf-8",
+        )
+        handler.setFormatter(logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+        ))
+        root = logging.getLogger()
+        root.setLevel(logging.INFO)
+        # Remove any existing handlers to avoid duplicate logs
+        root.handlers.clear()
+        root.addHandler(handler)
     except Exception:
         # Fall back to bare stderr so the script is still usable standalone.
         logging.basicConfig(
@@ -306,20 +333,43 @@ def run(
     #    (model not yet downloaded) there is nothing to warm; the app's
     #    normal download path will populate the cache, and subsequent
     #    prewarms will pick it up.
+    # PERF-NEW-012: previously only prewarmed Parakeet weights.  Now
+    #    walks ALL models--* directories in the HF cache to prewarm
+    #    Whisper, Qwen, and Parakeet weights alike.
+    warmed_any = False
+
+    # Try Parakeet first (original path)
     weights = _find_parakeet_weights()
-    if weights is None:
-        log.info("[PREWARM] Parakeet weights not yet cached — skipping weights warmup")
-        return EXIT_NO_MODEL
+    if weights is not None:
+        _warm_file(weights)
+        warmed_any = True
+        # Also warm the processor/tokenizer files (tiny but free).
+        try:
+            for sibling in weights.parent.iterdir():
+                if sibling.is_file() and sibling.suffix in (".json",):
+                    _warm_file(sibling)
+        except OSError:
+            pass
 
-    _warm_file(weights)
-
-    # Also warm the processor/tokenizer files (tiny but free).
+    # PERF-NEW-012: walk ALL model directories in the HF cache
     try:
-        for sibling in weights.parent.iterdir():
-            if sibling.is_file() and sibling.suffix in (".json",):
-                _warm_file(sibling)
-    except OSError:
-        pass
+        from voice_typer.server.config import _config_dir
+        hf_cache = _config_dir() / "huggingface" / "hub"
+        if hf_cache.exists():
+            for model_dir in hf_cache.iterdir():
+                if model_dir.is_dir() and model_dir.name.startswith("models--"):
+                    log.info("[PREWARM] Warming model: %s", model_dir.name)
+                    for snapshot_dir in (model_dir / "snapshots").iterdir() if (model_dir / "snapshots").exists() else []:
+                        for f in snapshot_dir.rglob("*"):
+                            if f.is_file() and f.suffix in (".bin", ".safetensors", ".pt", ".json", ".txt"):
+                                _warm_file(f)
+                    warmed_any = True
+    except Exception as e:
+        log.debug("[PREWARM] HF cache walk failed: %s", e)
+
+    if not warmed_any:
+        log.info("[PREWARM] No model weights cached yet — skipping weights warmup")
+        return EXIT_NO_MODEL
 
     log.info("[PREWARM] complete")
     return EXIT_OK

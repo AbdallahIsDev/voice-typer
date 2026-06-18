@@ -14,7 +14,11 @@ from voice_typer.server.config import Config
 
 log = logging.getLogger(__name__)
 
-MAX_BUFFER_CHUNKS = 30000
+# PERF-NEW-018: MAX_BUFFER_CHUNKS is now dynamically adjusted in
+# start() based on max_recording_seconds.  The default below is a
+# safe ceiling (30K chunks * 1024 samples/chunk / 16kHz ≈ 30 min).
+# For longer recordings, start() increases the deque maxlen.
+DEFAULT_MAX_BUFFER_CHUNKS = 30000
 BUFFER_WARNING_THRESHOLD = 5000
 TELEMETRY_LOG_INTERVAL = 1000
 
@@ -74,7 +78,7 @@ class Recorder:
     def __init__(self, config: Config):
         self.config = config
         self._stream: Optional[sd.InputStream] = None
-        self._buffer: collections.deque = collections.deque(maxlen=MAX_BUFFER_CHUNKS)
+        self._buffer: collections.deque = collections.deque(maxlen=DEFAULT_MAX_BUFFER_CHUNKS)
         self._lock = threading.Lock()
 
         # XRUN and clipping tracking
@@ -82,6 +86,10 @@ class Recorder:
         self._clip_count: int = 0
         self._peak: float = 0.0
         self._last_clip_log_time: float = 0.0
+        # Item 1: xrun notification callback — set by VoiceTyperApp
+        # to receive a notification when xrun count exceeds threshold.
+        self.on_xrun_threshold: Optional[Callable[[int], None]] = None
+        self._xrun_threshold: int = 10  # notify after this many xruns
         self._recording_event = threading.Event()
         self._effective_sr: int = config.sample_rate
         self._last_rms: float = 0.0
@@ -307,6 +315,40 @@ class Recorder:
         self._peak = 0.0
         self._last_clip_log_time = 0.0
 
+        # PERF-NEW-006: cache config values at start() time so the
+        # audio callback doesn't do 5x getattr per iteration.
+        self._cached_silence_warning = getattr(self.config, 'silence_warning_seconds', 20.0)
+        self._cached_silence_auto_stop = getattr(self.config, 'silence_auto_stop_seconds', 120.0)
+        self._cached_max_recording = getattr(self.config, 'max_recording_seconds', 0)
+        self._cached_device = str(getattr(self.config, 'device', 'cuda'))
+        try:
+            max_rec_raw = int(self._cached_max_recording)
+        except (TypeError, ValueError):
+            max_rec_raw = 0
+        if max_rec_raw == 0:
+            if self._cached_device == 'cuda':
+                self._cached_max_recording = getattr(self.config, 'max_recording_seconds_gpu', 1200)
+            else:
+                self._cached_max_recording = getattr(self.config, 'max_recording_seconds_cpu', 600)
+
+        # PERF-NEW-018: dynamically size the buffer based on max_recording_seconds.
+        # At 16kHz with 1024-sample chunks, each chunk = 64ms.  For a 30-min
+        # recording: 1800s / 0.064s ≈ 28125 chunks.  For 1 hour: 56250.
+        try:
+            max_rec = int(self._cached_max_recording)
+        except (TypeError, ValueError):
+            max_rec = 0
+        if max_rec > 0:
+            needed_chunks = int(max_rec / 0.064) + 1000  # +1K safety
+            if needed_chunks > DEFAULT_MAX_BUFFER_CHUNKS:
+                # Create a new deque with larger maxlen and copy existing data
+                old_data = list(self._buffer)
+                self._buffer = collections.deque(old_data, maxlen=needed_chunks)
+                log.info(
+                    "[RECORDING] Buffer sized for %ds max recording: %d chunks",
+                    max_rec, needed_chunks,
+                )
+
         device = self._resolve_device()
         candidates = self._same_physical_microphone_candidates(device)
 
@@ -328,124 +370,123 @@ class Recorder:
                         status, self._xruns,
                     )
                     self._last_xrun_log_ts = now
+                # Item 1: fire threshold callback for tray notification
+                if self._xruns == self._xrun_threshold and self.on_xrun_threshold:
+                    try:
+                        self.on_xrun_threshold(self._xruns)
+                    except Exception:
+                        pass
 
+            # Item 5: minimize lock scope. Only buffer append + counter
+            # need the lock. RMS computation, silence detection, clipping
+            # tracking, and callback invocations run outside the lock
+            # because they operate on the local `indata` copy, not on
+            # shared mutable state.
             with self._lock:
                 self._buffer.append(indata.copy())
                 self._chunk_count += 1
-
-                # H12: Silence detection in audio callback
-                # Uses signal VARIANCE to distinguish mic disconnect from user pause:
-                # - Disconnected mic: flat signal, near-zero variance
-                # - User pause: room noise, breathing → some variance
-                chunk_rms = float(np.sqrt(np.mean(np.square(indata), dtype=np.float64)))
-                chunk_peak = float(np.max(np.abs(indata)))
-                chunk_duration = len(indata) / self._effective_sr
-
-                # AUDIO-CLIP: Track clipping
-                if chunk_peak >= 0.99:
-                    self._clip_count += 1
-                    if chunk_peak > self._peak:
-                        self._peak = chunk_peak
-                    now = time.perf_counter()
-                    if now - self._last_clip_log_time >= 1.0:
-                        log.warning(
-                            "[RECORDING] Clipping detected: peak=%.4f, count=%d chunks. Reduce mic gain.",
-                            chunk_peak, self._clip_count
-                        )
-                        self._last_clip_log_time = now
-
-                self._recent_rms_values.append(chunk_rms)
-
-                # Waveform bubble: capture the listener + peak; call outside the lock
+                chunk_count = self._chunk_count
+                buffer_len = len(self._buffer)
+                # Capture callback refs + silence state under lock
                 rms_callback = self.on_rms_level
-                cb_rms = chunk_rms
-                cb_peak = chunk_peak
+                silence_warning_cb = self.on_silence_warning
+                silence_auto_stop_cb = self.on_silence_auto_stop
+                max_duration_cb = self.on_max_duration_auto_stop
+                recent_rms = self._recent_rms_values
+                silence_timer = self._silence_timer
+                silence_warning_count = self._silence_warning_count
+                recording_start = self._recording_start_time
 
-                # Voice detected by loudness → reset
-                if chunk_rms > 0.005 or chunk_peak > 0.01:
-                    self._silence_timer = 0.0
-                    self._recent_rms_values.clear()
-                else:
-                    # Check signal variance: flat signal = mic disconnected
-                    if len(self._recent_rms_values) >= 10:
-                        rms_std = float(np.std(list(self._recent_rms_values)))
-                        if rms_std < 0.001:
-                            # Very flat signal — likely mic disconnected
-                            self._silence_timer += chunk_duration
-                        else:
-                            # Signal has variance — user paused, not disconnected
-                            self._silence_timer = 0.0
-                    else:
-                        # Not enough samples yet, accumulate cautiously
-                        self._silence_timer += chunk_duration
+            # ── Everything below runs OUTSIDE the lock ──
 
-                silence_warning_seconds = getattr(
-                    self.config, 'silence_warning_seconds', 20.0
-                )
-                silence_auto_stop_seconds = getattr(
-                    self.config, 'silence_auto_stop_seconds', 120.0
-                )
+            # RMS / peak computation (operates on local `indata`)
+            chunk_rms = float(np.sqrt(np.mean(np.square(indata), dtype=np.float64)))
+            chunk_peak = float(np.max(np.abs(indata)))
+            chunk_duration = len(indata) / self._effective_sr
 
-                # H12a: Repeating silence warnings with exponential backoff
-                # First warning at threshold, then +10s, +20s, +40s, +80s...
-                if self._silence_timer >= silence_warning_seconds:
-                    time_since_first_warning = self._silence_timer - silence_warning_seconds
-                    # Check if it's time for the next warning
-                    expected_warnings = 0
-                    cumulative = 0.0
-                    wait = 10.0
-                    while cumulative <= time_since_first_warning:
-                        expected_warnings += 1
-                        cumulative += wait
-                        wait *= 2
-                    if expected_warnings > self._silence_warning_count:
-                        self._silence_warning_count = expected_warnings
-                        if self.on_silence_warning is not None:
-                            try:
-                                self.on_silence_warning()
-                            except Exception:
-                                pass
-
-                if self._silence_timer >= silence_auto_stop_seconds:
-                    if self.on_silence_auto_stop is not None:
-                        try:
-                            self.on_silence_auto_stop()
-                        except Exception:
-                            pass
-
-                # H12b: Maximum recording duration auto-stop
-                recording_duration = time.perf_counter() - self._recording_start_time
-                max_recording_seconds = getattr(self.config, 'max_recording_seconds', 0)
-                if max_recording_seconds <= 0:
-                    # Use device-specific default
-                    device = getattr(self.config, 'device', 'cuda')
-                    if device == 'cuda':
-                        max_recording_seconds = getattr(self.config, 'max_recording_seconds_gpu', 1200)
-                    else:
-                        max_recording_seconds = getattr(self.config, 'max_recording_seconds_cpu', 600)
-                if recording_duration >= max_recording_seconds:
-                    if self.on_max_duration_auto_stop is not None:
-                        try:
-                            self.on_max_duration_auto_stop()
-                        except Exception:
-                            pass
-
-                if self._chunk_count == BUFFER_WARNING_THRESHOLD:
+            # AUDIO-CLIP: Track clipping
+            if chunk_peak >= 0.99:
+                self._clip_count += 1
+                if chunk_peak > self._peak:
+                    self._peak = chunk_peak
+                now = time.perf_counter()
+                if now - self._last_clip_log_time >= 1.0:
                     log.warning(
-                        "[RECORDING] Buffer is large (5k chunks, ~5 min). "
-                        "Consider stopping recording."
+                        "[RECORDING] Clipping detected: peak=%.4f, count=%d chunks. Reduce mic gain.",
+                        chunk_peak, self._clip_count
                     )
-                if self._chunk_count % TELEMETRY_LOG_INTERVAL == 0:
-                    log.info(
-                        "[RECORDING] Buffer telemetry: chunks=%d, buffer_count=%d",
-                        self._chunk_count,
-                        len(self._buffer),
-                    )
+                    self._last_clip_log_time = now
 
-            # Fire RMS callback OUTSIDE the lock so it cannot stall the audio path
+            recent_rms.append(chunk_rms)
+
+            # Voice detected by loudness → reset silence timer
+            if chunk_rms > 0.005 or chunk_peak > 0.01:
+                self._silence_timer = 0.0
+                recent_rms.clear()
+            else:
+                if len(recent_rms) >= 10:
+                    rms_std = float(np.std(list(recent_rms)))
+                    if rms_std < 0.001:
+                        self._silence_timer += chunk_duration
+                    else:
+                        self._silence_timer = 0.0
+                else:
+                    self._silence_timer += chunk_duration
+
+            # Use cached config values (PERF-NEW-006)
+            silence_warning_seconds = self._cached_silence_warning
+            silence_auto_stop_seconds = self._cached_silence_auto_stop
+
+            # H12a: Repeating silence warnings with exponential backoff
+            if self._silence_timer >= silence_warning_seconds:
+                time_since_first_warning = self._silence_timer - silence_warning_seconds
+                expected_warnings = 0
+                cumulative = 0.0
+                wait = 10.0
+                while cumulative <= time_since_first_warning:
+                    expected_warnings += 1
+                    cumulative += wait
+                    wait *= 2
+                if expected_warnings > self._silence_warning_count:
+                    self._silence_warning_count = expected_warnings
+                    if silence_warning_cb is not None:
+                        try:
+                            silence_warning_cb()
+                        except Exception:
+                            pass
+
+            if self._silence_timer >= silence_auto_stop_seconds:
+                if silence_auto_stop_cb is not None:
+                    try:
+                        silence_auto_stop_cb()
+                    except Exception:
+                        pass
+
+            # H12b: Maximum recording duration auto-stop
+            recording_duration = time.perf_counter() - recording_start
+            max_recording_seconds = self._cached_max_recording
+            if recording_duration >= max_recording_seconds:
+                if max_duration_cb is not None:
+                    try:
+                        max_duration_cb()
+                    except Exception:
+                        pass
+
+            if chunk_count == BUFFER_WARNING_THRESHOLD:
+                log.warning(
+                    "[RECORDING] Buffer is large (5k chunks, ~5 min). "
+                    "Consider stopping recording."
+                )
+            if chunk_count % TELEMETRY_LOG_INTERVAL == 0:
+                log.info(
+                    "[RECORDING] Buffer telemetry: chunks=%d, buffer_count=%d",
+                    chunk_count, buffer_len,
+                )
+
+            # Fire RMS callback OUTSIDE the lock
             if rms_callback is not None:
                 try:
-                    rms_callback(cb_rms, cb_peak)
+                    rms_callback(chunk_rms, chunk_peak)
                 except Exception:
                     log.debug("[RECORDING] on_rms_level callback raised", exc_info=True)
 
