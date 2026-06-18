@@ -6,6 +6,10 @@ import type { WindowBridge } from '@/types/ipc'
 
 interface TitleBarProps {
   onToggleSidebar?: () => void
+  onGoBack?: () => void
+  onGoForward?: () => void
+  canGoBack?: boolean
+  canGoForward?: boolean
 }
 
 function MinimizeIcon() {
@@ -78,7 +82,7 @@ function TitleBarButton({ onClick, ariaLabel, variant = 'default', children }: T
   )
 }
 
-export function TitleBar({ onToggleSidebar }: TitleBarProps) {
+export function TitleBar({ onToggleSidebar, onGoBack, onGoForward, canGoBack, canGoForward }: TitleBarProps) {
   const [isMaximized, setIsMaximized] = useState(false)
   const bridge = typeof window !== 'undefined' ? window.window_ as WindowBridge : undefined
 
@@ -110,6 +114,47 @@ export function TitleBar({ onToggleSidebar }: TitleBarProps) {
       >
         <HugeiconsIcon icon={PanelLeftIcon} strokeWidth={1.5} className="h-4 w-4" />
       </button>
+
+      {/* Back/Forward navigation */}
+      <button
+        type="button"
+        onClick={onGoBack}
+        disabled={!canGoBack}
+        aria-label="Go back"
+        title="Back (or mouse back button)"
+        className={cn(
+          'no-drag press-scale flex h-8 w-8 items-center justify-center rounded',
+          'text-(--text-muted) transition-colors duration-75',
+          'hover:bg-black/5 hover:text-(--text-primary)',
+          'dark:hover:bg-white/5',
+          'disabled:opacity-30 disabled:cursor-not-allowed',
+          'focus:outline-none',
+        )}
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M10 12L6 8L10 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
+      <button
+        type="button"
+        onClick={onGoForward}
+        disabled={!canGoForward}
+        aria-label="Go forward"
+        title="Forward (or mouse forward button)"
+        className={cn(
+          'no-drag press-scale flex h-8 w-8 items-center justify-center rounded',
+          'text-(--text-muted) transition-colors duration-75',
+          'hover:bg-black/5 hover:text-(--text-primary)',
+          'dark:hover:bg-white/5',
+          'disabled:opacity-30 disabled:cursor-not-allowed',
+          'focus:outline-none',
+        )}
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M6 4L10 8L6 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
+
       <div className="flex-1" />
 
       <TitleBarButton onClick={handleMinimize} ariaLabel="Minimize">

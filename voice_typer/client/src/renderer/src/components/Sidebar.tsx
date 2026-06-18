@@ -26,7 +26,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { id: 'home', label: 'Home', icon: Home04Icon },
   { id: 'history', label: 'History', icon: HistoryIcon },
-  { id: 'analytics', label: 'Analytics',  icon: Analytics01Icon },
+  { id: 'analytics', label: 'Analytics', icon: Analytics01Icon },
   { id: 'templates', label: 'Templates', icon: File02Icon },
   { id: 'vocabulary', label: 'Vocabulary', icon: BookOpen02Icon },
   { id: 'models', label: 'Models', icon: AiBrain03Icon },
@@ -56,7 +56,8 @@ export function Sidebar({ currentPage, onNavigate, themeMode, onThemeChange, col
       <div
         className={cn(
           'flex shrink-0 items-center gap-2.5 border-b border-border',
-          collapsed ? 'px-3 py-4' : 'px-5 py-5',
+          'transition-[padding] duration-200 ease-out',
+          collapsed ? 'px-3 py-4' : 'px-5 py-4',
         )}
         title={collapsed ? 'Voice Typer' : undefined}
       >
@@ -65,7 +66,7 @@ export function Sidebar({ currentPage, onNavigate, themeMode, onThemeChange, col
           className={cn(
             'overflow-hidden whitespace-nowrap text-base font-medium tracking-normal text-(--text-primary)',
             'transition-all duration-200 ease-out',
-            collapsed ? 'max-w-0 opacity-0' : 'max-w-32 opacity-100',
+            collapsed ? 'max-w-0 opacity-0 filter-[blur(4px)]' : 'max-w-32 opacity-100 filter-[blur(0px)]',
           )}
         >
           Voice Typer
@@ -73,8 +74,8 @@ export function Sidebar({ currentPage, onNavigate, themeMode, onThemeChange, col
       </div>
 
       {/* Navigation */}
-      <div className="flex-1 p-3">
-        <nav className="flex flex-col gap-px">
+      <div className="flex-1 p-2">
+        <nav className={cn('flex flex-col gap-px')}>
           {NAV_ITEMS.map((item) => {
             const isActive = currentPage === item.id
             return (
@@ -85,7 +86,7 @@ export function Sidebar({ currentPage, onNavigate, themeMode, onThemeChange, col
                 className={cn(
                   'w-full justify-start gap-3 text-sm tracking-wide normal-case font-normal rounded-md',
                   'transition-all duration-200 ease-out',
-                  collapsed ? 'px-0' : 'px-3',
+                  collapsed ? 'px-2' : 'px-3',
                   isActive
                     ? 'bg-white hover:bg-white border border-border dark:bg-(--bg) dark:hover:bg-(--bg) dark:border-black'
                     : 'hover:bg-black/5 dark:hover:bg-white/5',
@@ -97,7 +98,7 @@ export function Sidebar({ currentPage, onNavigate, themeMode, onThemeChange, col
                   className={cn(
                     'overflow-hidden whitespace-nowrap',
                     'transition-all duration-200 ease-out',
-                    collapsed ? 'max-w-0 opacity-0' : 'max-w-40 opacity-100',
+                    collapsed ? 'max-w-0 opacity-0 filter-[blur(4px)]' : 'max-w-40 opacity-100 filter-[blur(0px)]',
                   )}
                 >
                   {item.label}
@@ -108,27 +109,13 @@ export function Sidebar({ currentPage, onNavigate, themeMode, onThemeChange, col
         </nav>
       </div>
 
-      {/* Theme Toggle + Footer */}
-      <div
-        className={cn(
-          'flex items-center border-t border-border p-3',
-          collapsed ? 'gap-2' : 'justify-between',
-        )}
-      >
+      {/* Theme Toggle */}
+      <div className="flex justify-start items-center p-2">
         <ThemeSwitch
           themeMode={themeMode}
           onThemeChange={onThemeChange}
           collapsed={collapsed}
         />
-        <span
-          className={cn(
-            'text-[10px] font-mono uppercase tracking-wide text-(--text-muted) opacity-75 leading-none',
-            'overflow-hidden whitespace-nowrap transition-all duration-200 ease-out',
-            collapsed ? 'max-w-0 opacity-0' : 'max-w-20 opacity-100',
-          )}
-        >
-          v1.0.0
-        </span>
       </div>
     </aside>
   )

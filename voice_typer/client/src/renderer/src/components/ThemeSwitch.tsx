@@ -1,3 +1,4 @@
+import { useCallback } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import type { IconSvgElement } from "@hugeicons/react"
 import {
@@ -8,11 +9,17 @@ import {
 import type { VoiceTyperConfig } from '@/types/config'
 import { cn } from '@/lib/utils'
 
-const THEME_BUTTONS: { mode: VoiceTyperConfig['theme_mode']; icon: IconSvgElement; label: string }[] = [
+const THEME_CYCLE: { mode: VoiceTyperConfig['theme_mode']; icon: IconSvgElement; label: string }[] = [
   { mode: 'light', icon: Sun01Icon, label: 'Light' },
-  { mode: 'system', icon: ModernTvIcon, label: 'System' },
   { mode: 'dark', icon: Moon02Icon, label: 'Dark' },
+  { mode: 'system', icon: ModernTvIcon, label: 'System' },
 ]
+
+/** Get the next mode in the cycle. Light → Dark → System → Light */
+function nextMode(current: VoiceTyperConfig['theme_mode']): VoiceTyperConfig['theme_mode'] {
+  const idx = THEME_CYCLE.findIndex((t) => t.mode === current)
+  return THEME_CYCLE[(idx + 1) % THEME_CYCLE.length].mode
+}
 
 interface ThemeSwitchProps {
   themeMode: VoiceTyperConfig['theme_mode']
@@ -21,28 +28,33 @@ interface ThemeSwitchProps {
 }
 
 export function ThemeSwitch({ themeMode, onThemeChange, collapsed = false }: ThemeSwitchProps) {
+  const current = THEME_CYCLE.find((t) => t.mode === themeMode) ?? THEME_CYCLE[0]
+
+  const handleClick = useCallback(() => {
+    onThemeChange(nextMode(themeMode))
+  }, [themeMode, onThemeChange])
+
   return (
-    <div
+    <button
+      onClick={handleClick}
       className={cn(
-        'flex w-fit gap-1 bg-(--surface-hover) p-0.5 rounded-full border border-border',
-        collapsed ? 'flex-col' : 'items-center justify-center',
+        'inline-flex items-center justify-center gap-2 rounded-full transition-all duration-200 ease-out',
+        'hover:bg-black/5 dark:hover:bg-white/10',
+        collapsed ? 'h-7 w-7 justify-center' : 'h-7 px-2.5',
       )}
+      title={`${current.label} mode — click to switch`}
+      aria-label={`Current theme: ${current.label}. Click to switch.`}
     >
-      {THEME_BUTTONS.map((btn) => (
-        <button
-          key={btn.mode}
-          onClick={() => onThemeChange(btn.mode)}
-          className={cn(
-            'h-7 w-7 duration-0 rounded-full flex items-center justify-center',
-            themeMode === btn.mode
-              ? 'bg-(--bg)'
-              : 'text-(--text-muted) hover:text-(--text-primary) hover:bg-(--surface-hover)',
-          )}
-          title={`${btn.label} mode`}
-        >
-          <HugeiconsIcon icon={btn.icon} strokeWidth={1.625} className="h-3.5 w-3.5" />
-        </button>
-      ))}
-    </div>
+      <HugeiconsIcon icon={current.icon} strokeWidth={1.625} className="h-3.5 w-3.5 shrink-0" />
+      <span
+        className={cn(
+          'overflow-hidden whitespace-nowrap text-xs font-medium',
+          'transition-all duration-200 ease-out',
+          collapsed ? 'max-w-0 opacity-0 hidden' : 'max-w-16 opacity-100',
+        )}
+      >
+        {current.label}
+      </span>
+    </button>
   )
 }

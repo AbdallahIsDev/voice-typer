@@ -1,3 +1,5 @@
+import React from 'react'
+
 interface LogoProps {
   size?: number
   className?: string
@@ -8,16 +10,16 @@ export function Logo({ size = 20, className }: LogoProps) {
     <svg
       width={size}
       height={size}
-      viewBox="0 0 148 148"
+      viewBox="0 0 128 128"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
     >
       {/* Transparent background — uses currentColor for light/dark compatibility */}
-      <rect x="18.5" y="55.5" width="18.5" height="37" rx="9.25" className="fill-current text-(--text-primary)" />
-      <rect x="49.3333" y="37" width="18.5" height="74" rx="9.25" className="fill-current text-(--text-primary)" />
-      <rect x="80.1667" y="18.5" width="18.5" height="111" rx="9.25" className="fill-current text-(--text-primary)" />
-      <rect x="111" y="45.0938" width="18.5" height="57.8125" rx="9.25" className="fill-current text-(--text-primary)" />
+      <rect x="15" y="48" width="14" height="32" rx="7" className="fill-current text-(--text-primary)" />
+      <rect x="43" y="32" width="14" height="64" rx="7" className="fill-current text-(--text-primary)" />
+      <rect x="71" y="16" width="14" height="96" rx="7" className="fill-current text-(--text-primary)" />
+      <rect x="99" y="40" width="14" height="48" rx="7" className="fill-current text-(--text-primary)" />
     </svg>
   )
 }
