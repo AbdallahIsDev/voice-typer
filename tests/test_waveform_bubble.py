@@ -352,13 +352,23 @@ class TestAppMainWiresIpcHook:
 
         monkeypatch.setattr(ipc_server, "IPCServer", FakeServer)
 
+        # BUILD-002: the console script entry point was moved from
+        # app.main() to ipc_server.main().  This test was updated to
+        # call ipc_server.main() instead of app.main().
+        # We need to stub the same things ipc_server.main() calls:
+        # _setup_logging, _ensure_single_instance (from app), VoiceTyperApp.
+        monkeypatch.setattr(app_module, "_setup_logging", lambda: None)
+        monkeypatch.setattr(
+            app_module, "_ensure_single_instance", lambda **kw: object(),
+        )
+
         try:
-            app_module.main()
-            assert calls["ipc_started"] == 1, "IPCServer.start was not called by app.main()"
+            ipc_server.main()
+            assert calls["ipc_started"] == 1, "IPCServer.start was not called by ipc_server.main()"
             assert calls["app_started"] == 1, "VoiceTyperApp.start was not called"
             # Module-level hook must be set (the whole point of the fix)
             assert ipc_server._push_event is not None, (
-                "app.main() did not register the IPC push hook"
+                "ipc_server.main() did not register the IPC push hook"
             )
         finally:
             ipc_server._set_push_event(None)

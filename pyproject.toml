@@ -18,6 +18,9 @@ dependencies = [
     "pynput>=1.7,<2.0",
     "transformers>=4.40,<6.0",
     "accelerate>=0.26,<2.0",
+    # SUPPLY-001: psutil is used by _another_voice_typer_alive
+    # (ARCH-012) and is required for process scanning on all platforms.
+    "psutil>=5.9,<7.0",
 ]
 
 [project.scripts]

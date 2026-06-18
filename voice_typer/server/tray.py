@@ -100,10 +100,19 @@ class TrayIcon:
         return self._state
 
     def set_state(self, state: AppState, message: str = "") -> None:
-        """Update tray icon state and tooltip."""
+        """Update tray icon state and tooltip.
+
+        PERF-005: previously this invalidated the menu cache on every
+        state change (recording start/stop), causing the full menu to
+        be rebuilt.  The menu structure doesn't change on state
+        transitions — only the icon does.  Menu cache is now only
+        invalidated by explicit config changes (microphone list,
+        autostart toggle, etc.).
+        """
         self._state = state
         self._message = message
-        self._menu_cache_valid = False
+        # PERF-005: don't invalidate menu cache on state change —
+        # the icon is updated via _apply_state, not via menu rebuild.
         if self._icon:
             self._apply_state(state, message)
         else:

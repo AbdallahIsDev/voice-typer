@@ -228,3 +228,44 @@ class TestFileExtensionFix:
         result = clean_transcribed_text("Hello world. This is a test.")
         assert "Hello" in result
         assert "test" in result
+
+
+# ── ARCH-004: corrections load error surfacing ───────────────────────────
+
+
+class TestArch004CorrectionsLoadError:
+    """ARCH-004: configure_corrections must return an error message
+    when the user's corrections file is malformed, so the caller can
+    surface it via a tray notification."""
+
+    def test_returns_none_when_no_user_file(self, tmp_path):
+        """No user corrections file → None (no error)."""
+        from voice_typer.server.text_cleanup import configure_corrections
+        result = configure_corrections(config_dir=tmp_path)
+        assert result is None
+
+    def test_returns_error_for_malformed_json(self, tmp_path):
+        """Malformed user corrections file → error message string."""
+        from voice_typer.server.text_cleanup import configure_corrections
+        bad_file = tmp_path / "voice-typer-corrections.json"
+        bad_file.write_text("{ this is not valid json", encoding="utf-8")
+        result = configure_corrections(config_dir=tmp_path)
+        assert result is not None
+        assert "malformed" in result.lower() or "invalid" in result.lower()
+
+    def test_returns_none_for_valid_json(self, tmp_path):
+        """Valid user corrections file → None (no error)."""
+        from voice_typer.server.text_cleanup import configure_corrections
+        import json
+        good_file = tmp_path / "voice-typer-corrections.json"
+        good_file.write_text(json.dumps({"misspellings": {"teh": "the"}}), encoding="utf-8")
+        result = configure_corrections(config_dir=tmp_path)
+        assert result is None
+
+    def test_returns_error_for_empty_file(self, tmp_path):
+        """Empty file → error (not valid JSON)."""
+        from voice_typer.server.text_cleanup import configure_corrections
+        empty_file = tmp_path / "voice-typer-corrections.json"
+        empty_file.write_text("", encoding="utf-8")
+        result = configure_corrections(config_dir=tmp_path)
+        assert result is not None

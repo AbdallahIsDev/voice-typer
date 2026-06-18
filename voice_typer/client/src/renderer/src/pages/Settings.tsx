@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { usePython } from '@/hooks/usePython'
 import { SettingsSection } from '@/components/SettingsSection'
 import { SettingRow } from '@/components/SettingRow'
@@ -143,6 +143,38 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
     [config, call, loadConfig],
   )
 
+  // UX-007: debounced update for text inputs that fire on every keystroke.
+  // Keeps a local draft in component state; commits via updateConfig after
+  // 500ms of idle.  Prevents 11 IPC roundtrips when typing "gpt-4o-mini".
+  const debouncedTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
+  const updateConfigDebounced = useCallback(
+    (key: keyof VoiceTyperConfig, value: unknown, delayMs = 500) => {
+      // Update local state immediately for responsive UI
+      if (config) {
+        const newConfig = { ...config, [key]: value }
+        _cachedConfig = newConfig
+        setConfig(newConfig)
+      }
+      // Clear any pending timer for this key
+      if (debouncedTimers.current[key as string]) {
+        clearTimeout(debouncedTimers.current[key as string])
+      }
+      // Schedule the IPC commit
+      debouncedTimers.current[key as string] = setTimeout(() => {
+        updateConfig({ [key]: value } as Partial<VoiceTyperConfig>)
+        delete debouncedTimers.current[key as string]
+      }, delayMs)
+    },
+    [config, updateConfig],
+  )
+
+  // Cleanup pending timers on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(debouncedTimers.current).forEach(clearTimeout)
+    }
+  }, [])
+
   const viewLogs = async () => {
     // UX-008: actually open the log folder via the main process.
     // Previously this just showed a snackbar without opening anything.
@@ -249,22 +281,11 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
             />
           </SettingRow>
 
-          <SettingRow label="Theme" info="Choose between light, dark, or follow your system setting.">
-            <Select
-              value={config.theme_mode ?? 'system'}
-              onValueChange={handleThemeChange}
-            >
-              <SelectTrigger className="w-40">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {THEME_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <SettingRow label="Theme" info="Choose between light, dark, or follow your system setting. Use the theme picker in the sidebar for quick access.">
+            <span className="text-sm text-(--text-muted)">
+              {config.theme_mode === 'system' ? 'System' : config.theme_mode === 'dark' ? 'Dark' : 'Light'}
+              {' (change in sidebar)'}
+            </span>
           </SettingRow>
 
           <SettingRow label="Tray Click" info="What happens when you left-click the Voice Typer icon in the system tray.">
@@ -447,7 +468,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
           <SettingRow label="Re-Paste Key" info="Keyboard shortcut to re-paste the last transcription.">
             <Input
               value={config.repaste_hotkey ?? '<ctrl>+<alt>+v'}
-              onChange={(e) => updateConfig({ repaste_hotkey: e.target.value })}
+              onChange={(e) => updateConfigDebounced('repaste_hotkey', e.target.value)}
               className="w-32 font-mono text-center"
             />
           </SettingRow>
@@ -460,7 +481,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
                 max={30}
                 step={1}
                 value={String(config.silence_warning_seconds)}
-                onChange={(e) => updateConfig({ silence_warning_seconds: Number(e.target.value) })}
+                onChange={(e) => updateConfigDebounced('silence_warning_seconds', Number(e.target.value))}
                 className="w-20 text-center"
               />
               <span className="text-sm text-(--text-muted)">sec</span>
@@ -475,7 +496,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
                 max={7200}
                 step={1}
                 value={String(config.max_recording_seconds)}
-                onChange={(e) => updateConfig({ max_recording_seconds: Number(e.target.value) })}
+                onChange={(e) => updateConfigDebounced('max_recording_seconds', Number(e.target.value))}
                 className="w-20 text-center"
               />
               <span className="text-sm text-(--text-muted)">sec</span>
@@ -564,7 +585,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
                      * When the user types a real key, updateConfig sends
                      * it via set_config (which is allowlisted). */
                     value={config.llm_api_key && config.llm_api_key !== '<redacted>' ? config.llm_api_key : ''}
-                    onChange={(e) => updateConfig({ llm_api_key: e.target.value })}
+                    onChange={(e) => updateConfigDebounced('llm_api_key', e.target.value)}
                     placeholder={config.llm_api_key === '<redacted>' ? '•••••••• (configured)' : ''}
                     className="w-56 pr-8"
                   />
@@ -580,7 +601,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
               <SettingRow label="API URL" info="The endpoint URL for the AI language model service.">
                 <Input
                   value={config.llm_api_url ?? 'https://api.openai.com/v1/chat/completions'}
-                  onChange={(e) => updateConfig({ llm_api_url: e.target.value })}
+                  onChange={(e) => updateConfigDebounced('llm_api_url', e.target.value)}
                   className="w-64"
                 />
               </SettingRow>
@@ -588,7 +609,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
               <SettingRow label="Model" info="The AI model to use for polishing (e.g., gpt-4o-mini).">
                 <Input
                   value={config.llm_model ?? 'gpt-4o-mini'}
-                  onChange={(e) => updateConfig({ llm_model: e.target.value })}
+                  onChange={(e) => updateConfigDebounced('llm_model', e.target.value)}
                   className="w-44"
                 />
               </SettingRow>
@@ -669,14 +690,24 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
 
       {/* Reset Confirmation Dialog */}
       {showResetDialog && (
-        <div className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+        <div
+          className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={() => setShowResetDialog(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reset-dialog-title"
+        >
           <div
             className={cn(
               'animate-scale-in w-100 rounded-xl border border-border',
               'bg-(--bg) p-6 shadow-2xl',
             )}
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setShowResetDialog(false)
+            }}
           >
-            <h2 className="text-lg font-semibold text-(--text-primary) mb-3">
+            <h2 id="reset-dialog-title" className="text-lg font-semibold text-(--text-primary) mb-3">
               Reset to Defaults
             </h2>
             <p className="text-sm text-(--text-muted) mb-6">
@@ -687,7 +718,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
               <Button variant="ghost" onClick={() => setShowResetDialog(false)}>
                 Cancel
               </Button>
-              <Button variant="destructive" onClick={resetToDefaults}>
+              <Button variant="destructive" onClick={resetToDefaults} autoFocus>
                 Reset to Defaults
               </Button>
             </div>

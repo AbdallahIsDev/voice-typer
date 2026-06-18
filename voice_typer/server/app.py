@@ -315,9 +315,26 @@ class VoiceTyperApp:
         self._waveform_bubble = WaveformBubble()
         self._wire_waveform_bubble()
         self._last_transcription: str = ""  # For repaste
-        self._template_manager = None  # Lazy-init on first use
-        self._vocabulary_manager = None  # Lazy-init on first use
-        self._llm_polisher = None  # Lazy-init on first use
+        # ARCH-011: eager-init managers so config changes between
+        # startup and first dictation are reflected.  Previously these
+        # were lazy-init on first use, which meant a config change
+        # (e.g. editing corrections.json) before the first dictation
+        # was NOT picked up because the manager was created from stale
+        # config.  Eager init ensures the managers see the config as
+        # of __init__ time; reload() can be called later if needed.
+        try:
+            from voice_typer.server.templates import TemplateManager
+            self._template_manager = TemplateManager()
+        except Exception:
+            log.debug("[INIT] TemplateManager eager-init failed")
+            self._template_manager = None
+        try:
+            from voice_typer.server.vocabulary import VocabularyManager
+            self._vocabulary_manager = VocabularyManager()
+        except Exception:
+            log.debug("[INIT] VocabularyManager eager-init failed")
+            self._vocabulary_manager = None
+        self._llm_polisher = None  # Created on first polish (needs consent check)
         self._cloud_engine = None  # Lazy-init if cloud backend selected
 
     # ─── Qwen Engine (P0) ────────────────────────────────────────────
@@ -572,8 +589,19 @@ class VoiceTyperApp:
                 log.debug("[STARTUP] Onboarding check failed: %s", e)
 
         # Load external text corrections (if available) before any transcription
+        # ARCH-004: surface load errors to the user via tray notification
+        # so they know why their corrections aren't taking effect.
         try:
-            configure_corrections(config_dir=self.config.config_dir)
+            err = configure_corrections(config_dir=self.config.config_dir)
+            if err is not None and self.config.show_notifications:
+                try:
+                    self.tray.notify(
+                        "Voice Typer — Corrections Error",
+                        f"{err}\nCorrections will use built-in defaults. "
+                        f"Fix the file and restart.",
+                    )
+                except Exception:
+                    log.debug("[STARTUP] Could not show corrections error notification")
         except Exception:
             log.debug("[STARTUP] External corrections load failed, using built-in defaults")
 
@@ -590,12 +618,73 @@ class VoiceTyperApp:
             except Exception:
                 log.debug("[STARTUP] Crash recovery check failed")
 
-        # PLAT-WAYLAND: Warn if running on Wayland
+        # DEAD-012: apply history retention policy at startup.
+        # Previously the config keys were saved but never read.
+        try:
+            self.history_db.apply_retention(
+                retention_days=self.config.history_retention_days,
+                max_entries=self.config.history_max_entries,
+            )
+        except Exception:
+            log.debug("[STARTUP] History retention apply failed")
+
+        # PLAT-WAYLAND / XPLAT-004: Warn if running on Wayland and
+        # suggest wtype/ydotool as fallback for global hotkeys.
         if sys.platform.startswith("linux") and os.environ.get("XDG_SESSION_TYPE") == "wayland":
             if not self.config.wayland_warned:
                 log.warning("[STARTUP] Wayland detected -- global hotkeys may not work")
+                # XPLAT-004: check if wtype or ydotool is available as a fallback
+                import shutil
+                wtype_available = shutil.which("wtype") is not None
+                ydotool_available = shutil.which("ydotool") is not None
+                if not wtype_available and not ydotool_available:
+                    log.warning(
+                        "[STARTUP] Neither wtype nor ydotool found. "
+                        "Install one for hotkey support on Wayland: "
+                        "'sudo apt install wtype' or 'sudo apt install ydotool'"
+                    )
+                    self.tray.notify(
+                        "Voice Typer — Wayland Hotkeys",
+                        "Global hotkeys may not work on Wayland. "
+                        "Install 'wtype' or 'ydotool' for hotkey support, "
+                        "or use the tray menu's Toggle Dictation option.",
+                    )
+                else:
+                    log.info(
+                        "[STARTUP] Wayland hotkey fallback available: %s",
+                        "wtype" if wtype_available else "ydotool",
+                    )
                 self.config.wayland_warned = True
                 self.config.save()
+
+        # XPLAT-002: macOS accessibility permission check.
+        # On macOS, global hotkeys require Accessibility permission.
+        # The app can't request it directly, but we can detect it's
+        # missing and notify the user.
+        if sys.platform == "darwin":
+            try:
+                import subprocess as _sp
+                # AXIsProcessTrusted returns True if the process has
+                # Accessibility permission.  We call it via Swift bridge
+                # or via the `osascript` shell command as a fallback.
+                # The simplest check: try to use pynput's GlobalHotKeys
+                # — if it fails with a permission error, we know.
+                # For now, just warn the user.
+                result = _sp.run(
+                    ["osascript", "-e",
+                     'tell application "System Events" to keystroke " "'],
+                    capture_output=True, text=True, timeout=3,
+                )
+                if result.returncode != 0:
+                    log.warning("[STARTUP] macOS Accessibility permission may be missing")
+                    self.tray.notify(
+                        "Voice Typer — Accessibility Permission",
+                        "Global hotkeys require Accessibility permission. "
+                        "Open System Settings → Privacy & Security → Accessibility "
+                        "and add Voice Typer (or Terminal).",
+                    )
+            except Exception:
+                log.debug("[STARTUP] macOS accessibility check failed")
 
         # 1. Sync autostart config with platform
         log.info("[STARTUP] Step 1: sync autostart")
@@ -1222,6 +1311,7 @@ class VoiceTyperApp:
 
                 # P1/P2: Vocabulary correction
                 try:
+                    # ARCH-011: manager was eager-init'd in __init__
                     if self._vocabulary_manager is None:
                         from voice_typer.server.vocabulary import VocabularyManager
                         self._vocabulary_manager = VocabularyManager()
@@ -1230,14 +1320,16 @@ class VoiceTyperApp:
                     log.debug("[PIPELINE] Vocabulary correction failed")
 
                 # P1: Template matching
+                # DEAD-012: gate on templates_enabled (was always running)
                 try:
-                    if self._template_manager is None:
-                        from voice_typer.server.templates import TemplateManager
-                        self._template_manager = TemplateManager()
-                    expanded = self._template_manager.match(text)
-                    if expanded is not None:
-                        log.info("[TEMPLATE] Matched template, expanded %d -> %d chars", len(text), len(expanded))
-                        text = expanded
+                    if getattr(self.config, "templates_enabled", True):
+                        if self._template_manager is None:
+                            from voice_typer.server.templates import TemplateManager
+                            self._template_manager = TemplateManager()
+                        expanded = self._template_manager.match(text)
+                        if expanded is not None:
+                            log.info("[TEMPLATE] Matched template, expanded %d -> %d chars", len(text), len(expanded))
+                            text = expanded
                 except Exception:
                     log.debug("[PIPELINE] Template matching failed")
 
@@ -1252,16 +1344,23 @@ class VoiceTyperApp:
                 # separate from ``llm_polish`` so that turning the
                 # toggle off doesn't silently revoke consent (and
                 # turning it back on doesn't bypass the dialog).
+                # UX-011: fall back to openai_api_key if llm_api_key
+                # is not set, so the user only needs to enter their
+                # OpenAI key once.
+                effective_llm_key = (
+                    self.config.llm_api_key
+                    or getattr(self.config, "openai_api_key", "")
+                )
                 if (
                     self.config.llm_polish
-                    and self.config.llm_api_key
+                    and effective_llm_key
                     and getattr(self.config, "llm_polish_consent", False)
                 ):
                     try:
                         if self._llm_polisher is None:
                             from voice_typer.server.llm_polish import LLMPolisher
                             self._llm_polisher = LLMPolisher(
-                                api_key=self.config.llm_api_key,
+                                api_key=effective_llm_key,
                                 api_url=self.config.llm_api_url or None,
                                 model=self.config.llm_model or None,
                                 preset=self.config.llm_preset,
@@ -1272,7 +1371,7 @@ class VoiceTyperApp:
                         log.warning("[LLM_POLISH] Polish failed: %s", exc)
                 elif (
                     self.config.llm_polish
-                    and self.config.llm_api_key
+                    and effective_llm_key
                     and not getattr(self.config, "llm_polish_consent", False)
                 ):
                     # Log once per session so the user can see in logs
@@ -1535,6 +1634,43 @@ class VoiceTyperApp:
                 self.tray.notify("Voice Typer", "Could not re-paste. Check clipboard.")
         else:
             self.tray.notify("Voice Typer", "No previous transcription to re-paste.")
+
+    def undo_last(self) -> None:
+        """UX-003: Undo last transcription by sending backspace keystrokes.
+
+        Sends one backspace per character in the last transcription.
+        Works by simulating keyboard input via the hotkey backend's
+        keyboard controller (pynput on all platforms).
+        """
+        if not self._last_transcription:
+            self.tray.notify("Voice Typer", "Nothing to undo.")
+            return
+        text = self._last_transcription
+        char_count = len(text)
+        log.info("[UNDO] Undoing last transcription (%d chars)", char_count)
+        try:
+            # Use pynput to send backspace keystrokes
+            from pynput.keyboard import Controller as KeyboardController
+            kb = KeyboardController()
+            # Select all text in the current field first (Ctrl+A), then
+            # Delete — this is more reliable than sending N backspaces
+            # because it handles multi-line text and doesn't leave
+            # partial characters.
+            # However, Ctrl+A selects ALL text in the field, which may
+            # be more than just our transcription.  So we send N
+            # backspaces instead — this is the standard "undo paste"
+            # behavior.
+            for _ in range(char_count):
+                kb.press('\x08')  # Backspace
+                kb.release('\x08')
+            self._last_transcription = ""
+            self.tray.notify("Voice Typer", f"Undid last transcription ({char_count} chars)")
+        except ImportError:
+            log.warning("[UNDO] pynput not available for undo")
+            self.tray.notify("Voice Typer", "Undo not available (pynput missing)")
+        except Exception as e:
+            log.warning("[UNDO] Failed: %s", e)
+            self.tray.notify("Voice Typer", f"Undo failed: {e}")
 
     def _cancel_dictation(self):
         """Feature: ESC to cancel -- cancel current recording/transcription."""
@@ -2169,15 +2305,11 @@ def _ensure_single_instance(silent=False):
     last_error = ctypes.windll.kernel32.GetLastError()
     if last_error == ERROR_ALREADY_EXISTS:
         # Windows guarantees: this means another process holds the mutex
-        # RIGHT NOW.  Trust it — do not second-guess with a process scan.
-        # Best-effort log of who owns it (informational only).
-        try:
-            if _another_voice_typer_alive():
-                log.info("[STARTUP] Duplicate launch blocked: another Voice Typer is running")
-            else:
-                log.info("[STARTUP] Duplicate launch blocked (mutex already held)")
-        except Exception:
-            pass
+        # RIGHT NOW.  Trust it — no need to scan for the competing
+        # process (DEAD-013: the old _another_voice_typer_alive() scan
+        # had zero decision power — the mutex already proved a
+        # duplicate, and the scan result only affected a log message).
+        log.info("[STARTUP] Duplicate launch blocked (mutex already held)")
         if not silent:
             msg = "Voice Typer is already running. Only one instance is allowed."
             try:
@@ -2199,84 +2331,12 @@ def _ensure_single_instance(silent=False):
     return mutex
 
 
-def _another_voice_typer_alive() -> bool:
-    """Best-effort check whether another voice_typer process is alive.
-
-    Returns True if a python.exe OR pythonw.exe process whose command
-    line mentions voice_typer is currently running (other than us).
-    Used by ``_ensure_single_instance`` to decide whether to actually
-    exit.
-
-    ARCH-012 / XPLAT-001: previously this used ``wmic`` (deprecated
-    since Win10 21H1, may be absent on Win11 24H2+).  Now uses
-    ``psutil`` which is already a project dependency and works on
-    all platforms.  Falls back to the wmic path if psutil is somehow
-    unavailable (e.g. broken install) so we don't regress.
-    """
-    import os as _os
-    try:
-        import psutil
-    except ImportError:
-        psutil = None
-
-    if psutil is not None:
-        try:
-            my_pid = _os.getpid()
-            my_ppid = _os.getppid()
-            for proc in psutil.process_iter(["pid", "name", "cmdline"]):
-                try:
-                    info = proc.info
-                    if info["pid"] in (my_pid, my_ppid):
-                        continue
-                    name = (info.get("name") or "").lower()
-                    if not (name.endswith("python.exe") or name.endswith("pythonw.exe")):
-                        continue
-                    cmdline = " ".join(info.get("cmdline") or [])
-                    if re.search(r"voice[_-]?typer", cmdline, re.IGNORECASE):
-                        return True
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    continue
-            return False
-        except Exception:
-            log.debug("[STARTUP] psutil scan failed; falling back to wmic", exc_info=True)
-
-    # Fallback: wmic (deprecated but might still be present on older builds)
-    import subprocess as _sp
-    chunks: list[str] = []
-    for image in ("python.exe", "pythonw.exe"):
-        try:
-            out = _sp.check_output(
-                ['wmic', 'process', 'where', f'Name="{image}"',
-                 'get', 'ProcessId,CommandLine', '/format:list'],
-                stderr=_sp.DEVNULL, text=True, timeout=3,
-            )
-            chunks.append(out)
-        except Exception:
-            continue
-    if not chunks:
-        return False
-
-    for out in chunks:
-        for chunk in out.split("\n\n"):
-            m_pid = re.search(r"ProcessId=(\d+)", chunk)
-            m_cmd = re.search(r"CommandLine=(.*)", chunk)
-            if not (m_pid and m_cmd):
-                continue
-            try:
-                pid = int(m_pid.group(1))
-            except ValueError:
-                continue
-            if pid == _os.getpid():
-                continue
-            if pid == _os.getppid():
-                continue
-            cmd = m_cmd.group(1).strip()
-            if re.search(r"voice[_-]?typer", cmd, re.IGNORECASE):
-                return True
-    return False
+# DEAD-013: _another_voice_typer_alive() deleted.
+# The Win32 named mutex (VoiceTyperSingleInstance) already proves a
+# duplicate exists when ERROR_ALREADY_EXISTS is returned — the scan
+# had zero decision power (its result only affected a log message).
 
 
-def main():
     """Entry point for the ``voice-typer`` console script (pyproject).
 
     Delegates to ``voice_typer.server.ipc_server.main`` so there is exactly
