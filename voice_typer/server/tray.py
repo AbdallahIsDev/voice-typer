@@ -25,42 +25,20 @@ import os
 import subprocess
 import sys
 import threading
-from enum import Enum
 from pathlib import Path
-from typing import Optional, Callable, Protocol
+from typing import Optional, Callable
 
 import pystray
 from PIL import Image
 
+# ARCH-003: types extracted to tray_types.py; icon rendering to tray_icon.py
+from voice_typer.server.tray_types import AppState, TrayController
+from voice_typer.server.tray_icon import _get_dpi_aware_icon_size, _make_icon, _icon_cache
+
 log = logging.getLogger(__name__)
 
 
-class AppState(Enum):
-    IDLE = "idle"
-    RECORDING = "recording"
-    TRANSCRIBING = "transcribing"
-    LOADING = "loading"
-    ERROR = "error"
-    PAUSED = "paused"
-    WARMING_UP = "warming_up"
-    DOWNLOADING = "downloading"
-    PROCESSING = "processing"
-    CANCELLING = "cancelling"
-    SETUP = "setup"
-    NOT_CONFIGURED = "not_configured"
-
-
-class TrayController(Protocol):
-    """Protocol that the tray controller (typically VoiceTyperApp) must implement."""
-
-    def toggle_dictation(self) -> None: ...
-    def change_microphone(self, mic_id: str | None) -> None: ...
-    def change_model(self, model: str) -> None: ...
-    def change_hotkey(self, hotkey: str) -> None: ...
-    def quit_app(self) -> None: ...
-    def set_hotkey(self, hotkey: str) -> None: ...
-    def restart_app(self) -> None: ...
-    def repaste_last(self) -> None: ...
+# ARCH-003: types extracted to tray_types.py; icon rendering to tray_icon.py
 
 
 class TrayIcon:
@@ -521,69 +499,3 @@ class TrayIcon:
         return wrapper
 
 
-_icon_cache: dict = {}
-
-
-def _get_dpi_aware_icon_size() -> int:
-    """TRAY-020: Query DPI scaling and adjust icon size accordingly."""
-    base_size = 64
-    if sys.platform == "win32":
-        try:
-            import ctypes
-            hdc = ctypes.windll.user32.GetDC(0)
-            if hdc:
-                dpi = ctypes.windll.gdi32.GetDeviceCaps(hdc, 88)  # LOGPIXELSX
-                ctypes.windll.user32.ReleaseDC(0, hdc)
-                if dpi > 96:
-                    scale = dpi / 96.0
-                    return int(base_size * scale)
-        except Exception:
-            pass
-    return base_size
-
-
-def _make_icon(state: AppState, size: int = 0) -> Image.Image:
-    """Generate a colored microphone icon based on state.
-    
-    Uses pre-rendered white microphone PNG (from vt_logo.svg) and
-    colorizes it per state.  TRAY-020: If size is 0, auto-detect DPI.
-    """
-    if size == 0:
-        size = _get_dpi_aware_icon_size()
-    cache_key = (state, size)
-    if cache_key in _icon_cache:
-        return _icon_cache[cache_key]
-
-    colors = {
-        AppState.IDLE: (120, 120, 120, 255),
-        AppState.RECORDING: (235, 64, 52, 255),
-        AppState.TRANSCRIBING: (52, 152, 219, 255),
-        AppState.LOADING: (243, 156, 18, 255),
-        AppState.ERROR: (231, 76, 60, 255),
-        AppState.PAUSED: (155, 89, 182, 255),
-        AppState.WARMING_UP: (230, 126, 34, 255),
-        AppState.DOWNLOADING: (52, 73, 94, 255),
-        AppState.PROCESSING: (22, 160, 133, 255),
-        AppState.CANCELLING: (192, 57, 43, 255),
-        AppState.SETUP: (41, 128, 185, 255),
-        AppState.NOT_CONFIGURED: (149, 165, 166, 255),
-    }
-    color = colors.get(state, (120, 120, 120, 255))
-
-    try:
-        # Load pre-rendered white microphone PNG (from vt_logo.svg)
-        asset_dir = Path(__file__).resolve().parent / "assets"
-        available = [16, 24, 32, 48, 64]
-        best = min(available, key=lambda x: abs(x - size))
-        mic_img = Image.open(str(asset_dir / f"tray-mic-{best}.png")).convert("RGBA")
-        # Colorize: use mic's alpha channel as mask over solid state color
-        colored = Image.new("RGBA", mic_img.size, color)
-        colored.putalpha(mic_img.split()[3])
-        if colored.size != (size, size):
-            colored = colored.resize((size, size), Image.LANCZOS)
-    except Exception:
-        # Fallback: solid colored square
-        colored = Image.new("RGBA", (size, size), color)
-
-    _icon_cache[cache_key] = colored
-    return colored
