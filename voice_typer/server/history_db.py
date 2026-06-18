@@ -11,6 +11,8 @@ Rewritten with:
 
 import sqlite3
 import logging
+import os
+import sys
 import threading
 import time
 from datetime import datetime, timedelta
@@ -57,14 +59,49 @@ class HistoryDB:
         self._init_db()
 
     def _get_conn(self) -> sqlite3.Connection:
-        """Get a thread-local database connection."""
+        """Get a thread-local database connection.
+
+        PERF-002: each thread gets its own connection (stored in
+        ``threading.local()``) so writes from the transcription thread
+        don't block reads from the IPC thread.  WAL mode +
+        ``synchronous=NORMAL`` gives good crash safety with low write
+        latency.  ``busy_timeout=5000`` lets a writer wait briefly for
+        a concurrent reader/writer to finish rather than failing
+        immediately.  ``cache_size=-20000`` allocates a 20 MB page
+        cache (negative value = kilobytes) so common reads stay in
+        memory.
+
+        SEC-007: on POSIX, tightens the DB file and its parent
+        directory to 0o600 / 0o700 so transcription history is not
+        world-readable.  SQLite creates ``-wal`` and ``-shm`` sidecar
+        files in WAL mode; we chmod those too (best-effort, since
+        they may be created lazily on first write).
+        """
         if not hasattr(self._local, 'conn') or self._local.conn is None:
+            # SEC-007: tighten dir permissions before the connection
+            # creates files in it.
+            if sys.platform != "win32":
+                try:
+                    self.db_path.parent.mkdir(parents=True, exist_ok=True)
+                    os.chmod(self.db_path.parent, 0o700)
+                except OSError:
+                    pass
             conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA synchronous=NORMAL")
             conn.execute("PRAGMA busy_timeout=5000")
+            conn.execute("PRAGMA cache_size=-20000")  # 20 MB
             conn.row_factory = sqlite3.Row
             self._local.conn = conn
+            # SEC-007: chmod the DB file (and sidecar files if present).
+            if sys.platform != "win32":
+                for suffix in ("", "-wal", "-shm"):
+                    p = self.db_path.with_suffix(self.db_path.suffix + suffix) if suffix else self.db_path
+                    try:
+                        if p.exists():
+                            os.chmod(p, 0o600)
+                    except OSError:
+                        pass
         return self._local.conn
 
     def _init_db(self):

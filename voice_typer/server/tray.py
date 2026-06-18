@@ -58,13 +58,7 @@ class TrayController(Protocol):
     def change_model(self, model: str) -> None: ...
     def change_hotkey(self, hotkey: str) -> None: ...
     def quit_app(self) -> None: ...
-    def toggle_autostart(self) -> None: ...
-    def set_notifications(self, enabled: bool) -> None: ...
     def set_hotkey(self, hotkey: str) -> None: ...
-    def set_silence_warning_seconds(self, seconds: float) -> None: ...
-    def set_silence_auto_stop_seconds(self, seconds: float) -> None: ...
-    def set_max_recording_seconds(self, seconds: int) -> None: ...
-    def create_desktop_shortcut(self) -> None: ...
     def restart_app(self) -> None: ...
     def repaste_last(self) -> None: ...
 
@@ -358,17 +352,6 @@ class TrayIcon:
         """Mark the menu cache as stale so it rebuilds on next right-click."""
         self._menu_cache_valid = False
 
-    def rebuild_menu(self) -> None:
-        """Force the tray menu to rebuild immediately.
-
-        Unlike ``invalidate_menu_cache`` (which defers the rebuild until
-        the next right-click), this rebuilds the ``pystray.Menu`` object
-        right now so changes like ``tray_left_click_action`` take effect
-        without requiring the user to right-click first.
-        """
-        self._menu_cache_valid = False
-        if self._icon is not None:
-            self._icon._menu = pystray.Menu(self._build_menu)
 
     def _build_menu(self) -> tuple:
         """Build the Phase 2 minimal tray menu with Models submenu."""
@@ -378,22 +361,17 @@ class TrayIcon:
         items = []
         hotkey = self._display_hotkey()
 
-        # Determine which menu item is the left-click default based on
-        # tray_left_click_action config ("toggle_dictation" or "open_app").
-        left_click_action = getattr(self._config, "tray_left_click_action", "open_app")
-
         items.append(
             pystray.MenuItem(
                 f"Toggle Dictation ({hotkey})",
                 self._wrap(self._controller.toggle_dictation),
-                default=(left_click_action == "toggle_dictation"),
+                default=True,
             )
         )
         items.append(
             pystray.MenuItem(
                 "Open App",
                 self._wrap(self.open_electron_window),
-                default=(left_click_action == "open_app"),
             )
         )
 
@@ -509,14 +487,28 @@ class TrayIcon:
     def _wrap(fn):
         """Wrap callback so pystray doesn't break on extra args.
 
-        Catches ``SystemExit`` raised by ``quit()`` / ``restart_app()``
-        so pystray doesn't log it as an unhandled error.
+        RELIABILITY-001: previously this wrapper silently swallowed
+        ``SystemExit``, which forced ``quit_app`` and ``restart_app``
+        to use ``os._exit(0)`` to actually terminate the process.
+        That bypassed Python cleanup (atexit, ``__del__``, ``finally``)
+        and leaked the Win32 mutex, PortAudio handles, and
+        ``RegisterHotKey`` registrations until the OS reaped them.
+
+        We now log and re-raise ``SystemExit`` so the process can exit
+        cleanly via the normal ``sys.exit(0)`` path.  ``self.quit()``
+        (called by ``quit_app``) and ``restart_app`` both call
+        ``self.tray.stop()`` before raising ``SystemExit``, which
+        breaks the pystray event loop so ``_icon.run()`` returns and
+        the main thread can exit.
         """
+        log = logging.getLogger("voice_typer.server.tray")
         def wrapper(icon, item):
             try:
                 fn()
-            except SystemExit:
-                pass
+            except SystemExit as _se:
+                log.info("[TRAY] callback %r raised SystemExit(%s); re-raising",
+                         getattr(fn, "__name__", "<lambda>"), _se.code)
+                raise
         return wrapper
 
 

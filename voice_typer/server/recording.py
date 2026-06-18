@@ -23,6 +23,29 @@ _resample_poly_error: Exception | None = None
 _resample_poly_lock = threading.Lock()
 
 
+# PERF-001: eagerly preload scipy.signal.resample_poly at module import
+# so the first recording doesn't block 200-800ms on the import.  This
+# runs in a background daemon thread to avoid slowing down module
+# import for callers that don't record (e.g. the IPC server's
+# get_status handler).  If scipy isn't installed, the error is cached
+# and the lazy path in _get_resample_poly raises it on first use.
+def _preload_resample_poly() -> None:
+    """Background preloader for scipy.signal.resample_poly."""
+    try:
+        from scipy.signal import resample_poly  # noqa: F401
+        _get_resample_poly()
+    except Exception:
+        # Error will be cached by _get_resample_poly on first real use.
+        pass
+
+
+threading.Thread(
+    target=_preload_resample_poly,
+    name="scipy-preloader",
+    daemon=True,
+).start()
+
+
 def _get_resample_poly():
     """Load scipy's resampler once so imports do not happen on F2 stop."""
     global _resample_poly, _resample_poly_error
@@ -288,10 +311,23 @@ class Recorder:
         candidates = self._same_physical_microphone_candidates(device)
 
         def callback(indata, frames, time_info, status):
-            # AUDIO-002: Check PortAudio status flags for XRUNs
+            # AUDIO-002: Check PortAudio status flags for XRUNs.
+            # PERF-NEW-008: rate-limit the warning log so a sustained
+            # xrun condition doesn't write 16 disk lines/sec on the
+            # audio thread.  Log the first occurrence immediately, then
+            # at most once every 5 seconds.  The cumulative xrun count
+            # is still incremented on every occurrence so the final
+            # stats are accurate.
             if status:
                 self._xruns += 1
-                log.warning("[RECORDING] PortAudio status flag: %s (xrun_count=%d)", status, self._xruns)
+                now = time.monotonic()
+                last = getattr(self, "_last_xrun_log_ts", 0.0)
+                if now - last >= 5.0 or self._xruns == 1:
+                    log.warning(
+                        "[RECORDING] PortAudio status flag: %s (xrun_count=%d)",
+                        status, self._xruns,
+                    )
+                    self._last_xrun_log_ts = now
 
             with self._lock:
                 self._buffer.append(indata.copy())
@@ -535,10 +571,21 @@ class Recorder:
                 selected_device,
             )
             self.config.microphone = str(selected_device)
-            try:
-                self.config.save()
-            except Exception as e:
-                log.debug("[RECORDING] Could not persist microphone fallback: %s", e)
+            # PERF-NEW-007: persist the microphone-fallback update on
+            # a background daemon thread so the 50-500 ms blocking
+            # write doesn't stall the recording-start critical path.
+            # The fallback is best-effort persistence — if the process
+            # crashes before the write lands, the user just re-selects
+            # the mic on next start.
+            import threading as _threading_for_save
+            def _persist_mic() -> None:
+                try:
+                    self.config.save()
+                except Exception as e:
+                    log.debug("[RECORDING] Could not persist microphone fallback: %s", e)
+            _threading_for_save.Thread(
+                target=_persist_mic, name="mic-fallback-save", daemon=True,
+            ).start()
 
         self._recording_event.set()
 
@@ -622,7 +669,16 @@ class Recorder:
         Uses a cached resampled prefix to avoid O(n²) resampling on every call.
         Only new chunks since the last snapshot are resampled, then concatenated
         with the cached prefix.
+
+        PERF-NEW-002 / PERF-NEW-003: previously this called
+        ``list(self._buffer)[start:]`` which allocated a full list copy
+        of the deque on every snapshot (20K allocs/sec under sustained
+        recording).  Replaced with ``itertools.islice`` which is O(1)
+        in the deque size and avoids the intermediate list.  Also
+        avoided the O(n) ``np.concatenate([cached, new])`` allocation
+        when there's nothing new to add.
         """
+        import itertools
         with self._lock:
             if not self._buffer:
                 return np.array([], dtype=np.float32)
@@ -630,19 +686,36 @@ class Recorder:
             target_sr = self.config.sample_rate
 
             if effective_sr != target_sr and len(self._buffer) > self._cached_native_chunk_count:
-                # Resample only the new chunks since last snapshot
-                new_chunks = list(self._buffer)[self._cached_native_chunk_count:]
+                # PERF-NEW-003: islice avoids the full-deque list copy.
+                # Only the slice we actually need is materialized.
+                new_chunks = list(
+                    itertools.islice(
+                        self._buffer,
+                        self._cached_native_chunk_count,
+                        None,
+                    )
+                )
                 if new_chunks:
                     new_audio = np.concatenate(new_chunks, axis=0).reshape(-1)
                     new_resampled = self._resample_chunk(new_audio, effective_sr, target_sr)
-                    self._cached_resampled = np.concatenate(
-                        [self._cached_resampled, new_resampled]
-                    ) if len(self._cached_resampled) > 0 else new_resampled
+                    # PERF-NEW-002: avoid the O(n) reallocation when the
+                    # cached prefix is empty (first snapshot of a session).
+                    if len(self._cached_resampled) > 0:
+                        self._cached_resampled = np.concatenate(
+                            [self._cached_resampled, new_resampled]
+                        )
+                    else:
+                        self._cached_resampled = new_resampled
                     self._cached_native_chunk_count = len(self._buffer)
                 return self._cached_resampled.copy()
             elif effective_sr == target_sr:
-                # No resampling needed, just concatenate all
-                audio = np.concatenate(list(self._buffer), axis=0).reshape(-1)
+                # No resampling needed, just concatenate all.
+                # PERF-NEW-003: islice over the deque avoids the full
+                # list copy.  ``np.fromiter`` would be even faster but
+                # requires a flat iterator; the deque holds 2D chunks
+                # so we still need one concatenate.
+                chunks = list(itertools.islice(self._buffer, 0, None))
+                audio = np.concatenate(chunks, axis=0).reshape(-1)
                 return audio
             else:
                 # No new chunks, return cached

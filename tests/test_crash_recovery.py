@@ -88,6 +88,9 @@ class TestCrashRecoveryPersistence:
         from voice_typer.server.crash_recovery import CrashRecovery
         cr1 = CrashRecovery(config_dir=recovery_dir)
         cr1.add("Persistent entry", pasted=False)
+        # RELIABILITY-005: writes are async; explicit flush before
+        # collection ensures the data is on disk.
+        cr1.flush()
         del cr1
 
         cr2 = CrashRecovery(config_dir=recovery_dir)
@@ -101,3 +104,82 @@ class TestCrashRecoveryPersistence:
         path.write_text('{"entries": []}', encoding="utf-8")
         cr = CrashRecovery(config_dir=recovery_dir)
         assert cr.count == 0
+
+
+# ── RELIABILITY-005: async write path ────────────────────────────────────
+
+
+class TestCrashRecoveryAsyncWrites:
+    """RELIABILITY-005: writes happen on a background thread, so
+    rapid mutations don't block the caller and the latest state is
+    always the one persisted."""
+
+    def test_add_returns_immediately(self, cr):
+        """add() must not block on disk I/O — it enqueues a save and
+        returns.  We can't easily measure wall-clock in a unit test,
+        but we can verify the entry is visible in-memory immediately
+        (before the worker has necessarily written it)."""
+        import time
+        cr.add("Fast entry", pasted=False)
+        # The in-memory state should be updated synchronously
+        assert cr.count == 1
+        assert cr.get_all()[0]["text"] == "Fast entry"
+
+    def test_flush_waits_for_pending_saves(self, cr, recovery_dir):
+        """flush() blocks until all queued saves are done."""
+        for i in range(20):
+            cr.add(f"Entry {i}", pasted=False)
+        # flush should complete within a reasonable timeout
+        assert cr.flush(timeout=5.0) is True
+        # After flush, the file should reflect the latest state
+        import json
+        recovery_file = recovery_dir / "voice-typer-recovery.json"
+        data = json.loads(recovery_file.read_text(encoding="utf-8"))
+        # MAX_RECOVERY_ENTRIES is 10, so only the last 10 should be on disk
+        assert len(data["entries"]) == 10
+        assert data["entries"][-1]["text"] == "Entry 19"
+
+    def test_concurrent_adds_are_safe(self, cr):
+        """Multiple threads calling add() concurrently should not
+        corrupt the in-memory state."""
+        import threading
+
+        def writer(n: int) -> None:
+            for i in range(50):
+                cr.add(f"thread-{n}-item-{i}", pasted=False)
+
+        threads = [threading.Thread(target=writer, args=(n,)) for n in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # 4 threads * 50 items = 200, capped at MAX_RECOVERY_ENTRIES (10)
+        assert cr.count == 10
+        cr.flush(timeout=5.0)
+
+    def test_shutdown_stops_worker(self, cr):
+        """shutdown() signals the worker to exit."""
+        cr.add("Before shutdown", pasted=False)
+        cr.shutdown()
+        # Worker thread should exit within a reasonable time
+        if cr._save_thread is not None:
+            cr._save_thread.join(timeout=2.0)
+            assert not cr._save_thread.is_alive()
+
+    def test_enqueue_save_drops_oldest_when_full(self, cr):
+        """When the save queue is full, the oldest pending save is
+        dropped (not the latest state).  This is the documented
+        RELIABILITY-005 behavior — we'd rather lose an intermediate
+        snapshot than block the transcription thread."""
+        # Fill the queue past capacity without giving the worker time
+        # to drain it.  We mock _save_sync to be a no-op so nothing
+        # actually gets written, then verify no exception is raised.
+        from unittest.mock import patch
+        with patch.object(cr, "_save_sync", lambda: None):
+            # _SAVE_QUEUE_MAXSIZE is 32; push 100 saves
+            for _ in range(100):
+                cr._enqueue_save()
+        # No exception should have been raised; the queue should be
+        # at or below its max size.
+        assert cr._save_queue.qsize() <= 32 + 1  # +1 for race tolerance

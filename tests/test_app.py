@@ -128,7 +128,11 @@ class TestAppStateTransitions:
 
     def test_short_audio_skips_transcription(self, app, monkeypatch):
         import voice_typer.server.app as app_mod
-        app_mod.time = MagicMock()
+        # Use monkeypatch.setattr so the mock is auto-reverted after
+        # the test.  Previously this did `app_mod.time = MagicMock()`
+        # which leaked into subsequent tests and broke _push_bubble_level's
+        # `time.monotonic()` call (returning a MagicMock instead of a float).
+        monkeypatch.setattr(app_mod, "time", MagicMock())
 
         app.recorder = MagicMock()
         app.recorder.recording = True
@@ -518,33 +522,225 @@ class TestSettingsWindowIntegration:
         assert kwargs["device"] == "cpu"
 
 
+# ── RELIABILITY-001: quit_app / restart_app must use clean shutdown ──────
+
+
+class TestQuitAppCleanShutdown:
+    """RELIABILITY-001: ``quit_app`` must NOT use ``os._exit(0)``.
+    It should delegate to the audited ``self.quit()`` cleanup path so
+    that Python atexit handlers, ``__del__`` methods, and ``finally``
+    blocks run — releasing the Win32 mutex, closing PortAudio streams,
+    and unregistering hotkeys.
+    """
+
+    def test_quit_app_does_not_call_os_exit(self, app, monkeypatch):
+        """os._exit(0) must never be called from quit_app."""
+        os_exit_called = []
+        monkeypatch.setattr(
+            "voice_typer.server.app.os._exit",
+            lambda code: os_exit_called.append(code),
+        )
+        # Stub out clean-shutdown side effects so quit() can run without
+        # actually joining threads / stopping pystray.
+        app._cancel_pending_timers = MagicMock()
+        app._get_streaming_session = MagicMock(return_value=None)
+        app._set_streaming_session = MagicMock()
+        app.recorder = MagicMock()
+        app._transcription_thread = None
+        app._hotkey_backend = MagicMock()
+        app._esc_backend = MagicMock()
+        app._repaste_backend = MagicMock()
+        app.tray = MagicMock()
+
+        try:
+            app.quit_app()
+        except SystemExit:
+            pass  # sys.exit(0) raises SystemExit — that's the intended path
+
+        assert os_exit_called == [], (
+            f"quit_app must not call os._exit; called with {os_exit_called}"
+        )
+
+    def test_quit_app_calls_self_quit(self, app, monkeypatch):
+        """quit_app should delegate to self.quit() (the audited cleanup
+        path) rather than duplicating cleanup inline."""
+        quit_called = []
+        # quit() is supposed to raise SystemExit; simulate that so
+        # quit_app's flow terminates the test cleanly.
+        def fake_quit():
+            quit_called.append(True)
+            raise SystemExit(0)
+        monkeypatch.setattr(app, "quit", fake_quit)
+        # Stub the side-effect that runs before quit() — push_event
+        # goes over IPC and is not relevant to this unit test.
+        monkeypatch.setattr(
+            "voice_typer.server.ipc_server._push_event_now",
+            lambda msg: None,
+        )
+        # Belt-and-suspenders: if quit_app falls through to os._exit
+        # (it shouldn't after this fix), don't kill the pytest process.
+        monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+
+        with pytest.raises(SystemExit):
+            app.quit_app()
+
+        assert quit_called == [True], "quit_app must call self.quit()"
+
+    def test_quit_app_notifies_electron_first(self, app, monkeypatch):
+        """Before any cleanup, quit_app pushes a quit_app event over IPC
+        so the Electron frontend can call app.quit() and shut down
+        cleanly (instead of being orphaned)."""
+        pushed = []
+        monkeypatch.setattr(
+            "voice_typer.server.ipc_server._push_event_now",
+            lambda msg: pushed.append(msg),
+        )
+        # Stub self.quit() so we can verify the push happens before it.
+        monkeypatch.setattr(app, "quit", lambda: (_ for _ in ()).throw(SystemExit(0)))
+        # Belt-and-suspenders: don't let os._exit kill the pytest process.
+        monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+
+        with pytest.raises(SystemExit):
+            app.quit_app()
+
+        assert pushed == [{"type": "quit_app"}]
+
+    def test_quit_stops_esc_and_repaste_backends(self, app, monkeypatch):
+        """RELIABILITY-003: quit() (called by quit_app) must stop
+        esc_backend and repaste_backend, not just hotkey_backend."""
+        app._cancel_pending_timers = MagicMock()
+        app._get_streaming_session = MagicMock(return_value=None)
+        app._set_streaming_session = MagicMock()
+        app.recorder = MagicMock()
+        app._transcription_thread = None
+        app._hotkey_backend = MagicMock()
+        app._esc_backend = MagicMock()
+        app._repaste_backend = MagicMock()
+        app.tray = MagicMock()
+
+        try:
+            app.quit()
+        except SystemExit:
+            pass
+
+        app._hotkey_backend.stop.assert_called_once()
+        app._esc_backend.stop.assert_called_once()
+        app._repaste_backend.stop.assert_called_once()
+
+
+class TestRestartAppCleanShutdown:
+    """RELIABILITY-001: ``restart_app`` must NOT use ``os._exit(0)``.
+    After spawning the new subprocess, it should stop backends
+    (including esc_backend and repaste_backend — RELIABILITY-003) and
+    exit via ``sys.exit(0)`` so Python cleanup runs in the old
+    process."""
+
+    def test_restart_app_does_not_call_os_exit(self, app, monkeypatch):
+        os_exit_called = []
+        monkeypatch.setattr(
+            "voice_typer.server.app.os._exit",
+            lambda code: os_exit_called.append(code),
+        )
+        monkeypatch.setattr("subprocess.Popen", lambda *a, **kw: MagicMock())
+        monkeypatch.setattr("voice_typer.server.app.os.environ", {})
+        monkeypatch.setattr(sys, "argv", ["voice_typer"])
+        # Force the pre-restart sleep to no-op so the test is fast.
+        monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
+        app._hotkey_backend = MagicMock()
+        app._esc_backend = MagicMock()
+        app._repaste_backend = MagicMock()
+        app._cancel_pending_timers = MagicMock()
+        app.tray = MagicMock()
+
+        try:
+            app.restart_app()
+        except SystemExit:
+            pass
+
+        assert os_exit_called == [], (
+            f"restart_app must not call os._exit; called with {os_exit_called}"
+        )
+
+    def test_restart_app_stops_esc_and_repaste_backends(self, app, monkeypatch):
+        """RELIABILITY-003: restart_app must stop esc_backend and
+        repaste_backend, not just hotkey_backend."""
+        monkeypatch.setattr("subprocess.Popen", lambda *a, **kw: MagicMock())
+        monkeypatch.setattr("voice_typer.server.app.os.environ", {})
+        monkeypatch.setattr(sys, "argv", ["voice_typer"])
+        monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
+        # Belt-and-suspenders: don't let os._exit kill the pytest process.
+        monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+        app._hotkey_backend = MagicMock()
+        app._esc_backend = MagicMock()
+        app._repaste_backend = MagicMock()
+        app._cancel_pending_timers = MagicMock()
+        app.tray = MagicMock()
+
+        try:
+            app.restart_app()
+        except SystemExit:
+            pass
+
+        app._hotkey_backend.stop.assert_called_once()
+        app._esc_backend.stop.assert_called_once()
+        app._repaste_backend.stop.assert_called_once()
+
+    def test_restart_app_calls_tray_stop(self, app, monkeypatch):
+        """restart_app must call self.tray.stop() to break the pystray
+        event loop so the process can actually exit via sys.exit(0)."""
+        monkeypatch.setattr("subprocess.Popen", lambda *a, **kw: MagicMock())
+        monkeypatch.setattr("voice_typer.server.app.os.environ", {})
+        monkeypatch.setattr(sys, "argv", ["voice_typer"])
+        monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
+        # Belt-and-suspenders: don't let os._exit kill the pytest process.
+        monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+        app._hotkey_backend = MagicMock()
+        app._esc_backend = MagicMock()
+        app._repaste_backend = MagicMock()
+        app._cancel_pending_timers = MagicMock()
+        app.tray = MagicMock()
+
+        try:
+            app.restart_app()
+        except SystemExit:
+            pass
+
+        app.tray.stop.assert_called_once()
+
+
 class TestHotkeyMapping:
     """Verify the hotkey registration uses the new backend abstraction."""
 
     def test_register_hotkey_creates_backend(self, app, monkeypatch):
         """_register_hotkey should create a hotkey backend and call start()."""
         from voice_typer.server.hotkeys import PynputHotkey
+        from pynput.keyboard import GlobalHotKeys
 
-        # Ensure Listener works (mock returns a MagicMock with is_alive=True)
+        # Ensure GlobalHotKeys works (mock returns a MagicMock with is_alive=True)
         mock_listener = MagicMock()
         mock_listener.is_alive.return_value = True
+        mock_ghk_cls = MagicMock(return_value=mock_listener)
+
         mock_kb = sys.modules['pynput.keyboard']
-        mock_kb.Listener = MagicMock(return_value=mock_listener)
+        # pyrefly: ignore [missing-attribute]
+        mock_kb.GlobalHotKeys = mock_ghk_cls
 
         app._register_hotkey()
 
         assert app._hotkey_backend is not None
-        assert mock_kb.Listener.call_count >= 1  # Main hotkey + repaste
+        # Main hotkey + repaste hotkey both call GlobalHotKeys.start
+        assert mock_ghk_cls.call_count >= 1
         assert mock_listener.start.call_count >= 1
 
     def test_register_hotkey_failure_does_not_crash(self, app):
-        """If Listener creation raises, app should not crash."""
+        """If both GlobalHotKeys AND fallback Listener raise, app should not crash."""
         mock_kb = sys.modules['pynput.keyboard']
         # pyrefly: ignore [missing-attribute]
-        # PynputHotkey.start imports Listener from pynput.keyboard, make it raise
+        mock_kb.GlobalHotKeys = MagicMock(side_effect=Exception("no display"))
+        # pyrefly: ignore [missing-attribute]
         mock_kb.Listener = MagicMock(side_effect=Exception("no input"))
 
-        # Should not raise - _register_hotkey catches exceptions
+        # Should not raise
         app._register_hotkey()
         # Backend was created but start() failed -> not alive or None
         if app._hotkey_backend is not None:
@@ -552,19 +748,21 @@ class TestHotkeyMapping:
 
     def test_register_esc_hotkey_creates_and_starts_backend(self, app, monkeypatch):
         """_register_esc_hotkey should create a backend and call start()."""
-        mock_kb = sys.modules['pynput.keyboard']
-        # pyrefly: ignore [missing-attribute]
-        mock_kb.Listener = MagicMock(return_value=MagicMock(is_alive=lambda: True))
+        from pynput.keyboard import GlobalHotKeys
 
-        # The backend factory is already monkeypatched in mock_heavy_imports
-        # to return PynputHotkey, which uses Listener.
-        # For the ESC backend specifically, create_hotkey_backend is called
-        # which returns a PynputHotkey. We need Listener to be properly mocked.
+        mock_listener = MagicMock()
+        mock_listener.is_alive.return_value = True
+        mock_ghk_cls = MagicMock(return_value=mock_listener)
+
+        mock_kb = sys.modules['pynput.keyboard']
+        mock_kb.GlobalHotKeys = mock_ghk_cls
+
         assert app._esc_backend is None
         app._register_esc_hotkey()
 
         assert app._esc_backend is not None
-        mock_kb.Listener.assert_called()
+        mock_ghk_cls.assert_called_once_with({"<esc>": app._cancel_dictation})
+        mock_listener.start.assert_called_once()
 
     def test_unregister_esc_hotkey_stops_and_clears_backend(self, app, monkeypatch):
         """_unregister_esc_hotkey should stop the backend and set it to None."""
@@ -595,8 +793,14 @@ class TestHotkeyMapping:
 
     def test_register_hotkey_includes_esc_when_enabled(self, app, monkeypatch):
         """When esc_cancel_enabled is True, _register_hotkey should also call _register_esc_hotkey."""
+        from pynput.keyboard import GlobalHotKeys
+
+        mock_listener = MagicMock()
+        mock_listener.is_alive.return_value = True
+        mock_ghk_cls = MagicMock(return_value=mock_listener)
+
         mock_kb = sys.modules['pynput.keyboard']
-        mock_kb.Listener = MagicMock(return_value=MagicMock(is_alive=lambda: True))
+        mock_kb.GlobalHotKeys = mock_ghk_cls
 
         app.config.esc_cancel_enabled = True
         app._register_hotkey()
@@ -605,8 +809,14 @@ class TestHotkeyMapping:
 
     def test_register_hotkey_skips_esc_when_disabled(self, app, monkeypatch):
         """When esc_cancel_enabled is False, _register_hotkey should skip ESC registration."""
+        from pynput.keyboard import GlobalHotKeys
+
+        mock_listener = MagicMock()
+        mock_listener.is_alive.return_value = True
+        mock_ghk_cls = MagicMock(return_value=mock_listener)
+
         mock_kb = sys.modules['pynput.keyboard']
-        mock_kb.Listener = MagicMock(return_value=MagicMock(is_alive=lambda: True))
+        mock_kb.GlobalHotKeys = mock_ghk_cls
 
         app.config.esc_cancel_enabled = False
         app._register_hotkey()
@@ -898,49 +1108,38 @@ class TestHotkeyCallbackChain:
         assert args[0][0] == AppState.RECORDING
 
     def test_callback_chain_register_then_fire(self, app):
-        """Register hotkey, simulate hotkey press, verify recording starts."""
-        captured_callbacks = []
+        """Register hotkey, extract the callback, call it, verify recording starts."""
+        captured_mapping = {}
 
-        # Monkeypatch PynputHotkey.start to capture the callback
-        from voice_typer.server.hotkeys import PynputHotkey
-        original_start = PynputHotkey.start
-        def capturing_start(self, callback):
-            captured_callbacks.append(callback)
-            # Still create the listener so _register_hotkey succeeds
-            original_start(self, callback)
-        monkeypatch = pytest.MonkeyPatch()
-        monkeypatch.setattr(PynputHotkey, "start", capturing_start)
+        class FakeGlobalHotKeys:
+            def __init__(self, mapping):
+                captured_mapping.update(mapping)
+            def start(self):
+                pass
 
-        # Also ensure Listener mock works for the real start() call
         mock_kb = sys.modules['pynput.keyboard']
-        mock_listener = MagicMock()
-        mock_listener.is_alive.return_value = True
-        mock_kb.Listener = MagicMock(return_value=mock_listener)
+        # pyrefly: ignore [missing-attribute]
+        mock_kb.GlobalHotKeys = FakeGlobalHotKeys
 
         app.recorder = MagicMock()
         app.recorder.recording = False
         app.tray = MagicMock()
         app._busy_event.set()  # not busy
-        app.transcriber = MagicMock()
-        app.transcriber.is_loaded = True
 
-        try:
-            # Register hotkey - this captures the toggle_dictation callback
-            app._register_hotkey()
+        # Register hotkey - this captures the mapping
+        app._register_hotkey()
 
-            # The callback from app._register_hotkey (toggle_dictation) is the first one
-            assert len(captured_callbacks) >= 1
-            toggle_callback = captured_callbacks[0]
+        assert '<f2>' in captured_mapping
+        callback = captured_mapping['<f2>']
+        assert callback == app.toggle_dictation
 
-            # Simulate the hotkey being pressed
-            toggle_callback()
+        # Simulate the hotkey being pressed
+        callback()
 
-            from voice_typer.server.tray import AppState
-            app.recorder.start.assert_called_once()
-            args = app.tray.set_state.call_args
-            assert args[0][0] == AppState.RECORDING
-        finally:
-            monkeypatch.undo()
+        from voice_typer.server.tray import AppState
+        app.recorder.start.assert_called_once()
+        args = app.tray.set_state.call_args
+        assert args[0][0] == AppState.RECORDING
 
 
 class TestMicrophoneSelection:
@@ -1407,14 +1606,14 @@ class TestTextCleanupConfig:
 class TestTrayControllerProtocolCompliance:
     """Verify VoiceTyperApp implements all TrayController protocol methods."""
 
+    # DEAD-008: toggle_autostart, set_notifications, set_silence_*,
+    # set_max_recording_seconds, create_desktop_shortcut removed
+    # from TrayController protocol — no caller existed.  The public
+    # methods are now just the ones the tray menu actually invokes.
     REQUIRED_PUBLIC_METHODS = [
         "toggle_dictation",
         "show_settings",
         "quit",
-        "toggle_autostart",
-        "set_notifications",
-        "set_silence_warning_seconds",
-        "set_silence_auto_stop_seconds",
     ]
 
     REQUIRED_CALLBACK_METHODS = [
@@ -1440,26 +1639,6 @@ class TestTrayControllerProtocolCompliance:
             assert callable(getattr(app, method)), (
                 f"Attribute '{method}' exists but is not callable"
             )
-
-    def test_toggle_autostart_delegates_to_private(self, app):
-        """Public toggle_autostart() must delegate to _toggle_autostart()."""
-        called = []
-        app._toggle_autostart = lambda: called.append(True)
-        app.toggle_autostart()
-        assert len(called) == 1, "toggle_autostart() should call _toggle_autostart()"
-
-    def test_set_notifications_delegates_to_private(self, app):
-        """Public set_notifications() must delegate to _set_notifications()."""
-        called = []
-        app._set_notifications = lambda enabled: called.append(enabled)
-        app.set_notifications(False)
-        assert called == [False], (
-            f"set_notifications(False) should forward to _set_notifications(False), got {called}"
-        )
-        app.set_notifications(True)
-        assert called == [False, True], (
-            f"set_notifications(True) should forward to _set_notifications(True), got {called}"
-        )
 
 
 class TestExternalCorrectionsWiring:
