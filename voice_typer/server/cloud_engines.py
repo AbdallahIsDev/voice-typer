@@ -16,7 +16,7 @@ import json
 import logging
 import threading
 from typing import Optional
-from urllib.request import Request, urlopen
+from urllib.request import Request, urlopen, build_opener, HTTPSHandler
 from urllib.error import URLError
 
 import numpy as np
@@ -29,6 +29,10 @@ from voice_typer.server._secrets import (
 from voice_typer.server.transcription import TranscriberProtocol
 
 log = logging.getLogger(__name__)
+
+# PERF-NEW-010: module-level OpenerDirector for connection pooling.
+# Reuses TCP connections across requests (like requests.Session).
+_opener = build_opener(HTTPSHandler())
 
 # Provider-specific defaults
 _PROVIDER_DEFAULTS = {
@@ -173,7 +177,7 @@ class CloudEngine:
         last_exc = None
         for attempt in range(max_retries):
             try:
-                with urlopen(req, timeout=30) as resp:
+                with _opener.open(req, timeout=30) as resp:
                     result = json.loads(resp.read().decode("utf-8"))
                     text = result.get("text", "").strip()
                     log.info("[CLOUD] %s transcription: %d chars", self.provider, len(text))
@@ -249,7 +253,7 @@ class CloudEngine:
         req = Request(url, data=wav_bytes, headers=headers, method="POST")
 
         try:
-            with urlopen(req, timeout=30) as resp:
+            with _opener.open(req, timeout=30) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
                 # Deepgram response format
                 channels = result.get("results", {}).get("channels", [])

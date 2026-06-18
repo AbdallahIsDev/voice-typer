@@ -286,6 +286,12 @@ class IPCServer:
 
     def __init__(self, app) -> None:
         self.app = app
+        # ARCH-005: wire VoiceTyperService as the service boundary.
+        # IPC routes delegate through the service instead of calling
+        # self.app directly. This allows a second transport (CLI, gRPC)
+        # to reuse the same service layer without duplicating app glue.
+        from voice_typer.server.service import VoiceTyperService
+        self.service = VoiceTyperService(app)
         self._running = False
         self._lock = threading.Lock()
         self._tcp_client: _TCPLineIO | None = None
@@ -555,7 +561,7 @@ class IPCServer:
 
         elif cmd == "toggle_dictation":
             try:
-                self.app.toggle_dictation()
+                self.service.toggle_dictation()
                 resp["type"] = "ack"
             except Exception as e:
                 log.error("[IPC] toggle_dictation failed: %s", e, exc_info=True)
@@ -565,7 +571,7 @@ class IPCServer:
         elif cmd == "undo_last":
             # UX-003: undo last transcription via backspace keystrokes
             try:
-                self.app.undo_last()
+                self.service.undo_last()
                 resp["type"] = "ack"
             except Exception as e:
                 log.error("[IPC] undo_last failed: %s", e, exc_info=True)
@@ -582,7 +588,7 @@ class IPCServer:
             # replaced with a presence indicator ("" if unset,
             # "<redacted>" if set) so the renderer can show "key
             # configured" without ever receiving the key value.
-            resp["data"] = _sanitize_config_for_ipc(self.app.config)
+            resp["data"] = self.service.get_config()
 
         elif cmd == "get_defaults":
             # UX-018: return the default Config() values so the
@@ -669,7 +675,7 @@ class IPCServer:
                 limit = _bound_history_limit(raw.get("limit", 50))
                 offset = _bound_history_offset(raw.get("offset", 0))
                 resp["type"] = "history"
-                resp["data"] = self.app.history_db.get_recent(limit, offset)
+                resp["data"] = self.service.get_history(limit, offset)
             except Exception as e:
                 log.error("[IPC] get_history failed: %s", e, exc_info=True)
                 resp["type"] = "error"
@@ -678,7 +684,7 @@ class IPCServer:
         elif cmd == "get_today_stats":
             try:
                 resp["type"] = "today_stats"
-                resp["data"] = self.app.history_db.get_today_stats()
+                resp["data"] = self.service.get_today_stats()
             except Exception as e:
                 log.error("[IPC] get_today_stats failed: %s", e, exc_info=True)
                 resp["type"] = "error"
@@ -689,7 +695,7 @@ class IPCServer:
                 rec_id = data.get("id") if isinstance(data, dict) else None
                 if rec_id is None:
                     raise ValueError("Missing 'id'")
-                self.app.history_db.delete(rec_id)
+                self.service.delete_history(rec_id)
                 resp["type"] = "ack"
             except Exception as e:
                 log.error("[IPC] delete_history failed: %s", e, exc_info=True)
@@ -698,7 +704,7 @@ class IPCServer:
 
         elif cmd == "clear_history":
             try:
-                self.app.history_db.clear_all()
+                self.service.clear_history()
                 resp["type"] = "ack"
             except Exception as e:
                 log.error("[IPC] clear_history failed: %s", e, exc_info=True)
@@ -710,7 +716,7 @@ class IPCServer:
                 rec_id = data.get("id") if isinstance(data, dict) else None
                 if rec_id is None:
                     raise ValueError("Missing 'id'")
-                new_val = self.app.history_db.toggle_favorite(rec_id)
+                new_val = self.service.toggle_favorite(rec_id)
                 resp["type"] = "ack"
                 resp["data"] = {"favorite": new_val}
             except Exception as e:
@@ -725,7 +731,7 @@ class IPCServer:
                 limit = _bound_history_limit(raw.get("limit", 50))
                 offset = _bound_history_offset(raw.get("offset", 0))
                 resp["type"] = "history"
-                resp["data"] = self.app.history_db.get_favorites(limit, offset)
+                resp["data"] = self.service.get_favorites(limit, offset)
             except Exception as e:
                 log.error("[IPC] get_favorites failed: %s", e, exc_info=True)
                 resp["type"] = "error"
@@ -739,7 +745,7 @@ class IPCServer:
                 limit = _bound_history_limit(raw.get("limit", 50))
                 offset = _bound_history_offset(raw.get("offset", 0))
                 resp["type"] = "history"
-                resp["data"] = self.app.history_db.search(query, limit, offset)
+                resp["data"] = self.service.search_history(query, limit, offset)
             except Exception as e:
                 log.error("[IPC] search_history failed: %s", e, exc_info=True)
                 resp["type"] = "error"
@@ -748,7 +754,7 @@ class IPCServer:
         elif cmd == "get_microphones":
             try:
                 resp["type"] = "microphones"
-                resp["data"] = self.app._microphones
+                resp["data"] = self.service.get_microphones()
             except Exception as e:
                 log.error("[IPC] get_microphones failed: %s", e, exc_info=True)
                 resp["type"] = "error"
@@ -868,7 +874,7 @@ class IPCServer:
             resp["type"] = "ack"
             try:
                 self._send(resp)
-                self.app.restart_app()
+                self.service.restart()
             except Exception as e:
                 log.error("[IPC] restart_app failed: %s", e, exc_info=True)
                 # The ack was already sent; can't recover from here.
@@ -878,7 +884,7 @@ class IPCServer:
             resp["type"] = "ack"
             try:
                 self._send(resp)
-                self.app.quit_app()
+                self.service.quit()
             except Exception as e:
                 log.error("[IPC] quit_app failed: %s", e, exc_info=True)
             return None

@@ -5,6 +5,14 @@ ARCH-001: ``pip_install`` and ``download_weights`` were defined in
 were kept here for reference in case the on-demand-dependency install
 feature (UX-005) is implemented in the future.
 
+DEAD-001 / DEAD-002: ``detect_gpu`` and ``check_dependencies`` were
+removed from ``asr_setup.py`` in commit 387472e.  They had zero
+production call sites, but contain valuable GPU-detection and
+dependency-inspection logic that a well-designed ASR auto-setup
+pipeline SHOULD use.  They are archived here for the same reason as
+the other functions — so they can be revived and wired into the
+startup path when someone takes on the ASR auto-setup task.
+
 **Do NOT import this module in production code.**  It exists only as
 documentation of what the dead functions looked like before removal.
 If you need this functionality, copy the relevant function back into
@@ -80,6 +88,84 @@ def _archived_pip_install(
         if progress_callback:
             progress_callback(f"Installation error: {e}")
         return False
+
+
+def _archived_detect_gpu() -> dict:
+    """Detect GPU availability and capabilities. (ARCHIVED — was dead code.)
+
+    Returns a dict with keys:
+        - 'available': bool
+        - 'device_name': str or None
+        - 'cuda_version': str or None
+        - 'vram_mb': int or None
+
+    Detection chain: ctranslate2 → PyTorch CUDA → none detected.
+    """
+    result = {
+        'available': False,
+        'device_name': None,
+        'cuda_version': None,
+        'vram_mb': None,
+    }
+
+    # Try ctranslate2 CUDA detection
+    try:
+        import ctranslate2
+        if ctranslate2.get_cuda_device_count() > 0:
+            result['available'] = True
+            result['device_name'] = 'CUDA GPU'
+            try:
+                result['cuda_version'] = ctranslate2.get_cuda_version()
+            except Exception:
+                pass
+            log.info("[ASR_SETUP] CUDA GPU detected via ctranslate2")
+            return result
+    except ImportError:
+        pass
+    except Exception as e:
+        log.debug("[ASR_SETUP] ctranslate2 CUDA detection failed: %s", e)
+
+    # Try PyTorch CUDA detection
+    try:
+        import torch
+        if torch.cuda.is_available():
+            result['available'] = True
+            result['device_name'] = torch.cuda.get_device_name(0)
+            result['vram_mb'] = torch.cuda.get_device_properties(0).total_mem // (1024 * 1024)
+            log.info("[ASR_SETUP] CUDA GPU detected via PyTorch: %s", result['device_name'])
+            return result
+    except ImportError:
+        pass
+    except Exception as e:
+        log.debug("[ASR_SETUP] PyTorch CUDA detection failed: %s", e)
+
+    log.info("[ASR_SETUP] No GPU detected")
+    return result
+
+
+def _archived_check_dependencies() -> dict:
+    """Check which ASR dependencies are installed. (ARCHIVED — was dead code.)
+
+    Returns a dict mapping package names to their installed version
+    strings (or None if not installed).
+    """
+    deps = {
+        'faster-whisper': None,
+        'ctranslate2': None,
+        'numpy': None,
+        'scipy': None,
+        'sounddevice': None,
+    }
+
+    for pkg in deps:
+        try:
+            mod = __import__(pkg.replace('-', '_'))
+            deps[pkg] = getattr(mod, '__version__', 'installed')
+        except (ImportError, ValueError):
+            pass
+
+    log.info("[ASR_SETUP] Dependency check: %s", deps)
+    return deps
 
 
 def _archived_download_weights(
