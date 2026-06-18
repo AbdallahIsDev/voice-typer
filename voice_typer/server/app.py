@@ -41,10 +41,32 @@ log = logging.getLogger("voice_typer")
 # Module-level list of devnull file objects opened by _setup_logging()
 # for pythonw.exe (where sys.stderr/stdout/stdin are None).
 # Closed explicitly in VoiceTyperApp.quit() for clean shutdown.
-_devnull_files: list = []
+# Item 3: module-level mutable globals replaced with a class instance.
+# Previously _devnull_files and _session_id were module-level lists/strings
+# that tests shared, causing FD leaks and cross-test contamination.
+# Now they're encapsulated in _ProcessState, which is instantiated once
+# per process (module-level singleton) but can be reset in tests.
+class _ProcessState:
+    """Encapsulates process-level mutable state that was previously
+    module-level globals.  Item 3: prevents test cross-contamination."""
+    def __init__(self):
+        self.devnull_files: list = []
+        self.session_id: str = ""
+
+    def reset(self):
+        """Reset state — called by tests to avoid cross-test contamination."""
+        for f in self.devnull_files:
+            try:
+                f.close()
+            except Exception:
+                pass
+        self.devnull_files.clear()
+        self.session_id = ""
+
+
+_process_state = _ProcessState()
 
 # Session ID for structured logging (P5)
-_session_id: str = ""
 
 
 class _SessionFilter(logging.Filter):
@@ -52,7 +74,7 @@ class _SessionFilter(logging.Filter):
 
     def filter(self, record):
         if not hasattr(record, "session_id"):
-            record.session_id = _session_id
+            record.session_id = _process_state.session_id
         if not hasattr(record, "component"):
             record.component = record.name
         return True
@@ -186,26 +208,25 @@ class _ColorFormatter(logging.Formatter):
 
 def _setup_logging():
     """Configure logging to file (not console, since we run as tray app)."""
-    global _session_id
 
     # Under pythonw.exe (e.g. Windows autostart), sys.stderr/stdout/stdin
     # are None.  Redirect them to devnull immediately so any accidental
     # writes don't crash the process.
     if sys.stderr is None:
         sys.stderr = open(os.devnull, "w", encoding="utf-8", errors="replace")
-        _devnull_files.append(sys.stderr)
+        _process_state.devnull_files.append(sys.stderr)
     if sys.stdout is None:
         sys.stdout = open(os.devnull, "w", encoding="utf-8", errors="replace")
-        _devnull_files.append(sys.stdout)
+        _process_state.devnull_files.append(sys.stdout)
     if sys.stdin is None:
         sys.stdin = open(os.devnull, "r", encoding="utf-8")
-        _devnull_files.append(sys.stdin)
+        _process_state.devnull_files.append(sys.stdin)
 
     # One-time migration from legacy platform config dir
     _migrate_from_legacy()
 
     # Generate session ID for structured logging (P5)
-    _session_id = uuid.uuid4().hex[:8]
+    _process_state.session_id = uuid.uuid4().hex[:8]
 
     config_dir = _config_dir()
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -265,6 +286,8 @@ class VoiceTyperApp:
         )
 
         self.recorder = Recorder(self.config)
+        # Item 1: wire xrun threshold callback for tray notification
+        self.recorder.on_xrun_threshold = self._on_xrun_threshold
         self.transcriber: Optional[TranscriptionEngine] = None
         self._qwen_engine = None
         self._parakeet_engine = None
@@ -404,20 +427,24 @@ class VoiceTyperApp:
             return None
 
     def _get_active_transcriber(self):
-        """Return the active transcriber: Parakeet, Qwen, or Whisper."""
-        if (
-            self.config.asr_backend == "parakeet"
-            and self._parakeet_engine is not None
-            and self._parakeet_engine.is_loaded
-        ):
-            return self._parakeet_engine
-        if (
-            self.config.asr_backend == "qwen"
-            and self._qwen_engine is not None
-            and self._qwen_engine.is_loaded
-        ):
-            return self._qwen_engine
-        return self.transcriber
+        """Return the active transcriber: Parakeet, Qwen, or Whisper.
+
+        ARCH-007/008: delegates to AsrBackendRegistry which centralizes
+        the backend selection logic. Previously every caller re-checked
+        self.config.asr_backend and tested three separate fields.
+        """
+        # Lazy-init the registry on first call
+        if not hasattr(self, '_asr_registry') or self._asr_registry is None:
+            from voice_typer.server.asr_registry import AsrBackendRegistry
+            self._asr_registry = AsrBackendRegistry(self.config)
+            # Register all available backends
+            if self.transcriber is not None:
+                self._asr_registry.register("whisper", self.transcriber)
+            if self._qwen_engine is not None:
+                self._asr_registry.register("qwen", self._qwen_engine)
+            if self._parakeet_engine is not None:
+                self._asr_registry.register("parakeet", self._parakeet_engine)
+        return self._asr_registry.get_active()
 
     # ─── Timer Tracking (P1) ─────────────────────────────────────────
 
@@ -1239,6 +1266,20 @@ class VoiceTyperApp:
         log.info("[DICTATION] Starting transcription thread... (cycle=%s)", self._cycle_id)
         self.tray.set_state(AppState.TRANSCRIBING, "Transcribing...")
 
+        # PERF-NEW-005: signal the streaming session to cancel BEFORE
+        # starting the final transcription thread.  The streaming
+        # thread's cancel event is set here (non-blocking), so any
+        # in-flight streaming inference will abort quickly and release
+        # the transcriber lock before the final transcription tries to
+        # acquire it.  Previously the streaming thread could still be
+        # holding the lock, adding 600-1200ms latency.
+        session = self._get_streaming_session()
+        if session is not None:
+            try:
+                session._cancel_event.set()
+            except Exception:
+                pass
+
         # Safety watchdog: if transcription hangs for >60s, force-recover.
         watchdog = threading.Timer(
             60.0,
@@ -1249,232 +1290,20 @@ class VoiceTyperApp:
 
         _captured_cycle_id = self._cycle_id
 
+        # ARCH-006: transcribe_thread extracted to DictationPipeline class.
+        # The pipeline runs on a daemon thread and handles all steps:
+        # transcribe → clean → vocab → templates → punctuate → LLM → store → paste.
+        from voice_typer.server.dictation_pipeline import DictationPipeline
+
         def transcribe_thread():
-            _t0 = time.perf_counter()
-            try:
-                log.info("[TRANSCRIBE] Starting transcription... (cycle=%s)", _captured_cycle_id)
-                session = self._get_streaming_session()
-                if session is not None:
-                    log.info("[STREAMING] Finalizing streaming transcript (cycle=%s)", _captured_cycle_id)
-                    text = session.finalize(audio)
-                    self._set_streaming_session(None)
-                else:
-                    active = self._get_active_transcriber()
-                    text = active.transcribe_with_fallback(audio)
-                _elapsed = time.perf_counter() - _t0
-                log.info("[TRANSCRIBE] Transcription complete (len=%d, took=%.1fs, cycle=%s)", len(text) if text else 0, _elapsed, _captured_cycle_id)
-
-                active = self._get_active_transcriber()
-                _device_info = active.device_info if active is not None and hasattr(active, "device_info") else "Parakeet ASR"
-
-                if not text:
-                    log.info("[TRANSCRIBE] No speech detected (cycle=%s)", _captured_cycle_id)
-                    if recorded_rms < 0.005:
-                        self.tray.set_state(
-                            AppState.IDLE,
-                            "No speech -- check microphone",
-                        )
-                        self.tray.notify(
-                            "Voice Typer",
-                            "No speech was detected and audio was near-silence.\n"
-                            "Your microphone may not be capturing audio.\n"
-                            "Check that the correct mic is selected and is active.",
-                        )
-                    else:
-                        self.tray.set_state(AppState.IDLE, "No speech detected")
-                    self._busy_event.set()  # busy = False
-                    self._schedule_timer(2.0, lambda: self.tray.set_state(AppState.IDLE))
-                    return
-
-                raw_text = text
-                if self.config.text_cleanup_enabled:
-                    # ARCH-009: skip corrections in clean_transcribed_text
-                    # when VocabularyManager is enabled — it applies the
-                    # same corrections later in the pipeline, so running
-                    # them here too would double-apply.  Structural
-                    # cleanup (spacing, self-corrections, capitalization)
-                    # always runs.
-                    vocab_enabled = getattr(self.config, "vocabulary_enabled", True)
-                    text = clean_transcribed_text(
-                        text,
-                        auto_punctuation=False,
-                        skip_corrections=vocab_enabled,
-                    )
-                    if text != raw_text:
-                        log.info(
-                            "[CLEANUP] Text cleaned: len %d -> %d",
-                            len(raw_text),
-                            len(text),
-                        )
-                else:
-                    log.info("[CLEANUP] Text cleanup disabled (raw mode)")
-
-                # P1/P2: Vocabulary correction
-                try:
-                    # ARCH-011: manager was eager-init'd in __init__
-                    if self._vocabulary_manager is None:
-                        from voice_typer.server.vocabulary import VocabularyManager
-                        self._vocabulary_manager = VocabularyManager()
-                    text = self._vocabulary_manager.apply_to_text(text)
-                except Exception:
-                    log.debug("[PIPELINE] Vocabulary correction failed")
-
-                # P1: Template matching
-                # DEAD-012: gate on templates_enabled (was always running)
-                try:
-                    if getattr(self.config, "templates_enabled", True):
-                        if self._template_manager is None:
-                            from voice_typer.server.templates import TemplateManager
-                            self._template_manager = TemplateManager()
-                        expanded = self._template_manager.match(text)
-                        if expanded is not None:
-                            log.info("[TEMPLATE] Matched template, expanded %d -> %d chars", len(text), len(expanded))
-                            text = expanded
-                except Exception:
-                    log.debug("[PIPELINE] Template matching failed")
-
-                # P1: Auto-punctuation (after template matching)
-                if self.config.auto_punctuation:
-                    from voice_typer.server.text_cleanup import _add_safe_terminal_punctuation
-                    text = _add_safe_terminal_punctuation(text)
-
-                # P2: LLM text polishing
-                # PRIVACY-001: require explicit user consent before
-                # sending any text to an LLM API.  The consent flag is
-                # separate from ``llm_polish`` so that turning the
-                # toggle off doesn't silently revoke consent (and
-                # turning it back on doesn't bypass the dialog).
-                # UX-011: fall back to openai_api_key if llm_api_key
-                # is not set, so the user only needs to enter their
-                # OpenAI key once.
-                effective_llm_key = (
-                    self.config.llm_api_key
-                    or getattr(self.config, "openai_api_key", "")
-                )
-                if (
-                    self.config.llm_polish
-                    and effective_llm_key
-                    and getattr(self.config, "llm_polish_consent", False)
-                ):
-                    try:
-                        if self._llm_polisher is None:
-                            from voice_typer.server.llm_polish import LLMPolisher
-                            self._llm_polisher = LLMPolisher(
-                                api_key=effective_llm_key,
-                                api_url=self.config.llm_api_url or None,
-                                model=self.config.llm_model or None,
-                                preset=self.config.llm_preset,
-                                enabled=True,
-                            )
-                        text = self._llm_polisher.polish(text)
-                    except Exception as exc:
-                        log.warning("[LLM_POLISH] Polish failed: %s", exc)
-                elif (
-                    self.config.llm_polish
-                    and effective_llm_key
-                    and not getattr(self.config, "llm_polish_consent", False)
-                ):
-                    # Log once per session so the user can see in logs
-                    # why polish isn't running.  Avoid spamming on every
-                    # transcription by tracking whether we've warned.
-                    if not getattr(self, "_llm_consent_warned", False):
-                        log.info(
-                            "[LLM_POLISH] llm_polish is enabled but "
-                            "llm_polish_consent is False — skipping polish. "
-                            "Show the consent dialog in the renderer to enable."
-                        )
-                        self._llm_consent_warned = True
-
-                # P2: Store in history and crash recovery
-                try:
-                    self.history_db.add_transcription(
-                        text,
-                        duration=duration,
-                        model=self.config.model_size,
-                        device=self.config.device,
-                    )
-                except Exception:
-                    log.debug("[PIPELINE] History DB add failed")
-
-                if self.config.crash_recovery_enabled:
-                    try:
-                        self._crash_recovery.add(text, pasted=False)
-                    except Exception:
-                        log.debug("[PIPELINE] Crash recovery add failed")
-
-                # Save for repaste
-                self._last_transcription = text
-
-                if self.config.log_transcriptions:
-                    log.info("[TRANSCRIBE] Transcription: %s", text[:200])
-                else:
-                    log.info("[TRANSCRIBE] Transcription: %d chars", len(text))
-
-                # Copy to clipboard -- only attempt paste if copy succeeded.
-                if not self.clipboard.copy(text):
-                    log.error("[CLIPBOARD] Clipboard copy failed -- not attempting paste (cycle=%s)", _captured_cycle_id)
-                    self.tray.set_state(AppState.IDLE, "Done -- clipboard unavailable")
-                    self.tray.notify(
-                        "Voice Typer",
-                        "Transcription complete, but clipboard was unavailable.\n"
-                        "Text was not pasted. Check the log for details.",
-                    )
-                    self._busy_event.set()  # busy = False
-                    self._schedule_timer(
-                        3.0,
-                        lambda di=_device_info: self.tray.set_state(
-                            AppState.IDLE,
-                            f"Ready -- {di}",
-                        ),
-                    )
-                    return
-
-                # Attempt safe paste (only if paste_on_stop AND a text input is focused)
-                pasted = False
-                if self.config.paste_on_stop:
-                    pasted = self.clipboard.paste()
-
-                # P2: Mark as pasted in crash recovery
-                if pasted and self.config.crash_recovery_enabled:
-                    try:
-                        self._crash_recovery.mark_latest_pasted()
-                    except Exception:
-                        pass
-
-                if pasted:
-                    status = f"Done -- {len(text)} chars (pasted)"
-                else:
-                    status = f"Done -- {len(text)} chars (in clipboard)"
-
-                self.tray.set_state(AppState.IDLE, status)
-                self.tray.notify("Voice Typer", f"Transcribed {len(text)} characters")
-
-                # Reset to plain "Ready" after a few seconds
-                self._schedule_timer(
-                    3.0,
-                    lambda di=_device_info: self.tray.set_state(
-                        AppState.IDLE,
-                        f"Ready -- {di}",
-                    ),
-                )
-
-            except Exception as e:
-                log.exception("[TRANSCRIBE] Transcription FAILED (cycle=%s)", _captured_cycle_id)
-                self.tray.set_state(AppState.ERROR, "Transcription failed")
-                self.tray.notify("Voice Typer Error", f"Transcription failed.\n{e}")
-                self._schedule_timer(3.0, lambda: self.tray.set_state(AppState.IDLE))
-
-            finally:
-                watchdog.cancel()
-                session = self._get_streaming_session()
-                if session is not None and not self.recorder.recording:
-                    self._set_streaming_session(None)
-                self._busy_event.set()  # busy = False
-                self._transcription_thread = None
-                # Force garbage collection to release audio arrays and inference buffers
-                import gc
-                gc.collect()
-                log.info("[TRANSCRIBE] busy reset to False (cycle=%s)", _captured_cycle_id)
+            pipeline = DictationPipeline(self)
+            pipeline.run(
+                audio=audio,
+                duration=duration,
+                recorded_rms=recorded_rms,
+                cycle_id=_captured_cycle_id,
+                watchdog=watchdog,
+            )
 
         self._transcription_thread = threading.Thread(
             target=transcribe_thread,
@@ -1671,6 +1500,19 @@ class VoiceTyperApp:
         except Exception as e:
             log.warning("[UNDO] Failed: %s", e)
             self.tray.notify("Voice Typer", f"Undo failed: {e}")
+
+    def _on_xrun_threshold(self, count: int) -> None:
+        """Item 1: notify the user when xrun count exceeds threshold."""
+        log.warning("[XRUN] Threshold reached: %d xruns", count)
+        if self.config.show_notifications:
+            try:
+                self.tray.notify(
+                    "Voice Typer — Audio Issues",
+                    f"Detected {count} audio buffer underruns. "
+                    "Try closing other audio apps or reducing CPU load.",
+                )
+            except Exception:
+                pass
 
     def _cancel_dictation(self):
         """Feature: ESC to cancel -- cancel current recording/transcription."""
@@ -1959,6 +1801,15 @@ class VoiceTyperApp:
         """
         log.info("[QUIT] Quitting Voice Typer...")
 
+        # Item 12: If recording, discard the recording before quitting
+        # so we don't leave the mic open or lose the in-flight audio.
+        try:
+            if self.recorder and self.recorder.recording:
+                log.info("[QUIT] Recording in progress — discarding before quit")
+                self.recorder.discard()
+        except Exception:
+            log.debug("[QUIT] Could not discard recording", exc_info=True)
+
         # 0. Notify Electron frontend over TCP so it can quit cleanly.
         from voice_typer.server.ipc_server import _push_event_now
         _push_event_now({"type": "quit_app"})
@@ -2162,12 +2013,12 @@ class VoiceTyperApp:
         log.info("[SHUTDOWN] Shutdown complete, exiting")
 
         # Close devnull streams
-        for f in _devnull_files:
+        for f in _process_state.devnull_files:
             try:
                 f.close()
             except Exception:
                 pass
-        _devnull_files.clear()
+        _process_state.devnull_files.clear()
 
         if is_main:
             sys.exit(0)
@@ -2238,7 +2089,7 @@ class VoiceTyperApp:
                 # ``self._devnull`` so subsequent events are no-ops.
                 if getattr(self, "_devnull", None) is None or self._devnull.closed:
                     self._devnull = open(os.devnull, 'w')
-                    _devnull_files.append(self._devnull)
+                    _process_state.devnull_files.append(self._devnull)
                 sys.stdout = self._devnull
                 sys.stderr = self._devnull
                 log.info("[WIN32] Detached from console (FreeConsole)")
