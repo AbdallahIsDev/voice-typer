@@ -24,3 +24,9 @@ pynput>=1.7,<2.0
 transformers>=4.40,<6.0
 accelerate>=0.26,<2.0
 psutil>=5.9,<7.0
+# Volume ducking (platform-conditional — only installs on Windows)
+pycaw>=20230407; sys_platform == 'win32'
+comtypes>=1.1; sys_platform == 'win32'
+# Volume ducking (platform-conditional — only installs on macOS)
+pyobjc-core>=9.0; sys_platform == 'darwin'
+pyobjc-framework-CoreAudio>=9.0; sys_platform == 'darwin'

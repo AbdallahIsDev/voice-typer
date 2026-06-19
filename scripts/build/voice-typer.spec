@@ -37,6 +37,15 @@ a = Analysis(
         "pynput.mouse._win32",
         "pynput.mouse._darwin",
         "pynput.mouse._xorg",
+        # Windows volume ducking — lazy-imported inside
+        # WinVolumeBackend.initialize(), so PyInstaller won't
+        # auto-detect them without these hiddenimports.
+        "pycaw",
+        "comtypes",
+        "comtypes.gen",
+        # macOS volume ducking — lazy-imported inside
+        # MacVolumeBackend.initialize().
+        "CoreAudio",
     ],
     hookspath=[],
     hooksconfig={},

@@ -21,6 +21,14 @@ dependencies = [
     # SUPPLY-001: psutil is used by _another_voice_typer_alive
     # (ARCH-012) and is required for process scanning on all platforms.
     "psutil>=5.9,<7.0",
+    # Volume ducking on Windows (pycaw + comtypes).
+    # Lazy-imported in WinVolumeBackend — safe on other platforms.
+    "pycaw>=20230407; sys_platform == 'win32'",
+    "comtypes>=1.1; sys_platform == 'win32'",
+    # Volume ducking on macOS (CoreAudio via pyobjc).
+    # Lazy-imported in MacVolumeBackend — safe on other platforms.
+    "pyobjc-core>=9.0; sys_platform == 'darwin'",
+    "pyobjc-framework-CoreAudio>=9.0; sys_platform == 'darwin'",
 ]
 
 [project.scripts]
@@ -28,9 +36,9 @@ voice-typer = "voice_typer.server.app:main"
 
 [project.optional-dependencies]
 test = ["pytest>=7", "pytest-mock"]
-# Windows volume ducking (pycaw + comtypes)
+# Windows volume ducking — kept as alias for explicit pip install .[windows]
 windows = ["pycaw>=20230407", "comtypes>=1.1"]
-# macOS volume ducking (CoreAudio via pyobjc)
+# macOS volume ducking — kept as alias for explicit pip install .[macos]
 macos = ["pyobjc-core>=9.0", "pyobjc-framework-CoreAudio>=9.0"]
 # Noise filtering (optional — high-pass + gate use scipy which is already a dep)
 noise-filter = [
