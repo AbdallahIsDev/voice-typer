@@ -503,3 +503,68 @@ class TestMonitorConcurrency:
         assert not errors
         # Monitor should not be running after all cycles complete.
         assert _wait_for(lambda: not ducker.is_monitor_running, timeout=1.0)
+
+    def test_thread_join_before_start_race_regression(self):
+        """Regression test for the v2.3 bug where _start_smart_duck_monitor
+        assigned self._monitor_thread BEFORE calling .start().
+
+        If restore() fired in the window between assignment and .start(),
+        _stop_smart_duck_monitor would capture the unstarted thread ref
+        and call .join() on it — raising ``RuntimeError: cannot join
+        thread before it is started``.
+
+        The fix: create the Thread, call .start(), THEN assign to
+        self._monitor_thread.  This test stresses the race with many
+        threads to ensure no RuntimeError ever escapes.
+        """
+        backend = ControllableBackend(current=0.5, speaker_active=False)
+        ducker = VolumeDucker(backend=backend)
+        ducker.set_smart_duck_poll_interval(50)
+        ducker.initialize()
+
+        errors: list[Exception] = []
+        stop = threading.Event()
+
+        def duck_loop():
+            """Hammer duck() to create+start monitors rapidly."""
+            while not stop.is_set():
+                try:
+                    ducker.duck(0.25)
+                except Exception as e:
+                    errors.append(e)
+                    return
+                # Brief sleep so restore can race with us.
+                time.sleep(0.001)
+
+        def restore_loop():
+            """Hammer restore() to try to catch an unstarted thread."""
+            while not stop.is_set():
+                try:
+                    ducker.restore()
+                except Exception as e:
+                    errors.append(e)
+                    return
+                time.sleep(0.001)
+
+        # 4 duckers + 4 restorers = 8 threads racing for 2 seconds.
+        duckers = [threading.Thread(target=duck_loop, daemon=True) for _ in range(4)]
+        restorers = [threading.Thread(target=restore_loop, daemon=True) for _ in range(4)]
+        for t in duckers + restorers:
+            t.start()
+
+        time.sleep(2.0)
+        stop.set()
+        for t in duckers + restorers:
+            t.join(timeout=2.0)
+
+        # The key assertion: NO RuntimeError("cannot join thread before
+        # it is started") should have been raised.
+        join_errors = [e for e in errors if "cannot join thread" in str(e)]
+        assert not join_errors, (
+            f"Reproduced the thread-join-before-start race: "
+            f"{len(join_errors)} RuntimeErrors out of {len(errors)} total errors. "
+            f"First: {join_errors[0]}"
+        )
+        # Other errors (e.g. from overlapping duck/restore state) are
+        # acceptable in this stress test — we're only checking for the
+        # specific join-before-start crash.
