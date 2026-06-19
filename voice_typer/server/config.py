@@ -210,6 +210,25 @@ class Config:
     max_recording_seconds_cpu: int = 600
     max_recording_seconds: int = 0  # 0 = use device-specific default (gpu/cpu)
 
+    # ─── Volume ducking (v1.1.0) ────────────────────────────────────
+    # Reduces system volume during dictation to prevent speaker output
+    # from bleeding into the microphone.
+    volume_duck_enabled: bool = True
+    volume_duck_level: float = 0.25  # 0.0–1.0 perceptual-linear
+    volume_duck_per_session: bool = False  # Windows only — duck other apps, keep alerts
+    volume_duck_fade_ms: int = 150  # 0–1000, 0 = instant
+
+    # ─── Noise filtering (v1.1.0) ───────────────────────────────────
+    # Cleans the microphone signal: removes fan noise, keyboard clicks,
+    # HVAC rumble, and residual speaker bleed.
+    noise_filter_enabled: bool = True
+    noise_filter_highpass: bool = True
+    noise_filter_highpass_cutoff_hz: float = 80.0  # 20–500
+    noise_filter_gate: bool = True
+    noise_filter_gate_threshold: float = 0.015  # 0.0–0.1, ~-45dBFS
+    noise_filter_rnnoise: bool = False  # opt-in (CPU cost), neural denoise
+    noise_filter_post_capture: bool = True  # noisereduce on stop()
+
     def save(self) -> bool:
         """Save config to disk atomically via temp file + os.replace.
 
@@ -333,6 +352,10 @@ class Config:
             "waveform_bubble", "onboarding_completed", "wayland_warned",
             "fast_startup",
             "bubble_draggable", "bubble_show_on_startup",
+            "volume_duck_enabled", "volume_duck_per_session",
+            "noise_filter_enabled", "noise_filter_highpass",
+            "noise_filter_gate", "noise_filter_rnnoise",
+            "noise_filter_post_capture",
         }
         str_fields = {
             "hotkey", "language", "device", "asr_backend",
@@ -670,6 +693,21 @@ IPC_CONFIG_ALLOWLIST: dict = {
     "max_recording_seconds_gpu":  (int, _make_int_validator(lo=0, hi=86400)),
     "max_recording_seconds_cpu":  (int, _make_int_validator(lo=0, hi=86400)),
     "max_recording_seconds":      (int, _make_int_validator(lo=0, hi=86400)),
+
+    # ── Volume ducking (v1.1.0) ───────────────────────────────────────
+    "volume_duck_enabled":          (bool, _bool_validator),
+    "volume_duck_level":            (float, _make_float_validator(lo=0.0, hi=1.0)),
+    "volume_duck_per_session":      (bool, _bool_validator),
+    "volume_duck_fade_ms":          (int, _make_int_validator(lo=0, hi=1000)),
+
+    # ── Noise filtering (v1.1.0) ──────────────────────────────────────
+    "noise_filter_enabled":             (bool, _bool_validator),
+    "noise_filter_highpass":            (bool, _bool_validator),
+    "noise_filter_highpass_cutoff_hz":  (float, _make_float_validator(lo=20.0, hi=500.0)),
+    "noise_filter_gate":                (bool, _bool_validator),
+    "noise_filter_gate_threshold":      (float, _make_float_validator(lo=0.0, hi=0.1)),
+    "noise_filter_rnnoise":             (bool, _bool_validator),
+    "noise_filter_post_capture":        (bool, _bool_validator),
 }
 
 

@@ -1,4 +1,4 @@
-"""Platform-specific adapters: autostart, microphone listing."""
+"""Platform-specific adapters: autostart, microphone listing, volume backend."""
 
 import logging
 import os
@@ -9,6 +9,40 @@ from typing import Optional
 log = logging.getLogger(__name__)
 
 SYSTEM = sys.platform  # "win32", "darwin", "linux"
+
+
+# ─── Volume backend factory ────────────────────────────────────────────
+
+
+def get_volume_backend() -> Optional["object"]:
+    """Return the appropriate :class:`VolumeBackend` for this platform.
+
+    Returns ``None`` if the platform is not supported (no backend class
+    exists).  The returned backend is **not yet initialised** — the
+    caller must call ``initialize()`` to verify that native libraries
+    are available.
+
+    Selection:
+      - ``win32``  → :class:`WinVolumeBackend` (pycaw)
+      - ``darwin`` → :class:`MacVolumeBackend` (CoreAudio / osascript)
+      - ``linux``  → :class:`LinuxVolumeBackend` (pactl → wpctl → amixer)
+    """
+    try:
+        if SYSTEM == "win32":
+            from voice_typer.server.volume_backends import WinVolumeBackend
+            return WinVolumeBackend()
+        elif SYSTEM == "darwin":
+            from voice_typer.server.volume_backends import MacVolumeBackend
+            return MacVolumeBackend()
+        elif SYSTEM == "linux":
+            from voice_typer.server.volume_backends import LinuxVolumeBackend
+            return LinuxVolumeBackend()
+        else:
+            log.debug("[VOLUME] Unsupported platform: %s", SYSTEM)
+            return None
+    except Exception as exc:
+        log.warning("[VOLUME] Failed to create backend for %s: %s", SYSTEM, exc)
+        return None
 
 
 # ─── Microphone helpers ────────────────────────────────────────────────

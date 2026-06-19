@@ -28,6 +28,16 @@ voice-typer = "voice_typer.server.app:main"
 
 [project.optional-dependencies]
 test = ["pytest>=7", "pytest-mock"]
+# Windows volume ducking (pycaw + comtypes)
+windows = ["pycaw>=20230407", "comtypes>=1.1"]
+# macOS volume ducking (CoreAudio via pyobjc)
+macos = ["pyobjc-core>=9.0", "pyobjc-framework-CoreAudio>=9.0"]
+# Noise filtering (optional — high-pass + gate use scipy which is already a dep)
+noise-filter = [
+    "noisereduce>=3.0",
+    # rnnoise-webrtc provides prebuilt wheels for win/mac/linux
+    "rnnoise-webrtc>=1.0; platform_machine != 'arm64' or sys_platform != 'darwin'",
+]
 
 [tool.pyrefly]
 python-version = "3.12"

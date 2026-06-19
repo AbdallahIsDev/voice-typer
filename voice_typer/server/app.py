@@ -35,6 +35,9 @@ from voice_typer.server.crash_recovery import CrashRecovery
 from voice_typer.server.audio_quality import AudioQualityAnalyzer  # noqa: F401  # DEAD-014: kept for future re-wiring
 from voice_typer.server.waveform import WaveformBubble
 from voice_typer.server import task_scheduler
+from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
+from voice_typer.server.volume_ducker import VolumeDucker
+from voice_typer.server.audio_processor import AudioProcessor, AudioProcessorConfig
 
 log = logging.getLogger("voice_typer")
 
@@ -285,7 +288,16 @@ class VoiceTyperApp:
             self.config.microphone or "default", self.config.sample_rate,
         )
 
-        self.recorder = Recorder(self.config)
+        # Audio processor: real-time noise filtering (high-pass, gate,
+        # optional RNNoise) + post-capture spectral gating.  Constructed
+        # from the noise_filter_* config fields.  If disabled or if
+        # filter libraries are missing, the processor is a passthrough.
+        self._audio_processor = AudioProcessor(
+            AudioProcessorConfig.from_config(self.config),
+            sample_rate=self.config.sample_rate,
+        )
+
+        self.recorder = Recorder(self.config, audio_processor=self._audio_processor)
         # Item 1: wire xrun threshold callback for tray notification
         self.recorder.on_xrun_threshold = self._on_xrun_threshold
         self.transcriber: Optional[TranscriptionEngine] = None
@@ -328,6 +340,15 @@ class VoiceTyperApp:
         # ─── P1/P2 New Feature Components ────────────────────────────
         self.history_db = HistoryDB()
         self._crash_recovery = CrashRecovery()
+        # Volume ducking: reduces system volume during dictation to
+        # prevent speaker output from bleeding into the microphone.
+        # Crash recovery persists the pre-duck volume so a crash
+        # doesn't leave the system stuck at a low volume.
+        self._duck_crash_recovery = DuckCrashRecovery()
+        self._volume_ducker = VolumeDucker(
+            crash_recovery=self._duck_crash_recovery,
+            on_crash_restore=self._on_volume_crash_restore,
+        )
         # DEAD-014: AudioQualityAnalyzer was instantiated but never
         # called.  Removed to avoid the import cost and the misleading
         # appearance of a wired-up feature.  The audio_quality config
@@ -359,6 +380,56 @@ class VoiceTyperApp:
             self._vocabulary_manager = None
         self._llm_polisher = None  # Created on first polish (needs consent check)
         self._cloud_engine = None  # Lazy-init if cloud backend selected
+
+    # ─── Volume Ducking ────────────────────────────────────────────────
+
+    def _on_volume_crash_restore(self, state) -> None:
+        """Callback invoked when a stale duck crash-recovery file is found.
+
+        Notifies the user that the volume was restored after a crash.
+        """
+        try:
+            self.tray.notify(
+                "Voice Typer",
+                f"System volume was restored after a crash "
+                f"(to {int(state.linear * 100)}%).",
+            )
+        except Exception:
+            log.debug("[VOLUME] crash-restore notification failed", exc_info=True)
+
+    def _duck_volume(self) -> None:
+        """Duck system volume at the start of dictation."""
+        if not getattr(self.config, "volume_duck_enabled", True):
+            return
+        try:
+            if self._volume_ducker.initialize():
+                self._volume_ducker.duck(
+                    level=getattr(self.config, "volume_duck_level", 0.25),
+                    fade_ms=getattr(self.config, "volume_duck_fade_ms", 150),
+                    per_session=getattr(self.config, "volume_duck_per_session", False)
+                        and self._volume_ducker.supports_per_session,
+                )
+        except Exception:
+            log.debug("[VOLUME] duck failed", exc_info=True)
+
+    def _restore_volume(self, fade_ms: Optional[int] = None) -> None:
+        """Restore system volume at the end of dictation.
+
+        If ``fade_ms`` is ``None``, uses the configured fade duration.
+        Pass ``0`` for instant restore (used on quit/restart).
+        """
+        if not getattr(self.config, "volume_duck_enabled", True):
+            return
+        try:
+            if fade_ms is None:
+                fade_ms = getattr(self.config, "volume_duck_fade_ms", 150)
+            self._volume_ducker.restore(
+                fade_ms=fade_ms,
+                per_session=getattr(self.config, "volume_duck_per_session", False)
+                    and self._volume_ducker.supports_per_session,
+            )
+        except Exception:
+            log.debug("[VOLUME] restore failed", exc_info=True)
 
     # ─── Qwen Engine (P0) ────────────────────────────────────────────
 
@@ -1198,6 +1269,9 @@ class VoiceTyperApp:
             self.tray.set_state(AppState.RECORDING, "Recording...")
             # Show the floating bubble once we know the stream is open
             self._waveform_bubble.show()
+            # Duck system volume AFTER recording starts so the first
+            # chunk of audio benefits from the ducked speakers.
+            self._duck_volume()
             log.info("[DICTATION] Recording started OK (cycle=%s)", self._cycle_id)
         except Exception as e:
             log.exception("[DICTATION] Failed to start recording: %s", e)
@@ -1243,11 +1317,16 @@ class VoiceTyperApp:
         except Exception as e:
             log.exception("[DICTATION] Failed to stop recording")
             self._cancel_streaming_session()
+            self._restore_volume()
             self.tray.set_state(AppState.ERROR, "Stop failed")
             self.tray.notify("Voice Typer", f"Could not stop recording.\n{e}")
             self._busy_event.set()  # busy = False
             self._schedule_timer(3.0, lambda: self.tray.set_state(AppState.IDLE))
             return
+
+        # Restore system volume immediately — don't wait for transcription
+        # (which takes seconds) before the user gets their audio back.
+        self._restore_volume()
 
         # Audio has already been resampled to config.sample_rate by Recorder.stop()
         duration = len(audio) / self.config.sample_rate if len(audio) > 0 else 0
@@ -1525,13 +1604,20 @@ class VoiceTyperApp:
                 self.recorder.on_rms_level = None
                 # Push a final zero-level event to reset the bubble visualizer
                 self._waveform_bubble.reset_level()
-                self._background_audio_monitor.stop()
+                # BUGFIX: removed `self._background_audio_monitor.stop()` —
+                # that attribute was never initialized (leftover from a
+                # refactor), so it threw AttributeError, which the
+                # surrounding try/except swallowed — preventing
+                # `recorder.discard()` from running on ESC cancel.
                 self.recorder.discard()
                 log.info("[CANCEL] Recording discarded (cycle=%s)", self._cycle_id)
             except Exception as e:
                 log.warning("[CANCEL] Failed to discard recording: %s (cycle=%s)", e, self._cycle_id)
 
         self._cancel_streaming_session()
+
+        # Restore system volume on cancel
+        self._restore_volume()
 
         # Hide bubble unless always_visible mode
         if self.config.bubble_behavior != 'always_visible':
@@ -1577,7 +1663,7 @@ class VoiceTyperApp:
             self.tray.notify("Voice Typer", f"Microphone next recording: {label}")
             return
 
-        self.recorder = Recorder(self.config)  # re-create with new mic
+        self.recorder = Recorder(self.config, audio_processor=self._audio_processor)  # re-create with new mic
         log.info("[CONFIG] Microphone changed to: %s", label)
         self.tray.notify("Voice Typer", f"Microphone: {label}")
 
@@ -1844,6 +1930,11 @@ class VoiceTyperApp:
         import subprocess
         import time
 
+        # Restore volume BEFORE launching the new process to avoid
+        # ping-pong (new process ducks before old process restores).
+        # Use fade_ms=0 for instant restore on the restart path.
+        self._restore_volume(fade_ms=0)
+
         time.sleep(0.5)
 
         # 1. Launch the new instance
@@ -1957,6 +2048,11 @@ class VoiceTyperApp:
 
         if self.recorder.recording:
             self.recorder.discard()
+
+        # Restore volume if we were ducked when the app quit.
+        # Without this, a quit-during-recording leaves volume stuck low.
+        # Use fade_ms=0 for instant restore — the app is exiting.
+        self._restore_volume(fade_ms=0)
 
         # Wait for any running transcription thread to finish (short timeout).
         t = self._transcription_thread

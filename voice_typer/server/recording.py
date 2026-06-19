@@ -5,7 +5,7 @@ import logging
 import math
 import threading
 import time
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Callable
 
 import numpy as np
 import sounddevice as sd
@@ -75,8 +75,9 @@ def _get_resample_poly():
 class Recorder:
     """Records audio from microphone into a buffer. Session-based: start, accumulate, stop, get data."""
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, audio_processor: Optional[Any] = None):
         self.config = config
+        self._audio_processor = audio_processor  # AudioProcessor or None
         self._stream: Optional[sd.InputStream] = None
         self._buffer: collections.deque = collections.deque(maxlen=DEFAULT_MAX_BUFFER_CHUNKS)
         self._lock = threading.Lock()
@@ -315,6 +316,11 @@ class Recorder:
         self._peak = 0.0
         self._last_clip_log_time = 0.0
 
+        # AUDIO-PROC: reset filter state for a new session so the
+        # high-pass IIR doesn't carry state from the previous recording.
+        if self._audio_processor is not None:
+            self._audio_processor.reset()
+
         # PERF-NEW-006: cache config values at start() time so the
         # audio callback doesn't do 5x getattr per iteration.
         self._cached_silence_warning = getattr(self.config, 'silence_warning_seconds', 20.0)
@@ -383,7 +389,9 @@ class Recorder:
             # because they operate on the local `indata` copy, not on
             # shared mutable state.
             with self._lock:
-                self._buffer.append(indata.copy())
+                # Store FILTERED audio so the transcriber receives
+                # the cleaned signal.
+                self._buffer.append(filtered.copy())
                 self._chunk_count += 1
                 chunk_count = self._chunk_count
                 buffer_len = len(self._buffer)
@@ -399,10 +407,21 @@ class Recorder:
 
             # ── Everything below runs OUTSIDE the lock ──
 
-            # RMS / peak computation (operates on local `indata`)
-            chunk_rms = float(np.sqrt(np.mean(np.square(indata), dtype=np.float64)))
-            chunk_peak = float(np.max(np.abs(indata)))
-            chunk_duration = len(indata) / self._effective_sr
+            # AUDIO-PROC: apply real-time noise filtering before any
+            # analysis or buffering so the stored audio and the
+            # silence/bubble metrics reflect the cleaned signal that
+            # the transcriber will receive.
+            if self._audio_processor is not None:
+                filtered = self._audio_processor.process_chunk(indata.copy())
+            else:
+                filtered = indata
+
+            # RMS / peak computation (operates on FILTERED audio so the
+            # waveform bubble and silence detection see what the
+            # transcriber will see, not raw mic input).
+            chunk_rms = float(np.sqrt(np.mean(np.square(filtered), dtype=np.float64)))
+            chunk_peak = float(np.max(np.abs(filtered))) if filtered.size else 0.0
+            chunk_duration = len(filtered) / self._effective_sr
 
             # AUDIO-CLIP: Track clipping
             if chunk_peak >= 0.99:
@@ -695,11 +714,20 @@ class Recorder:
         audio = self._prepare_audio(audio, effective_sr)
         resample_ms = (time.perf_counter() - resample_started) * 1000
 
+        # AUDIO-PROC: post-capture spectral noise reduction (offline,
+        # safe to block).  Runs AFTER resampling so noisereduce
+        # operates on the final 16 kHz audio.  ~200 ms for 30 s audio.
+        post_capture_ms = 0.0
+        if self._audio_processor is not None and len(audio) > 0:
+            post_capture_started = time.perf_counter()
+            audio = self._audio_processor.process_full_audio(audio)
+            post_capture_ms = (time.perf_counter() - post_capture_started) * 1000
+
         total_ms = (time.perf_counter() - stop_started) * 1000
         log.info(
             "[RECORDING] Stop timing: stream=%.1fms, concat=%.1fms, "
-            "stats=%.1fms, resample=%.1fms, total=%.1fms",
-            stream_ms, concat_ms, stats_ms, resample_ms, total_ms,
+            "stats=%.1fms, resample=%.1fms, post_capture=%.1fms, total=%.1fms",
+            stream_ms, concat_ms, stats_ms, resample_ms, post_capture_ms, total_ms,
         )
 
         return audio
