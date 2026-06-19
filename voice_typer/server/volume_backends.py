@@ -66,10 +66,15 @@ class WinVolumeBackend(VolumeBackend):
             if devices is None:
                 log.warning("[VOLUME-WIN] No speakers endpoint found")
                 return False
-            interface = devices.Activate(
-                IAudioEndpointVolume._iid_, CLSCTX_ALL, None
-            )
-            self._vol = cast(interface, POINTER(IAudioEndpointVolume))
+            try:
+                # pycaw >= 20251023: EndpointVolume is a direct property
+                self._vol = devices.EndpointVolume
+            except AttributeError:
+                # pycaw < 20251023: use Activate
+                interface = devices.Activate(
+                    IAudioEndpointVolume._iid_, CLSCTX_ALL, None
+                )
+                self._vol = cast(interface, POINTER(IAudioEndpointVolume))
             self._com_initialized = True
             return True
         except ImportError:
@@ -132,7 +137,12 @@ class WinVolumeBackend(VolumeBackend):
         level = max(0.0, min(1.0, level))
         for session in sessions:
             try:
-                vol = session._ctl  # ISimpleAudioVolume
+                # pycaw >= 20251023: SimpleAudioVolume property
+                # pycaw < 20251023: private _ctl attribute
+                vol = getattr(session, "SimpleAudioVolume",
+                              getattr(session, "_ctl", None))
+                if vol is None:
+                    continue
                 original = vol.GetMasterVolume()
                 vol.SetMasterVolume(level, None)
                 self._sessions.append((vol, original))

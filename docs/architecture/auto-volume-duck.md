@@ -1,6 +1,6 @@
 # Auto-Volume Duck + Noise Filtering: System Audio & Mic Path Management During Dictation
 
-**Status:** Proposed (v2 — supersedes v1) · **Priority:** High · **Target:** v1.1.0
+**Status:** Implemented (v2.1 — post-implementation line-number refresh + bugfixes discovered during integration testing) · **Priority:** High · **Target:** v1.1.0
 
 ---
 
@@ -846,7 +846,14 @@ def stop(self) -> np.ndarray:
 - RNNoise: C library, ~1ms per 480-sample frame. A 1024-sample chunk ≈ 2ms. **Borderline.** If xruns appear with RNNoise enabled, move it to a separate consumer thread reading from a ring buffer (1-chunk latency). For v1, keep it in-callback but default OFF.
 - Noisereduce: **never** in callback. Runs only in `stop()`.
 
-**Quality detector callback:** `AudioProcessor.set_quality_callback()` wires the revived `AudioQualityAnalyzer`. The callback receives `(rms, peak)` per chunk and accumulates statistics. On `stop()`, the analyzer produces an `AudioQualityReport` (clipping count, low-volume flag, noise ratio) that can be shown in the mic diagnostics screen. This replaces the dead `audio_quality.py` wiring that app.py:331 called out.
+**Quality detector callback:** `AudioProcessor.set_quality_callback()` wires the revived `AudioQualityAnalyzer`. The callback receives `(rms, peak)` per chunk and accumulates statistics. On `stop()`, the analyzer produces an `AudioQualityReport` (clipping count, low-volume flag, noise ratio) that can be shown in the mic diagnostics screen. This replaces the dead `audio_quality.py` wiring that the old `app.py:331` comment called out. The revived wiring lives at:
+
+- `app.py:37` — `from voice_typer.server.audio_quality import AudioQualityAnalyzer`
+- `app.py:310` — `self._audio_quality = AudioQualityAnalyzer()` (instantiation in `__init__`)
+- `app.py:311` — `self._audio_processor.set_quality_callback(self._on_audio_quality_chunk)` (callback wire)
+- `app.py:1300` — `_on_audio_quality_chunk(self, rms, peak)` (per-chunk accumulator)
+- `app.py:1331` — `_finalize_audio_quality_report(self, audio)` (called from `_stop_dictation` at line 1420)
+- `app.py:1281` — `self._audio_quality.reset()` (per-session reset in `_start_dictation`)
 
 ### 6.5 VAD consolidation
 
@@ -876,9 +883,9 @@ class Recorder:
 
 If `audio_processor` is None (feature disabled), the callback and `stop()` skip filtering. Zero behavior change — graceful.
 
-### 7.2 Dictation start — `app.py:_start_dictation()` (line 1112)
+### 7.2 Dictation start — `app.py:_start_dictation()` (line 1197)
 
-After `self.recorder.start()` (line 1196) and `self._waveform_bubble.show()` (line 1200), **before** the function returns:
+After `self.recorder.start()` (line 1290) and `self._waveform_bubble.show()` (line 1294), **before** the function returns:
 
 ```python
 # Duck system volume (if enabled and backend available)
@@ -887,11 +894,13 @@ if self.config.volume_duck_enabled:
         self._volume_ducker.duck(self.config.volume_duck_level)
 ```
 
+**Implementation note:** the actual wiring delegates to `self._duck_volume()` (defined at `app.py:414`), called from `_start_dictation()` at `app.py:1297`.  This helper reads `config.volume_duck_enabled`, `volume_duck_level`, `volume_duck_fade_ms`, and `volume_duck_per_session` (gated on `backend.supports_per_session`) so the wiring matches the config schema 1:1.
+
 **Ordering matters:** duck happens AFTER `recorder.start()` so the mic is already capturing when volume drops — the first chunk of audio benefits from the ducked speakers.
 
-### 7.3 Dictation stop — `app.py:_stop_dictation()` (line 1217)
+### 7.3 Dictation stop — `app.py:_stop_dictation()` (line 1373)
 
-After `audio = self.recorder.stop()` (line 1242), **before** the transcription thread starts:
+After `audio = self.recorder.stop()` (line 1398), **before** the transcription thread starts:
 
 ```python
 # Restore system volume
@@ -899,11 +908,13 @@ if self.config.volume_duck_enabled:
     self._volume_ducker.restore()
 ```
 
+**Implementation note:** delegated to `self._restore_volume()` (`app.py:429`), called from `_stop_dictation()` at `app.py:1406`.  The audio-quality finalization (`_finalize_audio_quality_report`) runs at `app.py:1420` after the restore — see §6.4.
+
 **Why before transcription thread:** restore is fast (fade 150ms) and should not be delayed by transcription. The transcription thread runs for seconds; volume restore must be immediate so the user hears their audio back ASAP.
 
-### 7.4 Cancel — `app.py:_cancel_dictation()` (line 1517)
+### 7.4 Cancel — `app.py:_cancel_dictation()` (line 1689)
 
-**Bug fix:** the current code at line 1528 calls `self._background_audio_monitor.stop()` which throws `AttributeError` because `_background_audio_monitor` is never initialized. Fix: remove that line, add volume restore:
+**Bug fix:** the v1 code at the (now-removed) line 1528 called `self._background_audio_monitor.stop()` which threw `AttributeError` because `_background_audio_monitor` was never initialized. Fix: remove that line, add volume restore.  **Implemented:** the buggy line is gone (see the BUGFIX comment at `app.py:1700`), and `_restore_volume()` is called from `_cancel_dictation()` at `app.py:1712`.
 
 ```python
 def _cancel_dictation(self):
@@ -933,9 +944,9 @@ def _cancel_dictation(self):
     self._busy_event.set()
 ```
 
-### 7.5 Quit — `app.py:quit()` (line 1934) — **NEW wiring point (v1 missed this)**
+### 7.5 Quit — `app.py:quit()` (line 2118) — **NEW wiring point (v1 missed this)**
 
-After `self.recorder.discard()` (line 1959), add:
+After `self.recorder.discard()` (line 2143), the volume restore is wired at `app.py:2150`:
 
 ```python
 # Restore volume if we were ducked when the app quit.
@@ -949,11 +960,11 @@ if self.config.volume_duck_enabled:
 
 **`fade_ms=0` on quit:** the app is exiting; don't spend 150ms on a fade. Restore instantly.
 
-### 7.6 Restart — `app.py:restart_app()` (line 1822)
+### 7.6 Restart — `app.py:restart_app()` (line 2001)
 
 **Race fix:** v1's claim that "restore happens on old process" was wrong because `restart_app()` launches the new process BEFORE calling `quit()`. If the new process ducks before the old process restores, volume ping-pongs.
 
-Fix: restore volume **before** launching the new process:
+Fix: restore volume **before** launching the new process.  **Implemented:** `self._restore_volume(fade_ms=0)` runs at `app.py:2029`, before `subprocess.Popen` at `app.py:2070`.
 
 ```python
 def restart_app(self) -> None:
@@ -967,9 +978,9 @@ def restart_app(self) -> None:
     # ... existing restart logic (sleep, launch subprocess, quit) ...
 ```
 
-### 7.7 Crash recovery on startup — `app.py:__init__()` (line 278)
+### 7.7 Crash recovery on startup — `app.py:__init__()` (line 283)
 
-`VolumeDucker.initialize()` (§4.2) checks for a stale `duck_crash_recovery.json`. If found, it restores the saved volume and warns the user. This runs during app init, before any recording.
+`VolumeDucker.initialize()` (§4.2) checks for a stale `duck_crash_recovery.json`. If found, it restores the saved volume and warns the user. This runs during app init, before any recording.  **Implementation:** `self._duck_crash_recovery = DuckCrashRecovery(config_dir=_config_dir())` at `app.py:364`, `self._volume_ducker = VolumeDucker(crash_recovery=..., on_crash_restore=self._on_volume_crash_restore)` at `app.py:365`.  The crash-restore callback `_on_volume_crash_restore` (`app.py:400`) calls `self.tray.notify(...)` to surface the warning.
 
 ### 7.8 Configuration
 
@@ -1329,44 +1340,60 @@ def test_missing_scipy_skips_highpass_gracefully():
 
 ### 10.3 Integration tests
 
-- Start recording → verify system volume drops to configured level (backend-specific assertion).
-- Stop recording → verify volume returns to original (including mute state).
-- Cancel recording → verify volume returns to original.
-- Quit app while recording → verify volume restored (no fade).
-- Crash simulation: write `duck_crash_recovery.json`, restart app, verify volume restored + warning shown.
-- Start recording with noise filter ON → verify high-pass filter applied to buffered audio (FFT comparison).
-- RNNoise enabled → verify no xrun increase in callback timing.
-- Manual volume change mid-dictation → verify restore uses current, not saved.
+Implemented in `tests/test_volume_lifecycle.py` (18 tests) and `tests/test_recording_audio_processor.py` (7 tests).  Coverage:
+
+- Start recording → verify system volume drops to configured level (backend-specific assertion). ✓ `TestStartDictationDucksVolume`
+- Stop recording → verify volume returns to original (including mute state). ✓ `TestStopDictationRestoresVolume`
+- Cancel recording → verify volume returns to original. ✓ `TestCancelDictationRestoresVolume`
+- Quit app while recording → verify volume restored (no fade). ✓ `TestQuitRestoresVolumeInstantly`
+- Crash simulation: write `duck_crash_recovery.json`, restart app, verify volume restored + warning shown. ✓ `TestCrashRecoveryOnStartup`
+- Start recording with noise filter ON → verify high-pass filter applied to buffered audio (FFT comparison). ✓ `TestRecorderCallbackWithAudioProcessor::test_buffer_contains_filtered_audio`
+- RNNoise enabled → verify no xrun increase in callback timing. ⏳ Skipped — RNNoise is not installed in CI; the in-callback performance path is exercised but RNNoise itself is mocked/no-op.
+- Manual volume change mid-dictation → verify restore uses current, not saved. ✓ `TestManualVolumeOverride`
+- Restart → restore BEFORE subprocess.Popen (no ping-pong). ✓ `TestRestartRestoresBeforeLaunching`
+- Restart → restore uses fade_ms=0. ✓ (same test)
+- Per-session duck only attempted when backend supports it. ✓ `TestPerSessionDuckGatedOnSupport`
+- Duck writes crash-recovery file, restore clears it. ✓ `TestDuckCrashRecoveryPersistsOnDuck`
+- Recording callback with AudioProcessor doesn't raise NameError (regression). ✓ `TestRecorderCallbackWithAudioProcessor::test_callback_does_not_raise_with_processor`
+- RMS callback receives filtered values. ✓ `test_rms_callback_receives_filtered_values`
+- Quality callback fires per chunk. ✓ `test_quality_callback_fires_per_chunk`
+- Post-capture processing runs in stop(). ✓ `test_post_capture_runs_in_stop`
 
 ### 10.4 Platform-specific CI
 
-| Platform | Backend | Test approach |
-|---|---|---|
-| Windows | pycaw | Mock `IAudioEndpointVolume` COM interface. |
-| macOS | CoreAudio | Mock `AudioObjectGetPropertyData`. osascript: skip in CI (needs GUI). |
-| Linux | pactl/wpctl/amixer | Mock `subprocess.run`. PipeWire: use `pw-cli` in container if available. |
+| Platform | Backend | Test approach | Implemented in |
+|---|---|---|---|
+| Windows | pycaw | Smoke tests (no pycaw installed in CI).  Backend name, per-session flag, graceful init failure. | `tests/test_volume_backends.py::TestWinBackendSmoke` |
+| macOS | CoreAudio / osascript | Mock `subprocess.run`.  CoreAudio path can't be tested without macOS. | `tests/test_volume_backends.py::TestMacBackendOsascript` |
+| Linux | pactl/wpctl/amixer | Mock `shutil.which` and the backend's `_run`. | `tests/test_volume_backends.py::TestLinuxBackendPactl/Wpctl/Amixer` |
 
 ---
 
 ## 11. File Changes Summary
 
-| File | Change |
-|---|---|
-| `voice_typer/server/volume_backend.py` | **NEW** — `VolumeBackend` ABC + `VolumeState` dataclass |
-| `voice_typer/server/volume_ducker.py` | **NEW** — `VolumeDucker` orchestrator (crash recovery, manual override, fade) |
-| `voice_typer/server/duck_crash_recovery.py` | **NEW** — persists ducked state for crash recovery |
-| `voice_typer/server/audio_processor.py` | **NEW** — `AudioProcessor` (highpass, gate, RNNoise, post-capture) |
-| `voice_typer/server/platform.py` | Add `get_volume_backend()` factory + `WinVolumeBackend`, `MacVolumeBackend`, `LinuxVolumeBackend` (or separate `volume_backends.py`) |
-| `voice_typer/server/recording.py` | Inject `AudioProcessor`. Call `process_chunk()` in callback, `process_full_audio()` in `stop()`. |
-| `voice_typer/server/app.py` | Fix `_background_audio_monitor` AttributeError. Wire `VolumeDucker` at 5 points: `__init__`, `_start_dictation`, `_stop_dictation`, `_cancel_dictation`, `quit()`, `restart_app()`. Wire `AudioProcessor` into `Recorder` construction. |
-| `voice_typer/server/config.py` | Add 11 new fields (4 volume + 7 noise). Validators. IPC allowlist. |
-| `voice_typer/server/audio_quality.py` | Revive — wire to `AudioProcessor.set_quality_callback()`. No longer dead. |
-| `voice_typer/client/src/renderer/src/pages/Settings.tsx` | Add "Auto Duck Volume" section + "Noise Filtering" section + backend status indicator |
-| `voice_typer/client/src/renderer/src/types/config.ts` | Add 11 new config fields |
-| `docs/architecture/auto-volume-duck.md` | This document (v2) |
-| `tests/test_volume_ducker.py` | **NEW** — backend ABC, mute state, manual override, fade, crash recovery, concurrency |
-| `tests/test_audio_processor.py` | **NEW** — highpass, gate, RNNoise (mock), post-capture, passthrough |
-| `pyproject.toml` | Add platform-conditional deps (see §12) |
+| File | Change | Status |
+|---|---|---|
+| `voice_typer/server/volume_backend.py` | **NEW** — `VolumeBackend` ABC + `VolumeState` dataclass | ✅ Shipped |
+| `voice_typer/server/volume_ducker.py` | **NEW** — `VolumeDucker` orchestrator (crash recovery, manual override, fade) | ✅ Shipped |
+| `voice_typer/server/duck_crash_recovery.py` | **NEW** — persists ducked state for crash recovery | ✅ Shipped |
+| `voice_typer/server/audio_processor.py` | **NEW** — `AudioProcessor` (highpass, gate, RNNoise, post-capture). **v2 fix:** `_apply_highpass` now ravels 2-D `(frames, 1)` input before filtering — sounddevice delivers 2-D, the v1 code crashed `scipy.lfilter`. | ✅ Shipped + bugfix |
+| `voice_typer/server/volume_backends.py` | **NEW** — `WinVolumeBackend`, `MacVolumeBackend`, `LinuxVolumeBackend` concrete impls | ✅ Shipped |
+| `voice_typer/server/platform.py` | Add `get_volume_backend()` factory (selects per-platform backend) | ✅ Shipped |
+| `voice_typer/server/recording.py` | Inject `AudioProcessor`. Call `process_chunk()` in callback, `process_full_audio()` in `stop()`. **v2 fix:** reordered callback so `filtered` is assigned BEFORE the lock-block that uses it (v1 referenced `filtered` before assignment → silent NameError on every chunk). | ✅ Shipped + critical bugfix |
+| `voice_typer/server/app.py` | Fix `_background_audio_monitor` AttributeError. Wire `VolumeDucker` at 6 points: `__init__`, `_start_dictation`, `_stop_dictation`, `_cancel_dictation`, `quit()`, `restart_app()`. Wire `AudioProcessor` into `Recorder` construction. **v2:** revive `AudioQualityAnalyzer` — instantiate, wire to `set_quality_callback`, reset per session, finalize+notify after stop. | ✅ Shipped + AudioQuality revival |
+| `voice_typer/server/config.py` | Add 11 new fields (4 volume + 7 noise). Validators. IPC allowlist. | ✅ Shipped |
+| `voice_typer/server/audio_quality.py` | Revived — wired via `AudioProcessor.set_quality_callback()` and `_finalize_audio_quality_report()`. No longer dead. | ✅ Revived |
+| `voice_typer/server/ipc_server.py` | **v2 NEW:** `get_volume_backend_status` IPC endpoint so the Settings UI can show the active backend name and gate the Per-Session Duck toggle on `is_windows && supports_per_session`. | ✅ Shipped |
+| `voice_typer/client/src/renderer/src/pages/Settings.tsx` | Add "Audio Enhancement" section with: Volume Backend status indicator, Auto Duck Volume toggle, Duck Level slider, **Duck Fade Duration slider (new — exposes `volume_duck_fade_ms`)**, Per-Session Duck toggle (auto-disabled on non-Windows), Noise Filter toggle, High-Pass Filter toggle, **High-Pass Cutoff slider (new — exposes `noise_filter_highpass_cutoff_hz`)**, Noise Gate toggle, **Noise Gate Threshold slider (new — exposes `noise_filter_gate_threshold`)**, RNNoise toggle, Post-Capture Cleanup toggle. | ✅ Shipped + 3 new sliders |
+| `voice_typer/client/src/renderer/src/types/config.ts` | Add 11 new config fields | ✅ Shipped |
+| `docs/architecture/auto-volume-duck.md` | This document (v2 → v2.1 with post-impl line numbers) | ✅ Updated |
+| `tests/test_volume_ducker.py` | **NEW** — backend ABC, mute state, manual override, fade, crash recovery, concurrency | ✅ Shipped |
+| `tests/test_audio_processor.py` | **NEW** — highpass, gate, RNNoise (mock), post-capture, passthrough | ✅ Shipped |
+| `tests/test_volume_backends.py` | **v2 NEW** — 32 cross-platform tests for Linux (pactl/wpctl/amixer parsing), macOS (osascript fallback), Windows (smoke). | ✅ Shipped |
+| `tests/test_volume_lifecycle.py` | **v2 NEW** — 18 integration tests for the full start/stop/cancel/quit/restart/crash-recovery lifecycle. | ✅ Shipped |
+| `tests/test_recording_audio_processor.py` | **v2 NEW** — 7 regression tests for the recording callback path with an AudioProcessor attached (catches the v1 `filtered` NameError). | ✅ Shipped |
+| `tests/test_server.py` | **v2 NEW** — 4 tests for the `get_volume_backend_status` IPC endpoint. | ✅ Shipped |
+| `pyproject.toml` | Add platform-conditional deps (see §12) | ✅ Shipped |
 
 ---
 
@@ -1436,41 +1463,43 @@ If a library is missing, the corresponding feature is silently disabled (logged 
 
 ## 14. Implementation Order
 
+**Status legend:** ✅ shipped · 🔧 shipped + v2.1 bugfix · ⏳ not yet done
+
 **Phase 1: Bug fixes (blockers, do first)**
 
-1. Fix `_background_audio_monitor` AttributeError in `app.py:_cancel_dictation()` (line 1528). This is a live bug independent of this feature.
+1. ✅ Fix `_background_audio_monitor` AttributeError in `app.py:_cancel_dictation()` (the v1 line 1528). This was a live bug independent of this feature.
 
 **Phase 2: Volume ducking (cross-platform)**
 
-2. Create `volume_backend.py` — `VolumeBackend` ABC + `VolumeState`.
-3. Implement `WinVolumeBackend` (pycaw, `SetMasterVolumeLevelScalar`, per-session support).
-4. Implement `MacVolumeBackend` (CoreAudio via pyobjc, osascript fallback).
-5. Implement `LinuxVolumeBackend` (pactl → wpctl → amixer detection).
-6. Add `get_volume_backend()` factory in `platform.py`.
-7. Create `duck_crash_recovery.py`.
-8. Create `volume_ducker.py` — orchestrator with fade, manual-override, crash recovery.
-9. Wire `VolumeDucker` into `app.py` at 6 points: `__init__`, `_start_dictation`, `_stop_dictation`, `_cancel_dictation`, `quit()`, `restart_app()`.
-10. Add config fields + IPC allowlist entries.
-11. Write `tests/test_volume_ducker.py`.
-12. Add Settings UI (duck toggle, level slider, per-session toggle, backend status).
+2. ✅ Create `volume_backend.py` — `VolumeBackend` ABC + `VolumeState`.
+3. ✅ Implement `WinVolumeBackend` (pycaw, `SetMasterVolumeLevelScalar`, per-session support).
+4. ✅ Implement `MacVolumeBackend` (CoreAudio via pyobjc, osascript fallback).
+5. ✅ Implement `LinuxVolumeBackend` (pactl → wpctl → amixer detection).
+6. ✅ Add `get_volume_backend()` factory in `platform.py`.
+7. ✅ Create `duck_crash_recovery.py`.
+8. ✅ Create `volume_ducker.py` — orchestrator with fade, manual-override, crash recovery.
+9. ✅ Wire `VolumeDucker` into `app.py` at 6 points: `__init__`, `_start_dictation`, `_stop_dictation`, `_cancel_dictation`, `quit()`, `restart_app()`.
+10. ✅ Add config fields + IPC allowlist entries.
+11. ✅ Write `tests/test_volume_ducker.py`.
+12. ✅ Add Settings UI (duck toggle, level slider, **fade duration slider (v2.1 new)**, per-session toggle, backend status indicator).
 
 **Phase 3: Noise filtering**
 
-13. Create `audio_processor.py` — highpass + noise gate (cheap, default ON).
-14. Wire `AudioProcessor` into `Recorder.__init__()` and callback.
-15. Add post-capture `noisereduce` in `Recorder.stop()`.
-16. Revive `audio_quality.py` — wire to `AudioProcessor.set_quality_callback()`.
-17. Add RNNoise path (optional, default OFF).
-18. Add config fields + IPC allowlist entries.
-19. Write `tests/test_audio_processor.py`.
-20. Add Settings UI (noise filter toggles).
+13. ✅ Create `audio_processor.py` — highpass + noise gate (cheap, default ON).  🔧 v2.1: fix `_apply_highpass` to handle 2-D `(frames, 1)` sounddevice input.
+14. ✅ Wire `AudioProcessor` into `Recorder.__init__()` and callback.  🔧 v2.1: fix callback ordering — `filtered` must be assigned BEFORE the lock-block that uses it (v1 raised silent NameError on every chunk).
+15. ✅ Add post-capture `noisereduce` in `Recorder.stop()`.
+16. ✅ Revive `audio_quality.py` — wire to `AudioProcessor.set_quality_callback()` and `_finalize_audio_quality_report()`.
+17. ✅ Add RNNoise path (optional, default OFF).
+18. ✅ Add config fields + IPC allowlist entries.
+19. ✅ Write `tests/test_audio_processor.py`.
+20. ✅ Add Settings UI (noise filter toggles + **high-pass cutoff slider + noise-gate threshold slider (v2.1 new)**).
 
 **Phase 4: Polish**
 
-21. Add platform-conditional deps to `pyproject.toml`.
-22. Integration tests (start/stop/cancel/quit volume assertions).
-23. Documentation (this file — update with actual line numbers post-implementation).
-24. Manual cross-platform testing (Windows + macOS + Linux VM).
+21. ✅ Add platform-conditional deps to `pyproject.toml`.
+22. ✅ Integration tests (start/stop/cancel/quit volume assertions).  v2.1 added `tests/test_volume_lifecycle.py` (18 tests), `tests/test_recording_audio_processor.py` (7 tests), `tests/test_volume_backends.py` (32 tests), and 4 new tests in `tests/test_server.py` for the `get_volume_backend_status` IPC endpoint.
+23. ✅ Documentation (this file — updated with actual line numbers post-implementation).
+24. ⏳ Manual cross-platform testing (Windows + macOS + Linux VM).  Automated tests cover the parsing logic; manual testing on real hardware is still recommended before release.
 
 **Estimated effort:**
 - Volume ducking: ~400 lines Python (backends + orchestrator + crash recovery) + ~80 lines tests + ~40 lines React.

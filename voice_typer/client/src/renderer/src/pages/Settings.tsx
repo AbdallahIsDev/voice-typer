@@ -105,6 +105,16 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
   const [showResetDialog, setShowResetDialog] = useState(false)
   const [snackbar, setSnackbar] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null)
   const [llmKeyVisible, setLlmKeyVisible] = useState(false)
+  // Volume backend status — fetched from the Python backend so the UI
+  // can show "Volume Backend: pycaw (WASAPI)" / "CoreAudio" / "disabled"
+  // and disable the Per-Session Duck toggle on platforms that don't
+  // support it (macOS, Linux).  See architecture doc §7.9.
+  const [volumeBackend, setVolumeBackend] = useState<{
+    available: boolean
+    name: string
+    supports_per_session: boolean
+    is_windows: boolean
+  } | null>(null)
 
   const showSnack = (message: string, type: 'success' | 'error' | 'warning') => {
     setSnackbar({ message, type })
@@ -121,9 +131,29 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
     }
   }, [call])
 
+  // Fetch the active volume backend so the UI can show its name and
+  // disable the Per-Session Duck toggle on platforms that don't support
+  // it (macOS, Linux).  Best-effort: if the call fails we leave
+  // `volumeBackend` as null and the toggle stays enabled-but-server-
+  // validated (the Python side also gates on `supports_per_session`).
+  const loadVolumeBackend = useCallback(async () => {
+    try {
+      const result = await call<{
+        available: boolean
+        name: string
+        supports_per_session: boolean
+        is_windows: boolean
+      }>('get_volume_backend_status')
+      setVolumeBackend(result)
+    } catch (err) {
+      console.debug('Failed to load volume backend status:', err)
+    }
+  }, [call])
+
   useEffect(() => {
     loadConfig()
-  }, [loadConfig])
+    loadVolumeBackend()
+  }, [loadConfig, loadVolumeBackend])
 
   const updateConfig = useCallback(
     async (updates: Partial<VoiceTyperConfig>) => {
@@ -654,9 +684,17 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
           title="Audio Enhancement"
           description="Volume ducking and noise filtering for cleaner dictation."
         >
-          <div className="px-3.5 py-3.5 flex flex-wrap gap-3">
-          </div>
           <div className="animate-fade-in space-y-0 divide-y divide-border">
+
+          {/* ── Volume Backend status ── */}
+          <SettingRow label="Volume Backend"
+            info="The active audio control backend. 'disabled' means ducking won't work on this platform — install the platform's optional dependency (pycaw on Windows, pyobjc on macOS).">
+            <span className="text-sm text-(--text-muted) tabular-nums">
+              {volumeBackend
+                ? (volumeBackend.available ? volumeBackend.name : `${volumeBackend.name} (unavailable)`)
+                : 'Detecting…'}
+            </span>
+          </SettingRow>
 
           {/* ── Auto Duck Volume ── */}
           <SettingRow label="Auto Duck Volume"
@@ -681,10 +719,26 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
               </span>
             </div>
           </SettingRow>
+          <SettingRow label="Duck Fade Duration"
+            info="How long to ramp volume up/down when ducking or restoring. 0ms = instant (can cause audio clicks). 150ms is the default.">
+            <div className="flex items-center gap-2">
+              <input
+                type="range"
+                min={0} max={1000} step={50}
+                value={config.volume_duck_fade_ms ?? 150}
+                onChange={(e) => updateConfigDebounced('volume_duck_fade_ms', Number(e.target.value))}
+                className="w-24"
+              />
+              <span className="text-sm text-(--text-muted) w-14">
+                {config.volume_duck_fade_ms ?? 150}ms
+              </span>
+            </div>
+          </SettingRow>
           <SettingRow label="Per-Session Duck (Windows)"
-            info="Duck only other apps' audio, keeping system alerts audible. Windows only.">
+            info="Duck only other apps' audio, keeping system alerts audible. Windows only — disabled on macOS/Linux because they have no clean per-app volume API.">
             <Switch
               checked={config.volume_duck_per_session ?? false}
+              disabled={!volumeBackend?.is_windows || !volumeBackend?.supports_per_session}
               onCheckedChange={(checked) => updateConfig({ volume_duck_per_session: checked })}
             />
           </SettingRow>
@@ -698,11 +752,26 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
             />
           </SettingRow>
           <SettingRow label="High-Pass Filter"
-            info="Remove low-frequency rumble (HVAC, traffic) below 80Hz.">
+            info="Remove low-frequency rumble (HVAC, traffic) below the cutoff frequency.">
             <Switch
               checked={config.noise_filter_highpass ?? true}
               onCheckedChange={(checked) => updateConfig({ noise_filter_highpass: checked })}
             />
+          </SettingRow>
+          <SettingRow label="High-Pass Cutoff"
+            info="Frequencies below this are attenuated. 80Hz removes HVAC rumble. 100–150Hz also removes traffic. Above 200Hz may cut into male speech.">
+            <div className="flex items-center gap-2">
+              <input
+                type="range"
+                min={20} max={500} step={10}
+                value={config.noise_filter_highpass_cutoff_hz ?? 80}
+                onChange={(e) => updateConfigDebounced('noise_filter_highpass_cutoff_hz', Number(e.target.value))}
+                className="w-24"
+              />
+              <span className="text-sm text-(--text-muted) w-14">
+                {config.noise_filter_highpass_cutoff_hz ?? 80}Hz
+              </span>
+            </div>
           </SettingRow>
           <SettingRow label="Noise Gate"
             info="Silence audio below a threshold to remove idle hiss.">
@@ -710,6 +779,21 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
               checked={config.noise_filter_gate ?? true}
               onCheckedChange={(checked) => updateConfig({ noise_filter_gate: checked })}
             />
+          </SettingRow>
+          <SettingRow label="Noise Gate Threshold"
+            info="Audio below this RMS level is silenced. Lower = more permissive (keeps quiet speech). Higher = more aggressive (may cut quiet speech). 0.015 ≈ -45dBFS is a good default.">
+            <div className="flex items-center gap-2">
+              <input
+                type="range"
+                min={0} max={0.1} step={0.005}
+                value={config.noise_filter_gate_threshold ?? 0.015}
+                onChange={(e) => updateConfigDebounced('noise_filter_gate_threshold', Number(e.target.value))}
+                className="w-24"
+              />
+              <span className="text-sm text-(--text-muted) w-14 tabular-nums">
+                {(config.noise_filter_gate_threshold ?? 0.015).toFixed(3)}
+              </span>
+            </div>
           </SettingRow>
           <SettingRow label="RNNoise (Neural)"
             info="AI-based real-time denoising. Higher quality but uses more CPU. Experimental.">

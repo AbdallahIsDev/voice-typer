@@ -760,6 +760,44 @@ class IPCServer:
                 resp["type"] = "error"
                 resp["data"] = {"message": str(e)}
 
+        elif cmd == "get_volume_backend_status":
+            # Returns the active volume backend's name + capability flags
+            # so the Settings UI can show "Volume Backend: pycaw (WASAPI)"
+            # and disable the Per-Session Duck toggle on non-Windows.
+            # See architecture doc §7.9 ("Backend status indicator") and
+            # §7.10 ("Graceful degradation").
+            try:
+                ducker = getattr(self.app, "_volume_ducker", None)
+                if ducker is None:
+                    payload = {
+                        "available": False,
+                        "name": "disabled",
+                        "supports_per_session": False,
+                        "is_windows": sys.platform == "win32",
+                    }
+                else:
+                    # Trigger initialize() so the backend name reflects
+                    # the actual platform backend (not "disabled"
+                    # merely because nothing has ducked yet).  Safe to
+                    # call repeatedly — VolumeDucker.initialize() is
+                    # idempotent.
+                    try:
+                        ducker.initialize()
+                    except Exception:
+                        log.debug("[IPC] volume_ducker.initialize failed", exc_info=True)
+                    payload = {
+                        "available": bool(ducker.is_available),
+                        "name": ducker.backend_name,
+                        "supports_per_session": bool(ducker.supports_per_session),
+                        "is_windows": sys.platform == "win32",
+                    }
+                resp["type"] = "volume_backend_status"
+                resp["data"] = payload
+            except Exception as e:
+                log.error("[IPC] get_volume_backend_status failed: %s", e, exc_info=True)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
         elif cmd == "get_model_status":
             # Item 10/11: check which models are actually on disk.
             # Returns a dict mapping model name → {downloaded: bool, deps_ok: bool}.

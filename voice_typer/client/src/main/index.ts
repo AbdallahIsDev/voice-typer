@@ -661,7 +661,10 @@ function tcpConnect(port: number) {
       if (tcpSocket === client) {
         tcpSocket = null;
       }
-      if (pythonReady) {
+      // If Python exited, don't reconnect — the exit handler below will
+      // quit Electron.  If we kept reconnecting, rapid retries exhaust
+      // TCP buffer space (ENOBUFS on Windows).
+      if (pythonReady && pythonProcess !== null) {
         console.warn("[TCP] connection lost — will reconnect");
         setTimeout(tryConnect, 2000);
       }
@@ -719,7 +722,16 @@ function startPython() {
       );
       app.quit();
     } else {
+      // Python crashed or was killed during normal operation.
+      // Shut down Electron so the user isn't left with a broken UI
+      // that spams TCP reconnect errors (ENOBUFS on Windows).
       pythonProcess = null;
+      tcpSocket = null;
+      for (const [id, entry] of pendingRequests) {
+        pendingRequests.delete(id);
+        entry.reject(new Error("Python backend disconnected"));
+      }
+      app.quit();
     }
   });
 }

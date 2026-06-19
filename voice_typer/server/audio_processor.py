@@ -200,14 +200,22 @@ class AudioProcessor:
         return chunk
 
     def _apply_highpass(self, chunk: np.ndarray) -> np.ndarray:
-        """Apply the stateful Butterworth high-pass filter."""
+        """Apply the stateful Butterworth high-pass filter.
+
+        Handles both 1-D (shape ``(N,)``) and 2-D (shape ``(N, 1)``)
+        input — the latter is what ``sounddevice.InputStream`` delivers
+        for a mono capture.  The IIR filter only operates on 1-D arrays,
+        so we ravel, filter, and reshape back to the original shape.
+        """
         from scipy.signal import lfilter
 
         b, a, zi = self._hp_state  # type: ignore[misc]
+        original_shape = chunk.shape
+        flat = chunk.ravel().astype(np.float64)
         # lfilter returns (filtered, new_zi); update state for continuity.
-        filtered, zi = lfilter(b, a, chunk.astype(np.float64), zi=zi)
+        filtered, zi = lfilter(b, a, flat, zi=zi)
         self._hp_state = (b, a, zi)
-        return filtered.astype(np.float32, copy=False)
+        return filtered.astype(np.float32, copy=False).reshape(original_shape)
 
     def _apply_noise_gate(self, chunk: np.ndarray) -> np.ndarray:
         """Silence audio below the threshold (removes idle hiss)."""

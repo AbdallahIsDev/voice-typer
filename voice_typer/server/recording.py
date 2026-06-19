@@ -383,11 +383,31 @@ class Recorder:
                     except Exception:
                         pass
 
+            # AUDIO-PROC: apply real-time noise filtering BEFORE the
+            # buffer append so (a) `filtered` is defined when we use it
+            # inside the lock, and (b) the stored audio, silence
+            # detection, and waveform bubble all see the cleaned signal
+            # that the transcriber will receive.  This runs OUTSIDE the
+            # lock — process_chunk() is non-blocking and operates only
+            # on the local `indata` copy.  See recording.py callback
+            # ordering in the auto-volume-duck architecture doc §6.4.
+            #
+            # BUGFIX: previously the filter call lived AFTER the lock
+            # block, but the lock block referenced `filtered` — raising
+            # NameError on every audio chunk.  PortAudio swallows
+            # callback exceptions, so the recording silently captured
+            # nothing.  This went undetected because no test exercised
+            # the callback with an AudioProcessor attached.
+            if self._audio_processor is not None:
+                filtered = self._audio_processor.process_chunk(indata.copy())
+            else:
+                filtered = indata
+
             # Item 5: minimize lock scope. Only buffer append + counter
-            # need the lock. RMS computation, silence detection, clipping
-            # tracking, and callback invocations run outside the lock
-            # because they operate on the local `indata` copy, not on
-            # shared mutable state.
+            # need the lock. RMS computation, silence detection,
+            # clipping tracking, and callback invocations run outside
+            # the lock because they operate on the local `filtered`
+            # copy, not on shared mutable state.
             with self._lock:
                 # Store FILTERED audio so the transcriber receives
                 # the cleaned signal.
@@ -406,15 +426,6 @@ class Recorder:
                 recording_start = self._recording_start_time
 
             # ── Everything below runs OUTSIDE the lock ──
-
-            # AUDIO-PROC: apply real-time noise filtering before any
-            # analysis or buffering so the stored audio and the
-            # silence/bubble metrics reflect the cleaned signal that
-            # the transcriber will receive.
-            if self._audio_processor is not None:
-                filtered = self._audio_processor.process_chunk(indata.copy())
-            else:
-                filtered = indata
 
             # RMS / peak computation (operates on FILTERED audio so the
             # waveform bubble and silence detection see what the

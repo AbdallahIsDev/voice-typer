@@ -14,6 +14,8 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
+
 from voice_typer.server.config import Config, _config_dir, _migrate_from_legacy
 from voice_typer.server.recording import Recorder
 from voice_typer.server.transcription import TranscriptionEngine
@@ -32,7 +34,7 @@ from voice_typer.server.platform import (
 from voice_typer.server.hotkeys import create_hotkey_backend, HotkeyBackend
 from voice_typer.server.history_db import HistoryDB
 from voice_typer.server.crash_recovery import CrashRecovery
-from voice_typer.server.audio_quality import AudioQualityAnalyzer  # noqa: F401  # DEAD-014: kept for future re-wiring
+from voice_typer.server.audio_quality import AudioQualityAnalyzer
 from voice_typer.server.waveform import WaveformBubble
 from voice_typer.server import task_scheduler
 from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
@@ -297,6 +299,18 @@ class VoiceTyperApp:
             sample_rate=self.config.sample_rate,
         )
 
+        # DEAD-014 → REVIVE: AudioQualityAnalyzer was previously
+        # imported but never instantiated.  Now wired to the
+        # AudioProcessor's per-chunk quality callback so it accumulates
+        # clipping / low-volume / high-noise statistics during recording.
+        # After Recorder.stop(), _finalize_audio_quality_report() runs
+        # analyze_full_audio() on the captured samples and surfaces any
+        # issues via a tray notification (gated by
+        # config.audio_quality_warnings).
+        self._audio_quality = AudioQualityAnalyzer()
+        self._audio_quality.reset()
+        self._audio_processor.set_quality_callback(self._on_audio_quality_chunk)
+
         self.recorder = Recorder(self.config, audio_processor=self._audio_processor)
         # Item 1: wire xrun threshold callback for tray notification
         self.recorder.on_xrun_threshold = self._on_xrun_threshold
@@ -344,18 +358,18 @@ class VoiceTyperApp:
         # prevent speaker output from bleeding into the microphone.
         # Crash recovery persists the pre-duck volume so a crash
         # doesn't leave the system stuck at a low volume.
-        self._duck_crash_recovery = DuckCrashRecovery()
+        # Use _config_dir() so the crash-recovery file lives alongside
+        # the rest of the user's voice-typer state (and tests can
+        # monkeypatch _config_dir to point at a tmp_path).
+        self._duck_crash_recovery = DuckCrashRecovery(config_dir=_config_dir())
         self._volume_ducker = VolumeDucker(
             crash_recovery=self._duck_crash_recovery,
             on_crash_restore=self._on_volume_crash_restore,
         )
-        # DEAD-014: AudioQualityAnalyzer was instantiated but never
-        # called.  Removed to avoid the import cost and the misleading
-        # appearance of a wired-up feature.  The audio_quality config
-        # fields are kept (they're in the IPC allowlist and the
-        # Settings UI) so a future wiring doesn't require a schema
-        # migration.  When re-wiring, import AudioQualityAnalyzer here
-        # and assign to self._audio_quality.
+        # NOTE: AudioQualityAnalyzer is now instantiated earlier in
+        # __init__ (next to AudioProcessor) and wired to the processor's
+        # per-chunk quality callback.  See self._audio_quality /
+        # self._on_audio_quality_chunk / _finalize_audio_quality_report.
         self._waveform_bubble = WaveformBubble()
         self._wire_waveform_bubble()
         self._last_transcription: str = ""  # For repaste
@@ -1264,6 +1278,15 @@ class VoiceTyperApp:
             # Waveform bubble: feed RMS levels from the audio callback
             self.recorder.on_rms_level = self._on_recorder_rms
 
+            # Reset audio-quality analyzer accumulators so per-chunk
+            # statistics don't carry over from the previous session.
+            # The analyzer is wired to the AudioProcessor's quality
+            # callback in __init__; here we just clear its state.
+            try:
+                self._audio_quality.reset()
+            except Exception:
+                log.debug("[AUDIO_QUALITY] reset on start failed", exc_info=True)
+
             self.recorder.start()
             self._start_streaming_session_if_enabled()
             self.tray.set_state(AppState.RECORDING, "Recording...")
@@ -1287,6 +1310,65 @@ class VoiceTyperApp:
     def _on_recorder_rms(self, rms: float, peak: float) -> None:
         """Forward per-chunk RMS from the audio callback to the bubble."""
         self._waveform_bubble.update_level(rms, peak)
+
+    def _on_audio_quality_chunk(self, rms: float, peak: float) -> None:
+        """Per-chunk quality callback wired to AudioProcessor.
+
+        Runs inside the PortAudio audio callback (via
+        ``AudioProcessor.process_chunk`` → ``_run_quality_check``), so
+        it MUST be non-blocking.  We only update cheap running
+        statistics — no I/O, no allocation of large structures, no
+        logging per chunk.  Full analysis runs in
+        :meth:`_finalize_audio_quality_report` after stop().
+
+        The analyzer's :meth:`analyze_chunk` would normally take the
+        raw numpy chunk, but we already have (rms, peak) computed by
+        the AudioProcessor — reconstructing the chunk just to compute
+        the same metrics again would waste cycles.  Instead we feed
+        the precomputed values into the analyzer's internal accumulators
+        directly.
+        """
+        try:
+            aq = self._audio_quality
+            # Mirror analyze_chunk() without the numpy work — we
+            # already have rms and peak from the AudioProcessor.
+            aq._rms_values.append(rms)
+            aq._chunk_count += 1
+            if peak > aq._peak:
+                aq._peak = peak
+            if peak >= aq.CLIPPING_THRESHOLD:
+                aq._clip_count += 1
+        except Exception:
+            # Quality analysis must NEVER break the audio callback.
+            log.debug("[AUDIO_QUALITY] per-chunk update failed", exc_info=True)
+
+    def _finalize_audio_quality_report(self, audio: np.ndarray) -> None:
+        """Run final audio-quality analysis and surface warnings.
+
+        Called from :meth:`_stop_dictation` after ``recorder.stop()``
+        returns the (already filtered + resampled) audio.  Produces an
+        :class:`AudioQualityReport` and, if user-facing warnings are
+        enabled in config, notifies via the tray.
+
+        This is the "revived" path for the previously-dead
+        ``audio_quality.py`` module — see architecture doc §6.4 and
+        §13 ("AudioQualityAnalyzer → Revived").
+        """
+        if not getattr(self.config, "audio_quality_warnings", True):
+            return
+        try:
+            report = self._audio_quality.analyze_full_audio(audio)
+            if report.has_issues:
+                summary = report.get_summary()
+                log.info("[AUDIO_QUALITY] Issues detected: %s", summary)
+                try:
+                    self.tray.notify("Voice Typer", summary)
+                except Exception:
+                    log.debug("[AUDIO_QUALITY] tray notify failed", exc_info=True)
+            # Reset for the next session.
+            self._audio_quality.reset()
+        except Exception:
+            log.debug("[AUDIO_QUALITY] finalize report failed", exc_info=True)
 
     def _stop_dictation(self):
         """Stop recording and transcribe in background."""
@@ -1332,6 +1414,17 @@ class VoiceTyperApp:
         duration = len(audio) / self.config.sample_rate if len(audio) > 0 else 0
         # Capture RMS before starting transcription thread (race-safe)
         recorded_rms = self.recorder.last_rms
+
+        # Run the revived AudioQualityAnalyzer on the captured audio.
+        # Surfaces clipping / low-volume / high-noise warnings via tray
+        # (gated by config.audio_quality_warnings).  Must run BEFORE
+        # the transcription thread starts so the report reflects this
+        # session's audio, not whatever the next session produces.
+        if duration > 0:
+            try:
+                self._finalize_audio_quality_report(audio)
+            except Exception:
+                log.debug("[AUDIO_QUALITY] finalize failed", exc_info=True)
         log.info("[DICTATION] Recording stopped -- %.1fs of audio, busy=True (cycle=%s)", duration, self._cycle_id)
 
         if duration < 0.5:
