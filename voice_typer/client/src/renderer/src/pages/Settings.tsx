@@ -735,11 +735,26 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
             </div>
           </SettingRow>
           <SettingRow label="Smart Duck"
-            info="Only duck when audio is actually playing through the speakers. Skips the volume change (and the speaker-icon animation) during silent dictation. Cross-platform: Windows uses IAudioMeterInformation peak detection; macOS uses an audio-app heuristic; Linux uses pactl/wpctl or /proc/asound.">
+            info="Only duck when audio is actually playing through the speakers. Skips the volume change (and the speaker-icon animation) during silent dictation. A background monitor polls speaker activity every 'Smart Duck Poll Interval' ms and retroactively ducks if audio starts mid-dictation. Cross-platform: Windows uses IAudioMeterInformation peak detection; macOS uses an audio-app heuristic; Linux uses pactl/wpctl or /proc/asound.">
             <Switch
               checked={config.volume_duck_smart ?? true}
               onCheckedChange={(checked) => updateConfig({ volume_duck_smart: checked })}
             />
+          </SettingRow>
+          <SettingRow label="Smart Duck Poll Interval"
+            info="How often (in milliseconds) to check if audio has started playing during a smart-duck skip. Lower = catches audio faster but uses more CPU. Higher = less CPU but slower to duck when audio starts. 500ms is a good default.">
+            <div className="flex items-center gap-2">
+              <input
+                type="range"
+                min={50} max={2000} step={50}
+                value={config.volume_duck_smart_poll_interval_ms ?? 500}
+                onChange={(e) => updateConfigDebounced('volume_duck_smart_poll_interval_ms', Number(e.target.value))}
+                className="w-24"
+              />
+              <span className="text-sm text-(--text-muted) w-16">
+                {config.volume_duck_smart_poll_interval_ms ?? 500}ms
+              </span>
+            </div>
           </SettingRow>
           <SettingRow label="Per-Session Duck (Windows)"
             info="Duck only other apps' audio, keeping system alerts audible. Windows only — disabled on macOS/Linux because they have no clean per-app volume API.">

@@ -225,6 +225,14 @@ class Config:
     # /proc/asound.  See VolumeDucker.duck() and
     # VolumeBackend.is_speaker_active().
     volume_duck_smart: bool = True
+    # Smart-duck background monitor polling interval (milliseconds).
+    # When smart-duck skips the initial duck (no audio playing), a
+    # background thread polls is_speaker_active() at this interval and
+    # retroactively ducks if audio starts mid-dictation.  500ms is the
+    # default — fast enough to catch audio within half a second, slow
+    # enough to not spam the backend (macOS osascript is 200-500ms per
+    # call).  Range 50–5000ms.  See VolumeDucker._smart_duck_monitor_loop.
+    volume_duck_smart_poll_interval_ms: int = 500
 
     # ─── Noise filtering (v1.1.0) ───────────────────────────────────
     # Cleans the microphone signal: removes fan noise, keyboard clicks,
@@ -359,7 +367,7 @@ class Config:
             "fast_startup",
             "bubble_draggable", "bubble_show_on_startup",
             "volume_duck_enabled", "volume_duck_per_session",
-            "volume_duck_smart",
+            "volume_duck_smart", "volume_duck_smart_poll_interval_ms",
             "noise_filter_enabled", "noise_filter_highpass",
             "noise_filter_gate", "noise_filter_rnnoise",
             "noise_filter_post_capture",
@@ -704,6 +712,7 @@ IPC_CONFIG_ALLOWLIST: dict = {
     "volume_duck_per_session":      (bool, _bool_validator),
     "volume_duck_fade_ms":          (int, _make_int_validator(lo=0, hi=1000)),
     "volume_duck_smart":            (bool, _bool_validator),
+    "volume_duck_smart_poll_interval_ms": (int, _make_int_validator(lo=50, hi=5000)),
 
     # ── Noise filtering (v1.1.0) ──────────────────────────────────────
     "noise_filter_enabled":             (bool, _bool_validator),

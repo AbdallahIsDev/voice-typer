@@ -416,11 +416,14 @@ class VoiceTyperApp:
         if not getattr(self.config, "volume_duck_enabled", True):
             return
         try:
-            # Sync the smart-duck flag from config on every duck() call
-            # so a Settings UI toggle takes effect on the next dictation
-            # without requiring an app restart.
+            # Sync the smart-duck flag + poll interval from config on
+            # every duck() call so a Settings UI toggle takes effect on
+            # the next dictation without requiring an app restart.
             self._volume_ducker.set_smart_duck_enabled(
                 getattr(self.config, "volume_duck_smart", True)
+            )
+            self._volume_ducker.set_smart_duck_poll_interval(
+                getattr(self.config, "volume_duck_smart_poll_interval_ms", 500)
             )
             if self._volume_ducker.initialize():
                 self._volume_ducker.duck(

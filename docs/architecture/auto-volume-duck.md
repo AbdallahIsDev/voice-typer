@@ -1,6 +1,6 @@
 # Auto-Volume Duck + Noise Filtering: System Audio & Mic Path Management During Dictation
 
-**Status:** Implemented (v2.2 — adds smart-duck: skip volume ducking when no audio is playing, cross-platform) · **Priority:** High · **Target:** v1.1.0
+**Status:** Implemented (v2.3 — adds smart-duck background monitor: retroactively ducks when audio starts mid-dictation) · **Priority:** High · **Target:** v1.1.0
 
 ---
 
@@ -26,9 +26,9 @@ When dictation starts, system volume is **reduced** to a configurable level (def
 | `voice_typer/server/audio_quality.py` | `AudioQualityAnalyzer` — was DEAD-014, now revived. Accumulates clipping/low-volume/high-noise stats. | `analyze_full_audio` L95, `reset` L63 |
 | `voice_typer/server/platform.py` | `get_volume_backend()` factory — selects backend by `sys.platform`. | L17 |
 | `voice_typer/server/ipc_server.py` | `get_volume_backend_status` IPC endpoint — returns `{available, name, supports_per_session, is_windows}` for the Settings UI. | L763 |
-| `voice_typer/server/config.py` | 12 new config fields (5 volume incl. `volume_duck_smart` + 7 noise) + IPC allowlist. | fields L215–227, allowlist L702–706 |
-| `voice_typer/client/.../Settings.tsx` | "Audio Enhancement" section: backend status, 5 duck controls (incl. Smart Duck toggle), 7 noise controls. | Audio Enhancement section |
-| `voice_typer/client/.../types/config.ts` | TypeScript mirror of the 12 config fields. | L125–131 |
+| `voice_typer/server/config.py` | 13 new config fields (6 volume incl. `volume_duck_smart` + `volume_duck_smart_poll_interval_ms` + 7 noise) + IPC allowlist. | fields L215–235, allowlist L709–715 |
+| `voice_typer/client/.../Settings.tsx` | "Audio Enhancement" section: backend status, 6 duck controls (incl. Smart Duck toggle + poll interval slider), 7 noise controls. | Audio Enhancement section |
+| `voice_typer/client/.../types/config.ts` | TypeScript mirror of the 13 config fields. | L125–132 |
 
 ### 0.3 The 6 lifecycle wiring points in `app.py`
 
@@ -43,15 +43,16 @@ These are the **only** places volume duck/restore is called. If you change lifec
 | 5 | `quit` | L2118 | After `recorder.discard()` (L2143), call `self._restore_volume(fade_ms=0)` (L2150). **fade_ms=0** = instant restore on exit. | `_restore_volume(0)` → L435 |
 | 6 | `restart_app` | L2001 | Call `self._restore_volume(fade_ms=0)` (L2029) BEFORE `subprocess.Popen` (L2070). Prevents volume ping-pong between old and new process. | `_restore_volume(0)` → L435 |
 
-### 0.4 The 12 config fields
+### 0.4 The 13 config fields
 
 ```python
-# Volume ducking (config.py L215–227)
+# Volume ducking (config.py L215–235)
 volume_duck_enabled: bool = True              # master toggle
 volume_duck_level: float = 0.25               # 0.0–1.0 perceptual
 volume_duck_per_session: bool = False         # Windows only — duck other apps, keep alerts
 volume_duck_fade_ms: int = 150                # 0–1000, 0 = instant
 volume_duck_smart: bool = True                # v2.2: skip duck when no audio playing
+volume_duck_smart_poll_interval_ms: int = 500 # v2.3: monitor poll interval, 50–5000
 
 # Noise filtering (config.py L223–229)
 noise_filter_enabled: bool = True
@@ -65,7 +66,7 @@ noise_filter_post_capture: bool = True        # noisereduce on stop()
 
 Plus the pre-existing `audio_quality_warnings: bool = True` (config.py L159) which gates the tray notifications from `_finalize_audio_quality_report`.
 
-All 12 are in `IPC_CONFIG_ALLOWLIST` (config.py L702–706 + L708–714) with validators, so the Electron UI can set them live via `set_config`.
+All 13 are in `IPC_CONFIG_ALLOWLIST` (config.py L709–715 + L717–723) with validators, so the Electron UI can set them live via `set_config`.
 
 ### 0.5 Critical gotchas (do NOT break these invariants)
 
@@ -104,13 +105,15 @@ All 12 are in `IPC_CONFIG_ALLOWLIST` (config.py L702–706 + L708–714) with va
 | `tests/test_volume_lifecycle.py` | 18 | **Integration:** start→duck, stop→restore, cancel→restore, quit→restore(0ms), restart→restore-before-subprocess, crash-recovery-on-startup, manual override, per-session gated on support, crash-recovery file write/clear |
 | `tests/test_recording_audio_processor.py` | 7 | **Regression:** callback with AudioProcessor doesn't raise NameError, buffer stores filtered audio (high-pass attenuates 30Hz), RMS callback fires with filtered values, quality callback fires per chunk, post-capture runs in stop(), no-processor graceful degradation, xrun status doesn't break callback |
 | `tests/test_smart_duck.py` | 31 | **v2.2:** smart-duck skip path (no fade, no crash-recovery file, `_actually_ducked=False`), normal path (fade proceeds), restore-after-skip is no-op, volume unchanged after skip, **second-duck-after-skip bugfix**, smart-duck toggle (`set_smart_duck_enabled`), cross-platform `is_speaker_active()` (Linux pactl/wpctl/amixer + /proc/asound, macOS osascript audio-app heuristic), introspection properties, concurrency |
+| `tests/test_smart_duck_monitor.py` | 19 | **v2.3:** background monitor lifecycle (starts on skip, stops on restore/disable), retroactive duck (audio-starts-mid-dictation, crash-recovery written, audio-never-starts no-op, monitor exits after duck), disable-mid-dictation, second-duck-while-monitoring (picks up new level), is_speaker_active exception retry, poll interval clamping, concurrency (monitor+restore race, multi-thread stress) |
 | `tests/test_server.py::TestDispatchGetVolumeBackendStatus` | 4 | IPC endpoint returns backend name/availability, calls initialize(), handles missing `_volume_ducker`, handles initialize() exception |
 
-**Total: 159 tests.** Run the full volume/audio suite with:
+**Total: 178 tests.** Run the full volume/audio suite with:
 ```bash
 python -m pytest tests/test_volume_ducker.py tests/test_audio_processor.py tests/test_audio_quality.py \
   tests/test_volume_backends.py tests/test_volume_lifecycle.py tests/test_recording_audio_processor.py \
-  tests/test_smart_duck.py tests/test_server.py -k "volume or audio or backend or duck or filter or quality or smart"
+  tests/test_smart_duck.py tests/test_smart_duck_monitor.py tests/test_server.py \
+  -k "volume or audio or backend or duck or filter or quality or smart"
 ```
 
 ### 0.7 Platform support matrix
@@ -166,11 +169,11 @@ Plus the existing `get_config` / `set_config` (all 12 new fields are in the allo
 | Smart-duck check (macOS) | 200–500ms | `duck()` → `osascript` subprocess | Borderline but only fires once per dictation. |
 | Smart-duck check (Linux) | ~50ms | `duck()` → `pactl list sink-inputs` subprocess | Or `/proc/asound` scan (~5ms) for ALSA-only. |
 
-### 0.11 Smart-duck behaviour summary (v2.2)
+### 0.11 Smart-duck behaviour summary (v2.3)
 
-Smart-duck skips the volume change when no application is currently playing audio through the speakers. This avoids a pointless speaker-icon animation during silent dictation.
+Smart-duck skips the volume change when no application is currently playing audio through the speakers. This avoids a pointless speaker-icon animation during silent dictation. **A background monitor (v2.3) retroactively ducks if audio starts playing mid-dictation** — closing the gap where speaker bleed could leak into the mic.
 
-**State machine:**
+**State machine (with monitor):**
 
 ```
 duck() called
@@ -194,42 +197,81 @@ duck() called
   ┌──┴──┐
   │ Yes │ No
   ▼     ▼
-┌─────────────┐  ┌──────────────────────────┐
-│ Normal duck │  │ Smart-duck SKIP:         │
-│ (fade, save │  │  • _saved_state = state  │
-│  crash-rec) │  │  • _actually_ducked=False│
-│ _actually_  │  │  • NO fade_to() call     │
-│ ducked=True │  │  • NO crash-rec file     │
-└─────────────┘  │  • returns True          │
-                 └──────────────────────────┘
+┌─────────────┐  ┌──────────────────────────────────┐
+│ Normal duck │  │ Smart-duck SKIP:                 │
+│ (fade, save │  │  • _saved_state = state          │
+│  crash-rec) │  │  • _actually_ducked=False        │
+│ _actually_  │  │  • NO fade_to() call             │
+│ ducked=True │  │  • NO crash-rec file             │
+│             │  │  • START background monitor      │
+│             │  │    (polls every poll_interval_ms)│
+└─────────────┘  └──────────────────────────────────┘
+                              │
+                              ▼ (monitor running)
+                   ┌──────────────────────────┐
+                   │ Monitor polls            │
+                   │ is_speaker_active()      │
+                   │ every poll_interval_ms   │
+                   └────────┬─────────────────┘
+                            │
+                   ┌────────┴────────┐
+                   │ Audio started?  │
+                   └────────┬────────┘
+                     Yes    │    No
+              ┌─────────────┴────────────┐
+              ▼                          ▼
+   ┌─────────────────────┐    ┌────────────────────┐
+   │ Retroactive duck:   │    │ Keep polling       │
+   │  • fade_to(level)   │    │ (until restore()   │
+   │  • _actually_ducked │    │  or disable)       │
+   │    = True           │    └────────────────────┘
+   │  • write crash-rec  │
+   │  • monitor EXITS    │
+   │    (job done)       │
+   └─────────────────────┘
 
-restore() called
+restore() called (at any point)
     │
     ▼
-┌─────────────────────────────┐
-│ _actually_ducked?           │
-└──────────┬──────────────────┘
-           │
-      ┌────┴────┐
-      │ True    │ False (smart-duck skipped)
-      ▼         ▼
-┌─────────────┐  ┌──────────────────────────┐
-│ Normal      │  │ No-op: clear _saved_state│
-│ restore:    │  │  • NO fade_to() call     │
-│  fade back, │  │  • NO crash-rec clear    │
-│  clear rec  │  │  • returns True          │
-│  file       │  └──────────────────────────┘
-└─────────────┘
+┌─────────────────────────────────────────┐
+│ 1. Stop the monitor (signal + join)     │
+│ 2. Acquire _lock                        │
+│ 3. _actually_ducked?                    │
+│    True  → fade back, clear crash-rec   │
+│    False → no-op (smart-duck skipped    │
+│            AND monitor never ducked)    │
+│ 4. Clear _saved_state, _actually_ducked │
+└─────────────────────────────────────────┘
 ```
 
 **Key invariants:**
 - `is_ducked` returns `True` during a smart-duck skip (logical state — UI shows duck state consistently).
-- `actually_ducked` returns `False` during a smart-duck skip (distinguishes "skipped" from "actually faded").
-- No crash-recovery file is written during a smart-duck skip (we didn't change the volume, so nothing to recover).
-- The second `duck()` call after a smart-duck skip must NOT call `fade_to()` (v2.2 bugfix — see §0.5 gotcha #11).
+- `actually_ducked` returns `False` during a smart-duck skip (distinguishes "skipped" from "actually faded"). Flips to `True` if the monitor retroactively ducks.
+- `is_monitor_running` returns `True` while the background monitor thread is alive.
+- No crash-recovery file is written during a smart-duck skip — it's only written when the duck actually happens (either at duck time, or retroactively by the monitor).
+- The monitor is a **daemon thread** — won't block app exit.
+- The monitor exits automatically after a successful retroactive duck (its job is done).
+- The monitor stops on: `restore()`, `set_smart_duck_enabled(False)`, or app exit.
+- The second `duck()` call after a smart-duck skip must NOT call `fade_to()` (v2.2 bugfix — see §0.5 gotcha #11). The monitor picks up the new `_ducked_level` on its next poll.
+
+**Thread safety:**
+- The monitor calls `is_speaker_active()` OUTSIDE `self._lock` (it may block 200-500ms on macOS osascript).
+- The monitor acquires `self._lock` only for brief state checks and the retroactive duck.
+- `restore()` calls `_stop_smart_duck_monitor()` BEFORE acquiring `self._lock` — this avoids a deadlock (the monitor needs the lock to check state before exiting).
+- `_stop_smart_duck_monitor()` captures the thread reference locally before joining, so concurrent calls don't race on `self._monitor_thread = None`.
+
+**Config fields:**
+- `volume_duck_smart: bool = True` — master toggle for smart-duck (skip + monitor).
+- `volume_duck_smart_poll_interval_ms: int = 500` — monitor polling interval, clamped to [50, 5000]. Lower = catches audio faster but uses more CPU. Higher = less CPU but slower to duck when audio starts.
+
+**Performance:**
+- Windows: `IAudioMeterInformation.GetPeakValue()` is ~0ms, so even 50ms polling is cheap.
+- macOS: `osascript` is 200-500ms per call — 500ms polling means the backend is queried ~once per second (one call + one sleep). Don't set the interval below 200ms on macOS or the calls will overlap.
+- Linux: `pactl list sink-inputs` is ~50ms — 500ms polling is very comfortable.
 
 **Limitations:**
-- Smart-duck only checks at duck time. If audio starts playing DURING dictation (after the skip), we won't duck it. This is a known trade-off — periodic re-checking would add complexity and CPU. The `volume_duck_smart` config toggle lets users disable smart-duck entirely if they prefer always-duck behaviour.
+- The monitor only polls at `poll_interval_ms` granularity. Audio that starts and stops within one poll interval may be missed. This is an acceptable trade-off — sub-500ms audio bursts are rare and the speaker bleed from a 500ms burst is minimal.
+- Once the monitor retroactively ducks, it stays ducked until `restore()` — even if audio stops again. Un-ducking mid-dictation would be jarring and would let speaker bleed return.
 
 ---
 
