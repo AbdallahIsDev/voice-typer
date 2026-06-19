@@ -30,7 +30,7 @@ _cuda_test.py
 Thumbs.db
 artifacts/
 audit/
-docs/*
+# docs/*
 FEATURES.md
 FORENSIC_REVIEW.md
 docs/Qwen_integation.md
@@ -43,5 +43,4 @@ voice_typer/server/assets/
 .workspace/
 README.ws.md
 bubble.md
-docs/auto-update-feature.md
 archive/deleted_files.txt
