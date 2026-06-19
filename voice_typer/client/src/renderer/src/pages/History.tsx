@@ -5,6 +5,7 @@ import { HistoryIcon } from '@hugeicons/core-free-icons'
 import { Search01Icon, Delete01Icon, StarIcon, ArrowDown01Icon } from '@hugeicons/core-free-icons'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import PageHeading from '@/components/PageHeading'
 import ActivityList from '@/components/ActivityList'
 import ExportFormatMenu from '@/components/ExportFormatMenu'
@@ -209,12 +210,11 @@ export default function HistoryPage() {
       {/* Search */}
       <div className="relative mt-4">
         <HugeiconsIcon icon={Search01Icon} strokeWidth={1.625} className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-(--text-muted) pointer-events-none" />
-        <input
-          type="text"
+        <Input
           value={searchQuery}
           onChange={e => handleSearch(e.target.value)}
           placeholder="Search history..."
-          className="w-full h-9 rounded-xl border border-border bg-(--bg-subtle) pl-9 pr-3 text-sm text-(--text-primary) outline-none placeholder:text-(--text-muted) focus:border-ring transition-colors"
+          className="pl-9 rounded-xl bg-(--bg-subtle)"
         />
       </div>
 

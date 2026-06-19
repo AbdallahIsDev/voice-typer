@@ -17,6 +17,7 @@ import { StatsShareImage } from '@/components/StatsShareImage'
 import { useStatsShare, computeShareStats } from '@/hooks/useStatsShare'
 import type { TodayStats, HistoryRecord, Page } from '@/types/ipc'
 import type { VoiceTyperConfig } from '@/types/config'
+import { Button } from '@/components/ui/button.tsx'
 
 // ── Module-level cache ────────────────────────────────────────────
 let _cachedData: DashboardData | null = null
@@ -281,19 +282,15 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
         description="Your voice typing activity and usage insights."
       >
         {data && configRaw && data.todayCount > 0 && (
-          <button
-            onClick={() => {
-              const share = computeShareStats(
-                { count: data.todayCount, chars: data.todayChars, word_count: data.todayWordCount, duration: data.todayDuration },
-                configRaw.asr_backend,
-              )
-              shareAsImage('voice-typer-stats')
-            }}
-            className="flex items-center gap-2 rounded-xl border border-border bg-(--bg-subtle) px-3 py-1.5 text-xs font-medium text-(--text-muted) transition-colors hover:text-(--text-primary)"
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => shareAsImage('voice-typer-stats')}
+            className="gap-2"
           >
             <HugeiconsIcon icon={Share08Icon} strokeWidth={1.625} className="h-4 w-4 shrink-0" />
             Share Stats
-          </button>
+          </Button>
         )}
       </PageHeading>
 

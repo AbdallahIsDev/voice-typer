@@ -249,12 +249,11 @@ export default function VocabularyPage() {
         {/* Search */}
         <div className="relative">
           <HugeiconsIcon icon={Search01Icon} strokeWidth={1.625} className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-(--text-muted) pointer-events-none" />
-          <input
-            type="text"
+          <Input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search vocabulary..."
-            className="w-full h-9 rounded-xl border border-border bg-(--bg-subtle) pl-9 pr-3 text-sm text-(--text-primary) outline-none placeholder:text-(--text-muted) focus:border-ring transition-colors"
+            className="pl-9 rounded-xl bg-(--bg-subtle)"
           />
         </div>
 

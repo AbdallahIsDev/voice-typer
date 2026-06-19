@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { Download01Icon } from '@hugeicons/core-free-icons'
+import { Button } from '@/components/ui/button'
 
 interface ExportFormatMenuProps {
   onExport: (format: 'json' | 'csv') => void | Promise<void>
@@ -36,15 +37,17 @@ export default function ExportFormatMenu({ onExport, disabled }: ExportFormatMen
 
   return (
     <div className="relative">
-      <button
+      <Button
         ref={btnRef}
+        variant="outline"
+        size="sm"
         onClick={() => setShow(prev => !prev)}
         disabled={disabled}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium bg-(--bg-subtle) text-(--text-muted) hover:text-(--text-primary) transition-colors border border-border disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-(--text-muted)"
+        className="gap-2"
       >
         <HugeiconsIcon icon={Download01Icon} strokeWidth={1.625} className="h-4 w-4" />
         Export
-      </button>
+      </Button>
       {show && (
         <div
           ref={menuRef}
