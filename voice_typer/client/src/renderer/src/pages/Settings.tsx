@@ -647,13 +647,86 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
               onCheckedChange={(checked) => updateConfig({ crash_recovery_enabled: checked })}
             />
           </SettingRow>
+        </SettingsSection>
 
-          <SettingRow label="Audio Warnings" info="Alert you about microphone issues like clipping, low volume, or background noise.">
+        {/* ── SECTION: Audio Enhancement ─────────────────────────── */}
+        <SettingsSection
+          title="Audio Enhancement"
+          description="Volume ducking and noise filtering for cleaner dictation."
+        >
+          <div className="px-3.5 py-3.5 flex flex-wrap gap-3">
+          </div>
+          <div className="animate-fade-in space-y-0 divide-y divide-border">
+
+          {/* ── Auto Duck Volume ── */}
+          <SettingRow label="Auto Duck Volume"
+            info="Reduce system volume during dictation to prevent speaker bleed into the mic.">
             <Switch
-              checked={config.audio_quality_warnings ?? true}
-              onCheckedChange={(checked) => updateConfig({ audio_quality_warnings: checked })}
+              checked={config.volume_duck_enabled ?? true}
+              onCheckedChange={(checked) => updateConfig({ volume_duck_enabled: checked })}
             />
           </SettingRow>
+          <SettingRow label="Duck Level"
+            info="How quiet to make system audio. 25% = whisper-quiet, 50% = slight dip.">
+            <div className="flex items-center gap-2">
+              <input
+                type="range"
+                min={0} max={0.5} step={0.05}
+                value={config.volume_duck_level ?? 0.25}
+                onChange={(e) => updateConfigDebounced('volume_duck_level', Number(e.target.value))}
+                className="w-24"
+              />
+              <span className="text-sm text-(--text-muted) w-10">
+                {Math.round((config.volume_duck_level ?? 0.25) * 100)}%
+              </span>
+            </div>
+          </SettingRow>
+          <SettingRow label="Per-Session Duck (Windows)"
+            info="Duck only other apps' audio, keeping system alerts audible. Windows only.">
+            <Switch
+              checked={config.volume_duck_per_session ?? false}
+              onCheckedChange={(checked) => updateConfig({ volume_duck_per_session: checked })}
+            />
+          </SettingRow>
+
+          {/* ── Noise Filtering ── */}
+          <SettingRow label="Noise Filter"
+            info="Clean the microphone signal: removes fan noise, keyboard clicks, HVAC rumble.">
+            <Switch
+              checked={config.noise_filter_enabled ?? true}
+              onCheckedChange={(checked) => updateConfig({ noise_filter_enabled: checked })}
+            />
+          </SettingRow>
+          <SettingRow label="High-Pass Filter"
+            info="Remove low-frequency rumble (HVAC, traffic) below 80Hz.">
+            <Switch
+              checked={config.noise_filter_highpass ?? true}
+              onCheckedChange={(checked) => updateConfig({ noise_filter_highpass: checked })}
+            />
+          </SettingRow>
+          <SettingRow label="Noise Gate"
+            info="Silence audio below a threshold to remove idle hiss.">
+            <Switch
+              checked={config.noise_filter_gate ?? true}
+              onCheckedChange={(checked) => updateConfig({ noise_filter_gate: checked })}
+            />
+          </SettingRow>
+          <SettingRow label="RNNoise (Neural)"
+            info="AI-based real-time denoising. Higher quality but uses more CPU. Experimental.">
+            <Switch
+              checked={config.noise_filter_rnnoise ?? false}
+              onCheckedChange={(checked) => updateConfig({ noise_filter_rnnoise: checked })}
+            />
+          </SettingRow>
+          <SettingRow label="Post-Capture Cleanup"
+            info="Run spectral noise reduction on the full recording after stop. Improves quality if real-time filters miss noise.">
+            <Switch
+              checked={config.noise_filter_post_capture ?? true}
+              onCheckedChange={(checked) => updateConfig({ noise_filter_post_capture: checked })}
+            />
+          </SettingRow>
+
+          </div>
         </SettingsSection>
 
         {/* ── SECTION: Troubleshooting ──────────────────────────── */}

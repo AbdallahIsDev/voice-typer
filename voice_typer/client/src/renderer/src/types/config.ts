@@ -74,9 +74,7 @@ export interface VoiceTyperConfig {
 
   // Audio quality
   audio_quality_warnings: boolean
-  audio_clipping_warning: boolean
-  audio_low_volume_warning: boolean
-  audio_noise_warning: boolean
+  // T020: audio_clipping_warning, audio_low_volume_warning, audio_noise_warning removed (dead code)
 
   // Waveform
   waveform_bubble: boolean
@@ -123,6 +121,21 @@ export interface VoiceTyperConfig {
   max_recording_seconds: number
   max_recording_seconds_gpu: number
   max_recording_seconds_cpu: number
+
+  // Volume ducking
+  volume_duck_enabled: boolean
+  volume_duck_level: number
+  volume_duck_per_session: boolean
+  volume_duck_fade_ms: number
+
+  // Noise filtering
+  noise_filter_enabled: boolean
+  noise_filter_highpass: boolean
+  noise_filter_highpass_cutoff_hz: number
+  noise_filter_gate: boolean
+  noise_filter_gate_threshold: number
+  noise_filter_rnnoise: boolean
+  noise_filter_post_capture: boolean
 }
 
 export interface MicrophoneDevice {

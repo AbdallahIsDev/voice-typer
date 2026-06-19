@@ -153,11 +153,10 @@ class Config:
     # Crash recovery
     crash_recovery_enabled: bool = True
 
-    # Audio quality analysis
+    # T020: AudioQualityAnalyzer removed — dead code archived to archive/
+    # The following fields are kept for backward compatibility with existing
+    # config files but have no behavioral effect.
     audio_quality_warnings: bool = True
-    audio_clipping_warning: bool = True
-    audio_low_volume_warning: bool = True
-    audio_noise_warning: bool = True
 
     # Waveform visualization bubble
     waveform_bubble: bool = False
@@ -346,8 +345,6 @@ class Config:
             "esc_cancel_enabled", "auto_punctuation", "llm_polish",
             "llm_polish_consent",
             "crash_recovery_enabled", "audio_quality_warnings",
-            "audio_clipping_warning", "audio_low_volume_warning",
-            "audio_noise_warning",
             "templates_enabled", "vocabulary_enabled",
             "waveform_bubble", "onboarding_completed", "wayland_warned",
             "fast_startup",
@@ -662,9 +659,6 @@ IPC_CONFIG_ALLOWLIST: dict = {
 
     # ── Audio quality ─────────────────────────────────────────────────
     "audio_quality_warnings":     (bool, _bool_validator),
-    "audio_clipping_warning":     (bool, _bool_validator),
-    "audio_low_volume_warning":   (bool, _bool_validator),
-    "audio_noise_warning":        (bool, _bool_validator),
 
     # ── Waveform bubble ───────────────────────────────────────────────
     "waveform_bubble":       (bool, _bool_validator),
