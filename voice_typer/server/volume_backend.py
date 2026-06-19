@@ -131,6 +131,27 @@ class VolumeBackend(ABC):
                 time.sleep(sleep_s)
         return True
 
+    # ── Speaker-activity detection ────────────────────────────────
+    #
+    # Smart ducking: if no application is currently playing audio
+    # through the speakers, we can skip the duck entirely — no need
+    # to animate the volume icon for nothing.
+    #
+    # The default implementation assumes audio IS playing (always
+    # duck), which preserves backward compatibility for backends
+    # that can't cheaply query speaker activity.
+    #
+
+    def is_speaker_active(self) -> bool:
+        """Return ``True`` if audio output is currently playing.
+
+        Used by ``VolumeDucker`` to skip unnecessary ducking when
+        no application is producing sound.  Backends that can cheaply
+        query speaker activity (e.g. Windows ``IAudioMeterInformation``)
+        should override this; the default always returns ``True``.
+        """
+        return True
+
     # ── Per-session support (Windows only) ──────────────────────────
 
     def get_other_sessions(self) -> list:

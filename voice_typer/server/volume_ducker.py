@@ -84,6 +84,7 @@ class VolumeDucker:
         self._on_crash_restore = on_crash_restore
         self._saved_state: Optional[VolumeState] = None
         self._ducked_level: float = 0.25
+        self._actually_ducked: bool = False  # True if the volume was actually changed
         self._lock = threading.Lock()
         self._initialized: bool = False
         self._ready: bool = False  # True only if initialize() succeeded
@@ -178,12 +179,21 @@ class VolumeDucker:
                 self._saved_state = state
                 self._ducked_level = level
 
+                # Smart duck: skip if no application is currently
+                # playing audio through the speakers.  No point
+                # animating the volume icon for silence.
+                if not self._backend.is_speaker_active():
+                    self._actually_ducked = False
+                    log.info("[VOLUME] No audio output — duck skipped")
+                    return True
+
                 if per_session and self._backend.supports_per_session:
                     ok = self._backend.duck_other_sessions(level)
                     if not ok:
                         ok = self._backend.fade_to(level, fade_ms)
                 else:
                     ok = self._backend.fade_to(level, fade_ms)
+                self._actually_ducked = True
 
                 if ok and self._crash_recovery is not None:
                     self._crash_recovery.save(state)
@@ -225,6 +235,12 @@ class VolumeDucker:
         with self._lock:
             if self._saved_state is None:
                 return True  # not ducked — no-op success
+
+            if not self._actually_ducked:
+                # Smart duck skipped the actual volume change because
+                # no audio was playing.  Just clear the logical state.
+                self._saved_state = None
+                return True
 
             if per_session and self._backend.supports_per_session:
                 self._backend.restore_other_sessions()

@@ -149,6 +149,9 @@ class FakeBackend:
         self.fade_calls.append((target_linear, duration_ms))
         return True
 
+    def is_speaker_active(self) -> bool:
+        return True
+
     def duck_other_sessions(self, level: float) -> bool:
         self.duck_session_calls.append(level)
         return True

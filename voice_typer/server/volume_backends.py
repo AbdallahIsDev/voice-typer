@@ -43,6 +43,7 @@ class WinVolumeBackend(VolumeBackend):
 
     def __init__(self) -> None:
         self._vol = None  # IAudioEndpointVolume COM pointer
+        self._meter = None  # IAudioMeterInformation COM pointer
         self._sessions: list = []  # saved (session, original_volume) tuples
         self._com_initialized = False
 
@@ -75,6 +76,14 @@ class WinVolumeBackend(VolumeBackend):
                     IAudioEndpointVolume._iid_, CLSCTX_ALL, None
                 )
                 self._vol = cast(interface, POINTER(IAudioEndpointVolume))
+            # Get IAudioMeterInformation for smart-duck detection.
+            # Available on both old and new pycaw via QueryInterface
+            # on the IAudioEndpointVolume pointer.
+            try:
+                from pycaw.pycaw import IAudioMeterInformation
+                self._meter = self._vol.QueryInterface(IAudioMeterInformation)
+            except Exception:
+                self._meter = None
             self._com_initialized = True
             return True
         except ImportError:
@@ -108,6 +117,25 @@ class WinVolumeBackend(VolumeBackend):
         except Exception as exc:
             log.warning("[VOLUME-WIN] set_linear failed: %s", exc)
             return False
+
+    def is_speaker_active(self) -> bool:
+        """Return ``True`` if any application is currently playing audio.
+
+        Uses ``IAudioMeterInformation.GetPeakValue()`` on the default
+        render endpoint.  If no audio is playing, the peak is ≈ 0.0 and
+        we can skip ducking — no point animating the volume icon for
+        silence.
+        """
+        if self._meter is None:
+            return True
+        try:
+            peak = float(self._meter.GetPeakValue())
+            # Threshold at ~ -40 dBFS.  Below this, nothing audible is
+            # coming out of the speakers.
+            return peak >= 0.01
+        except Exception as exc:
+            log.debug("[VOLUME-WIN] is_speaker_active failed: %s", exc)
+            return True
 
     def get_other_sessions(self) -> list:
         """Return foreign pycaw ``AudioSession`` objects (excluding own process)."""
