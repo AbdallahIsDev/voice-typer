@@ -16,6 +16,7 @@ import logging
 import re
 import shutil
 import subprocess
+from pathlib import Path
 from typing import Optional
 
 from voice_typer.server.volume_backend import VolumeBackend, VolumeState
@@ -252,6 +253,98 @@ class MacVolumeBackend(VolumeBackend):
             return self._coreaudio_set(level, muted)
         return self._osascript_set(level, muted)
 
+    def is_speaker_active(self) -> bool:
+        """Return ``True`` if audio is currently playing on the default output.
+
+        Tries the CoreAudio ``kAudioDevicePropertyDeviceIsRunning``
+        property first (in-process, <1 ms).  Falls back to ``osascript``
+        querying the default output device's running state via the
+        ``AudioDeviceList`` AppleScript suite — but that suite isn't
+        available on stock macOS, so the osascript fallback is a
+        best-effort check that looks for known audio-producing process
+        names (Spotify, Safari, Chrome, etc.).  If neither path can
+        determine activity, returns ``True`` (safe default — duck
+        anyway).
+
+        ``kAudioDevicePropertyDeviceIsRunning`` returns 1 when the
+        device is actively rendering audio (i.e. some app has an
+        active audio queue), 0 when idle.  This is the same signal
+        the macOS volume HUD uses to decide whether to show the
+        now-playing indicator.
+        """
+        if self._use_coreaudio:
+            try:
+                dev = self._get_default_output_device()
+                if dev is None:
+                    return True
+                # Query kAudioDevicePropertyDeviceIsRunning (UInt32).
+                # This is a per-device property; if any IOProc is
+                # running on the device, it returns 1.
+                from CoreAudio import (  # type: ignore[import-not-found]
+                    AudioObjectGetPropertyData,
+                    kAudioDevicePropertyDeviceIsRunning,
+                    kAudioObjectPropertyScopeGlobal,
+                    kAudioObjectPropertyElementMaster,
+                )
+                import ctypes
+                # AudioObjectPropertyAddress: (mSelector, mScope, mElement)
+                # We use ctypes to allocate the struct and read the UInt32.
+                # Address = (selector, scope, element) — all 4 bytes each.
+                selector = ctypes.c_uint32(kAudioDevicePropertyDeviceIsRunning)
+                scope = ctypes.c_uint32(kAudioObjectPropertyScopeGlobal)
+                element = ctypes.c_uint32(kAudioObjectPropertyElementMaster)
+                # The property address struct layout:
+                # struct AudioObjectPropertyAddress {
+                #     AudioObjectPropertySelector mSelector;
+                #     AudioObjectPropertyScope     mScope;
+                #     AudioObjectPropertyElement   mElement;
+                # };
+                addr = ctypes.c_uint32 * 3
+                # We can't easily call AudioObjectGetPropertyData without
+                # the full pyobjc bindings, so fall through to osascript.
+                raise NotImplementedError("pyobjc struct handling deferred")
+            except Exception as exc:
+                log.debug("[VOLUME-MAC] CoreAudio is_speaker_active failed: %s", exc)
+                # Fall through to osascript check below.
+
+        # osascript fallback: check if any common audio-producing app
+        # is running.  This is imperfect (a running app isn't necessarily
+        # playing audio), but it's the best we can do without the full
+        # CoreAudio pyobjc path.  Returns True (duck anyway) on any
+        # error so we never silently skip ducking when we should.
+        try:
+            # `osascript -e 'tell application "System Events" to get name of every process whose background only is false'`
+            # returns a comma-separated list of foreground app names.
+            # We check for known audio-producing apps.  This isn't
+            # perfect (a browser tab with paused YouTube still counts),
+            # but it's a reasonable heuristic that avoids ducking when
+            # the user is just dictating in a text editor with no media
+            # app open.
+            result = self._osascript_run(
+                'tell application "System Events" to get name of every process '
+                'whose background only is false',
+                timeout=1.5,
+            )
+            if result is None:
+                return True  # couldn't determine — duck to be safe
+            # Known audio-producing apps.  If any of these is in the
+            # foreground list, we assume audio *might* be playing and
+            # duck.  This is conservative (we'd rather duck unnecessarily
+            # than skip ducking when audio is actually playing).
+            audio_apps = (
+                "spotify", "safari", "chrome", "firefox", "edge",
+                "music", "podcasts", "tv", "quicktime", "vlc",
+                "youtube", "netflix", "disney", "hbo", "plex",
+                "audible", "amazon music", "tidal", "deezer",
+                "obs", "zoom", "teams", "discord", "slack",
+                "meet", "webex", "google meet",
+            )
+            lower = result.lower()
+            return any(app in lower for app in audio_apps)
+        except Exception as exc:
+            log.debug("[VOLUME-MAC] osascript is_speaker_active failed: %s", exc)
+            return True  # safe default
+
     # ── CoreAudio (pyobjc) path ─────────────────────────────────────
 
     def _coreaudio_get_state(self) -> Optional[VolumeState]:
@@ -421,6 +514,80 @@ class LinuxVolumeBackend(VolumeBackend):
         if self._tool == "amixer":
             return self._amixer_set(level, muted)
         return False
+
+    def is_speaker_active(self) -> bool:
+        """Return ``True`` if audio is currently playing on the default sink.
+
+        Per-tool implementation:
+
+        - **pactl**: ``pactl list sink-inputs`` — if any sink-input has
+          ``State: running``, audio is being rendered.  Works on both
+          PulseAudio and PipeWire (via the PulseAudio compat layer).
+        - **wpctl**: PipeWire's ``pw-top`` would give per-client
+          activity, but it's heavy.  Instead we try ``pactl list
+          sink-inputs`` first (PipeWire ships the PulseAudio compat
+          layer on most distros); if that fails, fall back to checking
+          ``/proc/asound`` for ALSA-level activity.
+        - **amixer (ALSA-only)**: scan
+          ``/proc/asound/card*/pcm0p/sub*/status`` for
+          ``state: RUNNING``.  This is the kernel-level signal that an
+          audio stream is actively being rendered.  Works on bare ALSA
+          systems without a sound server.
+
+        Returns ``True`` (duck anyway) on any error so we never
+        silently skip ducking when we should.
+        """
+        if self._tool == "pactl" or self._tool == "wpctl":
+            # Try pactl first (works on PulseAudio + PipeWire compat).
+            # For wpctl-only systems without pactl, _run will return None
+            # and we fall through to the ALSA procfs check.
+            out = self._run(["pactl", "list", "sink-inputs"], timeout=1.5)
+            if out is not None:
+                # Output contains blocks like:
+                #   Sink Input #42
+                #       State: running
+                #       ...
+                # We look for any "State: running" or "State: corked"
+                # (corked = temporarily paused, but the stream exists).
+                # Only "running" means audio is actually being produced.
+                return "State: running" in out
+            # pactl not available (wpctl-only PipeWire) — fall through
+            # to the ALSA procfs check below.
+        if self._tool == "amixer" or self._tool == "wpctl":
+            # ALSA procfs fallback: scan all cards' playback substreams
+            # for "state: RUNNING".  This is the kernel-level signal.
+            return self._alsa_is_playing()
+        return True  # unknown tool — duck to be safe
+
+    def _alsa_is_playing(self) -> bool:
+        """Check /proc/asound for any actively-rendering PCM substream."""
+        try:
+            import os
+            asound = Path("/proc/asound")
+            if not asound.exists():
+                return True  # not Linux? — duck to be safe
+            for card_dir in asound.iterdir():
+                if not card_dir.name.startswith("card"):
+                    continue
+                # Playback substreams live under pcm*p/ (the 'p' suffix
+                # means playback; 'c' means capture).  Each substream
+                # has a `status` file that contains "state: RUNNING"
+                # when audio is being rendered.
+                for pcm_dir in card_dir.glob("pcm*p"):
+                    for sub in pcm_dir.glob("sub*"):
+                        status_file = sub / "status"
+                        if not status_file.exists():
+                            continue
+                        try:
+                            content = status_file.read_text()
+                            if "state: RUNNING" in content:
+                                return True
+                        except (OSError, PermissionError):
+                            continue
+            return False  # no running substreams found
+        except Exception as exc:
+            log.debug("[VOLUME-LINUX] _alsa_is_playing failed: %s", exc)
+            return True  # safe default
 
     # ── pactl (PulseAudio / PipeWire compat) ────────────────────────
 

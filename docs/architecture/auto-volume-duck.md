@@ -1,6 +1,235 @@
 # Auto-Volume Duck + Noise Filtering: System Audio & Mic Path Management During Dictation
 
-**Status:** Implemented (v2.1 — post-implementation line-number refresh + bugfixes discovered during integration testing) · **Priority:** High · **Target:** v1.1.0
+**Status:** Implemented (v2.2 — adds smart-duck: skip volume ducking when no audio is playing, cross-platform) · **Priority:** High · **Target:** v1.1.0
+
+---
+
+## 0. AI Agent Quick Reference (read this first)
+
+> **Start here.** This section is a dense cheat sheet — everything a future AI agent needs to understand the feature in ~2 minutes. The full sections below (§1–§16) are the deep-dive reference; read them only if you need detail beyond what's here.
+
+### 0.1 What this feature does (one paragraph)
+
+When dictation starts, system volume is **reduced** to a configurable level (default 25% perceptual) — **but only if audio is actually playing** (smart-duck, v2.2) — and a **mic-path noise filter** (high-pass + noise gate, optional RNNoise + post-capture spectral gating) cleans the microphone signal. When dictation stops, the original volume is **restored exactly** (including mute state) with a short fade ramp — or skipped entirely if smart-duck skipped the duck. Two layers, one goal: clean audio in + clean audio out. Eliminates speaker-to-mic bleed (ducking) and residual fan/keyboard/HVAC noise (filtering).
+
+### 0.2 File map (where things live)
+
+| File | Role | Key lines |
+|---|---|---|
+| `voice_typer/server/volume_backend.py` | `VolumeBackend` ABC + `VolumeState` dataclass (frozen). All volumes exchanged in perceptual-linear [0.0, 1.0]. **`is_speaker_active()` default returns True** (always duck) — backends override. | `VolumeBackend` L40, `VolumeState` L28, `fade_to` L99, `is_speaker_active` L134 |
+| `voice_typer/server/volume_backends.py` | Concrete backends: `WinVolumeBackend` (pycaw + IAudioMeterInformation), `MacVolumeBackend` (CoreAudio→osascript + audio-app heuristic), `LinuxVolumeBackend` (pactl/wpctl/amixer + /proc/asound). All imports guarded. | Win L32, Mac L200, Linux L461; `is_speaker_active`: Win L122, Mac L256, Linux L518, `_alsa_is_playing` L562 |
+| `voice_typer/server/volume_ducker.py` | `VolumeDucker` orchestrator. Thread-safe (`self._lock`). Manual-override detection (5% threshold). Crash-recovery hook. **Smart-duck** (v2.2): skips fade when `is_speaker_active()` is False; `_actually_ducked` flag distinguishes logical vs actual duck. | `duck` L160, `restore` L242, `initialize` L100, `is_ducked` L308, `actually_ducked` L314, `smart_duck_enabled` L325, `set_smart_duck_enabled` L329 |
+| `voice_typer/server/duck_crash_recovery.py` | Persists pre-duck state to `duck_crash_recovery.json` (atomic temp+rename, 0o600 on POSIX). | `save` L46, `load_stale` L70, `clear` L91 |
+| `voice_typer/server/audio_processor.py` | `AudioProcessor` — real-time chain (high-pass → noise gate → RNNoise → quality callback) + post-capture noisereduce. **Handles both 1-D and 2-D `(frames,1)` input.** | `process_chunk` L170, `_apply_highpass` L202, `process_full_audio` L296, `set_quality_callback` L160 |
+| `voice_typer/server/recording.py` | `Recorder` — injects `AudioProcessor`, calls `process_chunk` in callback (BEFORE lock-block), `process_full_audio` in `stop()`. | callback L361, `process_chunk` call L401, `stop` L657 |
+| `voice_typer/server/app.py` | `VoiceTyperApp` — wires everything. 6 lifecycle points. AudioQualityAnalyzer revival. **Smart-duck config sync** (`_duck_volume` calls `set_smart_duck_enabled` from `config.volume_duck_smart` before each duck). | See §0.3 below |
+| `voice_typer/server/audio_quality.py` | `AudioQualityAnalyzer` — was DEAD-014, now revived. Accumulates clipping/low-volume/high-noise stats. | `analyze_full_audio` L95, `reset` L63 |
+| `voice_typer/server/platform.py` | `get_volume_backend()` factory — selects backend by `sys.platform`. | L17 |
+| `voice_typer/server/ipc_server.py` | `get_volume_backend_status` IPC endpoint — returns `{available, name, supports_per_session, is_windows}` for the Settings UI. | L763 |
+| `voice_typer/server/config.py` | 12 new config fields (5 volume incl. `volume_duck_smart` + 7 noise) + IPC allowlist. | fields L215–227, allowlist L702–706 |
+| `voice_typer/client/.../Settings.tsx` | "Audio Enhancement" section: backend status, 5 duck controls (incl. Smart Duck toggle), 7 noise controls. | Audio Enhancement section |
+| `voice_typer/client/.../types/config.ts` | TypeScript mirror of the 12 config fields. | L125–131 |
+
+### 0.3 The 6 lifecycle wiring points in `app.py`
+
+These are the **only** places volume duck/restore is called. If you change lifecycle behaviour, change it here — not in the ducker.
+
+| # | Method | Line | What it does | Duck/Restore call |
+|---|---|---|---|---|
+| 1 | `__init__` | L283 | Construct `AudioProcessor` (L297), `AudioQualityAnalyzer` (L310), `DuckCrashRecovery(config_dir=_config_dir())` (L364), `VolumeDucker(crash_recovery=..., on_crash_restore=...)` (L365). Crash-recovery stale-file check runs on first `initialize()`. | — |
+| 2 | `_start_dictation` | L1197 | Reset `AudioQualityAnalyzer` (L1281). After `recorder.start()` (L1290) + bubble.show() (L1294), call `self._duck_volume()` (L1297). **`_duck_volume` syncs `config.volume_duck_smart` → `set_smart_duck_enabled()` before calling `duck()`.** | `_duck_volume` → L414 |
+| 3 | `_stop_dictation` | L1373 | After `recorder.stop()` (L1398), call `self._restore_volume()` (L1406). Then run `_finalize_audio_quality_report(audio)` (L1420) — surfaces clipping/low-volume/noise warnings via tray. Restore BEFORE transcription thread so user gets audio back ASAP. **If smart-duck skipped the duck, restore is a no-op.** | `_restore_volume` → L435 |
+| 4 | `_cancel_dictation` | L1689 | Discard recorder (L1705). Call `self._restore_volume()` (L1712). BUGFIX comment at L1700 documents the removed `_background_audio_monitor.stop()` AttributeError. | `_restore_volume` → L435 |
+| 5 | `quit` | L2118 | After `recorder.discard()` (L2143), call `self._restore_volume(fade_ms=0)` (L2150). **fade_ms=0** = instant restore on exit. | `_restore_volume(0)` → L435 |
+| 6 | `restart_app` | L2001 | Call `self._restore_volume(fade_ms=0)` (L2029) BEFORE `subprocess.Popen` (L2070). Prevents volume ping-pong between old and new process. | `_restore_volume(0)` → L435 |
+
+### 0.4 The 12 config fields
+
+```python
+# Volume ducking (config.py L215–227)
+volume_duck_enabled: bool = True              # master toggle
+volume_duck_level: float = 0.25               # 0.0–1.0 perceptual
+volume_duck_per_session: bool = False         # Windows only — duck other apps, keep alerts
+volume_duck_fade_ms: int = 150                # 0–1000, 0 = instant
+volume_duck_smart: bool = True                # v2.2: skip duck when no audio playing
+
+# Noise filtering (config.py L223–229)
+noise_filter_enabled: bool = True
+noise_filter_highpass: bool = True
+noise_filter_highpass_cutoff_hz: float = 80.0 # 20–500
+noise_filter_gate: bool = True
+noise_filter_gate_threshold: float = 0.015    # 0.0–0.1, ~-45dBFS
+noise_filter_rnnoise: bool = False            # opt-in (CPU cost)
+noise_filter_post_capture: bool = True        # noisereduce on stop()
+```
+
+Plus the pre-existing `audio_quality_warnings: bool = True` (config.py L159) which gates the tray notifications from `_finalize_audio_quality_report`.
+
+All 12 are in `IPC_CONFIG_ALLOWLIST` (config.py L702–706 + L708–714) with validators, so the Electron UI can set them live via `set_config`.
+
+### 0.5 Critical gotchas (do NOT break these invariants)
+
+1. **Callback ordering in `recording.py` (L386–L417):** `filtered` MUST be assigned BEFORE the `with self._lock` block that uses it. v1 had it after — raised silent `NameError` on every chunk (PortAudio swallows callback exceptions → recording captured nothing). Regression-tested in `tests/test_recording_audio_processor.py::test_callback_does_not_raise_with_processor`.
+
+2. **High-pass filter input shape (`audio_processor.py` L202):** `_apply_highpass` ravels 2-D `(frames, 1)` input to 1-D before `scipy.lfilter`, then reshapes back. sounddevice delivers 2-D for mono captures; without ravel, lfilter raises `ValueError: object of too small depth for desired array`.
+
+3. **Mute state preservation (`volume_ducker.py` L292–L295):** `restore()` re-applies the saved mute state AFTER the volume fade completes — fading a muted device is a no-op, so order matters. v1 unmuted users on restore (bug fixed).
+
+4. **Manual-volume-override detection (`volume_ducker.py` L279):** if the current volume differs from the ducked level by >5%, restore to the CURRENT value (user changed it intentionally), not the saved one. Use `force=True` to bypass (crash-recovery path).
+
+5. **Per-session duck is Windows-only:** gated on `backend.supports_per_session`. The Settings UI also auto-disables the toggle when `!is_windows || !supports_per_session`. Don't try to add per-session on macOS/Linux — there's no clean native API (see §5.2, §5.3).
+
+6. **Crash-recovery file is written on duck(), cleared on restore():** if the app crashes while ducked, the next launch's `VolumeDucker.initialize()` finds the stale `duck_crash_recovery.json` and restores the saved volume + fires the `on_crash_restore` callback (which calls `tray.notify`). **Smart-duck skip does NOT write the file** — we didn't change the volume, so there's nothing to recover from.
+
+7. **`fade_ms=0` on quit/restart:** the app is exiting; don't spend 150ms on a fade. Restore instantly. Also: on `restart_app`, restore happens BEFORE `subprocess.Popen` to avoid volume ping-pong between old and new process.
+
+8. **Audio callback MUST be non-blocking:** `process_chunk` runs in the PortAudio callback. High-pass ≈ 0.05ms/chunk, noise gate ≈ 0.02ms — safe. RNNoise ≈ 1ms/frame is borderline; default OFF. If you add a new filter, benchmark it. Noisereduce runs ONLY in `stop()` (offline) — NEVER in the callback.
+
+9. **All optional library imports are guarded:** `pycaw`, `pyobjc-CoreAudio`, `noisereduce`, `rnnoise`, `scipy` — if missing, that filter/backend is silently skipped (logged once at INFO/DEBUG). The app never crashes on a missing optional dep. Don't add unguarded imports.
+
+10. **`DuckCrashRecovery` uses `_config_dir()`** (not `Path.home()` directly) — so tests can monkeypatch `_config_dir` to a tmp_path. v1 used `Path.home() / ".voice-typer"` directly and leaked test artifacts into the developer's home directory.
+
+11. **Smart-duck second-`duck()` bugfix (v2.2, `volume_ducker.py` L224–L234):** if smart-duck skipped the first duck (`_actually_ducked=False`) and `duck()` is called again (e.g. config changed mid-dictation), the `else` branch must NOT call `fade_to()` — doing so would fade the user's volume down to the new duck level with no saved state to restore from. The fix: the `else` branch checks `_actually_ducked` first and skips the fade if False. Regression-tested in `tests/test_smart_duck.py::TestSmartDuckSecondDuckAfterSkip`.
+
+12. **Smart-duck `is_speaker_active()` must be cheap:** it's called on every `duck()` (at dictation start). Windows uses `IAudioMeterInformation.GetPeakValue()` (~0ms COM call). macOS uses `osascript` (200–500ms — borderline, but only fires once per dictation). Linux uses `pactl list sink-inputs` (subprocess, ~50ms). All paths default to `True` (duck anyway) on any error — never silently skip ducking when we should duck.
+
+### 0.6 Test map
+
+| Test file | Count | Covers |
+|---|---|---|
+| `tests/test_volume_ducker.py` | 32 | `VolumeDucker` lifecycle, mute state, manual override, concurrency (cancel+stop race), crash recovery, `DuckCrashRecovery` file I/O |
+| `tests/test_audio_processor.py` | 22 | High-pass attenuation, noise gate, RNNoise (mocked), post-capture, quality callback, passthrough, dtype preservation |
+| `tests/test_audio_quality.py` | 13 | `AudioQualityAnalyzer` chunk analysis, full-audio report, properties |
+| `tests/test_volume_backends.py` | 32 | Linux (pactl/wpctl/amixer parsing + tool detection), macOS (osascript fallback), Windows (smoke — init fails gracefully without pycaw), `VolumeBackend.fade_to` default impl |
+| `tests/test_volume_lifecycle.py` | 18 | **Integration:** start→duck, stop→restore, cancel→restore, quit→restore(0ms), restart→restore-before-subprocess, crash-recovery-on-startup, manual override, per-session gated on support, crash-recovery file write/clear |
+| `tests/test_recording_audio_processor.py` | 7 | **Regression:** callback with AudioProcessor doesn't raise NameError, buffer stores filtered audio (high-pass attenuates 30Hz), RMS callback fires with filtered values, quality callback fires per chunk, post-capture runs in stop(), no-processor graceful degradation, xrun status doesn't break callback |
+| `tests/test_smart_duck.py` | 31 | **v2.2:** smart-duck skip path (no fade, no crash-recovery file, `_actually_ducked=False`), normal path (fade proceeds), restore-after-skip is no-op, volume unchanged after skip, **second-duck-after-skip bugfix**, smart-duck toggle (`set_smart_duck_enabled`), cross-platform `is_speaker_active()` (Linux pactl/wpctl/amixer + /proc/asound, macOS osascript audio-app heuristic), introspection properties, concurrency |
+| `tests/test_server.py::TestDispatchGetVolumeBackendStatus` | 4 | IPC endpoint returns backend name/availability, calls initialize(), handles missing `_volume_ducker`, handles initialize() exception |
+
+**Total: 159 tests.** Run the full volume/audio suite with:
+```bash
+python -m pytest tests/test_volume_ducker.py tests/test_audio_processor.py tests/test_audio_quality.py \
+  tests/test_volume_backends.py tests/test_volume_lifecycle.py tests/test_recording_audio_processor.py \
+  tests/test_smart_duck.py tests/test_server.py -k "volume or audio or backend or duck or filter or quality or smart"
+```
+
+### 0.7 Platform support matrix
+
+| Platform | Backend | Library | Per-session? | Smart-duck? | Notes |
+|---|---|---|---|---|---|
+| Windows | `WinVolumeBackend` | `pycaw` + `comtypes` | ✅ (`ISimpleAudioVolume`) | ✅ `IAudioMeterInformation.GetPeakValue()` (peak ≥ 0.01 = active) | Uses `SetMasterVolumeLevelScalar` (perceptual-linear), NOT `SetMasterVolumeLevel` (dB). Per-session default OFF — opt in. pycaw ≥ 20251023 API compat (EndpointVolume property vs Activate). |
+| macOS | `MacVolumeBackend` | `pyobjc-framework-CoreAudio` (primary) / `osascript` (fallback) | ❌ | ⚠️ osascript audio-app heuristic (Spotify/Safari/Chrome/etc. running → assume active) | CoreAudio `kAudioDevicePropertyDeviceIsRunning` path deferred (pyobjc struct handling needs real macOS testing). osascript fallback is conservative — ducks if any known audio app is running. |
+| Linux | `LinuxVolumeBackend` | `pactl` → `wpctl` → `amixer` (system binaries, no Python deps) | ❌ | ✅ `pactl list sink-inputs` (State: running) + `/proc/asound` fallback for ALSA-only | Detection priority: pactl (PulseAudio/PipeWire compat) → wpctl (PipeWire native) → amixer (ALSA fallback). Smart-duck: pactl checks sink-input states; ALSA scans `/proc/asound/card*/pcm*p/sub*/status` for `state: RUNNING`. |
+
+If no backend is available: `initialize()` returns False, `duck()`/`restore()` are no-ops, Settings UI shows "disabled". App continues normally. Smart-duck also no-ops (no backend to query).
+
+### 0.8 IPC endpoints
+
+| Endpoint | Request | Response | Notes |
+|---|---|---|---|
+| `get_volume_backend_status` | `{type: "get_volume_backend_status"}` | `{type: "volume_backend_status", data: {available, name, supports_per_session, is_windows}}` | Calls `ducker.initialize()` so the name reflects the real backend. Safe to call before first dictation. |
+
+Plus the existing `get_config` / `set_config` (all 12 new fields are in the allowlist). The Settings UI calls `get_volume_backend_status` on mount to populate the backend status indicator and gate the Per-Session Duck toggle.
+
+### 0.9 How to extend
+
+**Add a new noise filter:**
+1. Add a config field + allowlist entry in `config.py`.
+2. Add a field to `AudioProcessorConfig` (audio_processor.py L50) + `from_config` (L66).
+3. Implement the filter in `AudioProcessor` — call it from `process_chunk` (L170) for real-time, or from `process_full_audio` (L296) for offline.
+4. **Benchmark it** — real-time filters MUST be <2ms/chunk to avoid xruns.
+5. Add a Settings UI toggle/slider in `Settings.tsx`.
+6. Add tests in `tests/test_audio_processor.py`.
+
+**Add a new volume backend (new platform):**
+1. Subclass `VolumeBackend` (volume_backend.py L40) in `volume_backends.py`.
+2. Implement `name`, `supports_per_session`, `initialize`, `get_state`, `set_linear`. `fade_to` has a working default. **Override `is_speaker_active()`** if the platform has a cheap speaker-activity signal — otherwise the default `True` means smart-duck never skips.
+3. Add the platform to `get_volume_backend()` in `platform.py` (L17).
+4. Add platform-conditional deps to `pyproject.toml`.
+5. Add tests in `tests/test_volume_backends.py` — mock the platform's CLI/library.
+
+**Add a new lifecycle wiring point:**
+1. Read §0.3 above — there are only 6, and they're the only sanctioned places to call `duck()`/`restore()`.
+2. If you need a new one (e.g. a "pause" feature), add it to `app.py` and call `self._duck_volume()` / `self._restore_volume()` — don't call the ducker directly.
+3. Add an integration test in `tests/test_volume_lifecycle.py`.
+
+### 0.10 Performance budget
+
+| Component | Cost | Where | Notes |
+|---|---|---|---|
+| High-pass filter | ~0.05ms/chunk | `process_chunk` (audio callback) | scipy `lfilter` on 1024 samples |
+| Noise gate | ~0.02ms/chunk | `process_chunk` (audio callback) | numpy RMS + in-place fill |
+| RNNoise | ~1ms/480-sample frame | `process_chunk` (audio callback) | **Borderline** — default OFF. If xruns appear, move to consumer thread. |
+| Post-capture noisereduce | ~200ms for 30s audio | `Recorder.stop()` (offline) | Never in callback. |
+| Volume fade | 150ms default (10 steps × 15ms) | `VolumeDucker.duck/restore` (background thread) | Synchronous — caller blocks. Acceptable because caller is a background thread. |
+| Smart-duck check (Windows) | ~0ms | `duck()` → `IAudioMeterInformation.GetPeakValue()` | COM call on already-held pointer. |
+| Smart-duck check (macOS) | 200–500ms | `duck()` → `osascript` subprocess | Borderline but only fires once per dictation. |
+| Smart-duck check (Linux) | ~50ms | `duck()` → `pactl list sink-inputs` subprocess | Or `/proc/asound` scan (~5ms) for ALSA-only. |
+
+### 0.11 Smart-duck behaviour summary (v2.2)
+
+Smart-duck skips the volume change when no application is currently playing audio through the speakers. This avoids a pointless speaker-icon animation during silent dictation.
+
+**State machine:**
+
+```
+duck() called
+    │
+    ▼
+┌─────────────────────────────┐
+│ smart_duck_enabled?         │
+│ (config.volume_duck_smart)  │
+└──────────┬──────────────────┘
+           │
+      ┌────┴────┐
+      │ Yes     │ No
+      ▼         ▼
+┌──────────┐  ┌─────────────────────────┐
+│ backend. │  │ Skip is_speaker_active()│
+│ is_      │  │ → proceed to normal duck│
+│ speaker_ │  └─────────────────────────┘
+│ active()?│
+└────┬─────┘
+     │
+  ┌──┴──┐
+  │ Yes │ No
+  ▼     ▼
+┌─────────────┐  ┌──────────────────────────┐
+│ Normal duck │  │ Smart-duck SKIP:         │
+│ (fade, save │  │  • _saved_state = state  │
+│  crash-rec) │  │  • _actually_ducked=False│
+│ _actually_  │  │  • NO fade_to() call     │
+│ ducked=True │  │  • NO crash-rec file     │
+└─────────────┘  │  • returns True          │
+                 └──────────────────────────┘
+
+restore() called
+    │
+    ▼
+┌─────────────────────────────┐
+│ _actually_ducked?           │
+└──────────┬──────────────────┘
+           │
+      ┌────┴────┐
+      │ True    │ False (smart-duck skipped)
+      ▼         ▼
+┌─────────────┐  ┌──────────────────────────┐
+│ Normal      │  │ No-op: clear _saved_state│
+│ restore:    │  │  • NO fade_to() call     │
+│  fade back, │  │  • NO crash-rec clear    │
+│  clear rec  │  │  • returns True          │
+│  file       │  └──────────────────────────┘
+└─────────────┘
+```
+
+**Key invariants:**
+- `is_ducked` returns `True` during a smart-duck skip (logical state — UI shows duck state consistently).
+- `actually_ducked` returns `False` during a smart-duck skip (distinguishes "skipped" from "actually faded").
+- No crash-recovery file is written during a smart-duck skip (we didn't change the volume, so nothing to recover).
+- The second `duck()` call after a smart-duck skip must NOT call `fade_to()` (v2.2 bugfix — see §0.5 gotcha #11).
+
+**Limitations:**
+- Smart-duck only checks at duck time. If audio starts playing DURING dictation (after the skip), we won't duck it. This is a known trade-off — periodic re-checking would add complexity and CPU. The `volume_duck_smart` config toggle lets users disable smart-duck entirely if they prefer always-duck behaviour.
 
 ---
 

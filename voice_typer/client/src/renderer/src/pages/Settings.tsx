@@ -734,6 +734,13 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
               </span>
             </div>
           </SettingRow>
+          <SettingRow label="Smart Duck"
+            info="Only duck when audio is actually playing through the speakers. Skips the volume change (and the speaker-icon animation) during silent dictation. Cross-platform: Windows uses IAudioMeterInformation peak detection; macOS uses an audio-app heuristic; Linux uses pactl/wpctl or /proc/asound.">
+            <Switch
+              checked={config.volume_duck_smart ?? true}
+              onCheckedChange={(checked) => updateConfig({ volume_duck_smart: checked })}
+            />
+          </SettingRow>
           <SettingRow label="Per-Session Duck (Windows)"
             info="Duck only other apps' audio, keeping system alerts audible. Windows only — disabled on macOS/Linux because they have no clean per-app volume API.">
             <Switch

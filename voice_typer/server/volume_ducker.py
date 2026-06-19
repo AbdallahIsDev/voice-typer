@@ -85,6 +85,12 @@ class VolumeDucker:
         self._saved_state: Optional[VolumeState] = None
         self._ducked_level: float = 0.25
         self._actually_ducked: bool = False  # True if the volume was actually changed
+        # Smart duck: when True (default), duck() first calls
+        # backend.is_speaker_active() and skips the volume change if no
+        # application is currently playing audio.  Set to False to
+        # always duck (the pre-smart-duck behaviour).  Wired from
+        # config.volume_duck_smart by VoiceTyperApp.
+        self._smart_duck_enabled: bool = True
         self._lock = threading.Lock()
         self._initialized: bool = False
         self._ready: bool = False  # True only if initialize() succeeded
@@ -182,9 +188,15 @@ class VolumeDucker:
                 # Smart duck: skip if no application is currently
                 # playing audio through the speakers.  No point
                 # animating the volume icon for silence.
-                if not self._backend.is_speaker_active():
+                #
+                # We still set _saved_state (so is_ducked reports True
+                # for UI consistency and restore() knows to clean up),
+                # but _actually_ducked=False tells restore() to skip
+                # the fade-back.  No crash-recovery file is written
+                # because we haven't actually changed the volume.
+                if self._smart_duck_enabled and not self._backend.is_speaker_active():
                     self._actually_ducked = False
-                    log.info("[VOLUME] No audio output — duck skipped")
+                    log.info("[VOLUME] No audio output — duck skipped (smart duck)")
                     return True
 
                 if per_session and self._backend.supports_per_session:
@@ -208,7 +220,21 @@ class VolumeDucker:
                 return ok
             else:
                 # Already ducked — update level without re-saving.
+                #
+                # BUGFIX (v1.1): if smart-duck skipped the first duck
+                # (_actually_ducked=False), we must NOT call fade_to
+                # here — doing so would fade the user's volume down to
+                # the new duck level with no saved state to restore
+                # from.  Instead, just update the logical ducked_level
+                # so a later restore() (if audio has since started)
+                # knows the target.  The user's volume is unchanged.
                 self._ducked_level = level
+                if not self._actually_ducked:
+                    log.info(
+                        "[VOLUME] Duck level updated → %.0f%% (smart-duck still skipping — no fade)",
+                        level * 100,
+                    )
+                    return True
                 ok = self._backend.fade_to(level, fade_ms)
                 log.info("[VOLUME] Duck level updated → %.0f%%", level * 100)
                 return ok
@@ -240,6 +266,7 @@ class VolumeDucker:
                 # Smart duck skipped the actual volume change because
                 # no audio was playing.  Just clear the logical state.
                 self._saved_state = None
+                self._actually_ducked = False
                 return True
 
             if per_session and self._backend.supports_per_session:
@@ -272,15 +299,42 @@ class VolumeDucker:
 
             log.info("[VOLUME] Restore → %.0f%% (muted=%s)", target.linear * 100, target.muted)
             self._saved_state = None
+            self._actually_ducked = False
             return ok
 
     # ── Introspection ───────────────────────────────────────────────
 
     @property
     def is_ducked(self) -> bool:
-        """``True`` if volume is currently ducked."""
+        """``True`` if volume is currently ducked (logically — may be a smart-duck skip)."""
         with self._lock:
             return self._saved_state is not None
+
+    @property
+    def actually_ducked(self) -> bool:
+        """``True`` if the volume was actually changed (not a smart-duck skip).
+
+        Useful for diagnostics and for tests — :attr:`is_ducked` returns
+        ``True`` during a smart-duck skip (so the UI shows duck state
+        consistently), but this property distinguishes "we skipped the
+        fade" from "we actually lowered the volume".
+        """
+        with self._lock:
+            return self._actually_ducked
+
+    @property
+    def smart_duck_enabled(self) -> bool:
+        """``True`` if smart-duck (skip when no audio playing) is enabled."""
+        return self._smart_duck_enabled
+
+    def set_smart_duck_enabled(self, enabled: bool) -> None:
+        """Enable or disable smart-duck at runtime.
+
+        Wired from ``config.volume_duck_smart`` by :class:`VoiceTyperApp`
+        on startup and whenever the config changes.  Takes effect on the
+        next ``duck()`` call — does not affect an in-progress duck.
+        """
+        self._smart_duck_enabled = bool(enabled)
 
     @property
     def backend_name(self) -> str:

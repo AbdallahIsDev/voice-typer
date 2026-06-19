@@ -216,6 +216,15 @@ class Config:
     volume_duck_level: float = 0.25  # 0.0–1.0 perceptual-linear
     volume_duck_per_session: bool = False  # Windows only — duck other apps, keep alerts
     volume_duck_fade_ms: int = 150  # 0–1000, 0 = instant
+    # Smart duck: skip the volume change when no application is currently
+    # playing audio through the speakers.  Avoids a pointless speaker-icon
+    # animation during silent dictation.  Default ON.  Set to False to
+    # always duck (the pre-smart-duck behaviour).  Cross-platform:
+    # Windows uses IAudioMeterInformation.GetPeakValue(); macOS uses
+    # osascript + known audio-app heuristic; Linux uses pactl/wpctl or
+    # /proc/asound.  See VolumeDucker.duck() and
+    # VolumeBackend.is_speaker_active().
+    volume_duck_smart: bool = True
 
     # ─── Noise filtering (v1.1.0) ───────────────────────────────────
     # Cleans the microphone signal: removes fan noise, keyboard clicks,
@@ -350,6 +359,7 @@ class Config:
             "fast_startup",
             "bubble_draggable", "bubble_show_on_startup",
             "volume_duck_enabled", "volume_duck_per_session",
+            "volume_duck_smart",
             "noise_filter_enabled", "noise_filter_highpass",
             "noise_filter_gate", "noise_filter_rnnoise",
             "noise_filter_post_capture",
@@ -693,6 +703,7 @@ IPC_CONFIG_ALLOWLIST: dict = {
     "volume_duck_level":            (float, _make_float_validator(lo=0.0, hi=1.0)),
     "volume_duck_per_session":      (bool, _bool_validator),
     "volume_duck_fade_ms":          (int, _make_int_validator(lo=0, hi=1000)),
+    "volume_duck_smart":            (bool, _bool_validator),
 
     # ── Noise filtering (v1.1.0) ──────────────────────────────────────
     "noise_filter_enabled":             (bool, _bool_validator),

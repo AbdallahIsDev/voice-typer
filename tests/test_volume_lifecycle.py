@@ -111,14 +111,17 @@ class FakeBackend:
     """
 
     def __init__(self, current: float = 0.5, muted: bool = False,
-                 per_session_capable: bool = False) -> None:
+                 per_session_capable: bool = False,
+                 speaker_active: bool = True) -> None:
         self._current = current
         self._muted = muted
         self._per_session_capable = per_session_capable
+        self._speaker_active = speaker_active
         self.set_calls: list[tuple[float, Optional[bool]]] = []
         self.fade_calls: list[tuple[float, int]] = []
         self.duck_session_calls: list[float] = []
         self.restore_session_calls: int = 0
+        self.is_speaker_active_calls: int = 0
 
     # ABC-required surface
     @property
@@ -150,7 +153,8 @@ class FakeBackend:
         return True
 
     def is_speaker_active(self) -> bool:
-        return True
+        self.is_speaker_active_calls += 1
+        return self._speaker_active
 
     def duck_other_sessions(self, level: float) -> bool:
         self.duck_session_calls.append(level)

@@ -23,15 +23,28 @@ from voice_typer.server.volume_ducker import VolumeDucker
 
 
 class FakeBackend(VolumeBackend):
-    """In-memory VolumeBackend for tests — no real audio hardware."""
+    """In-memory VolumeBackend for tests — no real audio hardware.
 
-    def __init__(self, current: float = 0.5, muted: bool = False) -> None:
+    ``speaker_active`` controls :meth:`is_speaker_active` — set to
+    ``False`` to simulate "no audio playing" (smart-duck skips).
+    """
+
+    def __init__(
+        self,
+        current: float = 0.5,
+        muted: bool = False,
+        speaker_active: bool = True,
+    ) -> None:
         self._current = current
         self._muted = muted
+        self._speaker_active = speaker_active
         self._set_calls: list[tuple[float, Optional[bool]]] = []
         self._fade_calls: list[tuple[float, int]] = []
         self._ducked_sessions = False
         self._restored_sessions = False
+        # Track is_speaker_active() call count so tests can verify
+        # smart-duck actually queried the backend.
+        self.is_speaker_active_calls: int = 0
 
     @property
     def name(self) -> str:
@@ -58,6 +71,10 @@ class FakeBackend(VolumeBackend):
         self._current = max(0.0, min(1.0, target_linear))
         self._fade_calls.append((target_linear, duration_ms))
         return True
+
+    def is_speaker_active(self) -> bool:
+        self.is_speaker_active_calls += 1
+        return self._speaker_active
 
     def duck_other_sessions(self, level: float) -> bool:
         self._ducked_sessions = True

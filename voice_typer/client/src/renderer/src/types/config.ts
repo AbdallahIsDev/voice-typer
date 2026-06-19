@@ -127,6 +127,7 @@ export interface VoiceTyperConfig {
   volume_duck_level: number
   volume_duck_per_session: boolean
   volume_duck_fade_ms: number
+  volume_duck_smart: boolean
 
   // Noise filtering
   noise_filter_enabled: boolean
