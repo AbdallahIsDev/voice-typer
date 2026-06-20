@@ -335,3 +335,150 @@ class VoiceTyperService:
                 app._register_repaste_hotkey()
             except Exception as e:
                 log.warning("Failed to sync repaste hotkey: %s", e)
+
+    # ── Onboarding (#8) ─────────────────────────────────────────────
+
+    def onboarding_is_first_run(self) -> dict:
+        """Check if this is the first run (onboarding needed)."""
+        from voice_typer.server.onboarding import OnboardingController
+        ctrl = OnboardingController()
+        return {"is_first_run": ctrl.is_first_run()}
+
+    def onboarding_start(self) -> dict:
+        """Start the onboarding wizard. Returns step info."""
+        from voice_typer.server.onboarding import OnboardingController
+        ctrl = OnboardingController()
+        self._onboarding = ctrl
+        return {
+            "step": ctrl.current_step,
+            "total_steps": ctrl.total_steps,
+            "step_name": ctrl.step_name,
+        }
+
+    def onboarding_get_step(self) -> dict:
+        """Get current onboarding step info."""
+        ctrl = getattr(self, "_onboarding", None)
+        if ctrl is None:
+            return {"error": "Onboarding not started"}
+        return {
+            "step": ctrl.current_step,
+            "total_steps": ctrl.total_steps,
+            "step_name": ctrl.step_name,
+        }
+
+    def onboarding_next_step(self) -> dict:
+        """Advance to next onboarding step."""
+        ctrl = getattr(self, "_onboarding", None)
+        if ctrl is None:
+            return {"error": "Onboarding not started"}
+        new_step = ctrl.next_step()
+        return {
+            "step": new_step,
+            "total_steps": ctrl.total_steps,
+            "step_name": ctrl.step_name,
+        }
+
+    def onboarding_prev_step(self) -> dict:
+        """Go back to previous onboarding step."""
+        ctrl = getattr(self, "_onboarding", None)
+        if ctrl is None:
+            return {"error": "Onboarding not started"}
+        new_step = ctrl.prev_step()
+        return {
+            "step": new_step,
+            "total_steps": ctrl.total_steps,
+            "step_name": ctrl.step_name,
+        }
+
+    def onboarding_set_microphone(self, mic_id: str | None) -> dict:
+        """Set the microphone choice in the onboarding wizard."""
+        ctrl = getattr(self, "_onboarding", None)
+        if ctrl is None:
+            return {"error": "Onboarding not started"}
+        ctrl.set_microphone(mic_id)
+        return {"ok": True}
+
+    def onboarding_set_hotkey(self, hotkey: str) -> dict:
+        """Set the hotkey choice in the onboarding wizard."""
+        ctrl = getattr(self, "_onboarding", None)
+        if ctrl is None:
+            return {"error": "Onboarding not started"}
+        ctrl.set_hotkey(hotkey)
+        return {"ok": True}
+
+    def onboarding_set_model(self, model: str) -> dict:
+        """Set the model choice in the onboarding wizard."""
+        ctrl = getattr(self, "_onboarding", None)
+        if ctrl is None:
+            return {"error": "Onboarding not started"}
+        ctrl.set_model(model)
+        return {"ok": True}
+
+    def onboarding_skip(self) -> dict:
+        """Skip onboarding entirely."""
+        ctrl = getattr(self, "_onboarding", None)
+        if ctrl is None:
+            return {"error": "Onboarding not started"}
+        ctrl.skip()
+        return {"ok": True}
+
+    def onboarding_apply(self) -> dict:
+        """Apply onboarding settings and mark complete."""
+        ctrl = getattr(self, "_onboarding", None)
+        if ctrl is None:
+            return {"error": "Onboarding not started"}
+        try:
+            ctrl.apply_settings(self._app.config)
+            self._app.config.onboarding_completed = True
+            self._app.config.save()
+            return {"ok": True}
+        except Exception as exc:
+            return {"error": str(exc)}
+
+    def onboarding_get_microphones(self) -> dict:
+        """Get available microphones for the onboarding wizard."""
+        from voice_typer.server.onboarding import OnboardingController
+        ctrl = getattr(self, "_onboarding", OnboardingController())
+        return {"microphones": ctrl.get_microphones()}
+
+    def onboarding_get_model_options(self) -> dict:
+        """Get model options for the onboarding wizard."""
+        from voice_typer.server.onboarding import OnboardingController
+        return {"models": OnboardingController.MODEL_OPTIONS}
+
+    def onboarding_get_hotkey_presets(self) -> dict:
+        """Get hotkey presets for the onboarding wizard."""
+        from voice_typer.server.onboarding import OnboardingController
+        return {"presets": OnboardingController.HOTKEY_PRESETS}
+
+    # ── Download model (UX-005) ─────────────────────────────────────
+
+    def download_model(self, model_name: str) -> dict:
+        """Download a model weight file via HuggingFace.
+
+        UX-005: Downloads the specified model (tiny.en, small.en, medium.en,
+        large-v3, qwen, parakeet) to the local HF cache.
+        Returns a result dict with success status.
+        """
+        import os
+        try:
+            if model_name in ("tiny.en", "small.en", "medium.en", "large-v3"):
+                from voice_typer.server.transcription import TranscriptionEngine
+                engine = TranscriptionEngine(model_size=model_name, device="cpu")
+                engine.load()
+                engine.unload()
+                return {"success": True, "model": model_name}
+            elif model_name == "qwen":
+                qwen_path = getattr(self._app.config, "qwen_model_path", None)
+                if qwen_path and os.path.isdir(qwen_path):
+                    return {"success": True, "model": model_name, "message": "Qwen model already cached"}
+                return {"success": False, "error": "Qwen model path not configured. Set qwen_model_path in Settings."}
+            elif model_name == "parakeet":
+                from voice_typer.server.asr_setup import download_parakeet_weights
+                download_parakeet_weights()
+                return {"success": True, "model": model_name}
+            else:
+                return {"success": False, "error": f"Unknown model: {model_name}"}
+        except Exception as exc:
+            log.error("download_model failed for %s: %s", model_name, exc)
+            return {"success": False, "error": str(exc)}

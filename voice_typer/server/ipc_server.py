@@ -822,6 +822,156 @@ class IPCServer:
                 log.error("[IPC] quit_app failed: %s", e, exc_info=True)
             return None
 
+        # ── #8: Onboarding IPC routes ────────────────────────────────
+        elif cmd == "onboarding_is_first_run":
+            try:
+                result = self.service.onboarding_is_first_run()
+                resp["type"] = "onboarding_first_run"
+                resp["data"] = result
+            except Exception as e:
+                log.error("[IPC] onboarding_is_first_run failed: %s", e)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
+        elif cmd == "onboarding_start":
+            try:
+                result = self.service.onboarding_start()
+                resp["type"] = "onboarding_step"
+                resp["data"] = result
+            except Exception as e:
+                log.error("[IPC] onboarding_start failed: %s", e)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
+        elif cmd == "onboarding_get_step":
+            try:
+                result = self.service.onboarding_get_step()
+                resp["type"] = "onboarding_step"
+                resp["data"] = result
+            except Exception as e:
+                log.error("[IPC] onboarding_get_step failed: %s", e)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
+        elif cmd == "onboarding_next_step":
+            try:
+                result = self.service.onboarding_next_step()
+                resp["type"] = "onboarding_step"
+                resp["data"] = result
+            except Exception as e:
+                log.error("[IPC] onboarding_next_step failed: %s", e)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
+        elif cmd == "onboarding_prev_step":
+            try:
+                result = self.service.onboarding_prev_step()
+                resp["type"] = "onboarding_step"
+                resp["data"] = result
+            except Exception as e:
+                log.error("[IPC] onboarding_prev_step failed: %s", e)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
+        elif cmd == "onboarding_set_microphone":
+            try:
+                mic_id = (data or {}).get("mic_id") if isinstance(data, dict) else None
+                result = self.service.onboarding_set_microphone(mic_id)
+                resp["type"] = "ack" if "error" not in result else "error"
+                resp["data"] = result
+            except Exception as e:
+                log.error("[IPC] onboarding_set_microphone failed: %s", e)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
+        elif cmd == "onboarding_set_hotkey":
+            try:
+                hotkey = (data or {}).get("hotkey", "<f2>") if isinstance(data, dict) else "<f2>"
+                result = self.service.onboarding_set_hotkey(hotkey)
+                resp["type"] = "ack" if "error" not in result else "error"
+                resp["data"] = result
+            except Exception as e:
+                log.error("[IPC] onboarding_set_hotkey failed: %s", e)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
+        elif cmd == "onboarding_set_model":
+            try:
+                model = (data or {}).get("model", "small.en") if isinstance(data, dict) else "small.en"
+                result = self.service.onboarding_set_model(model)
+                resp["type"] = "ack" if "error" not in result else "error"
+                resp["data"] = result
+            except Exception as e:
+                log.error("[IPC] onboarding_set_model failed: %s", e)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
+        elif cmd == "onboarding_skip":
+            try:
+                result = self.service.onboarding_skip()
+                resp["type"] = "ack" if "error" not in result else "error"
+                resp["data"] = result
+            except Exception as e:
+                log.error("[IPC] onboarding_skip failed: %s", e)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
+        elif cmd == "onboarding_apply":
+            try:
+                result = self.service.onboarding_apply()
+                resp["type"] = "ack" if "error" not in result else "error"
+                resp["data"] = result
+            except Exception as e:
+                log.error("[IPC] onboarding_apply failed: %s", e)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
+        elif cmd == "onboarding_get_microphones":
+            try:
+                result = self.service.onboarding_get_microphones()
+                resp["type"] = "onboarding_microphones"
+                resp["data"] = result
+            except Exception as e:
+                log.error("[IPC] onboarding_get_microphones failed: %s", e)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
+        elif cmd == "onboarding_get_model_options":
+            try:
+                result = self.service.onboarding_get_model_options()
+                resp["type"] = "onboarding_models"
+                resp["data"] = result
+            except Exception as e:
+                log.error("[IPC] onboarding_get_model_options failed: %s", e)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
+        elif cmd == "onboarding_get_hotkey_presets":
+            try:
+                result = self.service.onboarding_get_hotkey_presets()
+                resp["type"] = "onboarding_hotkey_presets"
+                resp["data"] = result
+            except Exception as e:
+                log.error("[IPC] onboarding_get_hotkey_presets failed: %s", e)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
+        # ── UX-005: Download model IPC route ─────────────────────────
+        elif cmd == "download_model":
+            try:
+                model_name = (data or {}).get("model", "") if isinstance(data, dict) else ""
+                if not model_name:
+                    resp["type"] = "error"
+                    resp["data"] = {"message": "Missing 'model' parameter"}
+                else:
+                    result = self.service.download_model(model_name)
+                    resp["type"] = "download_model_result"
+                    resp["data"] = result
+            except Exception as e:
+                log.error("[IPC] download_model failed: %s", e)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+                
         else:
             resp["type"] = "error"
             resp["data"] = {"message": f"Unknown command: {cmd}"}

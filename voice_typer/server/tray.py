@@ -288,33 +288,16 @@ class TrayIcon:
     def _build_models_submenu(self) -> list:
         """Build a list of model MenuItems — only cached models + More models link.
 
-        Data gathering is delegated to tray_models.build_models_submenu_data().
-        UI glue (pystray MenuItem construction) remains here because it
-        depends on the pystray API and the _wrap() helper.
+        #13: Fully delegates to tray_models.build_models_menu_items().
         """
         from voice_typer.server.config import _config_dir
-
-        items = []
-        for name, downloaded, is_active, change_fn in build_models_submenu_data(
-            _config_dir, self._controller.change_model
-        ):
-            if not downloaded:
-                continue
-            items.append(
-                pystray.MenuItem(
-                    f"{'• ' if is_active else '  '}{name}",
-                    self._wrap(change_fn),
-                )
-            )
-
-        items.append(pystray.Menu.SEPARATOR)
-        items.append(
-            pystray.MenuItem(
-                "More models...",
-                self._wrap(self.open_electron_window),
-            )
+        from voice_typer.server.tray_models import build_models_menu_items
+        return build_models_menu_items(
+            _config_dir,
+            self._controller.change_model,
+            self._wrap,
+            self.open_electron_window,
         )
-        return items
 
     def _display_hotkey(self) -> str:
         """Return the configured hotkey in a user-facing form.
@@ -352,5 +335,3 @@ class TrayIcon:
                          getattr(fn, "__name__", "<lambda>"), _se.code)
                 raise
         return wrapper
-
-

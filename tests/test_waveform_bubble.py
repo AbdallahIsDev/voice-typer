@@ -4,6 +4,7 @@ import threading
 import time
 from unittest.mock import MagicMock
 
+import numpy as np
 import pytest
 
 
@@ -372,3 +373,74 @@ class TestAppMainWiresIpcHook:
             )
         finally:
             ipc_server._set_push_event(None)
+
+
+# ── T021: Silero VAD integration tests ──────────────────────────────
+
+
+class TestVADModule:
+    """Test the VAD wrapper module (voice_typer.server.vad)."""
+
+    def test_is_available_returns_bool(self):
+        """is_available() should return True or False, not raise."""
+        from voice_typer.server.vad import is_available
+        result = is_available()
+        assert isinstance(result, bool)
+
+    def test_compute_vad_prob_without_torch(self, monkeypatch):
+        """When torch is not available, compute_vad_prob returns None."""
+        from voice_typer.server import vad
+        monkeypatch.setitem(__import__("sys").modules, "torch", None)
+        vad.reset()
+        result = vad.compute_vad_prob(np.zeros(16000, dtype=np.float32))
+        assert result is None
+
+    def test_is_speech_fallback_rms(self, monkeypatch):
+        """Without VAD, is_speech falls back to RMS energy check."""
+        from voice_typer.server import vad
+        vad.reset()
+        # Silence
+        assert vad.is_speech(np.zeros(16000, dtype=np.float32)) is False
+        # Loud audio
+        assert vad.is_speech(np.full(16000, 0.1, dtype=np.float32)) is True
+
+    def test_is_speech_empty_audio(self):
+        """Empty audio chunk should return False."""
+        from voice_typer.server.vad import is_speech
+        assert is_speech(np.array([], dtype=np.float32)) is False
+
+    def test_reset_clears_model(self):
+        """reset() should clear the cached model."""
+        from voice_typer.server import vad
+        vad.reset()
+        assert vad._model is None
+        assert vad._utils is None
+
+
+class TestWaveformVADGate:
+    """Test that WaveformBubble.update_level gates on VAD."""
+
+    def test_update_level_without_audio_chunk(self, bubble):
+        """When no audio_chunk is passed, update_level works as before (RMS-only)."""
+        bubble.update_level(0.1, 0.2)
+        assert abs(bubble.rms_level - 0.045) < 0.01  # smoothed
+        assert bubble.is_speaking is True  # 0.045 > 0.01 threshold
+
+    def test_update_level_with_silent_audio_chunk(self, bubble, monkeypatch):
+        """With a silent audio chunk, VAD gates the visualizer (decays)."""
+        from voice_typer.server import vad
+        # Force VAD to report non-speech
+        monkeypatch.setattr(vad, "is_speech", lambda chunk, sr=16000: False)
+        bubble.update_level(0.15, 0.3, audio_chunk=np.zeros(16000, dtype=np.float32))
+        # Level should decay, not increase
+        assert bubble.rms_level < 0.15
+        assert bubble.is_speaking is False
+
+    def test_update_level_with_speech_audio_chunk(self, bubble, monkeypatch):
+        """With speech audio chunk, VAD allows the normal update path."""
+        from voice_typer.server import vad
+        # Force VAD to report speech
+        monkeypatch.setattr(vad, "is_speech", lambda chunk, sr=16000: True)
+        bubble.update_level(0.15, 0.3, audio_chunk=np.full(16000, 0.1, dtype=np.float32))
+        assert bubble.rms_level > 0
+        assert bubble.is_speaking is True

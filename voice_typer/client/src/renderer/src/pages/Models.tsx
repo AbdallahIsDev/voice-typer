@@ -160,14 +160,22 @@ export default function ModelsPage() {
   }
 
   const downloadModel = async (model: ModelInfo) => {
-    // DEAD-021-025: previously this was a fake setTimeout loop that
-    // pretended to download.  We now show an honest "not implemented"
-    // message instead of misleading the user into thinking the model
-    // was downloaded.  The real download flow is tracked as UX-005.
-    showSnack(
-      `Model download is not yet implemented. Use 'voice-typer setup' from the terminal to download ${model.name}.`,
-      'warning',
-    )
+    // UX-005: Real download via IPC — calls download_model route which
+    // loads the model into the HF cache (triggers HuggingFace download).
+    setIsDownloading(true)
+    try {
+      const result = await call<{ success: boolean; error?: string; message?: string }>('download_model', { model: model.name })
+      if (result.success) {
+        setModels((prev) => prev.map((m) => m.name === model.name ? { ...m, downloaded: true } : m))
+        showSnack(result.message || `${model.name} downloaded successfully`, 'success')
+      } else {
+        showSnack(result.error || `Failed to download ${model.name}`, 'error')
+      }
+    } catch (err) {
+      showSnack(`Download failed: ${err}`, 'error')
+    } finally {
+      setIsDownloading(false)
+    }
   }
 
   // #7: ConfirmDialog — ask before deleting a model
@@ -246,6 +254,7 @@ export default function ModelsPage() {
           disabled={isDownloading || allDownloaded}
           title={allDownloaded ? 'All models already downloaded' : 'Download a model'}
           className="gap-2"
+          aria-label={allDownloaded ? 'All models downloaded' : 'Download model'}
         >
           <HugeiconsIcon icon={Download01Icon} strokeWidth={1.625} className="h-4 w-4" />
           {allDownloaded ? 'All Downloaded' : 'Download Model'}
@@ -300,6 +309,7 @@ export default function ModelsPage() {
                       className="gap-1"
                       onClick={() => downloadModel(model)}
                       disabled={isDownloading}
+                      aria-label={`Install dependencies for ${model.name}`}
                     >
                       <HugeiconsIcon icon={Download01Icon} strokeWidth={1.625} className="h-4 w-4" />
                       Install Deps
@@ -311,6 +321,7 @@ export default function ModelsPage() {
                       className="gap-1"
                       onClick={() => useModel(model)}
                       disabled={model.isActive || (!model.downloaded && !model.alwaysAvailable)}
+                      aria-label={model.isActive ? `Active: ${model.name}` : `Use ${model.name}`}
                     >
                       <HugeiconsIcon
                         icon={model.isActive ? Tick02Icon : PlayIcon}
@@ -326,6 +337,8 @@ export default function ModelsPage() {
                     onClick={() => requestDeleteModel(model)}
                     disabled={model.isActive}
                     className="text-(--text-muted) hover:text-destructive"
+                    aria-label={`Delete ${model.name}`}
+                    title={`Delete ${model.name}`}
                   >
                     <HugeiconsIcon icon={Delete01Icon} strokeWidth={1.625} className="h-4 w-4" />
                   </Button>
@@ -373,6 +386,7 @@ export default function ModelsPage() {
                     }
                     placeholder="Enter your API key"
                     className="w-full max-w-md"
+                    aria-label={`API key for ${provider.label}`}
                   />
                 </div>
 
@@ -381,6 +395,7 @@ export default function ModelsPage() {
                     variant="default"
                     size="sm"
                     onClick={() => saveApiKey(provider.key)}
+                    aria-label={`Save ${provider.label} API key`}
                   >
                     Save Key
                   </Button>
@@ -389,6 +404,7 @@ export default function ModelsPage() {
                     size="sm"
                     className="gap-2"
                     onClick={() => testConnection(provider.key)}
+                    aria-label={`Test ${provider.label} connection`}
                   >
                     <HugeiconsIcon icon={SparklesIcon} strokeWidth={1.625} className="h-4 w-4" />
                     Test Connection
@@ -426,6 +442,7 @@ export default function ModelsPage() {
             className="gap-2"
             onClick={runBenchmark}
             disabled={isBenchmarking}
+            aria-label="Run model benchmark"
           >
             <HugeiconsIcon icon={ZapIcon} strokeWidth={1.625} className="h-4 w-4" />
             {isBenchmarking ? 'Running...' : 'Run Benchmark'}

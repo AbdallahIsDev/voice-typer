@@ -292,6 +292,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
             <Switch
               checked={config.autostart}
               onCheckedChange={(checked) => updateConfig({ autostart: checked })}
+              aria-label="Launch at Login"
             />
           </SettingRow>
 
@@ -302,6 +303,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
             <Switch
               checked={config.fast_startup ?? true}
               onCheckedChange={(checked) => updateConfig({ fast_startup: checked })}
+              aria-label="Fast Startup"
             />
           </SettingRow>
 
@@ -309,6 +311,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
             <Switch
               checked={config.show_notifications}
               onCheckedChange={(checked) => updateConfig({ show_notifications: checked })}
+              aria-label="Notifications"
             />
           </SettingRow>
 
@@ -324,7 +327,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
               value={config.tray_left_click_action ?? 'open_app'}
               onValueChange={(v) => updateConfig({ tray_left_click_action: v as 'open_app' | 'toggle_dictation' })}
             >
-              <SelectTrigger className="w-40">
+              <SelectTrigger className="w-40" aria-label="Tray Click">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -351,7 +354,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
                 updateConfig({ bubble_behavior: v as 'show_on_record' | 'always_visible' })
               }}
             >
-              <SelectTrigger className="w-40">
+              <SelectTrigger className="w-40" aria-label="Bubble Behavior">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -373,7 +376,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
                 ;(window as any).bubble?.setPosition?.(v)
               }}
             >
-              <SelectTrigger className="w-40">
+              <SelectTrigger className="w-40" aria-label="Bubble Position">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -396,6 +399,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
               <Switch
                 checked={config.bubble_show_on_startup ?? true}
                 onCheckedChange={(checked) => updateConfig({ bubble_show_on_startup: checked })}
+                aria-label="Show on App Startup"
               />
             </SettingRow>
           )}
@@ -408,6 +412,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
                 // Notify the main process immediately so the bubble responds.
                 ;(window as any).bubble?.setDraggable?.(checked)
               }}
+              aria-label="Drag to Move"
             />
           </SettingRow>
         </SettingsSection>
@@ -422,7 +427,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
               value={config.hotkey.replace(/[<>]/g, '')}
               onValueChange={(v) => updateConfig({ hotkey: `<${v}>` })}
             >
-              <SelectTrigger className="w-32">
+              <SelectTrigger className="w-32" aria-label="Dictation Key">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -449,7 +454,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
               value={config.recording_mode ?? 'toggle'}
               onValueChange={(v) => updateConfig({ recording_mode: v as 'toggle' | 'push_to_talk' })}
             >
-              <SelectTrigger className="w-40">
+              <SelectTrigger className="w-40" aria-label="Recording Mode">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -467,7 +472,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
               value={String(config.silence_auto_stop_seconds ?? 60)}
               onValueChange={(v) => updateConfig({ silence_auto_stop_seconds: Number(v) })}
             >
-              <SelectTrigger className="w-36">
+              <SelectTrigger className="w-36" aria-label="Auto-Stop">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -485,6 +490,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
             <Switch
               checked={config.esc_cancel_enabled ?? false}
               onCheckedChange={(checked) => updateConfig({ esc_cancel_enabled: checked })}
+              aria-label="ESC to Cancel"
             />
           </SettingRow>
 
@@ -492,6 +498,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
             <Switch
               checked={config.paste_on_stop}
               onCheckedChange={(checked) => updateConfig({ paste_on_stop: checked })}
+              aria-label="Auto-Paste"
             />
           </SettingRow>
 
@@ -501,6 +508,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
               value={config.repaste_hotkey ?? '<ctrl>+<alt>+v'}
               onChange={(e) => updateConfigDebounced('repaste_hotkey', e.target.value)}
               className="w-32 font-mono text-center"
+              aria-label="Re-Paste Key"
             />
           </SettingRow>
 
@@ -513,6 +521,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
                 value={String(config.silence_warning_seconds)}
                 onChange={(e) => updateConfigDebounced('silence_warning_seconds', Number(e.target.value))}
                 className="w-20 text-center"
+                aria-label="Silence Warning Seconds"
               />
               <span className="text-sm text-(--text-muted)">sec</span>
             </div>
@@ -527,6 +536,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
                 value={String(config.max_recording_seconds)}
                 onChange={(e) => updateConfigDebounced('max_recording_seconds', Number(e.target.value))}
                 className="w-20 text-center"
+                aria-label="Max Recording Duration"
               />
               <span className="text-sm text-(--text-muted)">sec</span>
             </div>
@@ -543,7 +553,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
               value={config.language || 'auto'}
               onValueChange={(v) => updateConfig({ language: v === 'auto' ? '' : v })}
             >
-              <SelectTrigger className="w-44">
+              <SelectTrigger className="w-44" aria-label="Language">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -565,6 +575,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
             <Switch
               checked={config.auto_punctuation ?? false}
               onCheckedChange={(checked) => updateConfig({ auto_punctuation: checked })}
+              aria-label="Auto Punctuation"
             />
           </SettingRow>
 
@@ -572,6 +583,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
             <Switch
               checked={config.text_cleanup_enabled}
               onCheckedChange={(checked) => updateConfig({ text_cleanup_enabled: checked })}
+              aria-label="Text Cleanup"
             />
           </SettingRow>
 
@@ -579,6 +591,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
             <Switch
               checked={config.templates_enabled ?? true}
               onCheckedChange={(checked) => updateConfig({ templates_enabled: checked })}
+              aria-label="Text Snippets"
             />
           </SettingRow>
 
@@ -586,6 +599,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
             <Switch
               checked={config.vocabulary_enabled ?? true}
               onCheckedChange={(checked) => updateConfig({ vocabulary_enabled: checked })}
+              aria-label="Vocabulary"
             />
           </SettingRow>
         </SettingsSection>
@@ -599,6 +613,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
             <Switch
               checked={config.llm_polish ?? false}
               onCheckedChange={(checked) => updateConfig({ llm_polish: checked })}
+              aria-label="LLM Polishing"
             />
           </SettingRow>
 
@@ -617,12 +632,14 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
                     onChange={(e) => updateConfigDebounced('llm_api_key', e.target.value)}
                     placeholder={config.llm_api_key === '<redacted>' ? '•••••••• (configured)' : ''}
                     className="w-56 pr-8"
+                    aria-label="LLM API Key"
                   />
                   <Button
                     variant="ghost"
                     size="xs"
                     onClick={() => setLlmKeyVisible(!llmKeyVisible)}
                     className="absolute right-1 top-1/2 -translate-y-1/2 text-xs"
+                    aria-label={llmKeyVisible ? 'Hide API key' : 'Show API key'}
                   >
                     {llmKeyVisible ? 'Hide' : 'Show'}
                   </Button>
@@ -634,6 +651,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
                   value={config.llm_api_url ?? 'https://api.openai.com/v1/chat/completions'}
                   onChange={(e) => updateConfigDebounced('llm_api_url', e.target.value)}
                   className="w-64"
+                  aria-label="LLM API URL"
                 />
               </SettingRow>
 
@@ -642,6 +660,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
                   value={config.llm_model ?? 'gpt-4o-mini'}
                   onChange={(e) => updateConfigDebounced('llm_model', e.target.value)}
                   className="w-44"
+                  aria-label="LLM Model"
                 />
               </SettingRow>
 
@@ -650,7 +669,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
                   value={config.llm_preset ?? 'professional'}
                   onValueChange={(v) => updateConfig({ llm_preset: v })}
                 >
-                  <SelectTrigger className="w-40">
+                  <SelectTrigger className="w-40" aria-label="LLM Preset">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -675,6 +694,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
             <Switch
               checked={config.crash_recovery_enabled ?? true}
               onCheckedChange={(checked) => updateConfig({ crash_recovery_enabled: checked })}
+              aria-label="Crash Recovery"
             />
           </SettingRow>
         </SettingsSection>
@@ -702,6 +722,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
             <Switch
               checked={config.volume_duck_enabled ?? true}
               onCheckedChange={(checked) => updateConfig({ volume_duck_enabled: checked })}
+              aria-label="Auto Duck Volume"
             />
           </SettingRow>
           <SettingRow label="Duck Level"
@@ -713,6 +734,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
                 value={config.volume_duck_level ?? 0.25}
                 onChange={(e) => updateConfigDebounced('volume_duck_level', Number(e.target.value))}
                 className="w-24"
+                aria-label="Duck Level"
               />
               <span className="text-sm text-(--text-muted) w-10">
                 {Math.round((config.volume_duck_level ?? 0.25) * 100)}%
@@ -728,6 +750,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
                 value={config.volume_duck_fade_ms ?? 150}
                 onChange={(e) => updateConfigDebounced('volume_duck_fade_ms', Number(e.target.value))}
                 className="w-24"
+                aria-label="Duck Fade Duration"
               />
               <span className="text-sm text-(--text-muted) w-14">
                 {config.volume_duck_fade_ms ?? 150}ms
@@ -739,6 +762,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
             <Switch
               checked={config.volume_duck_smart ?? true}
               onCheckedChange={(checked) => updateConfig({ volume_duck_smart: checked })}
+              aria-label="Smart Duck"
             />
           </SettingRow>
           <SettingRow label="Smart Duck Poll Interval"
@@ -750,6 +774,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
                 value={config.volume_duck_smart_poll_interval_ms ?? 500}
                 onChange={(e) => updateConfigDebounced('volume_duck_smart_poll_interval_ms', Number(e.target.value))}
                 className="w-24"
+                aria-label="Smart Duck Poll Interval"
               />
               <span className="text-sm text-(--text-muted) w-16">
                 {config.volume_duck_smart_poll_interval_ms ?? 500}ms
@@ -762,6 +787,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
               checked={config.volume_duck_per_session ?? false}
               disabled={!volumeBackend?.is_windows || !volumeBackend?.supports_per_session}
               onCheckedChange={(checked) => updateConfig({ volume_duck_per_session: checked })}
+              aria-label="Per-Session Duck"
             />
           </SettingRow>
 
@@ -771,6 +797,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
             <Switch
               checked={config.noise_filter_enabled ?? true}
               onCheckedChange={(checked) => updateConfig({ noise_filter_enabled: checked })}
+              aria-label="Noise Filter"
             />
           </SettingRow>
           <SettingRow label="High-Pass Filter"
@@ -778,6 +805,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
             <Switch
               checked={config.noise_filter_highpass ?? true}
               onCheckedChange={(checked) => updateConfig({ noise_filter_highpass: checked })}
+              aria-label="High-Pass Filter"
             />
           </SettingRow>
           <SettingRow label="High-Pass Cutoff"
@@ -789,6 +817,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
                 value={config.noise_filter_highpass_cutoff_hz ?? 80}
                 onChange={(e) => updateConfigDebounced('noise_filter_highpass_cutoff_hz', Number(e.target.value))}
                 className="w-24"
+                aria-label="High-Pass Cutoff"
               />
               <span className="text-sm text-(--text-muted) w-14">
                 {config.noise_filter_highpass_cutoff_hz ?? 80}Hz
@@ -800,6 +829,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
             <Switch
               checked={config.noise_filter_gate ?? true}
               onCheckedChange={(checked) => updateConfig({ noise_filter_gate: checked })}
+              aria-label="Noise Gate"
             />
           </SettingRow>
           <SettingRow label="Noise Gate Threshold"
@@ -811,6 +841,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
                 value={config.noise_filter_gate_threshold ?? 0.015}
                 onChange={(e) => updateConfigDebounced('noise_filter_gate_threshold', Number(e.target.value))}
                 className="w-24"
+                aria-label="Noise Gate Threshold"
               />
               <span className="text-sm text-(--text-muted) w-14 tabular-nums">
                 {(config.noise_filter_gate_threshold ?? 0.015).toFixed(3)}
@@ -822,6 +853,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
             <Switch
               checked={config.noise_filter_rnnoise ?? false}
               onCheckedChange={(checked) => updateConfig({ noise_filter_rnnoise: checked })}
+              aria-label="RNNoise"
             />
           </SettingRow>
           <SettingRow label="Post-Capture Cleanup"
@@ -829,6 +861,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
             <Switch
               checked={config.noise_filter_post_capture ?? true}
               onCheckedChange={(checked) => updateConfig({ noise_filter_post_capture: checked })}
+              aria-label="Post-Capture Cleanup"
             />
           </SettingRow>
 
@@ -845,6 +878,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
               variant="outline"
               className="gap-2"
               onClick={viewLogs}
+              aria-label="View Logs"
             >
               <HugeiconsIcon icon={File02Icon} strokeWidth={1.625} className="h-4 w-4" />
               View Logs
@@ -853,6 +887,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
               variant="destructive"
               className="gap-2"
               onClick={() => setShowResetDialog(true)}
+              aria-label="Reset to Defaults"
             >
               <HugeiconsIcon icon={RefreshIcon} strokeWidth={1.625} className="h-4 w-4" />
               Reset to Defaults
@@ -895,10 +930,10 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
               This cannot be undone.
             </p>
             <div className="flex justify-end gap-3">
-              <Button variant="ghost" onClick={() => setShowResetDialog(false)}>
+              <Button variant="ghost" onClick={() => setShowResetDialog(false)} aria-label="Cancel reset">
                 Cancel
               </Button>
-              <Button variant="destructive" onClick={resetToDefaults} autoFocus>
+              <Button variant="destructive" onClick={resetToDefaults} autoFocus aria-label="Confirm reset to defaults">
                 Reset to Defaults
               </Button>
             </div>

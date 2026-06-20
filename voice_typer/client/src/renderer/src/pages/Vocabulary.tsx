@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { usePython } from '@/hooks/usePython'
 import { useSnackbar } from '@/hooks/useSnackbar'
 import { HugeiconsIcon } from '@hugeicons/react'
@@ -93,6 +93,30 @@ export default function VocabularyPage() {
 
   // #7: ConfirmDialog state for entry deletion
   const [deleteEntryTarget, setDeleteEntryTarget] = useState<VocabularyEntry | null>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+
+  const handleDialogKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      setShowDialog(false)
+      return
+    }
+    if (e.key !== 'Tab') return
+    const dialog = dialogRef.current
+    if (!dialog) return
+    const focusable = dialog.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    )
+    if (focusable.length === 0) return
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault()
+      last.focus()
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault()
+      first.focus()
+    }
+  }, [setShowDialog])
 
   const doExport = useCallback(async (format: 'json' | 'csv') => {
     try {
@@ -348,13 +372,18 @@ export default function VocabularyPage() {
           onClick={() => setShowDialog(false)}
         >
           <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="vocabulary-dialog-title"
             className={cn(
               'animate-scale-in w-105 rounded-xl border border-border',
               'bg-(--bg) p-6',
             )}
             onClick={(e) => e.stopPropagation()}
+            onKeyDown={handleDialogKeyDown}
           >
-            <h2 className="mb-5 text-lg font-semibold text-(--text-primary)">
+            <h2 id="vocabulary-dialog-title" className="mb-5 text-lg font-semibold text-(--text-primary)">
               {editingEntry ? 'Edit Vocabulary Entry' : 'Add Vocabulary Entry'}
             </h2>
 

@@ -71,3 +71,54 @@ def build_models_submenu_data(config_dir_fn, controller_change_model_fn) -> list
         results.append((name, downloaded, is_active, lambda n=name: controller_change_model_fn(n)))
 
     return results
+
+def build_models_menu_items(
+    config_dir_fn,
+    controller_change_model_fn,
+    wrap_fn,
+    open_electron_window_fn,
+    menu_item_class=None,
+    menu_separator=None,
+):
+    """#13: Build the full list of pystray MenuItems for the Models submenu.
+
+    Fully extracts the pystray UI glue from TrayIcon._build_models_submenu.
+    Accepts pystray.MenuItem and pystray.Menu.SEPARATOR as parameters so
+    the module doesn't import pystray at module level (testable without it).
+
+    Parameters:
+        config_dir_fn: callable returning the config directory Path
+        controller_change_model_fn: callable(name) to change the active model
+        wrap_fn: callable wrapping a function for pystray's callback pattern
+        open_electron_window_fn: callable to open the Electron app
+        menu_item_class: pystray.MenuItem class (default: pystray.MenuItem)
+        menu_separator: pystray.Menu.SEPARATOR (default: pystray.Menu.SEPARATOR)
+    """
+    if menu_item_class is None:
+        import pystray
+        menu_item_class = pystray.MenuItem
+    if menu_separator is None:
+        import pystray
+        menu_separator = pystray.Menu.SEPARATOR
+
+    items = []
+    for name, downloaded, is_active, change_fn in build_models_submenu_data(
+        config_dir_fn, controller_change_model_fn
+    ):
+        if not downloaded:
+            continue
+        items.append(
+            menu_item_class(
+                f"{'• ' if is_active else '  '}{name}",
+                wrap_fn(change_fn),
+            )
+        )
+
+    items.append(menu_separator)
+    items.append(
+        menu_item_class(
+            "More models...",
+            wrap_fn(open_electron_window_fn),
+        )
+    )
+    return items

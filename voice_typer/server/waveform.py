@@ -104,14 +104,41 @@ class WaveformBubble:
 
     # ── Live level updates (called from the audio callback thread) ──
 
-    def update_level(self, rms: float, peak: float = 0.0) -> None:
+    def update_level(self, rms: float, peak: float = 0.0, audio_chunk=None) -> None:
         """Push a new RMS/peak sample to subscribers.
 
         The ``rms`` value is typically in ``[0, ~0.3]`` for speech and
         ``0.0`` for silence.  ``peak`` is the per-chunk absolute max in
         ``[0, 1.0]`` and is used by the renderer to spike the waveform
         on transients.
+
+        T021: If an audio_chunk is provided, runs Silero VAD to gate
+        the visualizer — only updates when speech is detected.  When
+        VAD indicates non-speech, the level decays smoothly.
         """
+        # T021: VAD gate — only update visualizer if speech is detected
+        if audio_chunk is not None:
+            try:
+                from voice_typer.server.vad import is_speech
+                if not is_speech(audio_chunk):
+                    # Non-speech: decay the level smoothly instead of
+                    # letting ambient noise animate the visualizer
+                    with self._lock:
+                        self._rms_level *= 0.85
+                        self._peak_level *= 0.8
+                        self._is_speaking = False
+                        cb = self.on_level
+                        rms_out = self._rms_level
+                        peak_out = self._peak_level
+                    if cb is not None:
+                        try:
+                            cb(rms_out, peak_out)
+                        except Exception:
+                            pass
+                    return
+            except ImportError:
+                pass  # VAD not available, fall through to RMS-only path
+
         with self._lock:
             # Cheap low-pass smoothing so the bubble doesn't jitter
             # chunk-to-chunk; the visualizer still reacts quickly to
