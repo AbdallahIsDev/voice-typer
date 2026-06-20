@@ -173,7 +173,10 @@ def _register_prewarm_registry(command: str) -> bool:
     """
     if sys.platform != "win32":
         return False
-    import winreg
+    try:
+        import winreg
+    except ImportError:
+        return False  # not Windows (e.g. test host with patched sys.platform)
     try:
         key = winreg.OpenKey(
             winreg.HKEY_CURRENT_USER, _RUN_KEY, 0, winreg.KEY_SET_VALUE,
@@ -196,7 +199,10 @@ def _unregister_prewarm_registry() -> bool:
     """
     if sys.platform != "win32":
         return False
-    import winreg
+    try:
+        import winreg
+    except ImportError:
+        return False  # not Windows
     try:
         key = winreg.OpenKey(
             winreg.HKEY_CURRENT_USER, _RUN_KEY, 0, winreg.KEY_SET_VALUE,
@@ -218,7 +224,10 @@ def _is_prewarm_registered_registry() -> bool:
     """Return True if the HKCU Run key has the prewarm value."""
     if sys.platform != "win32":
         return False
-    import winreg
+    try:
+        import winreg
+    except ImportError:
+        return False  # not Windows
     try:
         key = winreg.OpenKey(
             winreg.HKEY_CURRENT_USER, _RUN_KEY, 0, winreg.KEY_READ,
@@ -356,17 +365,33 @@ def _schtasks(args: list[str], *, capture: bool = True) -> tuple[int, str]:
 # ─── Public API ──────────────────────────────────────────────────────────
 
 def is_supported() -> bool:
-    """Return True if Scheduled Task registration is supported here."""
-    return sys.platform == "win32" and Path(
-        os.environ.get("SystemRoot", r"C:\Windows") + r"\System32\schtasks.exe"
-    ).exists()
+    """Return True if prewarm scheduling is supported on this platform.
+
+    STARTUP-5: previously Windows-only. Now also returns True on macOS
+    and Linux (via prewarm_scheduler_posix). The actual scheduling layer
+    differs by platform (Task Scheduler / LaunchAgent / systemd user timer).
+    """
+    if sys.platform == "win32":
+        return Path(
+            os.environ.get("SystemRoot", r"C:\Windows") + r"\System32\schtasks.exe"
+        ).exists()
+    # STARTUP-5: POSIX platforms use prewarm_scheduler_posix.
+    return sys.platform in ("darwin",) or sys.platform.startswith("linux")
 
 
 def is_prewarm_registered() -> bool:
     """Return True if prewarm is registered via EITHER mechanism.
 
     The Task Scheduler task is preferred; the HKCU Run key is the fallback.
+    On POSIX, delegates to prewarm_scheduler_posix.
     """
+    # STARTUP-5: delegate to POSIX scheduler on macOS/Linux.
+    if sys.platform != "win32":
+        try:
+            from voice_typer.server.prewarm_scheduler_posix import is_prewarm_registered as _posix_is
+            return _posix_is()
+        except Exception:
+            return False
     if not is_supported():
         return False
     rc, _ = _schtasks(["/Query", "/TN", TASK_NAME, "/XML"])
@@ -374,11 +399,22 @@ def is_prewarm_registered() -> bool:
 
 
 def register_prewarm_task() -> bool:
-    """Register (or update) the VoiceTyperPrewarm scheduled task.
+    """Register (or update) the prewarm task.
 
     Returns True on success, False on failure.  Safe to call repeatedly —
     existing tasks are overwritten with ``/F``.
+
+    STARTUP-5: on macOS/Linux, delegates to prewarm_scheduler_posix which
+    registers a LaunchAgent (macOS) or systemd user timer (Linux).
     """
+    # STARTUP-5: delegate to POSIX scheduler on macOS/Linux.
+    if sys.platform != "win32":
+        try:
+            from voice_typer.server.prewarm_scheduler_posix import register_prewarm_task as _posix_reg
+            return _posix_reg()
+        except Exception as e:
+            log.warning("[TASK] POSIX prewarm registration raised: %s", e)
+            return False
     if not is_supported():
         log.info("[TASK] Scheduled Tasks not supported on this platform — skipping")
         return False
@@ -454,7 +490,17 @@ def unregister_prewarm_task() -> bool:
     always clean up both mechanisms: a standard user may not be able to
     delete a locked Task Scheduler task, but the Run key is always
     user-writable, so disabling fast_startup reliably stops the prewarm.
+
+    STARTUP-5: on macOS/Linux, delegates to prewarm_scheduler_posix.
     """
+    # STARTUP-5: delegate to POSIX scheduler on macOS/Linux.
+    if sys.platform != "win32":
+        try:
+            from voice_typer.server.prewarm_scheduler_posix import unregister_prewarm_task as _posix_unreg
+            return _posix_unreg()
+        except Exception as e:
+            log.warning("[TASK] POSIX prewarm removal raised: %s", e)
+            return False
     if not is_supported():
         return False
 

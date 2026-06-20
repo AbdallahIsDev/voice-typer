@@ -454,13 +454,15 @@ class TestSettingsWindowIntegration:
     def test_restart_hotkey_stops_existing_backend_and_registers_new_one(self, app):
         old_backend = MagicMock()
         app._hotkey_backend = old_backend
-        app._register_hotkey = MagicMock()
+        # #2 (Round 9): _register_hotkey now delegates to HotkeyDispatcher.register().
+        # Monkeypatch the dispatcher method directly.
+        app.hotkeys.register = MagicMock()
 
         app._restart_hotkey("<f3>")
 
         assert app.config.hotkey == "<f3>"
         old_backend.stop.assert_called_once()
-        app._register_hotkey.assert_called_once()
+        app.hotkeys.register.assert_called_once()
 
     def test_restart_app_forwards_port_argument(self, app, monkeypatch):
         """restart_app() must forward --port to the new process so the
@@ -773,7 +775,9 @@ class TestHotkeyMapping:
     def test_unregister_esc_hotkey_stops_and_clears_backend(self, app, monkeypatch):
         """_unregister_esc_hotkey should stop the backend and set it to None."""
         mock_backend = MagicMock()
-        monkeypatch.setattr("voice_typer.server.app.create_hotkey_backend", MagicMock(return_value=mock_backend))
+        # #2 (Round 9): create_hotkey_backend is now imported in
+        # hotkey_dispatcher, so monkeypatch it there.
+        monkeypatch.setattr("voice_typer.server.hotkey_dispatcher.create_hotkey_backend", MagicMock(return_value=mock_backend))
 
         app._register_esc_hotkey()
         assert app._esc_backend is mock_backend
@@ -792,7 +796,9 @@ class TestHotkeyMapping:
         """If ESC hotkey registration fails, app should not crash."""
         def failing_create(*args):
             raise RuntimeError("no display")
-        monkeypatch.setattr("voice_typer.server.app.create_hotkey_backend", failing_create)
+        # #2 (Round 9): create_hotkey_backend is now imported in
+        # hotkey_dispatcher, so monkeypatch it there.
+        monkeypatch.setattr("voice_typer.server.hotkey_dispatcher.create_hotkey_backend", failing_create)
         # Should not raise even though create_hotkey_backend raises
         app._register_esc_hotkey()
         assert app._esc_backend is None
@@ -1345,7 +1351,9 @@ class TestStreamingIntegration:
 
         session = MagicMock()
         session_cls = MagicMock(return_value=session)
-        monkeypatch.setattr("voice_typer.server.app.StreamingTranscriptionSession", session_cls, raising=False)
+        # #2 (Round 9): streaming session now lives in RecordingController,
+        # so monkeypatch the module where it's actually imported.
+        monkeypatch.setattr("voice_typer.server.recording_controller.StreamingTranscriptionSession", session_cls, raising=False)
 
         app._start_dictation()
 

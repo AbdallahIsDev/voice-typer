@@ -168,8 +168,36 @@ def _lower_io_priority() -> None:
     CPU, I/O, and memory scheduling priorities atomically.  Falls back to
     ``BELOW_NORMAL_PRIORITY_CLASS`` if background mode is unavailable
     (e.g. the process is already background, or an older Windows build).
+
+    STARTUP-5: on POSIX, lowers CPU priority via os.nice() and I/O priority
+    via ionice (Linux only). Best-effort — silently no-ops if the calls
+    fail (e.g. insufficient permissions).
     """
     if sys.platform != "win32":
+        # STARTUP-5: POSIX priority lowering.
+        try:
+            # Lower CPU priority (POSIX nice). +10 = below normal.
+            os.nice(10)
+            log.debug("[PREWARM] POSIX: lowered CPU priority via os.nice(10)")
+        except (OSError, PermissionError) as e:
+            log.debug("[PREWARM] POSIX: os.nice failed: %s", e)
+        # On Linux, also try to lower I/O priority to "idle" (class 3).
+        # This requires the ionice syscall; available on Linux 2.6.13+.
+        if sys.platform.startswith("linux"):
+            try:
+                import ctypes
+                libc = ctypes.CDLL("libc.so.6", use_errno=True)
+                # IOPRIO_WHO_PROCESS=1, IOPRIO_CLASS_IDLE=3, IOPRIO_PRIO_VALUE(class, level) = (class << 13) | level
+                # ioprio_set(which, who, ioprio) syscall number varies; use
+                # the libc wrapper if available, else skip.
+                if hasattr(libc, "ioprio_set"):
+                    IOPRIO_WHO_PROCESS = 1
+                    IOPRIO_CLASS_IDLE = 3
+                    ioprio = (IOPRIO_CLASS_IDLE << 13) | 0
+                    libc.ioprio_set(IOPRIO_WHO_PROCESS, 0, ioprio)
+                    log.debug("[PREWARM] Linux: set I/O priority to idle")
+            except Exception as e:
+                log.debug("[PREWARM] Linux: ioprio_set failed: %s", e)
         return
     try:
         import ctypes
@@ -212,20 +240,52 @@ def _warm_imports() -> None:
 
     Uses the same import path as ``parakeet_engine.ParakeetEngine._ensure_imports``
     so we warm exactly the bytes that will be needed.
+
+    STARTUP-3: filter the import path by active backend. Previously this
+    unconditionally imported torch + transformers (which takes ~30-60 s
+    cold, ~400 s when contended). Whisper users don't need transformers —
+    they only need faster_whisper (ctranslate2, ~3 s cold). Parakeet/Qwen
+    users still need the full torch + transformers stack.
     """
-    t0 = time.perf_counter()
-    import torch  # noqa: F401  — import is the side effect we want
-    elapsed = time.perf_counter() - t0
-    log.info("[PREWARM] import torch: %.2fs", elapsed)
+    # STARTUP-3: determine which imports are needed based on the active
+    # backend. Whisper → only faster_whisper; parakeet/qwen → full stack.
+    active_backend = "whisper"  # default
+    try:
+        from voice_typer.server.config import Config
+        cfg = Config.load()
+        active_backend = getattr(cfg, "asr_backend", "whisper")
+    except Exception:
+        pass
 
-    t0 = time.perf_counter()
-    from transformers import AutoModelForTDT, AutoProcessor  # noqa: F401
-    elapsed = time.perf_counter() - t0
-    log.info("[PREWARM] import transformers (AutoModelForTDT, AutoProcessor): %.2fs", elapsed)
+    needs_full_stack = active_backend in ("parakeet", "qwen")
 
-    # Also touch the faster-whisper path used by the Whisper fallback —
-    # cheap (ctranslate2 is much smaller than torch) and ensures the
-    # CPU-fallback branch is warm too.
+    if needs_full_stack:
+        # Parakeet / Qwen both use the HuggingFace transformers stack,
+        # so we need torch + transformers (the heavy imports).
+        t0 = time.perf_counter()
+        import torch  # noqa: F401  — import is the side effect we want
+        elapsed = time.perf_counter() - t0
+        log.info("[PREWARM] import torch: %.2fs", elapsed)
+
+        t0 = time.perf_counter()
+        from transformers import AutoModelForTDT, AutoProcessor  # noqa: F401
+        elapsed = time.perf_counter() - t0
+        log.info("[PREWARM] import transformers (AutoModelForTDT, AutoProcessor): %.2fs", elapsed)
+    else:
+        # STARTUP-3: whisper backend — skip torch/transformers (~400 s saved).
+        # Whisper uses faster_whisper (ctranslate2) which has no torch
+        # dependency. We still import faster_whisper below to warm the
+        # CPU-fallback path; the whisper fallback (tiny.en) is what
+        # AsrBackendRegistry.load_with_fallback() falls back to.
+        log.info(
+            "[PREWARM] active backend=%s — skipping torch/transformers import "
+            "(whisper only needs faster_whisper)",
+            active_backend,
+        )
+
+    # Always touch the faster-whisper path. Cheap (ctranslate2 is much
+    # smaller than torch) and ensures the whisper fallback branch is warm
+    # for both whisper users (primary) and parakeet/qwen users (fallback).
     try:
         t0 = time.perf_counter()
         import faster_whisper  # noqa: F401

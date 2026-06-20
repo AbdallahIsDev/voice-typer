@@ -217,40 +217,240 @@ def is_autostart_enabled() -> bool:
 
 # ─── Windows ───────────────────────────────────────────────────────────
 
+# STARTUP-7: Task Scheduler logon trigger fires earlier and more
+# predictably than HKCU Run keys (which are gated by Windows Explorer's
+# startup sequencing). We prefer the Task Scheduler path; HKCU Run key
+# remains as a fallback for the locked-task scenario.
+_APP_AUTOSTART_TASK_NAME = "VoiceTyperAutostart"
+
+
 def _enable_autostart_windows() -> bool:
-    import winreg
-    key = winreg.OpenKey(
-        winreg.HKEY_CURRENT_USER,
-        r"Software\Microsoft\Windows\CurrentVersion\Run",
-        0, winreg.KEY_SET_VALUE,
-    )
-    try:
-        cmd = _autostart_command()
-        winreg.SetValueEx(key, "VoiceTyper", 0, winreg.REG_SZ, cmd)
-    finally:
-        winreg.CloseKey(key)
-    log.info("[CONFIG] Autostart enabled (Windows): %s", cmd)
-    return True
+    """STARTUP-7: register app autostart via Task Scheduler (preferred)
+    or HKCU Run key (fallback). Task Scheduler logon triggers fire
+    earlier than Run keys, reducing the ~33 s pre-app delay.
+    """
+    # Try Task Scheduler first (earlier, more predictable timing).
+    if _register_app_autostart_task():
+        # Clean up any stale Run-key entry from a previous install.
+        _unregister_app_autostart_runkey()
+        return True
+    # Fall back to HKCU Run key if Task Scheduler is unavailable/locked.
+    log.warning("[CONFIG] Task Scheduler autostart failed; falling back to HKCU Run key")
+    return _register_app_autostart_runkey()
 
 
 def _disable_autostart_windows() -> bool:
-    import winreg
-    key = winreg.OpenKey(
-        winreg.HKEY_CURRENT_USER,
-        r"Software\Microsoft\Windows\CurrentVersion\Run",
-        0, winreg.KEY_SET_VALUE,
-    )
-    try:
-        winreg.DeleteValue(key, "VoiceTyper")
-    except FileNotFoundError:
-        pass
-    winreg.CloseKey(key)
-    log.info("[CONFIG] Autostart disabled (Windows)")
-    return True
+    """STARTUP-7: remove app autostart from BOTH Task Scheduler and Run key."""
+    removed_task = _unregister_app_autostart_task()
+    removed_reg = _unregister_app_autostart_runkey()
+    return removed_task or removed_reg
 
 
 def _is_autostart_windows() -> bool:
-    import winreg
+    """STARTUP-7: True if autostart is registered via EITHER mechanism."""
+    return _is_app_autostart_task_registered() or _is_app_autostart_runkey_registered()
+
+
+# ── Task Scheduler autostart (preferred) ──────────────────────────────
+
+
+def _app_autostart_command_and_args() -> tuple[str, str]:
+    """Return (pythonw_path, arguments) for the app autostart task.
+
+    STARTUP-7: same launcher + --hidden + --delay 30 as the Run-key path,
+    but split into Command + Arguments for the Task Scheduler XML so we
+    avoid the cmd.exe wrapper (mirrors the prewarm task fix from Round 8).
+    """
+    launcher = Path(__file__).resolve().parent / "autostart_launcher.py"
+    pythonw = Path(sys.executable).parent / "pythonw.exe"
+    python_bin = str(pythonw) if pythonw.exists() else sys.executable
+    args = f'"{launcher}" --hidden --delay 30'
+    return python_bin, args
+
+
+def _build_app_autostart_task_xml() -> str:
+    """Build the Task Scheduler XML for the app autostart task.
+
+    STARTUP-7: fires at logon with PT0S delay (Run keys fire ~33 s
+    after logon; Task Scheduler logon triggers fire immediately).
+    The launcher's --delay 30 flag gives prewarm a head start on
+    warming the OS file cache.
+    """
+    import xml.etree.ElementTree as ET
+    python_exe, arguments = _app_autostart_command_and_args()
+
+    root = ET.Element("Task", {
+        "version": "1.4",
+        "xmlns": "http://schemas.microsoft.com/windows/2004/02/mit/task",
+    })
+    reg = ET.SubElement(root, "RegistrationInfo")
+    desc = ET.SubElement(reg, "Description")
+    desc.text = (
+        "Launches Voice Typer at user logon. Safe to disable or delete; "
+        "the app can still be started manually from the Start Menu."
+    )
+    uri = ET.SubElement(reg, "URI")
+    uri.text = f"\\{_APP_AUTOSTART_TASK_NAME}"
+
+    triggers = ET.SubElement(root, "Triggers")
+    logon = ET.SubElement(triggers, "LogonTrigger")
+    ET.SubElement(logon, "Enabled").text = "true"
+    # PT0S: fire immediately at logon (launcher's --delay 30 handles
+    # the prewarm head-start; no Task Scheduler delay needed).
+    ET.SubElement(logon, "Delay").text = "PT0S"
+
+    principal = ET.SubElement(root, "Principals")
+    princ = ET.SubElement(principal, "Principal", {"id": "Author"})
+    ET.SubElement(princ, "LogonType").text = "InteractiveToken"
+    ET.SubElement(princ, "RunLevel").text = "LeastPrivilege"
+
+    settings = ET.SubElement(root, "Settings")
+    ET.SubElement(settings, "ExecutionTimeLimit").text = "PT0S"  # no limit
+    ET.SubElement(settings, "Hidden").text = "true"
+    ET.SubElement(settings, "RunOnlyIfNetworkAvailable").text = "false"
+    ET.SubElement(settings, "DisallowStartIfOnBatteries").text = "false"
+    ET.SubElement(settings, "StopIfGoingOnBatteries").text = "false"
+    ET.SubElement(settings, "MultipleInstancesPolicy").text = "IgnoreNew"
+
+    actions = ET.SubElement(root, "Actions", {"Context": "Author"})
+    exec_el = ET.SubElement(actions, "Exec")
+    # STARTUP-1 lesson: use pythonw.exe directly, no cmd.exe wrapper.
+    ET.SubElement(exec_el, "Command").text = python_exe
+    ET.SubElement(exec_el, "Arguments").text = arguments
+
+    return ET.tostring(root, encoding="unicode")
+
+
+def _register_app_autostart_task() -> bool:
+    """Register the app autostart Task Scheduler task. Returns True on success."""
+    if sys.platform != "win32":
+        return False
+    try:
+        from voice_typer.server import task_scheduler
+        if not task_scheduler.is_supported():
+            return False
+        xml_def = _build_app_autostart_task_xml()
+        import tempfile, os
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".xml", delete=False, encoding="utf-8"
+        ) as tf:
+            tf.write(xml_def)
+            temp_xml = tf.name
+        try:
+            try:
+                task_scheduler._schtasks(["/Delete", "/TN", _APP_AUTOSTART_TASK_NAME, "/F"], capture=True)
+            except Exception:
+                pass
+            rc, output = task_scheduler._schtasks(
+                ["/Create", "/TN", _APP_AUTOSTART_TASK_NAME, "/XML", temp_xml, "/F"],
+                capture=True,
+            )
+            if rc == 0:
+                log.info("[CONFIG] App autostart registered via Task Scheduler (logon trigger)")
+                return True
+            log.warning("[CONFIG] Task Scheduler autostart registration failed: %s", output.strip())
+            return False
+        finally:
+            try:
+                os.unlink(temp_xml)
+            except OSError:
+                pass
+    except Exception as e:
+        log.warning("[CONFIG] Task Scheduler autostart registration raised: %s", e)
+        return False
+
+
+def _unregister_app_autostart_task() -> bool:
+    """Remove the app autostart Task Scheduler task. Returns True on success."""
+    if sys.platform != "win32":
+        return False
+    try:
+        from voice_typer.server import task_scheduler
+        if not task_scheduler.is_supported():
+            return False
+        rc, output = task_scheduler._schtasks(["/Delete", "/TN", _APP_AUTOSTART_TASK_NAME, "/F"], capture=True)
+        if rc == 0:
+            log.info("[CONFIG] App autostart Task Scheduler task removed")
+            return True
+        if "cannot find" in output.lower() or "does not exist" in output.lower():
+            return True  # already absent
+        return False
+    except Exception as e:
+        log.warning("[CONFIG] Task Scheduler autostart removal raised: %s", e)
+        return False
+
+
+def _is_app_autostart_task_registered() -> bool:
+    """True if the app autostart Task Scheduler task exists."""
+    if sys.platform != "win32":
+        return False
+    try:
+        from voice_typer.server import task_scheduler
+        if not task_scheduler.is_supported():
+            return False
+        rc, _ = task_scheduler._schtasks(["/Query", "/TN", _APP_AUTOSTART_TASK_NAME, "/XML"])
+        return rc == 0
+    except Exception:
+        return False
+
+
+# ── HKCU Run-key autostart (fallback) ─────────────────────────────────
+
+
+def _register_app_autostart_runkey() -> bool:
+    """Register app autostart via HKCU Run key (admin-free fallback)."""
+    try:
+        import winreg
+    except ImportError:
+        return False  # not Windows
+    try:
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Run",
+            0, winreg.KEY_SET_VALUE,
+        )
+        try:
+            cmd = _autostart_command()
+            winreg.SetValueEx(key, "VoiceTyper", 0, winreg.REG_SZ, cmd)
+        finally:
+            winreg.CloseKey(key)
+        log.info("[CONFIG] Autostart enabled via HKCU Run key (fallback): %s", cmd)
+        return True
+    except OSError as e:
+        log.warning("[CONFIG] HKCU Run key autostart failed: %s", e)
+        return False
+
+
+def _unregister_app_autostart_runkey() -> bool:
+    """Remove app autostart from HKCU Run key."""
+    try:
+        import winreg
+    except ImportError:
+        return False  # not Windows
+    try:
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Run",
+            0, winreg.KEY_SET_VALUE,
+        )
+        try:
+            winreg.DeleteValue(key, "VoiceTyper")
+        except FileNotFoundError:
+            pass
+        finally:
+            winreg.CloseKey(key)
+        log.info("[CONFIG] Autostart removed from HKCU Run key")
+        return True
+    except OSError:
+        return False
+
+
+def _is_app_autostart_runkey_registered() -> bool:
+    """True if the HKCU Run key has the VoiceTyper entry."""
+    try:
+        import winreg
+    except ImportError:
+        return False  # not Windows
     try:
         key = winreg.OpenKey(
             winreg.HKEY_CURRENT_USER,
@@ -265,6 +465,8 @@ def _is_autostart_windows() -> bool:
         finally:
             winreg.CloseKey(key)
     except FileNotFoundError:
+        return False
+    except OSError:
         return False
 
 

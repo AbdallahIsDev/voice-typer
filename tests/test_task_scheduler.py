@@ -16,8 +16,14 @@ from voice_typer.server import task_scheduler
 
 @pytest.fixture(autouse=True)
 def _force_supported(monkeypatch):
-    """Pretend we're on Windows with schtasks.exe available for every test."""
+    """Pretend we're on Windows with schtasks.exe available for every test.
+
+    STARTUP-5: register_prewarm_task now branches on sys.platform to
+    delegate to prewarm_scheduler_posix on macOS/Linux. Force sys.platform
+    to "win32" so the Windows path is exercised even on POSIX test hosts.
+    """
     monkeypatch.setattr(task_scheduler, "is_supported", lambda: True)
+    monkeypatch.setattr(task_scheduler.sys, "platform", "win32")
 
 
 # ─── Registration / query / deletion ────────────────────────────────────

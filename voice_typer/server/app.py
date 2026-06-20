@@ -311,22 +311,28 @@ class VoiceTyperApp:
         self._audio_processor.set_quality_callback(self._on_audio_quality_chunk)
 
         self.recorder = Recorder(self.config, audio_processor=self._audio_processor)
+        # #2 (Round 9): Recording lifecycle extracted to RecordingController.
+        # Owns toggle/start/stop/cancel, silence/xrun callbacks, and the
+        # streaming session. The recorder's xrun threshold callback is
+        # wired to RecordingController.on_xrun_threshold instead of the
+        # old VoiceTyperApp._on_xrun_threshold method.
+        from voice_typer.server.recording_controller import RecordingController
+        self.recording: RecordingController = RecordingController(self)
         # Item 1: wire xrun threshold callback for tray notification
-        self.recorder.on_xrun_threshold = self._on_xrun_threshold
-        # ARCH-008: Initialize the ASR registry BEFORE the engine fields
-        # so any code path that touches the registry (e.g. _start_dictation's
-        # lazy-init) can rely on it existing. Previously the registry was
-        # created lazily in _sync_asr_registry, which meant _start_dictation
-        # would crash with AttributeError if called before any sync.
-        from voice_typer.server.asr_registry import AsrBackendRegistry
-        self._asr_registry: AsrBackendRegistry = AsrBackendRegistry(self.config)
-        self.transcriber: Optional[TranscriptionEngine] = None
-        self._qwen_engine = None
-        self._parakeet_engine = None
+        self.recorder.on_xrun_threshold = self.recording.on_xrun_threshold
+        # #2 (Round 9): ASR backend lifecycle extracted to ModelManager.
+        # Previously VoiceTyperApp owned the AsrBackendRegistry + three
+        # engine fields + ~500 LOC of load/fallback/change logic. Now
+        # ModelManager owns all of that; app.py accesses it via
+        # `self.models` and the property delegates below
+        # (`self.transcriber`, `self._qwen_engine`, etc.) for back-compat
+        # with tests that read those fields directly.
+        from voice_typer.server.model_manager import ModelManager
+        self.models: ModelManager = ModelManager(self)
         if self.config.asr_backend == "qwen" and self.config.qwen_model_path:
-            self._init_qwen_engine()
-            # ARCH-008: sync the registry after _init_qwen_engine sets the field
-            self._sync_asr_registry()
+            # Eager-init the Qwen engine if configured (mirrors the
+            # pre-Round-9 behavior in __init__).
+            self.models._ensure_engine("qwen")
 
         self.clipboard = ClipboardManager(
             paste_enabled=self.config.paste_on_stop,
@@ -336,28 +342,31 @@ class VoiceTyperApp:
             config=self.config,
         )
 
-        self._hotkey_backend: Optional[HotkeyBackend] = None
-        self._esc_backend: Optional[HotkeyBackend] = None
-        self._repaste_backend: Optional[HotkeyBackend] = None
-        self._streaming_session: Optional[StreamingTranscriptionSession] = None
-        self._transcription_thread: Optional[threading.Thread] = None
+        # #2 (Round 9): Hotkey registration extracted to HotkeyDispatcher.
+        # Owns the 3 hotkey backends (dictation / ESC / repaste) and the
+        # register/restart logic. The 3 legacy fields (_hotkey_backend,
+        # _esc_backend, _repaste_backend) are exposed via @property
+        # delegates below for back-compat with tests that read them.
+        from voice_typer.server.hotkey_dispatcher import HotkeyDispatcher
+        self.hotkeys: HotkeyDispatcher = HotkeyDispatcher(self)
+        # #2 (Round 9): _streaming_session and _transcription_thread now
+        # live in RecordingController. Exposed via @property delegates
+        # below for back-compat with code that reads them directly.
         self._settings_window: Optional[SettingsWindow] = None
         self._microphones: list[dict] = []
         self._busy_event = threading.Event()
         self._busy_event.set()  # SET = not busy
         self._lock = threading.Lock()
 
-        self._model_load_attempted = False  # True after first load() call
+        # #2 (Round 9): _model_load_attempted / _model_load_thread /
+        # _pending_dictation now live in ModelManager. They're exposed
+        # on VoiceTyperApp via @property delegates below for back-compat
+        # with code that reads them directly.
         self._shutting_down = False  # True once quit() starts
         self._pending_timers: list[threading.Timer] = []
         self._timer_generation: int = 0
         self._cycle_counter = 0      # monotonic counter for dictation cycles
         self._cycle_id: str = ""     # human-readable cycle id for log correlation
-        # Background model-load thread (Step 4 of _do_startup).  Tracked so
-        # toggle_dictation() can detect "loading in progress" and auto-start
-        # recording once it finishes.
-        self._model_load_thread: Optional[threading.Thread] = None
-        self._pending_dictation: bool = False  # auto-start once loaded
 
         # ─── P1/P2 New Feature Components ────────────────────────────
         self.history_db = HistoryDB()
@@ -462,104 +471,141 @@ class VoiceTyperApp:
         except Exception:
             log.debug("[VOLUME] restore failed", exc_info=True)
 
-    # ─── Qwen Engine (P0) ────────────────────────────────────────────
+    # ─── #2 (Round 9): ASR backend delegates to ModelManager ───────────
+    #
+    # The following @property delegates expose the engine fields and
+    # model-lifecycle state that previously lived directly on
+    # VoiceTyperApp. They read/write through to ``self.models`` so
+    # existing code paths (and tests) that do ``app.transcriber = X``
+    # or ``app._model_load_thread`` keep working without modification.
+    #
+    # The actual logic lives in voice_typer/server/model_manager.py.
+
+    @property
+    def transcriber(self):
+        """Whisper engine (legacy field; mirrored from ModelManager)."""
+        return self.models.transcriber
+
+    @transcriber.setter
+    def transcriber(self, value):
+        # Tests sometimes do `app.transcriber = MagicMock()` directly.
+        # Mirror the assignment into ModelManager and re-sync the registry.
+        self.models.transcriber = value
+        self.models._sync_registry_from_fields()
+
+    @property
+    def _qwen_engine(self):
+        return self.models._qwen_engine
+
+    @_qwen_engine.setter
+    def _qwen_engine(self, value):
+        self.models._qwen_engine = value
+        self.models._sync_registry_from_fields()
+
+    @property
+    def _parakeet_engine(self):
+        return self.models._parakeet_engine
+
+    @_parakeet_engine.setter
+    def _parakeet_engine(self, value):
+        self.models._parakeet_engine = value
+        self.models._sync_registry_from_fields()
+
+    @property
+    def _asr_registry(self):
+        return self.models.registry
+
+    @_asr_registry.setter
+    def _asr_registry(self, value):
+        # Allow tests to swap the registry if needed.
+        self.models._registry = value
+
+    @property
+    def _model_load_thread(self):
+        return self.models._model_load_thread
+
+    @_model_load_thread.setter
+    def _model_load_thread(self, value):
+        self.models._model_load_thread = value
+
+    @property
+    def _model_load_attempted(self):
+        return self.models._model_load_attempted
+
+    @_model_load_attempted.setter
+    def _model_load_attempted(self, value):
+        self.models._model_load_attempted = value
+
+    @property
+    def _pending_dictation(self):
+        return self.models._pending_dictation
+
+    @_pending_dictation.setter
+    def _pending_dictation(self, value):
+        self.models._pending_dictation = value
+
+    @property
+    def _transcription_thread(self):
+        """#2 (Round 9): delegate to RecordingController._transcription_thread."""
+        return self.recording._transcription_thread
+
+    @_transcription_thread.setter
+    def _transcription_thread(self, value):
+        self.recording._transcription_thread = value
+
+    @property
+    def _streaming_session(self):
+        """#2 (Round 9): delegate to RecordingController._streaming_session."""
+        return self.recording._streaming_session
+
+    @_streaming_session.setter
+    def _streaming_session(self, value):
+        self.recording._streaming_session = value
+
+    @property
+    def _hotkey_backend(self):
+        """#2 (Round 9): delegate to HotkeyDispatcher._hotkey_backend."""
+        return self.hotkeys._hotkey_backend
+
+    @_hotkey_backend.setter
+    def _hotkey_backend(self, value):
+        self.hotkeys._hotkey_backend = value
+
+    @property
+    def _esc_backend(self):
+        """#2 (Round 9): delegate to HotkeyDispatcher._esc_backend."""
+        return self.hotkeys._esc_backend
+
+    @_esc_backend.setter
+    def _esc_backend(self, value):
+        self.hotkeys._esc_backend = value
+
+    @property
+    def _repaste_backend(self):
+        """#2 (Round 9): delegate to HotkeyDispatcher._repaste_backend."""
+        return self.hotkeys._repaste_backend
+
+    @_repaste_backend.setter
+    def _repaste_backend(self, value):
+        self.hotkeys._repaste_backend = value
+
+    # ── Model lifecycle methods (thin delegates to ModelManager) ──────
 
     def _init_qwen_engine(self):
-        """Conditionally initialise the Qwen ASR engine."""
-        # ARCH-013: delegate to the generic _init_asr_engine dispatcher.
-        self._qwen_engine = self._init_asr_engine(
-            backend_name="qwen",
-            module_path="voice_typer.server.qwen_engine",
-            class_name="QwenEngine",
-            log_prefix="[QWEN]",
-            kwargs=dict(
-                model_path=self.config.qwen_model_path,
-                device=self.config.device,
-                language=self.config.language,
-            ),
-        )
-
-    # ─── Parakeet Engine (P0) ────────────────────────────────────────
+        """#2: delegate to ModelManager._ensure_engine('qwen')."""
+        self.models._ensure_engine("qwen")
 
     def _init_parakeet_engine(self):
-        """Conditionally initialise the Parakeet ASR engine."""
-        # ARCH-013: delegate to the generic _init_asr_engine dispatcher.
-        self._parakeet_engine = self._init_asr_engine(
-            backend_name="parakeet",
-            module_path="voice_typer.server.parakeet_engine",
-            class_name="ParakeetEngine",
-            log_prefix="[PARAKEET]",
-            kwargs=dict(
-                device=self.config.device,
-                language=self.config.language,
-            ),
-        )
-
-    def _init_asr_engine(
-        self,
-        *,
-        backend_name: str,
-        module_path: str,
-        class_name: str,
-        log_prefix: str,
-        kwargs: dict,
-    ):
-        """Generic ASR engine initializer (ARCH-013).
-
-        Consolidates the 95%-identical _init_qwen_engine and
-        _init_parakeet_engine into one method.  Dynamically imports
-        the engine class, constructs it with ``kwargs``, and returns
-        the instance (or None on ImportError / construction failure).
-        """
-        try:
-            import importlib
-            mod = importlib.import_module(module_path)
-            engine_cls = getattr(mod, class_name)
-            engine = engine_cls(**kwargs)
-            log.info("%s %s created (will load on first use)", log_prefix, class_name)
-            return engine
-        except ImportError:
-            log.warning(
-                "%s %s package not installed, %s backend unavailable",
-                log_prefix, backend_name, backend_name,
-            )
-            return None
-        except Exception as exc:
-            log.error("%s Failed to initialise %s: %s", log_prefix, class_name, exc)
-            return None
+        """#2: delegate to ModelManager._ensure_engine('parakeet')."""
+        self.models._ensure_engine("parakeet")
 
     def _sync_asr_registry(self):
-        """ARCH-007/008: Re-populate the ASR registry from engine fields.
-
-        Must be called after any engine field assignment (model change,
-        fallback, lazy init) so the registry never holds stale references.
-        """
-        if not hasattr(self, '_asr_registry') or self._asr_registry is None:
-            from voice_typer.server.asr_registry import AsrBackendRegistry
-            self._asr_registry = AsrBackendRegistry(self.config)
-        # Always re-register from the current field values
-        self._asr_registry.unregister("whisper")
-        self._asr_registry.unregister("qwen")
-        self._asr_registry.unregister("parakeet")
-        if self.transcriber is not None:
-            self._asr_registry.register("whisper", self.transcriber)
-        if self._qwen_engine is not None:
-            self._asr_registry.register("qwen", self._qwen_engine)
-        if self._parakeet_engine is not None:
-            self._asr_registry.register("parakeet", self._parakeet_engine)
+        """#2: delegate to ModelManager._sync_registry_from_fields()."""
+        self.models._sync_registry_from_fields()
 
     def _get_active_transcriber(self):
-        """Return the active transcriber: Parakeet, Qwen, or Whisper.
-
-        ARCH-007/008: delegates to AsrBackendRegistry which centralizes
-        the backend selection logic. Previously every caller re-checked
-        self.config.asr_backend and tested three separate fields.
-
-        The registry is re-synced on every call so it never holds stale
-        references after model changes.
-        """
-        self._sync_asr_registry()
-        return self._asr_registry.get_active()
+        """#2: delegate to ModelManager.active_transcriber()."""
+        return self.models.active_transcriber()
 
     # ─── Timer Tracking (P1) ─────────────────────────────────────────
 
@@ -585,14 +631,12 @@ class VoiceTyperApp:
     # ─── Thread-Safe Streaming Session Access (P2) ───────────────────
 
     def _get_streaming_session(self):
-        """Thread-safe read of _streaming_session."""
-        with self._lock:
-            return self._streaming_session
+        """#2 (Round 9): delegate to RecordingController.get_streaming_session()."""
+        return self.recording.get_streaming_session()
 
     def _set_streaming_session(self, session_or_none):
-        """Thread-safe write of _streaming_session."""
-        with self._lock:
-            self._streaming_session = session_or_none
+        """#2 (Round 9): delegate to RecordingController.set_streaming_session()."""
+        self.recording.set_streaming_session(session_or_none)
 
     # ─── Waveform Bubble (IPC push) ───────────────────────────────────
 
@@ -873,13 +917,14 @@ class VoiceTyperApp:
         # ~1s of launch; the user sees the tray icon, can open settings,
         # and -- if they press F2 before the load finishes -- gets queued
         # and auto-started once it completes.  See toggle_dictation().
+        #
+        # #2 (Round 9): ModelManager owns the load thread now; the
+        # ``self._model_load_thread`` property delegate on VoiceTyperApp
+        # reads/writes through to ``self.models._model_load_thread`` so
+        # existing code that checks the thread (e.g. toggle_dictation)
+        # keeps working.
         log.info("[STARTUP] Step 4: create transcription engine (background)")
-        self._model_load_thread = threading.Thread(
-            target=self._load_transcription_engine_background,
-            name="ModelLoad",
-            daemon=True,
-        )
-        self._model_load_thread.start()
+        self.models.start_background_load()
 
         # After restart: auto-open the Electron window so it appears fresh
         # once the new instance is fully ready.  The VOICE_TYPER_RESTART
@@ -903,112 +948,8 @@ class VoiceTyperApp:
         log.info("[STARTUP] initial setup complete -- model loading continues in background")
 
     def _load_transcription_engine_background(self) -> None:
-        """Background worker: create + load the transcription engine.
-
-        Runs in a daemon thread so the heavy torch/transformers import and
-        weight download/read (off-disk on cold boot) do not block the app
-        reaching an interactive state.  All tray state transitions happen
-        here; if a dictation is pending (user pressed F2 during load), it
-        is auto-started once loading succeeds.
-
-        ARCH-007: Unified code path -- previously this had three
-        near-identical branches for parakeet/qwen/whisper with copy-pasted
-        TranscriptionEngine(...) construction. Now it delegates engine
-        construction to AsrBackendRegistry.create() (single chokepoint)
-        and loading + fallback to AsrBackendRegistry.load_with_fallback().
-        """
-        try:
-            backend_name = self.config.asr_backend
-
-            # Ensure the engine object exists (lightweight -- no model load).
-            # ARCH-007: use registry.create() instead of inline construction
-            # so all backend construction goes through one code path.
-            if self._asr_registry.get(backend_name) is None:
-                if backend_name == "parakeet":
-                    self._asr_registry.create(
-                        "parakeet",
-                        parakeet_kwargs=dict(
-                            device=self.config.device,
-                            language=self.config.language,
-                        ),
-                    )
-                    # Mirror to legacy field for back-compat with tests
-                    # that read self._parakeet_engine directly.
-                    self._parakeet_engine = self._asr_registry.get("parakeet")
-                elif backend_name == "qwen":
-                    self._asr_registry.create(
-                        "qwen",
-                        qwen_kwargs=dict(
-                            model_path=self.config.qwen_model_path,
-                            device=self.config.device,
-                            language=self.config.language,
-                        ),
-                    )
-                    self._qwen_engine = self._asr_registry.get("qwen")
-                else:
-                    # Whisper: create TranscriptionEngine if not yet done
-                    self._asr_registry.create(
-                        "whisper",
-                        whisper_kwargs=dict(
-                            model_size=self.config.model_size,
-                            device=self.config.device,
-                            language=self.config.language,
-                            beam_size=self.config.beam_size,
-                            best_of=self.config.best_of,
-                            condition_on_previous_text=self.config.condition_on_previous_text,
-                        ),
-                    )
-                    self.transcriber = self._asr_registry.get("whisper")
-
-            # Sync registry with current engine fields (back-compat for
-            # any code path that wrote directly to the legacy fields).
-            self._sync_asr_registry()
-
-            # Set tray state before heavy import so user sees progress
-            self.tray.set_state(
-                AppState.LOADING, "Loading model -- press F2 to queue..."
-            )
-
-            def on_progress(msg: str):
-                self.tray.set_state(AppState.LOADING, msg)
-
-            # Try loading the active backend, falling back to whisper
-            success = self._asr_registry.load_with_fallback(
-                progress_callback=on_progress
-            )
-
-            if success:
-                active = self._asr_registry.get_active()
-                name = self._asr_registry.active_name
-                if name == "whisper" and active is not None:
-                    self.tray.set_state(
-                        AppState.IDLE, f"Ready -- {active.device_info}"
-                    )
-                else:
-                    self.tray.set_state(
-                        AppState.IDLE, f"Ready -- {name.title()} ASR"
-                    )
-            else:
-                if self._shutting_down:
-                    return
-                log.warning("[STARTUP] All backends failed to load")
-                self.tray.set_state(
-                    AppState.ERROR, "Model load failed -- press F2 to retry"
-                )
-
-        except Exception:
-            log.exception("[STARTUP] Background model load crashed")
-            self.tray.set_state(
-                AppState.ERROR, "Model load failed -- press F2 to retry"
-            )
-        finally:
-            self._model_load_thread = None
-            # If the user pressed F2 during load, honour it now.
-            if self._pending_dictation and not self._shutting_down:
-                log.info("[STARTUP] Pending dictation -- auto-starting now")
-                self._pending_dictation = False
-                # Schedule off this loader thread to avoid nesting
-                self._schedule_timer(0, self._start_dictation)
+        """#2 (Round 9): delegate to ModelManager.load_background()."""
+        self.models.load_background()
 
     def _sync_autostart(self) -> None:
         """Ensure config.autostart matches the actual platform autostart state."""
@@ -1087,351 +1028,38 @@ class VoiceTyperApp:
             log.warning("[RECORDING] Could not enumerate microphones: %s", e)
 
     def _fallback_to_whisper(self, notify_on_failure: bool = False):
-        """Fallback to Whisper tiny.en after Parakeet/Qwen backend failed.
-
-        ARCH-007/008: Uses the registry to reconfigure and reload.
-        Switches config to whisper/tiny.en, ensures the whisper backend
-        is registered, and delegates loading to
-        AsrBackendRegistry.load_with_fallback().
-
-        ARCH-007: Construction is delegated to AsrBackendRegistry.create()
-        instead of inline TranscriptionEngine(...) — same chokepoint as
-        _load_transcription_engine_background and _change_model.
-        """
-        self.config.model_size = "tiny.en"
-        self.config.asr_backend = "whisper"
-        existing = self._asr_registry.get("whisper")
-        if existing is None:
-            # ARCH-007: use registry.create() instead of inline construction
-            self._asr_registry.create(
-                "whisper",
-                whisper_kwargs=dict(
-                    model_size="tiny.en",
-                    device=self.config.device,
-                    language=self.config.language,
-                    beam_size=self.config.beam_size,
-                    best_of=self.config.best_of,
-                    condition_on_previous_text=self.config.condition_on_previous_text,
-                ),
-            )
-            self.transcriber = self._asr_registry.get("whisper")
-        else:
-            existing.model_size = "tiny.en"
-            existing._configured_model_size = "tiny.en"
-
-        # Update the registry so it reflects the new whisper backend
-        self._sync_asr_registry()
-
-        # ARCH-007/008: Use registry instead of direct _try_load_model
-        def on_progress(msg: str):
-            self.tray.set_state(AppState.LOADING, msg)
-
-        success = self._asr_registry.load_with_fallback(
-            progress_callback=on_progress
-        )
-        if success:
-            active = self._asr_registry.get_active()
-            self.tray.set_state(
-                AppState.IDLE,
-                f"Ready -- {active.device_info}" if active else "Ready",
-            )
-        else:
-            self.tray.set_state(
-                AppState.ERROR, "Model failed to load -- press F2 to retry"
-            )
-            if notify_on_failure:
-                self.tray.notify(
-                    "Voice Typer",
-                    "Could not load the speech model.\n"
-                    "The app will keep running. Press F2 to retry loading.",
-                )
+        """#2 (Round 9): delegate to ModelManager.fallback_to_whisper()."""
+        self.models.fallback_to_whisper(notify_on_failure=notify_on_failure)
 
     def _try_load_model(self, notify_on_failure: bool = False):
-        """Attempt to load the transcription model.
-
-        ARCH-007/008: Delegates to AsrBackendRegistry.load_with_fallback()
-        instead of calling self.transcriber.load() directly.
-        """
-        self._model_load_attempted = True
-        try:
-            log.info("[MODEL] Loading model (backend=%s, size=%s, device=%s)...",
-                     self.config.asr_backend, self.config.model_size, self.config.device)
-
-            def on_progress(message: str):
-                self.tray.set_state(AppState.LOADING, message)
-
-            success = self._asr_registry.load_with_fallback(
-                progress_callback=on_progress
-            )
-            if success:
-                active = self._asr_registry.get_active()
-                info = getattr(active, 'device_info', 'unknown') if active else 'unknown'
-                self.tray.set_state(AppState.IDLE, f"Ready -- {info}")
-                log.info("[MODEL] Loaded successfully")
-            else:
-                raise RuntimeError("All backends failed to load")
-        except Exception as e:
-            log.exception("[MODEL] Load FAILED")
-            self.tray.set_state(
-                AppState.ERROR, "Model failed to load -- press F2 to retry"
-            )
-            if notify_on_failure:
-                self.tray.notify(
-                    "Voice Typer",
-                    f"Could not load the speech model.\n{e}\n\n"
-                    "The app will keep running. Press F2 to retry loading.",
-                )
+        """#2 (Round 9): delegate to ModelManager.try_load()."""
+        self.models.try_load(notify_on_failure=notify_on_failure)
 
     # ─── Hotkey ────────────────────────────────────────────────────────
 
     def _register_hotkey(self):
-        """Register global hotkey using the platform-appropriate backend.
-
-        UX-002: when registration fails (typically because another app
-        has already claimed the same hotkey via Win32 ``RegisterHotKey``
-        or X11 grab), surface a tray notification that names the hotkey
-        so the user can pick a different one in Settings.
-        """
-        hotkey_str = self.config.hotkey
-        log.info("[HOTKEY] Registering: %r -> toggle_dictation", hotkey_str)
-
-        try:
-            self._hotkey_backend = create_hotkey_backend(hotkey_str)
-            log.info("[HOTKEY] Backend created: %s", type(self._hotkey_backend).__name__)
-            self._hotkey_backend.start(self.toggle_dictation)
-            # P1: Push-to-talk mode -- set release callback
-            if self.config.recording_mode == "push_to_talk":
-                self._hotkey_backend.set_on_release(self._stop_dictation)
-            log.info(
-                "[HOTKEY] Registration OK (alive=%s, backend=%s)",
-                self._hotkey_backend.is_alive(),
-                type(self._hotkey_backend).__name__,
-            )
-        except Exception as exc:
-            # UX-002: name the hotkey in the notification so the user
-            # knows which one to rebind.  Common cause: another app
-            # (Snipping Tool, GeForce Overlay, etc.) already claimed it.
-            log.warning("[HOTKEY] Registration FAILED -- %s: %s", hotkey_str, exc)
-            log.debug("Hotkey registration error", exc_info=True)
-            self.tray.notify(
-                "Voice Typer",
-                f"Hotkey {hotkey_str} could not be registered. "
-                "It may be in use by another app. "
-                "Use the tray menu to toggle dictation, or pick a different hotkey in Settings.",
-            )
-
-        # Feature: ESC to cancel -- register ESC hotkey when enabled
-        if self.config.esc_cancel_enabled:
-            self._register_esc_hotkey()
-
-        # Feature: Repaste hotkey
-        if self.config.repaste_hotkey:
-            self._register_repaste_hotkey()
-
+        """#2 (Round 9): delegate to HotkeyDispatcher.register()."""
+        self.hotkeys.register()
     def _register_esc_hotkey(self):
-        """Register the ESC hotkey for cancelling dictation."""
-        # Stop any existing backend first (same pattern as _register_repaste_hotkey)
-        if self._esc_backend:
-            try:
-                self._esc_backend.stop()
-            except Exception:
-                pass
-            self._esc_backend = None
-        try:
-            self._esc_backend = create_hotkey_backend("<esc>")
-            self._esc_backend.start(self._cancel_dictation)
-            log.info("[HOTKEY] ESC cancel hotkey registered")
-        except Exception:
-            log.warning("[HOTKEY] ESC cancel hotkey registration failed")
-
+        """#2 (Round 9): delegate to HotkeyDispatcher.register_esc()."""
+        self.hotkeys.register_esc()
     def _unregister_esc_hotkey(self):
-        """Unregister the ESC hotkey."""
-        if self._esc_backend:
-            try:
-                self._esc_backend.stop()
-            except Exception:
-                pass
-            self._esc_backend = None
-            log.info("[HOTKEY] ESC cancel hotkey unregistered")
-
+        """#2 (Round 9): delegate to HotkeyDispatcher.unregister_esc()."""
+        self.hotkeys.unregister_esc()
     def _register_repaste_hotkey(self):
-        """Register the repaste hotkey."""
-        if self._repaste_backend:
-            try:
-                self._repaste_backend.stop()
-            except Exception:
-                pass
-            self._repaste_backend = None
-        if self.config.repaste_hotkey:
-            try:
-                self._repaste_backend = create_hotkey_backend(self.config.repaste_hotkey)
-                self._repaste_backend.start(self.repaste_last)
-                log.info("[HOTKEY] Repaste hotkey registered: %s", self.config.repaste_hotkey)
-            except Exception:
-                log.warning("[HOTKEY] Repaste hotkey registration failed")
-
+        """#2 (Round 9): delegate to HotkeyDispatcher.register_repaste()."""
+        self.hotkeys.register_repaste()
     # ─── Dictation ─────────────────────────────────────────────────────
 
     def toggle_dictation(self):
-        """Toggle recording on/off."""
-        # Generate cycle correlation ID for this dictation
-        self._cycle_counter += 1
-        self._cycle_id = f"#{self._cycle_counter}"
-
-        active = self._get_active_transcriber()
-        model_loaded = active is not None and active.is_loaded
-        log.info(
-            "[HOTKEY FIRED] toggle_dictation called "
-            "(recording=%s, busy=%s, model_loaded=%s, thread=%s, cycle=%s)",
-            self.recorder.recording, self._busy_event.is_set(),
-            model_loaded,
-            threading.current_thread().name,
-            self._cycle_id,
-        )
-        if not self._busy_event.is_set():  # busy
-            log.warning("[F2 BLOCKED] Busy transcribing, ignoring toggle (cycle=%s)", self._cycle_id)
-            return
-
-        # Model still loading in the background (post-fast-startup).  Queue
-        # the request and let the loader auto-start recording once it
-        # finishes.  This makes F2 feel responsive even on a cold boot.
-        #
-        # Capture the loader reference ONCE: the background loader's finally
-        # block sets self._model_load_thread = None, and since toggle_dictation
-        # runs on the hotkey thread while the loader runs on its own thread,
-        # re-reading the attribute in the is_alive() check is a TOCTOU race
-        # that can dereference None.
-        loader = self._model_load_thread
-        if loader is not None and loader.is_alive():
-            log.info(
-                "[HOTKEY FIRED] Model still loading -- queuing dictation (cycle=%s)",
-                self._cycle_id,
-            )
-            self._pending_dictation = True
-            self.tray.set_state(
-                AppState.LOADING,
-                "Loading model -- your dictation will start automatically…",
-            )
-            return
-
-        if active is None:
-            self.tray.set_state(AppState.LOADING, "Starting up -- please wait...")
-            return
-
-        if self.recorder.recording:
-            self._stop_dictation()
-        else:
-            self._start_dictation()
-
+        """#2 (Round 9): delegate to RecordingController.toggle()."""
+        self.recording.toggle()
     def _start_dictation(self):
-        """Start a recording session."""
-        if self.recorder.recording:
-            log.info("[DICTATION] _start_dictation: already recording, no-op")
-            return
-
-        # Cancel any stale pending timers from previous sessions
-        self._cancel_pending_timers()
-
-        # Lazy-init engines if backend was changed via Electron UI after startup.
-        # ARCH-007: use registry.create() so the registry stays in sync with
-        # the field (previously _init_parakeet_engine/_init_qwen_engine set
-        # the field directly without updating the registry, causing
-        # field/registry drift — see ARCH-008).
-        if self.config.asr_backend == "parakeet" and self._asr_registry.get("parakeet") is None:
-            self._asr_registry.create(
-                "parakeet",
-                parakeet_kwargs=dict(
-                    device=self.config.device,
-                    language=self.config.language,
-                ),
-            )
-            self._parakeet_engine = self._asr_registry.get("parakeet")
-            self._sync_asr_registry()
-        if self.config.asr_backend == "qwen" and self._asr_registry.get("qwen") is None:
-            self._asr_registry.create(
-                "qwen",
-                qwen_kwargs=dict(
-                    model_path=self.config.qwen_model_path,
-                    device=self.config.device,
-                    language=self.config.language,
-                ),
-            )
-            self._qwen_engine = self._asr_registry.get("qwen")
-            self._sync_asr_registry()
-
-        # ARCH-007/008: Use _get_active_transcriber instead of checking
-        # three separate fields.  The registry centralizes the "which
-        # engine is active?" logic and handles fallback.
-        active = self._get_active_transcriber()
-
-        if active is None or not getattr(active, 'is_loaded', False):
-            # No engine loaded -- try to load whisper as a fallback
-            log.warning("[DICTATION] No loaded engine found, lazy-loading Whisper as fallback")
-            # ARCH-007/008: Use _fallback_to_whisper which delegates
-            # to the registry instead of constructing TranscriptionEngine
-            # directly and bypassing the registry.
-            self._fallback_to_whisper(notify_on_failure=True)
-            active = self._get_active_transcriber()
-            if active is None or not getattr(active, 'is_loaded', False):
-                log.error("[DICTATION] Whisper fallback also failed, cannot record")
-                self._schedule_timer(
-                    3.0, lambda: self.tray.set_state(
-                        AppState.ERROR, "Model failed to load -- press F2 to retry"
-                    )
-                )
-                return
-
-        log.info("[DICTATION] Starting recording... (cycle=%s)", self._cycle_id)
-        try:
-            # H12: Wire silence detection callbacks
-            self.recorder.on_silence_warning = self._on_silence_warning
-            self.recorder.on_silence_auto_stop = self._on_silence_auto_stop
-            self.recorder.on_max_duration_auto_stop = self._on_max_duration_auto_stop
-
-            # Waveform bubble: feed RMS levels from the audio callback
-            self.recorder.on_rms_level = self._on_recorder_rms
-
-            # Reset audio-quality analyzer accumulators so per-chunk
-            # statistics don't carry over from the previous session.
-            # The analyzer is wired to the AudioProcessor's quality
-            # callback in __init__; here we just clear its state.
-            try:
-                self._audio_quality.reset()
-            except Exception:
-                log.debug("[AUDIO_QUALITY] reset on start failed", exc_info=True)
-
-            self.recorder.start()
-            self._start_streaming_session_if_enabled()
-            self.tray.set_state(AppState.RECORDING, "Recording...")
-            # Show the floating bubble once we know the stream is open
-            self._waveform_bubble.show()
-            # Duck system volume AFTER recording starts so the first
-            # chunk of audio benefits from the ducked speakers.
-            self._duck_volume()
-            log.info("[DICTATION] Recording started OK (cycle=%s)", self._cycle_id)
-        except Exception as e:
-            log.exception("[DICTATION] Failed to start recording: %s", e)
-            self._cancel_streaming_session()
-            self.tray.set_state(AppState.ERROR, "Recording failed")
-            self.tray.notify(
-                "Voice Typer",
-                f"Could not start recording.\n{e}\n\n"
-                "Check voice-typer.log for traceback.",
-            )
-            self._schedule_timer(3.0, lambda: self.tray.set_state(AppState.IDLE))
-
+        """#2 (Round 9): delegate to RecordingController.start()."""
+        self.recording.start()
     def _on_recorder_rms(self, rms: float, peak: float, audio_chunk=None) -> None:
-        """T021: Forward per-chunk RMS + audio chunk to the bubble.
-
-        Previously this called update_level(rms, peak) with no audio_chunk,
-        which meant the Silero VAD gate in WaveformBubble.update_level
-        was inert in production (audio_chunk defaulted to None → VAD
-        skipped). Now we forward the audio_chunk from the recorder so
-        VAD actually fires during real dictation, filtering out ambient
-        noise from the visualizer.
-        """
-        self._waveform_bubble.update_level(rms, peak, audio_chunk=audio_chunk)
-
+        """#2 (Round 9): delegate to RecordingController.on_recorder_rms()."""
+        self.recording.on_recorder_rms(rms, peak, audio_chunk=audio_chunk)
     def _on_audio_quality_chunk(self, rms: float, peak: float) -> None:
         """Per-chunk quality callback wired to AudioProcessor.
 
@@ -1606,141 +1234,31 @@ class VoiceTyperApp:
         self._transcription_thread.start()
 
     def _streaming_enabled(self) -> bool:
-        """Return whether hidden streaming should run for the next recording."""
-        if os.environ.get("VOICE_TYPER_STREAMING") == "0":
-            return False
-        # pyrefly: ignore [unnecessary-type-conversion]
-        return bool(self.config.streaming_transcription)
-
+        """#2 (Round 9): delegate to RecordingController._streaming_enabled()."""
+        return self.recording._streaming_enabled()
     def _streaming_config(self) -> StreamingConfig:
-        return StreamingConfig(
-            enabled=self._streaming_enabled(),
-            chunk_seconds=self.config.streaming_chunk_seconds,
-            step_seconds=self.config.streaming_step_seconds,
-            left_overlap_seconds=self.config.streaming_left_overlap_seconds,
-            right_guard_seconds=self.config.streaming_right_guard_seconds,
-            min_first_chunk_seconds=self.config.streaming_min_first_chunk_seconds,
-            silence_threshold=self.config.streaming_silence_threshold,
-        )
-
+        """#2 (Round 9): delegate to RecordingController._streaming_config()."""
+        return self.recording._streaming_config()
     def _start_streaming_session_if_enabled(self):
-        """Start hidden streaming work for the active recording if enabled."""
-        self._set_streaming_session(None)
-        if not self._streaming_enabled():
-            return
-
-        # Streaming requires transcribe_words (word-level timestamps).
-        # Only Whisper supports this; skip for Parakeet/Qwen.
-        active = self._get_active_transcriber()
-        if active is not None:
-            log.info(
-                "[STREAMING] Checking transcriber: %s has transcribe_words=%s",
-                type(active).__name__,
-                hasattr(active, "transcribe_words"),
-            )
-            if not hasattr(active, "transcribe_words"):
-                log.info("[STREAMING] Transcriber lacks transcribe_words, skipping streaming (cycle=%s)", self._cycle_id)
-                return
-        else:
-            log.info("[STREAMING] No active transcriber, skipping streaming (cycle=%s)", self._cycle_id)
-            return
-
-        try:
-            session = StreamingTranscriptionSession(
-                recorder=self.recorder,
-                transcriber=self._get_active_transcriber(),
-                config=self._streaming_config(),
-                sample_rate=self.config.sample_rate,
-            )
-            session.start()
-            self._set_streaming_session(session)
-            log.info("[STREAMING] Hidden streaming session started (cycle=%s)", self._cycle_id)
-        except Exception as e:
-            log.exception("[STREAMING] Failed to start streaming session: %s", e)
-            self._set_streaming_session(None)
-
+        """#2 (Round 9): delegate to RecordingController._start_streaming_session_if_enabled()."""
+        self.recording._start_streaming_session_if_enabled()
     def _cancel_streaming_session(self):
-        """Cancel any active hidden streaming session."""
-        session = self._get_streaming_session()
-        self._set_streaming_session(None)
-        if session is not None:
-            try:
-                session.cancel()
-            except Exception:
-                log.exception("[STREAMING] Failed to cancel streaming session")
-
+        """#2 (Round 9): delegate to RecordingController._cancel_streaming_session()."""
+        self.recording._cancel_streaming_session()
     def _force_recover_from_stuck_transcription(self):
-        """Safety net: recover from stuck transcription state."""
-        if self._busy_event.is_set():  # not busy
-            return  # Already recovered, nothing to do
-        if (
-            self._transcription_thread is not None
-            and self._transcription_thread.is_alive()
-        ):
-            log.warning(
-                "Transcription watchdog fired, but worker is still alive; "
-                "leaving app busy to avoid overlapping model calls"
-            )
-            self.tray.set_state(AppState.TRANSCRIBING, "Still transcribing...")
-            self.tray.notify(
-                "Voice Typer",
-                "Transcription is still running.\n"
-                "Long recordings or CPU fallback can take extra time.",
-            )
-            return
-
-        log.warning("[RECOVERY] FORCE RECOVER: transcription watchdog fired, resetting state")
-        self._busy_event.set()  # busy = False
-        self.tray.set_state(AppState.IDLE, "Recovered -- transcription timed out")
-        self.tray.notify(
-            "Voice Typer",
-            "Transcription took too long and was cancelled.\n"
-            "Press F2 to try again.",
-        )
-        self._schedule_timer(5.0, lambda: self.tray.set_state(AppState.IDLE))
-
+        """#2 (Round 9): delegate to RecordingController._force_recover_from_stuck_transcription()."""
+        self.recording._force_recover_from_stuck_transcription()
     # ─── Silence Detection Callbacks (H12) ────────────────────────────────
 
     def _on_silence_warning(self):
-        """Handle silence warning from recorder."""
-        log.warning("[DICTATION] Silence warning: no audio detected for a while")
-        try:
-            self.tray.notify_safety(
-                "Voice Typer",
-                "No audio detected. Check your microphone is connected and working.",
-            )
-        except Exception:
-            pass
-
+        """#2 (Round 9): delegate to RecordingController.on_silence_warning()."""
+        self.recording.on_silence_warning()
     def _on_silence_auto_stop(self):
-        """Handle silence auto-stop from recorder."""
-        log.warning("[DICTATION] Silence auto-stop: stopping recording due to prolonged silence")
-        try:
-            self.tray.notify_safety(
-                "Voice Typer",
-                "Recording stopped: no audio detected for an extended period.",
-            )
-        except Exception:
-            pass
-        # Must NOT call _stop_dictation() directly here -- this callback runs
-        # inside the audio callback while Recorder._lock is held.  Calling
-        # recorder.stop() would deadlock on the same lock.  Schedule it on a
-        # separate thread instead.
-        self._schedule_timer(0, self._stop_dictation)
-
+        """#2 (Round 9): delegate to RecordingController.on_silence_auto_stop()."""
+        self.recording.on_silence_auto_stop()
     def _on_max_duration_auto_stop(self):
-        """Handle max duration auto-stop from recorder."""
-        log.warning("[DICTATION] Max duration auto-stop: stopping recording")
-        try:
-            self.tray.notify_safety(
-                "Voice Typer",
-                "Recording stopped: maximum recording duration reached.",
-            )
-        except Exception:
-            pass
-        # Same reason as _on_silence_auto_stop: avoid deadlock on Recorder._lock.
-        self._schedule_timer(0, self._stop_dictation)
-
+        """#2 (Round 9): delegate to RecordingController.on_max_duration_auto_stop()."""
+        self.recording.on_max_duration_auto_stop()
     # ─── Settings / Microphone ─────────────────────────────────────────
 
     def repaste_last(self) -> None:
@@ -1795,51 +1313,11 @@ class VoiceTyperApp:
             self.tray.notify("Voice Typer", f"Undo failed: {e}")
 
     def _on_xrun_threshold(self, count: int) -> None:
-        """Item 1: notify the user when xrun count exceeds threshold."""
-        log.warning("[XRUN] Threshold reached: %d xruns", count)
-        if self.config.show_notifications:
-            try:
-                self.tray.notify(
-                    "Voice Typer — Audio Issues",
-                    f"Detected {count} audio buffer underruns. "
-                    "Try closing other audio apps or reducing CPU load.",
-                )
-            except Exception:
-                pass
-
+        """#2 (Round 9): delegate to RecordingController.on_xrun_threshold()."""
+        self.recording.on_xrun_threshold(count)
     def _cancel_dictation(self):
-        """Feature: ESC to cancel -- cancel current recording/transcription."""
-        log.info("[CANCEL] Cancelling current dictation (cycle=%s)", self._cycle_id)
-        self._cancel_pending_timers()
-
-        if self.recorder.recording:
-            try:
-                # Detach RMS callback and stop background audio first
-                self.recorder.on_rms_level = None
-                # Push a final zero-level event to reset the bubble visualizer
-                self._waveform_bubble.reset_level()
-                # BUGFIX: removed `self._background_audio_monitor.stop()` —
-                # that attribute was never initialized (leftover from a
-                # refactor), so it threw AttributeError, which the
-                # surrounding try/except swallowed — preventing
-                # `recorder.discard()` from running on ESC cancel.
-                self.recorder.discard()
-                log.info("[CANCEL] Recording discarded (cycle=%s)", self._cycle_id)
-            except Exception as e:
-                log.warning("[CANCEL] Failed to discard recording: %s (cycle=%s)", e, self._cycle_id)
-
-        self._cancel_streaming_session()
-
-        # Restore system volume on cancel
-        self._restore_volume()
-
-        # Hide bubble unless always_visible mode
-        if self.config.bubble_behavior != 'always_visible':
-            self._waveform_bubble.hide()
-
-        self.tray.set_state(AppState.IDLE, "Cancelled")
-        self._busy_event.set()
-
+        """#2 (Round 9): delegate to RecordingController.cancel()."""
+        self.recording.cancel()
     def _toggle_autostart(self):
         """Toggle autostart on/off from the tray menu. Delegates to _set_autostart (P2 dedup)."""
         self._set_autostart(not is_autostart_enabled())
@@ -1933,131 +1411,11 @@ class VoiceTyperApp:
             self.tray.notify("Voice Typer", f"Config file:\n{config_file}")
 
     def _restart_hotkey(self, hotkey: str):
-        """Re-register the global hotkey after settings change."""
-        self.config.hotkey = hotkey
-        self.config.save()
-        if self._hotkey_backend:
-            try:
-                self._hotkey_backend.stop()
-            except Exception:
-                log.exception("[HOTKEY] Failed to stop previous backend")
-            self._hotkey_backend = None
-        self._register_hotkey()
-        self.tray.set_hotkey(self.config.hotkey)
-
+        """#2 (Round 9): delegate to HotkeyDispatcher.restart()."""
+        self.hotkeys.restart(hotkey)
     def _change_model(self, model_size: str):
-        """Apply a model change for future dictation sessions.
-
-        Handles Whisper, Parakeet, and Qwen backends.
-        Unloads the old engine and loads the new one immediately (unless
-        currently recording).
-
-        ARCH-007: Uses the registry to unload/load instead of having
-        three separate branches for parakeet/qwen/whisper.
-        """
-        # Determine backend from model name
-        if model_size == "parakeet":
-            new_backend = "parakeet"
-        elif model_size == "qwen":
-            new_backend = "qwen"
-        else:
-            new_backend = "whisper"
-
-        old_backend = self.config.asr_backend
-
-        self.config.asr_backend = new_backend
-        self.config.model_size = model_size
-        self.config.save()
-
-        if self.recorder.recording or not self._busy_event.is_set():
-            log.info("[CONFIG] Model changed to %s (%s); applying after active work", model_size, new_backend)
-            self.tray.notify(
-                "Voice Typer",
-                f"Model will change to {model_size} after current recording",
-            )
-            return
-
-        # Unload old backend via registry
-        self._sync_asr_registry()
-        self._asr_registry.unload(old_backend)
-        self._model_load_attempted = False
-
-        # Clear old engine fields
-        if old_backend == "parakeet":
-            self._parakeet_engine = None
-        elif old_backend == "qwen":
-            self._qwen_engine = None
-        elif self.transcriber is not None:
-            try:
-                self.transcriber.unload()
-            except Exception:
-                pass
-            self.transcriber = None
-
-        # ARCH-007: Create new engine object via registry.create()
-        # (single chokepoint for all backend construction — replaces the
-        # previous _init_parakeet_engine / _init_qwen_engine / inline
-        # TranscriptionEngine(...) triplication).
-        if new_backend == "parakeet":
-            self._asr_registry.create(
-                "parakeet",
-                parakeet_kwargs=dict(
-                    device=self.config.device,
-                    language=self.config.language,
-                ),
-            )
-            self._parakeet_engine = self._asr_registry.get("parakeet")
-        elif new_backend == "qwen":
-            self._asr_registry.create(
-                "qwen",
-                qwen_kwargs=dict(
-                    model_path=self.config.qwen_model_path,
-                    device=self.config.device,
-                    language=self.config.language,
-                ),
-            )
-            self._qwen_engine = self._asr_registry.get("qwen")
-        else:
-            self._asr_registry.create(
-                "whisper",
-                whisper_kwargs=dict(
-                    model_size=self.config.model_size,
-                    device=self.config.device,
-                    language=self.config.language,
-                    beam_size=self.config.beam_size,
-                    best_of=self.config.best_of,
-                    condition_on_previous_text=self.config.condition_on_previous_text,
-                ),
-            )
-            self.transcriber = self._asr_registry.get("whisper")
-
-        # Sync registry and load
-        self._sync_asr_registry()
-
-        def on_progress(msg: str):
-            self.tray.set_state(AppState.LOADING, msg)
-
-        try:
-            success = self._asr_registry.load_active(progress_callback=on_progress)
-            if success:
-                active = self._asr_registry.get_active()
-                if new_backend == "whisper" and active is not None:
-                    self.tray.set_state(
-                        AppState.IDLE, f"Ready -- {active.device_info}"
-                    )
-                else:
-                    self.tray.set_state(
-                        AppState.IDLE, f"Ready -- {new_backend.title()} ASR"
-                    )
-                self.tray.invalidate_menu_cache()
-            else:
-                log.warning("[MODEL] %s model failed to load", new_backend.title())
-                self.tray.set_state(
-                    AppState.ERROR, f"{new_backend.title()} model failed to load"
-                )
-        except Exception as exc:
-            log.exception("[MODEL] Model load failed: %s", exc)
-            self.tray.set_state(AppState.ERROR, f"Model failed: {exc}")
+        """#2 (Round 9): delegate to ModelManager.change_model()."""
+        self.models.change_model(model_size)
 
     # ─── TrayController Protocol Methods (P3) ────────────────────────
 
