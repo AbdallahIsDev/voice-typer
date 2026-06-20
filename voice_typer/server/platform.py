@@ -148,15 +148,24 @@ def _autostart_command() -> str:
     On Windows, prefers ``pythonw.exe`` (no console window) when
     available so login doesn't flash a console.  Falls back to
     ``python.exe`` if ``pythonw.exe`` is absent.
+
+    STARTUP-2: also passes ``--delay 30`` so the launcher waits 30 s
+    before spawning Electron. This gives the prewarm task (which now
+    fires at logon+0 s) a head start on warming the OS file cache,
+    so the app's cold imports of torch/transformers hit RAM instead
+    of contending with prewarm on disk.
     """
     # The launcher lives next to this module (voice_typer/server/).
     launcher = Path(__file__).resolve().parent / "autostart_launcher.py"
+    # STARTUP-2: delay in seconds before the launcher spawns Electron.
+    # 0 on non-Windows (prewarm is Windows-only; no benefit elsewhere).
+    delay_flag = "--delay 30" if sys.platform == "win32" else ""
     if sys.platform == "win32":
         pythonw = Path(sys.executable).parent / "pythonw.exe"
         python_bin = pythonw if pythonw.exists() else Path(sys.executable)
-        return f'"{python_bin}" "{launcher}" --hidden'
+        return f'"{python_bin}" "{launcher}" --hidden {delay_flag}'.strip()
     # macOS / Linux: use the current interpreter, quoted.
-    return f'"{sys.executable}" "{launcher}" --hidden'
+    return f'"{sys.executable}" "{launcher}" --hidden'.strip()
 
 
 def get_autostart_dir() -> Path:

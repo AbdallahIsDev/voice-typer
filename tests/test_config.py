@@ -391,6 +391,40 @@ class TestH1NonNumericFieldValidation:
         assert c.max_recording_seconds_gpu == 1200
         assert c.max_recording_seconds_cpu == 600
 
+    def test_startup6_int_field_not_treated_as_bool(self, tmp_path, monkeypatch, caplog):
+        """STARTUP-6: volume_duck_smart_poll_interval_ms (int) must NOT be
+        flagged as an invalid bool when loading its default value 500.
+
+        Previously this field was misclassified in bool_fields, causing the
+        bool validator to log a spurious
+        "had invalid value 500, resetting to default 500" warning on every
+        startup. The value 500 is the default and is in the valid 50-5000
+        range; no warning should fire.
+        """
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+        config_file = tmp_path / "config.json"
+        # Write the default value explicitly — this is what Config.save() produces
+        config_file.write_text(json.dumps({"volume_duck_smart_poll_interval_ms": 500}))
+        import logging
+        with caplog.at_level(logging.WARNING):
+            c = Config.load()
+        assert c.volume_duck_smart_poll_interval_ms == 500
+        # No "invalid value" warning should be logged for this field
+        assert not any(
+            "volume_duck_smart_poll_interval_ms" in rec.message
+            and "invalid value" in rec.message
+            for rec in caplog.records
+        ), f"Spurious validation warning logged: {[r.message for r in caplog.records]}"
+
+    def test_startup6_int_field_preserves_user_value(self, tmp_path, monkeypatch):
+        """STARTUP-6: a non-default but in-range int value should also
+        be preserved without being coerced or warned about."""
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"volume_duck_smart_poll_interval_ms": 1500}))
+        c = Config.load()
+        assert c.volume_duck_smart_poll_interval_ms == 1500
+
 
 class TestM3ConfigSchemaVersion:
     """M3: No config schema versioning."""

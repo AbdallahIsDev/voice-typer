@@ -457,28 +457,128 @@ class VoiceTyperService:
         """Download a model weight file via HuggingFace.
 
         UX-005: Downloads the specified model (tiny.en, small.en, medium.en,
-        large-v3, qwen, parakeet) to the local HF cache.
+        large-v3, qwen, parakeet) to the local HF cache. Pushes
+        ``download_progress`` events to the renderer so the Models page
+        can update its progress bar and status text in real time, and
+        fires a tray notification on completion / failure.
         Returns a result dict with success status.
         """
         import os
+        # UX-005: helper to push progress events to the renderer.
+        from voice_typer.server.ipc_server import _push_event_now
+
+        def _push_progress(progress: int, status: str) -> None:
+            """progress is 0-100; status is a human-readable string."""
+            _push_event_now({
+                "type": "download_progress",
+                "data": {
+                    "model": model_name,
+                    "progress": max(0, min(100, int(progress))),
+                    "status": status,
+                },
+            })
+
+        def _notify(title: str, message: str) -> None:
+            try:
+                self._app.tray.notify(title, message)
+            except Exception:
+                log.debug("[SERVICE] tray notify failed", exc_info=True)
+
         try:
             if model_name in ("tiny.en", "small.en", "medium.en", "large-v3"):
+                _push_progress(0, f"Starting download for {model_name}...")
+                # UX-005: pre-download via snapshot_download so we can
+                # poll the HF cache file size for progress reporting.
+                # TranscriptionEngine.load() blocks with no progress
+                # callback; doing the snapshot_download first lets us
+                # emit progress events, then load() just reads from
+                # the local cache.
+                try:
+                    from huggingface_hub import snapshot_download
+                    from voice_typer.server.config import _config_dir
+                    repo_id = f"Systran/faster-whisper-{model_name}"
+                    cache_dir = _config_dir() / "huggingface" / "hub"
+                    _push_progress(5, f"Checking cache for {model_name}...")
+                    # Try local-only first; if cached, skip the polling.
+                    try:
+                        snapshot_download(repo_id=repo_id, local_files_only=True)
+                        _push_progress(100, f"{model_name} already cached")
+                    except Exception:
+                        _push_progress(10, f"Downloading {model_name} from HuggingFace...")
+                        # Start the download in a thread so we can poll
+                        # the cache directory size while it runs.
+                        import threading
+                        download_err: list = []
+                        def _do_download():
+                            try:
+                                snapshot_download(
+                                    repo_id=repo_id,
+                                    resume_download=True,
+                                    cache_dir=str(cache_dir),
+                                )
+                            except Exception as e:
+                                download_err.append(e)
+                        t = threading.Thread(target=_do_download, daemon=True)
+                        t.start()
+                        # Poll cache size until download thread exits.
+                        # Approximate total sizes (MB) for progress estimation.
+                        size_targets = {
+                            "tiny.en": 75, "small.en": 466,
+                            "medium.en": 1500, "large-v3": 3000,
+                        }
+                        target_mb = size_targets.get(model_name, 500)
+                        import time
+                        while t.is_alive():
+                            t.join(timeout=1.0)
+                            try:
+                                if cache_dir.exists():
+                                    total = sum(
+                                        f.stat().st_size
+                                        for f in cache_dir.rglob("*")
+                                        if f.is_file()
+                                    ) // (1024 * 1024)
+                                    pct = min(95, int(10 + (total / target_mb) * 85))
+                                    _push_progress(
+                                        pct,
+                                        f"Downloading {model_name}: {total} MB / ~{target_mb} MB",
+                                    )
+                            except Exception:
+                                pass
+                        if download_err:
+                            raise download_err[0]
+                        _push_progress(100, f"{model_name} download complete")
+                except ImportError:
+                    log.debug("[SERVICE] huggingface_hub not available, falling back to engine.load()")
+
+                # Now load + unload the engine to verify the download
+                _push_progress(100, f"Verifying {model_name}...")
                 from voice_typer.server.transcription import TranscriptionEngine
                 engine = TranscriptionEngine(model_size=model_name, device="cpu")
                 engine.load()
                 engine.unload()
+                _notify("Voice Typer", f"Model '{model_name}' downloaded successfully")
                 return {"success": True, "model": model_name}
             elif model_name == "qwen":
                 qwen_path = getattr(self._app.config, "qwen_model_path", None)
                 if qwen_path and os.path.isdir(qwen_path):
+                    _push_progress(100, "Qwen model already cached")
                     return {"success": True, "model": model_name, "message": "Qwen model already cached"}
+                _notify("Voice Typer", "Qwen model path not configured")
                 return {"success": False, "error": "Qwen model path not configured. Set qwen_model_path in Settings."}
             elif model_name == "parakeet":
+                _push_progress(0, "Starting Parakeet download (~2.5 GB)...")
                 from voice_typer.server.asr_setup import download_parakeet_weights
+                # asr_setup.download_parakeet_weights() doesn't expose
+                # progress; we emit start/finish events.
+                _push_progress(50, "Downloading Parakeet weights from HuggingFace...")
                 download_parakeet_weights()
+                _push_progress(100, "Parakeet download complete")
+                _notify("Voice Typer", "Parakeet model downloaded successfully")
                 return {"success": True, "model": model_name}
             else:
                 return {"success": False, "error": f"Unknown model: {model_name}"}
         except Exception as exc:
             log.error("download_model failed for %s: %s", model_name, exc)
+            _push_progress(0, f"Download failed: {exc}")
+            _notify("Voice Typer", f"Failed to download {model_name}: {exc}")
             return {"success": False, "error": str(exc)}

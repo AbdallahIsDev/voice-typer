@@ -377,6 +377,30 @@ def _spawn_npm_run_dev(hidden: bool = False) -> subprocess.Popen | None:
         return None
 
 
+def _parse_delay(argv: list[str]) -> float:
+    """STARTUP-2: parse --delay <seconds> from argv.
+
+    Returns the delay in seconds (0 if absent or malformed). Used by the
+    autostart entry to give the prewarm task a head start on warming the
+    OS file cache before the app's cold imports contend for disk.
+    """
+    for i, arg in enumerate(argv):
+        if arg == "--delay" and i + 1 < len(argv):
+            try:
+                return max(0.0, float(argv[i + 1]))
+            except (TypeError, ValueError):
+                log.warning("[AUTOSTART] invalid --delay value: %r", argv[i + 1])
+                return 0.0
+        # Also accept --delay=30 form
+        if arg.startswith("--delay="):
+            try:
+                return max(0.0, float(arg.split("=", 1)[1]))
+            except (TypeError, ValueError):
+                log.warning("[AUTOSTART] invalid --delay= value: %r", arg)
+                return 0.0
+    return 0.0
+
+
 def launch() -> int:
     """Universal launcher for Voice Typer.
 
@@ -399,10 +423,24 @@ def launch() -> int:
     _setup_logging()
     force_dev = "--dev" in sys.argv[1:]
     hidden = "--hidden" in sys.argv[1:]
+    delay_seconds = _parse_delay(sys.argv[1:])
+
     log.info(
-        "[AUTOSTART] launcher starting (pid=%d, force_dev=%s, hidden=%s)",
-        os.getpid(), force_dev, hidden,
+        "[AUTOSTART] launcher starting (pid=%d, force_dev=%s, hidden=%s, delay=%.1fs)",
+        os.getpid(), force_dev, hidden, delay_seconds,
     )
+
+    # STARTUP-2: sleep before doing anything so prewarm (which fires at
+    # logon+0s with low I/O priority) has a head start on warming the
+    # OS file cache. The app's cold imports of torch/transformers then
+    # hit RAM instead of disk. Skipped when focusing an existing instance
+    # or when delay is 0.
+    if delay_seconds > 0:
+        log.info(
+            "[AUTOSTART] delaying %.1fs before launch to let prewarm warm the cache",
+            delay_seconds,
+        )
+        time.sleep(delay_seconds)
 
     # 1) App already running — wake it via single-instance lock.
     if _is_port_open(IPC_HOST, IPC_PORT):

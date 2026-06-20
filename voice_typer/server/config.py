@@ -367,7 +367,12 @@ class Config:
             "fast_startup",
             "bubble_draggable", "bubble_show_on_startup",
             "volume_duck_enabled", "volume_duck_per_session",
-            "volume_duck_smart", "volume_duck_smart_poll_interval_ms",
+            "volume_duck_smart",
+            # STARTUP-6: volume_duck_smart_poll_interval_ms is an int (50-5000),
+            # NOT a bool — it was misclassified here, causing the bool validator
+            # to flag the default value 500 as invalid and log a spurious
+            # "resetting to default 500" warning on every startup. It already
+            # has its own int validator in IPC_CONFIG_ALLOWLIST.
             "noise_filter_enabled", "noise_filter_highpass",
             "noise_filter_gate", "noise_filter_rnnoise",
             "noise_filter_post_capture",

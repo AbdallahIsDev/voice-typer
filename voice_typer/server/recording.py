@@ -114,6 +114,12 @@ class Recorder:
 
         # Waveform bubble: fired from audio callback on every chunk (wired by app.py)
         self.on_rms_level = None  # type: Optional[callable]
+        # T021: callback signature is (rms: float, peak: float, audio_chunk: np.ndarray | None).
+        # The audio_chunk is the filtered float32 numpy array for the current
+        # chunk; downstream consumers (WaveformBubble.update_level) use it to
+        # run Silero VAD. Older callbacks that only accept (rms, peak) still
+        # work because Python ignores extra positional args when the callable
+        # uses *args or accepts the new signature explicitly.
 
     @property
     def recording(self) -> bool:
@@ -514,9 +520,15 @@ class Recorder:
                 )
 
             # Fire RMS callback OUTSIDE the lock
+            # T021: forward the filtered audio chunk so downstream
+            # consumers (WaveformBubble via app._on_recorder_rms) can
+            # run Silero VAD on it. The chunk is a numpy float32 array
+            # of the same shape as `filtered` (channels x samples).
+            # Callers that don't care about VAD simply ignore the
+            # third argument (backwards-compatible).
             if rms_callback is not None:
                 try:
-                    rms_callback(chunk_rms, chunk_peak)
+                    rms_callback(chunk_rms, chunk_peak, filtered)
                 except Exception:
                     log.debug("[RECORDING] on_rms_level callback raised", exc_info=True)
 

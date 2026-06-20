@@ -381,7 +381,11 @@ class TestConfigWiring:
         monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
 
         transcriber_cls = MagicMock()
-        monkeypatch.setattr("voice_typer.server.app.TranscriptionEngine", transcriber_cls)
+        # ARCH-007: construction is now centralized in AsrBackendRegistry.create()
+        # which imports TranscriptionEngine dynamically from voice_typer.server.transcription.
+        # Monkeypatch the SOURCE module (not app.TranscriptionEngine) so the
+        # registry's dynamic import picks up the mock.
+        monkeypatch.setattr("voice_typer.server.transcription.TranscriptionEngine", transcriber_cls)
 
         from voice_typer.server.app import VoiceTyperApp
         app = VoiceTyperApp()
@@ -510,7 +514,9 @@ class TestSettingsWindowIntegration:
     def test_model_change_uses_config_device(self, app, monkeypatch):
         """_change_model should use self.config.device, not hardcoded cuda."""
         transcriber_cls = MagicMock()
-        monkeypatch.setattr("voice_typer.server.app.TranscriptionEngine", transcriber_cls)
+        # ARCH-007: construction is now centralized in AsrBackendRegistry.create()
+        # which imports TranscriptionEngine dynamically from voice_typer.server.transcription.
+        monkeypatch.setattr("voice_typer.server.transcription.TranscriptionEngine", transcriber_cls)
 
         app.config.device = "cpu"
         app._change_model("medium.en")

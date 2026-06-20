@@ -51,14 +51,28 @@ TASK_NAME = "VoiceTyperPrewarm"
 # locked such that a standard user cannot overwrite it with schtasks).
 _RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 
-# Seconds the Run-key fallback sleeps before prewarming (mirrors the
-# Task Scheduler logon-trigger delay so prewarm does not contend with all
-# the other startup programs hitting disk at once).
-_RUN_KEY_DELAY_SECONDS = 45
+# STARTUP-2: previously the Run-key fallback delayed 45 s and the Task
+# Scheduler logon trigger also delayed 45 s. The app's HKCU Run key has
+# NO delay, so the app always started ~45 s before prewarm, defeating
+# the cache-warming benefit (app cold-imports torch/transformers while
+# prewarm is still waiting to fire).
+#
+# Fix: prewarm fires at logon+0 s (low I/O priority prevents user
+# disturbance); the app's autostart_launcher gets a --delay 30 flag so
+# it waits 30 s after launch before spawning Electron. Prewarm has a
+# 30 s head start on its import stage before the app starts contending.
+_RUN_KEY_DELAY_SECONDS = 0
 
-# Delay after logon before prewarming — lets login settle and avoids
-# contention with every other startup program hitting disk at once.
-_LOGON_DELAY = "PT45S"  # ISO 8601 duration: 45 seconds
+# Delay after logon before prewarming. STARTUP-2: was PT45S, now PT0S
+# (low I/O priority handles contention; the previous delay guaranteed
+# prewarm would lose the race against the app's cold imports).
+_LOGON_DELAY = "PT0S"  # ISO 8601 duration: 0 seconds (fire at logon)
+
+# STARTUP-2: delay the app's autostart_launcher waits before spawning
+# Electron, giving prewarm a head start on warming the OS file cache.
+# Coded as a CLI flag so platform.py can pass it without depending on
+# this module's internals.
+_APP_AUTOSTART_DELAY_SECONDS = 30
 
 # Re-warm after this much idle time, so a heavy-RAM session that evicted
 # the cache gets another chance before the user dictates again.
@@ -68,11 +82,17 @@ _IDLE_DELAY = "PT15M"  # 15 minutes
 # ─── Python interpreter resolution ──────────────────────────────────────
 
 def _prewarm_command() -> str | None:
-    """Return the full command line for the prewarm action, or None.
+    """Return the pythonw.exe path for the prewarm action, or None.
 
-    Prefers ``pythonw.exe`` (no console window) over ``python.exe``, so
-    the prewarm runs silently in the background even when launched via
-    ``cmd.exe /c`` in the Task Scheduler action.
+    STARTUP-1: previously returned the *full* command line
+    ``"pythonw.exe" -m voice_typer.server.prewarm`` and the XML builder
+    wrapped it in ``cmd.exe /c``, which spawned a visible console window
+    that stayed alive ~10 min while prewarm ran.
+
+    Now returns just the interpreter path; the module name is appended
+    by ``_build_task_xml`` as a separate ``<Arguments>`` element so the
+    Task Scheduler action runs ``pythonw.exe`` directly with no cmd host
+    (and thus no console window — pythonw.exe has no console by design).
 
     Mirrors ``asr_setup.get_voice_typer_python()``: prefer the app venv
     at ``~/.voice-typer/venv/`` (the interpreter Electron spawns), and
@@ -81,18 +101,27 @@ def _prewarm_command() -> str | None:
     # Try pythonw.exe first (no console window).
     venv_pythonw = Path.home() / ".voice-typer" / "venv" / "Scripts" / "pythonw.exe"
     if venv_pythonw.exists():
-        python = str(venv_pythonw.resolve())
-    else:
-        pythonw = Path(sys.executable).parent / "pythonw.exe"
-        if pythonw.exists():
-            python = str(pythonw.resolve())
-        else:
-            python = sys.executable
+        return str(venv_pythonw.resolve())
+    # Fall back to pythonw.exe next to the current interpreter.
+    pythonw = Path(sys.executable).parent / "pythonw.exe"
+    if pythonw.exists():
+        return str(pythonw.resolve())
+    # Final fallback: sys.executable itself.  On Windows this is python.exe
+    # (which has a console), but we still set Hidden=true and the task runs
+    # in a non-interactive session so the console is normally not visible.
+    # NOTE: this fallback only triggers when pythonw.exe is unavailable,
+    # which is unusual on a normal Python install.
+    python = sys.executable
     if not Path(python).exists():
         log.warning("[TASK] Python interpreter not found: %s", python)
         return None
-    # Quote for the XML; schtasks handles the rest.
-    return f'"{python}" -m voice_typer.server.prewarm'
+    log.debug("[TASK] pythonw.exe not found — falling back to %s", python)
+    return python
+
+
+# Arguments passed to the pythonw interpreter for the prewarm action.
+# Kept as a module constant so tests can verify the XML uses it.
+_PREWARM_ARGS = "-m voice_typer.server.prewarm"
 
 
 def _prewarm_pythonw() -> str | None:
@@ -207,13 +236,30 @@ def _is_prewarm_registered_registry() -> bool:
 
 # ─── Task XML definition ──────────────────────────────────────────────────
 
-def _build_task_xml(command: str) -> str:
+def _build_task_xml(python_exe: str, arguments: str | None = None) -> str:
     """Build the Task Scheduler XML definition.
 
     Hand-rolled rather than via ``win32com.client`` (which pywin32 may not
     ship in the runtime venv).  ``schtasks /Create /XML`` accepts this
     directly.
+
+    STARTUP-1: previously this wrapped the prewarm command in
+    ``cmd.exe /c``, which spawned a visible console window that stayed
+    alive ~10 min while prewarm ran. Now ``<Command>`` is the pythonw.exe
+    path directly (no cmd host) and ``<Arguments>`` carries the
+    ``-m voice_typer.server.prewarm`` flag. pythonw.exe has no console
+    by design, so no window ever appears.
+
+    Parameters
+    ----------
+    python_exe : str
+        Absolute path to the Python interpreter (pythonw.exe preferred).
+    arguments : str, optional
+        Command-line arguments for the interpreter. Defaults to
+        ``-m voice_typer.server.prewarm``.
     """
+    if arguments is None:
+        arguments = _PREWARM_ARGS
     root = ET.Element("Task", {
         "version": "1.4",
         "xmlns": "http://schemas.microsoft.com/windows/2004/02/mit/task",
@@ -270,13 +316,14 @@ def _build_task_xml(command: str) -> str:
     ET.SubElement(idle_settings, "RestartOnIdle").text = "false"
 
     # ── Actions ──────────────────────────────────────────────────────
+    # STARTUP-1: <Command> is pythonw.exe directly (NO cmd.exe wrapper).
+    # pythonw.exe has no console; the previous cmd.exe /c wrapper kept
+    # the cmd host alive for the duration of the prewarm run (~10 min),
+    # showing a ghost window.
     actions = ET.SubElement(root, "Actions", {"Context": "Author"})
     exec_el = ET.SubElement(actions, "Exec")
-    # Split "python.exe" -m voice_typer.server.prewarm into Command + Args.
-    # We pass the whole thing through cmd.exe to avoid quoting headaches
-    # in the XML — schtasks is much happier with a single shell command.
-    ET.SubElement(exec_el, "Command").text = "cmd.exe"
-    ET.SubElement(exec_el, "Arguments").text = f'/c {command}'
+    ET.SubElement(exec_el, "Command").text = python_exe
+    ET.SubElement(exec_el, "Arguments").text = arguments
 
     # ET.tostring adds the encoding declaration schtasks expects.
     return ET.tostring(root, encoding="unicode")
@@ -341,7 +388,7 @@ def register_prewarm_task() -> bool:
         log.warning("[TASK] cannot resolve prewarm command — skipping registration")
         return False
 
-    xml_def = _build_task_xml(command)
+    xml_def = _build_task_xml(command, _PREWARM_ARGS)
 
     # Write XML to a temp file — schtasks /Create /XML needs a path, and
     # passing huge inline args via cmd.exe is fragile.

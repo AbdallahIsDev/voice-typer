@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { usePython } from '@/hooks/usePython'
+import { usePython, usePythonEvent } from '@/hooks/usePython'
 import { useSnackbar } from '@/hooks/useSnackbar'
 import { HugeiconsIcon } from '@hugeicons/react'
 import {
@@ -125,6 +125,25 @@ export default function ModelsPage() {
 
   useEffect(() => { loadConfig() }, [loadConfig])
 
+  // UX-005: Subscribe to download_progress push events from the backend
+  // so the progress bar and status text update in real time during a
+  // model download. Previously these state values were declared but
+  // never written, so the progress bar stayed at 0% forever.
+  usePythonEvent('download_progress', useCallback((data: any) => {
+    if (data && typeof data.progress === 'number') {
+      setDownloadProgress(data.progress)
+    }
+    if (data && typeof data.status === 'string') {
+      setDownloadStatus(data.status)
+    }
+  }, []))
+
+  // Reset progress when a download starts / finishes
+  const resetProgress = useCallback(() => {
+    setDownloadProgress(0)
+    setDownloadStatus('')
+  }, [])
+
   const updateConfig = async (updates: Partial<VoiceTyperConfig>) => {
     try {
       await call('set_config', updates)
@@ -162,7 +181,11 @@ export default function ModelsPage() {
   const downloadModel = async (model: ModelInfo) => {
     // UX-005: Real download via IPC — calls download_model route which
     // loads the model into the HF cache (triggers HuggingFace download).
+    // The backend pushes `download_progress` events during the download
+    // (see usePythonEvent subscription above); we just initiate the call
+    // and update model state on success.
     setIsDownloading(true)
+    resetProgress()
     try {
       const result = await call<{ success: boolean; error?: string; message?: string }>('download_model', { model: model.name })
       if (result.success) {
@@ -175,6 +198,9 @@ export default function ModelsPage() {
       showSnack(`Download failed: ${err}`, 'error')
     } finally {
       setIsDownloading(false)
+      // Keep the final progress/status visible briefly so the user
+      // sees the "complete" message; the next downloadModel() call
+      // will reset via resetProgress().
     }
   }
 

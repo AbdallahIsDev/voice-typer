@@ -24,10 +24,33 @@ class TestOnboardingFirstRun:
         assert ctrl.is_first_run() is True
 
     def test_not_first_run_with_config(self, onboarding_dir):
-        (onboarding_dir / "config.json").write_text("{}", encoding="utf-8")
+        """#8: A config.json with onboarding_completed=True is NOT first run.
+
+        Previously this test used an empty ``{}`` config which would have
+        onboarding_completed=False (default), so is_first_run() now returns
+        True. The wizard should appear whenever onboarding_completed is
+        False, regardless of whether config.json exists.
+        """
+        (onboarding_dir / "config.json").write_text(
+            json.dumps({"onboarding_completed": True}), encoding="utf-8"
+        )
         from voice_typer.server.onboarding import OnboardingController
         ctrl = OnboardingController(config_dir=onboarding_dir)
         assert ctrl.is_first_run() is False
+
+    def test_first_run_when_config_has_onboarding_false(self, onboarding_dir):
+        """#8: config.json exists but onboarding_completed=False → first run.
+
+        This is the case after app.py saves defaults on the very first
+        launch. The wizard should still appear so the user can pick
+        their microphone, hotkey, and model.
+        """
+        (onboarding_dir / "config.json").write_text(
+            json.dumps({"onboarding_completed": False}), encoding="utf-8"
+        )
+        from voice_typer.server.onboarding import OnboardingController
+        ctrl = OnboardingController(config_dir=onboarding_dir)
+        assert ctrl.is_first_run() is True
 
     def test_not_first_run_after_mark_complete(self, ctrl):
         ctrl.mark_complete()
@@ -144,3 +167,92 @@ class TestOnboardingApplySettings:
         ctrl.apply_settings(config)
         # Should not overwrite when None
         assert config.microphone == "old-mic"
+
+
+class TestOnboardingWizardE2E:
+    """#8: End-to-end test of the wizard flow through the service layer.
+
+    Verifies that:
+    - is_first_run() returns True when onboarding_completed is False
+    - The wizard can set microphone, hotkey, and model selections
+    - apply_settings persists the choices and marks onboarding complete
+    - After apply, is_first_run() returns False (wizard won't reappear)
+    """
+
+    def test_full_wizard_flow(self, onboarding_dir):
+        """Simulate the React wizard's IPC call sequence."""
+        from voice_typer.server.onboarding import OnboardingController
+
+        # 1) Backend: first-run detection
+        ctrl = OnboardingController(config_dir=onboarding_dir)
+        assert ctrl.is_first_run() is True, (
+            "Wizard should appear when onboarding_completed is False"
+        )
+
+        # 2) Wizard starts
+        ctrl = OnboardingController(config_dir=onboarding_dir)
+        assert ctrl.current_step == 0
+        assert ctrl.total_steps == 5
+
+        # 3) Step 1: select microphone
+        ctrl.next_step()  # advance to step 1 (Microphone)
+        ctrl.set_microphone("mic-usb")
+        assert ctrl.selected_microphone == "mic-usb"
+
+        # 4) Step 2: select hotkey
+        ctrl.next_step()
+        ctrl.set_hotkey("<f4>")
+        assert ctrl.selected_hotkey == "<f4>"
+
+        # 5) Step 3: select model
+        ctrl.next_step()
+        ctrl.set_model("tiny.en")
+        assert ctrl.selected_model == "tiny.en"
+
+        # 6) Step 4: apply settings (final step before done)
+        ctrl.next_step()
+
+        # 7) Apply settings to a mock config (mirrors service.onboarding_apply)
+        from voice_typer.server.config import Config
+        cfg = Config()
+        cfg.microphone = None
+        cfg.hotkey = "<f2>"
+        cfg.model_size = "small.en"
+        ctrl.apply_settings(cfg)
+        ctrl.mark_complete()
+        cfg.onboarding_completed = True
+        cfg.save()
+
+        # 8) Verify the wizard won't reappear
+        ctrl2 = OnboardingController(config_dir=onboarding_dir)
+        assert ctrl2.is_first_run() is False, (
+            "Wizard should NOT reappear after apply_settings + mark_complete"
+        )
+
+        # 9) Verify the user's choices were persisted
+        cfg2 = Config.load()
+        assert cfg2.microphone == "mic-usb"
+        assert cfg2.hotkey == "<f4>"
+        assert cfg2.model_size == "tiny.en"
+        assert cfg2.onboarding_completed is True
+
+    def test_skip_flow(self, onboarding_dir):
+        """Skip path: user clicks 'Skip' on step 0 — defaults are kept."""
+        from voice_typer.server.onboarding import OnboardingController
+        from voice_typer.server.config import Config
+
+        ctrl = OnboardingController(config_dir=onboarding_dir)
+        assert ctrl.is_first_run() is True
+
+        # Skip immediately
+        ctrl.skip()
+        ctrl.mark_complete()
+
+        # Wizard won't reappear
+        ctrl2 = OnboardingController(config_dir=onboarding_dir)
+        assert ctrl2.is_first_run() is False
+
+        # Config retains defaults (wizard was skipped before any set_* call)
+        cfg = Config.load()
+        assert cfg.hotkey == "<f2>"  # default
+        assert cfg.model_size == "small.en"  # default

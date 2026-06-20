@@ -217,3 +217,115 @@ class TestCli:
         # main() calls _parse_args() which reads sys.argv — isolate it.
         monkeypatch.setattr(sys, "argv", ["prewarm"])
         assert prewarm.main() == prewarm.EXIT_DISABLED
+
+
+# ─── STARTUP-4: active-model filter ─────────────────────────────────────
+
+
+class TestStartup4ActiveModelFilter:
+    """STARTUP-4: prewarm should only warm the active model + declared fallback.
+
+    Previously prewarm walked ALL models--* dirs in the HF cache, warming
+    ~2.1 GB of inactive Whisper variants when the active backend was parakeet.
+    Now it only warms dirs returned by _active_model_cache_dirs().
+    """
+
+    def test_parakeet_backend_warms_parakeet_and_tiny_en_fallback(
+        self, monkeypatch, tmp_path,
+    ):
+        """Active backend = parakeet → warm parakeet + tiny.en fallback only."""
+        # Set up fake HF cache with multiple model dirs
+        hf_cache = tmp_path / "huggingface" / "hub"
+        hf_cache.mkdir(parents=True)
+        # Parakeet cache dir (active)
+        (hf_cache / "models--nvidia--parakeet-tdt-0.6b-v3" / "snapshots" / "abc").mkdir(parents=True)
+        # tiny.en cache dir (fallback target)
+        (hf_cache / "models--Systran--faster-whisper-tiny.en" / "snapshots" / "def").mkdir(parents=True)
+        # Inactive whisper variants — must NOT be warmed
+        (hf_cache / "models--Systran--faster-whisper-small.en" / "snapshots" / "ghi").mkdir(parents=True)
+        (hf_cache / "models--Systran--faster-whisper-medium.en" / "snapshots" / "jkl").mkdir(parents=True)
+
+        # Mock Config.load() to return parakeet config
+        fake_cfg = MagicMock(asr_backend="parakeet", model_size="small.en")
+        monkeypatch.setattr(
+            "voice_typer.server.config.Config.load",
+            classmethod(lambda cls: fake_cfg),
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.config._config_dir",
+            lambda: tmp_path,
+        )
+
+        dirs = prewarm._active_model_cache_dirs()
+        dir_names = [d.name for d in dirs]
+        # Must include parakeet (active) and tiny.en (fallback)
+        assert "models--nvidia--parakeet-tdt-0.6b-v3" in dir_names
+        assert "models--Systran--faster-whisper-tiny.en" in dir_names
+        # Must NOT include inactive Whisper variants
+        assert "models--Systran--faster-whisper-small.en" not in dir_names
+        assert "models--Systran--faster-whisper-medium.en" not in dir_names
+
+    def test_whisper_backend_warms_active_size_only(
+        self, monkeypatch, tmp_path,
+    ):
+        """Active backend = whisper, model_size = small.en → warm small.en + tiny.en fallback."""
+        hf_cache = tmp_path / "huggingface" / "hub"
+        hf_cache.mkdir(parents=True)
+        (hf_cache / "models--Systran--faster-whisper-small.en" / "snapshots" / "abc").mkdir(parents=True)
+        (hf_cache / "models--Systran--faster-whisper-tiny.en" / "snapshots" / "def").mkdir(parents=True)
+        # Inactive
+        (hf_cache / "models--Systran--faster-whisper-medium.en" / "snapshots" / "ghi").mkdir(parents=True)
+        (hf_cache / "models--nvidia--parakeet-tdt-0.6b-v3" / "snapshots" / "jkl").mkdir(parents=True)
+
+        fake_cfg = MagicMock(asr_backend="whisper", model_size="small.en")
+        monkeypatch.setattr(
+            "voice_typer.server.config.Config.load",
+            classmethod(lambda cls: fake_cfg),
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.config._config_dir",
+            lambda: tmp_path,
+        )
+
+        dirs = prewarm._active_model_cache_dirs()
+        dir_names = [d.name for d in dirs]
+        assert "models--Systran--faster-whisper-small.en" in dir_names
+        assert "models--Systran--faster-whisper-tiny.en" in dir_names  # fallback
+        # Inactive models NOT included
+        assert "models--Systran--faster-whisper-medium.en" not in dir_names
+        assert "models--nvidia--parakeet-tdt-0.6b-v3" not in dir_names
+
+    def test_whisper_tiny_en_active_no_duplicate(self, monkeypatch, tmp_path):
+        """If tiny.en is already the active model, don't add it twice."""
+        hf_cache = tmp_path / "huggingface" / "hub"
+        hf_cache.mkdir(parents=True)
+        (hf_cache / "models--Systran--faster-whisper-tiny.en" / "snapshots" / "abc").mkdir(parents=True)
+
+        fake_cfg = MagicMock(asr_backend="whisper", model_size="tiny.en")
+        monkeypatch.setattr(
+            "voice_typer.server.config.Config.load",
+            classmethod(lambda cls: fake_cfg),
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.config._config_dir",
+            lambda: tmp_path,
+        )
+
+        dirs = prewarm._active_model_cache_dirs()
+        # Only one dir (no duplicate)
+        assert len(dirs) == 1
+        assert dirs[0].name == "models--Systran--faster-whisper-tiny.en"
+
+    def test_no_cache_returns_empty_list(self, monkeypatch, tmp_path):
+        """No HF cache → empty list (nothing to warm)."""
+        fake_cfg = MagicMock(asr_backend="whisper", model_size="small.en")
+        monkeypatch.setattr(
+            "voice_typer.server.config.Config.load",
+            classmethod(lambda cls: fake_cfg),
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.config._config_dir",
+            lambda: tmp_path,  # no huggingface/hub subdir
+        )
+        dirs = prewarm._active_model_cache_dirs()
+        assert dirs == []

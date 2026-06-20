@@ -88,6 +88,85 @@ class AsrBackendRegistry:
 
     # ── ARCH-007/008: registry convenience methods ────────────────
 
+    # ARCH-007: Backend module path / class name lookup for create().
+    # Centralized here so all engine construction goes through one chokepoint.
+    _BACKEND_SPECS: dict[str, tuple[str, str]] = {
+        "whisper": ("voice_typer.server.transcription", "TranscriptionEngine"),
+        "qwen": ("voice_typer.server.qwen_engine", "QwenEngine"),
+        "parakeet": ("voice_typer.server.parakeet_engine", "ParakeetEngine"),
+    }
+
+    def create(
+        self,
+        name: str,
+        *,
+        whisper_kwargs: dict | None = None,
+        qwen_kwargs: dict | None = None,
+        parakeet_kwargs: dict | None = None,
+    ) -> Optional[Any]:
+        """ARCH-007: Construct (but don't load) a backend engine.
+
+        Centralizes the triplicated TranscriptionEngine(...) /
+        QwenEngine(...) / ParakeetEngine(...) construction that was
+        previously copy-pasted across app.py:_load_transcription_engine_background,
+        _fallback_to_whisper, and _change_model.
+
+        Returns the constructed engine (registered in the registry) or
+        None on ImportError / construction failure.
+
+        Parameters
+        ----------
+        name : str
+            Backend name: "whisper", "qwen", or "parakeet".
+        whisper_kwargs, qwen_kwargs, parakeet_kwargs : dict, optional
+            Constructor kwargs for the corresponding backend. Only the
+            kwarg dict matching ``name`` is used; the others are ignored.
+
+        Examples
+        --------
+        >>> registry.create("whisper", whisper_kwargs=dict(
+        ...     model_size="tiny.en", device="cpu", language="en",
+        ...     beam_size=1, best_of=1, condition_on_previous_text=False,
+        ... ))
+        """
+        spec = self._BACKEND_SPECS.get(name)
+        if spec is None:
+            log.error("[ASR_REGISTRY] unknown backend: %s", name)
+            return None
+
+        module_path, class_name = spec
+        kwargs_map = {
+            "whisper": whisper_kwargs or {},
+            "qwen": qwen_kwargs or {},
+            "parakeet": parakeet_kwargs or {},
+        }
+        kwargs = kwargs_map[name]
+
+        try:
+            import importlib
+            mod = importlib.import_module(module_path)
+            engine_cls = getattr(mod, class_name)
+            engine = engine_cls(**kwargs)
+            # Register immediately so callers can fetch via get(name).
+            self.register(name, engine)
+            log.info(
+                "[ASR_REGISTRY] created %s backend (%s), registered",
+                name, class_name,
+            )
+            return engine
+        except ImportError:
+            log.warning(
+                "[ASR_REGISTRY] %s backend package not installed, unavailable",
+                name,
+            )
+            return None
+        except Exception as exc:
+            log.error(
+                "[ASR_REGISTRY] failed to initialise %s backend: %s",
+                name, exc,
+            )
+            return None
+
     def load_active(self, progress_callback: Any = None) -> Optional[Any]:
         """Load the active backend and return it.
 

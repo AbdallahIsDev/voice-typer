@@ -313,11 +313,20 @@ class VoiceTyperApp:
         self.recorder = Recorder(self.config, audio_processor=self._audio_processor)
         # Item 1: wire xrun threshold callback for tray notification
         self.recorder.on_xrun_threshold = self._on_xrun_threshold
+        # ARCH-008: Initialize the ASR registry BEFORE the engine fields
+        # so any code path that touches the registry (e.g. _start_dictation's
+        # lazy-init) can rely on it existing. Previously the registry was
+        # created lazily in _sync_asr_registry, which meant _start_dictation
+        # would crash with AttributeError if called before any sync.
+        from voice_typer.server.asr_registry import AsrBackendRegistry
+        self._asr_registry: AsrBackendRegistry = AsrBackendRegistry(self.config)
         self.transcriber: Optional[TranscriptionEngine] = None
         self._qwen_engine = None
         self._parakeet_engine = None
         if self.config.asr_backend == "qwen" and self.config.qwen_model_path:
             self._init_qwen_engine()
+            # ARCH-008: sync the registry after _init_qwen_engine sets the field
+            self._sync_asr_registry()
 
         self.clipboard = ClipboardManager(
             paste_enabled=self.config.paste_on_stop,
@@ -707,16 +716,28 @@ class VoiceTyperApp:
         """Background work: sync autostart, load mics, load model, register hotkey."""
         log.info("[STARTUP] _do_startup begin")
 
-        # UX-006: Onboarding -- check if this is first run
+        # #8: Onboarding wizard — detect first run and let the React UI
+        # show the wizard. Previously this auto-applied defaults and
+        # marked onboarding complete, which prevented the wizard from
+        # ever appearing (the 275-line Onboarding.tsx was dead code).
+        # Now we just save the config with onboarding_completed=False
+        # so the frontend can detect first-run via the
+        # `onboarding_is_first_run` IPC route and route the user to
+        # the wizard. The wizard's apply/skip handler flips the flag
+        # to True and marks the .onboarding_complete marker.
         if not self.config.onboarding_completed:
             try:
                 from voice_typer.server.onboarding import OnboardingController
                 onboarding = OnboardingController()
                 if onboarding.is_first_run():
-                    log.info("[STARTUP] First run detected -- applying onboarding defaults")
-                    onboarding.apply_settings(self.config)
-                    onboarding.mark_complete()
-                    self.config.onboarding_completed = True
+                    log.info(
+                        "[STARTUP] First run detected -- deferring to React "
+                        "onboarding wizard (config.onboarding_completed=False)"
+                    )
+                    # Persist the config file with onboarding_completed=False
+                    # so the frontend's `get_config` call sees the
+                    # first-run state. The wizard handles applying the
+                    # user's choices via `onboarding_apply`.
                     self.config.save()
             except Exception as e:
                 log.debug("[STARTUP] Onboarding check failed: %s", e)
@@ -891,32 +912,56 @@ class VoiceTyperApp:
         is auto-started once loading succeeds.
 
         ARCH-007: Unified code path -- previously this had three
-        near-identical branches for parakeet/qwen/whisper. Now it
-        creates the engine for the configured backend, syncs the
-        registry, and delegates loading + fallback to
-        AsrBackendRegistry.load_with_fallback().
+        near-identical branches for parakeet/qwen/whisper with copy-pasted
+        TranscriptionEngine(...) construction. Now it delegates engine
+        construction to AsrBackendRegistry.create() (single chokepoint)
+        and loading + fallback to AsrBackendRegistry.load_with_fallback().
         """
         try:
             backend_name = self.config.asr_backend
 
-            # Ensure the engine object exists (lightweight -- no model load)
-            if backend_name == "parakeet" and self._parakeet_engine is None:
-                self._init_parakeet_engine()
-            elif backend_name == "qwen" and self._qwen_engine is None:
-                self._init_qwen_engine()
-            elif backend_name not in ("parakeet", "qwen"):
-                # Whisper: create TranscriptionEngine if not yet done
-                if self.transcriber is None:
-                    self.transcriber = TranscriptionEngine(
-                        model_size=self.config.model_size,
-                        device=self.config.device,
-                        language=self.config.language,
-                        beam_size=self.config.beam_size,
-                        best_of=self.config.best_of,
-                        condition_on_previous_text=self.config.condition_on_previous_text,
+            # Ensure the engine object exists (lightweight -- no model load).
+            # ARCH-007: use registry.create() instead of inline construction
+            # so all backend construction goes through one code path.
+            if self._asr_registry.get(backend_name) is None:
+                if backend_name == "parakeet":
+                    self._asr_registry.create(
+                        "parakeet",
+                        parakeet_kwargs=dict(
+                            device=self.config.device,
+                            language=self.config.language,
+                        ),
                     )
+                    # Mirror to legacy field for back-compat with tests
+                    # that read self._parakeet_engine directly.
+                    self._parakeet_engine = self._asr_registry.get("parakeet")
+                elif backend_name == "qwen":
+                    self._asr_registry.create(
+                        "qwen",
+                        qwen_kwargs=dict(
+                            model_path=self.config.qwen_model_path,
+                            device=self.config.device,
+                            language=self.config.language,
+                        ),
+                    )
+                    self._qwen_engine = self._asr_registry.get("qwen")
+                else:
+                    # Whisper: create TranscriptionEngine if not yet done
+                    self._asr_registry.create(
+                        "whisper",
+                        whisper_kwargs=dict(
+                            model_size=self.config.model_size,
+                            device=self.config.device,
+                            language=self.config.language,
+                            beam_size=self.config.beam_size,
+                            best_of=self.config.best_of,
+                            condition_on_previous_text=self.config.condition_on_previous_text,
+                        ),
+                    )
+                    self.transcriber = self._asr_registry.get("whisper")
 
-            # Sync registry with current engine fields
+            # Sync registry with current engine fields (back-compat for
+            # any code path that wrote directly to the legacy fields).
             self._sync_asr_registry()
 
             # Set tray state before heavy import so user sees progress
@@ -1048,21 +1093,31 @@ class VoiceTyperApp:
         Switches config to whisper/tiny.en, ensures the whisper backend
         is registered, and delegates loading to
         AsrBackendRegistry.load_with_fallback().
+
+        ARCH-007: Construction is delegated to AsrBackendRegistry.create()
+        instead of inline TranscriptionEngine(...) — same chokepoint as
+        _load_transcription_engine_background and _change_model.
         """
         self.config.model_size = "tiny.en"
         self.config.asr_backend = "whisper"
-        if self.transcriber is None:
-            self.transcriber = TranscriptionEngine(
-                model_size="tiny.en",
-                device=self.config.device,
-                language=self.config.language,
-                beam_size=self.config.beam_size,
-                best_of=self.config.best_of,
-                condition_on_previous_text=self.config.condition_on_previous_text,
+        existing = self._asr_registry.get("whisper")
+        if existing is None:
+            # ARCH-007: use registry.create() instead of inline construction
+            self._asr_registry.create(
+                "whisper",
+                whisper_kwargs=dict(
+                    model_size="tiny.en",
+                    device=self.config.device,
+                    language=self.config.language,
+                    beam_size=self.config.beam_size,
+                    best_of=self.config.best_of,
+                    condition_on_previous_text=self.config.condition_on_previous_text,
+                ),
             )
+            self.transcriber = self._asr_registry.get("whisper")
         else:
-            self.transcriber.model_size = "tiny.en"
-            self.transcriber._configured_model_size = "tiny.en"
+            existing.model_size = "tiny.en"
+            existing._configured_model_size = "tiny.en"
 
         # Update the registry so it reflects the new whisper backend
         self._sync_asr_registry()
@@ -1277,11 +1332,32 @@ class VoiceTyperApp:
         # Cancel any stale pending timers from previous sessions
         self._cancel_pending_timers()
 
-        # Lazy-init engines if backend was changed via Electron UI after startup
-        if self.config.asr_backend == "parakeet" and self._parakeet_engine is None:
-            self._init_parakeet_engine()
-        if self.config.asr_backend == "qwen" and self._qwen_engine is None:
-            self._init_qwen_engine()
+        # Lazy-init engines if backend was changed via Electron UI after startup.
+        # ARCH-007: use registry.create() so the registry stays in sync with
+        # the field (previously _init_parakeet_engine/_init_qwen_engine set
+        # the field directly without updating the registry, causing
+        # field/registry drift — see ARCH-008).
+        if self.config.asr_backend == "parakeet" and self._asr_registry.get("parakeet") is None:
+            self._asr_registry.create(
+                "parakeet",
+                parakeet_kwargs=dict(
+                    device=self.config.device,
+                    language=self.config.language,
+                ),
+            )
+            self._parakeet_engine = self._asr_registry.get("parakeet")
+            self._sync_asr_registry()
+        if self.config.asr_backend == "qwen" and self._asr_registry.get("qwen") is None:
+            self._asr_registry.create(
+                "qwen",
+                qwen_kwargs=dict(
+                    model_path=self.config.qwen_model_path,
+                    device=self.config.device,
+                    language=self.config.language,
+                ),
+            )
+            self._qwen_engine = self._asr_registry.get("qwen")
+            self._sync_asr_registry()
 
         # ARCH-007/008: Use _get_active_transcriber instead of checking
         # three separate fields.  The registry centralizes the "which
@@ -1344,9 +1420,17 @@ class VoiceTyperApp:
             )
             self._schedule_timer(3.0, lambda: self.tray.set_state(AppState.IDLE))
 
-    def _on_recorder_rms(self, rms: float, peak: float) -> None:
-        """Forward per-chunk RMS from the audio callback to the bubble."""
-        self._waveform_bubble.update_level(rms, peak)
+    def _on_recorder_rms(self, rms: float, peak: float, audio_chunk=None) -> None:
+        """T021: Forward per-chunk RMS + audio chunk to the bubble.
+
+        Previously this called update_level(rms, peak) with no audio_chunk,
+        which meant the Silero VAD gate in WaveformBubble.update_level
+        was inert in production (audio_chunk defaulted to None → VAD
+        skipped). Now we forward the audio_chunk from the recorder so
+        VAD actually fires during real dictation, filtering out ambient
+        noise from the visualizer.
+        """
+        self._waveform_bubble.update_level(rms, peak, audio_chunk=audio_chunk)
 
     def _on_audio_quality_chunk(self, rms: float, peak: float) -> None:
         """Per-chunk quality callback wired to AudioProcessor.
@@ -1910,20 +1994,42 @@ class VoiceTyperApp:
                 pass
             self.transcriber = None
 
-        # Create new engine object
+        # ARCH-007: Create new engine object via registry.create()
+        # (single chokepoint for all backend construction — replaces the
+        # previous _init_parakeet_engine / _init_qwen_engine / inline
+        # TranscriptionEngine(...) triplication).
         if new_backend == "parakeet":
-            self._init_parakeet_engine()
-        elif new_backend == "qwen":
-            self._init_qwen_engine()
-        else:
-            self.transcriber = TranscriptionEngine(
-                model_size=self.config.model_size,
-                device=self.config.device,
-                language=self.config.language,
-                beam_size=self.config.beam_size,
-                best_of=self.config.best_of,
-                condition_on_previous_text=self.config.condition_on_previous_text,
+            self._asr_registry.create(
+                "parakeet",
+                parakeet_kwargs=dict(
+                    device=self.config.device,
+                    language=self.config.language,
+                ),
             )
+            self._parakeet_engine = self._asr_registry.get("parakeet")
+        elif new_backend == "qwen":
+            self._asr_registry.create(
+                "qwen",
+                qwen_kwargs=dict(
+                    model_path=self.config.qwen_model_path,
+                    device=self.config.device,
+                    language=self.config.language,
+                ),
+            )
+            self._qwen_engine = self._asr_registry.get("qwen")
+        else:
+            self._asr_registry.create(
+                "whisper",
+                whisper_kwargs=dict(
+                    model_size=self.config.model_size,
+                    device=self.config.device,
+                    language=self.config.language,
+                    beam_size=self.config.beam_size,
+                    best_of=self.config.best_of,
+                    condition_on_previous_text=self.config.condition_on_previous_text,
+                ),
+            )
+            self.transcriber = self._asr_registry.get("whisper")
 
         # Sync registry and load
         self._sync_asr_registry()

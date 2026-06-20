@@ -444,3 +444,49 @@ class TestWaveformVADGate:
         bubble.update_level(0.15, 0.3, audio_chunk=np.full(16000, 0.1, dtype=np.float32))
         assert bubble.rms_level > 0
         assert bubble.is_speaking is True
+
+
+class TestT021ProductionWiring:
+    """T021: verify the audio_chunk path is wired end-to-end.
+
+    The VAD gate existed in waveform.py but was inert in production
+    because app._on_recorder_rms(rms, peak) didn't pass audio_chunk
+    to WaveformBubble.update_level. These tests verify the wiring is
+    now in place.
+    """
+
+    def test_app_on_recorder_rms_accepts_audio_chunk(self, monkeypatch):
+        """app._on_recorder_rms signature must accept audio_chunk kwarg."""
+        import inspect
+        from voice_typer.server.app import VoiceTyperApp
+        sig = inspect.signature(VoiceTyperApp._on_recorder_rms)
+        assert "audio_chunk" in sig.parameters, (
+            "_on_recorder_rms must accept audio_chunk kwarg to forward "
+            "audio to WaveformBubble.update_level for VAD gating"
+        )
+
+    def test_recorder_callback_passes_three_args(self):
+        """Recorder.on_rms_level callback receives 3 args: rms, peak, audio_chunk.
+
+        Reads the source of the recording module to confirm the callback
+        is invoked with 3 positional arguments (not 2). The callback
+        is a nested function inside Recorder.start(), so we read the
+        whole module source as a static check.
+        """
+        import inspect
+        from voice_typer.server import recording
+        src = inspect.getsource(recording)
+        assert "rms_callback(chunk_rms, chunk_peak, filtered)" in src, (
+            "Recorder's audio callback must pass the filtered audio chunk "
+            "as the 3rd argument to rms_callback so VAD can run on it"
+        )
+
+    def test_update_level_signature_accepts_audio_chunk(self):
+        """WaveformBubble.update_level must accept audio_chunk kwarg."""
+        import inspect
+        from voice_typer.server.waveform import WaveformBubble
+        sig = inspect.signature(WaveformBubble.update_level)
+        assert "audio_chunk" in sig.parameters, (
+            "WaveformBubble.update_level must accept audio_chunk kwarg "
+            "to run VAD on the incoming audio"
+        )

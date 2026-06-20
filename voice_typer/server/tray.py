@@ -34,7 +34,9 @@ from PIL import Image
 # ARCH-003: types extracted to tray_types.py; icon rendering to tray_icon.py
 from voice_typer.server.tray_types import AppState, TrayController
 from voice_typer.server.tray_icon import _get_dpi_aware_icon_size, _make_icon, _icon_cache
-from voice_typer.server.tray_hotkey import format_hotkey_label
+# #13: menu building extracted to tray_menu.py (display_hotkey, wrap_callback,
+# build_menu). tray.py now owns only pystray icon lifecycle + state queuing.
+from voice_typer.server.tray_menu import display_hotkey, wrap_callback, build_menu
 from voice_typer.server.tray_models import build_models_submenu_data
 
 log = logging.getLogger(__name__)
@@ -245,42 +247,23 @@ class TrayIcon:
 
 
     def _build_menu(self) -> tuple:
-        """Build the Phase 2 minimal tray menu with Models submenu."""
+        """Build the Phase 2 minimal tray menu with Models submenu.
+
+        #13: delegates to tray_menu.build_menu(). tray.py owns the
+        cache (so it can invalidate on config change); tray_menu.py
+        owns the menu structure.
+        """
         if self._menu_cache_valid and self._cached_menu is not None:
             return self._cached_menu
 
-        items = []
-        hotkey = self._display_hotkey()
-
-        items.append(
-            pystray.MenuItem(
-                f"Toggle Dictation ({hotkey})",
-                self._wrap(self._controller.toggle_dictation),
-                default=True,
-            )
+        result = build_menu(
+            hotkey=self._hotkey or getattr(self._config, "hotkey", "<f2>") or "<f2>",
+            toggle_dictation=self._controller.toggle_dictation,
+            open_app=self.open_electron_window,
+            restart_app=self._controller.restart_app,
+            quit_app=self._controller.quit_app,
+            build_models_submenu=self._build_models_submenu,
         )
-        items.append(
-            pystray.MenuItem(
-                "Open App",
-                self._wrap(self.open_electron_window),
-            )
-        )
-
-        items.append(pystray.Menu.SEPARATOR)
-
-        # Models submenu — only show downloaded models
-        models_sub = self._build_models_submenu()
-        items.append(pystray.MenuItem("Models", pystray.Menu(*models_sub)))
-
-        items.append(pystray.Menu.SEPARATOR)
-
-        # Restart
-        items.append(pystray.MenuItem("Restart", self._wrap(self._controller.restart_app)))
-
-        # Quit
-        items.append(pystray.MenuItem("Quit", self._wrap(self._controller.quit_app)))
-
-        result = tuple(items)
         self._cached_menu = result
         self._menu_cache_valid = True
         return result
@@ -295,43 +278,20 @@ class TrayIcon:
         return build_models_menu_items(
             _config_dir,
             self._controller.change_model,
-            self._wrap,
+            wrap_callback,  # use the shared wrapper from tray_menu
             self.open_electron_window,
         )
 
     def _display_hotkey(self) -> str:
         """Return the configured hotkey in a user-facing form.
 
-        Delegates to tray_hotkey.format_hotkey_label() so the formatting
+        #13: delegates to tray_menu.display_hotkey() so the formatting
         logic is shared and testable without a TrayIcon instance.
         """
         hotkey = self._hotkey or getattr(self._config, "hotkey", "<f2>") or "<f2>"
-        return format_hotkey_label(hotkey)
+        return display_hotkey(hotkey)
 
-    @staticmethod
-    def _wrap(fn):
-        """Wrap callback so pystray doesn't break on extra args.
-
-        RELIABILITY-001: previously this wrapper silently swallowed
-        ``SystemExit``, which forced ``quit_app`` and ``restart_app``
-        to use ``os._exit(0)`` to actually terminate the process.
-        That bypassed Python cleanup (atexit, ``__del__``, ``finally``)
-        and leaked the Win32 mutex, PortAudio handles, and
-        ``RegisterHotKey`` registrations until the OS reaped them.
-
-        We now log and re-raise ``SystemExit`` so the process can exit
-        cleanly via the normal ``sys.exit(0)`` path.  ``self.quit()``
-        (called by ``quit_app``) and ``restart_app`` both call
-        ``self.tray.stop()`` before raising ``SystemExit``, which
-        breaks the pystray event loop so ``_icon.run()`` returns and
-        the main thread can exit.
-        """
-        log = logging.getLogger("voice_typer.server.tray")
-        def wrapper(icon, item):
-            try:
-                fn()
-            except SystemExit as _se:
-                log.info("[TRAY] callback %r raised SystemExit(%s); re-raising",
-                         getattr(fn, "__name__", "<lambda>"), _se.code)
-                raise
-        return wrapper
+    # #13: _wrap moved to tray_menu.wrap_callback (shared helper).
+    # Kept here as a static-method alias for backwards compatibility with
+    # any code that calls TrayIcon._wrap(fn) directly.
+    _wrap = staticmethod(wrap_callback)

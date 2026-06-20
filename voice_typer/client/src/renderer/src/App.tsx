@@ -12,6 +12,10 @@ import ModelsPage from '@/pages/Models'
 import MicrophonePage from '@/pages/Microphone'
 import DashboardPage from '@/pages/Dashboard'
 import SettingsPage from '@/pages/Settings'
+// #8: Onboarding wizard — was previously dead code (275-line component
+// never imported, never rendered). Now wired in via the first-run check
+// in the connection lifecycle effect below.
+import OnboardingPage from '@/pages/Onboarding'
 import { cn } from '@/lib/utils'
 import type { RecordingState, Page, WindowBridge } from '@/types/ipc'
 import type { VoiceTyperConfig } from '@/types/config'
@@ -168,6 +172,24 @@ export default function App() {
           if (behavior === 'always_visible' && showOnStartup !== false) {
             ;(window as any).bubble?.show?.()
           }
+
+          // #8: Onboarding wizard — detect first run and route the user
+          // to the wizard. Previously this 275-line component was dead
+          // code. The backend's `onboarding_is_first_run` IPC route
+          // checks config.onboarding_completed (and the marker file).
+          // We only auto-route on the very first successful connection
+          // (when currentPage is still the default 'home'); once the
+          // user navigates away we don't force them back.
+          if (currentPage === 'home' && !cancelled) {
+            try {
+              const fr = await call<{ is_first_run: boolean }>('onboarding_is_first_run')
+              if (!cancelled && fr?.is_first_run) {
+                navigate('onboarding')
+              }
+            } catch {
+              // Older backend without the IPC route — silently ignore.
+            }
+          }
         }
       } catch {
         retries++
@@ -185,7 +207,7 @@ export default function App() {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [isReady, call])
+  }, [isReady, call, currentPage, navigate])
 
   // Periodic health check while connected
   useEffect(() => {
@@ -245,6 +267,20 @@ export default function App() {
 
   // ── Page renderer ─────────────────────────────────────────────
 
+  // #8: Called by the Onboarding wizard after the user finishes (apply
+  // or skip). Routes the user back to home and reloads the config so
+  // the rest of the UI sees the user's onboarding choices.
+  const handleOnboardingComplete = useCallback(async () => {
+    navigate('home')
+    // Reload the config so theme/hotkey/mic/model selections take effect
+    try {
+      const cfg = await call<any>('get_config')
+      if (cfg?.theme_mode) setThemeMode(cfg.theme_mode)
+    } catch {
+      // non-fatal — config will be re-read on next mount
+    }
+  }, [navigate, call])
+
   const renderPage = () => {
     switch (currentPage) {
       case 'home':
@@ -263,6 +299,8 @@ export default function App() {
         return <DashboardPage onNavigate={navigate} />
       case 'settings':
         return <SettingsPage onThemeChange={handleThemeChange} />
+      case 'onboarding':
+        return <OnboardingPage onComplete={handleOnboardingComplete} />
     }
   }
 

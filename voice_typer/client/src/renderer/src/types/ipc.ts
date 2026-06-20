@@ -17,7 +17,7 @@ export type RecordingState =
   | 'not_configured'
   | 'error'
 
-export type Page = 'home' | 'history' | 'templates' | 'vocabulary' | 'models' | 'microphone' | 'analytics' | 'settings'
+export type Page = 'home' | 'history' | 'templates' | 'vocabulary' | 'models' | 'microphone' | 'analytics' | 'settings' | 'onboarding'
 
 // ── History data shapes (from Python history_db) ───────────────────
 

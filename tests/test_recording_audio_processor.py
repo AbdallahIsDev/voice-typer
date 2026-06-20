@@ -224,7 +224,9 @@ class TestRecorderCallbackWithAudioProcessor:
         r = Recorder(config, audio_processor=proc)
 
         rms_calls = []
-        r.on_rms_level = lambda rms, peak: rms_calls.append((rms, peak))
+        # T021: callback signature now includes audio_chunk (3rd arg).
+        # Use *args to accept any number of positional args for compat.
+        r.on_rms_level = lambda rms, peak, *args: rms_calls.append((rms, peak))
 
         r.start()
         stream = captured_streams[0]

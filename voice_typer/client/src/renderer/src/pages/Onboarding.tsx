@@ -25,7 +25,15 @@ interface ModelOption {
   description: string
 }
 
-export default function OnboardingPage() {
+// #8: Optional callback fired after the user finishes the wizard
+// (either by completing all steps or by skipping). App.tsx wires this
+// to navigate back to the home page and reload the config so the rest
+// of the UI picks up the user's onboarding choices.
+interface OnboardingPageProps {
+  onComplete?: () => void
+}
+
+export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
   const { call } = usePython()
   const { showSnack, Snackbar } = useSnackbar()
   const [step, setStep] = useState<StepInfo | null>(null)
@@ -82,6 +90,10 @@ export default function OnboardingPage() {
       } else if (step?.step === 4) {
         await call('onboarding_apply')
         showSnack('Setup complete! Loading your model...', 'success')
+        // #8: wizard finished — hand control back to App.tsx so it can
+        // navigate to home and reload the config.
+        if (onComplete) onComplete()
+        return
       }
       const newStep = await call<StepInfo>('onboarding_next_step')
       setStep(newStep)
@@ -89,7 +101,7 @@ export default function OnboardingPage() {
       console.error('Failed to advance step:', err)
       showSnack('Failed to save selection', 'error')
     }
-  }, [call, step, selectedMic, selectedHotkey, selectedModel, showSnack])
+  }, [call, step, selectedMic, selectedHotkey, selectedModel, showSnack, onComplete])
 
   const handlePrev = useCallback(async () => {
     try {
@@ -104,10 +116,12 @@ export default function OnboardingPage() {
     try {
       await call('onboarding_skip')
       showSnack('Setup skipped — using defaults', 'warning')
+      // #8: wizard skipped — hand control back to App.tsx.
+      if (onComplete) onComplete()
     } catch (err) {
       console.error('Failed to skip onboarding:', err)
     }
-  }, [call, showSnack])
+  }, [call, showSnack, onComplete])
 
   if (loading) {
     return (

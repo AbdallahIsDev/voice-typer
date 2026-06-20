@@ -258,6 +258,72 @@ def _find_parakeet_weights() -> Path | None:
     return None
 
 
+# STARTUP-4: Whisper model sizes that are valid fallback targets.
+# AsrBackendRegistry.load_with_fallback() falls back to whisper/tiny.en
+# when the active backend fails to load, so we always warm tiny.en as
+# the declared fallback (in addition to the active backend's model).
+_WHISPER_FALLBACK_MODEL_SIZE = "tiny.en"
+
+
+def _active_model_cache_dirs() -> list[Path]:
+    """STARTUP-4: Return HF cache dirs for the active model + declared fallback.
+
+    Walks the HF cache only for the model directories that the app would
+    actually use at runtime:
+      - The active backend's model (parakeet / qwen / whisper-<model_size>)
+      - The Whisper fallback (tiny.en) that AsrBackendRegistry falls
+        back to when the active backend fails to load.
+
+    Previously this walked ALL models--* dirs in the cache, warming ~2.1 GB
+    of inactive Whisper variants when the active backend was parakeet.
+    """
+    dirs: list[Path] = []
+    try:
+        from voice_typer.server.config import Config, _config_dir
+        cfg = Config.load()
+        cache_root = _config_dir() / "huggingface" / "hub"
+        if not cache_root.exists():
+            return dirs
+
+        active_backend = getattr(cfg, "asr_backend", "whisper")
+        active_model_size = getattr(cfg, "model_size", "small.en")
+
+        # Build the set of HF repo IDs whose cache dirs we want to warm.
+        target_repo_ids: set[str] = set()
+
+        if active_backend == "parakeet":
+            try:
+                from voice_typer.server.parakeet_engine import _PARAKERT_MODEL_ID
+                target_repo_ids.add(_PARAKERT_MODEL_ID)
+            except Exception:
+                pass
+        elif active_backend == "qwen":
+            # Qwen auto-downloads on first use via qwen_engine.py; no fixed
+            # repo ID. The configured qwen_model_path is a local directory,
+            # not an HF repo — we don't prewarm it here.
+            pass
+        else:
+            # Whisper backend: warm the configured model_size
+            if active_model_size and active_model_size not in ("parakeet", "qwen"):
+                target_repo_ids.add(f"Systran/faster-whisper-{active_model_size}")
+
+        # Always include the declared Whisper fallback (tiny.en) so the
+        # AsrBackendRegistry's fallback path is warm too — UNLESS the
+        # active backend is whisper with model_size=tiny.en (already covered).
+        if not (active_backend == "whisper" and active_model_size == _WHISPER_FALLBACK_MODEL_SIZE):
+            target_repo_ids.add(f"Systran/faster-whisper-{_WHISPER_FALLBACK_MODEL_SIZE}")
+
+        # Map repo IDs to cache dir paths and filter to existing ones.
+        for repo_id in target_repo_ids:
+            cache_dir_name = f"models--{repo_id.replace('/', '--')}"
+            cache_dir = cache_root / cache_dir_name
+            if cache_dir.is_dir():
+                dirs.append(cache_dir)
+    except Exception as e:
+        log.debug("[PREWARM] _active_model_cache_dirs failed: %s", e)
+    return dirs
+
+
 def _warm_file(path: Path) -> int:
     """Sequentially read *path* so its bytes enter the OS standby cache.
 
@@ -333,37 +399,39 @@ def run(
     #    (model not yet downloaded) there is nothing to warm; the app's
     #    normal download path will populate the cache, and subsequent
     #    prewarms will pick it up.
-    # PERF-NEW-012: previously only prewarmed Parakeet weights.  Now
-    #    walks ALL models--* directories in the HF cache to prewarm
-    #    Whisper, Qwen, and Parakeet weights alike.
+    #
+    # STARTUP-4: previously this walked ALL models--* directories in the
+    #    HF cache, warming ~2.1 GB of inactive Whisper variants when the
+    #    active backend was parakeet. Now we only warm the ACTIVE model
+    #    (config.asr_backend / config.model_size) plus the tiny.en
+    #    Whisper model that the AsrBackendRegistry would actually fall
+    #    back to on CUDA/init failure.
     warmed_any = False
 
-    # Try Parakeet first (original path)
-    weights = _find_parakeet_weights()
-    if weights is not None:
-        _warm_file(weights)
-        warmed_any = True
-        # Also warm the processor/tokenizer files (tiny but free).
-        try:
-            for sibling in weights.parent.iterdir():
-                if sibling.is_file() and sibling.suffix in (".json",):
-                    _warm_file(sibling)
-        except OSError:
-            pass
+    # Determine which model cache dirs are relevant to the active config.
+    active_cache_dirs = _active_model_cache_dirs()
+    log.info(
+        "[PREWARM] Active model cache dirs to warm: %s",
+        [d.name for d in active_cache_dirs] or "(none cached yet)",
+    )
 
-    # PERF-NEW-012: walk ALL model directories in the HF cache
+    # Walk only the active + fallback cache dirs.
     try:
-        from voice_typer.server.config import _config_dir
-        hf_cache = _config_dir() / "huggingface" / "hub"
-        if hf_cache.exists():
-            for model_dir in hf_cache.iterdir():
-                if model_dir.is_dir() and model_dir.name.startswith("models--"):
-                    log.info("[PREWARM] Warming model: %s", model_dir.name)
-                    for snapshot_dir in (model_dir / "snapshots").iterdir() if (model_dir / "snapshots").exists() else []:
-                        for f in snapshot_dir.rglob("*"):
-                            if f.is_file() and f.suffix in (".bin", ".safetensors", ".pt", ".json", ".txt"):
-                                _warm_file(f)
+        for model_dir in active_cache_dirs:
+            log.info("[PREWARM] Warming model: %s", model_dir.name)
+            snapshots_dir = model_dir / "snapshots"
+            if not snapshots_dir.exists():
+                continue
+            try:
+                for snapshot_dir in snapshots_dir.iterdir():
+                    if not snapshot_dir.is_dir():
+                        continue
+                    for f in snapshot_dir.rglob("*"):
+                        if f.is_file() and f.suffix in (".bin", ".safetensors", ".pt", ".json", ".txt"):
+                            _warm_file(f)
                     warmed_any = True
+            except OSError as e:
+                log.debug("[PREWARM] walk of %s failed: %s", model_dir.name, e)
     except Exception as e:
         log.debug("[PREWARM] HF cache walk failed: %s", e)
 

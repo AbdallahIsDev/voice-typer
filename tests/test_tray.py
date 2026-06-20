@@ -94,6 +94,11 @@ def mock_heavy_imports(monkeypatch):
     import voice_typer.server.tray as tray_mod
     monkeypatch.setattr(tray_mod, "pystray", mock_pystray)
 
+    # #13: tray_menu.py is the new home for menu-building helpers.
+    # It also imports pystray, so we need to mock it there too.
+    import voice_typer.server.tray_menu as tray_menu_mod
+    monkeypatch.setattr(tray_menu_mod, "pystray", mock_pystray)
+
     mock_pil = MagicMock()
     monkeypatch.setitem(sys.modules, "PIL", mock_pil)
     monkeypatch.setitem(sys.modules, "PIL.Image", MagicMock())

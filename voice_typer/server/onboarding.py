@@ -42,9 +42,31 @@ class OnboardingController:
     # ── First-run detection ──────────────────────────────────────────
 
     def is_first_run(self) -> bool:
-        """Return True if this is the first time the app has run."""
-        config_file = self._config_dir / "config.json"
-        return not config_file.exists() and not self._marker_path.exists()
+        """Return True if the onboarding wizard should be shown.
+
+        #8: Previously this returned True only when config.json didn't
+        exist AND the marker didn't exist. That broke the wizard flow:
+        app.py saved config.json with defaults on first run (so the
+        app could keep running), at which point is_first_run() flipped
+        to False and the frontend's `onboarding_is_first_run` IPC call
+        returned False — the wizard never appeared.
+
+        Now we return True whenever ``onboarding_completed`` is False
+        (regardless of whether config.json exists yet). The wizard's
+        ``apply_settings`` / ``skip`` methods set the flag to True and
+        create the marker, so subsequent calls correctly return False.
+        """
+        # Fast path: marker exists → onboarding was completed.
+        if self._marker_path.exists():
+            return False
+        # Otherwise, check config.onboarding_completed. Default to
+        # "first run" if the config can't be read.
+        try:
+            from voice_typer.server.config import Config
+            cfg = Config.load()
+            return not getattr(cfg, "onboarding_completed", False)
+        except Exception:
+            return True
 
     def mark_complete(self) -> None:
         """Mark onboarding as complete so it doesn't show again."""
