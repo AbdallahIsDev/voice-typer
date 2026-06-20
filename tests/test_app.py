@@ -57,10 +57,21 @@ def mock_heavy_imports(monkeypatch):
     monkeypatch.setattr("voice_typer.server.app.atexit.register", lambda *a, **kw: None)
 
     # Force PynputHotkey backend so tests can mock pynput.keyboard.GlobalHotKeys.
+    # Round 11 fix: patch BOTH app.create_hotkey_backend AND
+    # hotkey_dispatcher.create_hotkey_backend. The actual call site is in
+    # hotkey_dispatcher.register() (line 72), which uses its own imported
+    # copy of create_hotkey_backend — NOT app's. Patching only app's copy
+    # (the old behavior) was a no-op; tests passed only because on Linux/X11
+    # the unpatched create_hotkey_backend returns PynputHotkey by default.
     from voice_typer.server.hotkeys import PynputHotkey
+    _force_pynput = lambda hotkey_str: PynputHotkey(hotkey_str)
     monkeypatch.setattr(
         "voice_typer.server.app.create_hotkey_backend",
-        lambda hotkey_str: PynputHotkey(hotkey_str),
+        _force_pynput,
+    )
+    monkeypatch.setattr(
+        "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
+        _force_pynput,
     )
 
 

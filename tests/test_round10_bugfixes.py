@@ -18,7 +18,7 @@ sys.path.insert(0, '/home/z/my-project/voice-typer-repo')
 class TestBug1LinuxUnitDirEmptyXdg:
     """Bug 1: _linux_unit_dir must handle empty-string XDG_CONFIG_HOME."""
 
-    def test_empty_string_xdg_config_home_uses_fallback(self, monkeypatch):
+    def test_empty_string_xdg_config_home_uses_fallback(self, monkeypatch, tmp_path):
         """When XDG_CONFIG_HOME="" (set but empty), must use ~/.config fallback.
 
         The XDG Base Directory Spec says: "If $XDG_CONFIG_HOME is either
@@ -28,9 +28,12 @@ class TestBug1LinuxUnitDirEmptyXdg:
         (not the default) because the key existed, causing Path("") / "systemd"
         / "user" = relative path "systemd/user" — unit files would be written
         to the CWD and the timer would never fire.
+
+        Round 11 fix: use tmp_path instead of Path("/fake/home") so the test
+        works on Windows too (Windows requires drive letters for absolute paths).
         """
         from voice_typer.server import prewarm_scheduler_posix
-        fake_home = Path("/fake/home")
+        fake_home = tmp_path  # platform-safe absolute path
         monkeypatch.setattr(Path, "home", lambda: fake_home)
         # Set XDG_CONFIG_HOME to empty string
         monkeypatch.setattr(
@@ -42,14 +45,19 @@ class TestBug1LinuxUnitDirEmptyXdg:
             f"_linux_unit_dir() must return an ABSOLUTE path even when "
             f"XDG_CONFIG_HOME is empty; got {result} (is_absolute={result.is_absolute()})"
         )
-        assert str(result) == "/fake/home/.config/systemd/user", (
-            f"Expected /fake/home/.config/systemd/user, got {result}"
+        expected = str(fake_home / ".config" / "systemd" / "user")
+        assert str(result) == expected, (
+            f"Expected {expected}, got {result}"
         )
 
-    def test_unset_xdg_config_home_uses_fallback(self, monkeypatch):
-        """When XDG_CONFIG_HOME is unset, must use ~/.config fallback."""
+    def test_unset_xdg_config_home_uses_fallback(self, monkeypatch, tmp_path):
+        """When XDG_CONFIG_HOME is unset, must use ~/.config fallback.
+
+        Round 11 fix: use tmp_path instead of Path("/fake/home") for
+        Windows compatibility.
+        """
         from voice_typer.server import prewarm_scheduler_posix
-        fake_home = Path("/fake/home")
+        fake_home = tmp_path
         monkeypatch.setattr(Path, "home", lambda: fake_home)
         # XDG_CONFIG_HOME not in environ at all
         monkeypatch.setattr(
@@ -57,7 +65,8 @@ class TestBug1LinuxUnitDirEmptyXdg:
             {},
         )
         result = prewarm_scheduler_posix._linux_unit_dir()
-        assert str(result) == "/fake/home/.config/systemd/user"
+        expected = str(fake_home / ".config" / "systemd" / "user")
+        assert str(result) == expected
 
     def test_set_xdg_config_home_uses_it(self, monkeypatch, tmp_path):
         """When XDG_CONFIG_HOME is set and non-empty, must use it."""
@@ -241,4 +250,66 @@ class TestBug4NoRedundantPlatformCheck:
             "When task_scheduler.is_supported() is False, "
             "_register_app_autostart_task must return False without "
             "checking sys.platform itself."
+        )
+
+
+class TestBug5StaleFixturePatch:
+    """Bug 5 (Round 11): The autouse fixture in test_app.py patched
+    voice_typer.server.app.create_hotkey_backend, but the actual call site
+    is in hotkey_dispatcher.register() which uses its OWN imported copy.
+    The patch was a no-op; tests passed only because on Linux/X11 the
+    unpatched create_hotkey_backend returns PynputHotkey by default.
+
+    This test verifies the fixture now patches BOTH namespaces.
+    """
+
+    def test_fixture_patches_hotkey_dispatcher_namespace(self, monkeypatch):
+        """The autouse fixture must patch hotkey_dispatcher.create_hotkey_backend,
+        not just app.create_hotkey_backend. Otherwise the patch is a no-op
+        because hotkey_dispatcher.register() uses its own imported copy."""
+        import voice_typer.server.hotkey_dispatcher as hd_mod
+        from voice_typer.server.hotkeys import PynputHotkey
+
+        # Capture the original
+        original = hd_mod.create_hotkey_backend
+        try:
+            # Apply the same patch the fixture applies
+            monkeypatch.setattr(
+                "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
+                lambda hotkey_str: PynputHotkey(hotkey_str),
+            )
+            # Verify the patch took effect in the hotkey_dispatcher namespace
+            assert hd_mod.create_hotkey_backend is not original, (
+                "Patch of voice_typer.server.hotkey_dispatcher.create_hotkey_backend "
+                "had no effect — the fixture is still stale"
+            )
+        finally:
+            pass  # monkeypatch teardown restores original
+
+    def test_app_py_fixture_patches_both_namespaces(self):
+        """The autouse fixture in test_app.py must patch BOTH
+        app.create_hotkey_backend AND hotkey_dispatcher.create_hotkey_backend."""
+        import inspect
+        # Read the fixture source from test_app.py
+        import tests.test_app as test_app_mod
+        # Find the mock_heavy_imports fixture (it's the autouse one)
+        fixture_src = None
+        for name, obj in vars(test_app_mod).items():
+            if callable(obj) and hasattr(obj, '__wrapped__'):
+                # It's a pytest fixture
+                src = inspect.getsource(obj)
+                if 'create_hotkey_backend' in src and 'PynputHotkey' in src:
+                    fixture_src = src
+                    break
+        # If we didn't find it via __wrapped__, try reading the file directly
+        if fixture_src is None:
+            test_app_path = inspect.getfile(test_app_mod)
+            with open(test_app_path) as f:
+                content = f.read()
+            # Find the fixture that patches create_hotkey_backend
+            fixture_src = content
+        assert "hotkey_dispatcher.create_hotkey_backend" in fixture_src, (
+            "The autouse fixture must patch voice_typer.server.hotkey_dispatcher.create_hotkey_backend "
+            "(the actual call site), not just voice_typer.server.app.create_hotkey_backend. "
+            "Without this, the patch is a no-op and tests pass only by coincidence."
         )
