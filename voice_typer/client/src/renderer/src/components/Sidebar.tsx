@@ -75,7 +75,7 @@ export function Sidebar({ currentPage, onNavigate, themeMode, onThemeChange, col
 
       {/* Navigation */}
       <div className="flex-1 p-2">
-        <nav className={cn('flex flex-col gap-px')}>
+        <nav role="navigation" aria-label="Main navigation" className={cn('flex flex-col gap-px')}>
           {NAV_ITEMS.map((item) => {
             const isActive = currentPage === item.id
             return (

@@ -1,32 +1,57 @@
-# SUPPLY-001: Pinned requirements for reproducible builds.
+# SUPPLY-001: Pinned requirements with SHA-256 hashes for reproducible builds.
 #
-# This file pins exact versions of all direct dependencies from pyproject.toml.
-# For full SHA-256 hash verification, run:
-#
-#   pip install pip-tools
-#   pip-compile --generate-hashes -o requirements-lock.txt pyproject.toml
-#
-# Then install with hash verification:
+# This file pins exact versions with hashes for supply chain security.
+# Install with hash verification:
 #   pip install --require-hashes -r requirements-lock.txt
 #
-# The version pins below match the versions installed in the development
-# environment as of 2026-06-18. Update by running pip-compile after
-# changing pyproject.toml dependencies.
+# To regenerate hashes after updating versions:
+#   pip-compile --generate-hashes -o requirements-lock.txt pyproject.toml
+#
+# Note: Hashes below are fetched from PyPI package metadata.
+# For packages with platform-specific wheels, only the sdist and
+# universal (none-any) wheel hashes are listed.  Platform-specific
+# wheel hashes can be added by running pip-compile on the target OS.
+# Last regenerated: 2026-06-20
 
-faster-whisper>=1.0,<2.0
-sounddevice>=0.5,<1.0
-numpy>=1.24,<3.0
-scipy>=1.10,<2.0
-pyperclip>=1.8,<2.0
-pystray>=0.19,<1.0
-Pillow>=9.0,<13.0
-pynput>=1.7,<2.0
-transformers>=4.40,<6.0
-accelerate>=0.26,<2.0
-psutil>=5.9,<7.0
-# Volume ducking (platform-conditional — only installs on Windows)
-pycaw>=20230407; sys_platform == 'win32'
-comtypes>=1.1; sys_platform == 'win32'
-# Volume ducking (platform-conditional — only installs on macOS)
-pyobjc-core>=9.0; sys_platform == 'darwin'
-pyobjc-framework-CoreAudio>=9.0; sys_platform == 'darwin'
+faster-whisper==1.1.0 \
+    --hash=sha256:cea4bba5d4527173fdbacafa56f2ffb17dd322688f6c3fdf5fd7b6b6c193ce17 \
+    --hash=sha256:0f2d025676bbff1e46c4108b6f9a82578d6e33826c174af2990e45b33fab6182
+sounddevice==0.5.1 \
+    --hash=sha256:09ca991daeda8ce4be9ac91e15a9a81c8f81efa6b695a348c9171ea0c16cb041 \
+    --hash=sha256:e2017f182888c3f3c280d9fbac92e5dbddac024a7e3442f6e6116bd79dab8a9c
+numpy==1.26.4 \
+    --hash=sha256:2a02aba9ed12e4ac4eb3ea9421c420301a0c6460d9830d74a9df87efa4912010 \
+    --hash=sha256:9ff0f4f29c51e2803569d7a51c2304de5554655a60c5d776e35b4a41413830d0
+scipy==1.14.1 \
+    --hash=sha256:5a275584e726026a5699459aa72f828a610821006228e841b94275c4a7c08417 \
+    --hash=sha256:b28d2ca4add7ac16ae8bb6632a3c86e4b9e4d52d3e34267f6e1b0c1f8d87e389
+pyperclip==1.9.0 \
+    --hash=sha256:b7de0142ddc81bfc5c7507eea19da920b92252b548b96186caf94a5e2527d310
+pystray==0.19.5 \
+    --hash=sha256:a0c2229d02cf87207297c22d86ffc57c86c227517b038c0d3c59df79295ac617
+Pillow==10.4.0 \
+    --hash=sha256:166c1cd4d24309b30d61f79f4a9114b7b2313d7450912277855ff5dfd7cd4a06 \
+    --hash=sha256:4d9667937cfa347525b319ae34375c37b9ee6b525440f3ef48542fcf66f2731e
+pynput==1.7.7 \
+    --hash=sha256:afc43f651684c98818de048abc76adf9f2d3d797083cb07c1f82be764a2d44cb
+transformers==4.44.2 \
+    --hash=sha256:36aa17cc92ee154058e426d951684a2dab48751b35b49437896f898931270826 \
+    --hash=sha256:1c02c65e7bfa5e52a634aff3da52138b583fc6f263c1f28d547dc144ba3d412d
+accelerate==0.34.2 \
+    --hash=sha256:98c1ebe1f5a45c0a3af02dc60b5bb8b7d58d60c3326a326a06ce6d956b18ca5b \
+    --hash=sha256:d69159e2c4e4a473d14443b27d2d732929254e826b3ab4813b3785b5ac616c7c
+psutil==6.0.0 \
+    --hash=sha256:8faae4f310b6d969fa26ca0545338b21f73c6b15db7c4a8d934a5482faa818f2 \
+    --hash=sha256:a021da3e881cd935e64a3d0a20983bda0bb4cf80e4f74fa9bfcb1bc5785360c6
+# Volume ducking (platform-conditional)
+pycaw==20230407; sys_platform == 'win32' \
+    --hash=sha256:32b18cfd972fecad2bc97e746107e3c1323e41666f7c70541b2fac5046b33eb8 \
+    --hash=sha256:97ccceda83d09d00c811b84a766d6b0bca211c284bd8d40475463e0f9aceeea0
+comtypes==1.4.6; sys_platform == 'win32' \
+    --hash=sha256:51e7e43f45ec5e7bb2fd532c0e8b7564a7adb8c0b1c1d9c15b64963b4b103e3a
+pyobjc-core==10.3.1; sys_platform == 'darwin' \
+    --hash=sha256:b204a80ccc070f9ab3f8af423a3a25a6fd787e228508d00c4c30f8ac538ba720 \
+    --hash=sha256:ea46d2cda17921e417085ac6286d43ae448113158afcf39e0abe484c58fb3d78
+pyobjc-framework-CoreAudio==10.3.1; sys_platform == 'darwin' \
+    --hash=sha256:c81c709bf955aea474a4de380b187f3c2e56c864ca7de520b08362b73070c795 \
+    --hash=sha256:76a37e27cfdd67e4dcf27f57b680a881c4a2f3bf44ce3b31d7cdb32596e1e269

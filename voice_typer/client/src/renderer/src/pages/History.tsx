@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import PageHeading from '@/components/PageHeading'
 import ActivityList from '@/components/ActivityList'
+import ConfirmDialog from '@/components/ConfirmDialog'
 import ExportFormatMenu from '@/components/ExportFormatMenu'
 import type { HistoryRecord, TodayStats, WindowBridge } from '@/types/ipc'
 
@@ -28,7 +29,7 @@ export default function HistoryPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [favoritesOnly, setFavoritesOnly] = useState(false)
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [confirmClear, setConfirmClear] = useState(false)
+  const [showClearConfirm, setShowClearConfirm] = useState(false)
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const load = useCallback(async (query?: string, favs?: boolean) => {
@@ -159,14 +160,14 @@ export default function HistoryPage() {
   }, [call])
 
   const handleClearAll = useCallback(async () => {
-    // Nothing to clear — don't call backend, don't show toast
+    // Nothing to clear — don't call backend, don't show dialog
     if (records.length === 0) return
 
-    if (!confirmClear) {
-      setConfirmClear(true)
-      setTimeout(() => setConfirmClear(false), 3000)
-      return
-    }
+    // #7: Show ConfirmDialog instead of the old two-click pattern
+    setShowClearConfirm(true)
+  }, [records.length])
+
+  const confirmClearAll = useCallback(async () => {
     try {
       await call('clear_history')
       const emptyStats = { count: 0, chars: 0, word_count: 0, duration: 0 }
@@ -175,12 +176,13 @@ export default function HistoryPage() {
       setRecords([])
       setStats(emptyStats)
       setHasMore(false)
-      setConfirmClear(false)
       toast.success('History cleared')
     } catch {
       toast.error('Failed to clear history')
+    } finally {
+      setShowClearConfirm(false)
     }
-  }, [call, confirmClear, records.length])
+  }, [call])
 
   const doExport = useCallback(async (format: 'json' | 'csv') => {
     if (records.length === 0) {
@@ -237,15 +239,12 @@ export default function HistoryPage() {
           variant="outline"
           size="sm"
           onClick={handleClearAll}
-          className={`gap-2 ${
-            confirmClear
-              ? 'bg-red-500/15 text-red-400 border-red-500/30 animate-pulse hover:bg-red-500/20'
-              : 'text-(--text-muted) hover:text-red-400'
-          }`}
+          className="gap-2 text-(--text-muted) hover:text-red-400"
         >
           <HugeiconsIcon icon={Delete01Icon} strokeWidth={1.625} className="h-4 w-4" />
-          {confirmClear ? 'Click again to confirm' : 'Clear All'}
-        </Button>          <div className="ml-auto">
+          Clear All
+        </Button>
+        <div className="ml-auto">
             <ExportFormatMenu onExport={doExport} disabled={records.length === 0} />
           </div>
       </div>
@@ -294,5 +293,15 @@ export default function HistoryPage() {
         </>
       )}
     </div>
+
+    {/* #7: ConfirmDialog for Clear All */}
+    <ConfirmDialog
+      open={showClearConfirm}
+      title="Clear All History"
+      message="Are you sure you want to clear all transcription history? Favorites will also be deleted. This action cannot be undone."
+      confirmLabel="Clear All"
+      onConfirm={confirmClearAll}
+      onCancel={() => setShowClearConfirm(false)}
+    />
   )
 }

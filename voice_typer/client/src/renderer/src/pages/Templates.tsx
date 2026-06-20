@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
+import { usePython } from '@/hooks/usePython'
+import { useSnackbar } from '@/hooks/useSnackbar'
 import { HugeiconsIcon } from '@hugeicons/react'
 import {
   File02Icon,
@@ -16,6 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import PageHeading from '@/components/PageHeading'
+import ConfirmDialog from '@/components/ConfirmDialog'
 import { cn } from '@/lib/utils'
 
 // Templates are stored client-side in localStorage because the Python Config
@@ -49,8 +52,17 @@ function loadTemplates(): Template[] {
   }
 }
 
-function saveTemplates(items: Template[]): void {
+// #6: saveTemplates now accepts an optional callFn for IPC persistence.
+// Add/edit paths pass the IPC call function so the server is notified.
+// Delete path also passes callFn so the server stays in sync.
+function saveTemplates(items: Template[], callFn?: <T>(cmd: string, args?: unknown) => Promise<T>): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(items))
+  // #6: fire-and-forget IPC save so the backend stays in sync
+  if (callFn) {
+    callFn('save_templates', { templates: items }).catch((err: unknown) => {
+      console.error('IPC save_templates failed:', err)
+    })
+  }
 }
 
 function toRows(items: Template[]): TemplateRow[] {
@@ -64,6 +76,8 @@ function toRows(items: Template[]): TemplateRow[] {
 }
 
 export default function TemplatesPage() {
+  const { call } = usePython()
+  const { showSnack, Snackbar } = useSnackbar()
   const [templates, setTemplates] = useState<TemplateRow[]>([])
   const [loading, setLoading] = useState(true)
   const [showDialog, setShowDialog] = useState(false)
@@ -71,7 +85,9 @@ export default function TemplatesPage() {
   const [trigger, setTrigger] = useState('')
   const [expansion, setExpansion] = useState('')
   const [matchMode, setMatchMode] = useState<'exact' | 'contains'>('exact')
-  const [snackbar, setSnackbar] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null)
+
+  // #7: ConfirmDialog state for template deletion
+  const [deleteTarget, setDeleteTarget] = useState<TemplateRow | null>(null)
 
   const loadRows = useCallback(() => {
     setTemplates(toRows(loadTemplates()))
@@ -81,11 +97,6 @@ export default function TemplatesPage() {
   useEffect(() => {
     loadRows()
   }, [loadRows])
-
-  const showSnack = (message: string, type: 'success' | 'error' | 'warning') => {
-    setSnackbar({ message, type })
-    setTimeout(() => setSnackbar(null), 3000)
-  }
 
   const openAddDialog = () => {
     setEditingTemplate(null)
@@ -122,7 +133,8 @@ export default function TemplatesPage() {
         items.push(next)
         showSnack(`Template added: ${trigger.trim()}`, 'success')
       }
-      saveTemplates(items)
+      // #6: pass call so the backend is notified of add/edit
+      saveTemplates(items, call)
       setShowDialog(false)
       loadRows()
     } catch (err) {
@@ -131,16 +143,26 @@ export default function TemplatesPage() {
     }
   }
 
-  const deleteTemplate = (t: TemplateRow) => {
+  // #7: Request confirmation before deleting a template
+  const requestDeleteTemplate = (t: TemplateRow) => {
+    setDeleteTarget(t)
+  }
+
+  // #6: Delete now passes call to saveTemplates so IPC notify happens
+  const confirmDeleteTemplate = () => {
+    if (!deleteTarget) return
     try {
       const items = loadTemplates()
-      items.splice(t.index, 1)
-      saveTemplates(items)
-      showSnack(`Deleted: ${t.trigger}`, 'warning')
+      items.splice(deleteTarget.index, 1)
+      // #6: pass call so the backend is notified of deletion
+      saveTemplates(items, call)
+      showSnack(`Deleted: ${deleteTarget.trigger}`, 'warning')
       loadRows()
     } catch (err) {
       console.error('Failed to delete template', err)
       showSnack('Failed to delete template', 'error')
+    } finally {
+      setDeleteTarget(null)
     }
   }
 
@@ -216,7 +238,7 @@ export default function TemplatesPage() {
                     <Button
                       variant="ghost"
                       size="icon-xs"
-                      onClick={() => deleteTemplate(t)}
+                      onClick={() => requestDeleteTemplate(t)}
                       className="text-(--text-muted) hover:text-destructive"
                       title="Delete template"
                     >
@@ -230,19 +252,7 @@ export default function TemplatesPage() {
         </div>
 
         {/* Snackbar */}
-        {snackbar && (
-          <div
-            className={cn(
-              'animate-slide-up fixed bottom-6 left-1/2 z-50 -translate-x-1/2',
-              'rounded-lg px-4 py-2.5 text-sm shadow-lg',
-              snackbar.type === 'success' && 'bg-primary text-primary-foreground',
-              snackbar.type === 'error' && 'bg-destructive text-white',
-              snackbar.type === 'warning' && 'bg-primary text-primary-foreground',
-            )}
-          >
-            {snackbar.message}
-          </div>
-        )}
+        <Snackbar />
       </div>
 
       {/* Add/Edit Dialog — full-viewport backdrop with centered dialog */}
@@ -321,6 +331,16 @@ export default function TemplatesPage() {
           </div>
         </div>
       )}
+
+      {/* #7: ConfirmDialog for template deletion */}
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="Delete Template"
+        message={`Are you sure you want to delete "${deleteTarget?.trigger ?? ''}"? This action cannot be undone.`}
+        confirmLabel="Delete"
+        onConfirm={confirmDeleteTemplate}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </>
   )
 }

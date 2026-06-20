@@ -52,6 +52,10 @@ a = Analysis(
     runtime_hooks=[],
     excludes=[
         # BUILD-003: exclude unused stdlib modules to reduce binary size.
+        # IMPORTANT: do NOT exclude "logging.handlers" — app.py imports
+        # logging.handlers.RotatingFileHandler at module level.
+        # IMPORTANT: do NOT exclude "http.bsddb" — it is not a valid
+        # Python 3 module (Python 2 leftover), causes build warning.
         "tkinter",
         "tkinter.test",
         "unittest",
@@ -92,7 +96,6 @@ a = Analysis(
         "html.entities",
         "http.server",
         "http.cookiejar",
-        "http.client",
         "email.mime",
         "email.charset",
         "email.contentmanager",
@@ -102,6 +105,19 @@ a = Analysis(
         "multiprocessing.spawn",
         "concurrent.futures.process",
         "concurrent.futures.thread",
+        # BUILD-003 Round 5: additional safe exclusions (verified app.py
+        # does not import these; logging.handlers and http.client are
+        # intentionally kept because the app depends on them)
+        "pydoc",
+        "tabnanny",
+        "mailcap",
+        "quopri",
+        "binhex",
+        "macpath",
+        "nturl2path",
+        "plistlib",
+        "py_compile",
+        "compileall",
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,

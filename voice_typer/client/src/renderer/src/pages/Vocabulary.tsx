@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { usePython } from '@/hooks/usePython'
+import { useSnackbar } from '@/hooks/useSnackbar'
 import { HugeiconsIcon } from '@hugeicons/react'
 import {
   BookOpen02Icon,
@@ -12,6 +13,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import PageHeading from '@/components/PageHeading'
+import ConfirmDialog from '@/components/ConfirmDialog'
 import ExportFormatMenu from '@/components/ExportFormatMenu'
 import { cn } from '@/lib/utils'
 import type { VocabularyData, VocabularyEntry } from '@/types/ipc'
@@ -77,7 +79,8 @@ function rebuildData(entries: VocabularyEntry[]): VocabularyData {
 // ── Component ──────────────────────────────────────────────────────
 
 export default function VocabularyPage() {
-  const { call } =  usePython()
+  const { call } = usePython()
+  const { showSnack, Snackbar } = useSnackbar()
   const [entries, setEntries] = useState<VocabularyEntry[]>([])
 
   const [searchQuery, setSearchQuery] = useState('')
@@ -87,12 +90,9 @@ export default function VocabularyPage() {
   const [editingEntry, setEditingEntry] = useState<VocabularyEntry | null>(null)
   const [trigger, setTrigger] = useState('')
   const [replacement, setReplacement] = useState('')
-  const [snackbar, setSnackbar] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null)
 
-  const showSnack = (message: string, type: 'success' | 'error' | 'warning') => {
-    setSnackbar({ message, type })
-    setTimeout(() => setSnackbar(null), 3000)
-  }
+  // #7: ConfirmDialog state for entry deletion
+  const [deleteEntryTarget, setDeleteEntryTarget] = useState<VocabularyEntry | null>(null)
 
   const doExport = useCallback(async (format: 'json' | 'csv') => {
     try {
@@ -203,14 +203,22 @@ export default function VocabularyPage() {
     }
   }
 
-  const deleteEntry = async (entry: VocabularyEntry) => {
+  // #7: Request confirmation before deleting an entry
+  const requestDeleteEntry = (entry: VocabularyEntry) => {
+    setDeleteEntryTarget(entry)
+  }
+
+  const confirmDeleteEntry = async () => {
+    if (!deleteEntryTarget) return
     try {
-      const updated = entries.filter((e) => e !== entry)
+      const updated = entries.filter((e) => e !== deleteEntryTarget)
       await persistVocabulary(updated)
       setEntries(updated)
-      showSnack(`Deleted: ${entry.original}`, 'warning')
+      showSnack(`Deleted: ${deleteEntryTarget.original}`, 'warning')
     } catch {
       showSnack('Failed to delete entry', 'error')
+    } finally {
+      setDeleteEntryTarget(null)
     }
   }
 
@@ -307,7 +315,7 @@ export default function VocabularyPage() {
                     <Button
                       variant="ghost"
                       size="icon-xs"
-                      onClick={() => deleteEntry(entry)}
+                      onClick={() => requestDeleteEntry(entry)}
                       className="text-(--text-muted) hover:text-destructive"
                       title="Delete"
                     >
@@ -328,20 +336,10 @@ export default function VocabularyPage() {
         )}
 
         {/* Snackbar */}
-        {snackbar && (
-          <div
-            className={cn(
-              'animate-slide-up fixed bottom-6 left-1/2 z-50 -translate-x-1/2',
-              'rounded-lg px-4 py-2.5 text-sm shadow-lg',
-              snackbar.type === 'success' && 'bg-primary text-primary-foreground',
-              snackbar.type === 'error' && 'bg-destructive text-white',
-              snackbar.type === 'warning' && 'bg-primary text-primary-foreground',
-            )}
-          >
-            {snackbar.message}
-          </div>
-        )}
-      </div>        {/* Add/Edit Dialog — full-viewport backdrop with centered dialog */}
+        <Snackbar />
+      </div>
+
+      {/* Add/Edit Dialog */}
       {showDialog && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
@@ -396,6 +394,16 @@ export default function VocabularyPage() {
           </div>
         </div>
       )}
+
+      {/* #7: ConfirmDialog for entry deletion */}
+      <ConfirmDialog
+        open={deleteEntryTarget !== null}
+        title="Delete Vocabulary Entry"
+        message={`Are you sure you want to delete "${deleteEntryTarget?.original ?? ''}"? This action cannot be undone.`}
+        confirmLabel="Delete"
+        onConfirm={confirmDeleteEntry}
+        onCancel={() => setDeleteEntryTarget(null)}
+      />
     </>
   )
 }

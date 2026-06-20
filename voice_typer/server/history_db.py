@@ -320,11 +320,17 @@ class HistoryDB:
             log.error("[HISTORY] Failed to get favorites: %s", e)
             return []
 
-    def apply_retention(self, retention_days: int = 0, max_entries: int = 0) -> int:
+    def apply_retention(self, retention_days: int = 0, max_entries: int = 0, retention_count: int = 0) -> int:
         """Apply retention policy: delete old entries.
 
         Returns the number of deleted entries.
+
+        DEAD-012: retention_count is wired as a fallback for max_entries.
+        If max_entries is not set but retention_count is, use it.
         """
+        # DEAD-012: wire retention_count as fallback for max_entries
+        effective_max = max_entries or retention_count
+
         deleted = 0
         try:
             conn = self._get_conn()
@@ -338,12 +344,12 @@ class HistoryDB:
                 )
                 deleted += cursor.rowcount
 
-            if max_entries > 0:
+            if effective_max > 0:
                 # Keep favorites + the most recent non-favorite entries
                 cursor.execute("SELECT COUNT(*) FROM transcriptions")
                 total = cursor.fetchone()[0]
-                if total > max_entries:
-                    excess = total - max_entries
+                if total > effective_max:
+                    excess = total - effective_max
                     cursor.execute("""
                         DELETE FROM transcriptions
                         WHERE id IN (

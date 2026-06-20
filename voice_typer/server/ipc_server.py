@@ -908,6 +908,30 @@ class IPCServer:
                 resp["type"] = "error"
                 resp["data"] = {"message": str(e)}
 
+        # #6: Template IPC routes
+        elif cmd == "get_templates":
+            try:
+                templates = self.service.get_templates()
+                resp["type"] = "templates"
+                resp["data"] = {"templates": templates}
+            except Exception as e:
+                log.error("[IPC] get_templates failed: %s", e, exc_info=True)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
+        elif cmd == "save_templates":
+            try:
+                templates = (data or {}).get("templates", [])
+                if not isinstance(templates, list):
+                    raise ValueError("templates must be a list")
+                self.service.save_templates(templates)
+                resp["type"] = "ack"
+                resp["data"] = {"saved": len(templates)}
+            except Exception as e:
+                log.error("[IPC] save_templates failed: %s", e, exc_info=True)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
         elif cmd == "restart_app":
             resp["type"] = "ack"
             try:

@@ -299,10 +299,9 @@ class VoiceTyperApp:
             sample_rate=self.config.sample_rate,
         )
 
-        # DEAD-014 → REVIVE: AudioQualityAnalyzer was previously
-        # imported but never instantiated.  Now wired to the
-        # AudioProcessor's per-chunk quality callback so it accumulates
-        # clipping / low-volume / high-noise statistics during recording.
+        # AudioQualityAnalyzer: wired to the AudioProcessor's
+        # per-chunk quality callback so it accumulates clipping /
+        # low-volume / high-noise statistics during recording.
         # After Recorder.stop(), _finalize_audio_quality_report() runs
         # analyze_full_audio() on the captured samples and surfaces any
         # issues via a tray notification (gated by
@@ -520,24 +519,37 @@ class VoiceTyperApp:
             log.error("%s Failed to initialise %s: %s", log_prefix, class_name, exc)
             return None
 
+    def _sync_asr_registry(self):
+        """ARCH-007/008: Re-populate the ASR registry from engine fields.
+
+        Must be called after any engine field assignment (model change,
+        fallback, lazy init) so the registry never holds stale references.
+        """
+        if not hasattr(self, '_asr_registry') or self._asr_registry is None:
+            from voice_typer.server.asr_registry import AsrBackendRegistry
+            self._asr_registry = AsrBackendRegistry(self.config)
+        # Always re-register from the current field values
+        self._asr_registry.unregister("whisper")
+        self._asr_registry.unregister("qwen")
+        self._asr_registry.unregister("parakeet")
+        if self.transcriber is not None:
+            self._asr_registry.register("whisper", self.transcriber)
+        if self._qwen_engine is not None:
+            self._asr_registry.register("qwen", self._qwen_engine)
+        if self._parakeet_engine is not None:
+            self._asr_registry.register("parakeet", self._parakeet_engine)
+
     def _get_active_transcriber(self):
         """Return the active transcriber: Parakeet, Qwen, or Whisper.
 
         ARCH-007/008: delegates to AsrBackendRegistry which centralizes
         the backend selection logic. Previously every caller re-checked
         self.config.asr_backend and tested three separate fields.
+
+        The registry is re-synced on every call so it never holds stale
+        references after model changes.
         """
-        # Lazy-init the registry on first call
-        if not hasattr(self, '_asr_registry') or self._asr_registry is None:
-            from voice_typer.server.asr_registry import AsrBackendRegistry
-            self._asr_registry = AsrBackendRegistry(self.config)
-            # Register all available backends
-            if self.transcriber is not None:
-                self._asr_registry.register("whisper", self.transcriber)
-            if self._qwen_engine is not None:
-                self._asr_registry.register("qwen", self._qwen_engine)
-            if self._parakeet_engine is not None:
-                self._asr_registry.register("parakeet", self._parakeet_engine)
+        self._sync_asr_registry()
         return self._asr_registry.get_active()
 
     # ─── Timer Tracking (P1) ─────────────────────────────────────────
@@ -745,6 +757,7 @@ class VoiceTyperApp:
             self.history_db.apply_retention(
                 retention_days=self.config.history_retention_days,
                 max_entries=self.config.history_max_entries,
+                retention_count=self.config.history_retention_count,
             )
         except Exception:
             log.debug("[STARTUP] History retention apply failed")
@@ -876,58 +889,68 @@ class VoiceTyperApp:
         reaching an interactive state.  All tray state transitions happen
         here; if a dictation is pending (user pressed F2 during load), it
         is auto-started once loading succeeds.
+
+        ARCH-007: Unified code path -- previously this had three
+        near-identical branches for parakeet/qwen/whisper. Now it
+        creates the engine for the configured backend, syncs the
+        registry, and delegates loading + fallback to
+        AsrBackendRegistry.load_with_fallback().
         """
         try:
-            if self.config.asr_backend == "parakeet":
-                # Created here (not in __init__) so the heavy
-                # torch+transformers import runs in this BG thread, not on
-                # the main startup thread or UI.
-                if self._parakeet_engine is None:
-                    self._init_parakeet_engine()
-                if self._parakeet_engine is not None:
-                    log.info("[STARTUP] Parakeet backend active, loading Parakeet model")
-                    self.transcriber = None
-                    # Set state before heavy import so user sees progress
-                    self.tray.set_state(
-                        AppState.LOADING, "Loading model -- press F2 to queue…"
+            backend_name = self.config.asr_backend
+
+            # Ensure the engine object exists (lightweight -- no model load)
+            if backend_name == "parakeet" and self._parakeet_engine is None:
+                self._init_parakeet_engine()
+            elif backend_name == "qwen" and self._qwen_engine is None:
+                self._init_qwen_engine()
+            elif backend_name not in ("parakeet", "qwen"):
+                # Whisper: create TranscriptionEngine if not yet done
+                if self.transcriber is None:
+                    self.transcriber = TranscriptionEngine(
+                        model_size=self.config.model_size,
+                        device=self.config.device,
+                        language=self.config.language,
+                        beam_size=self.config.beam_size,
+                        best_of=self.config.best_of,
+                        condition_on_previous_text=self.config.condition_on_previous_text,
                     )
-                    self._parakeet_engine.load()
-                    if self._parakeet_engine.is_loaded:
-                        self.tray.set_state(AppState.IDLE, "Ready -- Parakeet ASR")
-                    else:
-                        log.warning("[STARTUP] Parakeet load failed")
-                        if self._shutting_down:
-                            return
-                        log.warning("[STARTUP] Parakeet load failed, falling back to Whisper")
-                        self._fallback_to_whisper(notify_on_failure=False)
+
+            # Sync registry with current engine fields
+            self._sync_asr_registry()
+
+            # Set tray state before heavy import so user sees progress
+            self.tray.set_state(
+                AppState.LOADING, "Loading model -- press F2 to queue..."
+            )
+
+            def on_progress(msg: str):
+                self.tray.set_state(AppState.LOADING, msg)
+
+            # Try loading the active backend, falling back to whisper
+            success = self._asr_registry.load_with_fallback(
+                progress_callback=on_progress
+            )
+
+            if success:
+                active = self._asr_registry.get_active()
+                name = self._asr_registry.active_name
+                if name == "whisper" and active is not None:
+                    self.tray.set_state(
+                        AppState.IDLE, f"Ready -- {active.device_info}"
+                    )
                 else:
-                    log.warning("[STARTUP] Parakeet engine init failed, falling back to Whisper")
-                    self._fallback_to_whisper(notify_on_failure=True)
-            elif self.config.asr_backend == "qwen" and self._qwen_engine is not None:
-                log.info("[STARTUP] Qwen backend active, loading Qwen model")
-                self.tray.set_state(
-                    AppState.LOADING, "Loading model -- press F2 to queue…"
-                )
-                self._qwen_engine.load()
-                if self._qwen_engine.is_loaded:
-                    self.tray.set_state(AppState.IDLE, "Ready -- Qwen ASR")
-                else:
-                    log.warning("[STARTUP] Qwen load failed")
-                    if self._shutting_down:
-                        return
-                    log.warning("[STARTUP] Qwen load failed, falling back to Whisper")
-                    self._fallback_to_whisper(notify_on_failure=False)
+                    self.tray.set_state(
+                        AppState.IDLE, f"Ready -- {name.title()} ASR"
+                    )
             else:
-                self.transcriber = TranscriptionEngine(
-                    model_size=self.config.model_size,
-                    device=self.config.device,
-                    language=self.config.language,
-                    beam_size=self.config.beam_size,
-                    best_of=self.config.best_of,
-                    condition_on_previous_text=self.config.condition_on_previous_text,
+                if self._shutting_down:
+                    return
+                log.warning("[STARTUP] All backends failed to load")
+                self.tray.set_state(
+                    AppState.ERROR, "Model load failed -- press F2 to retry"
                 )
-                log.info("[STARTUP] Whisper backend active, loading Whisper model")
-                self._try_load_model(notify_on_failure=True)
+
         except Exception:
             log.exception("[STARTUP] Background model load crashed")
             self.tray.set_state(
@@ -1019,7 +1042,11 @@ class VoiceTyperApp:
             log.warning("[RECORDING] Could not enumerate microphones: %s", e)
 
     def _fallback_to_whisper(self, notify_on_failure: bool = False):
-        """Fallback to Whisper tiny.en after Parakeet/Qwen backend failed."""
+        """Fallback to Whisper tiny.en after Parakeet/Qwen backend failed.
+
+        ARCH-007: Uses the registry to reconfigure and reload instead
+        of hardcoding TranscriptionEngine construction.
+        """
         self.config.model_size = "tiny.en"
         if self.transcriber is None:
             self.transcriber = TranscriptionEngine(
@@ -1033,6 +1060,9 @@ class VoiceTyperApp:
         else:
             self.transcriber.model_size = "tiny.en"
             self.transcriber._configured_model_size = "tiny.en"
+
+        # Update the registry so it reflects the new whisper backend
+        self._sync_asr_registry()
         self._try_load_model(notify_on_failure=notify_on_failure)
 
     def _try_load_model(self, notify_on_failure: bool = False):
@@ -1218,64 +1248,38 @@ class VoiceTyperApp:
         if self.config.asr_backend == "qwen" and self._qwen_engine is None:
             self._init_qwen_engine()
 
-        # Guard: refuse to record if no model is loaded
-        qwen_active = (
-            self.config.asr_backend == "qwen"
-            and self._qwen_engine is not None
-            and self._qwen_engine.is_loaded
-        )
-        parakeet_active = (
-            self.config.asr_backend == "parakeet"
-            and self._parakeet_engine is not None
-            and self._parakeet_engine.is_loaded
-        )
-        whisper_loaded = self.transcriber is not None and self.transcriber.is_loaded
+        # ARCH-007/008: Use _get_active_transcriber instead of checking
+        # three separate fields.  The registry centralizes the "which
+        # engine is active?" logic and handles fallback.
+        active = self._get_active_transcriber()
 
-        if not qwen_active and not parakeet_active and not whisper_loaded:
-            if self.config.asr_backend == "qwen" and self._qwen_engine is not None:
-                log.warning("[DICTATION] Qwen not loaded, lazy-loading Whisper as fallback")
-                self.config.model_size = "tiny.en"
-                if self.transcriber is not None:
-                    self.transcriber.model_size = "tiny.en"
-                    self.transcriber._configured_model_size = "tiny.en"
-                self.tray.set_state(AppState.LOADING, "Retrying model load (may take 30s)...")
-                self._try_load_model(notify_on_failure=True)
-                if not self.transcriber.is_loaded:
-                    log.error("[DICTATION] Whisper fallback also failed, cannot record")
-                    self._schedule_timer(
-                        3.0, lambda: self.tray.set_state(
-                            AppState.ERROR, "Model failed to load -- press F2 to retry"
-                        )
+        if active is None or not getattr(active, 'is_loaded', False):
+            # No engine loaded -- try to load whisper as a fallback
+            log.warning("[DICTATION] No loaded engine found, lazy-loading Whisper as fallback")
+            self.config.model_size = "tiny.en"
+            if self.transcriber is not None:
+                self.transcriber.model_size = "tiny.en"
+                self.transcriber._configured_model_size = "tiny.en"
+            else:
+                self.transcriber = TranscriptionEngine(
+                    model_size="tiny.en",
+                    device=self.config.device,
+                    language=self.config.language,
+                    beam_size=self.config.beam_size,
+                    best_of=self.config.best_of,
+                    condition_on_previous_text=self.config.condition_on_previous_text,
+                )
+                self._sync_asr_registry()
+            self.tray.set_state(AppState.LOADING, "Retrying model load (may take 30s)...")
+            self._try_load_model(notify_on_failure=True)
+            if not self.transcriber.is_loaded:
+                log.error("[DICTATION] Whisper fallback also failed, cannot record")
+                self._schedule_timer(
+                    3.0, lambda: self.tray.set_state(
+                        AppState.ERROR, "Model failed to load -- press F2 to retry"
                     )
-                    return
-            elif self.config.asr_backend == "parakeet" and self._parakeet_engine is not None:
-                log.warning("[DICTATION] Parakeet not loaded, lazy-loading Whisper as fallback")
-                self.config.model_size = "tiny.en"
-                if self.transcriber is not None:
-                    self.transcriber.model_size = "tiny.en"
-                    self.transcriber._configured_model_size = "tiny.en"
-                self.tray.set_state(AppState.LOADING, "Retrying model load (may take 30s)...")
-                self._try_load_model(notify_on_failure=True)
-                if not self.transcriber.is_loaded:
-                    log.error("[DICTATION] Whisper fallback also failed, cannot record")
-                    self._schedule_timer(
-                        3.0, lambda: self.tray.set_state(
-                            AppState.ERROR, "Model failed to load -- press F2 to retry"
-                        )
-                    )
-                    return
-            elif not self.transcriber.is_loaded:
-                log.warning("[DICTATION] Model not loaded, attempting reload")
-                self.tray.set_state(AppState.LOADING, "Retrying model load (may take 30s)...")
-                self._try_load_model(notify_on_failure=True)
-                if not self.transcriber.is_loaded:
-                    log.error("[DICTATION] Model reload failed, cannot record")
-                    self._schedule_timer(
-                        3.0, lambda: self.tray.set_state(
-                            AppState.ERROR, "Model failed to load -- press F2 to retry"
-                        )
-                    )
-                    return
+                )
+                return
 
         log.info("[DICTATION] Starting recording... (cycle=%s)", self._cycle_id)
         try:
@@ -1839,6 +1843,9 @@ class VoiceTyperApp:
         Handles Whisper, Parakeet, and Qwen backends.
         Unloads the old engine and loads the new one immediately (unless
         currently recording).
+
+        ARCH-007: Uses the registry to unload/load instead of having
+        three separate branches for parakeet/qwen/whisper.
         """
         # Determine backend from model name
         if model_size == "parakeet":
@@ -1862,84 +1869,64 @@ class VoiceTyperApp:
             )
             return
 
-        # Unload old backend
-        if old_backend == "parakeet" and self._parakeet_engine is not None:
-            try:
-                self._parakeet_engine = None
-            except Exception:
-                pass
-        if old_backend == "qwen" and self._qwen_engine is not None:
-            try:
-                self._qwen_engine = None
-            except Exception:
-                pass
-        if self.transcriber is not None:
+        # Unload old backend via registry
+        self._sync_asr_registry()
+        self._asr_registry.unload(old_backend)
+        self._model_load_attempted = False
+
+        # Clear old engine fields
+        if old_backend == "parakeet":
+            self._parakeet_engine = None
+        elif old_backend == "qwen":
+            self._qwen_engine = None
+        elif self.transcriber is not None:
             try:
                 self.transcriber.unload()
             except Exception:
                 pass
             self.transcriber = None
 
-        # Load new backend
-        self._model_load_attempted = False
-
+        # Create new engine object
         if new_backend == "parakeet":
             self._init_parakeet_engine()
-            if self._parakeet_engine is not None:
-                def on_progress(msg: str):
-                    self.tray.set_state(AppState.LOADING, msg)
-                try:
-                    self._parakeet_engine.load(progress_callback=on_progress)
-                except Exception as e:
-                    log.exception("[MODEL] Parakeet load raised: %s", e)
-                    self.tray.set_state(AppState.ERROR, f"Parakeet load failed: {e}")
-                    return
-                if self._parakeet_engine.is_loaded:
-                    self.tray.set_state(AppState.IDLE, f"Ready -- Parakeet ASR")
-                    self.tray.invalidate_menu_cache()
-                else:
-                    log.warning("[MODEL] Parakeet model failed to load")
-                    self.tray.set_state(AppState.ERROR, "Parakeet model failed to load")
-            return
-
-        if new_backend == "qwen":
+        elif new_backend == "qwen":
             self._init_qwen_engine()
-            if self._qwen_engine is not None:
-                def on_progress(msg: str):
-                    self.tray.set_state(AppState.LOADING, msg)
-                try:
-                    self._qwen_engine.load(progress_callback=on_progress)
-                except Exception as e:
-                    log.exception("[MODEL] Qwen load raised: %s", e)
-                    self.tray.set_state(AppState.ERROR, f"Qwen load failed: {e}")
-                    return
-                if self._qwen_engine.is_loaded:
-                    self.tray.set_state(AppState.IDLE, f"Ready -- Qwen ASR")
-                    self.tray.invalidate_menu_cache()
-                else:
-                    log.warning("[MODEL] Qwen model failed to load")
-                    self.tray.set_state(AppState.ERROR, "Qwen model failed to load")
-            return
-
-        # Whisper
-        self.transcriber = TranscriptionEngine(
-            model_size=self.config.model_size,
-            device=self.config.device,
-            language=self.config.language,
-            beam_size=self.config.beam_size,
-            best_of=self.config.best_of,
-            condition_on_previous_text=self.config.condition_on_previous_text,
-        )
-        try:
-            def on_progress(msg: str):
-                self.tray.set_state(AppState.LOADING, msg)
-            self.transcriber.load(progress_callback=on_progress)
-            self.tray.set_state(
-                AppState.IDLE, f"Ready -- {self.transcriber.device_info}"
+        else:
+            self.transcriber = TranscriptionEngine(
+                model_size=self.config.model_size,
+                device=self.config.device,
+                language=self.config.language,
+                beam_size=self.config.beam_size,
+                best_of=self.config.best_of,
+                condition_on_previous_text=self.config.condition_on_previous_text,
             )
-            self.tray.invalidate_menu_cache()
+
+        # Sync registry and load
+        self._sync_asr_registry()
+
+        def on_progress(msg: str):
+            self.tray.set_state(AppState.LOADING, msg)
+
+        try:
+            success = self._asr_registry.load_active(progress_callback=on_progress)
+            if success:
+                active = self._asr_registry.get_active()
+                if new_backend == "whisper" and active is not None:
+                    self.tray.set_state(
+                        AppState.IDLE, f"Ready -- {active.device_info}"
+                    )
+                else:
+                    self.tray.set_state(
+                        AppState.IDLE, f"Ready -- {new_backend.title()} ASR"
+                    )
+                self.tray.invalidate_menu_cache()
+            else:
+                log.warning("[MODEL] %s model failed to load", new_backend.title())
+                self.tray.set_state(
+                    AppState.ERROR, f"{new_backend.title()} model failed to load"
+                )
         except Exception as exc:
-            log.exception("[MODEL] Whisper model load failed: %s", exc)
+            log.exception("[MODEL] Model load failed: %s", exc)
             self.tray.set_state(AppState.ERROR, f"Model failed: {exc}")
 
     # ─── TrayController Protocol Methods (P3) ────────────────────────

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { usePython } from '@/hooks/usePython'
+import { useSnackbar } from '@/hooks/useSnackbar'
 import { HugeiconsIcon } from '@hugeicons/react'
 import {
   AiBrain03Icon,
@@ -14,6 +15,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import PageHeading from '@/components/PageHeading'
+import ConfirmDialog from '@/components/ConfirmDialog'
 import { cn } from '@/lib/utils'
 import type { VoiceTyperConfig } from '@/types/config'
 
@@ -53,6 +55,7 @@ const INITIAL_MODELS: ModelInfo[] = [
 
 export default function ModelsPage() {
   const { call } = usePython()
+  const { showSnack, Snackbar } = useSnackbar()
   const [config, setConfig] = useState<VoiceTyperConfig | null>(_cachedConfig)
   const [models, setModels] = useState<ModelInfo[]>(INITIAL_MODELS)
   const [loading, setLoading] = useState(true)
@@ -61,16 +64,13 @@ export default function ModelsPage() {
   const [isDownloading, setIsDownloading] = useState(false)
   const [benchmarkResult, setBenchmarkResult] = useState('')
   const [isBenchmarking, setIsBenchmarking] = useState(false)
-  const [snackbar, setSnackbar] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null)
+
+  // #7: ConfirmDialog state for model deletion
+  const [deleteModelTarget, setDeleteModelTarget] = useState<ModelInfo | null>(null)
 
   // Cloud provider API keys
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({})
   const [testResults, setTestResults] = useState<Record<string, string>>({})
-
-  const showSnack = (message: string, type: 'success' | 'error' | 'warning') => {
-    setSnackbar({ message, type })
-    setTimeout(() => setSnackbar(null), 3000)
-  }
 
   const loadConfig = useCallback(async () => {
     setLoading(true)
@@ -170,13 +170,20 @@ export default function ModelsPage() {
     )
   }
 
-  const deleteModelConfirm = (model: ModelInfo) => {
+  // #7: ConfirmDialog — ask before deleting a model
+  const requestDeleteModel = (model: ModelInfo) => {
     if (model.isActive) {
       showSnack('Cannot delete the active model. Switch to another model first.', 'warning')
       return
     }
-    setModels((prev) => prev.filter((m) => m.name !== model.name))
-    showSnack(`Deleted model: ${model.name}`, 'warning')
+    setDeleteModelTarget(model)
+  }
+
+  const confirmDeleteModel = () => {
+    if (!deleteModelTarget) return
+    setModels((prev) => prev.filter((m) => m.name !== deleteModelTarget.name))
+    showSnack(`Deleted model: ${deleteModelTarget.name}`, 'warning')
+    setDeleteModelTarget(null)
   }
 
   const saveApiKey = async (provider: string) => {
@@ -316,14 +323,14 @@ export default function ModelsPage() {
                   <Button
                     variant="ghost"
                     size="icon-xs"
-                    onClick={() => deleteModelConfirm(model)}
+                    onClick={() => requestDeleteModel(model)}
                     disabled={model.isActive}
                     className="text-(--text-muted) hover:text-destructive"
                   >
-                      <HugeiconsIcon icon={Delete01Icon} strokeWidth={1.625} className="h-4 w-4" />
-                    </Button>
-                  </div>
+                    <HugeiconsIcon icon={Delete01Icon} strokeWidth={1.625} className="h-4 w-4" />
+                  </Button>
                 </div>
+              </div>
             )
           })}
         </div>
@@ -430,19 +437,17 @@ export default function ModelsPage() {
       </div>
 
       {/* Snackbar */}
-      {snackbar && (
-        <div
-          className={cn(
-            'animate-slide-up fixed bottom-6 left-1/2 z-50 -translate-x-1/2',
-            'rounded-lg px-4 py-2.5 text-sm shadow-lg',
-            snackbar.type === 'success' && 'bg-primary text-primary-foreground',
-            snackbar.type === 'error' && 'bg-destructive text-white',
-            snackbar.type === 'warning' && 'bg-primary text-primary-foreground',
-          )}
-        >
-          {snackbar.message}
-        </div>
-      )}
+      <Snackbar />
+
+      {/* #7: ConfirmDialog for model deletion */}
+      <ConfirmDialog
+        open={deleteModelTarget !== null}
+        title="Delete Model"
+        message={`Are you sure you want to delete "${deleteModelTarget?.name ?? ''}"? This action cannot be undone.`}
+        confirmLabel="Delete"
+        onConfirm={confirmDeleteModel}
+        onCancel={() => setDeleteModelTarget(null)}
+      />
     </div>
   )
 }

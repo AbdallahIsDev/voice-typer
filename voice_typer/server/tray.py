@@ -34,6 +34,8 @@ from PIL import Image
 # ARCH-003: types extracted to tray_types.py; icon rendering to tray_icon.py
 from voice_typer.server.tray_types import AppState, TrayController
 from voice_typer.server.tray_icon import _get_dpi_aware_icon_size, _make_icon, _icon_cache
+from voice_typer.server.tray_hotkey import format_hotkey_label
+from voice_typer.server.tray_models import build_models_submenu_data
 
 log = logging.getLogger(__name__)
 
@@ -382,60 +384,24 @@ class TrayIcon:
         return result
 
     def _build_models_submenu(self) -> list:
-        """Build a list of model MenuItems — only cached models + More models link."""
-        import json
+        """Build a list of model MenuItems — only cached models + More models link.
+
+        Data gathering is delegated to tray_models.build_models_submenu_data().
+        UI glue (pystray MenuItem construction) remains here because it
+        depends on the pystray API and the _wrap() helper.
+        """
         from voice_typer.server.config import _config_dir
-        from voice_typer.server.asr_setup import ensure_hf_env
-        ensure_hf_env()
-
-        # Read current model from config
-        config_path = _config_dir() / "config.json"
-        current_model = "tiny.en"
-        try:
-            with open(config_path, "r") as f:
-                cfg = json.load(f)
-            current_model = cfg.get("model_size", "tiny.en")
-        except Exception:
-            pass
-
-        # Models to check
-        candidates = [
-            ("tiny.en", "whisper", "Systran/faster-whisper-tiny.en"),
-            ("small.en", "whisper", "Systran/faster-whisper-small.en"),
-            ("medium.en", "whisper", "Systran/faster-whisper-medium.en"),
-            ("parakeet", "parakeet", "nvidia/parakeet-tdt-0.6b-v3"),
-            ("qwen", "qwen", None),
-        ]
 
         items = []
-        for name, backend, repo_id in candidates:
-            downloaded = False
-            if backend == "qwen":
-                try:
-                    import qwen_asr  # noqa
-                    downloaded = True
-                except ImportError:
-                    pass
-            elif repo_id:
-                cache_dir = _config_dir() / "huggingface" / "hub"
-                ref_file = cache_dir / f"models--{repo_id.replace('/', '--')}" / "refs" / "main"
-                downloaded = ref_file.exists()
-            else:
-                downloaded = False
-
+        for name, downloaded, is_active, change_fn in build_models_submenu_data(
+            _config_dir, self._controller.change_model
+        ):
             if not downloaded:
                 continue
-
-            is_active = (name == current_model and cfg.get("asr_backend", "whisper") == backend) or (
-                name == "parakeet" and cfg.get("asr_backend") == "parakeet"
-            ) or (
-                name == "qwen" and cfg.get("asr_backend") == "qwen"
-            )
-
             items.append(
                 pystray.MenuItem(
                     f"{'• ' if is_active else '  '}{name}",
-                    self._wrap(lambda n=name: self._controller.change_model(n)),
+                    self._wrap(change_fn),
                 )
             )
 
@@ -449,26 +415,13 @@ class TrayIcon:
         return items
 
     def _display_hotkey(self) -> str:
-        """Return the configured hotkey in a user-facing form."""
-        hotkey = self._hotkey or getattr(self._config, "hotkey", "<f2>") or "<f2>"
-        return self._format_hotkey_label(hotkey)
+        """Return the configured hotkey in a user-facing form.
 
-    @staticmethod
-    def _format_hotkey_label(hotkey: str) -> str:
-        parts = []
-        for part in hotkey.split("+"):
-            clean = part.strip().strip("<>").lower()
-            if clean == "ctrl":
-                parts.append("Ctrl")
-            elif clean == "alt":
-                parts.append("Alt")
-            elif clean == "shift":
-                parts.append("Shift")
-            elif clean in {"cmd", "win", "super"}:
-                parts.append("Win")
-            else:
-                parts.append(clean.upper())
-        return "+".join(parts)
+        Delegates to tray_hotkey.format_hotkey_label() so the formatting
+        logic is shared and testable without a TrayIcon instance.
+        """
+        hotkey = self._hotkey or getattr(self._config, "hotkey", "<f2>") or "<f2>"
+        return format_hotkey_label(hotkey)
 
     @staticmethod
     def _wrap(fn):

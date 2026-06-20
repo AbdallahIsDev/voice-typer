@@ -49,7 +49,7 @@ export default function ActivityList({
 
   const handleDelete = useCallback((id: number) => {
     onDelete?.(id)
-    toast.success('Item Deleted Successfully')
+    // Don't show premature success toast — parent handles feedback
   }, [onDelete])
 
   const handleFavorite = useCallback((id: number) => {

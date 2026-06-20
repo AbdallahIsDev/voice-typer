@@ -352,7 +352,11 @@ class TestNotifySafety:
 
 class TestOpenElectronWindow:
     """open_electron_window() pushes show_window over TCP first, then
-    falls back to Win32 focus, then to launching Electron."""
+    falls back to Win32 focus, then to launching Electron.
+
+    #13: The actual implementation now lives in tray_window.py.
+    Tests mock at the tray_window module level.
+    """
 
     def test_primary_path_pushes_show_window_over_tcp(self, tray, monkeypatch):
         """The primary path should push {"type": "show_window"} via TCP."""
@@ -366,16 +370,17 @@ class TestOpenElectronWindow:
         assert pushed[0] == {"type": "show_window"}
 
     def test_falls_back_to_bring_electron_to_front(self, tray, monkeypatch):
-        """When TCP push fails, should try _bring_electron_to_front."""
+        """When TCP push fails, should try bring_electron_to_front."""
         monkeypatch.setattr(
             "voice_typer.server.ipc_server._push_event_now",
             lambda msg: False,
         )
         called = []
+        import voice_typer.server.tray_window as tw_mod
         monkeypatch.setattr(
-            TrayIcon,
-            "_bring_electron_to_front",
-            lambda self: (called.append(True) or True),
+            tw_mod,
+            "bring_electron_to_front",
+            lambda: (called.append(True) or True),
         )
         tray.open_electron_window()
         assert called
@@ -386,10 +391,11 @@ class TestOpenElectronWindow:
             "voice_typer.server.ipc_server._push_event_now",
             lambda msg: False,
         )
+        import voice_typer.server.tray_window as tw_mod
         monkeypatch.setattr(
-            TrayIcon,
-            "_bring_electron_to_front",
-            lambda self: False,
+            tw_mod,
+            "bring_electron_to_front",
+            lambda: False,
         )
         launched = []
         monkeypatch.setattr(
@@ -407,10 +413,11 @@ class TestOpenElectronWindow:
             lambda msg: True,
         )
         win32_called = []
+        import voice_typer.server.tray_window as tw_mod
         monkeypatch.setattr(
-            TrayIcon,
-            "_bring_electron_to_front",
-            lambda self: (win32_called.append(True) or True),
+            tw_mod,
+            "bring_electron_to_front",
+            lambda: (win32_called.append(True) or True),
         )
         launched = []
         monkeypatch.setattr(
@@ -424,13 +431,17 @@ class TestOpenElectronWindow:
 
 
 class TestBringElectronToFront:
-    """_bring_electron_to_front() is a Win32-only fallback that handles
-    hidden (close-to-tray) and minimized windows."""
+    """bring_electron_to_front() is a Win32-only fallback that handles
+    hidden (close-to-tray) and minimized windows.
+
+    #13: Now lives in tray_window.py as a standalone function.
+    """
 
     def test_returns_false_on_non_windows(self, monkeypatch):
         """On non-Windows platforms, should return False immediately."""
         monkeypatch.setattr(sys, "platform", "linux")
-        result = TrayIcon._bring_electron_to_front()
+        from voice_typer.server.tray_window import bring_electron_to_front
+        result = bring_electron_to_front()
         assert result is False
 
 

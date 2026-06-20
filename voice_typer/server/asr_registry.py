@@ -37,6 +37,17 @@ class AsrBackendRegistry:
         log.debug("[ASR_REGISTRY] registered backend: %s (loaded=%s)",
                   name, getattr(backend, "is_loaded", True))
 
+    def unregister(self, name: str) -> None:
+        """Unregister a backend by name.
+
+        ARCH-007: used by app.py when a backend fails to load and
+        should be removed from the registry so get_active() no longer
+        considers it.
+        """
+        if name in self._backends:
+            del self._backends[name]
+            log.debug("[ASR_REGISTRY] unregistered backend: %s", name)
+
     def get_active(self) -> Optional[Any]:
         """Return the currently active backend based on config.asr_backend.
 
@@ -74,3 +85,74 @@ class AsrBackendRegistry:
     def get(self, name: str) -> Optional[Any]:
         """Get a specific backend by name."""
         return self._backends.get(name)
+
+    # ── ARCH-007/008: registry convenience methods ────────────────
+
+    def load_active(self) -> Optional[Any]:
+        """Load the active backend and return it.
+
+        Delegates to the backend's load() method with a progress
+        callback.  Returns the backend on success, None on failure.
+        """
+        backend = self.get_active()
+        if backend is None:
+            log.warning("[ASR_REGISTRY] no active backend to load")
+            return None
+        try:
+            backend.load(progress_callback=lambda msg: None)
+            log.info("[ASR_REGISTRY] loaded active backend: %s", self.active_name)
+            return backend
+        except Exception as exc:
+            log.error("[ASR_REGISTRY] failed to load active backend %s: %s",
+                      self.active_name, exc)
+            return None
+
+    def load_with_fallback(self) -> Optional[Any]:
+        """Load the configured backend; on failure, fall back to whisper.
+
+        ARCH-008: replaces the duplicated fallback logic in
+        app.py's _load_transcription_engine_background().
+        """
+        # Try the configured backend first
+        name = self.active_name
+        backend = self._backends.get(name)
+        if backend is not None:
+            try:
+                backend.load(progress_callback=lambda msg: None)
+                log.info("[ASR_REGISTRY] loaded backend: %s", name)
+                return backend
+            except Exception as exc:
+                log.warning("[ASR_REGISTRY] failed to load %s: %s, trying fallback", name, exc)
+                self.unregister(name)
+
+        # Fallback to whisper
+        whisper = self._backends.get("whisper")
+        if whisper is not None:
+            try:
+                whisper.load(progress_callback=lambda msg: None)
+                log.info("[ASR_REGISTRY] loaded fallback backend: whisper")
+                return whisper
+            except Exception as exc:
+                log.error("[ASR_REGISTRY] whisper fallback also failed: %s", exc)
+
+        return None
+
+    def unload(self, name: Optional[str] = None) -> None:
+        """Unload a backend by name, or the active backend if name is None.
+
+        ARCH-007: used by app.py's _change_model() before loading
+        the new model.
+        """
+        target = name or self.active_name
+        backend = self._backends.get(target)
+        if backend is not None:
+            try:
+                backend.unload()
+                log.info("[ASR_REGISTRY] unloaded backend: %s", target)
+            except Exception as exc:
+                log.warning("[ASR_REGISTRY] failed to unload %s: %s", target, exc)
+
+    @property
+    def available_backends(self) -> list[str]:
+        """Return names of all registered backends."""
+        return list(self._backends.keys())

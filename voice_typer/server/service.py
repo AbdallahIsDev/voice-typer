@@ -113,3 +113,15 @@ class VoiceTyperService:
     def quit(self) -> None:
         """Quit the application."""
         self._app.quit_app()
+
+    # ── Templates (#6) ─────────────────────────────────────────
+
+    def get_templates(self) -> list[dict]:
+        """Return saved templates from config."""
+        templates = getattr(self._app.config, 'templates_data', None)
+        return templates if isinstance(templates, list) else []
+
+    def save_templates(self, templates: list[dict]) -> bool:
+        """Save templates to config and persist to disk."""
+        self._app.config.templates_data = templates
+        return self._app.config.save()

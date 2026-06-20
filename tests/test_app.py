@@ -1038,7 +1038,11 @@ class TestModelLoadingQueue:
         from unittest.mock import MagicMock as _MM
         app.tray = MagicMock()
         app._init_parakeet_engine = MagicMock()
-        app._try_load_model = _MM(side_effect=RuntimeError("disk on fire"))
+        # ARCH-007: _load_transcription_engine_background now delegates
+        # to AsrBackendRegistry.load_with_fallback. Mock it to raise.
+        app._sync_asr_registry = MagicMock()
+        app._asr_registry = MagicMock()
+        app._asr_registry.load_with_fallback = _MM(side_effect=RuntimeError("disk on fire"))
         app._pending_dictation = False
         app.config.asr_backend = "whisper"
 
@@ -1415,11 +1419,16 @@ class TestStartupResilience:
 
         def track_register_hotkey():
             call_order.append("hotkey")
-        def track_try_load(*args, **kwargs):
+        def track_model_load(*args, **kwargs):
             call_order.append("model")
 
         app._register_hotkey = track_register_hotkey
-        app._try_load_model = track_try_load
+        # ARCH-007: model load now goes through _sync_asr_registry +
+        # _asr_registry.load_with_fallback. Mock the registry so we
+        # can track when model loading happens.
+        app._sync_asr_registry = MagicMock()
+        app._asr_registry = MagicMock()
+        app._asr_registry.load_with_fallback = track_model_load
         app._sync_autostart = MagicMock()
         app._sync_prewarm_task = MagicMock()
         app._load_microphones = MagicMock()

@@ -113,9 +113,30 @@ class CloudEngine:
             return ""
         return self._send_request(audio)
 
-    def transcribe_with_fallback(self, audio: np.ndarray) -> str:
-        """Same as transcribe for cloud engines — no local fallback."""
-        return self.transcribe(audio)
+    def transcribe_with_fallback(self, audio: np.ndarray, local_engine=None) -> str:
+        """Try cloud transcription; fall back to local engine on failure.
+
+        PERF-NEW-010: if the cloud request fails after all retries,
+        and a local_engine is provided, attempt transcription on it
+        instead of raising.  This gives a best-effort result even
+        when the cloud is temporarily unreachable.
+        """
+        try:
+            return self.transcribe(audio)
+        except Exception as cloud_err:
+            if local_engine is not None:
+                log.warning(
+                    "[CLOUD] %s failed, falling back to local engine: %s",
+                    self.provider, cloud_err,
+                )
+                try:
+                    return local_engine.transcribe(audio)
+                except Exception as local_err:
+                    log.error("[CLOUD] Local fallback also failed: %s", local_err)
+                    raise RuntimeError(
+                        f"Cloud ({self.provider}) and local fallback both failed"
+                    ) from cloud_err
+            raise
 
     def unload(self) -> None:
         """No-op for cloud engines."""
@@ -218,6 +239,9 @@ class CloudEngine:
         which let an attacker inject extra query parameters or path
         segments via ``config.cloud_model`` (e.g. ``"&punctuate=false&"
         "smart_format=true"``).
+
+        PERF-NEW-010: exponential backoff retry (3 attempts) for
+        transient network errors, matching the OpenAI-compatible path.
         """
         assert_url_allowed(
             self.api_url, field_name="cloud_api_url", client_name="cloud/deepgram"
@@ -229,10 +253,7 @@ class CloudEngine:
         }
 
         # SEC-005: urlencode escapes special characters in the model
-        # and language values, preventing parameter injection.  We
-        # also validate that the values match a conservative allowlist
-        # pattern (alphanumeric + dot/dash/underscore) — Deepgram's
-        # model and language identifiers never contain other chars.
+        # and language values, preventing parameter injection.
         from urllib.parse import urlencode
         import re
         _SAFE_TOKEN = re.compile(r"^[A-Za-z0-9._\-]+$")
@@ -252,26 +273,43 @@ class CloudEngine:
         url = f"{self.api_url}?{query}"
         req = Request(url, data=wav_bytes, headers=headers, method="POST")
 
-        try:
-            with _opener.open(req, timeout=30) as resp:
-                result = json.loads(resp.read().decode("utf-8"))
-                # Deepgram response format
-                channels = result.get("results", {}).get("channels", [])
-                if channels:
-                    alternatives = channels[0].get("alternatives", [])
-                    if alternatives:
-                        text = alternatives[0].get("transcript", "").strip()
-                        log.info("[CLOUD] Deepgram transcription: %d chars", len(text))
-                        return text
-                return ""
-        except URLError as exc:
-            safe_msg = redact_secret(redact_url(str(exc)))
-            log.error("[CLOUD] Deepgram API error: %s", safe_msg)
-            raise RuntimeError("Deepgram API error") from exc
-        except Exception as exc:
-            safe_msg = redact_secret(str(exc))
-            log.error("[CLOUD] Deepgram request failed: %s", safe_msg)
-            raise RuntimeError("Deepgram request failed") from exc
+        # PERF-NEW-010: retry with exponential backoff (same as OpenAI path)
+        max_retries = 3
+        last_exc = None
+        for attempt in range(max_retries):
+            try:
+                with _opener.open(req, timeout=30) as resp:
+                    result = json.loads(resp.read().decode("utf-8"))
+                    # Deepgram response format
+                    channels = result.get("results", {}).get("channels", [])
+                    if channels:
+                        alternatives = channels[0].get("alternatives", [])
+                        if alternatives:
+                            text = alternatives[0].get("transcript", "").strip()
+                            log.info("[CLOUD] Deepgram transcription: %d chars", len(text))
+                            return text
+                    return ""
+            except URLError as exc:
+                last_exc = exc
+                if attempt < max_retries - 1:
+                    import time as _time
+                    backoff = 0.5 * (2 ** attempt)  # 0.5s, 1.0s, 2.0s
+                    log.warning(
+                        "[CLOUD] Deepgram attempt %d/%d failed, retrying in %.1fs: %s",
+                        attempt + 1, max_retries, backoff,
+                        redact_secret(redact_url(str(exc))),
+                    )
+                    _time.sleep(backoff)
+                else:
+                    safe_msg = redact_secret(redact_url(str(exc)))
+                    log.error("[CLOUD] Deepgram API error after %d attempts: %s", max_retries, safe_msg)
+                    raise RuntimeError("Deepgram API error") from exc
+            except Exception as exc:
+                safe_msg = redact_secret(str(exc))
+                log.error("[CLOUD] Deepgram request failed: %s", safe_msg)
+                raise RuntimeError("Deepgram request failed") from exc
+        # Should not reach here, but just in case
+        raise RuntimeError(f"Deepgram request failed after {max_retries} attempts")
 
     def _build_multipart_body(self, wav_bytes: bytes, filename: str, boundary: str) -> bytes:
         """Build multipart/form-data body for OpenAI-compatible APIs."""

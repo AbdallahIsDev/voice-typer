@@ -288,7 +288,7 @@ export default function App() {
         />
 
           <div className="flex min-w-0 flex-1 flex-col">
-          <main className="flex-1 overflow-y-auto rounded-l-xl border-border border border-r-0 border-b-0 bg-(--bg)" style={{ scrollbarGutter: 'stable' }}>
+          <main id="main-content" role="main" className="flex-1 overflow-y-auto rounded-l-xl border-border border border-r-0 border-b-0 bg-(--bg)" style={{ scrollbarGutter: 'stable' }}>
             {connectionStatus === 'connecting' ? (
               <div className="flex h-full flex-col items-center justify-center gap-3">
                 <div className="h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent" />
@@ -316,6 +316,11 @@ export default function App() {
         </div>
       </div>
       <Toaster />
+
+      {/* #9: Screen reader live region for dynamic status updates */}
+      <div aria-live="polite" className="sr-only">
+        {recordingState !== 'idle' ? `Recording state: ${recordingState}` : ''}
+      </div>
     </div>
   )
 }
