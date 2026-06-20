@@ -109,6 +109,7 @@ export default function ActivityList({
                 onClick={() => handleFavorite(item.id)}
                 className="shrink-0 mt-0.5 text-(--text-muted) hover:text-amber-400"
                 title={item.favorite ? 'Remove from favorites' : 'Add to favorites'}
+                aria-label={item.favorite ? 'Remove from favorites' : 'Add to favorites'}
               >
                 <HugeiconsIcon icon={StarIcon} strokeWidth={1.625} className={`h-4 w-4 ${item.favorite ? 'text-amber-400' : ''}`} />
               </Button>
@@ -119,6 +120,7 @@ export default function ActivityList({
               onClick={() => handleCopy(item)}
               className="shrink-0 mt-0.5 text-(--text-muted) hover:text-(--text-primary)"
               title="Copy text"
+              aria-label="Copy text"
             >
               {copiedId === item.id ? (
                 <HugeiconsIcon icon={Tick02Icon} strokeWidth={1.625} className="h-4 w-4" />
@@ -133,6 +135,7 @@ export default function ActivityList({
                 onClick={() => handleDelete(item.id)}
                 className="shrink-0 mt-0.5 text-(--text-muted) hover:text-red-400"
                 title="Delete"
+                aria-label="Delete entry"
               >
                 <HugeiconsIcon icon={Delete01Icon} strokeWidth={1.625} className="h-4 w-4" />
               </Button>

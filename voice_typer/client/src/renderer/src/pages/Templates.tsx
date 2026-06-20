@@ -185,6 +185,7 @@ export default function TemplatesPage() {
             variant="outline"
             size="sm"
             onClick={openAddDialog}
+            aria-label="Add new template"
             className="gap-2"
           >
             <HugeiconsIcon icon={Add01Icon} strokeWidth={1.625} className="h-4 w-4" />
@@ -200,7 +201,7 @@ export default function TemplatesPage() {
               <p className="text-sm text-(--text-muted) opacity-70">
                 Say a phrase to trigger a text expansion
               </p>
-              <Button variant="default" className="mt-2 gap-2" onClick={openAddDialog}>
+              <Button variant="default" className="mt-2 gap-2" onClick={openAddDialog} aria-label="Create first template">
                 <HugeiconsIcon icon={Add01Icon} strokeWidth={1.625} className="h-4 w-4" />
                 Create First Template
               </Button>
@@ -232,6 +233,7 @@ export default function TemplatesPage() {
                       onClick={() => openEditDialog(t)}
                       className="text-(--text-muted) hover:text-(--text-secondary)"
                       title="Edit template"
+                      aria-label={`Edit template: ${t.trigger}`}
                     >
                       <HugeiconsIcon icon={PencilEdit02Icon} strokeWidth={1.625} className="h-4 w-4" />
                     </Button>
@@ -241,6 +243,7 @@ export default function TemplatesPage() {
                       onClick={() => requestDeleteTemplate(t)}
                       className="text-(--text-muted) hover:text-destructive"
                       title="Delete template"
+                      aria-label={`Delete template: ${t.trigger}`}
                     >
                       <HugeiconsIcon icon={Delete01Icon} strokeWidth={1.625} className="h-4 w-4" />
                     </Button>

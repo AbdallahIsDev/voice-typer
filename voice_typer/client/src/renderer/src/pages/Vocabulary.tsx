@@ -309,6 +309,7 @@ export default function VocabularyPage() {
                       onClick={() => openEditDialog(entry)}
                       className="text-(--text-muted) hover:text-accent"
                       title="Edit"
+                      aria-label={`Edit: ${entry.original}`}
                     >
                       <HugeiconsIcon icon={PencilEdit02Icon} strokeWidth={1.625} className="h-4 w-4" />
                     </Button>
@@ -318,6 +319,7 @@ export default function VocabularyPage() {
                       onClick={() => requestDeleteEntry(entry)}
                       className="text-(--text-muted) hover:text-destructive"
                       title="Delete"
+                      aria-label={`Delete: ${entry.original}`}
                     >
                       <HugeiconsIcon icon={Delete01Icon} strokeWidth={1.625} className="h-4 w-4" />
                     </Button>

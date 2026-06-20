@@ -1,28 +1,36 @@
 # Voice Typer — Benchmarks
 
-**Status: Not yet measured.**
+**Status: Benchmark harness available — not yet run on reference hardware.**
 
-The following metrics are planned for measurement but have not been
-formally benchmarked yet.  The claims in older README versions
-("300-450 ms first-token latency", "sub-second transcription") were
-aspirational, not measured.
+The benchmark harness (`bench_transcription.py`) is ready for use. Run it
+to generate measurements for your hardware configuration. The startup
+claims in the README have been updated to avoid specific unsubstantiated
+numbers until formal benchmarking is completed.
 
-## Planned benchmark harness
+## Running the benchmark
 
 ```bash
-# Future: run the benchmark
+# Transcription latency (default: small.en on CPU, 5 iterations)
 python bench/bench_transcription.py --model small.en --device cpu
+
+# Model load time only
+python bench/bench_transcription.py --model tiny.en --device cpu --load-only
+
+# GPU transcription
+python bench/bench_transcription.py --model small.en --device cuda --iterations 10
 ```
 
-## Metrics to measure
+## Metrics measured
 
-1. **First-token latency**: time from hotkey release to first character
+1. **Full transcription latency**: time from audio input to complete text
+2. **Model load time**: cold-start time for each model size
+
+## Planned metrics
+
+3. **First-token latency**: time from hotkey release to first character
    appearing in the target window.
-2. **Full transcription latency**: time from hotkey release to last
-   character pasted.
-3. **Streaming partial latency**: time from audio chunk to partial
+4. **Streaming partial latency**: time from audio chunk to partial
    transcription appearing (if streaming is enabled).
-4. **Model load time**: cold-start time for each model size.
 5. **Memory usage**: peak RSS during transcription.
 
 ## Methodology
@@ -32,3 +40,14 @@ python bench/bench_transcription.py --model small.en --device cpu
 - Repeat 10 times, report median + p90.
 - Measure on both CPU and GPU (if available).
 - Report Python version, OS, and hardware specs.
+
+## pytest-benchmark integration
+
+To add automated regression benchmarks:
+
+```bash
+pip install pytest-benchmark
+```
+
+Then create `tests/bench/` with fixtures that use the `benchmark` fixture
+to track performance across commits.

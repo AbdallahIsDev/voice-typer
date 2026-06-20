@@ -557,7 +557,7 @@ class IPCServer:
 
         if cmd == "get_status":
             resp["type"] = "status"
-            resp["data"] = {"status": self.app.tray.state.value}
+            resp["data"] = {"status": self.service.get_status()}
 
         elif cmd == "toggle_dictation":
             try:
@@ -597,10 +597,8 @@ class IPCServer:
             # the Python Config dataclass).  The renderer calls this
             # once, then sends the result via set_config.
             try:
-                from voice_typer.server.config import Config
-                defaults = Config()
                 resp["type"] = "defaults"
-                resp["data"] = _sanitize_config_for_ipc(defaults)
+                resp["data"] = self.service.get_defaults()
             except Exception as e:
                 log.error("[IPC] get_defaults failed: %s", e, exc_info=True)
                 resp["type"] = "error"
@@ -629,39 +627,12 @@ class IPCServer:
                         and validated["fast_startup"] != getattr(self.app.config, "fast_startup", None)
                     ):
                         self.app.config.fast_startup = bool(validated["fast_startup"])
-                        # _sync_prewarm_task reads config.fast_startup.
-                        try:
-                            self.app._sync_prewarm_task()
-                        except Exception as e:
-                            log.warning("[IPC] prewarm sync failed: %s", e)
                     # Apply only allowlisted, validated values.
                     for k, v in validated.items():
                         setattr(self.app.config, k, v)
                 self.app.config.save()
-                # Side-effect: when the autostart toggle changes, sync
-                # the OS autostart entry (registry/plist/.desktop) live
-                # so the user doesn't need to restart for the setting to
-                # take effect.  _sync_autostart reads config.autostart.
-                if isinstance(data, dict) and "autostart" in data:
-                    try:
-                        self.app._sync_autostart()
-                    except Exception as e:
-                        log.warning("[IPC] autostart sync failed: %s", e)
-                # Side-effect: live-register/unregister the ESC cancel hotkey
-                if isinstance(data, dict) and "esc_cancel_enabled" in data:
-                    try:
-                        if data["esc_cancel_enabled"]:
-                            self.app._register_esc_hotkey()
-                        else:
-                            self.app._unregister_esc_hotkey()
-                    except Exception as e:
-                        log.warning("[IPC] ESC hotkey sync failed: %s", e)
-                # Side-effect: live-register the repaste hotkey
-                if isinstance(data, dict) and "repaste_hotkey" in data:
-                    try:
-                        self.app._register_repaste_hotkey()
-                    except Exception as e:
-                        log.warning("[IPC] repaste hotkey sync failed: %s", e)
+                # ARCH-005: Delegate all side effects to the service layer
+                self.service.apply_config_side_effects(data if isinstance(data, dict) else {})
                 resp["type"] = "ack"
             except Exception as e:
                 log.error("[IPC] set_config failed: %s", e, exc_info=True)
@@ -762,37 +733,12 @@ class IPCServer:
 
         elif cmd == "get_volume_backend_status":
             # Returns the active volume backend's name + capability flags
-            # so the Settings UI can show "Volume Backend: pycaw (WASAPI)"
-            # and disable the Per-Session Duck toggle on non-Windows.
-            # See architecture doc §7.9 ("Backend status indicator") and
-            # §7.10 ("Graceful degradation").
+            # ARCH-005: delegates to service layer
             try:
-                ducker = getattr(self.app, "_volume_ducker", None)
-                if ducker is None:
-                    payload = {
-                        "available": False,
-                        "name": "disabled",
-                        "supports_per_session": False,
-                        "is_windows": sys.platform == "win32",
-                    }
-                else:
-                    # Trigger initialize() so the backend name reflects
-                    # the actual platform backend (not "disabled"
-                    # merely because nothing has ducked yet).  Safe to
-                    # call repeatedly — VolumeDucker.initialize() is
-                    # idempotent.
-                    try:
-                        ducker.initialize()
-                    except Exception:
-                        log.debug("[IPC] volume_ducker.initialize failed", exc_info=True)
-                    payload = {
-                        "available": bool(ducker.is_available),
-                        "name": ducker.backend_name,
-                        "supports_per_session": bool(ducker.supports_per_session),
-                        "is_windows": sys.platform == "win32",
-                    }
+                status = self.service.get_volume_backend_status()
+                status["is_windows"] = sys.platform == "win32"
                 resp["type"] = "volume_backend_status"
-                resp["data"] = payload
+                resp["data"] = status
             except Exception as e:
                 log.error("[IPC] get_volume_backend_status failed: %s", e, exc_info=True)
                 resp["type"] = "error"
@@ -801,37 +747,9 @@ class IPCServer:
         elif cmd == "get_model_status":
             # Item 10/11: check which models are actually on disk.
             # Returns a dict mapping model name → {downloaded: bool, deps_ok: bool}.
+            # ARCH-005: delegates to service layer
             try:
-                from voice_typer.server.config import _config_dir
-                from pathlib import Path
-                import sys as _sys
-
-                hf_cache = _config_dir() / "huggingface" / "hub"
-                status: dict[str, dict] = {}
-
-                # Check Whisper models (faster-whisper caches under models--Systran--faster-whisper-*)
-                for name in ("tiny.en", "small.en", "medium.en"):
-                    repo_dir = hf_cache / f"models--Systran--faster-whisper-{name}"
-                    # Check if snapshots dir has content
-                    snapshots = repo_dir / "snapshots"
-                    is_downloaded = snapshots.exists() and any(snapshots.iterdir())
-                    status[name] = {"downloaded": is_downloaded, "deps_ok": True}
-
-                # Check Qwen (always available — auto-downloads on first use)
-                status["qwen"] = {"downloaded": True, "deps_ok": True}
-
-                # Check Parakeet (needs transformers + torch)
-                parakeet_dir = hf_cache / "models--nvidia--parakeet-tdt-0.6b-v2"
-                parakeet_snapshots = parakeet_dir / "snapshots"
-                parakeet_downloaded = parakeet_snapshots.exists() and any(parakeet_snapshots.iterdir())
-                # Check if torch is available for Parakeet
-                try:
-                    import torch  # noqa: F401
-                    parakeet_deps = True
-                except ImportError:
-                    parakeet_deps = False
-                status["parakeet"] = {"downloaded": parakeet_downloaded, "deps_ok": parakeet_deps}
-
+                status = self.service.get_model_status()
                 resp["type"] = "model_status"
                 resp["data"] = status
             except Exception as e:
@@ -840,69 +758,22 @@ class IPCServer:
                 resp["data"] = {"message": str(e)}
 
         elif cmd == "get_vocabulary":
+            # ARCH-005: delegates to service layer
             try:
-                from voice_typer.server.vocabulary import VocabularyManager
-                mgr = VocabularyManager()
+                result = self.service.get_vocabulary()
                 resp["type"] = "vocabulary"
-                resp["data"] = mgr.get_all()
+                resp["data"] = result
             except Exception as e:
                 log.error("[IPC] get_vocabulary failed: %s", e, exc_info=True)
                 resp["type"] = "error"
                 resp["data"] = {"message": str(e)}
 
         elif cmd == "save_vocabulary":
+            # ARCH-005: delegates to service layer
             try:
-                from voice_typer.server.vocabulary import (
-                    VocabularyManager, CATEGORIES, VOCAB_FILENAME,
-                )
-                from voice_typer.server.config import _config_dir
-                import json
-
-                # Build a set of bundled entries so we only save user customizations.
-                # This prevents saving bundled corrections into the user file, which
-                # would cause duplicate entries in list-based categories on the next
-                # VocabularyManager load (bundled + user file with bundled copies).
-                mgr = VocabularyManager()
-                bundled = mgr._load_bundled()
-
-                user_only: dict[str, object] = {}
-                for cat in CATEGORIES:
-                    incoming = (data or {}).get(cat)
-                    bundled_cat = bundled.get(cat)
-
-                    if cat in ("misspellings", "technical_terms", "names", "products"):
-                        if isinstance(incoming, dict):
-                            bd = bundled_cat if isinstance(bundled_cat, dict) else {}
-                            diff = {k: v for k, v in incoming.items() if bd.get(k) != v}
-                            if diff:
-                                user_only[cat] = diff
-                    elif cat in ("phrase_corrections", "extra_word_patterns"):
-                        if isinstance(incoming, list):
-                            bs: set[tuple[str, str]] = set()
-                            if isinstance(bundled_cat, list):
-                                for item in bundled_cat:
-                                    if isinstance(item, (list, tuple)) and len(item) >= 2:
-                                        bs.add((item[0], item[1]))
-                            diff = [
-                                item for item in incoming
-                                if isinstance(item, (list, tuple)) and len(item) >= 2
-                                and (item[0], item[1]) not in bs
-                            ]
-                            if diff:
-                                user_only[cat] = diff
-
-                # Write only user customizations to the user file
-                user_path = _config_dir() / VOCAB_FILENAME
-                user_path.parent.mkdir(parents=True, exist_ok=True)
-                tmp = user_path.with_suffix(".tmp")
-                tmp.write_text(
-                    json.dumps(user_only, indent=2, ensure_ascii=False),
-                    encoding="utf-8",
-                )
-                tmp.replace(user_path)
-
+                result = self.service.save_vocabulary_with_diff(data if isinstance(data, dict) else {})
                 resp["type"] = "ack"
-                resp["data"] = {"imported_categories": len(user_only)}
+                resp["data"] = result
             except Exception as e:
                 log.error("[IPC] save_vocabulary failed: %s", e, exc_info=True)
                 resp["type"] = "error"

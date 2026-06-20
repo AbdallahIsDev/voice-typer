@@ -4,7 +4,7 @@ Premium offline background voice-to-text utility for Windows. Runs in your syste
 
 ## How It Works
 
-1. App starts in the system tray (appears in <200ms, model loads in the background)
+1. App starts in the system tray (tray icon appears quickly, model loads in the background)
 2. Press the hotkey anywhere to start recording (configurable in Settings)
 3. Talk freely — switch apps, browse, do whatever
 4. Press the hotkey again to stop (or let silence/max duration stop it automatically)
@@ -95,7 +95,7 @@ A desktop shortcut with a microphone icon is automatically created on first star
 
 ## Fast Startup
 
-The tray icon appears in under 200ms. The transcription engine is created in a background thread while the UI becomes immediately responsive. The hotkey is usable in approximately 4 seconds once the model finishes loading. If the model hasn't loaded yet when you press it, you'll see a "Starting up — please wait" message.
+The tray icon appears quickly on startup. The transcription engine is created in a background thread while the UI becomes immediately responsive. The hotkey is usable in approximately 4 seconds once the model finishes loading. If the model hasn't loaded yet when you press it, you'll see a "Starting up — please wait" message. See `bench/` for benchmark tooling.
 
 ## Settings
 
@@ -283,7 +283,7 @@ voice_typer/
 
 Key design decisions:
 
-- **Fast startup**: Tray icon appears in <200ms. TranscriptionEngine created in background thread.
+- **Fast startup**: Tray icon appears quickly. TranscriptionEngine created in background thread.
 - **Hidden streaming transcription**: Records the full session while transcribing safe overlapping chunks in the background. On stop, it finalizes the unconfirmed tail and falls back to full-session batch transcription if streaming state is unsafe.
 - **Dual ASR backends**: Whisper (default, via faster-whisper) with 4-level GPU->CPU fallback, optional Qwen3-ASR-0.6B, and optional NVIDIA Parakeet. Backend selection via `asr_backend` config key.
 - **ASR auto-setup**: GPU detection, dependency verification, and weight downloading at startup.

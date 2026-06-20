@@ -227,6 +227,7 @@ export default function HistoryPage() {
           variant="outline"
           size="sm"
           onClick={toggleFavorites}
+          aria-label={favoritesOnly ? 'Show all history' : 'Show favorites only'}
           className={`gap-2 ${
             favoritesOnly
               ? 'bg-amber-400/15 text-amber-400 border-amber-400/30 hover:bg-amber-400/20'
@@ -240,6 +241,7 @@ export default function HistoryPage() {
           variant="outline"
           size="sm"
           onClick={handleClearAll}
+          aria-label="Clear all history"
           className="gap-2 text-(--text-muted) hover:text-red-400"
         >
           <HugeiconsIcon icon={Delete01Icon} strokeWidth={1.625} className="h-4 w-4" />
