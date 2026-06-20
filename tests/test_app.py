@@ -1249,15 +1249,23 @@ class TestAppStartupIntegration:
 
 
 class TestTryLoadModel:
-    """Test _try_load_model helper method."""
+    """Test _try_load_model helper method.
+
+    ARCH-007/008: _try_load_model now delegates to the ASR registry,
+    so each test must set up the registry before calling it.
+    """
+
+    def _setup_registry(self, app):
+        """Ensure the ASR registry exists and has the whisper backend registered."""
+        app._sync_asr_registry()
 
     def test_try_load_success_sets_idle_state(self, app):
         """On successful load, tray state should be IDLE with device info."""
-        app.transcriber = MagicMock()
+        self._setup_registry(app)
+        app.tray = MagicMock()
         app.transcriber.load = MagicMock()
         app.transcriber.device_info = "cpu (int8)"
         app.transcriber.loaded_via = "cpu/int8/small.en"
-        app.tray = MagicMock()
 
         app._try_load_model()
 
@@ -1271,10 +1279,10 @@ class TestTryLoadModel:
 
     def test_try_load_failure_sets_error_state(self, app):
         """On failed load, tray state should be ERROR."""
-        app.transcriber = MagicMock()
+        self._setup_registry(app)
+        app.tray = MagicMock()
         app.transcriber.load = MagicMock(side_effect=RuntimeError("OOM"))
         app.transcriber.is_loaded = False
-        app.tray = MagicMock()
 
         app._try_load_model()
 
@@ -1285,10 +1293,10 @@ class TestTryLoadModel:
 
     def test_try_load_failure_with_notify(self, app):
         """notify_on_failure=True should send a desktop notification."""
-        app.transcriber = MagicMock()
+        self._setup_registry(app)
+        app.tray = MagicMock()
         app.transcriber.load = MagicMock(side_effect=RuntimeError("OOM"))
         app.transcriber.is_loaded = False
-        app.tray = MagicMock()
 
         app._try_load_model(notify_on_failure=True)
 
@@ -1298,10 +1306,10 @@ class TestTryLoadModel:
 
     def test_try_load_failure_without_notify(self, app):
         """notify_on_failure=False should NOT send a notification."""
-        app.transcriber = MagicMock()
+        self._setup_registry(app)
+        app.tray = MagicMock()
         app.transcriber.load = MagicMock(side_effect=RuntimeError("OOM"))
         app.transcriber.is_loaded = False
-        app.tray = MagicMock()
 
         app._try_load_model(notify_on_failure=False)
 
@@ -1309,9 +1317,9 @@ class TestTryLoadModel:
 
     def test_try_load_sets_model_load_attempted(self, app):
         """_model_load_attempted should be True after _try_load_model."""
-        app.transcriber = MagicMock()
-        app.transcriber.load = MagicMock()
+        self._setup_registry(app)
         app.tray = MagicMock()
+        app.transcriber.load = MagicMock()
 
         assert app._model_load_attempted is False
         app._try_load_model()

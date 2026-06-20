@@ -252,7 +252,11 @@ class TestP1WhisperSkipWhenQwenActive:
 
         app._do_startup()
 
-        # Qwen engine should have been loaded
+        # Wait for the background model-load thread to complete
+        if app._model_load_thread is not None:
+            app._model_load_thread.join(timeout=5)
+
+        # Qwen engine should have been loaded (via registry)
         # pyrefly: ignore [missing-attribute]
         app._qwen_engine.load.assert_called_once()
         # Whisper should NOT have been loaded since Qwen succeeded
@@ -278,16 +282,20 @@ class TestP1WhisperSkipWhenQwenActive:
         )
         app.transcriber = mock_transcriber
 
-        # Make Qwen load() fail (is_loaded stays False)
+        # Make Qwen load() raise so the registry falls back to Whisper
         # pyrefly: ignore [missing-attribute]
-        app._qwen_engine.load = MagicMock()  # load does nothing, is_loaded stays False
+        app._qwen_engine.load = MagicMock(side_effect=RuntimeError("Qwen unavailable"))
 
         app._do_startup()
 
-        # Qwen engine should have been attempted
+        # Wait for the background model-load thread to complete
+        if app._model_load_thread is not None:
+            app._model_load_thread.join(timeout=5)
+
+        # Qwen engine load should have been attempted (via registry)
         # pyrefly: ignore [missing-attribute]
         app._qwen_engine.load.assert_called_once()
-        # Whisper should have been loaded as fallback
+        # Whisper should have been loaded as fallback (via registry)
         app.transcriber.load.assert_called_once()
 
     def test_start_dictation_lazy_loads_whisper_when_qwen_unavailable(self, monkeypatch, tmp_path):

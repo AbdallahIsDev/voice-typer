@@ -1044,10 +1044,13 @@ class VoiceTyperApp:
     def _fallback_to_whisper(self, notify_on_failure: bool = False):
         """Fallback to Whisper tiny.en after Parakeet/Qwen backend failed.
 
-        ARCH-007: Uses the registry to reconfigure and reload instead
-        of hardcoding TranscriptionEngine construction.
+        ARCH-007/008: Uses the registry to reconfigure and reload.
+        Switches config to whisper/tiny.en, ensures the whisper backend
+        is registered, and delegates loading to
+        AsrBackendRegistry.load_with_fallback().
         """
         self.config.model_size = "tiny.en"
+        self.config.asr_backend = "whisper"
         if self.transcriber is None:
             self.transcriber = TranscriptionEngine(
                 model_size="tiny.en",
@@ -1063,23 +1066,55 @@ class VoiceTyperApp:
 
         # Update the registry so it reflects the new whisper backend
         self._sync_asr_registry()
-        self._try_load_model(notify_on_failure=notify_on_failure)
+
+        # ARCH-007/008: Use registry instead of direct _try_load_model
+        def on_progress(msg: str):
+            self.tray.set_state(AppState.LOADING, msg)
+
+        success = self._asr_registry.load_with_fallback(
+            progress_callback=on_progress
+        )
+        if success:
+            active = self._asr_registry.get_active()
+            self.tray.set_state(
+                AppState.IDLE,
+                f"Ready -- {active.device_info}" if active else "Ready",
+            )
+        else:
+            self.tray.set_state(
+                AppState.ERROR, "Model failed to load -- press F2 to retry"
+            )
+            if notify_on_failure:
+                self.tray.notify(
+                    "Voice Typer",
+                    "Could not load the speech model.\n"
+                    "The app will keep running. Press F2 to retry loading.",
+                )
 
     def _try_load_model(self, notify_on_failure: bool = False):
-        """Attempt to load the transcription model."""
+        """Attempt to load the transcription model.
+
+        ARCH-007/008: Delegates to AsrBackendRegistry.load_with_fallback()
+        instead of calling self.transcriber.load() directly.
+        """
         self._model_load_attempted = True
         try:
-            log.info("[MODEL] Loading model (size=%s, device=%s)...",
-                     self.config.model_size, self.config.device)
+            log.info("[MODEL] Loading model (backend=%s, size=%s, device=%s)...",
+                     self.config.asr_backend, self.config.model_size, self.config.device)
 
             def on_progress(message: str):
                 self.tray.set_state(AppState.LOADING, message)
 
-            self.transcriber.load(progress_callback=on_progress)
-            self.tray.set_state(
-                AppState.IDLE, f"Ready -- {self.transcriber.device_info}"
+            success = self._asr_registry.load_with_fallback(
+                progress_callback=on_progress
             )
-            log.info("[MODEL] Loaded successfully via %s", self.transcriber.loaded_via)
+            if success:
+                active = self._asr_registry.get_active()
+                info = getattr(active, 'device_info', 'unknown') if active else 'unknown'
+                self.tray.set_state(AppState.IDLE, f"Ready -- {info}")
+                log.info("[MODEL] Loaded successfully")
+            else:
+                raise RuntimeError("All backends failed to load")
         except Exception as e:
             log.exception("[MODEL] Load FAILED")
             self.tray.set_state(
@@ -1256,23 +1291,12 @@ class VoiceTyperApp:
         if active is None or not getattr(active, 'is_loaded', False):
             # No engine loaded -- try to load whisper as a fallback
             log.warning("[DICTATION] No loaded engine found, lazy-loading Whisper as fallback")
-            self.config.model_size = "tiny.en"
-            if self.transcriber is not None:
-                self.transcriber.model_size = "tiny.en"
-                self.transcriber._configured_model_size = "tiny.en"
-            else:
-                self.transcriber = TranscriptionEngine(
-                    model_size="tiny.en",
-                    device=self.config.device,
-                    language=self.config.language,
-                    beam_size=self.config.beam_size,
-                    best_of=self.config.best_of,
-                    condition_on_previous_text=self.config.condition_on_previous_text,
-                )
-                self._sync_asr_registry()
-            self.tray.set_state(AppState.LOADING, "Retrying model load (may take 30s)...")
-            self._try_load_model(notify_on_failure=True)
-            if not self.transcriber.is_loaded:
+            # ARCH-007/008: Use _fallback_to_whisper which delegates
+            # to the registry instead of constructing TranscriptionEngine
+            # directly and bypassing the registry.
+            self._fallback_to_whisper(notify_on_failure=True)
+            active = self._get_active_transcriber()
+            if active is None or not getattr(active, 'is_loaded', False):
                 log.error("[DICTATION] Whisper fallback also failed, cannot record")
                 self._schedule_timer(
                     3.0, lambda: self.tray.set_state(

@@ -191,7 +191,7 @@ export default function HistoryPage() {
     }
     try {
       const all = await call<HistoryRecord[]>('get_history', { limit: 10000 })
-      const result = await (window.window_ as WindowBridge).exportHistory(all, format)
+      const result = await (window.window_ as WindowBridge).exportHistory(all as unknown as Record<string, unknown>[], format)
       if (result.success) {
         const filename = result.path!.split(/[\\/]/).pop()!
         toast.success(`${filename} saved successfully`)
@@ -203,6 +203,7 @@ export default function HistoryPage() {
   }, [call, records.length])
 
   return (
+    <>
     <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
       <PageHeading
         title="History"
@@ -303,5 +304,6 @@ export default function HistoryPage() {
       onConfirm={confirmClearAll}
       onCancel={() => setShowClearConfirm(false)}
     />
+    </>
   )
 }

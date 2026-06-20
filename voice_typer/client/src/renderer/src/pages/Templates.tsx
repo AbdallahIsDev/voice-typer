@@ -55,7 +55,7 @@ function loadTemplates(): Template[] {
 // #6: saveTemplates now accepts an optional callFn for IPC persistence.
 // Add/edit paths pass the IPC call function so the server is notified.
 // Delete path also passes callFn so the server stays in sync.
-function saveTemplates(items: Template[], callFn?: <T>(cmd: string, args?: unknown) => Promise<T>): void {
+function saveTemplates(items: Template[], callFn?: <T>(cmd: string, data?: Record<string, unknown>) => Promise<T>): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(items))
   // #6: fire-and-forget IPC save so the backend stays in sync
   if (callFn) {

@@ -88,18 +88,19 @@ class AsrBackendRegistry:
 
     # ── ARCH-007/008: registry convenience methods ────────────────
 
-    def load_active(self) -> Optional[Any]:
+    def load_active(self, progress_callback: Any = None) -> Optional[Any]:
         """Load the active backend and return it.
 
         Delegates to the backend's load() method with a progress
         callback.  Returns the backend on success, None on failure.
         """
+        _cb = progress_callback or (lambda msg: None)
         backend = self.get_active()
         if backend is None:
             log.warning("[ASR_REGISTRY] no active backend to load")
             return None
         try:
-            backend.load(progress_callback=lambda msg: None)
+            backend.load(progress_callback=_cb)
             log.info("[ASR_REGISTRY] loaded active backend: %s", self.active_name)
             return backend
         except Exception as exc:
@@ -107,18 +108,24 @@ class AsrBackendRegistry:
                       self.active_name, exc)
             return None
 
-    def load_with_fallback(self) -> Optional[Any]:
+    def load_with_fallback(self, progress_callback: Any = None) -> Optional[Any]:
         """Load the configured backend; on failure, fall back to whisper.
 
         ARCH-008: replaces the duplicated fallback logic in
         app.py's _load_transcription_engine_background().
+
+        Args:
+            progress_callback: optional callable(msg: str) to report
+                loading progress (e.g. tray state updates).
         """
+        _cb = progress_callback or (lambda msg: None)
+
         # Try the configured backend first
         name = self.active_name
         backend = self._backends.get(name)
         if backend is not None:
             try:
-                backend.load(progress_callback=lambda msg: None)
+                backend.load(progress_callback=_cb)
                 log.info("[ASR_REGISTRY] loaded backend: %s", name)
                 return backend
             except Exception as exc:
@@ -129,7 +136,7 @@ class AsrBackendRegistry:
         whisper = self._backends.get("whisper")
         if whisper is not None:
             try:
-                whisper.load(progress_callback=lambda msg: None)
+                whisper.load(progress_callback=_cb)
                 log.info("[ASR_REGISTRY] loaded fallback backend: whisper")
                 return whisper
             except Exception as exc:
