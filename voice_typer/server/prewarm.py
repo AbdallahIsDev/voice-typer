@@ -182,20 +182,33 @@ def _lower_io_priority() -> None:
         except (OSError, PermissionError) as e:
             log.debug("[PREWARM] POSIX: os.nice failed: %s", e)
         # On Linux, also try to lower I/O priority to "idle" (class 3).
-        # This requires the ionice syscall; available on Linux 2.6.13+.
-        if sys.platform.startswith("linux"):
+        # Bug fix: ioprio_set is a SYSCALL, not a libc exported function.
+        # The previous code checked hasattr(libc, "ioprio_set") which always
+        # returned False (the symbol doesn't exist in libc), so the I/O
+        # priority lowering silently no-opped. The correct way is to call
+        # syscall(SYS_ioprio_set, which, who, ioprio) via libc.syscall.
+        # SYS_ioprio_set = 251 on x86_64, 314 on aarch64 (we try both).
+        # IOPRIO_WHO_PROCESS=1, IOPRIO_CLASS_IDLE=3,
+        # IOPRIO_PRIO_VALUE(class, level) = (class << 13) | level
+        if sys.platform == "linux":
             try:
                 import ctypes
                 libc = ctypes.CDLL("libc.so.6", use_errno=True)
-                # IOPRIO_WHO_PROCESS=1, IOPRIO_CLASS_IDLE=3, IOPRIO_PRIO_VALUE(class, level) = (class << 13) | level
-                # ioprio_set(which, who, ioprio) syscall number varies; use
-                # the libc wrapper if available, else skip.
-                if hasattr(libc, "ioprio_set"):
-                    IOPRIO_WHO_PROCESS = 1
-                    IOPRIO_CLASS_IDLE = 3
-                    ioprio = (IOPRIO_CLASS_IDLE << 13) | 0
-                    libc.ioprio_set(IOPRIO_WHO_PROCESS, 0, ioprio)
-                    log.debug("[PREWARM] Linux: set I/O priority to idle")
+                libc.syscall.restype = ctypes.c_long
+                libc.syscall.argtypes = [
+                    ctypes.c_long, ctypes.c_uint, ctypes.c_int, ctypes.c_uint,
+                ]
+                IOPRIO_WHO_PROCESS = 1
+                IOPRIO_CLASS_IDLE = 3
+                ioprio = (IOPRIO_CLASS_IDLE << 13) | 0
+                # Try x86_64 syscall number first, then aarch64
+                for sys_num in (251, 314):
+                    rc = libc.syscall(sys_num, IOPRIO_WHO_PROCESS, 0, ioprio)
+                    if rc == 0:
+                        log.debug("[PREWARM] Linux: set I/O priority to idle (syscall %d)", sys_num)
+                        break
+                else:
+                    log.debug("[PREWARM] Linux: ioprio_set syscall failed for both 251 and 314")
             except Exception as e:
                 log.debug("[PREWARM] Linux: ioprio_set failed: %s", e)
         return

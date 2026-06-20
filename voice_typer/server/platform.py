@@ -322,9 +322,13 @@ def _build_app_autostart_task_xml() -> str:
 
 
 def _register_app_autostart_task() -> bool:
-    """Register the app autostart Task Scheduler task. Returns True on success."""
-    if sys.platform != "win32":
-        return False
+    """Register the app autostart Task Scheduler task. Returns True on success.
+
+    Bug fix: removed redundant sys.platform != 'win32' check —
+    task_scheduler.is_supported() already handles platform detection
+    and is the single source of truth. The redundant check made the
+    function untestable on non-Windows without monkeypatching sys.platform.
+    """
     try:
         from voice_typer.server import task_scheduler
         if not task_scheduler.is_supported():
@@ -361,9 +365,10 @@ def _register_app_autostart_task() -> bool:
 
 
 def _unregister_app_autostart_task() -> bool:
-    """Remove the app autostart Task Scheduler task. Returns True on success."""
-    if sys.platform != "win32":
-        return False
+    """Remove the app autostart Task Scheduler task. Returns True on success.
+
+    Bug fix: removed redundant sys.platform != 'win32' check.
+    """
     try:
         from voice_typer.server import task_scheduler
         if not task_scheduler.is_supported():
@@ -381,9 +386,10 @@ def _unregister_app_autostart_task() -> bool:
 
 
 def _is_app_autostart_task_registered() -> bool:
-    """True if the app autostart Task Scheduler task exists."""
-    if sys.platform != "win32":
-        return False
+    """True if the app autostart Task Scheduler task exists.
+
+    Bug fix: removed redundant sys.platform != 'win32' check.
+    """
     try:
         from voice_typer.server import task_scheduler
         if not task_scheduler.is_supported():

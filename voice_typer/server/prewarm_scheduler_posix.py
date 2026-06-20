@@ -143,8 +143,26 @@ def _is_prewarm_registered_macos() -> bool:
 
 
 def _linux_unit_dir() -> Path:
-    """Return the systemd user unit directory."""
-    xdg = os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))
+    """Return the systemd user unit directory.
+
+    Uses $XDG_CONFIG_HOME if set AND non-empty (per the XDG Base Directory
+    Spec: "If $XDG_CONFIG_HOME is either not set or empty, a default equal
+    to $HOME/.config should be used."). Otherwise falls back to
+    ~/.config/systemd/user.
+
+    Bug fix: previously used os.environ.get("XDG_CONFIG_HOME", default)
+    which has TWO problems:
+    1. Eager evaluation: str(Path.home() / ".config") is always computed
+       even when XDG_CONFIG_HOME is set (wasteful, less testable).
+    2. Empty-string bug: if XDG_CONFIG_HOME="" (set but empty),
+       os.environ.get returns "" (not the default), causing Path("") to
+       produce a RELATIVE path "systemd/user" — the unit files would be
+       written to the current working directory instead of the user's
+       config directory, and the timer would never fire.
+    """
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    if not xdg:  # handles both None (unset) and "" (empty string)
+        xdg = str(Path.home() / ".config")
     return Path(xdg) / "systemd" / "user"
 
 
@@ -261,7 +279,7 @@ def is_prewarm_registered() -> bool:
     """Return True if prewarm is registered via the POSIX scheduler."""
     if sys.platform == "darwin":
         return _is_prewarm_registered_macos()
-    if sys.platform.startswith("linux"):
+    if sys.platform == "linux":
         return _is_prewarm_registered_linux()
     return False
 
@@ -270,7 +288,7 @@ def register_prewarm_task() -> bool:
     """Register the prewarm task via the POSIX scheduler. Returns True on success."""
     if sys.platform == "darwin":
         return _register_prewarm_macos()
-    if sys.platform.startswith("linux"):
+    if sys.platform == "linux":
         return _register_prewarm_linux()
     return False
 
@@ -279,6 +297,6 @@ def unregister_prewarm_task() -> bool:
     """Remove the prewarm task from the POSIX scheduler. Returns True on success."""
     if sys.platform == "darwin":
         return _unregister_prewarm_macos()
-    if sys.platform.startswith("linux"):
+    if sys.platform == "linux":
         return _unregister_prewarm_linux()
     return False

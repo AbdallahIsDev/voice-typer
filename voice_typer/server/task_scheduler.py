@@ -376,7 +376,9 @@ def is_supported() -> bool:
             os.environ.get("SystemRoot", r"C:\Windows") + r"\System32\schtasks.exe"
         ).exists()
     # STARTUP-5: POSIX platforms use prewarm_scheduler_posix.
-    return sys.platform in ("darwin",) or sys.platform.startswith("linux")
+    # Bug fix: use exact match instead of startswith("linux") for
+    # consistency with prewarm_scheduler_posix.is_supported().
+    return sys.platform in ("darwin", "linux")
 
 
 def is_prewarm_registered() -> bool:
