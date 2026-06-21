@@ -140,6 +140,7 @@ class _ColorFormatter(logging.Formatter):
         "CONFIG": "38;5;102",
         "TRAY": "38;5;102",
         "LLM_POLISH": "38;5;140",
+        "ASR_REGISTRY": "38;5;141",   # purple-blue — engine bootstrap
         "ASR_SETUP": "38;5;102",
         "WAVEFORM": "38;5;102",
         "ONBOARDING": "38;5;102",
@@ -1557,9 +1558,11 @@ class VoiceTyperApp:
         PortAudio mic handles open, and not unregistering
         ``RegisterHotKey`` registrations.
 
-        Now that ``_wrap`` re-raises ``SystemExit`` (see RELIABILITY-001
-        fix in ``tray.py``), we delegate to ``self.quit()`` which does
-        the full cleanup (cancel timers, signal streaming cancel,
+        Now that ``_wrap`` suppresses ``SystemExit`` (see ERR-QUIT-002
+        fix in ``tray.py`` — ``tray.stop()`` inside ``quit()`` already
+        breaks the pystray loop, so re-raising just caused pystray to
+        print a noisy traceback), we delegate to ``self.quit()`` which
+        does the full cleanup (cancel timers, signal streaming cancel,
         discard recorder, join transcription thread, stop all three
         hotkey backends, ``self.tray.stop()`` to break the pystray
         loop, close devnull FDs, ``sys.exit(0)``).

@@ -461,26 +461,30 @@ class TestWrapSystemExitHandling:
     leaving the Win32 mutex unreleased, mic handles open, and hotkey
     registrations leaked.
 
-    The fix: ``_wrap`` logs the SystemExit and re-raises it so the
-    process can exit cleanly via the normal ``sys.exit(0)`` path.
+    ERR-QUIT-002 (fix): ``_wrap`` now SUPPRESSES ``SystemExit`` instead
+    of re-raising it. Since ``quit()`` and ``restart_app()`` both call
+    ``self.tray.stop()`` before raising ``SystemExit``, the pystray
+    event loop is already broken — re-raising caused pystray to print
+    a confusing "error" traceback. Suppressing lets pystray see a clean
+    return; its loop exits because ``stop()`` was called.
     """
 
-    def test_wrap_re_raises_system_exit(self):
-        """If the wrapped callback raises SystemExit, _wrap must
-        re-raise it, not swallow it."""
+    def test_wrap_suppresses_system_exit(self):
+        """ERR-QUIT-002: SystemExit must be suppressed (not re-raised)
+        so pystray doesn't print a traceback."""
         from voice_typer.server.tray import TrayIcon
 
         def cb_that_exits():
             raise SystemExit(0)
 
         wrapper = TrayIcon._wrap(cb_that_exits)
-        with pytest.raises(SystemExit):
-            wrapper(icon=MagicMock(), item=MagicMock())
+        # Should NOT raise — SystemExit is caught and suppressed.
+        wrapper(icon=MagicMock(), item=MagicMock())
 
-    def test_wrap_does_not_swallow_system_exit_from_quit(self):
+    def test_wrap_suppresses_system_exit_from_quit(self):
         """Simulates the real-world scenario: a controller's quit_app
-        calls sys.exit(0), which raises SystemExit.  _wrap must let it
-        propagate so the process actually exits."""
+        calls sys.exit(0), which raises SystemExit.  _wrap must suppress
+        it so pystray doesn't print a traceback."""
         from voice_typer.server.tray import TrayIcon
 
         class _ControllerThatExits:
@@ -489,8 +493,8 @@ class TestWrapSystemExitHandling:
 
         ctrl = _ControllerThatExits()
         wrapper = TrayIcon._wrap(ctrl.quit_app)
-        with pytest.raises(SystemExit):
-            wrapper(icon=MagicMock(), item=MagicMock())
+        # Should NOT raise — SystemExit is caught and suppressed.
+        wrapper(icon=MagicMock(), item=MagicMock())
 
     def test_wrap_passes_through_normal_callback(self):
         """Non-SystemExit callbacks should still work normally."""

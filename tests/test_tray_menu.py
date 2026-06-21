@@ -2,7 +2,7 @@
 
 Verifies that:
 - display_hotkey formats pynput hotkey strings correctly
-- wrap_callback re-raises SystemExit (RELIABILITY-001)
+- wrap_callback suppresses SystemExit (ERR-QUIT-002)
 - build_menu produces the expected menu structure
 """
 import sys
@@ -44,14 +44,15 @@ class TestWrapCallback:
         wrapped("icon", "item")  # pystray passes (icon, item)
         assert called == ["yes"]
 
-    def test_system_exit_re_raised(self):
-        """RELIABILITY-001: SystemExit must propagate (not be swallowed)."""
+    def test_system_exit_suppressed(self):
+        """ERR-QUIT-002: SystemExit must be suppressed (not re-raised)
+        so pystray doesn't print a traceback."""
         from voice_typer.server.tray_menu import wrap_callback
         def cb():
             raise SystemExit(0)
         wrapped = wrap_callback(cb)
-        with pytest.raises(SystemExit):
-            wrapped("icon", "item")
+        # Should NOT raise — SystemExit is caught and suppressed.
+        wrapped("icon", "item")
 
     def test_exceptions_other_than_system_exit_propagate(self):
         from voice_typer.server.tray_menu import wrap_callback

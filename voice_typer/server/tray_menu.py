@@ -55,22 +55,28 @@ def wrap_callback(fn: Callable[[], None]) -> Callable:
     and leaked the Win32 mutex, PortAudio handles, and
     ``RegisterHotKey`` registrations until the OS reaped them.
 
-    We now log and re-raise ``SystemExit`` so the process can exit
-    cleanly via the normal ``sys.exit(0)`` path.  ``self.quit()``
-    (called by ``quit_app``) and ``restart_app`` both call
-    ``self.tray.stop()`` before raising ``SystemExit``, which
-    breaks the pystray event loop so ``_icon.run()`` returns and
-    the main thread can exit.
+    ERR-QUIT-002 (fix): previously we re-raised ``SystemExit`` so the
+    process could exit. But pystray's dispatcher catches the re-raised
+    ``SystemExit`` and prints a full traceback ("An error occurred
+    when calling message handler"), which is noisy and confusing.
+    Since ``quit()`` and ``restart_app`` both call ``self.tray.stop()``
+    before raising ``SystemExit``, the pystray event loop is already
+    broken — we don't need to re-raise. Just suppress the ``SystemExit``
+    and return normally; pystray sees a clean return and its loop
+    exits because ``stop()`` was called.
     """
     def wrapper(icon, item):
         try:
             fn()
         except SystemExit as _se:
             log.info(
-                "[TRAY] callback %r raised SystemExit(%s); re-raising",
+                "[TRAY] callback %r raised SystemExit(%s); suppressing "
+                "(tray.stop() already called, pystray loop will exit cleanly)",
                 getattr(fn, "__name__", "<lambda>"), _se.code,
             )
-            raise
+            # Do NOT re-raise — tray.stop() inside quit()/restart_app()
+            # already broke the pystray event loop. Re-raising causes
+            # pystray to print a confusing "error" traceback.
     return wrapper
 
 
