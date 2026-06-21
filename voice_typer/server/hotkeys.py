@@ -591,7 +591,13 @@ class WindowsNativeHotkey(HotkeyBackend):
         join(timeout=3.0) waited 3 seconds for nothing.  Now we just
         set the stop event and join with a shorter timeout — the
         polling loop checks _stop_event every 100ms.
+
+        ERR-QUIT-001 (fix): early-return if already stopped so the
+        duplicate log lines don't appear when quit_app and quit()
+        both call stop().
         """
+        if self._stop_event.is_set():
+            return  # Already stopped — idempotent
         log.info("[HOTKEY] Stopping Windows native hotkey listener")
         self._stop_event.set()
         # PERF-NEW-016: skip the useless PostThreadMessageW call —
