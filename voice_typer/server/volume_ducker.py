@@ -246,7 +246,7 @@ class VolumeDucker:
                     self._crash_recovery.save(state)
 
                 log.info(
-                    "[VOLUME] Duck → %.0f%% (saved %.0f%%, muted=%s, per_session=%s)",
+                    "[VOLUME] Duck -> %.0f%% (saved %.0f%%, muted=%s, per_session=%s)",
                     level * 100,
                     state.linear * 100,
                     state.muted,
@@ -270,12 +270,12 @@ class VolumeDucker:
                 self._ducked_level = level
                 if not self._actually_ducked:
                     log.info(
-                        "[VOLUME] Duck level updated → %.0f%% (smart-duck still skipping — no fade)",
+                        "[VOLUME] Duck level updated -> %.0f%% (smart-duck still skipping — no fade)",
                         level * 100,
                     )
                     return True
                 ok = self._backend.fade_to(level, fade_ms)
-                log.info("[VOLUME] Duck level updated → %.0f%%", level * 100)
+                log.info("[VOLUME] Duck level updated -> %.0f%%", level * 100)
                 return ok
 
     def restore(
@@ -351,7 +351,7 @@ class VolumeDucker:
                 if self._crash_recovery is not None:
                     self._crash_recovery.clear()
 
-            log.info("[VOLUME] Restore → %.0f%% (muted=%s)", target.linear * 100, target.muted)
+            log.info("[VOLUME] Restore -> %.0f%% (muted=%s)", target.linear * 100, target.muted)
             self._saved_state = None
             self._actually_ducked = False
             return ok
@@ -564,7 +564,7 @@ class VolumeDucker:
                 state = self._saved_state
 
                 log.info(
-                    "[VOLUME] Audio started mid-dictation — retroactive duck → %.0f%%",
+                    "[VOLUME] Audio started mid-dictation — retroactive duck -> %.0f%%",
                     level * 100,
                 )
                 if per_session and self._backend is not None and self._backend.supports_per_session:

@@ -325,7 +325,7 @@ class AudioProcessor:
                 prop_decrease=0.8,
             )
             log.info(
-                "[AUDIO-PROC] noisereduce: %d → %d samples (prop_decrease=0.8)",
+                "[AUDIO-PROC] noisereduce: %d -> %d samples (prop_decrease=0.8)",
                 len(audio), len(cleaned),
             )
             return cleaned.astype(np.float32, copy=False)
