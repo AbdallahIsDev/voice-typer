@@ -1974,18 +1974,13 @@ def _ensure_single_instance(silent=False):
 # had zero decision power (its result only affected a log message).
 
 
+def main() -> None:
     """Entry point for the ``voice-typer`` console script (pyproject).
 
-    Delegates to ``voice_typer.server.ipc_server.main`` so there is exactly
-    ONE backend entry point in the project.  Both ``voice-typer`` and the
-    Electron-spawned ``python -m voice_typer.server.ipc_server`` run the
-    identical code path; the only difference is whether ``--port`` is passed
-    (Electron passes it for TCP mode; the console script runs without it).
-
-    Previously this function duplicated ~20 lines of IPC/setup logic that
-    diverged from ``ipc_server.main`` (notably: it never called
-    ``start_tcp()``, so push events had no sink).  The duplication caused
-    the two entry points to behave differently for no good reason.
+    ERR-IPC-001 (fix): the ``def main()`` line was accidentally deleted
+    in a prior refactor. pyproject.toml now points to
+    ``voice_typer.server.ipc_server:main`` as the canonical entry point;
+    this function is kept as a thin re-export for backward compat.
     """
     from voice_typer.server.ipc_server import main as ipc_main
     ipc_main()

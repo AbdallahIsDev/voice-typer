@@ -48,7 +48,7 @@ dependencies = [
 ]
 
 [project.scripts]
-voice-typer = "voice_typer.server.app:main"
+voice-typer = "voice_typer.server.ipc_server:main"
 
 [project.optional-dependencies]
 # BUILD-N23: include modern test deps so CI is brittle-free.
