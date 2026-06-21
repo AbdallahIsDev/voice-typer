@@ -51,7 +51,10 @@ def _load_model():
 
     try:
         import torch
-        with contextlib.redirect_stdout(io.StringIO()):
+        # ERR-LINT-001 (fix): torch.hub.load writes "Using cache found in..."
+        # to STDERR, not STDOUT. redirect_stdout alone doesn't catch it.
+        # Redirect BOTH streams to suppress the noisy cache message.
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             _model, _utils = torch.hub.load(
                 repo_or_dir='snakers4/silero-vad',
                 model='silero_vad',
