@@ -343,7 +343,13 @@ def _build_task_xml(python_exe: str, arguments: str | None = None) -> str:
 # ─── schtasks wrapper ─────────────────────────────────────────────────────
 
 def _schtasks(args: list[str], *, capture: bool = True) -> tuple[int, str]:
-    """Run ``schtasks`` with *args*. Returns (returncode, combined output)."""
+    """Run ``schtasks`` with *args*. Returns (returncode, combined output).
+
+    PERF-NEW-026: ``schtasks /Create`` can block for up to 30s if the
+    Windows Task Scheduler service is hung. This function is now called
+    from a background thread (via ``_startup_parallel_work`` in app.py)
+    so it doesn't block the main startup sequence.
+    """
     cmd = ["schtasks"] + args
     try:
         result = subprocess.run(

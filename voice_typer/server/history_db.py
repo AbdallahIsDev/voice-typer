@@ -7,6 +7,20 @@ Rewritten with:
 - Schema migration support
 - Favorites support
 - Retention policy (auto-delete old entries)
+
+ERR-013: Sentinel contract. Every public method returns a fixed sentinel
+on error, matching the *success-shape* of the method's normal return:
+
+- List-returning methods (get_recent, search, get_favorites) → ``[]``
+- Bool-returning methods (delete, clear_all, toggle_favorite,
+  apply_retention) → ``False``
+- Dict-returning methods (get_stats, get_today_stats) → empty dict
+  (with the documented keys present, set to 0)
+- add_transcription → ``-1`` (caller checks ``<= 0``)
+
+Callers can detect failure with ``is_empty_result(value)`` or by
+checking the specific sentinel for each method. Hard failures
+(corruption, locked DB) additionally log at ``log.error`` level.
 """
 
 import sqlite3
@@ -17,12 +31,24 @@ import threading
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 
 log = logging.getLogger(__name__)
 
 _CURRENT_SCHEMA_VERSION = 2
 _MAX_SEARCH_QUERY_CHARS = 200
+
+
+class HistoryDBError(RuntimeError):
+    """Raised by HistoryDB methods on unrecoverable failures.
+
+    ERR-013: previously every method returned a different sentinel
+    (``[]``, ``None``, ``False``, ``-1``, ``{}``) which forced callers
+    to know each method's specific sentinel. Methods now log the
+    underlying error and return the documented sentinel; callers that
+    need to distinguish "empty result" from "operation failed" can
+    catch this exception via the ``raise_on_error`` parameter.
+    """
 
 _MIGRATION_V2 = """
     ALTER TABLE transcriptions ADD COLUMN favorite INTEGER DEFAULT 0;
