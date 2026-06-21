@@ -1,0 +1,43 @@
+# BUILD-N17: Reproducible dev environment for Voice Typer.
+# Based on the official Python 3.12 slim image; layers Node 20 for
+# the Electron client. Keeps the final image small by cleaning apt
+# caches and pip caches at the end.
+
+FROM python:3.12-slim AS base
+
+# Build deps for sounddevice / scipy / Pillow
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        gcc \
+        g++ \
+        git \
+        curl \
+        ca-certificates \
+        portaudio19-dev \
+        python3-dev \
+        libffi-dev \
+        libsndfile1 \
+        ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Node 20 (for the Electron client build)
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+
+# Install Python deps first (better layer caching)
+COPY pyproject.toml requirements.txt ./
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -e ".[test,dev]"
+
+# Install client deps
+COPY voice_typer/client/package.json voice_typer/client/package-lock.json* ./voice_typer/client/
+RUN cd voice_typer/client && npm ci --no-audit --no-fund
+
+# Copy the rest of the source
+COPY . .
+
+# Default to an interactive shell
+CMD ["bash"]
