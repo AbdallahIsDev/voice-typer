@@ -14,7 +14,11 @@ console.log('[bubble renderer] mounting')
 // page-ready in the main process.
 ;(window as any).bubble?.signalReady?.()
 
-ReactDOM.createRoot(document.getElementById('bubble-root')!).render(
+// ERR-ERR-005 (fix): explicit null check instead of `!` non-null assertion.
+const bubbleRootEl = document.getElementById('bubble-root')
+if (!bubbleRootEl) throw new Error('Bubble root element #bubble-root not found in bubble.html')
+
+ReactDOM.createRoot(bubbleRootEl).render(
   <React.StrictMode>
     <Bubble />
   </React.StrictMode>,

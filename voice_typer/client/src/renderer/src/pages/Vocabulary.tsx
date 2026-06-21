@@ -133,7 +133,8 @@ export default function VocabularyPage() {
       }
       const result = await bridge.exportVocabulary({ entries: flatData }, format)
       if (result.success) {
-        const filename = result.path!.split(/[\\/]/).pop()!
+        const path = result.path ?? ''
+        const filename = path.split(/[\\/]/).pop() || 'untitled'
         toast.success(`${filename} saved successfully`)
       }
     } catch (err) {

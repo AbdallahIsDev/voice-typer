@@ -193,7 +193,9 @@ export default function HistoryPage() {
       const all = await call<HistoryRecord[]>('get_history', { limit: 10000 })
       const result = await (window.window_ as WindowBridge).exportHistory(all as unknown as Record<string, unknown>[], format)
       if (result.success) {
-        const filename = result.path!.split(/[\\/]/).pop()!
+        // ERR-ERR-005 (fix): null-safe path handling instead of `!` assertions
+        const path = result.path ?? ''
+        const filename = path.split(/[\\/]/).pop() || 'untitled'
         toast.success(`${filename} saved successfully`)
       }
     } catch (err) {
