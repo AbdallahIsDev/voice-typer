@@ -14,6 +14,8 @@ It is loaded lazily on first use so the app doesn't pay the import cost
 unless VAD is enabled.
 """
 
+import contextlib
+import io
 import logging
 import numpy as np
 from typing import Optional
@@ -49,11 +51,12 @@ def _load_model():
 
     try:
         import torch
-        _model, _utils = torch.hub.load(
-            repo_or_dir='snakers4/silero-vad',
-            model='silero_vad',
-            trust_repo=True,
-        )
+        with contextlib.redirect_stdout(io.StringIO()):
+            _model, _utils = torch.hub.load(
+                repo_or_dir='snakers4/silero-vad',
+                model='silero_vad',
+                trust_repo=True,
+            )
         log.info("[VAD] Silero VAD model loaded successfully")
         return _model, _utils
     except Exception as exc:
