@@ -119,11 +119,20 @@ export default function Home({ recordingState, lastError, onNavigate }: HomeProp
   usePythonEvent('transcription_final', (data) => {
     if (typeof data?.text === 'string' && data.text.trim()) {
       setLastText(data.text)
+      // UX-025: auto-clear lastText after 5 seconds of idle so the
+      // previous transcription isn't exposed on a shared/locked screen.
+      // The timer is reset on each new transcription.
+      if (lastTextTimer.current) clearTimeout(lastTextTimer.current)
+      lastTextTimer.current = setTimeout(() => setLastText(''), 5000)
     }
   })
 
   usePythonEvent('recording_started', () => {
     setLastText('')
+    if (lastTextTimer.current) {
+      clearTimeout(lastTextTimer.current)
+      lastTextTimer.current = null
+    }
   })
 
   // ── Proactive background refresh after new transcriptions ────────
@@ -132,6 +141,8 @@ export default function Home({ recordingState, lastError, onNavigate }: HomeProp
   // recent records and today's stats so the Home page shows accurate data
   // on next visit (or immediately if already on Home).
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // UX-025: timer that auto-clears lastText after 5s of idle.
+  const lastTextTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   usePythonEvent('transcription_final', useCallback(() => {
     if (refreshTimer.current) clearTimeout(refreshTimer.current)
     refreshTimer.current = setTimeout(async () => {

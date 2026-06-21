@@ -1,5 +1,22 @@
+# BUILD-N07 / BUILD-N16: electron-builder distribution config.
+# - `asar: true` packages the renderer into a single archive, reducing
+#   file count and preventing users from accidentally editing source
+#   inside the installed app.
+# - `publish: null` explicitly disables auto-publishing to GitHub
+#   releases / S3 / snap. Releases are uploaded manually after CI
+#   verifies the artifact.
+# - `artifactName` produces a deterministic, arch-tagged filename so
+#   multiple arches can coexist in the same release page.
+# - mac.category / linux.category make the app show up correctly in
+#   Launchpad / app stores.
+# - DMG and AppImage blocks set explicit volume names and per-target
+#   artifactName overrides (BUILD-N16).
 appId: com.voicetyper.app
 productName: Voice Typer
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+asar: true
+publish: null
+
 directories:
   buildResources: resources
 files:
@@ -8,18 +25,55 @@ files:
   - '!electron.vite.config.*'
   - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!{.nvmrc,.python-version,.pre-commit-config.yaml}'
+
 win:
   icon: resources/icon.png
   target:
     - nsis
-mac:
-  icon: resources/icon.png
-  target:
-    - dmg
-linux:
-  icon: resources/icon.png
-  target:
-    - AppImage
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  perMachine: false
+  artifactName: ${productName}-${version}-${arch}-setup.${ext}
+
+mac:
+  icon: resources/icon.png
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+dmg:
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+linux:
+  icon: resources/icon.png
+  category: Office
+  target:
+    - AppImage
+    - deb
+  maintainer: voice-typer@example.com
+  vendor: Voice Typer
+  artifactName: ${productName}-${version}-linux-${arch}.${ext}
+AppImage:
+  artifactName: ${productName}-${version}-linux-${arch}.AppImage
+
+# BUILD-N20: code signing configuration is intentionally left as a
+# placeholder. CI must export macOS / Windows signing secrets before
+# these will activate. Without signing, SmartScreen and Gatekeeper
+# will warn end users — see SEC-020.
+# win.certificateFile: ${env.WIN_CERT_FILE}
+# win.certificatePassword: ${env.WIN_CERT_PASSWORD}
+# mac.identity: ${env.MAC_SIGNING_IDENTITY}

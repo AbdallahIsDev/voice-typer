@@ -209,6 +209,24 @@ export default function App() {
     }
   }, [isReady, call, currentPage, navigate])
 
+  // UX-031: Ctrl+B toggles the sidebar — discoverable keyboard shortcut
+  // matching VS Code / Chrome's convention. Without this the collapse
+  // button is invisible at width 0px in the collapsed state.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'b' && !e.shiftKey && !e.altKey) {
+        // Don't intercept when typing in an input/textarea
+        const target = e.target as HTMLElement | null
+        const tag = target?.tagName?.toLowerCase() ?? ''
+        if (tag === 'input' || tag === 'textarea' || target?.isContentEditable) return
+        e.preventDefault()
+        setSidebarCollapsed((c) => !c)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
+
   // Periodic health check while connected
   useEffect(() => {
     if (connectionStatus !== 'connected') return
