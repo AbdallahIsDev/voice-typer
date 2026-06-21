@@ -238,14 +238,24 @@ class VoiceTyperService:
     # ── Vocabulary (ARCH-005) ───────────────────────────────────
 
     def get_vocabulary(self) -> dict:
-        """Return the current vocabulary entries."""
+        """Return the current vocabulary entries.
+
+        ERR-IPC-005 (fix): previously called ``vm.list_entries()`` which
+        does not exist on VocabularyManager, causing a 500 error on
+        every Vocabulary page load. The renderer's ``VocabularyData``
+        type expects a dict keyed by category name (misspellings,
+        technical_terms, names, products, phrase_corrections,
+        extra_word_patterns) — same shape as ``VocabularyManager.get_all()``.
+        We now delegate to ``get_all()`` and add the user-file path so
+        the renderer can show "edited" indicators.
+        """
         from voice_typer.server.vocabulary import VocabularyManager
         vm = VocabularyManager(config_dir=self._app.config.config_dir)
-        entries = vm.list_entries()
-        return {
-            "entries": [{"word": e.word, "replacement": e.replacement} for e in entries],
-            "file": vm.path if hasattr(vm, "path") else None,
-        }
+        data = vm.get_all()
+        # Attach the user-file path so the renderer can surface it in
+        # the UI (e.g. "edit the file directly at ...").
+        data["_user_file"] = str(vm._user_path) if hasattr(vm, "_user_path") else None
+        return data
 
     def save_vocabulary(self, entries: list[dict]) -> dict:
         """Save vocabulary entries and return result."""
