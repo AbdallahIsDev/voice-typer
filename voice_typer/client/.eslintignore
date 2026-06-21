@@ -1,0 +1,5 @@
+out/
+dist/
+src/renderer/dist/
+node_modules/
+*.config.*
