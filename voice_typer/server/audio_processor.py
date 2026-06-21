@@ -92,7 +92,10 @@ class AudioProcessor:
     def __init__(self, config: AudioProcessorConfig, sample_rate: int = 16000) -> None:
         self._config = config
         self._sample_rate = sample_rate
-        self._hp_state: Optional[tuple] = None  # (b, a, zi)
+        # ERR-ERR-003 (fix): typed as Optional[tuple] but always a 3-tuple
+        # (b, a, zi) when set. Use a proper type alias so pyrefly can verify
+        # the unpack at line 212.
+        self._hp_state: Optional[tuple[np.ndarray, np.ndarray, np.ndarray]] = None
         self._rnnoise: Optional[object] = None
         self._rnnoise_frame_size: int = 480  # 30 ms at 16 kHz
         self._rnnoise_carry: np.ndarray = np.array([], dtype=np.float32)
@@ -209,7 +212,7 @@ class AudioProcessor:
         """
         from scipy.signal import lfilter
 
-        b, a, zi = self._hp_state  # type: ignore[misc]
+        b, a, zi = self._hp_state  # ERR-ERR-003: now properly typed
         original_shape = chunk.shape
         flat = chunk.ravel().astype(np.float64)
         # lfilter returns (filtered, new_zi); update state for continuity.
@@ -256,7 +259,11 @@ class AudioProcessor:
             frame = combined[start:start + frame_size].astype(np.float32)
             try:
                 # RNNoise expects float32 in [-1, 1] and returns same.
-                cleaned = self._rnnoise.filter_frame(frame)  # type: ignore[union-attr]
+                # ERR-ERR-003 (fix): explicit null check instead of type: ignore
+                if self._rnnoise is None:
+                    output_parts.append(frame)
+                    continue
+                cleaned = self._rnnoise.filter_frame(frame)
                 output_parts.append(cleaned)
             except Exception as exc:
                 log.debug("[AUDIO-PROC] RNNoise frame failed: %s", exc)
@@ -287,7 +294,9 @@ class AudioProcessor:
         peak = float(np.max(np.abs(chunk)))
         rms = float(np.sqrt(np.mean(np.square(chunk, dtype=np.float64))))
         try:
-            self._quality_callback(rms, peak)  # type: ignore[misc]
+            # ERR-ERR-003 (fix): explicit null check instead of type: ignore
+            if self._quality_callback is not None:
+                self._quality_callback(rms, peak)
         except Exception:
             log.debug("[AUDIO-PROC] quality callback raised", exc_info=True)
 

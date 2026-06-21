@@ -228,7 +228,8 @@ class VolumeDucker:
                 # starts playing mid-dictation, the monitor retroactively
                 # applies the duck — closing the gap where speaker bleed
                 # could leak into the mic.  See _smart_duck_monitor_loop.
-                if self._smart_duck_enabled and not self._backend.is_speaker_active():
+                # ERR-ERR-003 (fix): null-check _backend before calling
+                if self._smart_duck_enabled and self._backend is not None and not self._backend.is_speaker_active():
                     self._actually_ducked = False
                     log.info("[VOLUME] No audio output — duck skipped (smart duck, monitor started)")
                     self._start_smart_duck_monitor(level, fade_ms, per_session)
@@ -543,7 +544,11 @@ class VolumeDucker:
             # the lock during that time would block restore() and
             # set_smart_duck_enabled().
             try:
-                speaker_active = self._backend.is_speaker_active()  # type: ignore[union-attr]
+                # ERR-ERR-003 (fix): explicit null check instead of type: ignore
+                if self._backend is None:
+                    speaker_active = False
+                else:
+                    speaker_active = self._backend.is_speaker_active()
             except Exception as exc:
                 log.debug("[VOLUME] monitor: is_speaker_active failed: %s", exc)
                 speaker_active = False  # don't duck on error — try again next poll

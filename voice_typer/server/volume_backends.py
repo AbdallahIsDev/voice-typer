@@ -350,7 +350,7 @@ class MacVolumeBackend(VolumeBackend):
     def _coreaudio_get_state(self) -> Optional[VolumeState]:
         try:
             import ctypes
-            from CoreAudio import AudioObjectGetPropertyData  # type: ignore
+            from CoreAudio import AudioObjectGetPropertyData  # type: ignore[import-not-found]
 
             # Get default output device
             dev = self._get_default_output_device()
