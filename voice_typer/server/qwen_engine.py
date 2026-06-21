@@ -132,8 +132,41 @@ class QwenEngine:
             return text
 
     def transcribe_with_fallback(self, audio: np.ndarray) -> str:
-        """Same as transcribe for Qwen (no local GPU→CPU fallback)."""
-        return self.transcribe(audio)
+        """Transcribe with GPU→CPU fallback on CUDA errors.
+
+        ERR-008: Previously this method just delegated to ``transcribe``
+        with no fallback at all, despite the name. If a CUDA error
+        occurred the caller received the raw exception. We now detect
+        CUDA errors and retry on CPU, mirroring the parakeet engine's
+        behavior. Non-CUDA errors are re-raised so the caller can
+        surface them via ERR-005's friendly-error path.
+        """
+        try:
+            return self.transcribe(audio)
+        except Exception as exc:
+            err_str = str(exc).lower()
+            if self.device == "cuda" and (
+                "cuda" in err_str or "cublas" in err_str or "cudnn" in err_str
+                or "out of memory" in err_str
+            ):
+                log.warning("[QWEN] CUDA error, retrying on CPU: %s", exc)
+                try:
+                    original_device = self.device
+                    self.device = "cpu"
+                    if self._model is not None:
+                        try:
+                            self._model.to("cpu")
+                        except Exception:
+                            # Not all model wrappers expose .to(); ignore
+                            pass
+                    return self.transcribe(audio)
+                except Exception as cpu_exc:
+                    # Restore device on failure so the next attempt starts fresh
+                    self.device = original_device if 'original_device' in locals() else "cuda"
+                    log.error("[QWEN] CPU fallback also failed: %s", cpu_exc)
+                    raise
+            # Non-CUDA error: re-raise so caller can handle
+            raise
 
     def unload(self) -> None:
         """Free model memory."""

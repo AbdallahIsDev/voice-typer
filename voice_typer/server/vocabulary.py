@@ -23,6 +23,9 @@ from typing import Optional
 log = logging.getLogger(__name__)
 
 VOCAB_FILENAME = "voice-typer-vocabulary.json"
+# ARCH-028: single source of truth for the bundled corrections file path.
+# text_cleanup.py imports this constant instead of re-declaring it.
+BUNDLED_CORRECTIONS_PATH = Path(__file__).parent / "corrections.json"
 
 # Category names in canonical order
 CATEGORIES = [
@@ -48,7 +51,8 @@ class VocabularyManager:
         self._user_path = config_dir / VOCAB_FILENAME
 
         if bundled_path is None:
-            bundled_path = Path(__file__).parent / "corrections.json"
+            # ARCH-028: use the shared BUNDLED_CORRECTIONS_PATH constant.
+            bundled_path = BUNDLED_CORRECTIONS_PATH
         self._bundled_path = bundled_path
 
         # Active merged data: {category: data}
@@ -123,16 +127,63 @@ class VocabularyManager:
     # ── Persistence ──────────────────────────────────────────────────
 
     def _save_user(self) -> None:
-        """Save only user vocabulary data (not bundled) to the user file."""
+        """Save only user vocabulary data (not bundled) to the user file.
+
+        ARCH-044: ``Path.replace`` is not atomic on Windows when the
+        destination is open by another process (e.g. an editor or a
+        cloud-sync client watching the file). We now:
+          1. Write to a tmp file with ``fsync``.
+          2. Retry the rename up to 3 times with exponential backoff.
+          3. On final failure, log + leave the tmp file in place so
+             the user can recover manually.
+        """
+        import os
+        import time as _time
+
+        max_retries = 3
+        last_exc: Exception | None = None
         try:
             self._user_path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self._user_path.with_suffix(".tmp")
-            tmp.write_text(
-                json.dumps(self._data, indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
-            tmp.replace(self._user_path)
-            log.debug("[VOCAB] Saved user vocabulary")
+            with open(tmp, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(self._data, indent=2, ensure_ascii=False))
+                fh.flush()
+                try:
+                    os.fsync(fh.fileno())
+                except OSError:
+                    # fsync may not be available on all platforms / FS
+                    # types (network mounts). The write is still
+                    # durable-enough for our purposes.
+                    pass
+            for attempt in range(max_retries):
+                try:
+                    os.replace(str(tmp), str(self._user_path))
+                    log.debug("[VOCAB] Saved user vocabulary")
+                    return
+                except PermissionError as exc:
+                    last_exc = exc
+                    if attempt < max_retries - 1:
+                        backoff = 0.05 * (2 ** attempt)  # 50ms, 100ms, 200ms
+                        log.warning(
+                            "[VOCAB] PermissionError on save (attempt %d/%d), "
+                            "retrying in %.0fms: %s",
+                            attempt + 1, max_retries, backoff * 1000, exc,
+                        )
+                        _time.sleep(backoff)
+                    else:
+                        log.error(
+                            "[VOCAB] Failed to save user vocabulary after %d "
+                            "attempts: %s (tmp file left at %s)",
+                            max_retries, exc, tmp,
+                        )
+                except OSError as exc:
+                    last_exc = exc
+                    log.error("[VOCAB] Failed to save user vocabulary: %s", exc)
+                    break
+            # Note: we deliberately do NOT re-raise — the existing
+            # contract is that _save_user is best-effort and failures
+            # are logged. Callers that need to know about failures
+            # should check the log.
         except Exception as exc:
             log.error("[VOCAB] Failed to save: %s", exc)
 

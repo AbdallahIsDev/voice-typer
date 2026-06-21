@@ -17,6 +17,17 @@ from voice_typer.server.hallucination import should_reject_low_audio_hallucinati
 
 log = logging.getLogger(__name__)
 
+
+class TranscriptionBackendError(RuntimeError):
+    """Raised when the ASR backend cannot produce a transcription.
+
+    ERR-007: ``transcribe_with_fallback`` previously returned ``""`` on
+    CPU fallback failure, which the caller could not distinguish from a
+    legitimate "no speech detected" result — the user saw "No speech
+    detected" and assumed the microphone was broken. We now raise this
+    typed exception so callers can show the correct error.
+    """
+
 # Maximum allowed ratio of non-Latin-script characters before we reject
 # a transcription segment as a language-hallucination.
 # The model is English-only; output with >30% non-Latin characters is
@@ -346,10 +357,17 @@ class ParakeetEngine:
         return result.strip()
 
     def transcribe_with_fallback(self, audio: np.ndarray) -> str:
-        """transcribe with GPU→CPU fallback on CUDA errors."""
+        """transcribe with GPU→CPU fallback on CUDA errors.
+
+        Raises:
+            TranscriptionBackendError: if both the GPU path and the CPU
+                fallback fail. Previously returned ``""``, which the
+                caller could not distinguish from a legitimate "no
+                speech detected" result (ERR-007).
+        """
         with self._lock:
             if self._model is None or self._processor is None:
-                raise RuntimeError("Parakeet model not loaded.")
+                raise TranscriptionBackendError("Parakeet model not loaded.")
 
             if len(audio) == 0:
                 return ""
@@ -366,8 +384,14 @@ class ParakeetEngine:
                         return text
                     except Exception as cpu_exc:
                         log.error("[PARAKEET] CPU fallback also failed: %s", cpu_exc)
-                        return ""
-                return ""
+                        raise TranscriptionBackendError(
+                            f"Parakeet GPU transcription failed ({exc}) and CPU "
+                            f"fallback also failed ({cpu_exc})"
+                        ) from cpu_exc
+                # Non-CUDA error: surface it instead of swallowing as ""
+                raise TranscriptionBackendError(
+                    f"Parakeet transcription failed: {exc}"
+                ) from exc
 
     def _transcribe_impl(self, audio: np.ndarray) -> str:
         """Core transcription without lock or error handling for fallback.

@@ -57,6 +57,9 @@ class TrayIcon:
         self._config = config  # reference to live Config object
 
         self._icon: Optional[pystray.Icon] = None
+        # ARCH-045: set to True if pystray.Icon() raised OSError at start()
+        # so callers can decide to skip tray-related operations.
+        self._tray_unavailable: bool = False
         self._state = AppState.IDLE
         self._message = ""
         self._notifications_enabled = True
@@ -121,7 +124,15 @@ class TrayIcon:
         self._menu_cache_valid = False
 
     def start(self, bg_work: Optional[Callable] = None) -> None:
-        """Create the tray icon and start background work."""
+        """Create the tray icon and start background work.
+
+        ARCH-045: pystray.Icon() can raise OSError on Windows Server /
+        headless sessions without a system tray (no explorer.exe, RDP
+        with /admin, etc.). Previously this crashed the background
+        thread silently. We now catch the OSError, log it, and notify
+        the user that the tray is unavailable — the app keeps running
+        so the hotkey + IPC server still work.
+        """
         self._bg_work_fn = bg_work
 
         # Phase 2: Build minimal menu
@@ -138,6 +149,21 @@ class TrayIcon:
             raise RuntimeError(
                 f"Failed to create tray icon (pystray Menu construction error): {e}"
             ) from e
+        except OSError as e:
+            # ARCH-045: headless / Windows Server / no-explorer sessions.
+            log.warning(
+                "[TRAY] Could not create system tray icon (no tray available?). "
+                "Hotkey and IPC server will continue to work, but tray menu "
+                "and notifications are disabled. Original error: %s",
+                e,
+            )
+            self._icon = None
+            self._tray_unavailable = True
+            # Still start background work so the app boots normally.
+            if self._bg_work_fn:
+                self._bg_thread = threading.Thread(target=self._bg_work_fn, daemon=True)
+                self._bg_thread.start()
+            return
 
         # Start background work
         if self._bg_work_fn:
@@ -272,14 +298,23 @@ class TrayIcon:
         """Build a list of model MenuItems — only cached models + More models link.
 
         #13: Fully delegates to tray_models.build_models_menu_items().
+
+        ARCH-037: previously the menu builder re-parsed config.json from
+        disk, which is stale under rapid config updates. We now pass
+        the in-memory Config object via a config_provider callable so
+        the menu always reflects the live state.
         """
         from voice_typer.server.config import _config_dir
         from voice_typer.server.tray_models import build_models_menu_items
+        # ARCH-037: pass a config provider that returns the live Config
+        # instance, so the menu doesn't read stale config.json from disk.
+        config_provider = getattr(self, "_config", None)
         return build_models_menu_items(
             _config_dir,
             self._controller.change_model,
             wrap_callback,  # use the shared wrapper from tray_menu
             self.open_electron_window,
+            config_provider=config_provider,
         )
 
     def _display_hotkey(self) -> str:

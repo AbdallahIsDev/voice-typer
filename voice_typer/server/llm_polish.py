@@ -162,7 +162,11 @@ class LLMPolisher:
 
         try:
             with urlopen(req, timeout=30) as resp:
-                result = json.loads(resp.read().decode("utf-8"))
+                # SEC-030: cap response at 50 MB to prevent OOM from
+                # a malicious / buggy LLM endpoint.
+                from voice_typer.server.cloud_engines import _read_capped
+                raw = _read_capped(resp, max_bytes=50 * 1024 * 1024)
+                result = json.loads(raw.decode("utf-8"))
                 choices = result.get("choices", [])
                 if choices:
                     return choices[0].get("message", {}).get("content", "")

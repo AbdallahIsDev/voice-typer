@@ -12,7 +12,12 @@ from typing import Any, Optional
 log = logging.getLogger(__name__)
 
 
-def build_models_submenu_data(config_dir_fn, controller_change_model_fn) -> list[tuple[str, bool, bool, Any]]:
+def build_models_submenu_data(
+    config_dir_fn,
+    controller_change_model_fn,
+    *,
+    config_provider=None,
+) -> list[tuple[str, bool, bool, Any]]:
     """Gather model info for the tray models submenu.
 
     Returns a list of tuples: (name, is_downloaded, is_active, change_fn)
@@ -20,20 +25,31 @@ def build_models_submenu_data(config_dir_fn, controller_change_model_fn) -> list
     Parameters:
         config_dir_fn: callable returning the config directory Path
         controller_change_model_fn: callable(name) to change the active model
+        config_provider: optional live Config object. ARCH-037: when provided,
+            uses ``config_provider.asr_backend`` / ``config_provider.model_size``
+            instead of re-parsing config.json from disk. Falls back to disk
+            read when None.
     """
     from voice_typer.server.asr_setup import ensure_hf_env
     ensure_hf_env()
 
-    # Read current model from config
-    config_path = config_dir_fn() / "config.json"
+    # ARCH-037: prefer the in-memory Config object over a disk read.
+    # Falls back to disk read when config_provider is None (e.g. tests).
     current_model = "tiny.en"
     cfg: dict = {}
-    try:
-        with open(config_path, "r") as f:
-            cfg = json.load(f)
-        current_model = cfg.get("model_size", "tiny.en")
-    except Exception:
-        pass
+    if config_provider is not None:
+        current_model = getattr(config_provider, "model_size", "tiny.en") or "tiny.en"
+        current_backend = getattr(config_provider, "asr_backend", "whisper") or "whisper"
+    else:
+        # Read current model from config.json on disk.
+        config_path = config_dir_fn() / "config.json"
+        try:
+            with open(config_path, "r") as f:
+                cfg = json.load(f)
+            current_model = cfg.get("model_size", "tiny.en")
+        except Exception:
+            pass
+        current_backend = cfg.get("asr_backend", "whisper") if cfg else "whisper"
 
     # Models to check
     candidates = [
@@ -45,7 +61,6 @@ def build_models_submenu_data(config_dir_fn, controller_change_model_fn) -> list
     ]
 
     results = []
-    current_backend = cfg.get("asr_backend", "whisper") if cfg else "whisper"
 
     for name, backend, repo_id in candidates:
         downloaded = False
@@ -79,6 +94,7 @@ def build_models_menu_items(
     open_electron_window_fn,
     menu_item_class=None,
     menu_separator=None,
+    config_provider=None,
 ):
     """#13: Build the full list of pystray MenuItems for the Models submenu.
 
@@ -93,6 +109,10 @@ def build_models_menu_items(
         open_electron_window_fn: callable to open the Electron app
         menu_item_class: pystray.MenuItem class (default: pystray.MenuItem)
         menu_separator: pystray.Menu.SEPARATOR (default: pystray.Menu.SEPARATOR)
+        config_provider: optional live Config object. ARCH-037: when provided,
+            the data builder uses ``config_provider.asr_backend`` /
+            ``config_provider.model_size`` instead of re-parsing config.json
+            from disk. Falls back to disk read when None.
     """
     if menu_item_class is None:
         import pystray
@@ -103,7 +123,7 @@ def build_models_menu_items(
 
     items = []
     for name, downloaded, is_active, change_fn in build_models_submenu_data(
-        config_dir_fn, controller_change_model_fn
+        config_dir_fn, controller_change_model_fn, config_provider=config_provider,
     ):
         if not downloaded:
             continue

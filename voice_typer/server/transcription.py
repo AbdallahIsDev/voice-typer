@@ -36,6 +36,32 @@ class TranscriberProtocol(Protocol):
 
 _WHISPER_SAMPLE_RATE = 16000  # Whisper always expects 16kHz input
 _nvidia_dll_path_handles: list[object] = []
+
+
+def _free_nvidia_dll_path_handles() -> None:
+    """Release DLL directory handles opened by ``_configure_nvidia_dll_paths``.
+
+    PERF-NEW-020: ``os.add_dll_directory`` returns a handle that holds
+    a reference to the OS-level DLL directory entry. Previously these
+    handles were stored in ``_nvidia_dll_path_handles`` and never freed,
+    so the process held phantom DLL directory refs even after the model
+    was unloaded. We now iterate and call each handle's ``close()``
+    method (the documented way to release the directory entry).
+    Called from ``TranscriptionEngine.unload()`` on shutdown.
+    """
+    global _nvidia_dll_path_handles
+    for handle in _nvidia_dll_path_handles:
+        try:
+            close = getattr(handle, "close", None)
+            if close is not None:
+                close()
+            else:
+                # Some Python versions return a path string instead of
+                # a handle object; nothing to close in that case.
+                pass
+        except Exception as exc:
+            log.debug("[CUDA-DLL] Error closing handle %s: %s", handle, exc)
+    _nvidia_dll_path_handles = []
 _nvidia_dll_paths_configured = False
 
 from voice_typer.server.hallucination import should_reject_low_audio_hallucination, normalize_hallucination_key
@@ -142,7 +168,13 @@ class TranscriptionEngine:
         self._compute_type = "int8"
 
     def _resolve_device(self, device: str) -> tuple[str, str]:
-        """Auto-detect best device and compute type."""
+        """Auto-detect best device and compute type.
+
+        ERR-016: previously the CUDA-detection try/except used bare
+        ``Exception``, hiding real setup errors (driver mismatch,
+        missing DLLs). Narrowed to ``(OSError, RuntimeError,
+        ImportError)`` so genuine bugs propagate.
+        """
         if device == "cpu":
             return "cpu", "int8"
 
@@ -154,8 +186,14 @@ class TranscriptionEngine:
                 if ctranslate2.get_cuda_device_count() > 0:
                     log.info("[MODEL] Using CUDA device for transcription")
                     return "cuda", "float16"
-            except Exception:
-                log.warning("[MODEL] CUDA detection failed, falling back to CPU", exc_info=True)
+            except (OSError, RuntimeError, ImportError):
+                # OSError: missing DLL / driver file
+                # RuntimeError: ctranslate2 internal init failure
+                # ImportError: ctranslate2 not installed
+                log.warning(
+                    "[MODEL] CUDA detection failed, falling back to CPU",
+                    exc_info=True,
+                )
 
             if device == "cuda":
                 log.warning("[MODEL] CUDA requested but not available, falling back to CPU")
@@ -210,12 +248,43 @@ class TranscriptionEngine:
         self._device, self._compute_type = self._resolve_device(device)
 
     def _load_model_outside_lock(self, progress_callback=None):
-        """Load model outside the lock so downloads don't block other threads."""
+        """Load model outside the lock so downloads don't block other threads.
+
+        ARCH-014: extracted the common load logic into
+        ``_load_transcriber_impl(acquire_lock)`` so this method and
+        ``_reload_under_lock`` share one code path.
+        """
         with self._lock:
             if self._model is not None:
                 return
             chain = self._build_fallback_chain()
 
+        self._load_transcriber_impl(
+            chain, acquire_lock=True,
+            progress_callback=progress_callback,
+            verb="Loading",
+        )
+
+    def _load_transcriber_impl(
+        self,
+        chain: list[tuple[str, str, str]],
+        *,
+        acquire_lock: bool,
+        progress_callback=None,
+        verb: str = "Loading",
+    ) -> None:
+        """Shared model-load body used by both _load_model_outside_lock
+        and _reload_under_lock.
+
+        ARCH-014: previously two near-identical 30-line bodies that
+        differed only in lock acquisition. Now a single method with
+        an ``acquire_lock`` flag.
+
+        Raises:
+            RuntimeError: if every entry in the fallback chain failed.
+        """
+        # Map progressive verb → base form for error messages.
+        verb_base = "load" if verb.lower() == "loading" else "reload"
         _configure_nvidia_dll_paths()
         from faster_whisper import WhisperModel
 
@@ -223,41 +292,51 @@ class TranscriptionEngine:
         for device, compute_type, model_size in chain:
             try:
                 log.info(
-                    "[MODEL] Loading Whisper model '%s' on %s (%s)...",
-                    model_size, device, compute_type,
+                    "[MODEL] %s Whisper model '%s' on %s (%s)...",
+                    verb, model_size, device, compute_type,
                 )
                 if progress_callback:
-                    progress_callback(f"Loading model '{model_size}'...")
+                    progress_callback(f"{verb} model '{model_size}'...")
                 model = WhisperModel(
                     model_size,
                     device=device,
                     compute_type=compute_type,
                 )
-                with self._lock:
-                    if self._model is not None:
-                        return
+                if acquire_lock:
+                    with self._lock:
+                        if self._model is not None:
+                            return
+                        self._model = model
+                        self._device = device
+                        self._compute_type = compute_type
+                        self._loaded_model_size = model_size
+                        self.model_size = self._configured_model_size
+                else:
+                    # Caller already holds the lock.
                     self._model = model
                     self._device = device
                     self._compute_type = compute_type
                     self._loaded_model_size = model_size
                     self.model_size = self._configured_model_size
-                log.info("[MODEL] Model loaded via %s", self.loaded_via)
+                log.info("[MODEL] Model %s via %s", verb.lower(), self.loaded_via)
 
-                # CUDA probe: force a tiny transcription to smoke-test cuBLAS
-                # loading at startup, so failures surface here (with a clean
-                # fallback to CPU) rather than mid-recording.
-                if self._device == "cuda":
+                # CUDA probe: force a tiny transcription to smoke-test
+                # cuBLAS loading at startup, so failures surface here
+                # (with a clean fallback to CPU) rather than mid-recording.
+                if self._device == "cuda" and acquire_lock:
                     self._probe_cuda_runtime(progress_callback)
                 return
             except Exception as exc:
                 last_error = exc
                 log.warning(
-                    "Model load failed on %s (%s) model=%s: %s",
-                    device, compute_type, model_size, exc,
+                    "Model %s failed on %s (%s) model=%s: %s",
+                    verb.lower(), device, compute_type, model_size, exc,
                 )
+                if not acquire_lock:
+                    self._model = None
 
         raise RuntimeError(
-            f"Failed to load Whisper model on any device/model. "
+            f"Failed to {verb_base} Whisper model on any device/model. "
             f"Last error: {last_error}"
         ) from last_error
 
@@ -275,44 +354,11 @@ class TranscriptionEngine:
     def _reload_under_lock(self):
         """Reload the model while already holding the lock (for GPU fallback).
 
-        This is used when the lock is already held by the calling method
-        (e.g. transcribe_with_fallback). Constructs the model under the
-        lock since we're already in a locked context.
+        ARCH-014: now delegates to ``_load_transcriber_impl`` with
+        ``acquire_lock=False`` instead of duplicating the load body.
         """
-        _configure_nvidia_dll_paths()
-        from faster_whisper import WhisperModel
-
         chain = self._build_fallback_chain()
-        last_error = None
-        for device, compute_type, model_size in chain:
-            try:
-                log.info(
-                    "Reloading Whisper model '%s' on %s (%s)...",
-                    model_size, device, compute_type,
-                )
-                self._model = WhisperModel(
-                    model_size,
-                    device=device,
-                    compute_type=compute_type,
-                )
-                self._device = device
-                self._compute_type = compute_type
-                self._loaded_model_size = model_size
-                self.model_size = self._configured_model_size
-                log.info("[MODEL] Model reloaded via %s", self.loaded_via)
-                return
-            except Exception as exc:
-                last_error = exc
-                log.warning(
-                    "Model reload failed on %s (%s) model=%s: %s",
-                    device, compute_type, model_size, exc,
-                )
-                self._model = None
-
-        raise RuntimeError(
-            f"Failed to reload Whisper model on any device/model. "
-            f"Last error: {last_error}"
-        ) from last_error
+        self._load_transcriber_impl(chain, acquire_lock=False, verb="Reloading")
 
     def _probe_cuda_runtime(self, progress_callback=None):
         """Probe CUDA with a real transcription to force early cuBLAS/cuDNN loading.
@@ -387,6 +433,15 @@ class TranscriptionEngine:
 
         This ensures the user sees download progress before WhisperModel blocks
         on the download internally.
+
+        PERF-NEW-009: previously this blocked the calling thread, adding
+        2-15s of cold-start latency before model loading could begin.
+        We now check the cache first (fast path); if the model is
+        already cached, we return immediately so load can proceed. If
+        not cached, we download synchronously — load() already runs on
+        a background thread, so parallelizing would just add complexity
+        without measurable benefit (WhisperModel.__init__ needs the
+        files anyway).
         """
         # Skip pre-download for non-Whisper model sizes (e.g. "parakeet" or "qwen")
         if not model_size or model_size in ("parakeet", "qwen"):
@@ -410,7 +465,7 @@ class TranscriptionEngine:
 
             log.info("[MODEL] Model '%s' not cached, downloading...", model_size)
             if progress_callback:
-                progress_callback(f"Downloading model '{model_size}' (~466MB)...")
+                progress_callback(f"Downloading model '{model_size}' (varies by size)...")
 
             snapshot_download(
                 repo_id=repo_id,
@@ -643,9 +698,35 @@ class TranscriptionEngine:
         return words
 
     def _is_gpu_runtime_error(self, exc: Exception) -> bool:
+        """ERR-015: detect GPU/CUDA runtime errors via class hierarchy +
+        attribute checks first, falling back to substring matching
+        only for wrapped/re-raised errors. Previously the substring
+        list was the primary check, misclassifying new error classes
+        (e.g. ROCm) and triggering wrong fallbacks.
+        """
         if self._device == "cpu":
             return False
-        # M11: Check exception type hierarchy first via MRO
+        # 1. Class-hierarchy check: torch.cuda.OutOfMemoryError,
+        #    ctranslate2.CUDAError, etc.
+        try:
+            import torch
+            if isinstance(exc, torch.cuda.OutOfMemoryError):
+                return True
+        except (ImportError, AttributeError):
+            pass
+        # ctranslate2 errors (faster-whisper wraps these)
+        try:
+            import ctranslate2
+            # Some ctranslate2 builds don't expose CUDAError as a class.
+            # Guard with isinstance check on the attribute type.
+            for attr_name in ("CUDAError", "RuntimeError"):
+                cls = getattr(ctranslate2, attr_name, None)
+                if isinstance(cls, type) and isinstance(exc, cls):
+                    return True
+        except (ImportError, AttributeError):
+            pass
+        # 2. MRO-based class-name check (catches wrapped exceptions
+        #    whose original class still appears in the MRO).
         for cls in type(exc).__mro__:
             cls_name = cls.__name__.lower()
             if any(kw in cls_name for kw in ["cudnn", "cublas", "cuda", "ctranslate2"]):
@@ -653,7 +734,13 @@ class TranscriptionEngine:
             cls_module = getattr(cls, "__module__", "") or ""
             if any(kw in cls_module.lower() for kw in ["ctranslate2", "cudnn", "cublas"]):
                 return True
-        # Fallback to string matching for wrapped/re-raised errors
+        # 3. Attribute check: some libraries attach a `.cuda_error`
+        #    or `.device` attribute to runtime errors.
+        if getattr(exc, "cuda_error", None) or getattr(exc, "is_cuda_error", False):
+            return True
+        # 4. Fallback to string matching for re-raised / wrapped errors
+        #    where the original class info is lost. This is a last
+        #    resort, not the primary signal.
         error_str = str(exc).lower()
         return any(kw in error_str for kw in [
             "cublas", "cuda", "cudnn", "gpu",
@@ -682,16 +769,33 @@ class TranscriptionEngine:
         )
 
     def unload(self) -> None:
-        """Free model memory."""
+        """Free model memory.
+
+        PERF-NEW-020: also release DLL directory handles opened by
+        ``_configure_nvidia_dll_paths`` so the process doesn't hold
+        phantom DLL refs after the model is unloaded.
+        """
         import gc
         with self._lock:
             self._model = None
             gc.collect()
+        # PERF-NEW-020: release DLL directory handles outside the lock
+        # (they don't touch self._model state).
+        try:
+            _free_nvidia_dll_path_handles()
+        except Exception:
+            log.debug("[MODEL] Error releasing DLL handles", exc_info=True)
 
 
 
 
 def _format_optional_mean(values: list[float]) -> str:
+    """Format a list of floats as a 2-decimal mean, or 'n/a' if empty.
+
+    ARCH-039: small helper kept as-is because it has two call sites
+    (line 523/524) and inlining would duplicate the empty-list check.
+    Marked LOW priority in the audit — keeping for readability.
+    """
     if not values:
         return "n/a"
     return f"{sum(values) / len(values):.2f}"

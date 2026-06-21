@@ -72,6 +72,11 @@ class ModelManager:
         self._model_load_thread: Optional[threading.Thread] = None
         self._model_load_attempted: bool = False
         self._pending_dictation: bool = False
+        # ERR-003: When the user changes model during an active recording
+        # we save config and notify "will change after current recording",
+        # but previously never actually applied the change. We capture
+        # the requested model here and apply it on the next _start_dictation.
+        self._pending_model_change: Optional[str] = None
 
     # ── Registry access ────────────────────────────────────────────────
 
@@ -128,38 +133,65 @@ class ModelManager:
 
         ARCH-007: delegates to AsrBackendRegistry.create() so all backend
         construction goes through one code path.
+
+        ERR-011: previously failures here were swallowed by the registry
+        and only logged. The user picked Qwen/Parakeet, saw "Ready", and
+        got nothing on failure. We now surface init failures via tray
+        notification so the user knows the backend didn't initialize.
         """
         if self._registry.get(backend_name) is not None:
             return
-        if backend_name == "parakeet":
-            self._registry.create(
-                "parakeet",
-                parakeet_kwargs=dict(
-                    device=self._app.config.device,
-                    language=self._app.config.language,
-                ),
-            )
-        elif backend_name == "qwen":
-            self._registry.create(
-                "qwen",
-                qwen_kwargs=dict(
-                    model_path=self._app.config.qwen_model_path,
-                    device=self._app.config.device,
-                    language=self._app.config.language,
-                ),
-            )
-        else:
-            self._registry.create(
-                "whisper",
-                whisper_kwargs=dict(
-                    model_size=self._app.config.model_size,
-                    device=self._app.config.device,
-                    language=self._app.config.language,
-                    beam_size=self._app.config.beam_size,
-                    best_of=self._app.config.best_of,
-                    condition_on_previous_text=self._app.config.condition_on_previous_text,
-                ),
-            )
+        try:
+            if backend_name == "parakeet":
+                self._registry.create(
+                    "parakeet",
+                    parakeet_kwargs=dict(
+                        device=self._app.config.device,
+                        language=self._app.config.language,
+                    ),
+                )
+            elif backend_name == "qwen":
+                self._registry.create(
+                    "qwen",
+                    qwen_kwargs=dict(
+                        model_path=self._app.config.qwen_model_path,
+                        device=self._app.config.device,
+                        language=self._app.config.language,
+                    ),
+                )
+            else:
+                self._registry.create(
+                    "whisper",
+                    whisper_kwargs=dict(
+                        model_size=self._app.config.model_size,
+                        device=self._app.config.device,
+                        language=self._app.config.language,
+                        beam_size=self._app.config.beam_size,
+                        best_of=self._app.config.best_of,
+                        condition_on_previous_text=self._app.config.condition_on_previous_text,
+                    ),
+                )
+        except Exception as exc:
+            log.exception("[MODEL] Failed to initialize %s engine: %s", backend_name, exc)
+            # ERR-011: surface to user via tray notification so they
+            # don't sit waiting for "Ready" forever. Include the
+            # backend name and a short hint.
+            try:
+                hint = ""
+                if backend_name == "qwen":
+                    hint = " Check that the Qwen model path is set correctly in Settings."
+                elif backend_name == "parakeet":
+                    hint = " Check that Parakeet weights are downloaded."
+                self._app.tray.notify(
+                    "Voice Typer",
+                    f"Could not initialize the {backend_name.title()} backend.{hint}",
+                )
+            except Exception:
+                pass
+            # Re-raise so callers (load_background, ensure_active_engine_loaded)
+            # can react; previously the bare-except in registry.create
+            # swallowed the error.
+            raise
         self._sync_legacy_fields()
 
     # ── Loading ────────────────────────────────────────────────────────
@@ -356,6 +388,12 @@ class ModelManager:
                 "[CONFIG] Model changed to %s (%s); applying after active work",
                 model_size, new_backend,
             )
+            # ERR-003: capture the request so the next _start_dictation
+            # re-runs the unload/load cycle. Without this, the config
+            # is saved on disk but the in-memory engine stays as the
+            # old backend — the "will change after current recording"
+            # notification was a lie.
+            self._pending_model_change = model_size
             self._app.tray.notify(
                 "Voice Typer",
                 f"Model will change to {model_size} after current recording",
@@ -416,6 +454,25 @@ class ModelManager:
             log.exception("[MODEL] Model load failed: %s", exc)
             self._app.tray.set_state(AppState.ERROR, f"Model failed: {exc}")
 
+    # ERR-003: apply a deferred model change captured during an active
+    # recording. Called from _start_dictation before the new recording
+    # begins so the in-memory engine matches the saved config.
+    def apply_pending_model_change(self) -> bool:
+        """If a model change was deferred during a previous recording,
+        re-run change_model now (without the early return) so the new
+        backend is actually loaded. Returns True if a change was applied.
+        """
+        pending = self._pending_model_change
+        if pending is None:
+            return False
+        log.info("[MODEL] Applying deferred model change to %s", pending)
+        self._pending_model_change = None
+        # Re-invoke change_model. Because we are not currently recording
+        # and busy_event is set (not busy), the early-return branch is
+        # skipped and the full unload/load cycle runs.
+        self.change_model(pending)
+        return True
+
     # ── Lazy init for _start_dictation ─────────────────────────────────
 
     def ensure_active_engine_loaded(self) -> Optional[Any]:
@@ -425,12 +482,24 @@ class ModelManager:
         where the user changed the backend via Electron UI after startup
         (so the engine wasn't created during __init__).
 
+        ERR-024: previously two threads could both pass the
+        ``registry.get(backend) is None`` check and each call
+        ``_ensure_engine``, creating two engine instances (memory leak
+        + double GPU allocation). We guard with a dedicated lock so
+        the second caller sees the engine created by the first.
+
         Returns the active transcriber on success, or None if no engine
         could be created. The caller is responsible for checking
         ``is_loaded`` and calling fallback_to_whisper() if needed.
         """
         backend = self._app.config.asr_backend
-        if self._registry.get(backend) is None:
-            self._ensure_engine(backend)
-            self._sync_registry_from_fields()
+        # ERR-024: race-safe lazy init. The check inside _ensure_engine
+        # is also guarded, but we need to guard the whole check-then-init
+        # sequence so two threads don't both create the engine.
+        if not hasattr(self, "_lazy_init_lock"):
+            self._lazy_init_lock = __import__("threading").Lock()
+        with self._lazy_init_lock:
+            if self._registry.get(backend) is None:
+                self._ensure_engine(backend)
+                self._sync_registry_from_fields()
         return self.active_transcriber()

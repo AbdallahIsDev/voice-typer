@@ -42,7 +42,19 @@ _COMMON_EXTRA_WORD_PATTERNS: list[tuple[str, str]] = []
 # defaults.  This allows users to tailor corrections for their model/version
 # without editing source code.
 
-_BUNDLED_CORRECTIONS_PATH = Path(__file__).parent / "corrections.json"
+# ARCH-028: import the shared constant from vocabulary.py instead of
+# re-declaring it. If one file moves, the other stays in sync.
+from voice_typer.server.vocabulary import BUNDLED_CORRECTIONS_PATH as _BUNDLED_CORRECTIONS_PATH
+
+
+class CorrectionsLoadError(RuntimeError):
+    """Raised when external corrections could not be loaded.
+
+    ARCH-029: previously ``_load_external_corrections`` returned ``None``
+    for both "no file" and "load failed", and the caller couldn't
+    distinguish them. We now raise this typed exception on load
+    failure; "no file" still returns ``None``.
+    """
 
 
 def _load_external_corrections(
@@ -53,14 +65,15 @@ def _load_external_corrections(
 
     Loads bundled corrections.json first, then merges user-provided
     file on top.  Returns (misspellings, phrase_corrections, extra_word_patterns)
-    from the external file, or None if no corrections file exists or could
-    not be loaded.  Callers should fall back to built-in defaults when None
-    is returned.
+    from the external file, or None if no corrections file exists.
 
-    P2 fix: Returns None when no file exists, so callers can distinguish
-    "no external file" from "external file loaded successfully".
+    ARCH-029: raises ``CorrectionsLoadError`` when a file exists but
+    could not be parsed (was previously a silent ``None`` return).
     """
     loaded_any = False
+    # ARCH-029: track the last load error so callers can distinguish
+    # "no file" (None, no error) from "file failed to load" (raise).
+    load_errors: list[str] = []
 
     # Start with bundled corrections
     misspellings: dict[str, str] = {}
@@ -82,6 +95,7 @@ def _load_external_corrections(
             loaded_any = True
         except Exception as exc:
             log.warning("[CLEANUP] Failed to load bundled corrections: %s", exc)
+            load_errors.append(f"bundled: {exc}")
 
     # Merge user-provided corrections on top
     path = None
@@ -111,8 +125,17 @@ def _load_external_corrections(
             loaded_any = True
         except Exception as e:
             log.warning("[CLEANUP] Failed to load corrections from %s: %s", path, e)
+            load_errors.append(f"{path.name}: {e}")
 
     if not loaded_any:
+        # ARCH-029: if we tried to load files and they all failed,
+        # raise so the caller can surface the error. If no files
+        # existed in the first place, return None (silent fallback).
+        if load_errors:
+            raise CorrectionsLoadError(
+                "Corrections file(s) existed but could not be loaded: "
+                + "; ".join(load_errors)
+            )
         return None
 
     return misspellings, phrase_corrections, extra_word_patterns
@@ -138,6 +161,35 @@ def _active_corrections(
 _active_misspellings: dict[str, str] = {}
 _active_phrases: list[tuple[str, str]] = []
 _active_extra_words: list[tuple[str, str]] = []
+# ARCH-027: guard the three module-level mutables with a lock so
+# concurrent dictations don't clobber each other. The proper fix is
+# to move these into a TextCleanupService instance; for now the lock
+# prevents the worst race (two threads each replacing the dict mid-
+# cleanup of the other). The instance refactor is deferred because
+# it touches ~20 call sites.
+_active_state_lock = __import__("threading").Lock()
+
+# ARCH-031: cache of compiled regex patterns for phrase corrections.
+# Keyed on the (lowercased) phrase string; value is a compiled regex
+# with re.IGNORECASE. The cache is bounded by the number of distinct
+# phrases in the corrections file (typically 50-300), so we don't
+# need an LRU eviction.
+_phrase_pattern_cache: dict[str, "re.Pattern[str]"] = {}
+
+
+def _get_compiled_phrase_pattern(phrase: str) -> "re.Pattern[str]":
+    """Return a compiled, case-insensitive regex for matching ``phrase``.
+
+    Compiled once per phrase and cached for the lifetime of the
+    process. Re-compiling on every dictation (the old behavior) was a
+    measurable hot-spot under streaming transcription.
+    """
+    cached = _phrase_pattern_cache.get(phrase)
+    if cached is not None:
+        return cached
+    compiled = re.compile(re.escape(phrase), re.IGNORECASE)
+    _phrase_pattern_cache[phrase] = compiled
+    return compiled
 
 
 def configure_corrections(
@@ -176,7 +228,11 @@ def configure_corrections(
             log.warning("[CLEANUP] %s", error_msg)
 
     result = _active_corrections(config_dir, corrections_path)
-    _active_misspellings, _active_phrases, _active_extra_words = result
+    # ARCH-027: take the lock when replacing the three module-level
+    # mutables so a concurrent cleanup() call doesn't see a half-
+    # replaced state.
+    with _active_state_lock:
+        _active_misspellings, _active_phrases, _active_extra_words = result
     return error_msg
 
 
@@ -332,10 +388,17 @@ def _fix_common_misspellings(text: str) -> str:
 
 
 def _correct_whisper_phrases(text: str) -> str:
-    """Fix known Whisper small-model phrase misrecognitions."""
+    """Fix known Whisper small-model phrase misrecognitions.
+
+    ARCH-031: previously ``re.compile(re.escape(bad), re.IGNORECASE)``
+    was called inside the loop, recompiling the same pattern on every
+    dictation. With hundreds of phrases × thousands of dictations,
+    that's significant CPU. We now use a module-level cache keyed on
+    the phrase string so each pattern is compiled at most once.
+    """
     lower = text.lower()
     for bad, good in _active_phrases:
-        pattern = re.compile(re.escape(bad), re.IGNORECASE)
+        pattern = _get_compiled_phrase_pattern(bad)
         if pattern.search(lower):
             # L19: Preserve original casing pattern
             def _apply_case_preserving_replacement(match):
