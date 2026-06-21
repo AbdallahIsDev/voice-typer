@@ -242,3 +242,165 @@ class TestGetVocabularyHandler:
             f"get_vocabulary must return type=vocabulary, got {result.get('type')}"
         )
         assert "misspellings" in result["data"]
+
+
+# ── TEST-037: VoiceTyperApp singleton assertion ────────────────────────
+
+
+class TestVoiceTyperAppSingleton:
+    """TEST-037: VoiceTyperApp uses _ensure_single_instance to enforce
+    single-instance. Verify the mechanism exists."""
+
+    def test_ensure_single_instance_exists(self):
+        from voice_typer.server import app as app_module
+        assert hasattr(app_module, "_ensure_single_instance"), (
+            "app module must expose _ensure_single_instance for singleton enforcement"
+        )
+
+    def test_main_calls_ensure_single_instance(self):
+        """main() (or ipc_server.main) must call _ensure_single_instance."""
+        import inspect
+        from voice_typer.server import ipc_server
+        src = inspect.getsource(ipc_server.main)
+        assert "_ensure_single_instance" in src or "single_instance" in src, (
+            "ipc_server.main must reference single-instance enforcement"
+        )
+
+
+# ── TEST-039: IPC dispatch with invalid data types ─────────────────────
+
+
+class TestIPCDispatchInvalidDataTypes:
+    """TEST-039: _dispatch must not crash when `data` is not a dict."""
+
+    def test_set_config_with_string_data(self, tmp_path, monkeypatch):
+        """Passing a string as `data` should be handled gracefully."""
+        from voice_typer.server import config as config_module
+        from voice_typer.server.ipc_server import IPCServer
+
+        monkeypatch.setattr(config_module, "_config_dir", lambda: tmp_path)
+        app = MagicMock()
+        app.config = config_module.Config()
+        server = IPCServer(app)
+
+        result = server._dispatch({
+            "id": 1, "type": "set_config", "data": "not a dict"
+        })
+        assert result["type"] in ("ack", "error")
+
+    def test_set_config_with_list_data(self, tmp_path, monkeypatch):
+        """Passing a list as `data` should be handled gracefully."""
+        from voice_typer.server import config as config_module
+        from voice_typer.server.ipc_server import IPCServer
+
+        monkeypatch.setattr(config_module, "_config_dir", lambda: tmp_path)
+        app = MagicMock()
+        app.config = config_module.Config()
+        server = IPCServer(app)
+
+        result = server._dispatch({
+            "id": 1, "type": "set_config", "data": ["not", "a", "dict"]
+        })
+        assert result["type"] in ("ack", "error")
+
+    def test_set_config_with_none_data(self, tmp_path, monkeypatch):
+        """Passing None as `data` should be handled gracefully."""
+        from voice_typer.server import config as config_module
+        from voice_typer.server.ipc_server import IPCServer
+
+        monkeypatch.setattr(config_module, "_config_dir", lambda: tmp_path)
+        app = MagicMock()
+        app.config = config_module.Config()
+        server = IPCServer(app)
+
+        result = server._dispatch({
+            "id": 1, "type": "set_config", "data": None
+        })
+        assert result["type"] in ("ack", "error")
+
+    def test_set_config_with_integer_data(self, tmp_path, monkeypatch):
+        """Passing an integer as `data` should be handled gracefully."""
+        from voice_typer.server import config as config_module
+        from voice_typer.server.ipc_server import IPCServer
+
+        monkeypatch.setattr(config_module, "_config_dir", lambda: tmp_path)
+        app = MagicMock()
+        app.config = config_module.Config()
+        server = IPCServer(app)
+
+        result = server._dispatch({
+            "id": 1, "type": "set_config", "data": 42
+        })
+        assert result["type"] in ("ack", "error")
+
+
+# ── TEST-040: History retention on favorites ───────────────────────────
+
+
+class TestHistoryRetentionFavorites:
+    """TEST-040: retention must preserve favorites even when they're old."""
+
+    def test_retention_preserves_favorites(self, tmp_path):
+        """Favorites should NOT be deleted by retention, even if they're
+        the oldest entries."""
+        from voice_typer.server.history_db import HistoryDB
+        db = HistoryDB(db_path=tmp_path / "history.db")
+
+        # Add a favorite (old) + 5 non-favorites (newer)
+        fav_id = db.add_transcription("Favorite old entry")
+        db.toggle_favorite(fav_id)
+        for i in range(5):
+            db.add_transcription(f"Regular entry {i}")
+
+        # Apply retention with max_entries=3 — should keep the favorite
+        # plus the 2 most recent regular entries.
+        deleted = db.apply_retention(max_entries=3)
+
+        favorites = db.get_favorites()
+        assert len(favorites) >= 1, (
+            f"Favorite must be preserved by retention; got {len(favorites)} favorites"
+        )
+        assert favorites[0]["text"] == "Favorite old entry"
+
+    def test_retention_without_favorites_deletes_oldest(self, tmp_path):
+        """Without favorites, retention should delete the oldest entries."""
+        from voice_typer.server.history_db import HistoryDB
+        db = HistoryDB(db_path=tmp_path / "history.db")
+
+        for i in range(5):
+            db.add_transcription(f"Entry {i}")
+
+        deleted = db.apply_retention(max_entries=3)
+        entries = db.get_recent(limit=10)
+        assert len(entries) <= 3, (
+            f"Expected <= 3 entries after retention, got {len(entries)}"
+        )
+
+
+# ── TEST-038: macOS accessibility permission check ─────────────────────
+
+
+class TestMacOSAccessibilityCheck:
+    """TEST-038: verify the macOS accessibility permission check exists
+    in the startup path. Can't test the actual permission on Linux, but
+    can verify the code path is present."""
+
+    def test_accessibility_check_in_startup_source(self):
+        """The startup code must reference AXIsProcessTrusted or
+        accessibility permission check."""
+        import inspect
+        from voice_typer.server import app as app_module
+        # _do_startup is the method that runs the check.
+        src = inspect.getsource(app_module.VoiceTyperApp._do_startup)
+        assert "darwin" in src and "accessibility" in src.lower(), (
+            "macOS accessibility permission check must be in _do_startup"
+        )
+
+    def test_accessibility_check_notifies_on_missing(self):
+        """The check must call tray.notify if the permission is missing."""
+        import inspect
+        from voice_typer.server import app as app_module
+        src = inspect.getsource(app_module.VoiceTyperApp._do_startup)
+        assert "tray.notify" in src, (
+            "Accessibility check must notify the user on missing permission"
+        )

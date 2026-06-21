@@ -8,7 +8,18 @@ from __future__ import annotations
 
 import ast
 import logging
+import sys
 from pathlib import Path
+from unittest.mock import MagicMock
+
+# Mock heavy imports that require a display / hardware so the test can
+# import _ColorFormatter from app.py on headless CI.
+for _mod in (
+    "sounddevice", "pynput", "pynput.keyboard",
+    "pystray", "PIL", "PIL.Image", "PIL.ImageDraw", "pyperclip",
+):
+    if _mod not in sys.modules:
+        sys.modules[_mod] = MagicMock()
 
 from voice_typer.server.app import _ColorFormatter
 
