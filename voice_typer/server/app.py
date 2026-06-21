@@ -116,8 +116,11 @@ class _ColorFormatter(logging.Formatter):
         "HOTKEY FIRED": "38;5;141",
         "HOTKEY FALLBACK": "38;5;141",
         "RECORDING": "38;5;79",
+        "AUDIO_QUALITY": "38;5;215",
         "DICTATION": "38;5;215",
         "TRANSCRIBE": "38;5;120",
+        "VOLUME": "38;5;111",
+        "VAD": "38;5;245",
         "CLIPBOARD": "38;5;120",    # paste pipeline -- same green as TRANSCRIBE
         "STARTUP": "38;5;103",
         "STREAMING": "38;5;110",
