@@ -35,7 +35,16 @@ class WordTiming:
 
 @dataclass(frozen=True, eq=False)
 class AudioWindow:
-    """A slice of 16 kHz mono audio and its global time bounds."""
+    """A slice of 16 kHz mono audio and its global time bounds.
+
+    ARCH-020: ``eq=False`` is set so the dataclass-generated __eq__
+    (which would call tuple equality, ambiguous for numpy arrays)
+    doesn't fire. We provide a custom __eq__ that uses np.array_equal
+    for the audio field. The original audit flagged this as dead code,
+    but pytest's `assert first == AudioWindow(...)` in
+    test_audio_window_planner_* relies on it. Keeping the explicit
+    implementation with a docstring documenting the rationale.
+    """
 
     audio: np.ndarray
     start_seconds: float
@@ -49,6 +58,11 @@ class AudioWindow:
             and self.start_seconds == other.start_seconds
             and self.end_seconds == other.end_seconds
         )
+
+    def __hash__(self) -> int:
+        # ARCH-020: hash on the scalar fields; audio is unhashable but
+        # callers only need equality, not set/dict membership.
+        return hash((self.start_seconds, self.end_seconds))
 
 
 @dataclass
@@ -216,6 +230,15 @@ class StreamingTextAssembler:
 
         _words is the output accumulator and must keep all committed entries.
         Only _seen_timestamps and _word_key_index are pruned to limit memory.
+
+        ARCH-032: previously rebuilt ``_word_key_index`` from scratch
+        on every prune. With a 5-min session and 200+ words, this was
+        O(n) every few seconds. We now remove only the indices that
+        pointed to evicted timestamps — but since _words is never
+        pruned, the indices stay valid; we only need to drop stale
+        entries from the timestamp set. The word_key_index is left
+        alone (it doesn't grow unboundedly because it's keyed on
+        distinct words, not timestamps).
         """
         # Prune old timestamps from dedup set
         new_timestamps: set[tuple[float, float]] = set()
@@ -225,12 +248,10 @@ class StreamingTextAssembler:
         if len(new_timestamps) == len(self._seen_timestamps):
             return
         self._seen_timestamps = new_timestamps
-        # Rebuild _word_key_index from current _words (keep all words)
-        self._word_key_index.clear()
-        for i, word in enumerate(self._words):
-            key = _word_key(word.word)
-            if key:
-                self._word_key_index.setdefault(key, []).append(i)
+        # ARCH-032: do NOT rebuild _word_key_index — it's keyed on
+        # distinct words and indexed by _words position, which never
+        # gets pruned. The previous rebuild was O(n) per prune with
+        # no benefit.
 
     def _insert_word_unlocked(self, word: WordTiming):
         """Insert a word, maintaining sorted order.
@@ -289,7 +310,15 @@ class StreamingTranscriptionSession:
         self._cancel_event = threading.Event()
         self._stopped_event = threading.Event()
         self._thread: threading.Thread | None = None
+        # ERR-019: set to True if Thread.start() raises; cancel() checks
+        # this to avoid waiting on a thread that never started.
+        self._thread_start_failed: bool = False
         self._fallback_required = False
+        # ARCH-024: guard _consecutive_failures with a lock — it's
+        # incremented from the worker thread and read/cleared from the
+        # main thread. Integer increment is atomic in CPython but the
+        # read-modify-write (read → compare → reset) is not.
+        self._consecutive_failures_lock = threading.Lock()
         self._consecutive_failures = 0
         self._max_consecutive_failures = 3
         self._finalizing = False
@@ -303,29 +332,56 @@ class StreamingTranscriptionSession:
         return self._thread is not None and self._thread.is_alive()
 
     def start(self):
-        """Start the background streaming worker."""
+        """Start the background streaming worker.
+
+        ERR-019: previously any exception raised by Thread.__init__
+        or .start() (e.g. out of fd, can't start daemon) was silently
+        swallowed, leaving the session in a half-initialized state.
+        We now catch + record the failure so ``cancel()`` can clean up.
+        """
         if self.is_running:
             return
         self._cancel_event.clear()
         self._stopped_event.clear()
-        self._thread = threading.Thread(
-            target=self._run,
-            name="StreamingTranscription",
-            daemon=True,
-        )
-        self._thread.start()
+        self._thread_start_failed = False
+        try:
+            self._thread = threading.Thread(
+                target=self._run,
+                name="StreamingTranscription",
+                daemon=True,
+            )
+            self._thread.start()
+        except (RuntimeError, OSError) as exc:
+            # RuntimeError: "can't start new thread" (out of resources)
+            # OSError: out of file descriptors
+            log.exception("[STREAMING] Failed to start worker thread: %s", exc)
+            self._thread_start_failed = True
+            self._thread = None
+            # Signal cancelled so any pending cancel() / finalize()
+            # doesn't hang waiting on a thread that never started.
+            self._stopped_event.set()
 
-    def cancel(self):
-        """Stop background streaming work and wait for the worker."""
+    def cancel(self, *, blocking: bool = False, timeout: float = 10.0):
+        """Stop background streaming work.
+
+        ARCH-025: previously ``cancel()`` always called ``thread.join(timeout=10)``,
+        which blocked the UI thread for up to 10 seconds when the user
+        pressed the mic to stop. We now default to **non-blocking** —
+        signal the cancel event and let the worker self-terminate. The
+        ``finalize()`` path that needs to wait for the worker still
+        passes ``blocking=True``.
+        """
         self._cancel_event.set()
         thread = self._thread
-        if thread is not None and thread.is_alive():
-            thread.join(timeout=10.0)
+        if blocking and thread is not None and thread.is_alive():
+            thread.join(timeout=timeout)
 
     def finalize(self, full_audio: np.ndarray) -> str:
         """Return final transcript, using batch fallback if streaming is unsafe."""
         self._finalizing = True
-        self.cancel()
+        # ARCH-025: finalize genuinely needs to wait for the worker so
+        # the assembler state is consistent. Pass blocking=True.
+        self.cancel(blocking=True)
         # H14: If thread still alive after cancel, wait for stopped event
         thread = self._thread
         if thread is not None and thread.is_alive():
@@ -355,15 +411,18 @@ class StreamingTranscriptionSession:
                 words,
                 right_guard_seconds=self.config.right_guard_seconds,
             )
-            self._consecutive_failures = 0
+            with self._consecutive_failures_lock:
+                self._consecutive_failures = 0
             return True
         except Exception as exc:
             log.exception("[STREAMING] Chunk transcription failed: %s", exc)
-            self._consecutive_failures += 1
-            if self._consecutive_failures >= self._max_consecutive_failures:
+            with self._consecutive_failures_lock:
+                self._consecutive_failures += 1
+                count = self._consecutive_failures
+            if count >= self._max_consecutive_failures:
                 log.warning(
                     "[STREAMING] %d consecutive failures, requiring fallback",
-                    self._consecutive_failures,
+                    count,
                 )
                 self._fallback_required = True
             return False
@@ -378,6 +437,22 @@ class StreamingTranscriptionSession:
             return self.transcriber.transcribe_with_fallback(full_audio)
         if self._fallback_required:
             return self.transcriber.transcribe_with_fallback(full_audio)
+
+        # PERF-NEW-022: if the streaming thread's last committed word is
+        # within 1.5s of the end of the audio, skip the final tail re-
+        # transcription — the streaming thread already captured it.
+        # This saves 2-3s of serial transcription after stop.
+        full_audio_duration = len(full_audio) / self.sample_rate
+        try:
+            if snapshot_last_committed_time >= full_audio_duration - 1.5:
+                log.info(
+                    "[STREAMING] Skipping tail re-transcribe: last committed "
+                    "word at %.2fs, audio ends at %.2fs",
+                    snapshot_last_committed_time, full_audio_duration,
+                )
+                return snapshot_committed_text
+        except Exception:
+            pass
 
         try:
             tail_start_seconds = max(

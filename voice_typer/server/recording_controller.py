@@ -54,16 +54,38 @@ class RecordingController:
         self._app = app
         self._streaming_session: Optional[StreamingTranscriptionSession] = None
         self._transcription_thread: Optional[threading.Thread] = None
+        # ERR-002: watchdog firing counter for the current transcription
+        # cycle. Reset to 0 whenever a new transcription thread starts.
+        # After _watchdog_max_firings consecutive watchdog expirations
+        # with the worker still alive, we force-recover instead of
+        # re-arming — otherwise a genuinely deadlocked ctranslate2 call
+        # leaves the app stuck busy forever.
+        self._watchdog_firings = 0
+        self._watchdog_max_firings = 3
+        self._watchdog_lock = threading.Lock()
+        # ARCH-018: dedicated lock for _streaming_session. Previously
+        # the accessors claimed "thread-safe" but weren't — concurrent
+        # start()/cancel() calls could see torn reads or trigger
+        # duplicate add_final callbacks.
+        self._streaming_session_lock = threading.Lock()
 
     # ── Streaming session accessors ────────────────────────────────────
 
     def get_streaming_session(self) -> Optional[StreamingTranscriptionSession]:
-        """Thread-safe accessor for the active streaming session."""
-        return self._streaming_session
+        """Thread-safe accessor for the active streaming session.
+
+        ARCH-018: now guarded by ``_streaming_session_lock``.
+        """
+        with self._streaming_session_lock:
+            return self._streaming_session
 
     def set_streaming_session(self, session_or_none: Optional[StreamingTranscriptionSession]) -> None:
-        """Thread-safe setter for the active streaming session."""
-        self._streaming_session = session_or_none
+        """Thread-safe setter for the active streaming session.
+
+        ARCH-018: now guarded by ``_streaming_session_lock``.
+        """
+        with self._streaming_session_lock:
+            self._streaming_session = session_or_none
 
     # ── Toggle / start / stop / cancel ─────────────────────────────────
 
@@ -131,6 +153,15 @@ class RecordingController:
 
         # Cancel any stale pending timers from previous sessions
         app._cancel_pending_timers()
+
+        # ERR-003: if a model change was deferred during the previous
+        # recording, apply it now (loads the new backend before we start
+        # capturing audio). Without this, the user's "change to medium
+        # after current recording" would silently never happen.
+        try:
+            app.models.apply_pending_model_change()
+        except Exception:
+            log.exception("[DICTATION] Failed to apply pending model change; continuing")
 
         # Lazy-init engines if backend was changed via Electron UI after startup.
         # #2 (Round 9): ModelManager handles the lazy-init + registry sync.
@@ -256,6 +287,10 @@ class RecordingController:
         log.info("[DICTATION] Starting transcription thread... (cycle=%s)", app._cycle_id)
         app.tray.set_state(AppState.TRANSCRIBING, "Transcribing...")
 
+        # ERR-002: reset watchdog counter for this transcription cycle.
+        with self._watchdog_lock:
+            self._watchdog_firings = 0
+
         # PERF-NEW-005: signal the streaming session to cancel BEFORE
         # starting the final transcription thread.
         session = self.get_streaming_session()
@@ -266,11 +301,30 @@ class RecordingController:
                 pass
 
         # Safety watchdog: if transcription hangs for >60s, force-recover.
+        # ERR-002: re-arm up to _watchdog_max_firings times. After that,
+        # the next firing force-recovers even if the worker is still
+        # alive (covers deadlocks inside ctranslate2).
+        def _watchdog_fire():
+            with self._watchdog_lock:
+                self._watchdog_firings += 1
+                firings = self._watchdog_firings
+            self._force_recover_from_stuck_transcription(force=firings >= self._watchdog_max_firings)
+
         watchdog = threading.Timer(
             60.0,
-            lambda: self._force_recover_from_stuck_transcription(),
+            _watchdog_fire,
         )
         watchdog.daemon = True
+        # ARCH-017: track the watchdog Timer in the app's _pending_timers
+        # list so quit() / _cancel_pending_timers() cancels it on shutdown.
+        # Otherwise the timer holds a reference to the closure (which
+        # captures `self`) and delays GC; worse, it may fire post-quit
+        # and call _force_recover on a half-torn-down app.
+        try:
+            with app._pending_timers_lock:
+                app._pending_timers.append(watchdog)
+        except Exception:
+            log.debug("[WATCHDOG] could not track in _pending_timers", exc_info=True)
         watchdog.start()
 
         _captured_cycle_id = app._cycle_id
@@ -296,9 +350,24 @@ class RecordingController:
         self._transcription_thread.start()
 
     def cancel(self) -> None:
-        """Feature: ESC to cancel -- cancel current recording/transcription."""
+        """Feature: ESC to cancel -- cancel current recording/transcription.
+
+        ERR-023: previously, if ``recorder.discard()`` raised (PortAudio
+        error, stream close race), the cancel path aborted before
+        resetting tray state — leaving the tray stuck on RECORDING.
+        We now guarantee the post-discard cleanup always runs.
+
+        ARCH-042: set AppState.CANCELLING for ~200ms during cancel so
+        the tray icon shows a distinct "cancelling" state instead of
+        instantly transitioning RECORDING → IDLE (which flickers).
+        """
         app = self._app
         log.info("[CANCEL] Cancelling current dictation (cycle=%s)", app._cycle_id)
+        # ARCH-042: show CANCELLING state immediately.
+        try:
+            app.tray.set_state(AppState.CANCELLING, "Cancelling...")
+        except Exception:
+            log.debug("[CANCEL] could not set CANCELLING state", exc_info=True)
         app._cancel_pending_timers()
 
         if app.recorder.recording:
@@ -310,17 +379,34 @@ class RecordingController:
                 app.recorder.discard()
                 log.info("[CANCEL] Recording discarded (cycle=%s)", app._cycle_id)
             except Exception as e:
-                log.warning("[CANCEL] Failed to discard recording: %s (cycle=%s)", e, app._cycle_id)
+                # ERR-023: don't abort the cancel path — fall through to
+                # ensure tray state + busy flag are reset.
+                log.exception(
+                    "[CANCEL] Failed to discard recording (cycle=%s): %s",
+                    app._cycle_id, e,
+                )
 
-        self._cancel_streaming_session()
+        # Always run these — even if discard failed.
+        try:
+            self._cancel_streaming_session()
+        except Exception:
+            log.exception("[CANCEL] Failed to cancel streaming session")
 
         # Restore system volume on cancel
-        app._restore_volume()
+        try:
+            app._restore_volume()
+        except Exception:
+            log.exception("[CANCEL] Failed to restore volume")
 
         # Hide bubble unless always_visible mode
-        if app.config.bubble_behavior != 'always_visible':
-            app._waveform_bubble.hide()
+        try:
+            if app.config.bubble_behavior != 'always_visible':
+                app._waveform_bubble.hide()
+        except Exception:
+            log.exception("[CANCEL] Failed to hide bubble")
 
+        # ERR-023: tray state + busy flag MUST be cleared so the user
+        # can press F2 again after a cancel.
         app.tray.set_state(AppState.IDLE, "Cancelled")
         app._busy_event.set()
 
@@ -465,18 +551,29 @@ class RecordingController:
             except Exception:
                 log.exception("[STREAMING] Failed to cancel streaming session")
 
-    def _force_recover_from_stuck_transcription(self) -> None:
-        """Safety net: recover from stuck transcription state."""
+    def _force_recover_from_stuck_transcription(self, force: bool = False) -> None:
+        """Safety net: recover from stuck transcription state.
+
+        ERR-002: When the transcription thread is still alive at the
+        time the watchdog fires, we used to leave the app busy and
+        return. That meant a genuinely deadlocked worker (e.g. ctranslate2
+        stuck in CUDA) would never recover. We now re-arm the watchdog
+        up to ``_watchdog_max_firings`` times; once the counter exceeds
+        the threshold (or ``force=True`` is passed), we unconditionally
+        clear the busy flag and reset the tray state.
+        """
         app = self._app
         if app._busy_event.is_set():  # not busy
             return  # Already recovered, nothing to do
         if (
-            self._transcription_thread is not None
+            not force
+            and self._transcription_thread is not None
             and self._transcription_thread.is_alive()
         ):
             log.warning(
-                "Transcription watchdog fired, but worker is still alive; "
-                "leaving app busy to avoid overlapping model calls"
+                "Transcription watchdog fired (%d/%d), but worker is still "
+                "alive; leaving app busy to avoid overlapping model calls",
+                self._watchdog_firings, self._watchdog_max_firings,
             )
             app.tray.set_state(AppState.TRANSCRIBING, "Still transcribing...")
             app.tray.notify(
@@ -484,9 +581,34 @@ class RecordingController:
                 "Transcription is still running.\n"
                 "Long recordings or CPU fallback can take extra time.",
             )
+            # Re-arm the watchdog for another 60s window.
+            def _re_fire():
+                with self._watchdog_lock:
+                    self._watchdog_firings += 1
+                    firings = self._watchdog_firings
+                self._force_recover_from_stuck_transcription(
+                    force=firings >= self._watchdog_max_firings
+                )
+
+            next_watchdog = threading.Timer(60.0, _re_fire)
+            next_watchdog.daemon = True
+            # ARCH-017: track the re-armed watchdog too.
+            try:
+                with app._pending_timers_lock:
+                    app._pending_timers.append(next_watchdog)
+            except Exception:
+                log.debug("[WATCHDOG] could not track re-armed timer", exc_info=True)
+            next_watchdog.start()
             return
 
-        log.warning("[RECOVERY] FORCE RECOVER: transcription watchdog fired, resetting state")
+        if force:
+            log.warning(
+                "[RECOVERY] FORCE RECOVER: watchdog fired %d times with "
+                "worker still alive; assuming deadlock and resetting state",
+                self._watchdog_firings,
+            )
+        else:
+            log.warning("[RECOVERY] FORCE RECOVER: transcription watchdog fired, resetting state")
         app._busy_event.set()  # busy = False
         app.tray.set_state(AppState.IDLE, "Recovered -- transcription timed out")
         app.tray.notify(

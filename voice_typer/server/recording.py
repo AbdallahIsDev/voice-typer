@@ -14,6 +14,17 @@ from voice_typer.server.config import Config
 
 log = logging.getLogger(__name__)
 
+
+class ResampleError(RuntimeError):
+    """Raised when audio cannot be resampled to the target sample rate.
+
+    ERR-001: Previously the resample fallback returned the native-rate
+    audio silently, which produced garbage transcriptions because the
+    streaming path assumed the configured sample rate. Callers must
+    catch this exception and decide how to handle the failure (skip
+    the chunk, abort the dictation, or notify the user).
+    """
+
 # PERF-NEW-018: MAX_BUFFER_CHUNKS is now dynamically adjusted in
 # start() based on max_recording_seconds.  The default below is a
 # safe ceiling (30K chunks * 1024 samples/chunk / 16kHz ≈ 30 min).
@@ -50,8 +61,23 @@ threading.Thread(
 ).start()
 
 
+class ResampleUnavailable(RuntimeError):
+    """Raised when scipy.signal.resample_poly is unavailable.
+
+    ARCH-033: the 3-tier fallback (scipy → linear interp → native)
+    previously failed silently at each tier. We now raise this typed
+    exception at the scipy tier so the caller knows the high-quality
+    path is unavailable and can decide whether to use linear interp.
+    """
+
+
 def _get_resample_poly():
-    """Load scipy's resampler once so imports do not happen on F2 stop."""
+    """Load scipy's resampler once so imports do not happen on F2 stop.
+
+    ARCH-033: raises ``ResampleUnavailable`` (a typed exception) when
+    scipy is missing, instead of the bare ``ImportError``. Callers
+    that want to fall back to linear interp can catch this type.
+    """
     global _resample_poly, _resample_poly_error
     if _resample_poly is not None:
         return _resample_poly
@@ -66,8 +92,13 @@ def _get_resample_poly():
         try:
             from scipy.signal import resample_poly
         except ImportError as exc:
-            _resample_poly_error = exc
-            raise
+            # ARCH-033: wrap in a typed exception so callers can catch
+            # without inspecting the ImportError message.
+            typed = ResampleUnavailable(
+                f"scipy.signal.resample_poly unavailable: {exc}"
+            )
+            _resample_poly_error = typed
+            raise typed from exc
         _resample_poly = resample_poly
         return _resample_poly
 
@@ -99,6 +130,12 @@ class Recorder:
         # H15/M8: Cached resampled prefix for snapshot() to avoid O(n²) resampling
         self._cached_resampled: np.ndarray = np.array([], dtype=np.float32)
         self._cached_native_chunk_count: int = 0
+        # ARCH-040: cache key must include the audio dtype + sample rates
+        # so a float32 vs int16 mismatch (theoretically possible if the
+        # PortAudio stream is reconfigured mid-session) doesn't return
+        # the wrong cached prefix. We track (dtype, src_sr, dst_sr) and
+        # invalidate the cache on any change.
+        self._cached_resample_key: tuple = ()
 
         # H12: Silent mic disconnection detection
         self._silence_timer: float = 0.0
@@ -106,6 +143,9 @@ class Recorder:
         self._silence_next_warning_wait: float = 10.0
         self._recording_start_time: float = 0.0
         self._recent_rms_values: collections.deque = collections.deque(maxlen=50)
+        # ARCH-023: per-session warning-sent flags. Reset in start().
+        self._max_duration_warning_sent: bool = False
+        self._silence_warning_sent: bool = False
 
         # H12 callbacks (wired by app.py)
         self.on_silence_warning = None  # type: Optional[callable]
@@ -303,7 +343,13 @@ class Recorder:
         return candidates
 
     def start(self) -> None:
-        """Start recording audio."""
+        """Start recording audio.
+
+        ARCH-023: reset ALL per-session state here, not just the buffer.
+        Previously some flags (_max_duration_warning_sent,
+        _silence_warning_sent, etc.) persisted across recordings,
+        causing stale state to suppress warnings on the next session.
+        """
         if self._recording_event.is_set():
             return
 
@@ -311,6 +357,9 @@ class Recorder:
         self._chunk_count = 0
         self._cached_resampled = np.array([], dtype=np.float32)
         self._cached_native_chunk_count = 0
+        # ARCH-023: also reset the cache key so a new session doesn't
+        # reuse a stale prefix from a different sample rate.
+        self._cached_resample_key = ()
         self._silence_timer = 0.0
         self._silence_warning_count = 0
         self._silence_next_warning_wait = 10.0
@@ -321,6 +370,15 @@ class Recorder:
         self._clip_count = 0
         self._peak = 0.0
         self._last_clip_log_time = 0.0
+        # ARCH-023: reset the per-session warning-sent flags so the
+        # next session gets fresh warnings.
+        self._max_duration_warning_sent = False
+        self._silence_warning_sent = False
+        self._last_rms = 0.0
+        # PERF-NEW-021: cache the target sample rate once at start()
+        # so the audio callback / snapshot() doesn't re-read
+        # self.config.sample_rate on every call.
+        self._cached_target_sr = self.config.sample_rate
 
         # AUDIO-PROC: reset filter state for a new session so the
         # high-pass IIR doesn't carry state from the previous recording.
@@ -365,6 +423,12 @@ class Recorder:
         candidates = self._same_physical_microphone_candidates(device)
 
         def callback(indata, frames, time_info, status):
+            # ARCH-026: PortAudio can deliver a callback before start()
+            # finishes setting self._recording_start_time and other
+            # per-session state. Bail out early so the silence/max-
+            # duration callbacks don't compute against a None timestamp.
+            if not self._recording_event.is_set():
+                return
             # AUDIO-002: Check PortAudio status flags for XRUNs.
             # PERF-NEW-008: rate-limit the warning log so a sustained
             # xrun condition doesn't write 16 disk lines/sec on the
@@ -458,10 +522,17 @@ class Recorder:
             # Voice detected by loudness → reset silence timer
             if chunk_rms > 0.005 or chunk_peak > 0.01:
                 self._silence_timer = 0.0
-                recent_rms.clear()
+                # PERF-NEW-023: do NOT clear recent_rms here — clearing
+                # defeats the silence-tracking logic, which needs to
+                # see the steady-state "no silence" history to detect
+                # a real silence boundary later. The deque has a maxlen
+                # so it self-trims.
             else:
                 if len(recent_rms) >= 10:
-                    rms_std = float(np.std(list(recent_rms)))
+                    # PERF-NEW-025: use np.fromiter to avoid the
+                    # intermediate list() materialization. The deque
+                    # iterator is consumed directly by numpy.
+                    rms_std = float(np.std(np.fromiter(recent_rms, dtype=np.float64, count=len(recent_rms))))
                     if rms_std < 0.001:
                         self._silence_timer += chunk_duration
                     else:
@@ -577,7 +648,10 @@ class Recorder:
                 continue
 
             self._stream = stream
-            self._effective_sr = candidate_sr
+            # ARCH-021: guard _effective_sr writes with the lock because
+            # snapshot() reads it under the lock from another thread.
+            with self._lock:
+                self._effective_sr = candidate_sr
             selected_device = candidate
             effective_sr = candidate_sr
             break
@@ -631,7 +705,9 @@ class Recorder:
                     continue
 
                 self._stream = stream
-                self._effective_sr = candidate_sr
+                # ARCH-021: guard _effective_sr writes with the lock.
+                with self._lock:
+                    self._effective_sr = candidate_sr
                 selected_device = candidate
                 effective_sr = candidate_sr
                 used_fallback = True
@@ -775,7 +851,24 @@ class Recorder:
             if not self._buffer:
                 return np.array([], dtype=np.float32)
             effective_sr = self._effective_sr
-            target_sr = self.config.sample_rate
+            # PERF-NEW-021: read the cached target_sr instead of
+            # self.config.sample_rate to avoid attribute lookup under lock.
+            target_sr = getattr(self, "_cached_target_sr", None) or self.config.sample_rate
+
+            # ARCH-040: invalidate the cache if any of the parameters
+            # that affect the resampled output have changed since the
+            # last snapshot. Without this, a dtype or sample-rate
+            # change mid-session would return stale (and wrong-rate)
+            # cached audio.
+            new_key = (
+                str(self._buffer[0].dtype) if len(self._buffer) > 0 else "float32",
+                effective_sr,
+                target_sr,
+            )
+            if self._cached_resample_key != new_key:
+                self._cached_resampled = np.array([], dtype=np.float32)
+                self._cached_native_chunk_count = 0
+                self._cached_resample_key = new_key
 
             if effective_sr != target_sr and len(self._buffer) > self._cached_native_chunk_count:
                 # PERF-NEW-003: islice avoids the full-deque list copy.
@@ -789,7 +882,19 @@ class Recorder:
                 )
                 if new_chunks:
                     new_audio = np.concatenate(new_chunks, axis=0).reshape(-1)
-                    new_resampled = self._resample_chunk(new_audio, effective_sr, target_sr)
+                    # ERR-001: if resampling fails, drop the bad chunk
+                    # rather than appending native-rate audio that
+                    # would corrupt the streaming transcription.
+                    try:
+                        new_resampled = self._resample_chunk(new_audio, effective_sr, target_sr)
+                    except ResampleError as e:
+                        log.warning(
+                            "[RECORDING] Snapshot resample failed; dropping "
+                            "%d native samples: %s",
+                            len(new_audio), e,
+                        )
+                        self._cached_native_chunk_count = len(self._buffer)
+                        return self._cached_resampled.copy()
                     # PERF-NEW-002: avoid the O(n) reallocation when the
                     # cached prefix is empty (first snapshot of a session).
                     if len(self._cached_resampled) > 0:
@@ -814,10 +919,19 @@ class Recorder:
                 return self._cached_resampled.copy()
 
     def _resample_chunk(self, audio: np.ndarray, effective_sr: int, target_sr: int) -> np.ndarray:
-        """Resample a single chunk of audio."""
+        """Resample a single chunk of audio.
+
+        Raises:
+            ResampleError: if neither scipy nor linear-interp resampling
+                could convert the audio to ``target_sr``. Callers MUST
+                handle this; previously the function returned the native-
+                rate audio silently, which led to garbage transcriptions
+                on the streaming path (ERR-001).
+        """
         if len(audio) == 0:
             return np.array([], dtype=np.float32)
         resampled = False
+        last_error: Exception | None = None
         try:
             resample_poly = _get_resample_poly()
             gcd = math.gcd(effective_sr, target_sr)
@@ -825,10 +939,11 @@ class Recorder:
             down = effective_sr // gcd
             audio = resample_poly(audio, up, down).astype(np.float32)
             resampled = True
-        except ImportError:
-            pass
-        except Exception:
-            pass
+        except ResampleUnavailable as exc:
+            # ARCH-033: scipy missing — fall through to linear interp.
+            last_error = exc
+        except Exception as exc:  # scipy errors, dtype mismatches, etc.
+            last_error = exc
 
         if not resampled:
             try:
@@ -839,11 +954,17 @@ class Recorder:
                     indices, np.arange(len(audio)), audio,
                 ).astype(np.float32)
                 resampled = True
-            except Exception:
-                pass
+            except Exception as exc:
+                last_error = exc
 
         if not resampled:
-            return audio  # Return as-is, will be caught later
+            # ERR-001: previously returned the native-rate audio here,
+            # which silently produced garbage transcriptions. Raise so
+            # the streaming / final paths can decide how to recover.
+            raise ResampleError(
+                f"Cannot resample audio from {effective_sr} Hz to "
+                f"{target_sr} Hz (last error: {last_error!r})"
+            )
         return audio
 
     def _prepare_audio(
@@ -852,7 +973,14 @@ class Recorder:
         effective_sr: int,
         log_resample: bool = True,
     ) -> np.ndarray:
-        """Convert captured audio to the configured sample rate."""
+        """Convert captured audio to the configured sample rate.
+
+        ERR-012: previously the except blocks used bare ``Exception``,
+        which swallowed ``AttributeError`` / ``MemoryError`` /
+        ``KeyboardInterrupt`` (in some interpreters). We narrow to
+        ``(ValueError, OSError, TypeError)`` so genuine bugs propagate
+        instead of being silently masked as "resampling failed".
+        """
         target_sr = self.config.sample_rate  # 16000 for Whisper
         if effective_sr != target_sr and len(audio) > 0:
             orig_len = len(audio)
@@ -869,11 +997,14 @@ class Recorder:
                         effective_sr, target_sr, orig_len, len(audio),
                     )
                 resampled = True
-            except ImportError:
+            except ResampleUnavailable:
+                # ARCH-033: scipy missing — fall through to linear interp.
                 log.warning(
                     "[RECORDING] scipy not available, using linear interp resampling"
                 )
-            except Exception as e:
+            except (ValueError, OSError, TypeError) as e:
+                # ERR-012: narrow to expected scipy/numpy failure modes.
+                # AttributeError / MemoryError / etc. propagate.
                 log.error("[RECORDING] scipy resample_poly failed: %s", e)
 
             if not resampled:
@@ -893,7 +1024,8 @@ class Recorder:
                             effective_sr, target_sr, orig_len, len(audio),
                         )
                     resampled = True
-                except Exception as e:
+                except (ValueError, OSError, TypeError) as e:
+                    # ERR-012: narrow here too.
                     log.error(
                         "[RECORDING] All resampling failed: %s. "
                         "Audio at %d Hz cannot be used by Whisper.",
@@ -901,7 +1033,7 @@ class Recorder:
                     )
 
             if not resampled:
-                raise RuntimeError(
+                raise ResampleError(
                     f"Cannot resample audio from {effective_sr} Hz to "
                     f"{target_sr} Hz. Check scipy installation and audio format."
                 )
@@ -911,7 +1043,10 @@ class Recorder:
     def discard(self) -> None:
         """Discard current recording without processing."""
         self._recording_event.clear()
-        self._effective_sr = self.config.sample_rate
+        # ARCH-021: guard _effective_sr reset with the lock so a
+        # concurrent snapshot() reader sees a consistent value.
+        with self._lock:
+            self._effective_sr = self.config.sample_rate
         self._last_rms = 0.0
         self._silence_timer = 0.0
         self._silence_warning_count = 0

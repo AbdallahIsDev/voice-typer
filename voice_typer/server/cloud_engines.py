@@ -67,6 +67,30 @@ def _audio_to_wav_bytes(audio: np.ndarray, sample_rate: int = 16000) -> bytes:
     return buf.getvalue()
 
 
+def _read_capped(resp, *, max_bytes: int) -> bytes:
+    """Read up to ``max_bytes`` from ``resp``.
+
+    SEC-030: ``resp.read()`` with no size argument reads the entire body
+    into memory. A malicious or buggy server returning a 5 GB
+    Content-Length would exhaust RAM before the transcription thread
+    caught up. We stream the response in 64 KB chunks and abort if the
+    total exceeds the cap.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = resp.read(64 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise RuntimeError(
+                f"Response body exceeded {max_bytes} bytes — aborting to prevent OOM"
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 class CloudEngine:
     """Cloud ASR engine implementing TranscriberProtocol.
 
@@ -199,7 +223,12 @@ class CloudEngine:
         for attempt in range(max_retries):
             try:
                 with _opener.open(req, timeout=30) as resp:
-                    result = json.loads(resp.read().decode("utf-8"))
+                    # SEC-030: cap response body at 50 MB to prevent
+                    # a malicious or buggy server from exhausting RAM.
+                    # Whisper / Groq / Deepgram responses are <100 KB
+                    # in practice; 50 MB is a generous ceiling.
+                    raw = _read_capped(resp, max_bytes=50 * 1024 * 1024)
+                    result = json.loads(raw.decode("utf-8"))
                     text = result.get("text", "").strip()
                     log.info("[CLOUD] %s transcription: %d chars", self.provider, len(text))
                     return text
@@ -279,7 +308,9 @@ class CloudEngine:
         for attempt in range(max_retries):
             try:
                 with _opener.open(req, timeout=30) as resp:
-                    result = json.loads(resp.read().decode("utf-8"))
+                    # SEC-030: cap response body at 50 MB.
+                    raw = _read_capped(resp, max_bytes=50 * 1024 * 1024)
+                    result = json.loads(raw.decode("utf-8"))
                     # Deepgram response format
                     channels = result.get("results", {}).get("channels", [])
                     if channels:

@@ -83,7 +83,11 @@ class PynputHotkey(HotkeyBackend):
                 {self.hotkey_str: callback}
             )
             self._listener.start()
-            time.sleep(0.5)
+            # PERF-NEW-017: was 0.5s — the listener thread reaches
+            # "alive" state within a few ms. 50ms is enough on the
+            # slowest machines. With 3 hotkeys (toggle, PTT, repaste)
+            # this saves ~1.4s of startup time.
+            time.sleep(0.05)
             alive = self._listener.is_alive()
             log.info(
                 "Pynput GlobalHotKeys started (alive=%s, daemon=%s)",
@@ -146,7 +150,8 @@ class PynputHotkey(HotkeyBackend):
 
         self._listener = Listener(on_press=on_press, on_release=on_release)
         self._listener.start()
-        time.sleep(0.5)
+        # PERF-NEW-017: was 0.5s — reduced to 50ms for the same reason.
+        time.sleep(0.05)
         self._fallback = True
         log.info(
             "[HOTKEY] Fallback listener started, watching for %s (alive=%s)",
@@ -251,6 +256,10 @@ _GWLP_USERDATA = -21
 
 # Common virtual-key code mappings for function keys and printable keys.
 _VK_MAP = {}
+# ARCH-019: guard _VK_MAP init so two threads racing on the first call
+# don't each insert half the keys. The dict mutation itself is atomic
+# in CPython, but the check-then-fill sequence is not.
+_VK_MAP_LOCK = threading.Lock()
 
 
 def _win32_vk(vk_name: str) -> Optional[int]:
@@ -260,37 +269,81 @@ def _win32_vk(vk_name: str) -> Optional[int]:
 
 
 def _init_vk_map():
-    """Populate _VK_MAP lazily to avoid issues at import on non-Windows."""
+    """Populate _VK_MAP lazily to avoid issues at import on non-Windows.
+
+    ARCH-019: previously the check-then-populate sequence was racy —
+    two threads could both observe ``_VK_MAP`` as empty and each
+    insert half the keys, with one set overwriting the other. We now
+    guard the init with a module-level lock. The fast-path (map already
+    populated) skips the lock to avoid contention on every hotkey press.
+    """
     if _VK_MAP:
         return
-    # F1-F24
-    for i in range(1, 25):
-        _VK_MAP[f"f{i}"] = 0x70 + (i - 1)  # F1=0x70, F2=0x71, ...
-    # Digits 0-9
-    for c in "0123456789":
-        _VK_MAP[c] = ord(c)
-    # Letters a-z
-    for c in "abcdefghijklmnopqrstuvwxyz":
-        _VK_MAP[c] = ord(c.upper())
-    # Common special keys
-    _VK_MAP["esc"] = 0x1B      # VK_ESCAPE
-    _VK_MAP["escape"] = 0x1B
-    _VK_MAP["space"] = 0x20    # VK_SPACE
-    _VK_MAP["enter"] = 0x0D    # VK_RETURN
-    _VK_MAP["return"] = 0x0D
-    _VK_MAP["tab"] = 0x09      # VK_TAB
-    _VK_MAP["backspace"] = 0x08  # VK_BACK
-    _VK_MAP["del"] = 0x2E      # VK_DELETE
-    _VK_MAP["delete"] = 0x2E
-    _VK_MAP["insert"] = 0x2D   # VK_INSERT
-    _VK_MAP["home"] = 0x24     # VK_HOME
-    _VK_MAP["end"] = 0x23      # VK_END
-    _VK_MAP["pageup"] = 0x21   # VK_PRIOR
-    _VK_MAP["pagedown"] = 0x22 # VK_NEXT
-    _VK_MAP["up"] = 0x26       # VK_UP
-    _VK_MAP["down"] = 0x28     # VK_DOWN
-    _VK_MAP["left"] = 0x25     # VK_LEFT
-    _VK_MAP["right"] = 0x27    # VK_RIGHT
+    with _VK_MAP_LOCK:
+        # Double-checked locking: another thread may have populated
+        # the map while we were waiting on the lock.
+        if _VK_MAP:
+            return
+        # F1-F24
+        for i in range(1, 25):
+            _VK_MAP[f"f{i}"] = 0x70 + (i - 1)  # F1=0x70, F2=0x71, ...
+        # Digits 0-9
+        for c in "0123456789":
+            _VK_MAP[c] = ord(c)
+        # Letters a-z
+        for c in "abcdefghijklmnopqrstuvwxyz":
+            _VK_MAP[c] = ord(c.upper())
+        # Common special keys
+        _VK_MAP["esc"] = 0x1B      # VK_ESCAPE
+        _VK_MAP["escape"] = 0x1B
+        _VK_MAP["space"] = 0x20    # VK_SPACE
+        _VK_MAP["enter"] = 0x0D    # VK_RETURN
+        _VK_MAP["return"] = 0x0D
+        _VK_MAP["tab"] = 0x09      # VK_TAB
+        _VK_MAP["backspace"] = 0x08  # VK_BACK
+        _VK_MAP["del"] = 0x2E      # VK_DELETE
+        _VK_MAP["delete"] = 0x2E
+        _VK_MAP["insert"] = 0x2D   # VK_INSERT
+        _VK_MAP["home"] = 0x24     # VK_HOME
+        _VK_MAP["end"] = 0x23      # VK_END
+        _VK_MAP["pageup"] = 0x21   # VK_PRIOR
+        _VK_MAP["pagedown"] = 0x22 # VK_NEXT
+        _VK_MAP["up"] = 0x26       # VK_UP
+        _VK_MAP["down"] = 0x28     # VK_DOWN
+        _VK_MAP["left"] = 0x25     # VK_LEFT
+        _VK_MAP["right"] = 0x27    # VK_RIGHT
+        # ARCH-041: extend with numpad, media, browser, and special keys.
+        # Without these, PTT bindings to e.g. Media_Next silently fail.
+        # Numpad 0-9 (VK_NUMPAD0 = 0x60 .. VK_NUMPAD9 = 0x69)
+        for i in range(10):
+            _VK_MAP[f"num_{i}"] = 0x60 + i
+            _VK_MAP[f"numpad_{i}"] = 0x60 + i
+        _VK_MAP["num_decimal"] = 0x6E  # VK_DECIMAL
+        _VK_MAP["num_enter"] = 0x6C    # VK_RETURN (numpad)
+        _VK_MAP["num_add"] = 0x6B      # VK_ADD
+        _VK_MAP["num_subtract"] = 0x6D # VK_SUBTRACT
+        _VK_MAP["num_multiply"] = 0x6A # VK_MULTIPLY
+        _VK_MAP["num_divide"] = 0x6F   # VK_DIVIDE
+        # Media keys
+        _VK_MAP["media_next"] = 0xB0    # VK_MEDIA_NEXT_TRACK
+        _VK_MAP["media_prev"] = 0xB1    # VK_MEDIA_PREV_TRACK
+        _VK_MAP["media_play_pause"] = 0xB3  # VK_MEDIA_PLAY_PAUSE
+        _VK_MAP["media_stop"] = 0xB2    # VK_MEDIA_STOP
+        # Browser keys
+        _VK_MAP["browser_back"] = 0xA6
+        _VK_MAP["browser_forward"] = 0xA7
+        _VK_MAP["browser_refresh"] = 0xA8
+        _VK_MAP["browser_home"] = 0xAC
+        # Special keys
+        _VK_MAP["capslock"] = 0x14  # VK_CAPITAL
+        _VK_MAP["caps_lock"] = 0x14
+        _VK_MAP["numlock"] = 0x90   # VK_NUMLOCK
+        _VK_MAP["num_lock"] = 0x90
+        _VK_MAP["scrolllock"] = 0x91  # VK_SCROLL
+        _VK_MAP["scroll_lock"] = 0x91
+        _VK_MAP["printscreen"] = 0x2C  # VK_SNAPSHOT
+        _VK_MAP["print_screen"] = 0x2C
+        _VK_MAP["pause"] = 0x13    # VK_PAUSE
 
 
 def parse_hotkey_to_vk(hotkey_str: str) -> Optional[int]:
@@ -494,7 +547,17 @@ class WindowsNativeHotkey(HotkeyBackend):
             is_pressed = bool(state & 0x8000) and self._modifiers_pressed()
             if is_pressed and not was_pressed:
                 log.info("[HOTKEY FIRED] GetAsyncKeyState detected key-down")
-                callback()
+                try:
+                    callback()
+                except Exception:
+                    # ERR-020: log full traceback but keep polling so
+                    # the next hotkey press still works. Previously
+                    # the bare callback() call would propagate the
+                    # exception up the polling thread, killing it.
+                    log.exception(
+                        "[HOTKEY] Callback raised in polling loop; "
+                        "hotkey still armed for next press"
+                    )
             was_pressed = is_pressed
             # PERF-003: 100ms = 10Hz (was 50ms = 20Hz)
             # pyrefly: ignore [missing-attribute]
