@@ -124,11 +124,11 @@ class TestDispatchGetStatus:
     def test_returns_current_state(self, server, mock_app):
         mock_app.tray.state = AppState.RECORDING
         result = server._dispatch({"id": 1, "type": "get_status"})
-        assert result == {
-            "id": 1,
-            "type": "status",
-            "data": {"status": "recording"},
-        }
+        # ERR-021: payload now includes xruns_since_start.
+        assert result["id"] == 1
+        assert result["type"] == "status"
+        assert result["data"]["status"] == "recording"
+        assert "xruns_since_start" in result["data"]
 
     def test_idle_state(self, server):
         result = server._dispatch({"id": 2, "type": "get_status"})
@@ -828,7 +828,11 @@ class TestRunLoop:
         lines = output.strip().split("\n")
         assert len(lines) == 1
         msg = json.loads(lines[0])
-        assert msg == {"id": 1, "type": "status", "data": {"status": "idle"}}
+        # ERR-021: get_status now returns a dict with xruns_since_start.
+        assert msg["id"] == 1
+        assert msg["type"] == "status"
+        assert msg["data"]["status"] == "idle"
+        assert "xruns_since_start" in msg["data"]
 
     def test_processes_multiple_commands(self, server, mock_app):
         stdin = io.StringIO(
@@ -843,7 +847,10 @@ class TestRunLoop:
         lines = stdout.getvalue().strip().split("\n")
         assert len(lines) == 3
         msg1 = json.loads(lines[0])
-        assert msg1 == {"id": 1, "type": "status", "data": {"status": "idle"}}
+        # ERR-021: get_status now returns a dict with xruns_since_start.
+        assert msg1["id"] == 1
+        assert msg1["type"] == "status"
+        assert msg1["data"]["status"] == "idle"
         msg2 = json.loads(lines[1])
         assert msg2 == {"id": 2, "type": "ack"}
         msg3 = json.loads(lines[2])

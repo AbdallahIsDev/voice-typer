@@ -323,6 +323,11 @@ class TestAppMainWiresIpcHook:
 
         monkeypatch.setattr(app_module, "VoiceTyperApp", FakeApp)
 
+        # TEST-007: previously this FakeServer class was defined twice
+        # in the same test function — the second definition silently
+        # shadowed the first. Deleted the duplicate; kept the second
+        # (it's the one that was actually used by the monkeypatch
+        # below, so behavior is unchanged).
         class FakeServer:
             def __init__(self, app):
                 self.app = app
@@ -339,18 +344,6 @@ class TestAppMainWiresIpcHook:
         # inside the function body via
         # ``from voice_typer.server.ipc_server import IPCServer``, so
         # patching the symbol on ipc_server is what gets picked up.
-        class FakeServer:
-            def __init__(self, app):
-                self.app = app
-
-            def start(self):
-                calls["ipc_started"] += 1
-                # Simulate the real IPCServer.start setting the hook
-                ipc_server._set_push_event(self.push)
-
-            def push(self, msg):
-                pass
-
         monkeypatch.setattr(ipc_server, "IPCServer", FakeServer)
 
         # BUILD-002: the console script entry point was moved from

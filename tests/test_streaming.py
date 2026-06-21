@@ -309,7 +309,9 @@ def test_streaming_session_start_and_cancel_stop_worker():
     )
 
     session.start()
-    session.cancel()
+    # ARCH-025: cancel() is non-blocking by default; pass blocking=True
+    # to wait for the worker.
+    session.cancel(blocking=True)
 
     assert session.is_running is False
 
@@ -400,7 +402,11 @@ class TestH14FinalizeRace:
     """H14: Streaming finalize() races with still-running thread."""
 
     def test_cancel_uses_10_second_timeout(self):
-        """cancel() should join with a 10-second timeout."""
+        """cancel(blocking=True) should join with a 10-second timeout.
+
+        ARCH-025: cancel() is now non-blocking by default; tests that
+        need to wait for the worker must pass blocking=True.
+        """
         recorder = MagicMock()
         recorder.snapshot.return_value = np.array([], dtype=np.float32)
         transcriber = MagicMock()
@@ -416,7 +422,7 @@ class TestH14FinalizeRace:
         time.sleep(0.1)
 
         # Cancel and verify the thread stops
-        session.cancel()
+        session.cancel(blocking=True)
         assert session.is_running is False
 
     def test_stopped_event_set_after_thread_exits(self):
@@ -432,7 +438,7 @@ class TestH14FinalizeRace:
             poll_interval_seconds=0.01,
         )
         session.start()
-        session.cancel()
+        session.cancel(blocking=True)
         assert session._stopped_event.is_set()
 
 

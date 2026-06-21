@@ -55,9 +55,12 @@ class TestLLMPolisherPolish:
 
     def test_polish_success(self, polisher):
         mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps({
+        # SEC-030: _read_capped calls read(64*1024) in a loop. Configure
+        # the mock to return the body on the first call and b"" after.
+        body = json.dumps({
             "choices": [{"message": {"content": "Polished text here"}}]
         }).encode("utf-8")
+        mock_response.read.side_effect = [body, b""]
         mock_response.__enter__ = lambda s: s
         mock_response.__exit__ = MagicMock(return_value=False)
 
@@ -72,9 +75,11 @@ class TestLLMPolisherPolish:
 
     def test_polish_with_custom_preset(self, polisher):
         mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps({
+        # SEC-030: same side_effect pattern as test_polish_success.
+        body = json.dumps({
             "choices": [{"message": {"content": "Casual text"}}]
         }).encode("utf-8")
+        mock_response.read.side_effect = [body, b""]
         mock_response.__enter__ = lambda s: s
         mock_response.__exit__ = MagicMock(return_value=False)
 
@@ -92,9 +97,11 @@ class TestLLMPolisherTestConnection:
 
     def test_test_connection_success(self, polisher):
         mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps({
+        # SEC-030: use side_effect to terminate the _read_capped loop.
+        body = json.dumps({
             "choices": [{"message": {"content": "OK"}}]
         }).encode("utf-8")
+        mock_response.read.side_effect = [body, b""]
         mock_response.__enter__ = lambda s: s
         mock_response.__exit__ = MagicMock(return_value=False)
 

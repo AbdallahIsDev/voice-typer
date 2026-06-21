@@ -183,3 +183,68 @@ class TestCrashRecoveryAsyncWrites:
         # No exception should have been raised; the queue should be
         # at or below its max size.
         assert cr._save_queue.qsize() <= 32 + 1  # +1 for race tolerance
+
+
+# ── TEST-036: integration test for crash-recovery loop ────────────────
+
+
+class TestCrashRecoveryIntegration:
+    """TEST-036: full crash-recovery loop — simulate a crash mid-dictation
+    and verify the next session's check_on_startup surfaces the unpasted
+    entry. Previously only unit-level add/get/persist tests existed."""
+
+    def test_recovery_after_simulated_crash(self, recovery_dir):
+        """End-to-end:
+        1. Session A: add an unpasted transcription.
+        2. Flush + simulate crash (don't call shutdown; just drop the ref).
+        3. Session B: new CrashRecovery instance reads the same file.
+        4. check_on_startup() must return the unpasted entry.
+        """
+        from voice_typer.server.crash_recovery import CrashRecovery
+
+        # Session A: dictation completes but paste fails (simulated by
+        # pasted=False — this is exactly what ERR-004 now does when the
+        # clipboard is unavailable).
+        cr_a = CrashRecovery(config_dir=recovery_dir)
+        cr_a.add("Recover me — clipboard was unavailable", pasted=False)
+        cr_a.flush(timeout=2.0)
+        # Simulate crash: do NOT call shutdown(); just drop the ref.
+        # The next process reopens the same file from disk.
+        del cr_a
+
+        # Session B: new process boots.
+        cr_b = CrashRecovery(config_dir=recovery_dir)
+        unpasted = cr_b.check_on_startup()
+
+        assert unpasted is not None, (
+            "Expected check_on_startup to surface the unpasted entry, got None"
+        )
+        # The returned entry should include the original text.
+        texts = [e.get("text", "") for e in unpasted] if isinstance(unpasted, list) else [unpasted.get("text", "")]
+        assert any("Recover me" in t for t in texts), (
+            f"Expected recovery text in {texts}"
+        )
+
+    def test_mark_pasted_clears_from_unpasted_set(self, recovery_dir):
+        """After a successful paste, mark_latest_pasted must remove the
+        entry from the unpasted set so check_on_startup doesn't re-surface
+        it on the next boot."""
+        from voice_typer.server.crash_recovery import CrashRecovery
+
+        cr = CrashRecovery(config_dir=recovery_dir)
+        cr.add("Will be pasted", pasted=False)
+        cr.flush(timeout=2.0)
+
+        # Simulate successful paste.
+        cr.mark_latest_pasted()
+        cr.flush(timeout=2.0)
+        del cr
+
+        # New session: nothing should be unpasted.
+        cr2 = CrashRecovery(config_dir=recovery_dir)
+        result = cr2.check_on_startup()
+        # check_on_startup returns None or an empty list when nothing
+        # is unpasted (depending on implementation).
+        assert result is None or (isinstance(result, list) and len(result) == 0), (
+            f"Expected no unpasted entries, got {result}"
+        )
