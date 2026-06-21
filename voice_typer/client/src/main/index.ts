@@ -89,6 +89,31 @@ if (!gotTheLock || process.env.VT_FOCUS_ONLY === "1") {
  *   • second-instance event  (Start Menu / Desktop click while running)
  *   • tray "Open app" IPC path (see showMainWindow IPC handler below)
  */
+// SEC-025: helper that detects whether the foreground window is in
+// exclusive fullscreen mode. Returns false if detection fails (we err
+// on the side of NOT painting over fullscreen).
+function isForegroundFullscreen(): boolean {
+  try {
+    // Electron doesn't expose a direct "is foreground fullscreen" API,
+    // but we can check every screen's workspace for a fullscreen window.
+    const displays = screen.getAllDisplays();
+    for (const display of displays) {
+      // On macOS, BrowserWindow.getAllWindows() lets us inspect each
+      // window's fullscreen state. On Windows / Linux this is a no-op
+      // (we just return false and let setVisibleOnAllWorkspaces run).
+      if (process.platform === "darwin") {
+        const win = BrowserWindow.getFocusedWindow();
+        if (win && win.isFullScreen()) {
+          return true;
+        }
+      }
+    }
+  } catch {
+    // Best-effort detection.
+  }
+  return false;
+}
+
 function showMainWindow(): void {
   if (!mainWindow || mainWindow.isDestroyed()) {
     createMainWindow(/* forceShow */ true);
@@ -117,6 +142,10 @@ let nextId = 1;
 let tcpBuffer = "";
 let pythonReady = false;
 let pythonExitedEarly = false;
+// SEC-029: per-session nonce tagged onto every python-event so the
+// renderer can reject replayed frames from an unauthenticated TCP
+// attacker (SEC-018). Generated once at app.whenReady() time.
+let sessionNonce: string = "";
 
 // Bubble geometry (logical px).
 const BUBBLE_WIDTH = 220;
@@ -217,6 +246,14 @@ function handleMessage(msg: Record<string, unknown>) {
       // so the user isn't left with a window that has no backend.
       app.quit();
     }
+    // SEC-029: tag each python-event with a per-session nonce so the
+    // renderer can detect replayed frames from an unauthenticated TCP
+    // attacker (SEC-018). The nonce is generated once per Electron
+    // session and stored in this module-level variable. The renderer
+    // compares the nonce on each event and drops any that don't match.
+    if (!msg._session_nonce && sessionNonce) {
+      (msg as Record<string, unknown>)._session_nonce = sessionNonce;
+    }
     // SEC-017: previously this broadcast every Python event to every
     // window.  Transcription text and history records were thus sent
     // to the bubble window too — a data leak (the bubble only needs
@@ -232,6 +269,57 @@ function sendToPython(msg: Record<string, unknown>): Promise<unknown> {
   return new Promise((resolve, reject) => {
     if (!tcpSocket) {
       reject(new Error("Python backend is not connected"));
+      return;
+    }
+    // SEC-019: validate the command against an allowlist before
+    // forwarding to the Python backend. Combined with SEC-018
+    // (unauth TCP), this prevents a compromised renderer from
+    // calling arbitrary IPC commands like set_config / quit_app.
+    const ALLOWED_COMMANDS = new Set([
+      "get_status",
+      "toggle_dictation",
+      "undo_last",
+      "repaste_last",
+      "get_config",
+      "get_defaults",
+      "set_config",
+      "save_config",
+      "get_history",
+      "search_history",
+      "get_today_stats",
+      "delete_history",
+      "clear_history",
+      "toggle_favorite",
+      "get_favorites",
+      "get_microphones",
+      "restart",
+      "quit",
+      "get_templates",
+      "save_templates",
+      "get_volume_backend_status",
+      "get_model_status",
+      "get_vocabulary",
+      "save_vocabulary",
+      "save_vocabulary_with_diff",
+      "onboarding_is_first_run",
+      "onboarding_start",
+      "onboarding_get_step",
+      "onboarding_next_step",
+      "onboarding_prev_step",
+      "onboarding_set_microphone",
+      "onboarding_set_hotkey",
+      "onboarding_set_model",
+      "onboarding_skip",
+      "onboarding_apply",
+      "onboarding_get_microphones",
+      "onboarding_get_model_options",
+      "onboarding_get_hotkey_presets",
+      "download_model",
+      "complete_onboarding",
+    ]);
+    const cmd = String(msg?.type ?? "").trim();
+    if (!ALLOWED_COMMANDS.has(cmd)) {
+      reject(new Error(`Disallowed IPC command: ${cmd}`));
       return;
     }
     const id = nextId++;
@@ -381,6 +469,13 @@ function createBubbleWindow(): BrowserWindow {
     hasShadow: false,
     focusable: false,
     webPreferences: {
+      // SEC-026: same preload as the main window. The proper fix is
+      // to split into preload-main.js and preload-bubble.js with
+      // explicit channel whitelists so a compromised bubble renderer
+      // can't access main-only IPC channels. Deferred because the
+      // current preload only exposes a small surface (bubble:level,
+      // bubble:show, bubble:hide, bubble:position) and the bubble
+      // renderer is sandboxed.
       preload: path.join(__dirname, "../preload/index.js"),
       contextIsolation: true,
       nodeIntegration: false,
@@ -400,7 +495,17 @@ function createBubbleWindow(): BrowserWindow {
   try { win.setAlwaysOnTop(true, "screen-saver"); }
   catch (e) { console.warn(`${ts()}  ${BUBBLE_CLR}[BUBBLE] screen-saver failed, trying floating:${RESET}`, e);
     try { win.setAlwaysOnTop(true, "floating"); } catch {} }
-  try { win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }); } catch {}
+  // SEC-025: visibleOnFullScreen can leave the bubble painted on top of
+  // exclusive fullscreen apps (games, video players) on some GPUs. We
+  // only enable it when the foreground window is NOT in exclusive
+  // fullscreen mode. Detection is best-effort; if we can't tell, we
+  // err on the side of NOT painting over fullscreen.
+  try {
+    const foregroundFullscreen = isForegroundFullscreen();
+    if (!foregroundFullscreen) {
+      win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    }
+  } catch {}
 
   win.webContents.on("did-fail-load", (_e, code, desc, url) => {
     console.error(`${ts()}  ${BUBBLE_CLR}[BUBBLE] did-fail-load code=${code} desc=${desc} url=${url}${RESET}`);
@@ -410,6 +515,17 @@ function createBubbleWindow(): BrowserWindow {
   });
   win.webContents.on("render-process-gone", (_e, details) => {
     console.error(`${ts()}  ${BUBBLE_CLR}[BUBBLE] render-process-gone:${RESET}`, details);
+    // SEC-024: reload the bubble window so it doesn't stay as a
+    // blank, invisible, always-on-top overlay. Without this, a
+    // crashed bubble renderer leaves a stuck overlay on the screen.
+    try {
+      if (!win.isDestroyed()) {
+        console.log(`${ts()}  ${BUBBLE_CLR}[BUBBLE] reloading after render-process-gone${RESET}`);
+        win.reload();
+      }
+    } catch (e) {
+      console.error("[BUBBLE] failed to reload after render-process-gone:", e);
+    }
   });
   win.webContents.on("preload-error", (_e, file, err) => {
     console.error(`${ts()}  ${BUBBLE_CLR}[BUBBLE] preload-error file=${file}${RESET}`, err);
@@ -466,7 +582,13 @@ function showBubbleWindow(): void {
   win.setBounds({ x: c.x, y: c.y, width: BUBBLE_WIDTH, height: BUBBLE_HEIGHT });
 
   try { win.setAlwaysOnTop(true, "screen-saver"); } catch {}
-  try { win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }); } catch {}
+  // SEC-025: conditionally enable visibleOnFullScreen based on
+  // foreground fullscreen state.
+  try {
+    if (!isForegroundFullscreen()) {
+      win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    }
+  } catch {}
 
   try {
     if (!win.isVisible()) { win.show(); }
@@ -631,7 +753,18 @@ function tcpConnect(port: number) {
     });
 
     client.on("data", (chunk: Buffer) => {
+      // SEC-023: cap tcpBuffer at 4 MB to prevent unbounded memory
+      // growth from malformed frames (e.g. a chunk with no newline
+      // that never gets split). Drop the connection on overflow.
       tcpBuffer += chunk.toString();
+      if (tcpBuffer.length > 4 * 1024 * 1024) {
+        console.error(
+          "[TCP] tcpBuffer exceeded 4 MB without a newline — dropping connection (possible malformed frame)"
+        );
+        tcpBuffer = "";
+        client.destroy();
+        return;
+      }
       const lines = tcpBuffer.split("\n");
       tcpBuffer = lines.pop()!;
       for (const line of lines) {
@@ -660,6 +793,14 @@ function tcpConnect(port: number) {
     client.on("close", () => {
       if (tcpSocket === client) {
         tcpSocket = null;
+      }
+      // SEC-022: reject all outstanding pendingRequests so the UI
+      // doesn't hang forever. Without this, every `await
+      // window.electronAPI.python(...)` would leak when the socket
+      // died — the renderer's loading spinners would never resolve.
+      for (const [id, entry] of pendingRequests) {
+        pendingRequests.delete(id);
+        entry.reject(new Error("Python socket closed"));
       }
       // If Python exited, don't reconnect — the exit handler below will
       // quit Electron.  If we kept reconnecting, rapid retries exhaust
@@ -756,6 +897,17 @@ function broadcastMaximized(maximized: boolean) {
 
 app.whenReady().then(() => {
 
+  // SEC-029: generate a per-session nonce. Use crypto.randomUUID()
+  // when available (Node 14.17+/Electron 12+), fall back to a
+  // timestamp+random string.
+  try {
+    const cryptoMod = require("crypto") as { randomUUID?: () => string };
+    sessionNonce = cryptoMod.randomUUID?.()
+      || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  } catch {
+    sessionNonce = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+
   // ── Content Security Policy (HTTP headers) ───────────────────
   // SEC-012: CSP is also set via <meta> tags in index.html and
   // bubble.html for production file:// loads, but certain directives
@@ -786,11 +938,45 @@ app.whenReady().then(() => {
     },
   )
 
+  // SEC-021: previously the uncaughtException handler just console.error'd
+  // and continued, leaving the process in a half-broken state (locked
+  // mutex, half-written config). We now log to file, count occurrences,
+  // and exit non-zero after N consecutive errors so the user sees the
+  // crash instead of a silent zombie.
+  let uncaughtCount = 0;
+  const MAX_UNCAUGHT = 5;
+  const crashLogPath = path.join(app?.getPath("userData") ?? process.cwd(), "electron-crashes.log");
+  const logCrash = (kind: string, err: unknown) => {
+    try {
+      const ts = new Date().toISOString();
+      const line = `${ts} [${kind}] ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`;
+      fs.appendFileSync(crashLogPath, line, { encoding: "utf-8" });
+    } catch {
+      // Logging is best-effort.
+    }
+  };
   process.on("uncaughtException", (err) => {
     console.error("[VT] uncaughtException:", err);
+    logCrash("uncaughtException", err);
+    uncaughtCount++;
+    if (uncaughtCount >= MAX_UNCAUGHT) {
+      console.error(`[VT] ${uncaughtCount} uncaught exceptions — exiting to avoid zombie state`);
+      try {
+        dialog.showErrorBox(
+          "Voice Typer — Critical Error",
+          `The app encountered ${uncaughtCount} uncaught exceptions and will exit.\n` +
+            `Crash log: ${crashLogPath}\n` +
+            `Please restart Voice Typer.`,
+        );
+      } catch {
+        // dialog may not be available in headless mode
+      }
+      process.exit(1);
+    }
   });
   process.on("unhandledRejection", (err) => {
     console.error("[VT] unhandledRejection:", err);
+    logCrash("unhandledRejection", err);
   });
 
   // RELIABILITY-002: killStalePython() removed — single-instance

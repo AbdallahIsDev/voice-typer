@@ -445,6 +445,23 @@ class IPCServer:
                 self._tcp_client.flush()
             self._pending_tcp.clear()
 
+        # ERR-017: emit a state_changed event on connect so the
+        # renderer immediately knows the current app state (was
+        # previously left stale until the next state transition).
+        try:
+            current_state = getattr(self.app.tray, "_state", None)
+            current_msg = getattr(self.app.tray, "_message", "")
+            if current_state is not None:
+                self.push({
+                    "type": "state_changed",
+                    "data": {
+                        "status": getattr(current_state, "value", str(current_state)),
+                        "message": current_msg,
+                    },
+                })
+        except Exception:
+            log.debug("[TCP] failed to emit initial state_changed on connect")
+
         # RELIABILITY-006: per-connection rate limiter.  A buggy or
         # malicious Electron client that flood-dispatches commands
         # would otherwise starve the tray thread.
@@ -557,7 +574,15 @@ class IPCServer:
 
         if cmd == "get_status":
             resp["type"] = "status"
-            resp["data"] = {"status": self.service.get_status()}
+            # ERR-021: get_status() now returns a dict with status +
+            # xruns_since_start. Preserve backward-compat by passing
+            # the whole dict through.
+            status_data = self.service.get_status()
+            if isinstance(status_data, dict):
+                resp["data"] = status_data
+            else:
+                # Backward-compat: older service.get_status() returned a string.
+                resp["data"] = {"status": status_data}
 
         elif cmd == "toggle_dictation":
             try:
@@ -631,6 +656,14 @@ class IPCServer:
                     for k, v in validated.items():
                         setattr(self.app.config, k, v)
                 self.app.config.save()
+                # ARCH-043: invalidate the tray menu cache so the next
+                # menu build picks up the new config values (model size,
+                # hotkey, etc.). Without this, the tray menu shows stale
+                # state until the next state-changed event.
+                try:
+                    self.app.tray.invalidate_menu_cache()
+                except Exception:
+                    log.debug("[IPC] tray.invalidate_menu_cache failed", exc_info=True)
                 # ARCH-005: Delegate all side effects to the service layer
                 self.service.apply_config_side_effects(data if isinstance(data, dict) else {})
                 resp["type"] = "ack"
@@ -974,7 +1007,17 @@ class IPCServer:
                 
         else:
             resp["type"] = "error"
-            resp["data"] = {"message": f"Unknown command: {cmd}"}
+            # ERR-009: include a structured `code` field so clients can
+            # distinguish "unknown command" (caller bug / version skew)
+            # from "command handler raised" (server-side fault). The
+            # previous payload only had a free-text `message`, which
+            # forced clients to substring-match the message to tell
+            # the two cases apart.
+            resp["data"] = {
+                "code": "unknown_command",
+                "message": f"Unknown command: {cmd}",
+                "command": cmd,
+            }
 
         return resp
 

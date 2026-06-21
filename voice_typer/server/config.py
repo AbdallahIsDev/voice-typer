@@ -182,6 +182,10 @@ class Config:
 
     # Onboarding
     onboarding_completed: bool = False
+    # ERR-010: marks that onboarding was force-completed after repeated
+    # setup failures so the app remains usable. Lets the UI show a
+    # "configure manually" hint instead of looping the wizard.
+    onboarding_failed: bool = False
 
     # Tray icon left-click behavior
     tray_left_click_action: str = "open_app"  # "open_app" or "toggle_dictation"
@@ -363,7 +367,7 @@ class Config:
             "llm_polish_consent",
             "crash_recovery_enabled", "audio_quality_warnings",
             "templates_enabled", "vocabulary_enabled",
-            "waveform_bubble", "onboarding_completed", "wayland_warned",
+            "waveform_bubble", "onboarding_completed", "onboarding_failed", "wayland_warned",
             "fast_startup",
             "bubble_draggable", "bubble_show_on_startup",
             "volume_duck_enabled", "volume_duck_per_session",
