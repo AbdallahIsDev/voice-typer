@@ -275,15 +275,21 @@ function sendToPython(msg: Record<string, unknown>): Promise<unknown> {
     // forwarding to the Python backend. Combined with SEC-018
     // (unauth TCP), this prevents a compromised renderer from
     // calling arbitrary IPC commands like set_config / quit_app.
+    //
+    // ERR-IPC-002 (fix): previously missing `quit_app` and `restart_app`,
+    // which broke tray Quit/Restart (stopPython sends `quit_app`).
+    // ERR-IPC-003 (fix): removed 6 dead/mismatched entries (`quit`,
+    // `restart`, `save_config`, `save_vocabulary_with_diff`,
+    // `repaste_last`, `complete_onboarding`) — none exist as server
+    // IPC commands. The list now matches the server's actual command
+    // names exactly (cross-checked against ipc_server.py _dispatch).
     const ALLOWED_COMMANDS = new Set([
       "get_status",
       "toggle_dictation",
       "undo_last",
-      "repaste_last",
       "get_config",
       "get_defaults",
       "set_config",
-      "save_config",
       "get_history",
       "search_history",
       "get_today_stats",
@@ -292,15 +298,14 @@ function sendToPython(msg: Record<string, unknown>): Promise<unknown> {
       "toggle_favorite",
       "get_favorites",
       "get_microphones",
-      "restart",
-      "quit",
+      "restart_app",
+      "quit_app",
       "get_templates",
       "save_templates",
       "get_volume_backend_status",
       "get_model_status",
       "get_vocabulary",
       "save_vocabulary",
-      "save_vocabulary_with_diff",
       "onboarding_is_first_run",
       "onboarding_start",
       "onboarding_get_step",
@@ -315,7 +320,6 @@ function sendToPython(msg: Record<string, unknown>): Promise<unknown> {
       "onboarding_get_model_options",
       "onboarding_get_hotkey_presets",
       "download_model",
-      "complete_onboarding",
     ]);
     const cmd = String(msg?.type ?? "").trim();
     if (!ALLOWED_COMMANDS.has(cmd)) {

@@ -110,9 +110,10 @@ export interface ToggleDictationRequest {
   type: 'toggle_dictation'
 }
 
-export interface RestartRequest {
-  type: 'restart'
-}
+// ERR-IPC-004 (fix): RestartRequest was defined with type 'restart' but
+// the server uses 'restart_app'. Removed the dead type — restart is
+// triggered from the tray menu via the main process (stopPython sends
+// quit_app), not from the renderer.
 
 export interface GetHistoryRequest {
   type: 'get_history'
@@ -161,7 +162,6 @@ export type PythonRequest =
   | UpdateConfigRequest
   | GetMicrophonesRequest
   | ToggleDictationRequest
-  | RestartRequest
   | GetHistoryRequest
   | DeleteHistoryRequest
   | ClearHistoryRequest
