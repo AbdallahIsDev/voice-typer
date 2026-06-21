@@ -152,7 +152,7 @@ export default function ModelsPage() {
     }
   }
 
-  const useModel = async (model: ModelInfo) => {
+  const selectModel = async (model: ModelInfo) => {
     if (model.name === 'parakeet' && !model.depsOk) {
       showSnack('Dependencies required for Parakeet. Download first.', 'warning')
       return
@@ -345,7 +345,7 @@ export default function ModelsPage() {
                       variant={model.isActive ? 'secondary' : 'outline'}
                       size="sm"
                       className="gap-1"
-                      onClick={() => useModel(model)}
+                      onClick={() => selectModel(model)}
                       disabled={model.isActive || (!model.downloaded && !model.alwaysAvailable)}
                       aria-label={model.isActive ? `Active: ${model.name}` : `Use ${model.name}`}
                     >

@@ -71,7 +71,7 @@ export default function MicrophonePage() {
   const activeMicId = config?.microphone ?? null
   const isSystemDefault = activeMicId === null
 
-  const useMicrophone = async (micId: string | null) => {
+  const selectMicrophone = async (micId: string | null) => {
     try {
       await call('set_config', { microphone: micId })
       setConfig((prev) => (prev ? { ...prev, microphone: micId } : prev))
@@ -165,7 +165,7 @@ export default function MicrophonePage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => useMicrophone(null)}
+                onClick={() => selectMicrophone(null)}
               >
                 Use
               </Button>
@@ -261,7 +261,7 @@ export default function MicrophonePage() {
                         variant="outline"
                         size="sm"
                         className="shrink-0 cursor-pointer"
-                        onClick={() => useMicrophone(micId)}
+                        onClick={() => selectMicrophone(micId)}
                       >
                         Use
                       </Button>
