@@ -9,6 +9,10 @@ __pycache__/
 # They're regenerated on every `npm run build` and bloat the repo.
 voice_typer/client/out/
 voice_typer/client/src/renderer/dist/
+# BUILD-N15: also ignore the root build/ and dist/ dirs used by
+# setuptools and PyInstaller.
+build/
+dist/
 *.tsbuildinfo
 
 # Runtime/debug output
@@ -38,6 +42,27 @@ FORENSIC_REVIEW_2026-06-17.md
 rebuild-and-launch.ps1
 voice_typer/server/assets/
 .opencode/
+
+# BUILD-N15: Python coverage / type-checker caches that should never
+# ship in the repo. Without these patterns a single `pytest --cov` or
+# `mypy voice_typer` run leaves dozens of cache files in the tree.
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+.mypy_cache/
+.ruff_cache/
+.pyrefly_cache/
+.tox/
+.pytype/
+
+# BUILD-N15: environment files — local secrets / API keys must never
+# be committed. The `.env` file is loaded by the test suite only when
+# present, but should never appear in `git status`.
+.env
+.env.*
+!.env.example
 
 # Workspace Manager
 .workspace/

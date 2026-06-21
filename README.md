@@ -48,6 +48,13 @@ pytest
 pip install .
 ```
 
+> **Note:** the default `pip install .` pulls in the GPU-enabled torch
+> wheel (~2 GB) via the `faster-whisper` / `transformers` dependencies.
+> If you don't have an NVIDIA GPU and want a smaller CPU-only install,
+> use `pip install . --no-deps` followed by manual installation of the
+> CPU-only variants, or use the `[cpu]` extra (if available). The
+> `pyproject.toml` `dependencies` block lists the full set.
+
 The package must be installed (not just run from source) for autostart to work.
 
 ### Optional: Qwen ASR backend
@@ -99,11 +106,16 @@ The tray icon appears quickly on startup. The transcription engine is created in
 
 ## Settings
 
-Open the tray menu -> Settings to change the hotkey, microphone, model, start-on-login, and notifications. The microphone tray submenu is also available for quick device switching.
+Open the Electron app from the tray menu → **Open App** to change the hotkey,
+microphone, model, start-on-login, and notifications. The Settings page
+exposes every configurable field with validation and inline help.
 
 Settings are stored in JSON for troubleshooting:
 
-`%APPDATA%/voice-typer/config.json`
+`~/.voice-typer/config.json`
+
+(On Windows this resolves to `C:\Users\<you>\.voice-typer\config.json`.
+On macOS / Linux it is `$HOME/.voice-typer/config.json`.)
 
 Use Settings for normal changes. Use the advanced settings button to open the raw config file only when troubleshooting.
 
@@ -123,22 +135,23 @@ for every setting. Key categories:
 
 ### Tray Menu Structure
 
+The tray menu is intentionally minimal — most configuration lives in the
+Electron app. The actual menu (see `voice_typer/server/tray_menu.py`) is:
+
 ```
 Toggle Dictation (current hotkey)
 ─────────────────────
-Hotkey          → current, F3, ... F12, Ctrl+1..5, Custom
-Microphone      → System Default, [device list]
-Model           → tiny.en, small.en, medium.en, qwen
-Advanced        → Start on Login
-              → Dictation Notifications
-              → Silence Warning     → 5s, 10s, 15s, 20s, Custom
-              → Auto-Stop Timeout   → 1min, 2min, 3min, 5min, Custom
-              → Max Recording       → 5min, 10min, 15min, 20min, Custom
-              → Create Desktop Shortcut
+Open App
+─────────────────────
+Models           → tiny.en, small.en, medium.en, qwen, parakeet
 ─────────────────────
 Restart
 Quit
 ```
+
+There is no Hotkey / Microphone / Advanced submenu. Hotkey and microphone
+selection live in the Electron app's Settings and Microphone pages,
+respectively.
 
 ### Custom Hotkeys
 
@@ -154,6 +167,7 @@ Available models (subject to Whisper upstream naming and sizes):
 | `small.en` | Default, best balance of speed and accuracy |
 | `medium.en` | Higher accuracy for difficult audio |
 | `qwen` | Qwen3-ASR, requires separate installation (`pip install qwen-asr torch`) |
+| `parakeet` | NVIDIA Parakeet TDT v3 — English-only, optimized for GPU. Weights are auto-downloaded from HuggingFace on first use. Set `asr_backend = "parakeet"` in config or pick "Parakeet" from the Models submenu. |
 
 ## Silence Detection and Auto-Stop
 
@@ -182,9 +196,10 @@ Notifications are split into two categories:
 
 ## Microphone Selection
 
-The easiest way to change microphone: **tray menu -> Microphone** -> pick from the list.
-The tray menu shows device names and disambiguates duplicates by showing the
-host API (e.g. "WO Mic (Windows WASAPI)" vs "WO Mic (MME)").
+Microphone selection lives in the Electron app's **Microphone** page
+(open the tray menu → **Open App** → Microphone). The page lists every
+input device reported by PortAudio, shows a live level meter, and
+remembers your selection across restarts.
 
 The `microphone` config value is the **device index** (a string like `"3"`),
 not the display name. This avoids ambiguity when multiple host APIs expose
@@ -207,7 +222,7 @@ The app registers itself in `HKCU\...\Run` (uses `pythonw.exe` for background ex
 
 When `paste_on_stop` is enabled, the app detects whether a text input is focused (via Win32 API). Auto-paste only happens when a text field is confirmed focused. If no text input is focused, the keystroke is skipped and the text stays in your clipboard.
 
-Terminal emulators (Windows Terminal, Warp, Alacritty, etc.) are detected and pasted via Shift+Insert instead of Ctrl+V.
+The app sends Ctrl+V unconditionally when pasting — terminal-specific detection (Shift+Insert for Windows Terminal / Warp / Alacritty) was removed because the Win32 focus-detection API can't reliably distinguish terminal emulators from other text fields. If you're pasting into a terminal that doesn't accept Ctrl+V, press Ctrl+Shift+V or use the terminal's "Paste" menu item.
 
 The clipboard always gets the transcribed text when transcription succeeds. The app never pastes provisional streaming text.
 
@@ -244,7 +259,11 @@ Hidden streaming transcription processes audio in overlapping chunks during reco
 Voice Typer is **Windows-only**. The platform.py module has stubs for macOS and Linux autostart
 but the app is primarily developed and tested on Windows.
 
-- Tested on Windows 10/11
+- Tested on Windows 10 and Windows 11 by the maintainer. There is no CI matrix
+  for Win10 vs Win11 yet — contributors on either version are welcome to report
+  issues. Several Win10-specific code paths (notably `taskkill /T /F` and the
+  legacy `wmic` calls) have been removed; the app now uses `psutil` for
+  process introspection on all platforms.
 - Autostart uses `pythonw.exe` for background execution (no console window)
 - Global hotkey uses Win32 RegisterHotKey via ctypes (no admin required) with GetAsyncKeyState polling
 - Focus detection for safe auto-paste (Win32 API)
@@ -258,27 +277,48 @@ but the app is primarily developed and tested on Windows.
 voice_typer/
 ├── __init__.py         # Package init, __version__
 ├── __main__.py         # Entry point (python -m voice_typer)
-├── app.py              # Main orchestrator — startup, state machine, callbacks, thread safety
-├── asr_setup.py        # ASR auto-setup: GPU detection, dependency checking, weight downloading
-├── config.py           # Configuration with platform-aware paths, validation, and schema versioning
-├── recording.py        # Session-based audio recording with device fallback chain and silence detection
-├── transcription.py    # faster-whisper engine with 4-level GPU->CPU fallback
-├── qwen_engine.py      # Optional Qwen3-ASR-0.6B backend (self-contained, graceful fallback)
-├── parakeet_engine.py  # Optional NVIDIA Parakeet backend
-├── streaming.py        # Hidden streaming transcription with overlapping audio windows and retry counter
-├── text_cleanup.py     # Post-transcription cleanup pipeline (dedup, misspellings, self-corrections, capitalization)
-├── clipboard.py        # Clipboard copy + safe auto-paste with terminal detection
-├── focus.py            # Win32 text input focus detection (Windows only)
-├── hotkeys.py          # Hotkey backend abstraction (Win32 native / pynput fallback)
-├── platform.py         # OS-specific autostart adapters + mic listing + desktop shortcut creation
-├── settings.py         # Tkinter-based settings window + SettingsController
-├── tray.py             # System tray icon (pystray) with dynamic menu, state indication, and safety notifications
-├── corrections.json    # Bundled misspellings, phrase corrections, and extra-word patterns
+├── server/             # Python backend (was voice_typer/*.py before Round 9 refactor)
+│   ├── app.py          # VoiceTyperApp orchestrator — startup, state machine, thread safety
+│   ├── asr_setup.py    # ASR auto-setup: GPU detection, dependency checking, weight downloading
+│   ├── asr_registry.py # Registry of ASR backends (whisper/qwen/parakeet)
+│   ├── config.py       # Configuration with platform-aware paths, validation, schema versioning
+│   ├── recording.py    # Session-based audio recording with device fallback and silence detection
+│   ├── transcription.py  # faster-whisper engine with GPU→CPU fallback chain
+│   ├── qwen_engine.py  # Optional Qwen3-ASR-0.6B backend
+│   ├── parakeet_engine.py  # Optional NVIDIA Parakeet TDT v3 backend
+│   ├── cloud_engines.py   # Cloud ASR / LLM HTTP transports
+│   ├── streaming.py    # Streaming transcription with overlapping audio windows
+│   ├── text_cleanup.py # Post-transcription cleanup (dedup, misspellings, capitalization)
+│   ├── clipboard.py    # Clipboard copy + safe auto-paste
+│   ├── hotkeys.py      # Hotkey backend abstraction (Win32 native / pynput fallback)
+│   ├── hotkey_dispatcher.py  # Owns the 3 hotkey backends (dictation / ESC / repaste)
+│   ├── ipc_server.py   # JSON-over-stdin/TCP IPC server for the Electron client
+│   ├── platform.py     # OS-specific autostart adapters + mic listing + desktop shortcut
+│   ├── tray.py         # System tray icon (pystray) + dynamic menu
+│   ├── tray_menu.py    # Tray menu builder (extracted from tray.py)
+│   ├── tray_types.py   # AppState enum + TrayController Protocol
+│   ├── model_manager.py    # Model load/unload lifecycle
+│   ├── recording_controller.py  # Recording lifecycle + streaming session
+│   ├── dictation_pipeline.py    # Transcription pipeline (cleanup, history, paste)
+│   ├── crash_recovery.py    # Crash-recovery buffer for unpasted transcriptions
+│   ├── history_db.py    # SQLite history DB
+│   ├── vocabulary.py    # Custom vocabulary manager
+│   ├── templates.py     # Text templates
+│   ├── llm_polish.py    # Optional LLM-based transcription polish
+│   ├── vad.py           # Voice activity detection
+│   ├── volume_ducker.py / volume_backends.py  # System volume ducking
+│   ├── task_scheduler.py  # Pre-warm task scheduler (Windows Task Scheduler / cron)
+│   ├── prewarm.py / prewarm_scheduler_posix.py  # Pre-warm orchestration
+│   └── corrections.json  # Bundled misspellings, phrase corrections
 ├── client/             # Electron frontend (TypeScript/React/Vite)
-│   ├── src/main/       # Electron main process
-│   ├── src/renderer/   # React renderer
-│   └── src/preload/    # Context bridge (IPC)
-└── tests/              # Test suite
+│   ├── src/main/       # Electron main process — window lifecycle, IPC bridge
+│   ├── src/renderer/   # React renderer — pages (Home, Settings, Models, History, ...)
+│   ├── src/preload/    # Context bridge (IPC channel whitelists)
+│   ├── electron.vite.config.ts  # electron-vite build config
+│   ├── electron-builder.yml     # Distribution config (NSIS / DMG / AppImage)
+│   ├── package.json    # Node deps + scripts (dev / build / lint / test)
+│   └── vite.config.ts  # Vite aliases (shadcn CLI compatibility shim)
+└── tests/              # Pytest suite (rounds 8-10 E2E + per-module unit tests)
 ```
 
 Key design decisions:
@@ -388,7 +428,7 @@ Uses `RotatingFileHandler` (1MB max, 2 backups) with structured logging (session
 ## Known Limitations
 
 - Focus detection (for safe auto-paste) only works on Windows
-- First model download requires internet (the default model is ~466MB)
+- First model download requires internet (model sizes vary by backend: Whisper `tiny.en` is ~75 MB, `small.en` ~466 MB, `medium.en` ~1.5 GB; Parakeet TDT v3 is ~2.5 GB; Qwen3-ASR is configured by path)
 - Very long recordings (>10 min) may use significant RAM during transcription
 - The standalone installer bundles Python + dependencies (no Python installation needed)
 

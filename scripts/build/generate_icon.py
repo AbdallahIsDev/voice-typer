@@ -1,4 +1,20 @@
-"""Generate a 64x64 microphone icon (ICO) for the installer."""
+"""Generate a 64x64 microphone icon (ICO) for the installer.
+
+DEAD-015: There are two icon generators in this repo:
+  - ``scripts/build/generate_icon.py`` (this file) — generates the
+    Windows .ico used by PyInstaller + Inno Setup.
+  - ``voice_typer/client/scripts/generate-icons.mjs`` — generates the
+    Electron app's PNG icons (different sizes for tray, taskbar, etc.)
+    from an SVG source.
+
+They produce DIFFERENT artifacts for DIFFERENT build pipelines and are
+NOT duplicates. The TS version is wired to ``npm run prebuild`` in
+package.json; this Python version is wired to the CI workflow's
+``Generate app icon`` step.
+
+If you need to change the icon, edit ``voice_typer/client/scripts/logo.svg``
+and re-run both generators.
+"""
 import sys
 from pathlib import Path
 

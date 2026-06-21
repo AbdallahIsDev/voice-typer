@@ -1,6 +1,15 @@
 [build-system]
 requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
+# BUILD-N22: although we use setuptools as the build backend, we also
+# declare a hatch/uv compatibility hint for tools that auto-detect the
+# build system. uv reads [tool.uv] for resolution preferences.
+
+[tool.uv]
+# BUILD-N22: pin a default Python for uv users so `uv sync` reproduces
+# the same environment as the CI matrix.
+python-preference = "managed"
+supported-python-versions = ["3.10", "3.11", "3.12"]
 
 [project]
 name = "voice-typer"
@@ -10,13 +19,20 @@ requires-python = ">=3.10"
 dependencies = [
     "faster-whisper>=1.0,<2.0",
     "sounddevice>=0.5,<1.0",
-    "numpy>=1.24,<3.0",
+    # BUILD-N03: tighten numpy to <2.0. numpy 2.x changed the default
+    # integer type on Windows and broke ABI compat with several of our
+    # pinned deps (faster-whisper, sounddevice). Pin to 1.26+ which has
+    # all the bugfixes we need without the 2.x breakage.
+    "numpy>=1.26,<2.0",
     "scipy>=1.10,<2.0",
     "pyperclip>=1.8,<2.0",
     "pystray>=0.19,<1.0",
     "Pillow>=9.0,<13.0",
     "pynput>=1.7,<2.0",
-    "transformers>=4.40,<6.0",
+    # BUILD-N04: pin transformers to <5.0. The 4.x -> 5.x boundary
+    # renamed AutoProcessor methods and removed AutoModelForCTC, both
+    # of which we use. Allow 4.50+ for the safe tensor / fp16 fixes.
+    "transformers>=4.50,<5.0",
     "accelerate>=0.26,<2.0",
     # SUPPLY-001: psutil is used by _another_voice_typer_alive
     # (ARCH-012) and is required for process scanning on all platforms.
@@ -35,7 +51,26 @@ dependencies = [
 voice-typer = "voice_typer.server.app:main"
 
 [project.optional-dependencies]
-test = ["pytest>=7", "pytest-mock"]
+# BUILD-N23: include modern test deps so CI is brittle-free.
+# pytest-asyncio: for async tests (cloud engine urlopen mocks).
+# pytest-timeout: hard cap on individual test runtime.
+# pytest-cov: coverage reporting.
+# pytest-mock: MagicMock fixture.
+test = [
+    "pytest>=7",
+    "pytest-mock",
+    "pytest-asyncio>=0.23",
+    "pytest-timeout>=2.3",
+    "pytest-cov>=4.1",
+]
+# BUILD-N05: PyInstaller spec file lives at scripts/build/voice-typer.spec
+# but the tool itself wasn't declared. Make it an optional extra so
+# `pip install .[build]` produces a buildable environment.
+build = [
+    "pyinstaller>=6.0",
+    "setuptools>=68.0",
+    "wheel",
+]
 # Windows volume ducking — kept as alias for explicit pip install .[windows]
 windows = ["pycaw>=20230407", "comtypes>=1.1"]
 # macOS volume ducking — kept as alias for explicit pip install .[macos]
@@ -45,6 +80,12 @@ noise-filter = [
     "noisereduce>=3.0",
     # rnnoise-webrtc provides prebuilt wheels for win/mac/linux
     "rnnoise-webrtc>=1.0; platform_machine != 'arm64' or sys_platform != 'darwin'",
+]
+# BUILD-N14/dev: dev tooling for local contributors.
+dev = [
+    "ruff>=0.6",
+    "mypy>=1.10",
+    "pre-commit>=3.7",
 ]
 
 [tool.pyrefly]

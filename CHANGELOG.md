@@ -7,18 +7,20 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
 
 Changes that affect end users (new features, bug fixes, UX improvements).
 
-### 1.0.0 (current)
+### 1.0.0 (2026-06-21)
 
 - **Dual ASR backends**: Whisper (faster-whisper, default) and optional Qwen3-ASR-0.6B
+- **Parakeet backend** (optional, NVIDIA Parakeet TDT v3) — auto-downloads from HuggingFace on first use
+- **Electron + React UI** with tray icon for background operation (no Flet)
 - **Hidden streaming transcription** with overlapping audio windows and batch fallback
 - **Text cleanup pipeline**: duplicate removal, hallucination cleanup, misspelling correction, phrase substitution, sentence capitalization
-- **System tray icon** with dynamic menu: hotkey selection, microphone switching, model selection, autostart toggle
+- **System tray icon** with minimal menu: Toggle Dictation, Open App, Models submenu, Restart, Quit
 - **Global hotkey** support: `<ctrl>+<alt>+f2`, `<ctrl>+1` through `<ctrl>+5`, and F1-F12
-- **Safe auto-paste** with terminal emulator detection (Shift+Insert) and focus retry
+- **Auto-paste** via Ctrl+V (terminal detection was removed; the docs/README claim has been corrected)
 - **Microphone fallback chain**: same-name candidates across host APIs, ranked by reliability
 - **4-level GPU→CPU fallback** for model loading
 - **External corrections JSON** override file for custom misspelling/phrase corrections
-- **Push-to-talk mode** (hold to record, release to stop)
+- **Push-to-talk mode** (configured via Settings; release currently issues `pass` — see FEATURES.md)
 - **ESC cancel** at any stage of dictation
 - **Repaste last transcription** hotkey
 - **Auto-punctuation** (optional, runs after template matching)
@@ -26,7 +28,7 @@ Changes that affect end users (new features, bug fixes, UX improvements).
 - **Crash recovery**: stores last 10 transcriptions, prompts on restart if unpasted
 - **History database** with search, favorites, and retention policy
 - **Waveform bubble** overlay (optional) with real-time audio level visualization
-- **Onboarding flow** for first-run setup
+- **Onboarding flow** — first-run wizard rendered by the React UI
 - **Theme support**: system/light/dark
 - **High-contrast mode** and adjustable text size (accessibility)
 - **Fast startup** via prewarm (keeps model weights in OS file cache)
@@ -93,9 +95,10 @@ Changes that affect contributors (architecture, dead code removal, test coverage
 
 ### Testing
 
-- **764 tests passing** (up from ~400 at project start), 6 skipped
-- New test files: `test_secrets.py`
-- New test classes: `TestDispatchSetConfigAllowlist`, `TestGetConfigRedactsSecrets`, `TestSec006TrustedPathFieldsBlockedStandalone`, `TestSec008PendingTcpCap`, `TestSec010HistoryLimitBounding`, `TestGetDefaultsIpc`, `TestSec018TcpAuth`, `TestArch004CorrectionsLoadError`, `TestRateLimiter`, `TestWrapSystemExitHandling`, `TestQuitAppCleanShutdown`, `TestRestartAppCleanShutdown`, `TestPushToTalkOnRelease`, `TestCloudEngineUrlAllowlist`, `TestCloudEngineKeyRedaction`, `TestDeepgramUrlParameterInjection`, `TestSec007ConfigFilePermissions`, `TestCrashRecoveryAsyncWrites`
+- **1072 tests passing** (up from ~400 at project start), 9 skipped (platform-specific)
+- Test files cover every module: round8/9/10/11 E2E suites, per-module unit tests, regression tests for SEC/RELIABILITY/ERR/ARCH items. See `pytest --collect-only -q | wc -l` for the current count.
+- New test files: `test_secrets.py`, `test_round11_regression.py`
+- New test classes: `TestDispatchSetConfigAllowlist`, `TestGetConfigRedactsSecrets`, `TestSec006TrustedPathFieldsBlockedStandalone`, `TestSec008PendingTcpCap`, `TestSec010HistoryLimitBounding`, `TestGetDefaultsIpc`, `TestSec018TcpAuth`, `TestArch004CorrectionsLoadError`, `TestRateLimiter`, `TestWrapSystemExitHandling`, `TestQuitAppCleanShutdown`, `TestRestartAppCleanShutdown`, `TestPushToTalkOnRelease`, `TestCloudEngineUrlAllowlist`, `TestCloudEngineKeyRedaction`, `TestDeepgramUrlParameterInjection`, `TestSec007ConfigFilePermissions`, `TestCrashRecoveryAsyncWrites`, `TestCrashRecoveryIntegration`, `TestSetConfigRejectsSensitiveAttrs`, `TestSearchHistoryEdgeCases`, `TestCloudEngineUlopenTimeout`, `TestRestartAppStopsBackends`, `TestXrunThresholdCounter`, `TestResampleError`, `TestWatchdogForceRecover`, `TestPendingModelChange`, `TestFriendlyTranscriptionError`, `TestStoreResultFailurePromotion`, `TestParakeetBackendError`, `TestQwenFallback`, `TestUnknownIPCCommandCode`, `TestVKMapInitLockGuarded`, `TestPendingTimersLockGuarded`, `TestAudioCallbackPreStartGuard`, `TestPhrasePatternCache`, `TestResampleCacheInvalidation`, `TestVocabularySaveRetry`
 
 ### Documentation
 
