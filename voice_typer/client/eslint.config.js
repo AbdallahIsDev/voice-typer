@@ -109,7 +109,7 @@ export default [
       // ERR-LINT-001: allow namespace syntax (used in main/index.ts)
       '@typescript-eslint/no-namespace': 'off',
       // ERR-LINT-001: allow require() in main process
-      'no-require-imports': 'off',
+      '@typescript-eslint/no-require-imports': 'off',
       // ERR-LINT-001: allow empty catch blocks (used for intentional
       // error suppression in IPC handlers)
       'no-empty': ['error', { allowEmptyCatch: true }],
