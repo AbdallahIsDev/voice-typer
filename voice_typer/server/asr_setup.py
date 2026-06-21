@@ -42,18 +42,6 @@ def ensure_hf_env():
     os.environ.setdefault("HF_HUB_DISABLE_UNVERIFIED_ACCESS_WARNING", "1")
 
 
-def get_voice_typer_python() -> str:
-    """Return path to the voice-typer's own Python interpreter.
-
-    Prefers the venv Python at ``~/.voice-typer/venv/Scripts/python.exe``.
-    Falls back to ``sys.executable``.
-    """
-    venv_python = _config_dir() / "venv" / "Scripts" / "python.exe"
-    if venv_python.exists():
-        return str(venv_python.resolve())
-    return sys.executable
-
-
 def download_parakeet_weights(
     progress_callback: Optional[Callable[[str], None]] = None,
 ) -> bool:

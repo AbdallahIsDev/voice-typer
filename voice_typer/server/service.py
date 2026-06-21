@@ -28,9 +28,27 @@ class VoiceTyperService:
 
     # ── Status ──────────────────────────────────────────────────
 
-    def get_status(self) -> str:
-        """Return the current app state as a string."""
-        return self._app.tray.state.value
+    def get_status(self) -> dict:
+        """Return the current app state plus audio-quality telemetry.
+
+        ERR-021: previously returned only the tray state string. The
+        xrun counter was tracked in the recorder but never reached the
+        IPC layer, so the UI couldn't warn the user of degraded audio.
+        We now return a dict with ``status``, ``xruns_since_start``,
+        and other useful fields.
+        """
+        app = self._app
+        status_str = app.tray.state.value
+        # Best-effort: xruns counter exists on the Recorder instance.
+        xruns = 0
+        try:
+            xruns = int(getattr(app.recorder, "_xruns", 0) or 0)
+        except Exception:
+            log.debug("[SERVICE] could not read xrun counter", exc_info=True)
+        return {
+            "status": status_str,
+            "xruns_since_start": xruns,
+        }
 
     # ── Dictation ───────────────────────────────────────────────
 

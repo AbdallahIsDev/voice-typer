@@ -21,6 +21,35 @@ from voice_typer.server.tray_types import AppState
 log = logging.getLogger("voice_typer")
 
 
+# ERR-005: raw exception messages from ctranslate2 / torch / faster-whisper
+# often leak file paths, CUDA versions, and internal stack details into
+# user-facing tray notifications. Map known exception classes to friendly
+# messages; fall back to a generic message for unknown errors.
+def _friendly_transcription_error(exc: BaseException) -> str:
+    """Return a user-friendly message describing a transcription failure."""
+    msg = str(exc).lower()
+    name = type(exc).__name__
+    # GPU / CUDA errors
+    if "out of memory" in msg or "cuda" in msg and "memory" in msg:
+        return "The GPU ran out of memory while transcribing. Try a smaller model."
+    if "cuda" in msg or "cudnn" in msg or "cublas" in msg:
+        return "A GPU/CUDA error occurred. The app will fall back to CPU on the next attempt."
+    if "device" in msg and ("not available" in msg or "not found" in msg):
+        return "The selected audio or compute device is unavailable."
+    # Model file errors
+    if "model" in msg and ("download" in msg or "load" in msg or "file" in msg):
+        return "The speech model could not be loaded. Check your internet connection and try again."
+    # Audio errors
+    if "audio" in msg and ("empty" in msg or "no speech" in msg):
+        return "No speech was detected in the recording."
+    if name in {"ConnectionError", "TimeoutError", "URLError"}:
+        return "A network error occurred while contacting the transcription service."
+    # Permission errors
+    if name in {"PermissionError"}:
+        return "A file permission error occurred. Check that the app can write to its data directory."
+    return f"Transcription failed ({name}). See the log file for technical details."
+
+
 class DictationPipeline:
     """Transcription pipeline — one method per step.
 
@@ -99,7 +128,14 @@ class DictationPipeline:
         except Exception as e:
             log.exception("[TRANSCRIBE] Transcription FAILED (cycle=%s)", self._cycle_id)
             self._app.tray.set_state(AppState.ERROR, "Transcription failed")
-            self._app.tray.notify("Voice Typer Error", f"Transcription failed.\n{e}")
+            # ERR-005: do NOT leak raw exception text into tray
+            # notifications — ctranslate2 / torch errors often contain
+            # file paths, CUDA version strings, and internal stack
+            # details. Map to a user-friendly message instead.
+            self._app.tray.notify(
+                "Voice Typer Error",
+                _friendly_transcription_error(e),
+            )
             self._app._schedule_timer(3.0, lambda: self._app.tray.set_state(AppState.IDLE))
 
         finally:
@@ -109,7 +145,21 @@ class DictationPipeline:
             if session is not None and not self._app.recorder.recording:
                 self._app._set_streaming_session(None)
             self._app._busy_event.set()  # busy = False
-            self._app._transcription_thread = None
+            # ARCH-016: clear _transcription_thread under the app's
+            # state lock so concurrent readers (e.g. _cancel_streaming_session
+            # in another thread) don't see a torn None vs Thread object.
+            try:
+                with self._app._lock:
+                    self._app._transcription_thread = None
+            except Exception:
+                # Defensive: if the lock is unavailable we still want
+                # to clear the field — but log the race.
+                log.debug(
+                    "[TRANSCRIBE] could not acquire app._lock to clear "
+                    "_transcription_thread; assigning without lock",
+                    exc_info=True,
+                )
+                self._app._transcription_thread = None
             import gc
             gc.collect()
             log.info("[TRANSCRIBE] busy reset to False (cycle=%s)", self._cycle_id)
@@ -167,18 +217,35 @@ class DictationPipeline:
         return text
 
     def _apply_vocabulary(self, text: str) -> str:
-        """Step 4: Apply vocabulary corrections."""
+        """Step 4: Apply vocabulary corrections.
+
+        ERR-014: previously failures here were ``log.debug`` (invisible
+        at default log level). User saw wrong text with no clue why.
+        Promoted to ``log.warning`` + tray notify on first occurrence.
+        """
         try:
             if self._app._vocabulary_manager is None:
                 from voice_typer.server.vocabulary import VocabularyManager
                 self._app._vocabulary_manager = VocabularyManager()
             text = self._app._vocabulary_manager.apply_to_text(text)
         except Exception:
-            log.debug("[PIPELINE] Vocabulary correction failed")
+            log.warning("[PIPELINE] Vocabulary correction failed", exc_info=True)
+            if not getattr(self, "_vocab_fail_notified", False):
+                self._vocab_fail_notified = True
+                try:
+                    self._app.tray.notify(
+                        "Voice Typer",
+                        "Vocabulary correction failed. Check the log file for details.",
+                    )
+                except Exception:
+                    pass
         return text
 
     def _apply_templates(self, text: str) -> str:
-        """Step 5: Apply template matching."""
+        """Step 5: Apply template matching.
+
+        ERR-014: promoted ``log.debug`` to ``log.warning`` + tray notify.
+        """
         try:
             if getattr(self._app.config, "templates_enabled", True):
                 if self._app._template_manager is None:
@@ -190,7 +257,16 @@ class DictationPipeline:
                              len(text), len(expanded))
                     text = expanded
         except Exception:
-            log.debug("[PIPELINE] Template matching failed")
+            log.warning("[PIPELINE] Template matching failed", exc_info=True)
+            if not getattr(self, "_template_fail_notified", False):
+                self._template_fail_notified = True
+                try:
+                    self._app.tray.notify(
+                        "Voice Typer",
+                        "Template matching failed. Check the log file for details.",
+                    )
+                except Exception:
+                    pass
         return text
 
     def _apply_punctuation(self, text: str) -> str:
@@ -238,7 +314,13 @@ class DictationPipeline:
         return text
 
     def _store_result(self, text: str) -> None:
-        """Step 8: Store in history DB and crash recovery."""
+        """Step 8: Store in history DB and crash recovery.
+
+        ERR-006: Previously failures here were DEBUG-level (invisible at
+        default log level) with no tray notification. We now log at
+        ``exception`` level and surface a tray notice the first time
+        each failure type occurs so the user knows data is being lost.
+        """
         try:
             self._app.history_db.add_transcription(
                 text,
@@ -247,13 +329,33 @@ class DictationPipeline:
                 device=self._app.config.device,
             )
         except Exception:
-            log.debug("[PIPELINE] History DB add failed")
+            log.exception("[PIPELINE] History DB add failed")
+            if not getattr(self, "_history_fail_notified", False):
+                self._history_fail_notified = True
+                try:
+                    self._app.tray.notify(
+                        "Voice Typer",
+                        "Could not save the transcription to history. "
+                        "Check the log file for details.",
+                    )
+                except Exception:
+                    pass
 
         if self._app.config.crash_recovery_enabled:
             try:
                 self._app._crash_recovery.add(text, pasted=False)
             except Exception:
-                log.debug("[PIPELINE] Crash recovery add failed")
+                log.exception("[PIPELINE] Crash recovery add failed")
+                if not getattr(self, "_crash_recovery_fail_notified", False):
+                    self._crash_recovery_fail_notified = True
+                    try:
+                        self._app.tray.notify(
+                            "Voice Typer",
+                            "Could not save the transcription to the crash-recovery "
+                            "buffer. Check the log file for details.",
+                        )
+                    except Exception:
+                        pass
 
         # Save for repaste / undo
         self._app._last_transcription = text
@@ -264,15 +366,36 @@ class DictationPipeline:
             log.info("[TRANSCRIBE] Transcription: %d chars", len(text))
 
     def _copy_and_paste(self, text: str) -> None:
-        """Step 9: Copy to clipboard and attempt paste."""
+        """Step 9: Copy to clipboard and attempt paste.
+
+        ERR-004: If clipboard.copy() fails, we previously lost the
+        transcription silently. We now write the text to the crash
+        recovery buffer (which persists to disk) and notify the user
+        with the path so they can recover it manually.
+        """
         if not self._app.clipboard.copy(text):
             log.error("[CLIPBOARD] Clipboard copy failed (cycle=%s)", self._cycle_id)
+            recovery_path: Optional[str] = None
+            try:
+                if self._app.config.crash_recovery_enabled:
+                    self._app._crash_recovery.add(text, pasted=False)
+                    self._app._crash_recovery.flush(timeout=2.0)
+                    # Best-effort: surface the recovery file path so the
+                    # user can locate the saved transcription.
+                    try:
+                        recovery_path = str(self._app._crash_recovery._path)
+                    except Exception:
+                        recovery_path = None
+            except Exception:
+                log.exception("[CLIPBOARD] Failed to write transcription to crash recovery")
             self._app.tray.set_state(AppState.IDLE, "Done -- clipboard unavailable")
-            self._app.tray.notify(
-                "Voice Typer",
-                "Transcription complete, but clipboard was unavailable.\n"
-                "Text was not pasted. Check the log for details.",
+            notice = (
+                "Transcription complete, but the clipboard was unavailable.\n"
+                "Your text was saved to the crash-recovery file so it is not lost."
             )
+            if recovery_path:
+                notice += f"\nRecovery file: {recovery_path}"
+            self._app.tray.notify("Voice Typer", notice)
             self._app._busy_event.set()
             self._app._schedule_timer(
                 3.0,

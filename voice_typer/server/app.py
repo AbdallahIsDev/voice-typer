@@ -363,7 +363,14 @@ class VoiceTyperApp:
         # on VoiceTyperApp via @property delegates below for back-compat
         # with code that reads them directly.
         self._shutting_down = False  # True once quit() starts
+        # ARCH-022: _pending_timers is appended to from the tray thread,
+        # the transcription thread, and the timer thread itself; the
+        # `for timer in self._pending_timers` iteration in
+        # _cancel_pending_timers can race with concurrent appends and
+        # raise RuntimeError("list changed size during iteration").
+        # Guard the list with a dedicated lock.
         self._pending_timers: list[threading.Timer] = []
+        self._pending_timers_lock = threading.Lock()
         self._timer_generation: int = 0
         self._cycle_counter = 0      # monotonic counter for dictation cycles
         self._cycle_id: str = ""     # human-readable cycle id for log correlation
@@ -617,16 +624,30 @@ class VoiceTyperApp:
                 func()
         timer = threading.Timer(delay, guarded_func)
         timer.daemon = True
-        self._pending_timers.append(timer)
+        # ARCH-022: guard the append so a concurrent _cancel_pending_timers
+        # iteration doesn't see a half-updated list.
+        with self._pending_timers_lock:
+            self._pending_timers.append(timer)
         timer.start()
         return timer
 
     def _cancel_pending_timers(self):
-        """Cancel and clear all pending scheduled timers."""
-        for timer in self._pending_timers:
-            timer.cancel()
-        self._pending_timers.clear()
-        self._timer_generation += 1
+        """Cancel and clear all pending scheduled timers.
+
+        ARCH-022: take the lock so concurrent appends from the tray /
+        transcription / timer threads can't race with our iteration.
+        The actual ``timer.cancel()`` calls happen outside the lock to
+        avoid holding it longer than necessary.
+        """
+        with self._pending_timers_lock:
+            timers = list(self._pending_timers)
+            self._pending_timers.clear()
+            self._timer_generation += 1
+        for timer in timers:
+            try:
+                timer.cancel()
+            except Exception:
+                log.exception("[APP] Failed to cancel scheduled timer")
 
     # ─── Thread-Safe Streaming Session Access (P2) ───────────────────
 
@@ -784,7 +805,44 @@ class VoiceTyperApp:
                     # user's choices via `onboarding_apply`.
                     self.config.save()
             except Exception as e:
-                log.debug("[STARTUP] Onboarding check failed: %s", e)
+                # ERR-010: previously this was log.debug, which is
+                # invisible at default log levels. If onboarding check
+                # persistently fails the user is stuck on first-run
+                # forever with no indication of why. Promote to
+                # log.exception and notify the tray; after N consecutive
+                # failures we mark onboarding completed with a failure
+                # flag so the app remains usable.
+                log.exception("[STARTUP] Onboarding check failed: %s", e)
+                try:
+                    self._onboarding_fail_count = getattr(
+                        self, "_onboarding_fail_count", 0
+                    ) + 1
+                    if self._onboarding_fail_count >= 3 and self.config.show_notifications:
+                        self.config.onboarding_completed = True
+                        self.config.onboarding_failed = True
+                        try:
+                            self.config.save()
+                        except Exception:
+                            log.exception("[STARTUP] Could not save onboarding_failed flag")
+                        try:
+                            self.tray.notify(
+                                "Voice Typer",
+                                "Onboarding setup kept failing. The app will "
+                                "start with default settings. Open Settings to "
+                                "configure manually.",
+                            )
+                        except Exception:
+                            pass
+                    elif self.config.show_notifications:
+                        try:
+                            self.tray.notify(
+                                "Voice Typer",
+                                "Onboarding setup failed; will retry on next start.",
+                            )
+                        except Exception:
+                            pass
+                except Exception:
+                    log.exception("[STARTUP] Onboarding failure-handler itself failed")
 
         # Load external text corrections (if available) before any transcription
         # ARCH-004: surface load errors to the user via tray notification
@@ -893,14 +951,32 @@ class VoiceTyperApp:
         # 1b. Sync the OS-level prewarm scheduled task with config.fast_startup.
         #     Cheap (a single schtasks /Query) and self-healing: if the user
         #     deleted the task or moved machines, it gets re-registered.
-        self._sync_prewarm_task()
+        #
+        # PERF-NEW-030: prewarm sync + mic enumeration are independent
+        # I/O-bound tasks. Run them in parallel on a ThreadPoolExecutor
+        # so the total startup time is max(t_prewarm, t_mics) instead
+        # of t_prewarm + t_mics.
+        import concurrent.futures
+
+        def _startup_parallel_work() -> None:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                prewarm_future = pool.submit(self._sync_prewarm_task)
+                mic_future = pool.submit(self._load_microphones)
+                # Wait for both so we can log + handle errors.
+                for label, fut in [("prewarm", prewarm_future), ("mic", mic_future)]:
+                    try:
+                        fut.result(timeout=30)
+                    except Exception as exc:
+                        log.warning("[STARTUP] %s task failed: %s", label, exc)
 
         # 1b. Create desktop launcher shortcut on first run (if absent)
+        # (Run before parallel work so the shortcut exists before mic
+        # enumeration — they're independent but shortcut creation is
+        # fast and quick to fail.)
         self._ensure_desktop_shortcut()
 
-        # 2. Enumerate microphones for the tray menu
-        log.info("[STARTUP] Step 2: load microphones")
-        self._load_microphones()
+        log.info("[STARTUP] Step 1c/2: parallel prewarm + mic enumeration")
+        _startup_parallel_work()
 
         # 3. Register hotkey BEFORE model load so F2 works even if model fails
         log.info("[STARTUP] Step 3: register hotkey")
@@ -1001,7 +1077,9 @@ class VoiceTyperApp:
         # 1. Migrate: remove the legacy backend-only .bat so the broken
         #    "no bubble" shortcut stops shadowing the correct one.
         try:
-            if legacy_bat.exists() and "-m voice_typer" in legacy_bat.read_text():
+            if legacy_bat.exists() and "-m voice_typer" in legacy_bat.read_text(
+                encoding="utf-8", errors="replace"
+            ):
                 legacy_bat.unlink()
                 log.info("[STARTUP] Removed legacy backend-only shortcut: %s", legacy_bat)
         except OSError:
@@ -1262,18 +1340,43 @@ class VoiceTyperApp:
     # ─── Settings / Microphone ─────────────────────────────────────────
 
     def repaste_last(self) -> None:
-        """Feature: Repaste last transcription (tray menu + hotkey)."""
-        if self._last_transcription:
-            try:
-                self.clipboard.copy(self._last_transcription)
-                self.clipboard.paste()
-                log.info("[REPASTE] Repasted last transcription (%d chars)", len(self._last_transcription))
-                self.tray.notify("Voice Typer", "Last transcription re-pasted")
-            except Exception as e:
-                log.warning("[REPASTE] Failed: %s", e)
-                self.tray.notify("Voice Typer", "Could not re-paste. Check clipboard.")
-        else:
+        """Feature: Repaste last transcription (tray menu + hotkey).
+
+        ERR-018: previously a single try/except collapsed clipboard-copy
+        failures and paste-keystroke failures into one generic toast.
+        We now split them so the user knows which step failed.
+        """
+        if not self._last_transcription:
             self.tray.notify("Voice Typer", "No previous transcription to re-paste.")
+            return
+
+        # Step 1: copy to clipboard
+        try:
+            self.clipboard.copy(self._last_transcription)
+        except Exception as e:
+            log.warning("[REPASTE] Clipboard copy failed: %s", e)
+            self.tray.notify(
+                "Voice Typer",
+                "Could not copy the transcription to the clipboard. "
+                "Another app may be holding the clipboard lock.",
+            )
+            return
+
+        # Step 2: send paste keystrokes
+        try:
+            self.clipboard.paste()
+            log.info(
+                "[REPASTE] Repasted last transcription (%d chars)",
+                len(self._last_transcription),
+            )
+            self.tray.notify("Voice Typer", "Last transcription re-pasted")
+        except Exception as e:
+            log.warning("[REPASTE] Paste keystroke failed: %s", e)
+            self.tray.notify(
+                "Voice Typer",
+                "Copied to clipboard, but the paste keystroke failed. "
+                "Press Ctrl+V manually to paste.",
+            )
 
     def undo_last(self) -> None:
         """UX-003: Undo last transcription by sending backspace keystrokes.
@@ -1703,8 +1806,18 @@ class VoiceTyperApp:
                         "likely killed externally (console close, task manager, etc.)")
 
     def _install_win32_console_handler(self):
-        """On Windows, install a console control handler to survive console closure."""
+        """On Windows, install a console control handler to survive console closure.
+
+        ARCH-046: skip when running under ``pythonw.exe`` — there's no
+        console attached, so SetConsoleCtrlHandler is a no-op that
+        spews "no console" warnings in the log.
+        """
         if sys.platform != "win32":
+            return
+        # ARCH-046: detect pythonw.exe (no console) and skip install.
+        exe_name = Path(sys.executable).name.lower()
+        if exe_name == "pythonw.exe":
+            log.debug("[WIN32] pythonw.exe detected — skipping console control handler")
             return
 
         try:
