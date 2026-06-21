@@ -1159,7 +1159,10 @@ def main() -> None:
         # Catch it so we can log the cause, then re-raise.
         log.info("[IPC] app.start() exited via sys.exit(%s)", _se.code)
         raise
-    except BaseException:
+    except Exception:
+        # ERR-ERR-002 (fix): was `except BaseException` which also caught
+        # KeyboardInterrupt and GeneratorExit. Now catches only Exception
+        # so Ctrl+C and SystemExit propagate normally to the finally block.
         log.exception("app.start() raised — shutting down")
         sys.exit(1)
     else:
