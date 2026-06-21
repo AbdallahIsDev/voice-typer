@@ -1,4 +1,15 @@
+<!-- DOC-012: STATUS: NOT IMPLEMENTED. This is a design-only spec. -->
+<!-- None of the referenced files (updater.ts, useUpdater.ts, UpdateBanner.tsx) exist. -->
+<!-- Do not reference this document as if the feature ships. -->
+
 ## System architecture for the auto-update feature. I've thought through every component, state, and edge case.
+
+> **STATUS: NOT IMPLEMENTED (design only).** This document is a design
+> spec for a future auto-update feature. No code exists for any of the
+> described components (`updater.ts`, `useUpdater.ts`,
+> `UpdateBanner.tsx`). Do not reference this as a shipping feature.
+> If you want to implement auto-update, start here and use
+> `electron-builder`'s built-in `publish` + `autoUpdater` APIs.
 
 ────────────────────────────────────────────────────────────────────────────────
 ## Architecture Overview

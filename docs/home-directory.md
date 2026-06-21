@@ -24,13 +24,15 @@ All user data lives under `~/.voice-typer/` (Unix) or `%USERPROFILE%\.voice-type
 │   ├── version                  #   HF cache version stamp
 │   └── tokenizers/              #   Tokenizer cache (rarely used)
 ├── models/ ──junction/symlink──→ huggingface/hub/   ← browsable shortcut
-├── venv/                        # Python virtual environment
-│   ├── Scripts/python.exe       #   Python executable
-│   ├── Lib/site-packages/       #   All Python deps
-│   └── Scripts/voice-typer      #   CLI entry point
+├── venv/                        # Python virtual environment (python -m venv)
+│   ├── Scripts/python.exe       #   Python executable (Windows)
+│   ├── bin/python               #   Python executable (POSIX)
+│   ├── Lib/site-packages/       #   All Python deps (Windows)
+│   └── lib/python3.XY/site-packages/  # All Python deps (POSIX)
 ├── logs/
 │   └── voice-typer.log          # Rotating log (1 MB × 2 backups)
-├── custom_vocab/                # User custom vocabulary / correction rules
+├── voice-typer-vocabulary.json  # User vocabulary overrides (merged with bundled defaults)
+├── voice-typer-corrections.json # User text-corrections overrides (optional; merged with bundled)
 └── crash_recovery/
     └── voice-typer-recovery.json
 ```
@@ -54,8 +56,8 @@ Python virtual environment created by the installer or first-run setup. Contains
 - All pip dependencies (faster-whisper, ctranslate2, torch, sounddevice, pynput, pystray, Pillow, etc.)
 - CLI entry point (`voice-typer`)
 
-### `custom_vocab/`
-User-defined vocabulary and correction files. Read by `configure_corrections()` to build replacement maps for `clean_transcribed_text()`.
+### `voice-typer-vocabulary.json` and `voice-typer-corrections.json`
+User-defined vocabulary and correction files. Read by `VocabularyManager` and `configure_corrections()` respectively to build replacement maps for `clean_transcribed_text()`. Both are optional — the app ships with bundled defaults (`voice_typer/server/corrections.json`) that are merged with the user file.
 
 ## Model Management
 
@@ -157,9 +159,10 @@ For an AI agent tasked with implementing the folder structure recommendations:
 - [ ] macOS/Linux: `os.symlink(hub_path, models_path, target_is_directory=True)`
 - [ ] Handle existing broken symlinks (remove and recreate)
 
-### 3. Create `custom_vocab/` directory
-- [ ] Add `(config_dir / "custom_vocab").mkdir(exist_ok=True)` to first-run setup
-- [ ] Ensure `configure_corrections()` reads from `config_dir / "custom_vocab"` as fallback path
+### 3. Vocabulary / corrections files (DONE)
+- [x] `VocabularyManager` reads `config_dir / "voice-typer-vocabulary.json"` (merged with bundled defaults)
+- [x] `configure_corrections()` reads `config_dir / "voice-typer-corrections.json"` (merged with bundled defaults)
+- [x] Both files are optional — app works without them using bundled defaults
 
 ### 4. Write `~/.voice-typer/README.md` on first run
 - [ ] In `_setup_logging()` or `VoiceTyperApp.__init__()`, check if `config_dir / "README.md"` exists
