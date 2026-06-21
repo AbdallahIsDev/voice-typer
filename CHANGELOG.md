@@ -95,8 +95,8 @@ Changes that affect contributors (architecture, dead code removal, test coverage
 
 ### Testing
 
-- **1072 tests passing** (up from ~400 at project start), 9 skipped (platform-specific)
-- Test files cover every module: round8/9/10/11 E2E suites, per-module unit tests, regression tests for SEC/RELIABILITY/ERR/ARCH items. See `pytest --collect-only -q | wc -l` for the current count.
+- **1127 tests passing** (up from ~400 at project start), 9 skipped (platform-specific)
+- Test files cover every module: round8/9/10/11/12/13 E2E suites, per-module unit tests, regression tests for SEC/RELIABILITY/ERR/ARCH/IPC items. See `pytest --collect-only -q | wc -l` for the current count.
 - New test files: `test_secrets.py`, `test_round11_regression.py`
 - New test classes: `TestDispatchSetConfigAllowlist`, `TestGetConfigRedactsSecrets`, `TestSec006TrustedPathFieldsBlockedStandalone`, `TestSec008PendingTcpCap`, `TestSec010HistoryLimitBounding`, `TestGetDefaultsIpc`, `TestSec018TcpAuth`, `TestArch004CorrectionsLoadError`, `TestRateLimiter`, `TestWrapSystemExitHandling`, `TestQuitAppCleanShutdown`, `TestRestartAppCleanShutdown`, `TestPushToTalkOnRelease`, `TestCloudEngineUrlAllowlist`, `TestCloudEngineKeyRedaction`, `TestDeepgramUrlParameterInjection`, `TestSec007ConfigFilePermissions`, `TestCrashRecoveryAsyncWrites`, `TestCrashRecoveryIntegration`, `TestSetConfigRejectsSensitiveAttrs`, `TestSearchHistoryEdgeCases`, `TestCloudEngineUlopenTimeout`, `TestRestartAppStopsBackends`, `TestXrunThresholdCounter`, `TestResampleError`, `TestWatchdogForceRecover`, `TestPendingModelChange`, `TestFriendlyTranscriptionError`, `TestStoreResultFailurePromotion`, `TestParakeetBackendError`, `TestQwenFallback`, `TestUnknownIPCCommandCode`, `TestVKMapInitLockGuarded`, `TestPendingTimersLockGuarded`, `TestAudioCallbackPreStartGuard`, `TestPhrasePatternCache`, `TestResampleCacheInvalidation`, `TestVocabularySaveRetry`
 

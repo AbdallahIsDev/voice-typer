@@ -103,7 +103,8 @@ def app(tmp_config_dir, monkeypatch):
 
 class TestAppStateTransitions:
     def test_initial_state_is_idle(self, app):
-        assert not not app._busy_event.is_set()  # _busy property returns True when busy
+        # TEST-008 (fix): removed redundant `assert not not` — the
+        # following assert is a strict superset.
         assert app._busy_event.is_set()  # event is SET when not busy
         assert app.recorder.recording is False
 
