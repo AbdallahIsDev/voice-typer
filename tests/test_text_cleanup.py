@@ -1,10 +1,23 @@
 """Tests for lightweight post-transcription text cleanup."""
 
+from __future__ import annotations
+
+import pytest
 from voice_typer.server.text_cleanup import clean_transcribed_text, configure_corrections
 
-# Initialize corrections from bundled corrections.json so _active_misspellings,
-# _active_phrases, and _active_extra_words are populated.
-configure_corrections()
+
+# TEST-019 (fix): previously configure_corrections() was called at module
+# import time, mutating global state and making test order matter. Now it
+# runs in an autouse fixture so each test gets a clean corrections state.
+@pytest.fixture(autouse=True)
+def _configure_corrections():
+    """Initialize corrections from bundled corrections.json before each test.
+
+    Ensures _active_misspellings, _active_phrases, and
+    _active_extra_words are populated for every test, without leaking
+    state across test modules.
+    """
+    configure_corrections()
 
 
 class TestCleanTranscribedText:

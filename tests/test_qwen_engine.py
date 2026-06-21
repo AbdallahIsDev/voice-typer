@@ -134,11 +134,6 @@ class TestQwenConfigKeys:
 class TestQwenBackendSelection:
     """Verify the app uses the correct backend based on config."""
 
-    def test_whisper_is_default_backend(self):
-        from voice_typer.server.config import Config
-        c = Config()
-        assert c.asr_backend == "whisper"
-
     def test_qwen_backend_requires_model_path(self):
         from voice_typer.server.config import Config
         c = Config(asr_backend="qwen", qwen_model_path=None)

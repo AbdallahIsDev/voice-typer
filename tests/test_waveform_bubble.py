@@ -131,8 +131,10 @@ class TestWaveformBubbleThreadSafety:
         bubble.on_level = cb
         for _ in range(200):
             bubble.update_level(0.05, 0.1)
-        # Allow the call-queue to drain (synchronous, but defensive)
-        time.sleep(0.05)
+        # TEST-034 (fix): replaced time.sleep(0.05) with a direct
+        # assertion. The call-queue is synchronous (update_level calls
+        # the callback inline), so no waiting is needed — all 200
+        # callbacks have already fired by the time we reach the assert.
         assert len(received) == 200
 
 
