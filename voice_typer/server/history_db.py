@@ -252,8 +252,16 @@ class HistoryDB:
             log.error("[HISTORY] Failed to add transcription: %s", e)
             return -1
 
-    def get_recent(self, limit: int = 50, offset: int = 0) -> list[dict]:
-        """Get recent transcriptions with offset-based pagination."""
+    def get_recent(
+        self, limit: int = 50, offset: int = 0, *, raise_on_error: bool = False,
+    ) -> list[dict]:
+        """Get recent transcriptions with offset-based pagination.
+
+        ERR-013: when ``raise_on_error=True``, failures raise
+        ``HistoryDBError`` instead of returning ``[]``. This lets the
+        IPC layer distinguish "empty result" from "operation failed"
+        and surface a proper error to the renderer.
+        """
         try:
             conn = self._get_conn()
             cursor = conn.cursor()
@@ -266,10 +274,18 @@ class HistoryDB:
             return [dict(row) for row in rows]
         except Exception as e:
             log.error("[HISTORY] Failed to get recent transcriptions: %s", e)
+            if raise_on_error:
+                raise HistoryDBError(str(e)) from e
             return []
 
-    def search(self, query: str, limit: int = 50, offset: int = 0) -> list[dict]:
-        """Search transcriptions by text with offset-based pagination."""
+    def search(
+        self, query: str, limit: int = 50, offset: int = 0, *,
+        raise_on_error: bool = False,
+    ) -> list[dict]:
+        """Search transcriptions by text with offset-based pagination.
+
+        ERR-013: see ``get_recent`` for ``raise_on_error`` semantics.
+        """
         try:
             conn = self._get_conn()
             cursor = conn.cursor()
@@ -284,10 +300,17 @@ class HistoryDB:
             return [dict(row) for row in rows]
         except Exception as e:
             log.error("[HISTORY] Failed to search transcriptions: %s", e)
+            if raise_on_error:
+                raise HistoryDBError(str(e)) from e
             return []
 
-    def delete(self, transcription_id: int) -> bool:
-        """Delete a transcription by ID."""
+    def delete(self, transcription_id: int, *, raise_on_error: bool = False) -> bool:
+        """Delete a transcription by ID.
+
+        ERR-013: when ``raise_on_error=True``, failures raise
+        ``HistoryDBError`` instead of returning ``False``. Without this,
+        the IPC layer cannot tell "row didn't exist" from "DB error".
+        """
         try:
             conn = self._get_conn()
             cursor = conn.cursor()
@@ -299,10 +322,15 @@ class HistoryDB:
             return cursor.rowcount > 0
         except Exception as e:
             log.error("[HISTORY] Failed to delete transcription: %s", e)
+            if raise_on_error:
+                raise HistoryDBError(str(e)) from e
             return False
 
-    def clear_all(self) -> bool:
-        """Clear all transcriptions."""
+    def clear_all(self, *, raise_on_error: bool = False) -> bool:
+        """Clear all transcriptions.
+
+        ERR-013: see ``delete`` for ``raise_on_error`` semantics.
+        """
         try:
             conn = self._get_conn()
             cursor = conn.cursor()
@@ -312,10 +340,17 @@ class HistoryDB:
             return True
         except Exception as e:
             log.error("[HISTORY] Failed to clear transcriptions: %s", e)
+            if raise_on_error:
+                raise HistoryDBError(str(e)) from e
             return False
 
-    def toggle_favorite(self, transcription_id: int) -> bool:
-        """Toggle the favorite status of a transcription."""
+    def toggle_favorite(
+        self, transcription_id: int, *, raise_on_error: bool = False,
+    ) -> bool:
+        """Toggle the favorite status of a transcription.
+
+        ERR-013: see ``delete`` for ``raise_on_error`` semantics.
+        """
         try:
             conn = self._get_conn()
             cursor = conn.cursor()
@@ -327,10 +362,18 @@ class HistoryDB:
             return cursor.rowcount > 0
         except Exception as e:
             log.error("[HISTORY] Failed to toggle favorite: %s", e)
+            if raise_on_error:
+                raise HistoryDBError(str(e)) from e
             return False
 
-    def get_favorites(self, limit: int = 50, offset: int = 0) -> list[dict]:
-        """Get favorited transcriptions with offset-based pagination."""
+    def get_favorites(
+        self, limit: int = 50, offset: int = 0, *,
+        raise_on_error: bool = False,
+    ) -> list[dict]:
+        """Get favorited transcriptions with offset-based pagination.
+
+        ERR-013: see ``get_recent`` for ``raise_on_error`` semantics.
+        """
         try:
             conn = self._get_conn()
             cursor = conn.cursor()
@@ -344,6 +387,8 @@ class HistoryDB:
             return [dict(row) for row in rows]
         except Exception as e:
             log.error("[HISTORY] Failed to get favorites: %s", e)
+            if raise_on_error:
+                raise HistoryDBError(str(e)) from e
             return []
 
     def apply_retention(self, retention_days: int = 0, max_entries: int = 0, retention_count: int = 0) -> int:
@@ -392,10 +437,17 @@ class HistoryDB:
                 log.info("[HISTORY_DB] Retention policy deleted %d entries", deleted)
         except Exception as e:
             log.error("[HISTORY] Failed to apply retention: %s", e)
+            # ERR-013: apply_retention is called from a background
+            # retention sweep, not from an IPC handler, so it preserves
+            # the legacy "return 0 deleted" sentinel. The retention
+            # sweep logs the error and moves on.
         return deleted
 
-    def get_stats(self) -> dict:
-        """Get statistics about transcriptions."""
+    def get_stats(self, *, raise_on_error: bool = False) -> dict:
+        """Get statistics about transcriptions.
+
+        ERR-013: see ``get_recent`` for ``raise_on_error`` semantics.
+        """
         try:
             conn = self._get_conn()
             cursor = conn.cursor()
@@ -418,10 +470,15 @@ class HistoryDB:
             }
         except Exception as e:
             log.error("[HISTORY] Failed to get stats: %s", e)
+            if raise_on_error:
+                raise HistoryDBError(str(e)) from e
             return {}
 
-    def get_today_stats(self) -> dict:
-        """Get statistics for today's transcriptions."""
+    def get_today_stats(self, *, raise_on_error: bool = False) -> dict:
+        """Get statistics for today's transcriptions.
+
+        ERR-013: see ``get_recent`` for ``raise_on_error`` semantics.
+        """
         try:
             conn = self._get_conn()
             cursor = conn.cursor()
@@ -443,4 +500,6 @@ class HistoryDB:
             }
         except Exception as e:
             log.error("[HISTORY] Failed to get today stats: %s", e)
+            if raise_on_error:
+                raise HistoryDBError(str(e)) from e
             return {"count": 0, "chars": 0, "word_count": 0, "duration": 0}

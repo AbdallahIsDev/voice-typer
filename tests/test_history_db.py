@@ -146,3 +146,111 @@ class TestHistoryDBWALMode:
         cursor.execute("PRAGMA journal_mode")
         mode = cursor.fetchone()[0]
         assert mode.lower() == "wal"
+
+
+class TestErr013RaiseOnError:
+    """ERR-013: history_db methods must raise HistoryDBError when
+    ``raise_on_error=True`` so the IPC layer can distinguish "empty
+    result" from "operation failed".
+
+    Without this, a DB error returns the same sentinel as a successful
+    query that found nothing (e.g. ``[]``), and the renderer cannot
+    tell the user what went wrong.
+    """
+
+    def test_get_recent_raises_on_error(self, db, monkeypatch):
+        """Force _get_conn to raise; assert HistoryDBError propagates."""
+        def _boom():
+            raise RuntimeError("disk I/O error")
+        monkeypatch.setattr(db, "_get_conn", _boom)
+        from voice_typer.server.history_db import HistoryDBError
+        with pytest.raises(HistoryDBError):
+            db.get_recent(raise_on_error=True)
+
+    def test_get_recent_returns_sentinel_without_flag(self, db, monkeypatch):
+        """Without raise_on_error, the legacy [] sentinel is preserved."""
+        def _boom():
+            raise RuntimeError("disk I/O error")
+        monkeypatch.setattr(db, "_get_conn", _boom)
+        assert db.get_recent() == []
+
+    def test_delete_raises_on_error(self, db, monkeypatch):
+        def _boom():
+            raise RuntimeError("locked")
+        monkeypatch.setattr(db, "_get_conn", _boom)
+        from voice_typer.server.history_db import HistoryDBError
+        with pytest.raises(HistoryDBError):
+            db.delete(1, raise_on_error=True)
+
+    def test_delete_returns_false_without_flag(self, db, monkeypatch):
+        def _boom():
+            raise RuntimeError("locked")
+        monkeypatch.setattr(db, "_get_conn", _boom)
+        assert db.delete(1) is False
+
+    def test_clear_all_raises_on_error(self, db, monkeypatch):
+        def _boom():
+            raise RuntimeError("read-only")
+        monkeypatch.setattr(db, "_get_conn", _boom)
+        from voice_typer.server.history_db import HistoryDBError
+        with pytest.raises(HistoryDBError):
+            db.clear_all(raise_on_error=True)
+
+    def test_toggle_favorite_raises_on_error(self, db, monkeypatch):
+        def _boom():
+            raise RuntimeError("locked")
+        monkeypatch.setattr(db, "_get_conn", _boom)
+        from voice_typer.server.history_db import HistoryDBError
+        with pytest.raises(HistoryDBError):
+            db.toggle_favorite(1, raise_on_error=True)
+
+    def test_search_raises_on_error(self, db, monkeypatch):
+        def _boom():
+            raise RuntimeError("locked")
+        monkeypatch.setattr(db, "_get_conn", _boom)
+        from voice_typer.server.history_db import HistoryDBError
+        with pytest.raises(HistoryDBError):
+            db.search("foo", raise_on_error=True)
+
+    def test_get_favorites_raises_on_error(self, db, monkeypatch):
+        def _boom():
+            raise RuntimeError("locked")
+        monkeypatch.setattr(db, "_get_conn", _boom)
+        from voice_typer.server.history_db import HistoryDBError
+        with pytest.raises(HistoryDBError):
+            db.get_favorites(raise_on_error=True)
+
+    def test_get_today_stats_raises_on_error(self, db, monkeypatch):
+        def _boom():
+            raise RuntimeError("locked")
+        monkeypatch.setattr(db, "_get_conn", _boom)
+        from voice_typer.server.history_db import HistoryDBError
+        with pytest.raises(HistoryDBError):
+            db.get_today_stats(raise_on_error=True)
+
+    def test_get_stats_raises_on_error(self, db, monkeypatch):
+        def _boom():
+            raise RuntimeError("locked")
+        monkeypatch.setattr(db, "_get_conn", _boom)
+        from voice_typer.server.history_db import HistoryDBError
+        with pytest.raises(HistoryDBError):
+            db.get_stats(raise_on_error=True)
+
+
+class TestSearchEmptyQuery:
+    """TEST-031: search_history with query="" exercises a different
+    code branch (no % wrap needed) but was untested. Verify it returns
+    all rows instead of crashing or returning nothing.
+    """
+
+    def test_empty_query_returns_all_rows(self, db):
+        db.add_transcription("alpha")
+        db.add_transcription("beta")
+        db.add_transcription("gamma")
+        results = db.search("", limit=50)
+        # Empty query → pattern "%%" matches everything.
+        assert len(results) == 3
+
+    def test_empty_query_with_zero_results_when_db_empty(self, db):
+        results = db.search("", limit=50)
+        assert results == []

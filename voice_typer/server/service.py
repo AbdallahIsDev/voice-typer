@@ -89,32 +89,55 @@ class VoiceTyperService:
     # ── History ─────────────────────────────────────────────────
 
     def get_history(self, limit: int = 50, offset: int = 0) -> list[dict]:
-        """Return recent transcriptions."""
-        return self._app.history_db.get_recent(limit, offset)
+        """Return recent transcriptions.
+
+        ERR-013: raise_on_error=True so the IPC layer can distinguish
+        "empty result" from "operation failed" and surface an error
+        to the renderer.
+        """
+        return self._app.history_db.get_recent(limit, offset, raise_on_error=True)
 
     def search_history(self, query: str, limit: int = 50, offset: int = 0) -> list[dict]:
-        """Search transcriptions by text."""
-        return self._app.history_db.search(query, limit, offset)
+        """Search transcriptions by text.
+
+        ERR-013: raise_on_error=True — see ``get_history``.
+        """
+        return self._app.history_db.search(query, limit, offset, raise_on_error=True)
 
     def get_today_stats(self) -> dict:
-        """Return today's transcription statistics."""
-        return self._app.history_db.get_today_stats()
+        """Return today's transcription statistics.
+
+        ERR-013: raise_on_error=True — see ``get_history``.
+        """
+        return self._app.history_db.get_today_stats(raise_on_error=True)
 
     def delete_history(self, rec_id: int) -> bool:
-        """Delete a history record by ID."""
-        return self._app.history_db.delete(rec_id)
+        """Delete a history record by ID.
+
+        ERR-013: raise_on_error=True — see ``get_history``.
+        """
+        return self._app.history_db.delete(rec_id, raise_on_error=True)
 
     def clear_history(self) -> bool:
-        """Clear all history records."""
-        return self._app.history_db.clear_all()
+        """Clear all history records.
+
+        ERR-013: raise_on_error=True — see ``get_history``.
+        """
+        return self._app.history_db.clear_all(raise_on_error=True)
 
     def toggle_favorite(self, rec_id: int) -> bool:
-        """Toggle favorite status of a history record."""
-        return self._app.history_db.toggle_favorite(rec_id)
+        """Toggle favorite status of a history record.
+
+        ERR-013: raise_on_error=True — see ``get_history``.
+        """
+        return self._app.history_db.toggle_favorite(rec_id, raise_on_error=True)
 
     def get_favorites(self, limit: int = 50, offset: int = 0) -> list[dict]:
-        """Return favorited transcriptions."""
-        return self._app.history_db.get_favorites(limit, offset)
+        """Return favorited transcriptions.
+
+        ERR-013: raise_on_error=True — see ``get_history``.
+        """
+        return self._app.history_db.get_favorites(limit, offset, raise_on_error=True)
 
     # ── Microphones ─────────────────────────────────────────────
 
