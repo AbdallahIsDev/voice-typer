@@ -1,9 +1,9 @@
 """Core helpers for hidden streaming transcription."""
 
-from dataclasses import dataclass, field
 import logging
 import math
 import threading
+from dataclasses import dataclass, field
 from typing import Iterable
 
 import numpy as np
@@ -97,9 +97,7 @@ class AudioWindowPlanner:
             requested_start_seconds=requested_start_seconds,
             requested_end_seconds=requested_end_seconds,
         )
-        # pyrefly: ignore [unnecessary-type-conversion]
         start_sample = int(round(requested_start_seconds * sample_rate))
-        # pyrefly: ignore [unnecessary-type-conversion]
         end_sample = int(round(end_seconds * sample_rate))
         window = AudioWindow(
             audio=audio[start_sample:end_sample].copy(),
@@ -120,9 +118,7 @@ class AudioWindowPlanner:
         if search_seconds <= 0:
             return requested_end_seconds
 
-        # pyrefly: ignore [unnecessary-type-conversion]
         search_start = int(round((requested_end_seconds - search_seconds) * sample_rate))
-        # pyrefly: ignore [unnecessary-type-conversion]
         search_end = int(round(requested_end_seconds * sample_rate))
         search = audio[search_start:search_end]
         if len(search) == 0:
@@ -462,7 +458,6 @@ class StreamingTranscriptionSession:
             )
             start_sample = min(
                 len(full_audio),
-                # pyrefly: ignore [unnecessary-type-conversion]
                 int(round(tail_start_seconds * self.sample_rate)),
             )
             tail_audio = full_audio[start_sample:]

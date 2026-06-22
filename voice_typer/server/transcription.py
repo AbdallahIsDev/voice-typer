@@ -5,8 +5,7 @@ import os
 import site
 import sys
 import threading
-import re
-from typing import Optional, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 import numpy as np
 
@@ -64,7 +63,7 @@ def _free_nvidia_dll_path_handles() -> None:
     _nvidia_dll_path_handles = []
 _nvidia_dll_paths_configured = False
 
-from voice_typer.server.hallucination import should_reject_low_audio_hallucination, normalize_hallucination_key
+from voice_typer.server.hallucination import should_reject_low_audio_hallucination
 
 
 def _configure_nvidia_dll_paths():

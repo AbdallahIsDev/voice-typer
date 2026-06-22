@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from typing import Callable, Optional
 
-
 ALLOWED_MODELS = ("tiny.en", "small.en", "medium.en", "qwen", "parakeet")
 
 _FUNCTION_KEY_RE = re.compile(r"^F([1-9]|1[0-2])$")
@@ -106,21 +105,15 @@ class SettingsController:
             "hotkey": self.config.hotkey != hotkey,
             "model_size": self.config.model_size != model_size,
             "microphone": self.config.microphone != microphone,
-            # pyrefly: ignore [unnecessary-type-conversion]
-            "autostart": self.config.autostart != bool(autostart),
-            "show_notifications": (
-                # pyrefly: ignore [unnecessary-type-conversion]
-                self.config.show_notifications != bool(show_notifications)
-            ),
+            "autostart": self.config.autostart != autostart,
+            "show_notifications": self.config.show_notifications != show_notifications,
         }
 
         self.config.hotkey = hotkey
         self.config.model_size = model_size
         self.config.microphone = microphone
-        # pyrefly: ignore [unnecessary-type-conversion]
-        self.config.autostart = bool(autostart)
-        # pyrefly: ignore [unnecessary-type-conversion]
-        self.config.show_notifications = bool(show_notifications)
+        self.config.autostart = autostart
+        self.config.show_notifications = show_notifications
         self.config.save()
 
         if changes["hotkey"] and self.on_hotkey_changed:
@@ -130,11 +123,9 @@ class SettingsController:
         if changes["microphone"] and self.on_microphone_changed:
             self.on_microphone_changed(microphone)
         if changes["autostart"] and self.on_autostart_changed:
-            # pyrefly: ignore [unnecessary-type-conversion]
-            self.on_autostart_changed(bool(autostart))
+            self.on_autostart_changed(autostart)
         if changes["show_notifications"] and self.on_notifications_changed:
-            # pyrefly: ignore [unnecessary-type-conversion]
-            self.on_notifications_changed(bool(show_notifications))
+            self.on_notifications_changed(show_notifications)
 
 
 class SettingsWindow:
