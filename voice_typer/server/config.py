@@ -4,7 +4,7 @@ import json
 import logging
 import os
 import sys
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable, Optional, Tuple
 from urllib.parse import urlparse
@@ -327,7 +327,8 @@ class Config:
                     p = Path(qwen_path)
                     if not p.exists() or not p.is_dir():
                         log.warning(
-                            "[CONFIG] Config qwen_model_path=%s does not exist or is not a directory, resetting to None",
+                            "[CONFIG] Config qwen_model_path=%s does not exist or is not a "
+                            "directory, resetting to None",
                             qwen_path,
                         )
                         data["qwen_model_path"] = None

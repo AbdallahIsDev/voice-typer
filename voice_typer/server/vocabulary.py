@@ -191,7 +191,9 @@ class VocabularyManager:
 
     def get_category(self, category: str) -> object:
         """Get all entries for a category."""
-        return self._data.get(category, {} if category in ("misspellings", "technical_terms", "names", "products") else [])
+        if category in ("misspellings", "technical_terms", "names", "products"):
+            return self._data.get(category, {})
+        return self._data.get(category, [])
 
     def get_all(self) -> dict:
         """Return a copy of all merged data."""
@@ -300,7 +302,11 @@ class VocabularyManager:
             if not isinstance(entries, list):
                 continue
             # Sort by length of bad phrase (longest first) to avoid partial matches
-            sorted_entries = sorted(entries, key=lambda e: len(e[0]) if isinstance(e, (list, tuple)) and len(e) >= 2 else 0, reverse=True)
+            sorted_entries = sorted(
+                entries,
+                key=lambda e: len(e[0]) if isinstance(e, (list, tuple)) and len(e) >= 2 else 0,
+                reverse=True,
+            )
             for entry in sorted_entries:
                 if not isinstance(entry, (list, tuple)) or len(entry) < 2:
                     continue

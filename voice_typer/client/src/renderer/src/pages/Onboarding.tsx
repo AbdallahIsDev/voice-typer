@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react'
 import { usePython } from '@/hooks/usePython'
 import { useSnackbar } from '@/hooks/useSnackbar'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
@@ -44,15 +43,6 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
   const [selectedHotkey, setSelectedHotkey] = useState('<f2>')
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([])
   const [selectedModel, setSelectedModel] = useState('small.en')
-
-  const loadStep = useCallback(async () => {
-    try {
-      const info = await call<StepInfo>('onboarding_get_step')
-      setStep(info)
-    } catch {
-      // not started yet
-    }
-  }, [call])
 
   useEffect(() => {
     async function init() {

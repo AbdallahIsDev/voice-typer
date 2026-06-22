@@ -170,7 +170,10 @@ def _autostart_command() -> str:
 
 def get_autostart_dir() -> Path:
     if SYSTEM == "win32":
-        return Path(os.environ.get("APPDATA", Path.home())) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+        return (
+            Path(os.environ.get("APPDATA", Path.home()))
+            / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+        )
     elif SYSTEM == "darwin":
         return Path.home() / "Library" / "LaunchAgents"
     else:
@@ -334,7 +337,8 @@ def _register_app_autostart_task() -> bool:
         if not task_scheduler.is_supported():
             return False
         xml_def = _build_app_autostart_task_xml()
-        import tempfile, os
+        import os
+        import tempfile
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".xml", delete=False, encoding="utf-8"
         ) as tf:

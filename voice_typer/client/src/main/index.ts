@@ -97,7 +97,7 @@ function isForegroundFullscreen(): boolean {
     // Electron doesn't expose a direct "is foreground fullscreen" API,
     // but we can check every screen's workspace for a fullscreen window.
     const displays = screen.getAllDisplays();
-    for (const display of displays) {
+    for (const _display of displays) {
       // On macOS, BrowserWindow.getAllWindows() lets us inspect each
       // window's fullscreen state. On Windows / Linux this is a no-op
       // (we just return false and let setVisibleOnAllWorkspaces run).
@@ -228,10 +228,10 @@ function handleMessage(msg: Record<string, unknown>) {
     // window (not the main app) so the floating overlay updates without
     // re-rendering the sidebar.
     if (msg.type === "bubble_show") {
-      console.log(`${ts()}  ${BUBBLE_CLR}[BUBBLE] received bubble_show from Python${RESET}`);
+      console.warn(`${ts()}  ${BUBBLE_CLR}[BUBBLE] received bubble_show from Python${RESET}`);
       showBubbleWindow();
     } else if (msg.type === "bubble_hide") {
-      console.log(`${ts()}  ${BUBBLE_CLR}[BUBBLE] received bubble_hide from Python${RESET}`);
+      console.warn(`${ts()}  ${BUBBLE_CLR}[BUBBLE] received bubble_hide from Python${RESET}`);
       hideBubbleWindow();
     } else if (msg.type === "bubble_level") {
       bubbleWindow?.webContents.send("bubble:level", msg.data);
@@ -446,14 +446,14 @@ function centerOnPrimaryDisplay(): { x: number; y: number } {
     };
   }
 
-let bubblePageReady = false;
+let _bubblePageReady = false;
 
 function createBubbleWindow(): BrowserWindow {
   if (bubbleWindow && !bubbleWindow.isDestroyed()) {
     return bubbleWindow;
   }
   const { x, y } = centerOnPrimaryDisplay();
-  console.log(`${ts()}  ${BUBBLE_CLR}[BUBBLE] creating window at (${x}, ${y}) ${BUBBLE_WIDTH}x${BUBBLE_HEIGHT}${RESET}`);
+  console.warn(`${ts()}  ${BUBBLE_CLR}[BUBBLE] creating window at (${x}, ${y}) ${BUBBLE_WIDTH}x${BUBBLE_HEIGHT}${RESET}`);
 
   const win = new BrowserWindow({
     width: BUBBLE_WIDTH,
@@ -515,7 +515,7 @@ function createBubbleWindow(): BrowserWindow {
     console.error(`${ts()}  ${BUBBLE_CLR}[BUBBLE] did-fail-load code=${code} desc=${desc} url=${url}${RESET}`);
   });
   win.webContents.on("did-finish-load", () => {
-    console.log(`${ts()}  ${BUBBLE_CLR}[BUBBLE] did-finish-load${RESET}`);
+    console.warn(`${ts()}  ${BUBBLE_CLR}[BUBBLE] did-finish-load${RESET}`);
   });
   win.webContents.on("render-process-gone", (_e, details) => {
     console.error(`${ts()}  ${BUBBLE_CLR}[BUBBLE] render-process-gone:${RESET}`, details);
@@ -524,7 +524,7 @@ function createBubbleWindow(): BrowserWindow {
     // crashed bubble renderer leaves a stuck overlay on the screen.
     try {
       if (!win.isDestroyed()) {
-        console.log(`${ts()}  ${BUBBLE_CLR}[BUBBLE] reloading after render-process-gone${RESET}`);
+        console.warn(`${ts()}  ${BUBBLE_CLR}[BUBBLE] reloading after render-process-gone${RESET}`);
         win.reload();
       }
     } catch (e) {
@@ -538,14 +538,14 @@ function createBubbleWindow(): BrowserWindow {
     if (message.includes("Content-Security-Policy")) return; // suppress dev warning
     if (level >= 2) {
       const tag = ["VRB", "INF", "WRN", "ERR"][level] ?? "LOG";
-      console.log(`${ts()}  ${BUBBLE_CLR}[BUBBLE renderer ${tag}] ${message} (${source}:${line})${RESET}`);
+      console.warn(`${ts()}  ${BUBBLE_CLR}[BUBBLE renderer ${tag}] ${message} (${source}:${line})${RESET}`);
     }
   });
 
   const loadTarget = process.env.ELECTRON_RENDERER_URL
     ? process.env.ELECTRON_RENDERER_URL + "/bubble.html"
     : path.join(__dirname, "../renderer/bubble.html");
-  console.log(`${ts()}  ${BUBBLE_CLR}[BUBBLE] loading ${loadTarget}${RESET}`);
+  console.warn(`${ts()}  ${BUBBLE_CLR}[BUBBLE] loading ${loadTarget}${RESET}`);
   if (process.env.ELECTRON_RENDERER_URL) {
     void win.loadURL(loadTarget);
   } else {
@@ -554,9 +554,9 @@ function createBubbleWindow(): BrowserWindow {
 
   bubbleWindow = win;
   win.on("closed", () => {
-    console.log(`${ts()}  ${BUBBLE_CLR}[BUBBLE] closed${RESET}`);
+    console.warn(`${ts()}  ${BUBBLE_CLR}[BUBBLE] closed${RESET}`);
     if (bubbleWindow === win) bubbleWindow = null;
-    bubblePageReady = false;
+    _bubblePageReady = false;
   });
   return win;
 }
@@ -640,7 +640,7 @@ function hideBubbleWindow(): void {
     try {
       if (!win.isDestroyed() && win.isVisible()) {
         win.hide();
-        console.log(`${ts()}  ${BUBBLE_CLR}[BUBBLE] hidden (fallback)${RESET}`);
+        console.warn(`${ts()}  ${BUBBLE_CLR}[BUBBLE] hidden (fallback)${RESET}`);
       }
     } catch {}
   }, 300);
@@ -654,7 +654,7 @@ function hideBubbleWindow(): void {
     try {
       if (!win.isDestroyed()) {
         win.hide();
-        console.log(`${ts()}  ${BUBBLE_CLR}[BUBBLE] hidden (animated)${RESET}`);
+        console.warn(`${ts()}  ${BUBBLE_CLR}[BUBBLE] hidden (animated)${RESET}`);
       }
     } catch {}
   };
@@ -737,8 +737,8 @@ ipcMain.on("set_bubble_position", (_event, position: 'top' | 'bottom') => {
 ipcMain.on("bubble:ready", (event) => {
   // SEC-016: only the bubble window signals readiness.
   if (!assertFromBubble(event)) return;
-  console.log(`${ts()}  ${BUBBLE_CLR}[BUBBLE] renderer reports ready${RESET}`);
-  bubblePageReady = true;
+  console.warn(`${ts()}  ${BUBBLE_CLR}[BUBBLE] renderer reports ready${RESET}`);
+  _bubblePageReady = true;
 });
 
 function tcpConnect(port: number) {
@@ -776,7 +776,7 @@ function tcpConnect(port: number) {
         try {
           const msg = JSON.parse(line);
           handleMessage(msg);
-        } catch (e) {
+        } catch {
           console.error("Invalid JSON from Python:", line);
         }
       }
@@ -842,13 +842,13 @@ function startPython() {
 
   // Record the spawned Python PID so the stale-killer doesn't kill it.
   (globalThis as { __myPyPid?: number }).__myPyPid = pythonProcess.pid;
-  console.log(`spawned Python backend (PID=${pythonProcess.pid})`);
+  console.warn(`spawned Python backend (PID=${pythonProcess.pid})`);
 
   // Connect via TCP (will retry until Python's TCP server is ready).
   tcpConnect(IPC_PORT);
 
   pythonProcess.on("exit", (code) => {
-    console.log("Python process exited:", code);
+    console.warn("Python process exited:", code);
     if (!pythonReady) {
       pythonExitedEarly = true;
       pythonProcess = null;
@@ -989,7 +989,7 @@ app.whenReady().then(() => {
   // for details.
 
   if (process.env.VT_BUBBLE_TEST === "1") {
-    console.log(`${ts()}  ${BUBBLE_CLR}[BUBBLE] VT_BUBBLE_TEST=1 -- showing bubble for diagnostics${RESET}`);
+    console.warn(`${ts()}  ${BUBBLE_CLR}[BUBBLE] VT_BUBBLE_TEST=1 -- showing bubble for diagnostics${RESET}`);
     setTimeout(() => {
       showBubbleWindow();
       const id = setInterval(() => {
@@ -1144,7 +1144,7 @@ ipcMain.handle("window:open-logs", async () => {
     // Mirror voice_typer/server/config.py:_config_dir()
     const logDir = path.join(os.homedir(), ".voice-typer");
     // Create the directory if it doesn't exist yet (first run).
-    try { fs.mkdirSync(logDir, { recursive: true }); } catch (_) { /* ignore */ }
+    try { fs.mkdirSync(logDir, { recursive: true }); } catch { /* ignore */ }
     const result = await shell.openPath(logDir);
     if (result) {
       // openPath returns an error string on failure, empty string on success.

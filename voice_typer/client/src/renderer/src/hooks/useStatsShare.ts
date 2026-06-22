@@ -2,7 +2,6 @@ import { useCallback, useRef } from 'react'
 import { toPng } from 'html-to-image'
 import type { ShareStats } from '@/types/stats'
 import type { TodayStats } from '@/types/ipc'
-import type { VoiceTyperConfig } from '@/types/config'
 
 const AVG_TYPING_WPM = 40
 

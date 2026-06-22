@@ -60,9 +60,10 @@ class WinVolumeBackend(VolumeBackend):
         if self._vol is not None:
             return True
         try:
-            from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
-            from comtypes import CLSCTX_ALL
             from ctypes import POINTER, cast
+
+            from comtypes import CLSCTX_ALL
+            from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 
             devices = AudioUtilities.GetSpeakers()
             if devices is None:
@@ -224,10 +225,10 @@ class MacVolumeBackend(VolumeBackend):
         try:
             from CoreAudio import (  # type: ignore[import-not-found]
                 AudioObjectGetPropertyData,
-                kAudioHardwareServiceSystemObject,
                 kAudioHardwareServiceDeviceProperty_VirtualMasterVolume,
-                kAudioObjectPropertyScopeOutput,
+                kAudioHardwareServiceSystemObject,
                 kAudioObjectPropertyElementMaster,
+                kAudioObjectPropertyScopeOutput,
             )
             self._use_coreaudio = True
             self._ca_get = AudioObjectGetPropertyData
@@ -280,13 +281,13 @@ class MacVolumeBackend(VolumeBackend):
                 # Query kAudioDevicePropertyDeviceIsRunning (UInt32).
                 # This is a per-device property; if any IOProc is
                 # running on the device, it returns 1.
-                from CoreAudio import (  # type: ignore[import-not-found]
-                    AudioObjectGetPropertyData,
-                    kAudioDevicePropertyDeviceIsRunning,
-                    kAudioObjectPropertyScopeGlobal,
-                    kAudioObjectPropertyElementMaster,
-                )
                 import ctypes
+
+                from CoreAudio import (  # type: ignore[import-not-found]
+                    kAudioDevicePropertyDeviceIsRunning,
+                    kAudioObjectPropertyElementMaster,
+                    kAudioObjectPropertyScopeGlobal,
+                )
                 # AudioObjectPropertyAddress: (mSelector, mScope, mElement)
                 # We use ctypes to allocate the struct and read the UInt32.
                 # Address = (selector, scope, element) — all 4 bytes each.
@@ -313,7 +314,8 @@ class MacVolumeBackend(VolumeBackend):
         # CoreAudio pyobjc path.  Returns True (duck anyway) on any
         # error so we never silently skip ducking when we should.
         try:
-            # `osascript -e 'tell application "System Events" to get name of every process whose background only is false'`
+            # `osascript -e 'tell application "System Events" to get name of '
+            # `'every process whose background only is false'`
             # returns a comma-separated list of foreground app names.
             # We check for known audio-producing apps.  This isn't
             # perfect (a browser tab with paused YouTube still counts),
@@ -349,8 +351,6 @@ class MacVolumeBackend(VolumeBackend):
 
     def _coreaudio_get_state(self) -> Optional[VolumeState]:
         try:
-            import ctypes
-            from CoreAudio import AudioObjectGetPropertyData  # type: ignore[import-not-found]
 
             # Get default output device
             dev = self._get_default_output_device()
@@ -382,13 +382,6 @@ class MacVolumeBackend(VolumeBackend):
     def _get_default_output_device(self) -> Optional[int]:
         """Return the default audio output device ID."""
         try:
-            from CoreAudio import (  # type: ignore[import-not-found]
-                AudioObjectGetPropertyData,
-                kAudioHardwarePropertyDefaultOutputDevice,
-                kAudioObjectPropertyScopeGlobal,
-                kAudioObjectPropertyElementMaster,
-            )
-            import ctypes
 
             # Property address for default output device
             # AudioObjectPropertyAddress is a struct; use ctypes to get the int.
@@ -562,7 +555,6 @@ class LinuxVolumeBackend(VolumeBackend):
     def _alsa_is_playing(self) -> bool:
         """Check /proc/asound for any actively-rendering PCM substream."""
         try:
-            import os
             asound = Path("/proc/asound")
             if not asound.exists():
                 return True  # not Linux? — duck to be safe

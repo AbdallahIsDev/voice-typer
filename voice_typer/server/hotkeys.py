@@ -72,7 +72,7 @@ class PynputHotkey(HotkeyBackend):
         self._fallback = False
 
     def start(self, callback: Callable[[], None]) -> None:
-        from pynput.keyboard import GlobalHotKeys, Listener, Key, KeyCode
+        from pynput.keyboard import GlobalHotKeys, Key, KeyCode, Listener
 
         log.info(
             "Registering hotkey via pynput: %r -> callback", self.hotkey_str
@@ -218,7 +218,10 @@ def _parse_hotkey_to_pynput(hotkey_str, Key, KeyCode):
     # Composite hotkey: return tuple of (modifiers_tuple, target_key)
     modifier_keys = []
     target = None
-    modifier_names = {"ctrl": Key.ctrl, "alt": Key.alt, "shift": Key.shift, "cmd": Key.cmd, "win": Key.cmd, "super": Key.cmd}
+    modifier_names = {
+        "ctrl": Key.ctrl, "alt": Key.alt, "shift": Key.shift,
+        "cmd": Key.cmd, "win": Key.cmd, "super": Key.cmd,
+    }
 
     for part in parts:
         clean = part.lower()
@@ -433,7 +436,13 @@ class WindowsNativeHotkey(HotkeyBackend):
         # ── Set proper argtypes BEFORE any Win32 call ──
         # Without these, ctypes defaults to c_int which truncates 64-bit pointers.
         from ctypes.wintypes import (
-            BOOL, DWORD, HWND, INT, LPARAM, UINT, WPARAM,
+            BOOL,
+            DWORD,
+            HWND,
+            INT,
+            LPARAM,
+            UINT,
+            WPARAM,
         )
 
         # BOOL RegisterHotKey(HWND, int, UINT, UINT)
@@ -537,7 +546,6 @@ class WindowsNativeHotkey(HotkeyBackend):
         for a push-to-talk hotkey (max 100ms latency) while halving
         the wakeups.
         """
-        import ctypes
         vk = self._vk
         was_pressed = False
         log.info("[HOTKEY] Polling loop started for VK=0x%X modifiers=0x%X", vk, self._modifiers)
@@ -709,10 +717,15 @@ class WaylandHotkey(HotkeyBackend):
         if os.path.exists(self.SOCKET_PATH):
             os.unlink(self.SOCKET_PATH)
 
-        self._server_socket = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+        self._server_socket = _socket.socket(
+            _socket.AF_UNIX, _socket.SOCK_STREAM
+        )
         self._server_socket.bind(self.SOCKET_PATH)
         # Make socket accessible to all users on the system
-        os.chmod(self.SOCKET_PATH, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP | stat.S_IROTH | stat.S_IWOTH)
+        os.chmod(
+            self.SOCKET_PATH,
+            stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP | stat.S_IROTH | stat.S_IWOTH,
+        )
         self._server_socket.listen(5)
         self._server_socket.settimeout(1.0)
 

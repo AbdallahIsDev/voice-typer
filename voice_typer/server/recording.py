@@ -5,7 +5,7 @@ import logging
 import math
 import threading
 import time
-from typing import Optional, List, Any, Callable
+from typing import Any, Callable, Optional
 
 import numpy as np
 import sounddevice as sd

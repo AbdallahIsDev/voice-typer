@@ -80,7 +80,6 @@ function dayAbbr(dateStr: string): string {
 /** Get a human-friendly label like "Today", "Yesterday", or the date. */
 function dayLabel(dateStr: string): string {
   try {
-    const d = new Date(dateStr)
     const today = new Date()
     const yesterday = new Date(today)
     yesterday.setDate(yesterday.getDate() - 1)
@@ -160,10 +159,10 @@ interface DashboardPageProps {
   onNavigate?: (page: Page) => void
 }
 
-export default function DashboardPage({ onNavigate }: DashboardPageProps) {
+export default function DashboardPage({ onNavigate: _onNavigate }: DashboardPageProps) {
   const { call } = usePython()
   const [data, setData] = useState<DashboardData | null>(_cachedData)
-  const [loading, setLoading] = useState(true)
+  const [, setLoading] = useState(true)
   const [configRaw, setConfigRaw] = useState<VoiceTyperConfig | null>(null)
   const { imageRef, shareAsImage } = useStatsShare()
 

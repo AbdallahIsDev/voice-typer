@@ -171,7 +171,7 @@ export default function Home({ recordingState, lastError, onNavigate }: HomeProp
 
   const shareStats = useCallback(() => {
     if (!stats || !cfg) return
-    const share = computeShareStats(stats, cfg.asr_backend)
+    const _share = computeShareStats(stats, cfg.asr_backend)
     shareAsImage('voice-typer-stats')
   }, [stats, cfg, shareAsImage])
 
