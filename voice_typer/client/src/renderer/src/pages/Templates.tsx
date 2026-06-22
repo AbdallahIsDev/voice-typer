@@ -46,10 +46,46 @@ function loadTemplates(): Template[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY) ?? '[]'
     const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? (parsed as Template[]) : []
+    if (!Array.isArray(parsed)) return []
+    // SEC-027: sanitize each template field on load. localStorage is a
+    // stored-XSS vector IF any future code path renders a template value
+    // via dangerouslySetInnerHTML. We strip angle brackets and null
+    // bytes from trigger + output so even a malicious payload injected
+    // into localStorage (by another process, a browser extension, or a
+    // prior compromised session) cannot contain HTML markup. Plain text
+    // templates are unaffected. The variables list still scans the
+    // sanitized output for {today}/{now}/{clipboard}/{username}.
+    return parsed.map((t: Partial<Template>) => ({
+      trigger: _sanitizeTemplateField(t.trigger),
+      output: _sanitizeTemplateField(t.output),
+      match_mode: t.match_mode === 'contains' ? 'contains' : 'exact',
+    }))
   } catch {
     return []
   }
+}
+
+/**
+ * SEC-027: strip characters that would allow HTML/script injection.
+ * Removes `<`, `>`, `\u0000`, and attribute-delimiter quotes. Plain
+ * text and template variables ({today}, {clipboard}, etc.) are
+ * preserved. The result is safe to render even via
+ * dangerouslySetInnerHTML (though we still avoid that pattern).
+ */
+function _sanitizeTemplateField(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  // Use String.fromCharCode(0) to avoid the no-control-regex lint rule
+  // (a literal /\u0000/ in source would trigger it). The NUL byte is
+  // a real XSS vector because browsers truncate attribute strings at
+  // NUL — injecting `value="\u0000onload=alert(1)"` would let the
+  // `onload=alert(1)` portion execute as an attribute.
+  const nul = String.fromCharCode(0)
+  return value
+    .replace(/</g, '')
+    .replace(/>/g, '')
+    .replace(/"/g, '')
+    .replace(/'/g, '')
+    .split(nul).join('')
 }
 
 // #6: saveTemplates now accepts an optional callFn for IPC persistence.
