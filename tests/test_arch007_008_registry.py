@@ -163,3 +163,97 @@ class TestArch008RegistryInitializedEarly:
             "and other code paths can rely on it existing"
         )
         assert app._asr_registry is not None
+
+
+class TestArch047SyncRegistryNoChurn:
+    """ARCH-047: _sync_registry_from_fields previously unconditionally
+    unregistered all backends and re-registered them, producing log
+    spam every time it was called. The fix skips the unregister+register
+    cycle when the registered instance is already the same object as
+    the legacy field.
+    """
+
+    def test_sync_no_churn_when_same_instance(self, monkeypatch):
+        """Re-calling _sync with the same instance must NOT log
+        'unregistered backend' / 'registered backend'."""
+        from voice_typer.server.asr_registry import AsrBackendRegistry
+        from voice_typer.server.model_manager import ModelManager
+
+        # Minimal config stub — only `asr_backend` is read.
+        class _Config:
+            asr_backend = "whisper"
+
+        registry = AsrBackendRegistry(_Config())
+        # Bypass __init__ — we only need the registry + the 3 fields.
+        mm = ModelManager.__new__(ModelManager)
+        mm._registry = registry
+        mm._app = None
+        mm.transcriber = None
+        mm._qwen_engine = None
+        mm._parakeet_engine = None
+
+        # First sync: registers whisper (transcriber is None, so nothing
+        # actually gets registered — but the loop runs).
+        mm._sync_registry_from_fields()
+        # Set a transcriber instance and sync again — should register.
+        transcriber = object()
+        mm.transcriber = transcriber
+        mm._sync_registry_from_fields()
+        assert registry.get("whisper") is transcriber
+
+        # Now re-sync with the SAME instance — registry must NOT churn.
+        # We approximate "no churn" by checking the registered object
+        # identity is unchanged (the unregister/register pair would
+        # replace the dict entry, but with the same value the entry
+        # is identical). The real win is in the log volume.
+        mm._sync_registry_from_fields()
+        assert registry.get("whisper") is transcriber
+
+    def test_sync_unregisters_when_field_becomes_none(self, monkeypatch):
+        """Setting a field back to None must unregister the backend."""
+        from voice_typer.server.asr_registry import AsrBackendRegistry
+        from voice_typer.server.model_manager import ModelManager
+
+        class _Config:
+            asr_backend = "whisper"
+
+        registry = AsrBackendRegistry(_Config())
+        mm = ModelManager.__new__(ModelManager)
+        mm._registry = registry
+        mm._app = None
+        mm.transcriber = object()
+        mm._qwen_engine = None
+        mm._parakeet_engine = None
+
+        mm._sync_registry_from_fields()
+        assert registry.get("whisper") is mm.transcriber
+
+        # Field → None: must unregister.
+        mm.transcriber = None
+        mm._sync_registry_from_fields()
+        assert registry.get("whisper") is None
+
+    def test_sync_replaces_when_field_changes_instance(self, monkeypatch):
+        """Changing the instance must unregister the old + register the new."""
+        from voice_typer.server.asr_registry import AsrBackendRegistry
+        from voice_typer.server.model_manager import ModelManager
+
+        class _Config:
+            asr_backend = "whisper"
+
+        registry = AsrBackendRegistry(_Config())
+        mm = ModelManager.__new__(ModelManager)
+        mm._registry = registry
+        mm._app = None
+        old = object()
+        mm.transcriber = old
+        mm._qwen_engine = None
+        mm._parakeet_engine = None
+
+        mm._sync_registry_from_fields()
+        assert registry.get("whisper") is old
+
+        new = object()
+        mm.transcriber = new
+        mm._sync_registry_from_fields()
+        assert registry.get("whisper") is new

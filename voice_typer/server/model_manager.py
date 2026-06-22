@@ -102,16 +102,28 @@ class ModelManager:
         Used when a code path writes to a legacy field directly (back-compat
         with tests that do ``app.transcriber = MagicMock()``). After this
         call, the registry and the fields are consistent.
+
+        ARCH-047: previously this method unconditionally unregistered all
+        three backends and re-registered them, producing log spam
+        (``unregistered backend: whisper`` → ``registered backend: whisper``)
+        every time it was called. We now skip the unregister+register
+        cycle when the registered instance is already the same object
+        as the legacy field — the common case after the first sync.
         """
-        self._registry.unregister("whisper")
-        self._registry.unregister("qwen")
-        self._registry.unregister("parakeet")
-        if self.transcriber is not None:
-            self._registry.register("whisper", self.transcriber)
-        if self._qwen_engine is not None:
-            self._registry.register("qwen", self._qwen_engine)
-        if self._parakeet_engine is not None:
-            self._registry.register("parakeet", self._parakeet_engine)
+        for name, field_val in (
+            ("whisper", self.transcriber),
+            ("qwen", self._qwen_engine),
+            ("parakeet", self._parakeet_engine),
+        ):
+            current = self._registry.get(name)
+            if field_val is None:
+                if current is not None:
+                    self._registry.unregister(name)
+            elif current is not field_val:
+                # Only churn when the instance actually changed.
+                if current is not None:
+                    self._registry.unregister(name)
+                self._registry.register(name, field_val)
 
     def active_transcriber(self) -> Optional[Any]:
         """Return the active transcriber (Parakeet, Qwen, or Whisper).
