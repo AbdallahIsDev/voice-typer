@@ -339,10 +339,10 @@ export default function ModelsPage() {
                       className="gap-1"
                       onClick={() => downloadModel(model)}
                       disabled={isDownloading}
-                      aria-label={`Install dependencies for ${model.name}`}
+                      aria-label={`Download dependencies for ${model.name}`}
                     >
                       <HugeiconsIcon icon={Download01Icon} strokeWidth={1.625} className="h-4 w-4" />
-                      Install Deps
+                      Download Deps
                     </Button>
                   ) : (
                     <Button
