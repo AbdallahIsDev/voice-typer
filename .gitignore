@@ -35,7 +35,6 @@ Thumbs.db
 artifacts/
 audit/
 # docs/*
-FEATURES.md
 FORENSIC_REVIEW.md
 docs/Qwen_integation.md
 FORENSIC_REVIEW_2026-06-17.md

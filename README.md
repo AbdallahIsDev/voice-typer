@@ -1,6 +1,6 @@
 # Voice Typer
 
-Premium offline background voice-to-text utility for Windows. Runs in your system tray. Press the hotkey, talk, press it again — final text is copied to your clipboard and pasted safely when a text field is focused.
+Premium offline background voice-to-text utility. Runs in your system tray. Press the hotkey, talk, press it again — final text is copied to your clipboard and pasted safely when a text field is focused.
 
 ## How It Works
 
