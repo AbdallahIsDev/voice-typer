@@ -28,6 +28,13 @@ export default function HistoryPage() {
   const [hasMore, setHasMore] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [favoritesOnly, setFavoritesOnly] = useState(false)
+  // Refs so load() and the event handler always read current filter values
+  // without being recreated on every state change (which would break the
+  // mount-only useEffect and cause duplicate subscriptions).
+  const searchQueryRef = useRef(searchQuery)
+  const favoritesOnlyRef = useRef(favoritesOnly)
+  searchQueryRef.current = searchQuery
+  favoritesOnlyRef.current = favoritesOnly
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [showClearConfirm, setShowClearConfirm] = useState(false)
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -35,8 +42,8 @@ export default function HistoryPage() {
   const load = useCallback(async (query?: string, favs?: boolean) => {
     setLoading(true)
     try {
-      const isFav = favs ?? favoritesOnly
-      const q = query ?? searchQuery
+      const isFav = favs ?? favoritesOnlyRef.current
+      const q = query ?? searchQueryRef.current
 
       let recs: HistoryRecord[]
       if (q.trim()) {
@@ -62,13 +69,13 @@ export default function HistoryPage() {
     } finally {
       setLoading(false)
     }
-  }, [call, searchQuery, favoritesOnly])
+  }, [call])
 
   const loadMore = useCallback(async () => {
     setLoadingMore(true)
     try {
-      const isFav = favoritesOnly
-      const q = searchQuery
+      const isFav = favoritesOnlyRef.current
+      const q = searchQueryRef.current
       const offset = records.length
 
       let newRecs: HistoryRecord[]
@@ -88,7 +95,7 @@ export default function HistoryPage() {
     } finally {
       setLoadingMore(false)
     }
-  }, [call, searchQuery, favoritesOnly, records.length])
+  }, [call, records.length])
 
   // ── Proactive background refresh after new transcriptions ────────
   //
@@ -108,7 +115,7 @@ export default function HistoryPage() {
         _cachedRecords = newRecs
         setStats(newStats)
         // Only replace visible records when no search/filter is active
-        if (!searchQuery && !favoritesOnly) {
+        if (!searchQueryRef.current && !favoritesOnlyRef.current) {
           setHasMore(newRecs.length >= PAGE_SIZE)
           setRecords(newRecs)
         }
@@ -116,7 +123,7 @@ export default function HistoryPage() {
         // Silently ignore — the next manual load will pick up fresh data
       }
     }, 500)
-  }, [call, searchQuery, favoritesOnly]))
+  }, [call]))
 
   // Clean up pending refresh timer on unmount
   useEffect(() => {
@@ -125,7 +132,7 @@ export default function HistoryPage() {
     }
   }, [])
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [load])
 
   const handleSearch = useCallback((value: string) => {
     setSearchQuery(value)
