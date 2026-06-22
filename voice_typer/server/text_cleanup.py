@@ -4,7 +4,6 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Optional
 
 log = logging.getLogger(__name__)
 
@@ -424,10 +423,15 @@ def _correct_whisper_phrases(text: str) -> str:
 
 
 def _remove_extra_words(text: str) -> str:
-    """Remove common extra word insertions from Whisper."""
+    """Remove common extra word insertions from Whisper.
+
+    ARCH-031: previously ``re.compile(re.escape(bad), re.IGNORECASE)`` was
+    called inside the loop, recompiling the same pattern on every dictation.
+    We now reuse the same module-level cache as ``_correct_whisper_phrases``.
+    """
     lower = text.lower()
     for bad, good in _active_extra_words:
-        pattern = re.compile(re.escape(bad), re.IGNORECASE)
+        pattern = _get_compiled_phrase_pattern(bad)
         if pattern.search(lower):
             text = pattern.sub(good, text)
     return text
