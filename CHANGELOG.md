@@ -11,7 +11,7 @@ Changes that affect end users (new features, bug fixes, UX improvements).
 
 - **Dual ASR backends**: Whisper (faster-whisper, default) and optional Qwen3-ASR-0.6B
 - **Parakeet backend** (optional, NVIDIA Parakeet TDT v3) — auto-downloads from HuggingFace on first use
-- **Electron + React UI** with tray icon for background operation (no Flet)
+- **Electron + React UI** with tray icon for background operation
 - **Hidden streaming transcription** with overlapping audio windows and batch fallback
 - **Text cleanup pipeline**: duplicate removal, hallucination cleanup, misspelling correction, phrase substitution, sentence capitalization
 - **System tray icon** with minimal menu: Toggle Dictation, Open App, Models submenu, Restart, Quit

@@ -12,7 +12,7 @@ This test does NOT need a display or real GPU — it mocks the model but
 exercises the real code paths.
 
 BUILD-N06 / DOC-045: This script was written against the long-deleted
-``voice_typer.app`` (Flet) module. The current codebase lives under
+``voice_typer.app`` (Electron) module. The current codebase lives under
 ``voice_typer.server.app``. Running it as-is will fail at import time
 with ``ModuleNotFoundError: No module named 'voice_typer.app'``.
 
@@ -29,7 +29,7 @@ import sys
 if __name__ == "__main__":
     print(
         "[cublas_fallback.py] DEPRECATED: this script references the deleted "
-        "`voice_typer.app` (Flet) module. The cuBLAS fallback path is now "
+        "`voice_typer.app` (Electron) module. The cuBLAS fallback path is now "
         "covered by tests/test_transcription.py::TestFallbackChain. "
         "Run `pytest tests/test_transcription.py -k FallbackChain` instead.",
         file=sys.stderr,

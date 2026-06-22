@@ -243,8 +243,12 @@ class TestCrashRecoveryIntegration:
         # New session: nothing should be unpasted.
         cr2 = CrashRecovery(config_dir=recovery_dir)
         result = cr2.check_on_startup()
-        # check_on_startup returns None or an empty list when nothing
-        # is unpasted (depending on implementation).
-        assert result is None or (isinstance(result, list) and len(result) == 0), (
-            f"Expected no unpasted entries, got {result}"
+        # TEST-009 (fix): tighten the weak `result is None or []` assertion.
+        # check_on_startup() is documented to return None when there are no
+        # unpasted entries (crash_recovery.py:248-252). The `or []` branch
+        # was defensive against an implementation drift that never happened;
+        # asserting exactly `is None` catches any future regression where
+        # the function starts returning [] for "nothing" instead of None.
+        assert result is None, (
+            f"Expected None (no unpasted entries), got {result!r}"
         )

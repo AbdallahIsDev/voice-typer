@@ -1,7 +1,7 @@
 """Shared autouse fixture: mock heavy imports so all tests run headless.
 
 Modules mocked: sounddevice, faster_whisper, pynput, pystray, PIL,
-pyperclip, flet.
+pyperclip.
 
 TEST-003: the autouse mock is now conditional — tests that need real
 pynput (e.g. to test the actual keyboard listener) can use the

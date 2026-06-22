@@ -205,7 +205,3 @@ For an AI agent tasked with implementing the folder structure recommendations:
 - [ ] Logs final `PATH` entries containing `nvidia` for post-mortem debugging
 - [ ] Logs the complete list of new paths added (or confirms none were needed)
 
-### 8. Clean up stale artifacts
-- [ ] Remove any leftover `flet_state.json` (dead code from Flet era)
-- [ ] Remove `voice-typer.ico` from `~/.voice-typer/` root if it's still generated there
-- [ ] Remove `onboarding_complete` marker if unused
