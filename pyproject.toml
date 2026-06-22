@@ -9,7 +9,11 @@ build-backend = "setuptools.build_meta"
 # BUILD-N22: pin a default Python for uv users so `uv sync` reproduces
 # the same environment as the CI matrix.
 python-preference = "managed"
-supported-python-versions = ["3.10", "3.11", "3.12"]
+# BUILD-N25: include 3.13 and 3.14. requires-python is ">=3.10", and
+# NVIDIA CUDA pip wheels officially support Python 3.14. Excluding
+# 3.13/3.14 caused uv to reject users on those versions even though
+# the project supports them.
+supported-python-versions = ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
 [project]
 name = "voice-typer"
