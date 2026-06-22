@@ -244,11 +244,33 @@ export interface WindowBridge {
   onMaximizedChanged: (callback: (maximized: boolean) => void) => () => void
   exportHistory: (data: Record<string, unknown>[], format: 'json' | 'csv') => Promise<{ success: boolean; path?: string; error?: string }>
   exportVocabulary: (data: Record<string, unknown>, format: 'json' | 'csv') => Promise<{ success: boolean; path?: string; error?: string }>
+  openLogs?: () => Promise<{ success: boolean; error?: string }>
+}
+
+// ── Bubble bridge API (exposed by Electron preload for the bubble overlay) ─
+
+export interface WindowBubble {
+  // Commands (main process → bubble window) — optional because the
+  // bubble overlay may not be fully initialized when called from App.tsx
+  signalReady?: () => void
+  setPosition?: (pos: string) => void
+  setDraggable?: (v: boolean) => void
+  show?: () => void
+  hide?: () => void
+  setLevel?: (level: number) => void
+  // Event subscriptions (bubble window → main process) — always present
+  // when the bubble window is loaded (exposed by the preload script)
+  onLevel: (cb: (data: { rms: number; peak: number }) => void) => () => void
+  onShow: (cb: () => void) => () => void
+  onHide: (cb: () => void) => () => void
+  onDraggable: (cb: (draggable: boolean) => void) => () => void
+  hideComplete: () => void
 }
 
 declare global {
   interface Window {
     python?: PythonBridge
     window_?: WindowBridge
+    bubble?: WindowBubble
   }
 }

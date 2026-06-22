@@ -110,7 +110,7 @@ export default function App() {
     if (!isReady) return
     const loadTheme = async () => {
       try {
-        const cfg = await call<any>('get_config')
+        const cfg = await call<VoiceTyperConfig>('get_config')
         if (cfg?.theme_mode) setThemeMode(cfg.theme_mode)
       } catch {}
     }
@@ -142,7 +142,7 @@ export default function App() {
     const checkConnection = async () => {
       if (cancelled) return
       try {
-        const cfg = await call<any>('get_config')
+        const cfg = await call<VoiceTyperConfig>('get_config')
         if (!cancelled) {
           setConnectionStatus('connected')
           // Sync current state from backend (status_change events sent before
@@ -154,23 +154,23 @@ export default function App() {
           }).catch(() => {})
           // Send saved bubble_position to the Electron main process
           // so it persists across restarts (main process initializes to 'top')
-          const pos = (cfg as any)?.bubble_position as string | undefined
+          const pos = cfg?.bubble_position
           if (pos === 'bottom' || pos === 'top') {
-            ;(window as any).bubble?.setPosition?.(pos)
+            window.bubble?.setPosition?.(pos)
           }
           // Sync saved bubble_draggable state so the main process has the
           // correct value before the bubble is ever shown
-          const draggable = (cfg as any)?.bubble_draggable
+          const draggable = cfg?.bubble_draggable
           if (typeof draggable === 'boolean') {
-            ;(window as any).bubble?.setDraggable?.(draggable)
+            window.bubble?.setDraggable?.(draggable)
           }
           // Show the bubble at startup if always_visible + show_on_startup is enabled.
           // This is a reliable fallback in case the TCP push event from Python's
           // _do_startup arrives before Electron is fully ready to render the bubble.
-          const behavior = (cfg as any)?.bubble_behavior as string | undefined
-          const showOnStartup = (cfg as any)?.bubble_show_on_startup
+          const behavior = cfg?.bubble_behavior
+          const showOnStartup = cfg?.bubble_show_on_startup
           if (behavior === 'always_visible' && showOnStartup !== false) {
-            ;(window as any).bubble?.show?.()
+            window.bubble?.show?.()
           }
 
           // #8: Onboarding wizard — detect first run and route the user
@@ -292,7 +292,7 @@ export default function App() {
     navigate('home')
     // Reload the config so theme/hotkey/mic/model selections take effect
     try {
-      const cfg = await call<any>('get_config')
+      const cfg = await call<VoiceTyperConfig>('get_config')
       if (cfg?.theme_mode) setThemeMode(cfg.theme_mode)
     } catch {
       // non-fatal — config will be re-read on next mount

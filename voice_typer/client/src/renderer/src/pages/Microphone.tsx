@@ -44,7 +44,7 @@ export default function MicrophonePage() {
     try {
       const [mics, cfg] = await Promise.all([
         call<MicDevice[]>('get_microphones'),
-        call<any>('get_config'),
+        call<VoiceTyperConfig>('get_config'),
       ])
       _cachedMicrophones = Array.isArray(mics) ? mics : []
       _cachedConfig = cfg
@@ -77,7 +77,7 @@ export default function MicrophonePage() {
       setConfig((prev) => (prev ? { ...prev, microphone: micId } : prev))
       const label = micId === null ? 'System Default' : microphones.find((m) => (m.id ?? String(m.index)) === micId)?.name ?? 'Microphone'
       showSnack(`Using: ${label}`, 'success')
-    } catch (err) {
+    } catch {
       showSnack('Failed to set microphone', 'error')
     }
   }
@@ -174,7 +174,14 @@ export default function MicrophonePage() {
 
           {/* Level bar when active */}
           {isSystemDefault && (
-            <div className="mt-3 h-1.5 w-full rounded-full bg-border overflow-hidden">
+            <div
+              className="mt-3 h-1.5 w-full rounded-full bg-border overflow-hidden"
+              role="progressbar"
+              aria-label="Microphone input level"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(level * 100)}
+            >
               <div
                 className="h-full rounded-full transition-all duration-150"
                 style={{

@@ -126,8 +126,8 @@ export default function VocabularyPage() {
         original: e.original,
         correction: e.correction,
       }))
-      const bridge = window.window_ as any
-      if (!bridge?.exportVocabulary) {
+      const bridge = window.window_
+      if (!bridge) {
         toast.error('Export not available — please restart the app')
         return
       }

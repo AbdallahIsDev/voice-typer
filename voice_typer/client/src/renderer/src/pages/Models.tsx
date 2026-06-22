@@ -3,7 +3,6 @@ import { usePython, usePythonEvent } from '@/hooks/usePython'
 import { useSnackbar } from '@/hooks/useSnackbar'
 import { HugeiconsIcon } from '@hugeicons/react'
 import {
-  AiBrain03Icon,
   Download01Icon,
   Delete01Icon,
   PlayIcon,
@@ -58,12 +57,12 @@ export default function ModelsPage() {
   const { showSnack, Snackbar } = useSnackbar()
   const [config, setConfig] = useState<VoiceTyperConfig | null>(_cachedConfig)
   const [models, setModels] = useState<ModelInfo[]>(INITIAL_MODELS)
-  const [loading, setLoading] = useState(true)
+  const [, setLoading] = useState(true)
   const [downloadProgress, setDownloadProgress] = useState(0)
   const [downloadStatus, setDownloadStatus] = useState('')
   const [isDownloading, setIsDownloading] = useState(false)
   const [benchmarkResult, setBenchmarkResult] = useState('')
-  const [isBenchmarking, setIsBenchmarking] = useState(false)
+  const [isBenchmarking, _setIsBenchmarking] = useState(false)
 
   // #7: ConfirmDialog state for model deletion
   const [deleteModelTarget, setDeleteModelTarget] = useState<ModelInfo | null>(null)
@@ -75,7 +74,7 @@ export default function ModelsPage() {
   const loadConfig = useCallback(async () => {
     setLoading(true)
     try {
-      const cfg = await call<any>('get_config')
+      const cfg = await call<VoiceTyperConfig>('get_config')
       _cachedConfig = cfg
       setConfig(cfg)
 
@@ -129,7 +128,7 @@ export default function ModelsPage() {
   // so the progress bar and status text update in real time during a
   // model download. Previously these state values were declared but
   // never written, so the progress bar stayed at 0% forever.
-  usePythonEvent('download_progress', useCallback((data: any) => {
+  usePythonEvent('download_progress', useCallback((data: Record<string, unknown> | undefined) => {
     if (data && typeof data.progress === 'number') {
       setDownloadProgress(data.progress)
     }
@@ -225,7 +224,8 @@ export default function ModelsPage() {
     const configKey =
       provider === 'openai' ? 'openai_api_key' :
       provider === 'groq' ? 'groq_api_key' : 'deepgram_api_key'
-    await updateConfig({ [configKey]: key } as any)
+    const updates = { [configKey]: key } as Partial<VoiceTyperConfig>
+    await updateConfig(updates)
     showSnack(`${CLOUD_PROVIDERS.find((p) => p.key === provider)?.label} API key saved`, 'success')
   }
 
@@ -314,6 +314,10 @@ export default function ModelsPage() {
                     </h3>
                     <span
                       className="shrink-0 inline-flex items-center rounded-md px-2 py-0.5 text-[9px] font-semibold border"
+                      // UX-032: announce status changes (downloaded -> active,
+                      // dependencies-required -> downloaded) to screen readers.
+                      role="status"
+                      aria-live="polite"
                       style={{
                         backgroundColor: badge.bg,
                         color: badge.color,

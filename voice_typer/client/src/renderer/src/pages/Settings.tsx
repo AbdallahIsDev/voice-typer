@@ -66,7 +66,7 @@ const RECORDING_MODE_OPTIONS = [
   { value: 'push_to_talk', label: 'Push-to-Talk' },
 ] as const
 
-const THEME_OPTIONS = [
+const _THEME_OPTIONS = [
   { value: 'system', label: 'System Default' },
   { value: 'light', label: 'Light' },
   { value: 'dark', label: 'Dark' },
@@ -146,7 +146,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
       }>('get_volume_backend_status')
       setVolumeBackend(result)
     } catch (err) {
-      console.debug('Failed to load volume backend status:', err)
+      console.warn('Failed to load volume backend status:', err)
     }
   }, [call])
 
@@ -199,9 +199,12 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
     [config, updateConfig],
   )
 
-  // Cleanup pending timers on unmount
+  // Cleanup pending debounced timers on unmount.  We intentionally read
+  // .current at cleanup time (not effect-run time) so ALL timers added
+  // during the component's lifetime are cleared.
   useEffect(() => {
     return () => {
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- read ref at cleanup time, not effect-run time
       Object.values(debouncedTimers.current).forEach(clearTimeout)
     }
   }, [])
@@ -210,7 +213,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
     // UX-008: actually open the log folder via the main process.
     // Previously this just showed a snackbar without opening anything.
     try {
-      const result = await (window as any).window_.openLogs()
+      const result = await window.window_?.openLogs?.()
       if (result?.success) {
         showSnack('Log folder opened', 'success')
       } else {
@@ -254,7 +257,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
     }
   }
 
-  const handleThemeChange = (mode: string) => {
+  const _handleThemeChange = (mode: string) => {
     const m = mode as VoiceTyperConfig['theme_mode']
     // Keep local state in sync so the Select doesn't revert and updateConfig doesn't overwrite
     setConfig(prev => prev ? { ...prev, theme_mode: m } : prev)
@@ -373,7 +376,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
               onValueChange={(v) => {
                 updateConfig({ bubble_position: v as 'top' | 'bottom' })
                 // Notify the main process immediately so the bubble repositions.
-                ;(window as any).bubble?.setPosition?.(v)
+                window.bubble?.setPosition?.(v)
               }}
             >
               <SelectTrigger className="w-40" aria-label="Bubble Position">
@@ -410,7 +413,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
               onCheckedChange={(checked) => {
                 updateConfig({ bubble_draggable: checked })
                 // Notify the main process immediately so the bubble responds.
-                ;(window as any).bubble?.setDraggable?.(checked)
+                window.bubble?.setDraggable?.(checked)
               }}
               aria-label="Drag to Move"
             />

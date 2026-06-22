@@ -1,22 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 
-// ── Bubble bridge API (exposed by preload) ───────────────────────
-
-interface BubbleBridge {
-  onLevel: (cb: (data: { rms: number; peak: number }) => void) => () => void
-  onShow: (cb: () => void) => () => void
-  onHide: (cb: () => void) => () => void
-  onDraggable: (cb: (draggable: boolean) => void) => () => void
-  hideComplete: () => void
-  signalReady: () => void
-}
-
-declare global {
-  interface Window {
-    bubble?: BubbleBridge
-  }
-}
-
 // ── Constants ────────────────────────────────────────────────────
 
 const DOT_COUNT = 7
