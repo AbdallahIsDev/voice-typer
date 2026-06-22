@@ -473,14 +473,12 @@ function createBubbleWindow(): BrowserWindow {
     hasShadow: false,
     focusable: false,
     webPreferences: {
-      // SEC-026: same preload as the main window. The proper fix is
-      // to split into preload-main.js and preload-bubble.js with
-      // explicit channel whitelists so a compromised bubble renderer
-      // can't access main-only IPC channels. Deferred because the
-      // current preload only exposes a small surface (bubble:level,
-      // bubble:show, bubble:hide, bubble:position) and the bubble
-      // renderer is sandboxed.
-      preload: path.join(__dirname, "../preload/index.js"),
+      // SEC-026: dedicated bubble preload — exposes ONLY the `bubble:*`
+      // IPC channels. The bubble renderer cannot invoke `python.call`
+      // (which sends arbitrary commands to the Python backend) or
+      // `window_.*` (which controls the main window). A compromised
+      // bubble is now confined to waveform-level operations.
+      preload: path.join(__dirname, "../preload/bubble.js"),
       contextIsolation: true,
       nodeIntegration: false,
       backgroundThrottling: false,
