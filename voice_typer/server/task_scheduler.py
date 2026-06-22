@@ -292,9 +292,13 @@ def _build_task_xml(python_exe: str, arguments: str | None = None) -> str:
     ET.SubElement(logon, "Enabled").text = "true"
     ET.SubElement(logon, "Delay").text = _LOGON_DELAY
 
-    # Idle trigger (re-warm during idle)
-    idle = ET.SubElement(triggers, "IdleTrigger")
-    ET.SubElement(idle, "Enabled").text = "true"
+    # PREWARM-001: The IdleTrigger that previously lived here fired every
+    # time the system went idle for 15+ minutes, causing prewarm to run
+    # 5+ times per session. After the first run the OS file cache is
+    # already warm; subsequent runs are pure wasted I/O and — under memory
+    # pressure — actively harmful because they re-read ~6 GB of files
+    # that the OS had just evicted to free RAM. Prewarm is a cold-boot
+    # optimization; running it once per login is sufficient.
 
     # ── Principal — run as the current user, no elevation, hidden ────
     # Per the Task Scheduler schema, omitting <UserId> in a Principal

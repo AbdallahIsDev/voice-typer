@@ -180,11 +180,23 @@ class TestUnsupportedPlatform:
 class TestTaskXml:
     """The generated XML is well-formed and contains required elements."""
 
-    def test_xml_contains_logon_and_idle_triggers(self):
+    def test_xml_contains_logon_trigger_only(self):
+        """PREWARM-001: only LogonTrigger, no IdleTrigger.
+
+        Previously the task had BOTH a LogonTrigger and an IdleTrigger
+        (WaitTimeout PT15M). The IdleTrigger fired every time the system
+        went idle 15+ min, causing prewarm to run 5+ times per session.
+        After the first run the OS file cache is already warm; subsequent
+        runs are pure wasted I/O. Prewarm should run exactly once per
+        login/boot.
+        """
         # STARTUP-1: _build_task_xml now takes the pythonw path directly
         xml = task_scheduler._build_task_xml('C:\\path\\pythonw.exe')
         assert "LogonTrigger" in xml
-        assert "IdleTrigger" in xml
+        assert "IdleTrigger" not in xml, (
+            "PREWARM-001 regression: IdleTrigger is back, prewarm will "
+            "run 5+ times per session again"
+        )
         # STARTUP-2: logon delay is now PT0S (was PT45S) so prewarm fires
         # at logon+0 — beats the app's cold imports.
         assert "PT0S" in xml  # logon delay
