@@ -1605,22 +1605,16 @@ class VoiceTyperApp:
         Launches a fresh VoiceTyper subprocess and exits the current
         instance via the clean ``sys.exit(0)`` path.
 
-        RELIABILITY-001: previously this method ended with
-        ``os._exit(0)`` because ``_wrap`` in ``tray.py`` swallowed
-        ``SystemExit``, preventing ``sys.exit(0)`` from terminating
-        the process.  ``os._exit(0)`` skips Python atexit handlers,
-        ``__del__`` methods, and ``finally`` blocks, leaking the same
-        set of resources as ``quit_app`` did (Win32 mutex, PortAudio
-        handles, ``RegisterHotKey`` registrations).
-
-        RELIABILITY-003: this method now also stops ``_esc_backend``
-        and ``_repaste_backend`` (previously only ``_hotkey_backend``
-        was stopped, leaving ESC and repaste hotkeys registered on the
-        old process while the new process tried to register them
-        again — causing "hotkey busy" errors until the OS reaped the
-        old registrations).
+        RELIABILITY-001: was ``os._exit(0)`` which skipped atexit
+        handlers + ``__del__``, leaking the Win32 mutex, PortAudio
+        handles, and ``RegisterHotKey`` registrations. RELIABILITY-003:
+        also stops ``_esc_backend`` and ``_repaste_backend`` so the new
+        instance can re-register them. RELIABILITY-006: marks
+        ``_shutting_down`` before cleanup so atexit doesn't log "likely
+        killed externally" for an intentional restart.
         """
         log.info("[RESTART] Restarting Voice Typer...")
+        self._shutting_down = True
         import subprocess
         import time
 

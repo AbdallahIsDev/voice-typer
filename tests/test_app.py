@@ -731,6 +731,40 @@ class TestRestartAppCleanShutdown:
 
         app.tray.stop.assert_called_once()
 
+    def test_restart_app_sets_shutting_down_before_exit(self, app, monkeypatch):
+        """RELIABILITY-006: restart_app must set _shutting_down=True so
+        the atexit handler (_atexit_log) classifies the exit as
+        intentional. Without this, every restart logs "likely killed
+        externally", making it impossible to distinguish real external
+        kills from intentional restarts when triaging crash logs.
+        """
+        monkeypatch.setattr("subprocess.Popen", lambda *a, **kw: MagicMock())
+        monkeypatch.setattr("voice_typer.server.app.os.environ", {})
+        monkeypatch.setattr(sys, "argv", ["voice_typer"])
+        monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
+        monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+        app._hotkey_backend = MagicMock()
+        app._esc_backend = MagicMock()
+        app._repaste_backend = MagicMock()
+        app._cancel_pending_timers = MagicMock()
+        app.tray = MagicMock()
+
+        # Sanity: flag starts False.
+        assert app._shutting_down is False
+
+        try:
+            app.restart_app()
+        except SystemExit:
+            pass
+
+        # Must be True after restart_app so the atexit handler
+        # doesn't log a spurious "likely killed externally" warning.
+        assert app._shutting_down is True, (
+            "RELIABILITY-006 regression: restart_app did not set "
+            "_shutting_down=True; atexit handler will misclassify "
+            "intentional restarts as external kills."
+        )
+
 
 class TestHotkeyMapping:
     """Verify the hotkey registration uses the new backend abstraction."""
