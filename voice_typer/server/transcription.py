@@ -108,6 +108,13 @@ def _configure_nvidia_dll_paths():
         ("nvidia", "cublas", "bin"),
         ("nvidia", "cudnn", "bin"),
         ("nvidia", "cuda_nvrtc", "bin"),
+        # CUDA-DLL-001: torch GPU wheels (pip install torch with CUDA)
+        # also place cublas64_12.dll, cudnn64_9.dll, nvrtc64_120_0.dll
+        # under torch/lib. Without this entry, users who installed the
+        # GPU torch wheel but NOT the standalone nvidia-* pip packages
+        # would have all 3 primary candidate paths miss, even though
+        # the DLLs physically exist on disk.
+        ("torch", "lib"),
     ]
     existing_paths = os.environ.get("PATH", "").split(os.pathsep)
     new_paths: list[str] = []
