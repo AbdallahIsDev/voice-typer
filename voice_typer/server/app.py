@@ -4,42 +4,43 @@ import atexit
 import logging
 import logging.handlers
 import os
+import queue
 import re
 import signal
 import sys
 import threading
 import time
-import queue
 import uuid
 from pathlib import Path
 from typing import Optional
 
 import numpy as np
 
-from voice_typer.server.config import Config, _config_dir, _migrate_from_legacy
-from voice_typer.server.recording import Recorder
-from voice_typer.server.transcription import TranscriptionEngine
-from voice_typer.server.streaming import StreamingConfig, StreamingTranscriptionSession
-from voice_typer.server.text_cleanup import clean_transcribed_text, configure_corrections
+from voice_typer.server import task_scheduler
+from voice_typer.server.audio_processor import AudioProcessor, AudioProcessorConfig
+from voice_typer.server.audio_quality import AudioQualityAnalyzer
 from voice_typer.server.clipboard import ClipboardManager
-from voice_typer.server.settings import SettingsController, SettingsWindow
-from voice_typer.server.tray import TrayIcon, AppState
+from voice_typer.server.config import Config, _config_dir, _migrate_from_legacy
+from voice_typer.server.crash_recovery import CrashRecovery
+from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
+# Re-exported for monkeypatch.setattr("voice_typer.server.app.X", ...) in tests.  # ruff: noqa: F401
+from voice_typer.server.hotkeys import HotkeyBackend, create_hotkey_backend
+from voice_typer.server.history_db import HistoryDB
 from voice_typer.server.platform import (
     create_launcher_shortcut,
-    enable_autostart,
     disable_autostart,
+    enable_autostart,
     is_autostart_enabled,
     list_microphones,
 )
-from voice_typer.server.hotkeys import create_hotkey_backend, HotkeyBackend
-from voice_typer.server.history_db import HistoryDB
-from voice_typer.server.crash_recovery import CrashRecovery
-from voice_typer.server.audio_quality import AudioQualityAnalyzer
-from voice_typer.server.waveform import WaveformBubble
-from voice_typer.server import task_scheduler
-from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
+from voice_typer.server.recording import Recorder
+from voice_typer.server.settings import SettingsController, SettingsWindow
+from voice_typer.server.streaming import StreamingConfig, StreamingTranscriptionSession
+from voice_typer.server.text_cleanup import clean_transcribed_text, configure_corrections
+from voice_typer.server.tray import AppState, TrayIcon
+from voice_typer.server.transcription import TranscriptionEngine
 from voice_typer.server.volume_ducker import VolumeDucker
-from voice_typer.server.audio_processor import AudioProcessor, AudioProcessorConfig
+from voice_typer.server.waveform import WaveformBubble
 
 log = logging.getLogger("voice_typer")
 
@@ -737,7 +738,11 @@ class VoiceTyperApp:
                 _push_event_now(item)
                 q.task_done()
 
-        if not hasattr(self, "_bubble_level_worker") or self._bubble_level_worker is None or not self._bubble_level_worker.is_alive():
+        if (
+            not hasattr(self, "_bubble_level_worker")
+            or self._bubble_level_worker is None
+            or not self._bubble_level_worker.is_alive()
+        ):
             self._bubble_level_worker = threading.Thread(
                 target=_bubble_level_worker,
                 name="bubble-level-pusher",
@@ -1211,7 +1216,7 @@ class VoiceTyperApp:
         self._cancel_pending_timers()
 
         log.info("[DICTATION] Stopping recording... (cycle=%s)", self._cycle_id)
-        
+
         self._busy_event.clear()  # busy = True
 
         # Detach the RMS callback and hide the bubble so the audio path
@@ -1284,12 +1289,15 @@ class VoiceTyperApp:
                 pass
 
         # Safety watchdog: if transcription hangs for >60s, force-recover.
-        watchdog = threading.Timer(
+        # ARCH-017: route through _schedule_timer so the watchdog is
+        # tracked in _pending_timers. Previously a fire-and-forget
+        # threading.Timer was used; if shutdown happened before the 60s
+        # fire, the timer held a reference that delayed GC and could
+        # fire _force_recover_from_stuck_transcription post-quit.
+        watchdog = self._schedule_timer(
             60.0,
             lambda: self._force_recover_from_stuck_transcription(),
         )
-        watchdog.daemon = True
-        watchdog.start()
 
         _captured_cycle_id = self._cycle_id
 
@@ -1930,7 +1938,6 @@ def _ensure_single_instance(silent=False):
         return None
 
     import ctypes
-    from ctypes import wintypes
 
     ERROR_ALREADY_EXISTS = 183
     ERROR_ACCESS_DENIED = 5

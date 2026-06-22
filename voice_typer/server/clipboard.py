@@ -13,9 +13,28 @@ import sys
 import time
 
 import pyperclip
-from pynput.keyboard import Key, Controller
 
 log = logging.getLogger(__name__)
+
+
+# Lazy-import pynput at instance creation time, not module import time.
+# pynput.keyboard imports a platform backend (X11 on Linux, IOKit on mac,
+# Win32 on Windows) that requires a running display / window manager.
+# Importing at module level breaks `python -m voice_typer --version`
+# in headless containers / SSH sessions without DISPLAY.
+_Key = None  # type: ignore[assignment]
+_Controller = None  # type: ignore[assignment]
+
+
+def _ensure_pynput_imported():
+    """Lazily import pynput.keyboard.Key and Controller on first use."""
+    global _Key, _Controller
+    if _Key is not None and _Controller is not None:
+        return
+    from pynput.keyboard import Controller as _C
+    from pynput.keyboard import Key as _K
+    _Key = _K
+    _Controller = _C
 
 
 # Terminal process names (lowercase, with extension) that require
@@ -51,7 +70,11 @@ class ClipboardManager:
 
     def __init__(self, paste_enabled: bool = True):
         self.paste_enabled = paste_enabled
-        self._keyboard = Controller()
+        # Lazy-import pynput so the module can load headless. The actual
+        # Controller() instantiation still requires a display (will raise
+        # at instance construction time, NOT at module import time).
+        _ensure_pynput_imported()
+        self._keyboard = _Controller() if _Controller is not None else None
         self._last_paste_time: float = 0.0
 
     @staticmethod
@@ -133,20 +156,20 @@ class ClipboardManager:
 
             if is_terminal:
                 if sys.platform == "darwin":
-                    self._keyboard.press(Key.cmd)
-                    self._keyboard.press(Key.shift)
+                    self._keyboard.press(_Key.cmd)
+                    self._keyboard.press(_Key.shift)
                     self._keyboard.press("v")
                     self._keyboard.release("v")
-                    self._keyboard.release(Key.shift)
-                    self._keyboard.release(Key.cmd)
+                    self._keyboard.release(_Key.shift)
+                    self._keyboard.release(_Key.cmd)
                 else:
-                    self._send_keystroke_sequence(Key.shift, Key.insert)
+                    self._send_keystroke_sequence(_Key.shift, _Key.insert)
             elif sys.platform == "darwin":
-                self._send_keystroke_sequence(Key.cmd, "v")
+                self._send_keystroke_sequence(_Key.cmd, "v")
             elif sys.platform == "win32":
                 self._send_ctrl_v_win32()
             else:
-                self._send_keystroke_sequence(Key.ctrl, "v")
+                self._send_keystroke_sequence(_Key.ctrl, "v")
 
             self._last_paste_time = time.monotonic()
             log.info("[CLIPBOARD] Sent paste keystroke")
@@ -164,11 +187,11 @@ class ClipboardManager:
     def _send_ctrl_v_win32(self) -> None:
         """Send Ctrl+V via a single atomic SendInput batch."""
         import ctypes
-        from ctypes import wintypes
+
         from pynput._util.win32 import (
             INPUT,
-            INPUT_union,
             KEYBDINPUT,
+            INPUT_union,
             SendInput,
         )
 
@@ -200,4 +223,4 @@ class ClipboardManager:
                 "[CLIPBOARD] SendInput returned %d (expected 4) — fallback to pynput",
                 result,
             )
-            self._send_keystroke_sequence(Key.ctrl, "v")
+            self._send_keystroke_sequence(_Key.ctrl, "v")

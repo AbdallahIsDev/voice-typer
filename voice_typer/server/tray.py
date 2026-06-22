@@ -21,23 +21,19 @@ Threading model:
 """
 
 import logging
-import os
-import subprocess
-import sys
 import threading
-from pathlib import Path
-from typing import Optional, Callable
+from typing import Callable, Optional
 
 import pystray
-from PIL import Image
+
+from voice_typer.server.tray_icon import _make_icon
+
+# #13: menu building extracted to tray_menu.py (display_hotkey, wrap_callback,
+# build_menu). tray.py now owns only pystray icon lifecycle + state queuing.
+from voice_typer.server.tray_menu import build_menu, display_hotkey, wrap_callback
 
 # ARCH-003: types extracted to tray_types.py; icon rendering to tray_icon.py
 from voice_typer.server.tray_types import AppState, TrayController
-from voice_typer.server.tray_icon import _get_dpi_aware_icon_size, _make_icon, _icon_cache
-# #13: menu building extracted to tray_menu.py (display_hotkey, wrap_callback,
-# build_menu). tray.py now owns only pystray icon lifecycle + state queuing.
-from voice_typer.server.tray_menu import display_hotkey, wrap_callback, build_menu
-from voice_typer.server.tray_models import build_models_submenu_data
 
 log = logging.getLogger(__name__)
 
@@ -121,6 +117,21 @@ class TrayIcon:
     def set_hotkey(self, hotkey: str) -> None:
         """Update the stored hotkey string for the next menu rebuild."""
         self._hotkey = hotkey
+        self._menu_cache_valid = False
+
+    def refresh_config(self, config) -> None:
+        """Replace the cached Config reference and rebuild the menu.
+
+        ARCH-043: tray held a reference to the original ``Config`` instance.
+        IPC handlers like ``set_config`` call ``setattr`` on the live object,
+        but if the caller ever swapped the *instance* (e.g. by reloading
+        from disk), the tray kept rendering the stale object's attributes.
+        Now callers can hand us the fresh instance + invalidate the menu.
+        """
+        self._config = config
+        # Mirror set_hotkey(): pick up the new hotkey string immediately so
+        # the next menu rebuild reflects the user's current setting.
+        self._hotkey = getattr(config, "hotkey", self._hotkey) or self._hotkey
         self._menu_cache_valid = False
 
     def start(self, bg_work: Optional[Callable] = None) -> None:
