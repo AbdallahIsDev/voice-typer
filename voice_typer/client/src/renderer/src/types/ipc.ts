@@ -2,19 +2,23 @@ import type { VoiceTyperConfig, MicrophoneDevice } from './config'
 
 // ── Recording states ──────────────────────────────────────────────
 
+// NEW-IPC-010: aligned with the Python ``AppState`` enum in
+// ``voice_typer/server/tray_types.py``.  The previous type union
+// included 7 dead values (``listening``, ``processing``, ``warming_up``,
+// ``downloading``, ``paused``, ``setup``, ``not_configured``) that the
+// Python backend never emits.  ``Home.tsx::statusKeyFor`` had to
+// normalize ``listening`` → ``idle`` to paper over the mismatch;
+// other dead values silently fell through to the default "READY"
+// label, hiding real state changes from the user.
+//
+// The 6 values below are the only ones the backend actually emits:
+//   idle, recording, transcribing, loading, cancelling, error.
 export type RecordingState =
   | 'idle'
-  | 'listening'
   | 'recording'
-  | 'processing'
   | 'transcribing'
   | 'loading'
-  | 'warming_up'
-  | 'downloading'
-  | 'paused'
   | 'cancelling'
-  | 'setup'
-  | 'not_configured'
   | 'error'
 
 export type Page = 'home' | 'history' | 'templates' | 'vocabulary' | 'models' | 'microphone' | 'analytics' | 'settings' | 'onboarding'
@@ -97,10 +101,12 @@ export interface GetConfigRequest {
   type: 'get_config'
 }
 
-export interface UpdateConfigRequest {
-  type: 'update_config'
-  data: Partial<VoiceTyperConfig>
-}
+// NEW-IPC-009 / NEW-MISMATCH-002: removed ``UpdateConfigRequest``.
+// The server command is ``set_config`` (not ``update_config``), and
+// the renderer uses untyped ``call<T>('set_config', data)`` directly
+// — there is no consumer of this type.  Keeping a mismatched type
+// (claiming ``type: 'update_config'``) gave a false impression of
+// type safety while not actually being enforced anywhere.
 
 export interface GetMicrophonesRequest {
   type: 'get_microphones'
@@ -114,6 +120,11 @@ export interface ToggleDictationRequest {
 // the server uses 'restart_app'. Removed the dead type — restart is
 // triggered from the tray menu via the main process (stopPython sends
 // quit_app), not from the renderer.
+//
+// NEW-IPC-009: confirmed that ``restart_app`` / ``quit_app`` are only
+// sent by the Electron main process (tray menu / before-quit), never
+// by the renderer.  No ``RestartRequest`` type is needed in the
+// renderer's type union.
 
 export interface GetHistoryRequest {
   type: 'get_history'
@@ -159,7 +170,6 @@ export interface SaveVocabularyRequest {
 
 export type PythonRequest =
   | GetConfigRequest
-  | UpdateConfigRequest
   | GetMicrophonesRequest
   | ToggleDictationRequest
   | GetHistoryRequest
@@ -178,9 +188,11 @@ export interface ToggleDictationResult {
   recording: boolean
 }
 
-export interface RestartResult {
-  status: string
-}
+// NEW-IPC-009 / NEW-MISMATCH-002: removed ``RestartResult``.
+// ``restart_app`` / ``quit_app`` are not sent from the renderer (only
+// the Electron main process sends them), and the server returns
+// ``{type: "ack", data: {}}`` for these — there is no ``status``
+// field.  The dead type gave a false impression of the response shape.
 
 export interface ToggleFavoriteResult {
   favorite: number
@@ -209,10 +221,17 @@ export interface VocabularyEntry {
 }
 
 // ── Helper: map request type to its response data ─────────────────
+//
+// NEW-IPC-009 / NEW-MISMATCH-002: removed the dead ``update_config``
+// and ``restart`` branches.  The server's actual commands are
+// ``set_config`` and ``restart_app``; the renderer uses untyped
+// ``call<T>('set_config', data)`` and never sends ``restart_app`` from
+// the renderer anyway.  ``set_config`` returns ``{type: "ack", data: {}}``
+// on success (or ``{type: "ack", data: {accepted: [...], rejected: [...]}}``
+// when some keys were silently dropped — see NEW-IPC-015 in the server).
 
 export type ResponseData<T extends PythonRequest['type']> =
   T extends 'get_config' ? VoiceTyperConfig :
-  T extends 'update_config' ? void :
   T extends 'get_microphones' ? MicrophoneDevice[] :
   T extends 'toggle_dictation' ? ToggleDictationResult :
   T extends 'get_history' ? HistoryRecord[] :
@@ -224,7 +243,6 @@ export type ResponseData<T extends PythonRequest['type']> =
   T extends 'get_today_stats' ? TodayStats :
   T extends 'get_vocabulary' ? VocabularyData :
   T extends 'save_vocabulary' ? SaveVocabularyResult :
-  T extends 'restart' ? RestartResult :
   unknown
 
 // ── Window augmentation for type-safe python bridge ───────────────

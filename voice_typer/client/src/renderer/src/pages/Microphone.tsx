@@ -28,8 +28,12 @@ export default function MicrophonePage() {
   const [loading, setLoading] = useState(true)
   const [testRunning, setTestRunning] = useState(false)
   const [level, setLevel] = useState(0)
-  // UX-013: use extracted useSnackbar hook instead of inline implementation
-  const { snackbar, showSnack } = useSnackbar()
+  // UX-013 / NEW-TS-004: use extracted useSnackbar hook instead of
+  // inline implementation.  Use the Snackbar component (not the raw
+  // ``snackbar`` state) so the JSX rendering is also centralized —
+  // previously this page rendered its own <div> snackbar inline,
+  // duplicating the hook's built-in renderer.
+  const { showSnack, Snackbar } = useSnackbar()
   const levelIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const loadData = useCallback(async () => {
@@ -274,20 +278,8 @@ export default function MicrophonePage() {
         )}
       </div>
 
-      {/* Snackbar */}
-      {snackbar && (
-        <div
-          className={cn(
-            'animate-slide-up fixed bottom-6 left-1/2 z-50 -translate-x-1/2',
-            'rounded-lg px-4 py-2.5 text-sm shadow-lg',
-            snackbar.type === 'success' && 'bg-primary text-primary-foreground',
-            snackbar.type === 'error' && 'bg-destructive text-white',
-            snackbar.type === 'warning' && 'bg-primary text-primary-foreground',
-          )}
-        >
-          {snackbar.message}
-        </div>
-      )}
+      {/* NEW-TS-004: use the shared Snackbar component from useSnackbar. */}
+      <Snackbar />
     </div>
   )
 }

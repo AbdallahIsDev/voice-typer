@@ -21,6 +21,26 @@ import type { RecordingState, Page, WindowBridge } from '@/types/ipc'
 import type { VoiceTyperConfig } from '@/types/config'
 import { Spinner } from '@/components/Spinner'
 
+// NEW-TS-012: runtime validator for the RecordingState string-literal
+// union.  The backend emits status values as plain strings over IPC;
+// previously we cast them to ``RecordingState`` without validation,
+// which would silently propagate unknown values through the type
+// system.  This validator returns ``null`` for unknown values so the
+// caller can discard them instead of corrupting React state.
+const RECORDING_STATES: ReadonlySet<string> = new Set([
+  'idle',
+  'recording',
+  'transcribing',
+  'loading',
+  'cancelling',
+  'error',
+])
+
+function asRecordingState(value: unknown): RecordingState | null {
+  if (typeof value !== 'string') return null
+  return RECORDING_STATES.has(value) ? (value as RecordingState) : null
+}
+
 export default function App() {
   // ── Routing ───────────────────────────────────────────────────
 
@@ -73,7 +93,7 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [isMaximized, setIsMaximized] = useState(false)
 
-  const { call, isReady } = usePython()
+  const { call } = usePython()
   const [themeMode, setThemeMode] = useState<VoiceTyperConfig['theme_mode']>('system')
 
   // ── Theme detection & application ────────────────────────────
@@ -107,8 +127,12 @@ export default function App() {
   }, [themeMode])
 
   // Load theme from config on mount
+  // NEW-TS-015: removed the ``if (!isReady) return`` guard — it was
+  // dead code (``isReady`` was always ``true`` because the preload
+  // installs ``window.python`` before React mounts).  The actual
+  // backend-readiness check is ``connectionStatus === 'connected'``,
+  // which is set by the second useEffect below.
   useEffect(() => {
-    if (!isReady) return
     const loadTheme = async () => {
       try {
         const cfg = await call<VoiceTyperConfig>('get_config')
@@ -116,7 +140,7 @@ export default function App() {
       } catch {}
     }
     loadTheme()
-  }, [isReady, call])
+  }, [call])
 
   // ── Window maximize state (for removing border-radius when maximized) ──
 
@@ -133,7 +157,8 @@ export default function App() {
   // ── Connection lifecycle ──────────────────────────────────────
 
   useEffect(() => {
-    if (!isReady) return
+    // NEW-TS-015: removed the ``if (!isReady) return`` guard — it was
+    // dead code (``isReady`` was always ``true``).
 
     let retries = 0
     const maxRetries = 5
@@ -149,11 +174,15 @@ export default function App() {
           // Sync current state from backend (status_change events sent before
           // the React app mounted are lost — this ensures we catch up)
           call<{ status: string }>('get_status').then((s) => {
+            // NEW-TS-012: removed the ``as RecordingState`` cast.
+            // Casting an unvalidated string to a string-literal union
+            // type hides bugs — if the backend ever emits a value
+            // outside the union, the cast silently produces an invalid
+            // RecordingState that the rest of the type system trusts.
+            // We now validate at runtime and discard unknown values.
             if (!cancelled && s?.status) {
-              // NEW-TS-012: removed `as RecordingState` cast — the
-              // status string is already typed as RecordingState via
-              // the call return type.
-              setRecordingState(s.status as RecordingState)
+              const validated = asRecordingState(s.status)
+              if (validated) setRecordingState(validated)
             }
           }).catch(() => {})
           // Send saved bubble_position to the Electron main process
@@ -211,7 +240,7 @@ export default function App() {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [isReady, call, currentPage, navigate])
+  }, [call, currentPage, navigate])
 
   // UX-031: Ctrl+B toggles the sidebar — discoverable keyboard shortcut
   // matching VS Code / Chrome's convention. Without this the collapse
@@ -254,9 +283,13 @@ export default function App() {
   // ── App-level event subscriptions ─────────────────────────────
 
   usePythonEvent('status_change', useCallback((data) => {
+    // NEW-TS-012: validate at runtime instead of casting to RecordingState.
     if (data?.status) {
-      setRecordingState(data.status as RecordingState)
-      setLastError(null)
+      const validated = asRecordingState(data.status)
+      if (validated) {
+        setRecordingState(validated)
+        setLastError(null)
+      }
     }
   }, []))
 
@@ -336,6 +369,9 @@ export default function App() {
         onGoForward={goForward}
         canGoBack={navIndex.current > 0}
         canGoForward={navIndex.current < navHistory.current.length - 1}
+        // NEW-TS-007: pass isMaximized down so TitleBar doesn't need
+        // its own subscription to bridge.onMaximizedChanged.
+        isMaximized={isMaximized}
       />
 
       <div className="flex min-h-0 flex-1">

@@ -146,6 +146,16 @@ export function Bubble() {
   }, [])
 
   // ── Listen for draggable state ───────────────────────────────────
+  // NEW-DEAD-025: the initial state defaults to ``true`` (line 124).
+  // The main process sends ``bubble:draggable`` on every ``show()``
+  // call (main/index.ts:605), so the correct state is always pushed
+  // before the user sees the bubble.  The race window between mount
+  // and the first ``onDraggable`` callback is < 1 frame and the
+  // bubble is hidden by default, so the user never observes a stale
+  // ``true`` value.  If a future change makes the bubble visible on
+  // mount (e.g. ``bubble_show_on_startup``), we'd need to add an
+  // initial query — but the preload doesn't expose ``getDraggable()``
+  // and the show-time sync covers the current use case.
   useEffect(() => {
     const api = window.bubble
     if (!api) return

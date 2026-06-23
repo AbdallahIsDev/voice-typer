@@ -41,6 +41,9 @@ interface TemplateRow {
   expansion: string
   match_mode: string
   variables: number
+  // NEW-TS-019: the actual variable names used in the template output,
+  // so the UI can show them in a tooltip instead of just a count.
+  used_variables: readonly string[]
 }
 
 function loadTemplates(): Template[] {
@@ -103,13 +106,24 @@ function saveTemplates(items: Template[], callFn?: <T>(cmd: string, data?: Recor
 }
 
 function toRows(items: Template[]): TemplateRow[] {
-  return items.map((t, i) => ({
-    index: i,
-    trigger: t.trigger ?? '',
-    expansion: t.output ?? '',
-    match_mode: t.match_mode ?? 'exact',
-    variables: VARIABLES.filter((v) => (t.output ?? '').includes(v)).length,
-  }))
+  return items.map((t, i) => {
+    const output = t.output ?? ''
+    // NEW-TS-019: track WHICH variables are used (not just the count)
+    // so the UI can show them in a tooltip.  Previously only the
+    // count was displayed ("2v") with no way for the user to see
+    // which variables the template actually uses.
+    const usedVars = VARIABLES.filter((v) => output.includes(v))
+    return {
+      index: i,
+      trigger: t.trigger ?? '',
+      expansion: output,
+      match_mode: t.match_mode ?? 'exact',
+      variables: usedVars.length,
+      // Store the actual variable names for the tooltip.
+      // (TemplateRow type updated below to include this.)
+      used_variables: usedVars,
+    }
+  })
 }
 
 export default function TemplatesPage() {
@@ -282,7 +296,17 @@ export default function TemplatesPage() {
                       <p className="max-w-75 truncate text-xs text-(--text-muted)">
                         {t.expansion}
                       </p>
-                      <span className="text-[10px] text-(--text-muted) opacity-60">
+                      <span
+                        className="text-[10px] text-(--text-muted) opacity-60"
+                        // NEW-TS-019: show the actual variable names in
+                        // a native tooltip so the user can see WHICH
+                        // variables the template uses, not just the count.
+                        title={
+                          t.used_variables.length > 0
+                            ? `Variables: ${t.used_variables.join(', ')}`
+                            : 'No variables'
+                        }
+                      >
                         {t.variables}v &middot; {t.match_mode}
                       </span>
                     </div>

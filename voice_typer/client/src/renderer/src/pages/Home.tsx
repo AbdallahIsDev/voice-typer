@@ -21,40 +21,35 @@ interface HomeProps {
   onNavigate?: (page: Page) => void
 }
 
+// NEW-IPC-010: aligned with the Python AppState enum (6 values).
+// Previously the maps included 7 dead keys (listening, processing,
+// warming_up, downloading, paused, setup, not_configured) that the
+// backend never emits — they were leftover from a long-ago refactor.
+// Keeping them gave a false impression of supported states and
+// caused dead branches in the rendering logic.
 const STATUS_COLORS: Record<string, string> = {
   idle: '#22C55E',
   recording: '#FF3333',
-  processing: '#2563EB',
   transcribing: '#7C3AED',
   loading: '#F59E0B',
-  warming_up: '#E67E22',
-  downloading: '#34495E',
-  paused: '#9B59B6',
   cancelling: '#C0392B',
-  setup: '#2980B9',
-  not_configured: '#95A5A6',
   error: '#FF3333',
 }
 
 const STATUS_LABELS: Record<string, string> = {
   idle: 'READY',
   recording: 'RECORDING',
-  processing: 'PROCESSING',
   transcribing: 'TRANSCRIBING',
   loading: 'LOADING',
-  warming_up: 'WARMING UP',
-  downloading: 'DOWNLOADING',
-  paused: 'PAUSED',
   cancelling: 'CANCELLING',
-  setup: 'SETTING UP',
-  not_configured: 'NOT CONFIGURED',
   error: 'ERROR',
 }
 
 function statusKeyFor(state: RecordingState, hasError: boolean): string {
-  // Normalize listening → idle
-  if (state === 'listening') return 'idle'
-  // When there's an error and the state is error, keep it as error
+  // NEW-IPC-010: removed the ``listening → idle`` normalization —
+  // ``listening`` is no longer in the RecordingState union (it was
+  // never emitted by the backend; the Python AppState uses ``idle``).
+  // When there's an error and the state is error, keep it as error.
   if (state === 'error' && hasError) return 'error'
   return state
 }
@@ -121,7 +116,20 @@ export default function Home({ recordingState, lastError, onNavigate }: HomeProp
     return () => { cancelled = true }
   })
 
+  // NEW-TS-006: timer refs declared BEFORE the usePythonEvent handler
+  // that uses them (previously the second listener was declared after
+  // these refs, but consolidating into a single listener means the
+  // refs must come first to avoid temporal-dead-zone errors).
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // UX-025: timer that auto-clears lastText after 5s of idle.
+  const lastTextTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   usePythonEvent('transcription_final', (data) => {
+    // NEW-TS-006: previously this was TWO separate usePythonEvent
+    // listeners — one for lastText + auto-clear, one for refreshing
+    // recent + stats.  Both fired on the same event; consolidating
+    // them into a single handler avoids double subscription overhead
+    // and makes the data flow easier to follow.
     if (typeof data?.text === 'string' && data.text.trim()) {
       setLastText(data.text)
       // UX-025: auto-clear lastText after 5 seconds of idle so the
@@ -130,25 +138,10 @@ export default function Home({ recordingState, lastError, onNavigate }: HomeProp
       if (lastTextTimer.current) clearTimeout(lastTextTimer.current)
       lastTextTimer.current = setTimeout(() => setLastText(''), 5000)
     }
-  })
 
-  usePythonEvent('recording_started', () => {
-    setLastText('')
-    if (lastTextTimer.current) {
-      clearTimeout(lastTextTimer.current)
-      lastTextTimer.current = null
-    }
-  })
-
-  // ── Proactive background refresh after new transcriptions ────────
-  //
-  // When a transcription_final event arrives, silently refresh the cached
-  // recent records and today's stats so the Home page shows accurate data
-  // on next visit (or immediately if already on Home).
-  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // UX-025: timer that auto-clears lastText after 5s of idle.
-  const lastTextTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  usePythonEvent('transcription_final', useCallback(() => {
+    // Proactive background refresh: silently refresh the cached recent
+    // records and today's stats so the Home page shows accurate data
+    // on next visit (or immediately if already on Home).
     if (refreshTimer.current) clearTimeout(refreshTimer.current)
     refreshTimer.current = setTimeout(async () => {
       try {
@@ -165,7 +158,15 @@ export default function Home({ recordingState, lastError, onNavigate }: HomeProp
         // Silently ignore — next manual load picks up fresh data
       }
     }, 500)
-  }, [call]))
+  })
+
+  usePythonEvent('recording_started', () => {
+    setLastText('')
+    if (lastTextTimer.current) {
+      clearTimeout(lastTextTimer.current)
+      lastTextTimer.current = null
+    }
+  })
 
   // Clean up pending refresh timer on unmount
   useEffect(() => {

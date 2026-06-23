@@ -10,6 +10,12 @@ interface TitleBarProps {
   onGoForward?: () => void
   canGoBack?: boolean
   canGoForward?: boolean
+  // NEW-TS-007: isMaximized is now lifted to App.tsx (single source of
+  // truth) and passed down as a prop.  Previously TitleBar maintained
+  // its own isMaximized state AND subscribed to bridge.onMaximizedChanged
+  // independently — two subscriptions to the same event, potential for
+  // state drift, and double the IPC traffic.
+  isMaximized?: boolean
 }
 
 function MinimizeIcon() {
@@ -82,17 +88,26 @@ function TitleBarButton({ onClick, ariaLabel, variant = 'default', children }: T
   )
 }
 
-export function TitleBar({ onToggleSidebar, onGoBack, onGoForward, canGoBack, canGoForward }: TitleBarProps) {
-  const [isMaximized, setIsMaximized] = useState(false)
+export function TitleBar({ onToggleSidebar, onGoBack, onGoForward, canGoBack, canGoForward, isMaximized: isMaximizedProp }: TitleBarProps) {
+  // NEW-TS-007: use the prop from App.tsx when available; fall back to
+  // local state for standalone usage (e.g. storybook, tests where the
+  // parent doesn't pass isMaximized).  When the prop is provided, we
+  // skip the subscription entirely — App.tsx owns the single source of
+  // truth.
+  const [localIsMaximized, setLocalIsMaximized] = useState(false)
   const bridge = typeof window !== 'undefined' ? window.window_ as WindowBridge : undefined
 
   useEffect(() => {
+    // Only subscribe if the parent didn't pass isMaximized as a prop.
+    if (isMaximizedProp !== undefined) return
     if (!bridge) return
     let cancelled = false
-    bridge.isMaximized().then((v) => { if (!cancelled) setIsMaximized(v) }).catch(() => {})
-    const unsub = bridge.onMaximizedChanged((v) => { if (!cancelled) setIsMaximized(v) })
+    bridge.isMaximized().then((v) => { if (!cancelled) setLocalIsMaximized(v) }).catch(() => {})
+    const unsub = bridge.onMaximizedChanged((v) => { if (!cancelled) setLocalIsMaximized(v) })
     return () => { cancelled = true; unsub() }
-  }, [bridge])
+  }, [bridge, isMaximizedProp])
+
+  const isMaximized = isMaximizedProp !== undefined ? isMaximizedProp : localIsMaximized
 
   const handleMinimize = () => bridge?.minimize().catch(() => {})
   const handleToggleMaximize = () => bridge?.toggleMaximize().catch(() => {})

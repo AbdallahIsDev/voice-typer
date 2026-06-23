@@ -26,7 +26,20 @@ export function usePython() {
     [api],
   )
 
-  return { call, isReady: !!api }
+  // NEW-TS-015: previously this hook also returned ``isReady: !!api``.
+  // That flag was always ``true`` in production because the preload
+  // script installs ``window.python`` before the React app mounts, so
+  // every consumer's ``if (!isReady) return`` guard was dead code.
+  // Worse, the name suggested "Python backend is ready" when it
+  // actually meant "Python bridge exists" — callers that wanted real
+  // readiness should track ``connectionStatus === 'connected'`` in
+  // App.tsx (which probes the backend via ``get_config``).
+  //
+  // If a future caller needs to distinguish "bridge installed" from
+  // "bridge missing" (e.g. running outside Electron), they can do
+  // ``const api = (window as unknown as WindowWithPython).python`` and
+  // check ``!!api`` directly.  We don't expose a misleading flag.
+  return { call }
 }
 
 export function usePythonEvent(type: string, handler: (data?: Record<string, unknown>) => void) {

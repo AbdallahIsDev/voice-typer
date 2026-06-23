@@ -1,5 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { usePython } from '@/hooks/usePython'
+// NEW-TS-004: use the shared useSnackbar hook instead of re-implementing
+// the useState + setTimeout + JSX pattern inline.  Previously this page
+// had its own ``showSnack`` function with a setTimeout that wasn't
+// cleared on unmount (a leak risk if the page unmounted mid-toast).
+import { useSnackbar } from '@/hooks/useSnackbar'
 import { SettingsSection } from '@/components/SettingsSection'
 import { SettingRow } from '@/components/SettingRow'
 import { Switch } from '@/components/ui/switch'
@@ -104,7 +109,11 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
   const [config, setConfig] = useState<VoiceTyperConfig | null>(_cachedConfig)
   const [saving, setSaving] = useState(false)
   const [showResetDialog, setShowResetDialog] = useState(false)
-  const [snackbar, setSnackbar] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null)
+  // NEW-TS-004: use the shared useSnackbar hook.  The hook manages the
+  // timer ref and clears it on unmount, fixing the leak risk of the
+  // previous inline setTimeout (which wasn't cleared if the page
+  // unmounted mid-toast).
+  const { showSnack, Snackbar } = useSnackbar()
   const [llmKeyVisible, setLlmKeyVisible] = useState(false)
   // Volume backend status — fetched from the Python backend so the UI
   // can show "Volume Backend: pycaw (WASAPI)" / "CoreAudio" / "disabled"
@@ -117,10 +126,9 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
     is_windows: boolean
   } | null>(null)
 
-  const showSnack = (message: string, type: 'success' | 'error' | 'warning') => {
-    setSnackbar({ message, type })
-    setTimeout(() => setSnackbar(null), 3000)
-  }
+  // NEW-TS-004: removed the inline ``showSnack`` function — the shared
+  // ``useSnackbar`` hook now provides it (with proper timer cleanup on
+  // unmount).
 
   const loadConfig = useCallback(async () => {
     try {
@@ -945,20 +953,8 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
         </div>
       )}
 
-      {/* Snackbar */}
-      {snackbar && (
-        <div
-          className={cn(
-            'animate-slide-up fixed bottom-6 left-1/2 z-50 -translate-x-1/2',
-            'rounded-lg px-4 py-2.5 text-sm shadow-lg',
-            snackbar.type === 'success' && 'bg-primary text-primary-foreground',
-            snackbar.type === 'error' && 'bg-destructive text-white',
-            snackbar.type === 'warning' && 'bg-primary text-primary-foreground',
-          )}
-        >
-          {snackbar.message}
-        </div>
-      )}
+      {/* NEW-TS-004: use the shared Snackbar component from useSnackbar. */}
+      <Snackbar />
     </div>
   )
 }
