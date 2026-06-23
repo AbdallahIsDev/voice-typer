@@ -318,6 +318,28 @@ class Config:
                     float(data.get("streaming_right_guard_seconds", 1.5)),
                     1.5,
                 )
+                # NEW-CQ-017: enforce streaming config invariants so the
+                # AudioWindowPlanner doesn't run forever or produce
+                # overlapping windows that never advance.
+                # - step < chunk: otherwise the planner skips untranscribed
+                #   audio between windows.
+                # - left_overlap < chunk: otherwise every window is a
+                #   duplicate of the previous one.
+                chunk = float(data.get("streaming_chunk_seconds", 12.0))
+                step = float(data.get("streaming_step_seconds", 5.0))
+                left_overlap = float(data.get("streaming_left_overlap_seconds", 3.0))
+                if step >= chunk:
+                    log.warning(
+                        "[CONFIG] streaming_step_seconds (%.1f) >= streaming_chunk_seconds "
+                        "(%.1f); clamping step to chunk/2", step, chunk,
+                    )
+                    data["streaming_step_seconds"] = chunk / 2.0
+                if left_overlap >= chunk:
+                    log.warning(
+                        "[CONFIG] streaming_left_overlap_seconds (%.1f) >= streaming_chunk_seconds "
+                        "(%.1f); clamping overlap to chunk/3", left_overlap, chunk,
+                    )
+                    data["streaming_left_overlap_seconds"] = chunk / 3.0
                 if data.get("model_size") not in ALLOWED_USER_MODELS:
                     data["model_size"] = "small.en"
 
