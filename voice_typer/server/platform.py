@@ -612,7 +612,8 @@ def _is_autostart_linux() -> bool:
 def _generate_icon_ico() -> Optional[Path]:
     """Generate a logo .ico file for the shortcut icon.
 
-    Uses the pre-rendered vt_logo.svg PNG.  Saves to
+    Uses the pre-rendered logo PNG (from ``client/scripts/logo.svg``,
+    rendered by ``generate-icons.mjs``).  Saves to
     ``%APPDATA%/voice-typer/icon.ico`` and returns the path, or None
     on failure.
     """
