@@ -112,7 +112,18 @@ class VocabularyManager:
 
     @staticmethod
     def _normalize_data(data: dict) -> dict:
-        """Normalize raw JSON data into canonical category format."""
+        """Normalize raw JSON data into canonical category format.
+
+        NEW-CQ-028: previously if ``data`` was a list (e.g. user had a
+        malformed vocabulary.json that was a JSON array instead of an
+        object), ``data.get(cat)`` would raise ``AttributeError`` and
+        the entire normalization would crash, losing all bundled
+        corrections. We now validate the type at the top and return
+        an empty dict for non-dict input.
+        """
+        if not isinstance(data, dict):
+            return {cat: ({} if cat in ("misspellings", "technical_terms", "names", "products") else [])
+                    for cat in CATEGORIES}
         result = {}
         for cat in CATEGORIES:
             val = data.get(cat)
@@ -312,7 +323,14 @@ class VocabularyManager:
                     continue
                 bad, good = entry[0], entry[1]
                 pattern = _re.compile(_re.escape(bad), _re.IGNORECASE)
-                text = pattern.sub(good, text)
+                # NEW-SEC-004: use a callable replacement to prevent
+                # regex backref interpretation. Previously `pattern.sub(good, text)`
+                # interpreted `\1`, `\g<0>`, `\9` etc. in the user-supplied
+                # `good` string. A malicious or accidental entry like
+                # `["x", "\\9"]` raises `re.error` on every dictation
+                # cycle (DoS). The lambda treats `good` as a literal
+                # string with no backref processing.
+                text = pattern.sub(lambda _m: good, text)
 
         # Word-level corrections
         for cat in ("misspellings", "technical_terms", "names", "products"):
