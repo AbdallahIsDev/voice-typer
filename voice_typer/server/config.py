@@ -88,7 +88,12 @@ def _secure_atomic_write(path: Path, content: str) -> None:
 
 
 def _legacy_config_dir() -> Path | None:
-    """Get the legacy platform-specific config directory, if different from new one."""
+    """Get the legacy platform-specific config directory, if different from new one.
+
+    NEW-DEAD-017: This function is never called in production code.
+    Kept for backward compatibility with external scripts that may
+    import it.
+    """
     if sys.platform == "win32":
         base = os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")
     elif sys.platform == "darwin":
@@ -125,6 +130,8 @@ def _migrate_from_legacy():
 
 _CURRENT_SCHEMA_VERSION = 1
 
+# NEW-DEAD-018: _MIGRATIONS is currently empty. Infrastructure kept
+# for future schema version migrations.
 _MIGRATIONS = {}
 
 
