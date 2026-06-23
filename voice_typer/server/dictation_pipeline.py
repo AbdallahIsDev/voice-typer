@@ -360,6 +360,18 @@ class DictationPipeline:
         # Save for repaste / undo
         self._app._last_transcription = text
 
+        # NEW-IPC-002: emit transcription_final push event so the
+        # renderer can proactively refresh Home/Dashboard/History
+        # without polling.
+        try:
+            from voice_typer.server.ipc_server import _push_event_now
+            _push_event_now({
+                "type": "transcription_final",
+                "data": {"text": text[:200]}  # truncated for UI preview
+            })
+        except Exception:
+            pass
+
         if self._app.config.log_transcriptions:
             log.info("[TRANSCRIBE] Transcription: %s", text[:200])
         else:

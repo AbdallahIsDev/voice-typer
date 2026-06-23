@@ -208,6 +208,13 @@ class RecordingController:
             # chunk of audio benefits from the ducked speakers.
             app._duck_volume()
             log.info("[DICTATION] Recording started OK (cycle=%s)", app._cycle_id)
+            # NEW-IPC-002: emit recording_started push event so the
+            # renderer can proactively refresh UI (Home/Dashboard/History)
+            try:
+                from voice_typer.server.ipc_server import _push_event_now
+                _push_event_now({"type": "recording_started"})
+            except Exception:
+                pass
         except Exception as e:
             log.exception("[DICTATION] Failed to start recording: %s", e)
             self._cancel_streaming_session()
@@ -225,6 +232,12 @@ class RecordingController:
         if not app.recorder.recording:
             log.info("[DICTATION] _stop_dictation: not recording, no-op")
             return
+        # NEW-IPC-002: emit recording_stopped push event
+        try:
+            from voice_typer.server.ipc_server import _push_event_now
+            _push_event_now({"type": "recording_stopped"})
+        except Exception:
+            pass
 
         # Cancel any stale pending timers
         app._cancel_pending_timers()
