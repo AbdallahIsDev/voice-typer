@@ -685,6 +685,11 @@ class IPCServer:
                     resp["type"] = "error"
                     resp["data"] = {"message": errors[0]}
                     return resp
+                # NEW-IPC-015: echo accepted + rejected keys so the
+                # renderer can show the user which fields were applied
+                # and which were silently dropped (unknown keys).
+                accepted_keys = list(validated.keys())
+                rejected_keys = [k for k in data.keys() if k not in validated]
                 # Side-effect: live-register/unregister the prewarm
                 # scheduled task when fast_startup changes, so the
                 # Settings toggle takes effect without a restart.
@@ -693,6 +698,29 @@ class IPCServer:
                     and validated["fast_startup"] != getattr(self.app.config, "fast_startup", None)
                 ):
                     self.app.config.fast_startup = bool(validated["fast_startup"])
+                # NEW-IPC-016: when model_size or asr_backend changes,
+                # apply it to the active engine so the next dictation
+                # uses the new model without requiring a restart.
+                if (
+                    "model_size" in validated
+                    and validated["model_size"]
+                        != getattr(self.app.config, "model_size", None)
+                ):
+                    try:
+                        self.app.change_model(validated["model_size"])
+                    except Exception as e:
+                        log.warning("[IPC] change_model failed: %s", e)
+                if (
+                    "asr_backend" in validated
+                    and validated["asr_backend"]
+                        != getattr(self.app.config, "asr_backend", None)
+                ):
+                    try:
+                        self.app.models.set_active_backend(
+                            validated["asr_backend"]
+                        )
+                    except Exception as e:
+                        log.warning("[IPC] set_active_backend failed: %s", e)
                 # Apply only allowlisted, validated values.
                 for k, v in validated.items():
                     setattr(self.app.config, k, v)
@@ -708,6 +736,14 @@ class IPCServer:
                 # ARCH-005: Delegate all side effects to the service layer
                 self.service.apply_config_side_effects(data)
                 resp["type"] = "ack"
+                # NEW-IPC-015: echo accepted + rejected keys so the
+                # renderer can show the user which fields were applied
+                # and which were silently dropped (unknown keys).
+                # Only include data when there are rejected keys, so
+                # the common case (all keys accepted) returns a plain
+                # {type: "ack"} matching existing callers.
+                if rejected_keys:
+                    resp["data"] = {"accepted": accepted_keys, "rejected": rejected_keys}
             except Exception as e:
                 log.error("[IPC] set_config failed: %s", e, exc_info=True)
                 resp["type"] = "error"
