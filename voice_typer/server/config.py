@@ -105,7 +105,13 @@ def _legacy_config_dir() -> Path | None:
 
 
 def _config_dir() -> Path:
-    """Get the voice-typer data directory in user home."""
+    """Get the voice-typer data directory.
+
+    NEW-CLI-004: honors VOICE_TYPER_CONFIG_DIR env var.
+    """
+    custom = os.environ.get("VOICE_TYPER_CONFIG_DIR")
+    if custom:
+        return Path(custom)
     return Path.home() / ".voice-typer"
 
 
