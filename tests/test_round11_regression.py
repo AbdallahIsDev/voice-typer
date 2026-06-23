@@ -272,18 +272,26 @@ class TestResampleError:
 
     def test_resample_chunk_raises_on_total_failure(self):
         from voice_typer.server.recording import Recorder, ResampleError
+        from voice_typer.server.recording import ResampleUnavailable
 
         # Construct a minimal Recorder without going through __init__
         # (which would require a Config + sounddevice).
         recorder = Recorder.__new__(Recorder)
         # Force both code paths to fail: scipy import fails AND
         # np.interp fails (we monkey-patch both).
+        # PERF-NEW-027: _resample_chunk now delegates to
+        # _resample_audio_impl which catches ResampleUnavailable (the
+        # typed exception _get_resample_poly raises in production) and
+        # (ValueError, OSError, TypeError) for scipy/numpy errors.
+        # The old test used ImportError, but that's the raw exception
+        # before _get_resample_poly wraps it — use ResampleUnavailable
+        # to match the production code path.
         with patch(
             "voice_typer.server.recording._get_resample_poly",
-            side_effect=ImportError("scipy is missing"),
+            side_effect=ResampleUnavailable("scipy is missing"),
         ), patch(
             "voice_typer.server.recording.np.interp",
-            side_effect=RuntimeError("interp boom"),
+            side_effect=ValueError("interp boom"),
         ):
             audio = np.ones(1024, dtype=np.float32)
             with pytest.raises(ResampleError):

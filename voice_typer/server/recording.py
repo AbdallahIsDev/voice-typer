@@ -927,45 +927,14 @@ class Recorder:
                 handle this; previously the function returned the native-
                 rate audio silently, which led to garbage transcriptions
                 on the streaming path (ERR-001).
+
+        PERF-NEW-027: delegates to the shared ``_resample_audio_impl``
+        helper (also used by ``_prepare_audio``) to avoid duplicating
+        the scipy → linear interp → raise fallback chain.
         """
         if len(audio) == 0:
             return np.array([], dtype=np.float32)
-        resampled = False
-        last_error: Exception | None = None
-        try:
-            resample_poly = _get_resample_poly()
-            gcd = math.gcd(effective_sr, target_sr)
-            up = target_sr // gcd
-            down = effective_sr // gcd
-            audio = resample_poly(audio, up, down).astype(np.float32)
-            resampled = True
-        except ResampleUnavailable as exc:
-            # ARCH-033: scipy missing — fall through to linear interp.
-            last_error = exc
-        except Exception as exc:  # scipy errors, dtype mismatches, etc.
-            last_error = exc
-
-        if not resampled:
-            try:
-                ratio = target_sr / effective_sr
-                new_len = int(len(audio) * ratio)
-                indices = np.linspace(0, len(audio) - 1, new_len)
-                audio = np.interp(
-                    indices, np.arange(len(audio)), audio,
-                ).astype(np.float32)
-                resampled = True
-            except Exception as exc:
-                last_error = exc
-
-        if not resampled:
-            # ERR-001: previously returned the native-rate audio here,
-            # which silently produced garbage transcriptions. Raise so
-            # the streaming / final paths can decide how to recover.
-            raise ResampleError(
-                f"Cannot resample audio from {effective_sr} Hz to "
-                f"{target_sr} Hz (last error: {last_error!r})"
-            )
-        return audio
+        return self._resample_audio_impl(audio, effective_sr, target_sr, log_resample=False)
 
     def _prepare_audio(
         self,
@@ -980,64 +949,98 @@ class Recorder:
         ``KeyboardInterrupt`` (in some interpreters). We narrow to
         ``(ValueError, OSError, TypeError)`` so genuine bugs propagate
         instead of being silently masked as "resampling failed".
+
+        PERF-NEW-027: delegates to the shared ``_resample_audio_impl``
+        helper (also used by ``_resample_chunk``) to avoid duplicating
+        the scipy → linear interp → raise fallback chain.
         """
         target_sr = self.config.sample_rate  # 16000 for Whisper
         if effective_sr != target_sr and len(audio) > 0:
-            orig_len = len(audio)
-            resampled = False
-            try:
-                resample_poly = _get_resample_poly()
-                gcd = math.gcd(effective_sr, target_sr)
-                up = target_sr // gcd
-                down = effective_sr // gcd
-                audio = resample_poly(audio, up, down).astype(np.float32)
-                if log_resample:
-                    log.info(
-                        "[RECORDING] Resampled %d Hz -> %d Hz (%d -> %d samples)",
-                        effective_sr, target_sr, orig_len, len(audio),
-                    )
-                resampled = True
-            except ResampleUnavailable:
-                # ARCH-033: scipy missing — fall through to linear interp.
+            return self._resample_audio_impl(audio, effective_sr, target_sr, log_resample=log_resample)
+        return audio
+
+    def _resample_audio_impl(
+        self,
+        audio: np.ndarray,
+        effective_sr: int,
+        target_sr: int,
+        *,
+        log_resample: bool = False,
+    ) -> np.ndarray:
+        """Shared resampling logic for ``_resample_chunk`` and ``_prepare_audio``.
+
+        PERF-NEW-027: previously the scipy → linear interp → raise
+        fallback chain was duplicated between the two methods. This
+        helper centralizes it so bug fixes (ERR-012, ERR-001, ARCH-033)
+        only need to be applied once.
+
+        ERR-012: narrows exceptions to ``(ValueError, OSError, TypeError)``
+        so genuine bugs (``AttributeError``, ``MemoryError``) propagate
+        instead of being silently masked as "resampling failed".
+        """
+        orig_len = len(audio)
+        resampled = False
+        last_error: Exception | None = None
+        try:
+            resample_poly = _get_resample_poly()
+            gcd = math.gcd(effective_sr, target_sr)
+            up = target_sr // gcd
+            down = effective_sr // gcd
+            audio = resample_poly(audio, up, down).astype(np.float32)
+            if log_resample:
+                log.info(
+                    "[RECORDING] Resampled %d Hz -> %d Hz (%d -> %d samples)",
+                    effective_sr, target_sr, orig_len, len(audio),
+                )
+            resampled = True
+        except ResampleUnavailable as exc:
+            # ARCH-033: scipy missing — fall through to linear interp.
+            last_error = exc
+            if log_resample:
                 log.warning(
                     "[RECORDING] scipy not available, using linear interp resampling"
                 )
-            except (ValueError, OSError, TypeError) as e:
-                # ERR-012: narrow to expected scipy/numpy failure modes.
-                # AttributeError / MemoryError / etc. propagate.
-                log.error("[RECORDING] scipy resample_poly failed: %s", e)
+        except (ValueError, OSError, TypeError) as exc:
+            # ERR-012: narrow to expected scipy/numpy failure modes.
+            # AttributeError / MemoryError / etc. propagate.
+            last_error = exc
+            if log_resample:
+                log.error("[RECORDING] scipy resample_poly failed: %s", exc)
 
-            if not resampled:
-                # Fallback: simple linear interpolation resampling
-                try:
-                    ratio = target_sr / effective_sr
-                    new_len = int(len(audio) * ratio)
-                    indices = np.linspace(0, len(audio) - 1, new_len)
-                    # pyrefly: ignore [bad-assignment]
-                    audio = np.interp(
-                        indices, np.arange(len(audio)), audio,
-                    ).astype(np.float32)
-                    if log_resample:
-                        log.info(
-                            "[RECORDING] Resampled (linear interp) %d Hz -> %d Hz "
-                            "(%d -> %d samples)",
-                            effective_sr, target_sr, orig_len, len(audio),
-                        )
-                    resampled = True
-                except (ValueError, OSError, TypeError) as e:
-                    # ERR-012: narrow here too.
+        if not resampled:
+            try:
+                ratio = target_sr / effective_sr
+                new_len = int(len(audio) * ratio)
+                indices = np.linspace(0, len(audio) - 1, new_len)
+                # pyrefly: ignore [bad-assignment]
+                audio = np.interp(
+                    indices, np.arange(len(audio)), audio,
+                ).astype(np.float32)
+                if log_resample:
+                    log.info(
+                        "[RECORDING] Resampled (linear interp) %d Hz -> %d Hz "
+                        "(%d -> %d samples)",
+                        effective_sr, target_sr, orig_len, len(audio),
+                    )
+                resampled = True
+            except (ValueError, OSError, TypeError) as exc:
+                # ERR-012: narrow here too.
+                last_error = exc
+                if log_resample:
                     log.error(
                         "[RECORDING] All resampling failed: %s. "
                         "Audio at %d Hz cannot be used by Whisper.",
-                        e, effective_sr,
+                        exc, effective_sr,
                     )
 
-            if not resampled:
-                raise ResampleError(
-                    f"Cannot resample audio from {effective_sr} Hz to "
-                    f"{target_sr} Hz. Check scipy installation and audio format."
-                )
-
+        if not resampled:
+            # ERR-001: previously returned the native-rate audio here,
+            # which silently produced garbage transcriptions. Raise so
+            # the streaming / final paths can decide how to recover.
+            raise ResampleError(
+                f"Cannot resample audio from {effective_sr} Hz to "
+                f"{target_sr} Hz (last error: {last_error!r})"
+            )
         return audio
 
     def discard(self) -> None:
