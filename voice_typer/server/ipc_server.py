@@ -388,13 +388,40 @@ class IPCServer:
             server.bind(("127.0.0.1", port))
             server.listen(1)
             log.info("[TCP] listening on 127.0.0.1:%d", port)
-            conn, addr = server.accept()
-            log.info("[TCP] client connected from %s:%d", *addr)
-            server.close()
         except Exception:
-            log.exception("[TCP] failed to bind/accept on port %d", port)
+            log.exception("[TCP] failed to bind on port %d", port)
             return
 
+        # NEW-IPC-001: accept connections in a loop so that a network
+        # blip, sleep/resume, or Electron crash+restart doesn't brick
+        # the Python IPC forever. Previously `server.close()` was
+        # called after the first accept, so a single disconnect meant
+        # no reconnection was possible until the Python process was
+        # manually restarted.
+        while not getattr(self, '_stopped', False):
+            try:
+                conn, addr = server.accept()
+                log.info("[TCP] client connected from %s:%d", *addr)
+            except OSError:
+                # Server socket closed during shutdown
+                break
+            try:
+                self._handle_tcp_connection(conn, addr, expected_token)
+            except Exception:
+                log.debug("[TCP] connection handler raised", exc_info=True)
+            # Loop back to accept the next connection
+
+        try:
+            server.close()
+        except OSError:
+            pass
+
+    def _handle_tcp_connection(self, conn, addr, expected_token: str) -> None:
+        """Handle a single TCP client connection (auth + dispatch loop).
+
+        Extracted from _accept_tcp by NEW-IPC-001 so the accept loop
+        can handle reconnections.
+        """
         with self._lock:
             self._tcp_client = _TCPLineIO(conn)
             # SEC-018: authenticate the connection.  The first line
