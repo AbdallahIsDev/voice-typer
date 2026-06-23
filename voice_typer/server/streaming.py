@@ -99,8 +99,19 @@ class AudioWindowPlanner:
         )
         start_sample = int(round(requested_start_seconds * sample_rate))
         end_sample = int(round(end_seconds * sample_rate))
+        # PERF-NEW-013: the audio parameter comes from
+        # ``Recorder.snapshot()`` which always returns a fresh array
+        # (either ``np.concatenate(...)`` or ``self._cached_resampled.copy()``).
+        # A slice into a fresh array is a view that does not share memory
+        # with the recorder's internal buffer, so the explicit ``.copy()``
+        # that was here before was redundant — it copied 768 KB (1.5 s of
+        # float32 audio) on every snapshot call (16 Hz → 12 MB/s of
+        # allocation pressure). The view is safe because (a) the snapshot
+        # array is not shared with any other consumer, (b) faster-whisper
+        # does not modify its input, and (c) AudioWindow is frozen so
+        # callers cannot reassign ``.audio``.
         window = AudioWindow(
-            audio=audio[start_sample:end_sample].copy(),
+            audio=audio[start_sample:end_sample],
             start_seconds=requested_start_seconds,
             end_seconds=end_seconds,
         )
