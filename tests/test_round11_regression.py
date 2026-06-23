@@ -75,7 +75,7 @@ class TestSetConfigRejectsSensitiveAttrs:
         })
 
         # Whole payload returns ack (existing contract: silent drop).
-        assert result == {"id": 1, "type": "ack"}
+        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         # Trusted-path fields unchanged.
         assert cfg.qwen_model_path == original_qwen
         assert cfg.parakeet_model_path == original_parakeet

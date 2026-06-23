@@ -174,7 +174,7 @@ class TestDispatchSetConfig:
             "type": "set_config",
             "data": {"hotkey": "<f3>", "model_size": "medium.en"},
         })
-        assert result == {"id": 1, "type": "ack"}
+        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         assert mock_app.config.hotkey == "<f3>"
         assert mock_app.config.model_size == "medium.en"
         assert mock_app.config._saved is True
@@ -186,7 +186,7 @@ class TestDispatchSetConfig:
             "type": "set_config",
             "data": {},
         })
-        assert result == {"id": 1, "type": "ack"}
+        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         assert mock_app.config._saved is True
 
     def test_no_data_returns_error(self, server, mock_app):
@@ -208,7 +208,7 @@ class TestDispatchSetConfig:
             "type": "set_config",
             "data": {"nonexistent_field": "nope"},
         })
-        assert result == {"id": 1, "type": "ack"}
+        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         assert mock_app.config._saved is True
 
     def test_non_dict_data_returns_error(self, server, mock_app):
@@ -241,7 +241,7 @@ class TestDispatchEscCancelLive:
             "type": "set_config",
             "data": {"esc_cancel_enabled": True},
         })
-        assert result == {"id": 1, "type": "ack"}
+        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         mock_app._register_esc_hotkey.assert_called_once()
         mock_app._unregister_esc_hotkey.assert_not_called()
 
@@ -255,7 +255,7 @@ class TestDispatchEscCancelLive:
             "type": "set_config",
             "data": {"esc_cancel_enabled": False},
         })
-        assert result == {"id": 1, "type": "ack"}
+        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         mock_app._unregister_esc_hotkey.assert_called_once()
         mock_app._register_esc_hotkey.assert_not_called()
 
@@ -268,7 +268,7 @@ class TestDispatchEscCancelLive:
             "type": "set_config",
             "data": {"repaste_hotkey": "<ctrl>+<v>"},
         })
-        assert result == {"id": 1, "type": "ack"}
+        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         mock_app._register_repaste_hotkey.assert_called_once()
 
 
@@ -316,7 +316,7 @@ class TestDispatchSetConfigAllowlist:
             "data": {"schema_version": 999},
         })
         # Silent drop — preserves the existing "unknown field" contract.
-        assert result == {"id": 1, "type": "ack"}
+        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         assert real_config.schema_version == original
 
     def test_rejects_internal_state_field_wayland_warned(self, real_server, real_config):
@@ -326,7 +326,7 @@ class TestDispatchSetConfigAllowlist:
             "id": 1, "type": "set_config",
             "data": {"wayland_warned": True},
         })
-        assert result == {"id": 1, "type": "ack"}
+        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         assert real_config.wayland_warned == original
 
     def test_rejects_onboarding_completed_via_set_config(self, real_server, real_config):
@@ -337,7 +337,7 @@ class TestDispatchSetConfigAllowlist:
             "id": 1, "type": "set_config",
             "data": {"onboarding_completed": True},
         })
-        assert result == {"id": 1, "type": "ack"}
+        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         assert real_config.onboarding_completed == original
 
     def test_rejects_trusted_path_field_qwen_model_path(self, real_server, real_config):
@@ -347,7 +347,9 @@ class TestDispatchSetConfigAllowlist:
             "id": 1, "type": "set_config",
             "data": {"qwen_model_path": "/etc/passwd"},
         })
-        assert result == {"id": 1, "type": "ack"}
+        assert result["type"] == "ack"
+        # NEW-IPC-015: rejected keys are now echoed in data
+        assert "qwen_model_path" in result.get("data", {}).get("rejected", [])
         assert real_config.qwen_model_path == original
 
     def test_rejects_trusted_path_field_parakeet_model_path(self, real_server, real_config):
@@ -357,7 +359,8 @@ class TestDispatchSetConfigAllowlist:
             "id": 1, "type": "set_config",
             "data": {"parakeet_model_path": "/tmp/evil"},
         })
-        assert result == {"id": 1, "type": "ack"}
+        assert result["type"] == "ack"
+        assert "parakeet_model_path" in result.get("data", {}).get("rejected", [])
         assert real_config.parakeet_model_path == original
 
     def test_rejects_trusted_path_field_corrections_path(self, real_server, real_config):
@@ -367,7 +370,8 @@ class TestDispatchSetConfigAllowlist:
             "id": 1, "type": "set_config",
             "data": {"corrections_path": "/tmp/evil.json"},
         })
-        assert result == {"id": 1, "type": "ack"}
+        assert result["type"] == "ack"
+        assert "corrections_path" in result.get("data", {}).get("rejected", [])
         assert real_config.corrections_path == original
 
     # ── Type validation ──────────────────────────────────────────────
@@ -440,7 +444,7 @@ class TestDispatchSetConfigAllowlist:
             "id": 1, "type": "set_config",
             "data": {"microphone": None},
         })
-        assert result == {"id": 1, "type": "ack"}
+        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         assert real_config.microphone is None
 
     def test_rejects_float_field_with_string_value(self, real_server, real_config):
@@ -459,7 +463,7 @@ class TestDispatchSetConfigAllowlist:
             "id": 1, "type": "set_config",
             "data": {"silence_auto_stop_seconds": 120},
         })
-        assert result == {"id": 1, "type": "ack"}
+        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         assert real_config.silence_auto_stop_seconds == 120
 
     # ── Range validation ─────────────────────────────────────────────
@@ -509,7 +513,7 @@ class TestDispatchSetConfigAllowlist:
             "id": 1, "type": "set_config",
             "data": {"model_size": "tiny.en"},
         })
-        assert result == {"id": 1, "type": "ack"}
+        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         assert real_config.model_size == "tiny.en"
 
     def test_rejects_invalid_asr_backend(self, real_server, real_config):
@@ -612,7 +616,7 @@ class TestDispatchSetConfigAllowlist:
             "id": 1, "type": "set_config",
             "data": {"llm_api_url": "https://api.openai.com/v1/chat/completions"},
         })
-        assert result == {"id": 1, "type": "ack"}
+        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
 
     # ── All-or-nothing on multi-field payloads ───────────────────────
 
@@ -642,7 +646,7 @@ class TestDispatchSetConfigAllowlist:
                 "language": "fr",
             },
         })
-        assert result == {"id": 1, "type": "ack"}
+        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         assert real_config.hotkey == "<f4>"
         assert real_config.autostart is False
         assert real_config.language == "fr"
@@ -656,7 +660,7 @@ class TestDispatchSetConfigAllowlist:
             "id": 1, "type": "set_config",
             "data": {"fast_startup": False},
         })
-        assert result == {"id": 1, "type": "ack"}
+        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         real_server.app._sync_prewarm_task.assert_called_once()
         assert real_config.fast_startup is False
 
@@ -665,7 +669,7 @@ class TestDispatchSetConfigAllowlist:
             "id": 1, "type": "set_config",
             "data": {"autostart": False},
         })
-        assert result == {"id": 1, "type": "ack"}
+        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         real_server.app._sync_autostart.assert_called_once()
 
     def test_side_effect_esc_hotkey_fires_on_esc_cancel_enabled(self, real_server, real_config):
@@ -674,7 +678,7 @@ class TestDispatchSetConfigAllowlist:
             "id": 1, "type": "set_config",
             "data": {"esc_cancel_enabled": True},
         })
-        assert result == {"id": 1, "type": "ack"}
+        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         real_server.app._register_esc_hotkey.assert_called_once()
 
     def test_side_effect_repaste_fires_on_repaste_hotkey(self, real_server, real_config):
@@ -682,7 +686,7 @@ class TestDispatchSetConfigAllowlist:
             "id": 1, "type": "set_config",
             "data": {"repaste_hotkey": "<ctrl>+<alt>+v"},
         })
-        assert result == {"id": 1, "type": "ack"}
+        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         real_server.app._register_repaste_hotkey.assert_called_once()
 
 
@@ -1264,7 +1268,7 @@ class TestSec006TrustedPathFieldsBlockedStandalone:
             "id": 1, "type": "set_config",
             "data": {"corrections_path": "/etc/passwd"},
         })
-        assert result == {"id": 1, "type": "ack"}
+        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         assert mock_app.config.corrections_path is None  # unchanged
 
     def test_qwen_model_path_silently_dropped(self, server, mock_app):
@@ -1273,7 +1277,7 @@ class TestSec006TrustedPathFieldsBlockedStandalone:
             "id": 1, "type": "set_config",
             "data": {"qwen_model_path": "/tmp/poisoned-model"},
         })
-        assert result == {"id": 1, "type": "ack"}
+        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         assert mock_app.config.qwen_model_path is None  # unchanged
 
     def test_parakeet_model_path_silently_dropped(self, server, mock_app):
@@ -1282,7 +1286,7 @@ class TestSec006TrustedPathFieldsBlockedStandalone:
             "id": 1, "type": "set_config",
             "data": {"parakeet_model_path": "/tmp/poisoned-parakeet"},
         })
-        assert result == {"id": 1, "type": "ack"}
+        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         assert mock_app.config.parakeet_model_path is None  # unchanged
 
 
