@@ -391,9 +391,20 @@ class TestVADModule:
         assert result is None
 
     def test_is_speech_fallback_rms(self, monkeypatch):
-        """Without VAD, is_speech falls back to RMS energy check."""
+        """Without VAD, is_speech falls back to RMS energy check.
+
+        VAD-001: Previously this test relied on vad.reset() + a 16000-sample
+        chunk erroring through Silero VAD (which requires exactly 512 samples)
+        to exercise the RMS fallback. On machines with a cached Silero model,
+        VAD-001's pad/truncate fix made the model succeed instead of erroring,
+        causing the test to fail. We now properly mock _load_model to return
+        (None, None) so the RMS fallback is deterministically exercised
+        regardless of whether torch/Silero is installed.
+        """
         from voice_typer.server import vad
         vad.reset()
+        # Force VAD to be unavailable so RMS fallback is exercised
+        monkeypatch.setattr(vad, "_load_model", lambda: (None, None))
         # Silence
         assert vad.is_speech(np.zeros(16000, dtype=np.float32)) is False
         # Loud audio

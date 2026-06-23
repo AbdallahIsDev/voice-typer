@@ -1896,7 +1896,7 @@ class TestSingleInstanceEnforcement:
         call_sites = []
         for py_file in pkg_dir.glob("*.py"):
             try:
-                tree = ast.parse(py_file.read_text())
+                tree = ast.parse(py_file.read_text(encoding="utf-8"))
             except SyntaxError:
                 continue
             for node in ast.walk(tree):
@@ -1917,7 +1917,7 @@ class TestSingleInstanceEnforcement:
         creating VoiceTyperApp, so a duplicate process exits before
         loading any heavy modules."""
         import voice_typer.server.ipc_server as ipc
-        source = Path(ipc.__file__).read_text()
+        source = Path(ipc.__file__).read_text(encoding="utf-8")
         assert "_ensure_single_instance" in source, (
             "ipc_server.py must call _ensure_single_instance to enforce "
             "the single-process invariant"
