@@ -218,9 +218,10 @@ class ParakeetEngine:
                     )
                     self._model = self._AutoModelForTDT.from_pretrained(
                         _PARAKERT_MODEL_ID,
-                        # NEW-CQ-010: use torch_dtype= instead of dtype=.
-                        # transformers<4.30 raises TypeError on dtype=.
-                        torch_dtype=self._torch.float16 if effective_device == "cuda" else self._torch.float32,
+                        # NEW-CQ-010: use dtype= which is canonical across
+                        # modern transformers (torch_dtype was a deprecated
+                        # alias removed in recent versions).
+                        dtype=self._torch.float16 if effective_device == "cuda" else self._torch.float32,
                         device_map=effective_device,
                         low_cpu_mem_usage=True,
                         local_files_only=True,
