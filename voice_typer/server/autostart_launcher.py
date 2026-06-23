@@ -127,21 +127,27 @@ def _spawn_flags() -> dict:
 
 
 def _npm_command(script: str = "dev") -> list[str] | None:
-    """Return the command list to run ``npm run <script>``, or None if npm
-    can't be resolved on this platform.
+    """Return the command list to run ``npm run <script>``.
 
     Parameters
     ----------
     script : str
         npm script name, e.g. ""dev"" or ""build"".
 
-    On Windows npm is npm.cmd (a batch file) — must go through cmd.exe
-    when shell=True, or resolve the .cmd path directly.
+    NEW-CQ-033/NEW-SEC-009: On Windows, npm is npm.cmd (a batch file).
+    Previously this returned None to signal "use shell=True" which
+    propagated PATH/env to a shell. We now resolve the .cmd path
+    directly via shutil.which so we can use the list form (no shell).
+    Falls back to the shell form only if npm.cmd can't be found.
     """
-    # On Windows ``shell=True`` with "npm run <script>" finds npm.cmd via PATHEXT.
+    import shutil
+    npm_path = shutil.which("npm")
+    if npm_path is not None:
+        return [npm_path, "run", script]
+    # Fallback: use shell=True form (legacy behavior) only if npm
+    # can't be resolved. This is a last resort for unusual setups.
     if sys.platform == "win32":
         return None  # signal: use shell=True form
-    # POSIX: npm is on PATH.
     return ["npm", "run", script]
 
 
@@ -154,18 +160,23 @@ def _build_electron() -> bool:
     """
     log.info("[AUTOSTART] Building Electron app (npm run build)...")
     try:
-        if sys.platform == "win32":
+        # NEW-CQ-033/NEW-SEC-009: prefer the list form (no shell=True)
+        # to avoid PATH/env propagation. _npm_command resolves the
+        # full npm path via shutil.which.
+        cmd = _npm_command("build")
+        if cmd is not None:
             result = subprocess.run(
-                "npm run build",
+                cmd,
                 cwd=str(CLIENT_DIR),
-                shell=True,
                 capture_output=True,
                 timeout=180,
             )
         else:
+            # Fallback: shell=True (npm not on PATH on Windows)
             result = subprocess.run(
-                ["npm", "run", "build"],
+                "npm run build",
                 cwd=str(CLIENT_DIR),
+                shell=True,
                 capture_output=True,
                 timeout=180,
             )
@@ -356,13 +367,16 @@ def _spawn_npm_run_dev(hidden: bool = False) -> subprocess.Popen | None:
         env["VT_START_HIDDEN"] = "1"
 
     try:
-        if sys.platform == "win32":
+        # NEW-CQ-033/NEW-SEC-009: prefer list form over shell=True
+        cmd = _npm_command("dev")
+        if cmd is not None:
             child = subprocess.Popen(
-                "npm run dev", shell=True, env=env, **spawn_kwargs,
+                cmd, env=env, **spawn_kwargs,
             )
         else:
+            # Fallback: shell=True (npm not on PATH on Windows)
             child = subprocess.Popen(
-                ["npm", "run", "dev"], env=env, **spawn_kwargs,
+                "npm run dev", shell=True, env=env, **spawn_kwargs,
             )
         log.info(
             "[AUTOSTART] spawned 'npm run dev' in %s (child pid=%s, hidden=%s)",
