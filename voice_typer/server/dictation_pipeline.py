@@ -66,6 +66,10 @@ class DictationPipeline:
         self._recorded_rms = 0.0
         self._device_info = ""
         self._watchdog = None
+        # NEW-PERF-010: pre-computed (rms, peak, silence_pct) from
+        # Recorder.stop(), passed through to the transcription engine
+        # so it doesn't recompute the same stats on the same audio.
+        self._audio_stats: "tuple[float, float, float] | None" = None
 
     def run(
         self,
@@ -85,6 +89,9 @@ class DictationPipeline:
         self._recorded_rms = recorded_rms
         self._cycle_id = cycle_id
         self._watchdog = watchdog
+        # NEW-PERF-010: capture the pre-computed audio stats from the
+        # recorder so we can pass them to the transcription engine.
+        self._audio_stats = getattr(self._app.recorder, "_last_audio_stats", None)
         _t0 = time.perf_counter()
 
         try:
@@ -175,7 +182,19 @@ class DictationPipeline:
             self._app._set_streaming_session(None)
         else:
             active = self._app._get_active_transcriber()
-            text = active.transcribe_with_fallback(self._audio)
+            # NEW-PERF-010: pass the pre-computed audio stats so the
+            # transcription engine doesn't recompute RMS/peak/silence_pct
+            # on the same audio array (saves 1-3 ms + 3× 1.9 MB transient
+            # memory per dictation).
+            try:
+                text = active.transcribe_with_fallback(
+                    self._audio, audio_stats=self._audio_stats
+                )
+            except TypeError:
+                # Backend doesn't support the audio_stats kwarg yet
+                # (e.g. Qwen/Parakeet/cloud engines that haven't been
+                # updated).  Fall back to the old signature.
+                text = active.transcribe_with_fallback(self._audio)
 
         active = self._app._get_active_transcriber()
         self._device_info = (

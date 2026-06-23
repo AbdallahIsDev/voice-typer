@@ -136,6 +136,16 @@ class Recorder:
         # the wrong cached prefix. We track (dtype, src_sr, dst_sr) and
         # invalidate the cache on any change.
         self._cached_resample_key: tuple = ()
+        # NEW-PERF-003: cache the no-resample concatenation result so
+        # repeated snapshots with no new chunks don't repeat the
+        # np.concatenate.  Invalidated whenever the buffer length
+        # changes (i.e. a new chunk arrived).
+        self._cached_no_resample_len: int = -1
+        self._cached_no_resample_arr: "np.ndarray | None" = None
+        # NEW-PERF-010: cache of (rms, peak, silence_pct) from the most
+        # recent stop() call, so the transcription engine can reuse
+        # them instead of recomputing on the same audio array.
+        self._last_audio_stats: "tuple[float, float, float] | None" = None
 
         # H12: Silent mic disconnection detection
         self._silence_timer: float = 0.0
@@ -368,6 +378,9 @@ class Recorder:
         # ARCH-023: also reset the cache key so a new session doesn't
         # reuse a stale prefix from a different sample rate.
         self._cached_resample_key = ()
+        # NEW-PERF-003: invalidate the no-resample cache too.
+        self._cached_no_resample_len = -1
+        self._cached_no_resample_arr = None
         self._silence_timer = 0.0
         self._silence_warning_count = 0
         self._silence_next_warning_wait = 10.0
@@ -619,7 +632,36 @@ class Recorder:
                 try:
                     rms_callback(chunk_rms, chunk_peak, filtered)
                 except Exception:
-                    log.debug("[RECORDING] on_rms_level callback raised", exc_info=True)
+                    # NEW-CONC-004: previously this called
+                    # ``log.debug(..., exc_info=True)`` on EVERY
+                    # callback raise.  The audio callback fires at
+                    # ~16 Hz; a buggy downstream consumer (e.g. a VAD
+                    # that throws on every chunk) would trigger full
+                    # traceback formatting 16 times per second, which
+                    # is a significant CPU cost on the audio thread
+                    # and can cause XRUNs.  We now only format the
+                    # traceback on the FIRST raise and every 100th
+                    # subsequent raise; the rest are logged without
+                    # exc_info so the formatting cost is avoided.
+                    self._rms_callback_error_count = getattr(
+                        self, "_rms_callback_error_count", 0
+                    ) + 1
+                    if (
+                        self._rms_callback_error_count == 1
+                        or self._rms_callback_error_count % 100 == 0
+                    ):
+                        log.debug(
+                            "[RECORDING] on_rms_level callback raised "
+                            "(occurrence #%d)",
+                            self._rms_callback_error_count,
+                            exc_info=True,
+                        )
+                    else:
+                        log.debug(
+                            "[RECORDING] on_rms_level callback raised "
+                            "(occurrence #%d, traceback suppressed)",
+                            self._rms_callback_error_count,
+                        )
 
         last_error = None
         selected_device = None
@@ -800,12 +842,18 @@ class Recorder:
                 self._cached_resampled = np.array([], dtype=np.float32)
                 self._cached_native_chunk_count = 0
                 self._chunk_count = 0
+                # NEW-PERF-003: invalidate the no-resample cache too.
+                self._cached_no_resample_len = -1
+                self._cached_no_resample_arr = None
                 return np.array([], dtype=np.float32)
             audio = np.concatenate(list(self._buffer), axis=0).reshape(-1)
             self._buffer.clear()
             # Reset cache on stop
             self._cached_resampled = np.array([], dtype=np.float32)
             self._cached_native_chunk_count = 0
+            # NEW-PERF-003: invalidate the no-resample cache too.
+            self._cached_no_resample_len = -1
+            self._cached_no_resample_arr = None
         concat_ms = (time.perf_counter() - concat_started) * 1000
 
         # Log audio statistics for diagnostics
@@ -823,6 +871,11 @@ class Recorder:
                 rms = 0.0
             silence_pct = float(np.sum(np.abs(audio) < 0.001) / audio.size * 100)
             self._last_rms = rms
+            # NEW-PERF-010: store the full-recording stats so the
+            # transcription engine can reuse them instead of recomputing
+            # the same RMS/peak/silence_pct on the same audio array
+            # (saves 1-3 ms + 3× 1.9 MB transient memory per dictation).
+            self._last_audio_stats = (rms, peak, silence_pct)
             log.info(
                 "[RECORDING] Audio captured: duration=%.1fs, effective_sr=%d, "
                 "samples=%d, RMS=%.6f, peak=%.6f, silence_pct=%.1f%%",
@@ -836,6 +889,7 @@ class Recorder:
                 )
         else:
             self._last_rms = 0.0
+            self._last_audio_stats = (0.0, 0.0, 0.0)
             log.warning("[RECORDING] No audio data captured!")
         stats_ms = (time.perf_counter() - stats_started) * 1000
 
@@ -876,8 +930,37 @@ class Recorder:
         in the deque size and avoids the intermediate list.  Also
         avoided the O(n) ``np.concatenate([cached, new])`` allocation
         when there's nothing new to add.
+
+        NEW-PERF-003: when no new chunks have arrived since the last
+        snapshot (the common case for the streaming thread polling at
+        4 Hz), return a VIEW into the cached array instead of a full
+        copy.  The streaming caller only reads the array and slices it
+        (which produces another view); it never mutates the data.  The
+        cache is replaced (not mutated in place) when new chunks arrive,
+        so existing views remain valid until their references are
+        released.  This eliminates ~7,200 × 1.9 MB = ~14 GB of garbage
+        allocation per 30-minute recording session.
+
+        NEW-PERF-007: avoid acquiring ``self._lock`` at all when the
+        buffer is empty.  The streaming thread polls at 4 Hz; if the
+        recorder hasn't started yet (or just stopped), each poll would
+        contend with the audio callback's lock acquisition for no
+        reason.  The lock-free ``len(self._buffer)`` check is safe
+        because:
+        - ``len()`` on a collections.deque is atomic in CPython.
+        - If the buffer transitions from empty → non-empty between our
+          check and the lock acquisition, the locked path handles it
+          correctly (returns the new chunk).
+        - If the buffer transitions from non-empty → empty (e.g.
+          stop() called), the locked path returns the empty-array
+          early-out.  No correctness issue.
         """
         import itertools
+        # NEW-PERF-007: lock-free fast path for the empty-buffer case.
+        # Avoids 4 Hz lock contention with the audio callback thread
+        # when the recorder isn't actively recording.
+        if not self._buffer:
+            return np.array([], dtype=np.float32)
         with self._lock:
             if not self._buffer:
                 return np.array([], dtype=np.float32)
@@ -900,6 +983,10 @@ class Recorder:
                 self._cached_resampled = np.array([], dtype=np.float32)
                 self._cached_native_chunk_count = 0
                 self._cached_resample_key = new_key
+                # NEW-PERF-003: invalidate the no-resample cache too
+                # — a sample-rate or dtype change invalidates both.
+                self._cached_no_resample_len = -1
+                self._cached_no_resample_arr = None
 
             if effective_sr != target_sr and len(self._buffer) > self._cached_native_chunk_count:
                 # PERF-NEW-003: islice avoids the full-deque list copy.
@@ -925,7 +1012,8 @@ class Recorder:
                             len(new_audio), e,
                         )
                         self._cached_native_chunk_count = len(self._buffer)
-                        return self._cached_resampled.copy()
+                        # NEW-PERF-003: return a view, not a copy.
+                        return self._cached_resampled[:]
                     # PERF-NEW-002: avoid the O(n) reallocation when the
                     # cached prefix is empty (first snapshot of a session).
                     if len(self._cached_resampled) > 0:
@@ -935,19 +1023,42 @@ class Recorder:
                     else:
                         self._cached_resampled = new_resampled
                     self._cached_native_chunk_count = len(self._buffer)
-                return self._cached_resampled.copy()
+                # NEW-PERF-003: return a VIEW into the cache.  The caller
+                # (streaming.py) only reads + slices this array; it never
+                # mutates.  When the cache is later replaced by a new
+                # np.concatenate(...) assignment, this view remains valid
+                # (numpy keeps the underlying buffer alive until all views
+                # are released).  This eliminates the 1.9 MB copy on every
+                # 4 Hz poll — ~14 GB of garbage per 30-min recording.
+                return self._cached_resampled[:]
             elif effective_sr == target_sr:
                 # No resampling needed, just concatenate all.
                 # PERF-NEW-003: islice over the deque avoids the full
                 # list copy.  ``np.fromiter`` would be even faster but
                 # requires a flat iterator; the deque holds 2D chunks
                 # so we still need one concatenate.
+                #
+                # NEW-PERF-003: cache the no-resample concatenation too,
+                # so repeated snapshots with no new chunks don't repeat
+                # the concatenate.  When chunks ARE new, we rebuild the
+                # cache.  The cache key is the buffer length — if it
+                # hasn't changed, the cached array is still valid.
+                buf_len = len(self._buffer)
+                if (
+                    getattr(self, "_cached_no_resample_len", -1) == buf_len
+                    and self._cached_no_resample_arr is not None
+                ):
+                    return self._cached_no_resample_arr[:]
                 chunks = list(itertools.islice(self._buffer, 0, None))
                 audio = np.concatenate(chunks, axis=0).reshape(-1)
-                return audio
+                self._cached_no_resample_len = buf_len
+                self._cached_no_resample_arr = audio
+                return audio[:]
             else:
                 # No new chunks, return cached
-                return self._cached_resampled.copy()
+                # NEW-PERF-003: return a VIEW, not a copy.  See comment
+                # in the resample branch above for why this is safe.
+                return self._cached_resampled[:]
 
     def _resample_chunk(self, audio: np.ndarray, effective_sr: int, target_sr: int) -> np.ndarray:
         """Resample a single chunk of audio.
@@ -1088,6 +1199,9 @@ class Recorder:
         # Reset cache on discard
         self._cached_resampled = np.array([], dtype=np.float32)
         self._cached_native_chunk_count = 0
+        # NEW-PERF-003: invalidate the no-resample cache too.
+        self._cached_no_resample_len = -1
+        self._cached_no_resample_arr = None
         if self._stream:
             self._stream.stop()
             self._stream.close()

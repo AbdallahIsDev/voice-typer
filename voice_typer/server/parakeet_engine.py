@@ -75,6 +75,20 @@ _PARAKERT_MODEL_ID = "nvidia/parakeet-tdt-0.6b-v3"
 _CHUNK_SECONDS = 25
 _CHUNK_OVERLAP_SECONDS = 3
 
+# NEW-CQ-030: Maximum words to skip at a chunk boundary.
+#
+# Previously the merge step used ``skip = int(len(words) * 0.12)`` which
+# silently dropped words at every boundary — for a 25-word chunk that's
+# 3 dropped words, regardless of whether the model actually re-transcribed
+# the overlap region.  Word density is not uniform across audio time, so a
+# ratio-based skip is unsafe.  Cap the skip to at most this many words
+# AND only after we've checked for an actual word-level overlap with the
+# previous chunk's tail (see ``_merge_chunks``).
+_MAX_BOUNDARY_SKIP_WORDS = 2
+# Number of trailing words of the previous chunk to compare against the
+# leading words of the new chunk when detecting true overlap duplicates.
+_OVERLAP_DEDUP_WINDOW = 3
+
 
 class ParakeetEngine:
     """Wraps NVIDIA Parakeet TDT v3 ASR model via Transformers.
@@ -130,7 +144,9 @@ class ParakeetEngine:
     @staticmethod
     def _is_cached() -> bool:
         """Quick check if model is in HF cache without calling snapshot_download."""
-        from voice_typer.server.asr_setup import _config_dir
+        # NEW-DEAD-027: use config._config_dir() directly instead of
+        # the removed asr_setup._config_dir() cache wrapper.
+        from voice_typer.server.config import _config_dir
         cache_root = _config_dir() / "huggingface" / "hub"
         model_dir = cache_root / f"models--{_PARAKERT_MODEL_ID.replace('/', '--')}"
         snapshots = model_dir / "snapshots"
@@ -341,23 +357,112 @@ class ParakeetEngine:
         """Concatenate chunk transcriptions, skipping overlap text.
 
         Chunks have ``_CHUNK_OVERLAP_SECONDS`` of overlapping audio at
-        each boundary.  For each subsequent chunk we skip the first
-        (overlap_sec / chunk_sec) fraction of words — this removes the
-        text that corresponds to the overlapping audio region that was
-        already transcribed in the previous chunk.
+        each boundary.  When the model re-transcribes the overlap region
+        in the new chunk, those leading words duplicate the previous
+        chunk's tail and must be skipped.
+
+        NEW-CQ-030: The old implementation used a fixed ratio
+        ``skip = int(len(words) * 0.12)`` which dropped words at every
+        boundary regardless of whether they were actually overlap
+        duplicates — for a 25-word chunk that's 3 dropped words.  This
+        was unsafe because word density is not uniform across audio
+        time, so a ratio-based skip silently dropped legitimate words
+        at boundaries that had no overlap duplicates.
+
+        The new algorithm:
+        1. Look at the last ``_OVERLAP_DEDUP_WINDOW`` words of the
+           previous chunk and the first ``_OVERLAP_DEDUP_WINDOW`` words
+           of the new chunk.
+        2. Find the longest leading run of the new chunk whose words
+           also appear (in order) in the previous chunk's tail window.
+           That run is a true overlap duplicate and is skipped.
+        3. If no overlap duplicate is detected, skip at most 1 word
+           (a small allowance for boundary hallucinations, far smaller
+           than the old 12% ratio).
+        4. Total skip is capped at ``_MAX_BOUNDARY_SKIP_WORDS`` (2).
         """
         if len(texts) <= 1:
             return texts[0] if texts else ""
 
-        ratio = _CHUNK_OVERLAP_SECONDS / _CHUNK_SECONDS  # e.g. 3/25 = 0.12
-        result = texts[0]
+        result_words: list[str] = texts[0].split()
         for text in texts[1:]:
             words = text.split()
-            skip = min(int(len(words) * ratio), len(words) - 1)
-            tail = " ".join(words[skip:]) if skip > 0 else text
+            if not words:
+                continue
+
+            skip = self._compute_overlap_skip(result_words, words)
+            if skip > 0:
+                tail = words[skip:]
+            else:
+                tail = words
             if tail:
-                result += " " + tail
-        return result.strip()
+                result_words.extend(tail)
+        return " ".join(result_words).strip()
+
+    @staticmethod
+    def _compute_overlap_skip(
+        prev_words: list[str], new_words: list[str]
+    ) -> int:
+        """Return how many leading words of *new_words* to skip.
+
+        We detect a true overlap duplicate by searching (case-insensitively,
+        ignoring punctuation) for the leading run of ``new_words`` as a
+        *contiguous subsequence* within the trailing window of
+        ``prev_words``.  We pick the longest match that fits within
+        ``_OVERLAP_DEDUP_WINDOW`` words on the new side, is at most
+        ``_MAX_BOUNDARY_SKIP_WORDS`` long, and ends within the trailing
+        ``_OVERLAP_DEDUP_WINDOW + _MAX_BOUNDARY_SKIP_WORDS`` words of the
+        previous chunk.  If no match is found, we still skip up to 1
+        word as a small allowance for boundary hallucinations (much
+        smaller than the old 12% ratio).
+        """
+        if not prev_words or not new_words:
+            return 0
+
+        def _norm(w: str) -> str:
+            return w.strip(".,;:!?\"'()[]{}").lower()
+
+        # Search window on prev side: include enough trailing words that
+        # an overlap run of length up to _MAX_BOUNDARY_SKIP_WORDS can
+        # start anywhere within _OVERLAP_DEDUP_WINDOW of the tail.
+        prev_window_size = _OVERLAP_DEDUP_WINDOW + _MAX_BOUNDARY_SKIP_WORDS
+        prev_tail = [_norm(w) for w in prev_words[-prev_window_size:]]
+        # New side: we compare up to _MAX_BOUNDARY_SKIP_WORDS leading words.
+        max_check = min(
+            _MAX_BOUNDARY_SKIP_WORDS,
+            len(new_words),
+        )
+        new_head = [_norm(w) for w in new_words[:max_check]]
+
+        best = 0
+        # Try the longest candidate first so we get the longest true match.
+        for length in range(max_check, 0, -1):
+            candidate = new_head[:length]
+            # Search for `candidate` as a contiguous subsequence inside
+            # prev_tail.  The match must end somewhere within the trailing
+            # _OVERLAP_DEDUP_WINDOW words of prev_tail (so we don't pull
+            # matches from arbitrarily early in the previous chunk).
+            for start in range(len(prev_tail) - length + 1):
+                # Only accept matches whose end index falls within the
+                # last _OVERLAP_DEDUP_WINDOW words of prev_tail.
+                end_idx = start + length  # exclusive
+                last_word_idx = len(prev_tail) - end_idx
+                if last_word_idx >= _OVERLAP_DEDUP_WINDOW:
+                    continue
+                if prev_tail[start:start + length] == candidate:
+                    best = length
+                    break
+            if best > 0:
+                break
+
+        if best > 0:
+            return best
+
+        # No true overlap detected.  Allow a single-word skip as a small
+        # allowance for boundary hallucinations (e.g. "Thanks." appearing
+        # at the very start of a chunk).  This is bounded and never
+        # scales with chunk length, unlike the old ratio-based skip.
+        return 1 if len(new_words) > 1 else 0
 
     def transcribe_with_fallback(self, audio: np.ndarray) -> str:
         """transcribe with GPU→CPU fallback on CUDA errors.
@@ -452,9 +557,23 @@ class ParakeetEngine:
         return text
 
     def unload(self) -> None:
+        """Free model memory.
+
+        NEW-MEM-001: also release PyTorch's CUDA caching allocator
+        blocks via ``release_gpu_memory()`` so a subsequent backend
+        switch (e.g. back to Whisper) can use the freed VRAM.  Without
+        this, the cached blocks from the Parakeet model linger in the
+        allocator and cause GPU OOMs after 2 backend switches on
+        RTX 3060/4060 (8–12 GB VRAM).
+        """
+        import gc
+        from voice_typer.server.transcription import release_gpu_memory
         with self._lock:
             self._model = None
             self._processor = None
+            gc.collect()
+        # NEW-MEM-001: release CUDA cached blocks.
+        release_gpu_memory()
         log.info("[PARAKEET] Model unloaded")
 
     @property

@@ -240,6 +240,42 @@ class VoiceTyperService:
 
         return status
 
+    def test_llm_connection(self) -> dict:
+        """Test the LLM polish API connection.
+
+        NEW-DEAD-015: ``LLMPolisher.test_connection`` was previously
+        dead — no IPC route or UI button invoked it.  We now expose
+        it via the service layer so the renderer can wire up a "Test
+        connection" button on the Settings page (where the user
+        configures llm_api_key / llm_api_url / llm_model).
+
+        Returns ``{"success": bool, "message": str}``.
+        """
+        cfg = getattr(self._app, "config", None)
+        if cfg is None:
+            return {"success": False, "message": "Config not loaded"}
+
+        # Use the same consent + key-resolution logic as the polish path
+        # (dictation_pipeline.py:288-300).
+        effective_key = getattr(cfg, "llm_api_key", "") or ""
+        if not effective_key:
+            return {"success": False, "message": "API key not configured"}
+
+        try:
+            from voice_typer.server.llm_polish import LLMPolisher
+            polisher = LLMPolisher(
+                api_key=effective_key,
+                api_url=getattr(cfg, "llm_api_url", "") or None,
+                model=getattr(cfg, "llm_model", "") or None,
+                preset=getattr(cfg, "llm_preset", "professional"),
+                enabled=True,
+            )
+            success, message = polisher.test_connection()
+            return {"success": success, "message": message}
+        except Exception as exc:
+            log.warning("[SERVICE] test_llm_connection failed: %s", exc)
+            return {"success": False, "message": str(exc)}
+
     def _check_qwen_deps(self) -> bool:
         """Check if qwen_asr package is importable."""
         try:
@@ -607,6 +643,19 @@ class VoiceTyperService:
                 engine = TranscriptionEngine(model_size=model_name, device="cpu")
                 engine.load()
                 engine.unload()
+                # NEW-PERF-004: invalidate the tray models submenu cache
+                # so the next right-click reflects the newly-downloaded
+                # model without waiting for the 5-second TTL.
+                try:
+                    from voice_typer.server.tray_models import (
+                        invalidate_model_availability_cache,
+                    )
+                    invalidate_model_availability_cache()
+                except Exception:
+                    log.debug(
+                        "[SERVICE] failed to invalidate tray model cache",
+                        exc_info=True,
+                    )
                 _notify("Voice Typer", f"Model '{model_name}' downloaded successfully")
                 return {"success": True, "model": model_name}
             elif model_name == "qwen":
@@ -624,6 +673,17 @@ class VoiceTyperService:
                 _push_progress(50, "Downloading Parakeet weights from HuggingFace...")
                 download_parakeet_weights()
                 _push_progress(100, "Parakeet download complete")
+                # NEW-PERF-004: invalidate the tray models submenu cache.
+                try:
+                    from voice_typer.server.tray_models import (
+                        invalidate_model_availability_cache,
+                    )
+                    invalidate_model_availability_cache()
+                except Exception:
+                    log.debug(
+                        "[SERVICE] failed to invalidate tray model cache",
+                        exc_info=True,
+                    )
                 _notify("Voice Typer", "Parakeet model downloaded successfully")
                 return {"success": True, "model": model_name}
             else:

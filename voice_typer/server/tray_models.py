@@ -3,13 +3,94 @@
 ARCH-007: _build_models_submenu data enumeration was previously inline
 in TrayIcon.  The data-gathering logic is now a standalone function
 so it can be tested independently and potentially shared.
+
+NEW-PERF-004: previously every menu rebuild (every right-click on the
+tray icon) called ``ensure_hf_env()``, did a fresh ``import qwen_asr``
+(~50–150 ms), and ran 5+ filesystem ``exists()`` checks.  This caused
+noticeable menu-open lag.  We now cache:
+
+- The qwen_asr import availability (it never changes mid-session).
+- The HuggingFace hub ``refs/main`` existence check (with a 5-second
+  TTL so a download started in the Models page is reflected within
+  5 seconds without making the user wait on every right-click).
 """
 
 import json
 import logging
+import time
 from typing import Any, Optional
 
 log = logging.getLogger(__name__)
+
+# NEW-PERF-004: caches for the model availability checks.
+# These are module-level because the tray menu is rebuilt on every
+# right-click and the underlying data (qwen_asr installed; HF model
+# downloaded) changes very rarely — only when the user installs a
+# new package or finishes a model download.
+_qwen_asr_available_cache: "bool | None" = None
+_qwen_asr_cache_checked: bool = False
+# Cache of (repo_id, config_dir) → (downloaded, timestamp).
+# TTL is 5 seconds: long enough to avoid per-right-click stat() calls,
+# short enough that a download finishing in the Models page is
+# reflected on the next right-click within 5 seconds.
+_HF_DOWNLOAD_CACHE_TTL_SECONDS = 5.0
+_hf_download_cache: "dict[tuple[str, str], tuple[bool, float]]" = {}
+
+
+def _check_qwen_asr_available() -> bool:
+    """Return True if qwen_asr is importable.  Cached for the session.
+
+    NEW-PERF-004: the ``import qwen_asr`` statement takes 50–150 ms
+    because qwen_asr pulls in heavy ML deps.  Doing this on every
+    tray right-click caused noticeable menu-open lag.  The result
+    never changes mid-session (you'd have to pip install/uninstall
+    qwen_asr), so we cache it after the first check.
+    """
+    global _qwen_asr_available_cache, _qwen_asr_cache_checked
+    if _qwen_asr_cache_checked:
+        return bool(_qwen_asr_available_cache)
+    try:
+        import qwen_asr  # noqa: F401
+        _qwen_asr_available_cache = True
+    except ImportError:
+        _qwen_asr_available_cache = False
+    _qwen_asr_cache_checked = True
+    return bool(_qwen_asr_available_cache)
+
+
+def _check_hf_model_downloaded(repo_id: str, config_dir) -> bool:
+    """Return True if the HuggingFace model ``repo_id`` is downloaded.
+
+    NEW-PERF-004: cached for 5 seconds so a tray right-click doesn't
+    trigger 5 filesystem ``exists()`` calls (one per candidate model).
+    A download finishing in the Models page is reflected on the next
+    right-click within the TTL window.
+    """
+    cache_key = (repo_id, str(config_dir))
+    now = time.monotonic()
+    cached = _hf_download_cache.get(cache_key)
+    if cached is not None:
+        downloaded, ts = cached
+        if now - ts < _HF_DOWNLOAD_CACHE_TTL_SECONDS:
+            return downloaded
+    cache_dir = config_dir / "huggingface" / "hub"
+    ref_file = cache_dir / f"models--{repo_id.replace('/', '--')}" / "refs" / "main"
+    downloaded = ref_file.exists()
+    _hf_download_cache[cache_key] = (downloaded, now)
+    return downloaded
+
+
+def invalidate_model_availability_cache() -> None:
+    """Invalidate the cached model availability checks.
+
+    Called by the model download path (Models page) so the next tray
+    right-click reflects the newly-downloaded model immediately,
+    without waiting for the TTL to expire.
+    """
+    global _qwen_asr_available_cache, _qwen_asr_cache_checked
+    _qwen_asr_available_cache = None
+    _qwen_asr_cache_checked = False
+    _hf_download_cache.clear()
 
 
 def build_models_submenu_data(
@@ -61,19 +142,18 @@ def build_models_submenu_data(
     ]
 
     results = []
+    config_dir = config_dir_fn()
 
     for name, backend, repo_id in candidates:
         downloaded = False
         if backend == "qwen":
-            try:
-                import qwen_asr  # noqa
-                downloaded = True
-            except ImportError:
-                pass
+            # NEW-PERF-004: cached check — avoids 50–150 ms import
+            # on every right-click.
+            downloaded = _check_qwen_asr_available()
         elif repo_id:
-            cache_dir = config_dir_fn() / "huggingface" / "hub"
-            ref_file = cache_dir / f"models--{repo_id.replace('/', '--')}" / "refs" / "main"
-            downloaded = ref_file.exists()
+            # NEW-PERF-004: cached check with 5-second TTL — avoids
+            # 5× filesystem exists() per right-click.
+            downloaded = _check_hf_model_downloaded(repo_id, config_dir)
         else:
             downloaded = False
 

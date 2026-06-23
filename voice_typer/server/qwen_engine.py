@@ -169,9 +169,19 @@ class QwenEngine:
             raise
 
     def unload(self) -> None:
-        """Free model memory."""
+        """Free model memory.
+
+        NEW-MEM-001: also release PyTorch's CUDA caching allocator
+        blocks via ``release_gpu_memory()`` so a subsequent backend
+        switch can use the freed VRAM.
+        """
+        import gc
+        from voice_typer.server.transcription import release_gpu_memory
         with self._lock:
             self._model = None
+            gc.collect()
+        # NEW-MEM-001: release CUDA cached blocks.
+        release_gpu_memory()
         log.info("[QWEN] Model unloaded")
 
     @property

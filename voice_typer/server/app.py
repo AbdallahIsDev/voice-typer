@@ -627,15 +627,17 @@ class VoiceTyperApp:
     # ─── Timer Tracking (P1) ─────────────────────────────────────────
 
     def _schedule_timer(self, delay: float, func) -> threading.Timer:
-        """Create, track, and start a timer. Replaces fire-and-forget timers."""
+        """Create, track, and start a timer. Replaces fire-and-forget timers.
+
+        NEW-PERF-011: each call creates a fresh threading.Timer (~300-480
+        per session, ~300-960 ms total) — negligible vs. transcription.
+        """
         gen = self._timer_generation
         def guarded_func():
             if gen == self._timer_generation:
                 func()
         timer = threading.Timer(delay, guarded_func)
         timer.daemon = True
-        # ARCH-022: guard the append so a concurrent _cancel_pending_timers
-        # iteration doesn't see a half-updated list.
         with self._pending_timers_lock:
             self._pending_timers.append(timer)
         timer.start()
@@ -1547,12 +1549,10 @@ class VoiceTyperApp:
         self._change_model(model)
 
     def change_hotkey(self, hotkey: str) -> None:
-        """TrayController protocol: change hotkey."""
+        """TrayController protocol: change hotkey. NEW-DEAD-022: set_hotkey is an alias."""
         self._restart_hotkey(hotkey)
 
-    def set_hotkey(self, hotkey: str) -> None:
-        """TrayController protocol: set hotkey (alias for change_hotkey)."""
-        self._restart_hotkey(hotkey)
+    set_hotkey = change_hotkey
 
     def open_settings(self) -> None:
         """TrayController protocol: open settings window."""

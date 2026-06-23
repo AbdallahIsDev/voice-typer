@@ -37,6 +37,47 @@ _WHISPER_SAMPLE_RATE = 16000  # Whisper always expects 16kHz input
 _nvidia_dll_path_handles: list[object] = []
 
 
+def release_gpu_memory() -> None:
+    """Release GPU memory held by PyTorch's caching allocator.
+
+    NEW-MEM-001: ``del model; gc.collect()`` releases the Python
+    references to the model but PyTorch's CUDA caching allocator
+    retains the freed blocks for reuse by the same process.  After a
+    backend switch (e.g. Whisper → Parakeet → Whisper), the cached
+    blocks from the previous model are never reused (different model
+    architecture), so they accumulate.  On RTX 3060/4060 (8–12 GB
+    VRAM), 2 backend switches can OOM.
+
+    This helper calls ``torch.cuda.empty_cache()`` to release the
+    cached blocks back to the OS, making VRAM available for the next
+    backend.  Safe to call when:
+
+    - torch is not installed (no-op, debug-logged)
+    - CUDA is not initialized (no-op, returns silently)
+    - the current device is CPU (no-op)
+
+    Designed to be called from every ASR engine's ``unload()`` and
+    from every GPU→CPU fallback path in ``TranscriptionEngine``.
+    """
+    try:
+        import torch
+    except ImportError:
+        # torch not installed — nothing to release.
+        return
+    try:
+        if not torch.cuda.is_available():
+            return
+        # Synchronize before empty_cache so pending async kernels
+        # finish and release their allocations.
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+        log.debug("[GPU] torch.cuda.empty_cache() called after model unload")
+    except Exception as exc:
+        # CUDA not initialized, or some other runtime issue — log
+        # at debug so we don't spam the log on every unload.
+        log.debug("[GPU] torch.cuda.empty_cache() failed: %s", exc)
+
+
 def _free_nvidia_dll_path_handles() -> None:
     """Release DLL directory handles opened by ``_configure_nvidia_dll_paths``.
 
@@ -421,6 +462,9 @@ class TranscriptionEngine:
                     del self._model
                     import gc
                     gc.collect()
+                    # NEW-MEM-001: release PyTorch's cached CUDA blocks
+                    # so the next backend (or CPU reload) can use them.
+                    release_gpu_memory()
                 except Exception:
                     pass
                 self._model = None
@@ -483,12 +527,18 @@ class TranscriptionEngine:
         except Exception as exc:
             log.warning("[MODEL] Pre-download failed (WhisperModel will retry): %s", exc)
 
-    def transcribe(self, audio: np.ndarray) -> str:
-        """Transcribe audio array. Returns cleaned text string."""
-        with self._lock:
-            return self._transcribe_unlocked(audio)
+    def transcribe(self, audio: np.ndarray, audio_stats: "tuple[float, float, float] | None" = None) -> str:
+        """Transcribe audio array. Returns cleaned text string.
 
-    def _transcribe_unlocked(self, audio: np.ndarray) -> str:
+        NEW-PERF-010: ``audio_stats`` is an optional pre-computed
+        ``(rms, peak, silence_pct)`` tuple from ``Recorder.stop()``.
+        When provided, the engine skips its own stats computation
+        (saves 1-3 ms + 3× 1.9 MB transient memory per dictation).
+        """
+        with self._lock:
+            return self._transcribe_unlocked(audio, audio_stats=audio_stats)
+
+    def _transcribe_unlocked(self, audio: np.ndarray, audio_stats: "tuple[float, float, float] | None" = None) -> str:
         if self._model is None:
             raise RuntimeError("Model not loaded. Call load() first.")
 
@@ -497,9 +547,14 @@ class TranscriptionEngine:
 
         # Log audio statistics for diagnostics
         duration = len(audio) / _WHISPER_SAMPLE_RATE
-        rms = float(np.sqrt(np.mean(np.square(audio), dtype=np.float64)))
-        peak = float(np.max(np.abs(audio)))
-        silence_pct = float(np.sum(np.abs(audio) < 0.001) / audio.size * 100)
+        # NEW-PERF-010: reuse pre-computed stats when provided (avoids
+        # 1-3 ms + 3× 1.9 MB transient memory per dictation).
+        if audio_stats is not None:
+            rms, peak, silence_pct = audio_stats
+        else:
+            rms = float(np.sqrt(np.mean(np.square(audio), dtype=np.float64)))
+            peak = float(np.max(np.abs(audio)))
+            silence_pct = float(np.sum(np.abs(audio) < 0.001) / audio.size * 100)
         log.info(
             "[TRANSCRIBE] Input audio: samples=%d, duration=%.1fs, "
             "RMS=%.6f, peak=%.6f, silence_pct=%.1f%%",
@@ -594,18 +649,30 @@ class TranscriptionEngine:
             )
         return result
 
-    def transcribe_with_fallback(self, audio: np.ndarray) -> str:
+    def transcribe_with_fallback(
+        self,
+        audio: np.ndarray,
+        audio_stats: "tuple[float, float, float] | None" = None,
+    ) -> str:
         """Transcribe with automatic CPU fallback on GPU runtime errors.
 
         If the first attempt fails with a CUDA/cuBLAS/runtime error and
         the model was loaded on GPU, reload on CPU and retry once.
+
+        NEW-PERF-010: ``audio_stats`` is an optional pre-computed
+        ``(rms, peak, silence_pct)`` tuple from ``Recorder.stop()``.
+        When provided, the engine skips its own stats computation.
         """
         with self._lock:
-            return self._transcribe_with_fallback_unlocked(audio)
+            return self._transcribe_with_fallback_unlocked(audio, audio_stats=audio_stats)
 
-    def _transcribe_with_fallback_unlocked(self, audio: np.ndarray) -> str:
+    def _transcribe_with_fallback_unlocked(
+        self,
+        audio: np.ndarray,
+        audio_stats: "tuple[float, float, float] | None" = None,
+    ) -> str:
         try:
-            return self._transcribe_unlocked(audio)
+            return self._transcribe_unlocked(audio, audio_stats=audio_stats)
         except Exception as first_err:
             if not self._is_gpu_runtime_error(first_err):
                 raise
@@ -616,17 +683,23 @@ class TranscriptionEngine:
             )
             # Tear down GPU model, reload on CPU
             # M9: Explicitly free GPU memory before reload
+            # NEW-MEM-001: also call torch.cuda.empty_cache() so the
+            # cached CUDA blocks are released back to the OS, not just
+            # held for reuse by a different (non-Whisper) backend.
             try:
                 del self._model
                 import gc
                 gc.collect()
+                release_gpu_memory()
             except Exception:
                 pass
             self._model = None
             self._device = "cpu"
             self._compute_type = "int8"
             self._reload_under_lock()
-            return self._transcribe_unlocked(audio)
+            # NEW-PERF-010: pass through the pre-computed stats to the
+            # CPU retry as well.
+            return self._transcribe_unlocked(audio, audio_stats=audio_stats)
 
     def transcribe_words(self, audio: np.ndarray, offset_seconds: float = 0.0):
         """Transcribe audio array into word timings with a global offset."""
@@ -649,10 +722,12 @@ class TranscriptionEngine:
                 first_err,
             )
             # M9: Explicitly free GPU memory before reload
+            # NEW-MEM-001: also release CUDA cached blocks.
             try:
                 del self._model
                 import gc
                 gc.collect()
+                release_gpu_memory()
             except Exception:
                 pass
             self._model = None
@@ -780,11 +855,19 @@ class TranscriptionEngine:
         PERF-NEW-020: also release DLL directory handles opened by
         ``_configure_nvidia_dll_paths`` so the process doesn't hold
         phantom DLL refs after the model is unloaded.
+
+        NEW-MEM-001: also call ``torch.cuda.empty_cache()`` so the
+        PyTorch caching allocator releases freed CUDA blocks back to
+        the OS.  Without this, switching backends (Whisper → Parakeet
+        → Whisper) accumulates cached blocks and OOMs on RTX 3060/4060
+        (8–12 GB VRAM) after ~2 switches.
         """
         import gc
         with self._lock:
             self._model = None
             gc.collect()
+        # NEW-MEM-001: release CUDA cached blocks.
+        release_gpu_memory()
         # PERF-NEW-020: release DLL directory handles outside the lock
         # (they don't touch self._model state).
         try:
