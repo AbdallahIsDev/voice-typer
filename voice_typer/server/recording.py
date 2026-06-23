@@ -324,7 +324,15 @@ class Recorder:
                 )
                 return native_rate, dev_info_extra
         except Exception as e:
-            log.warning("[RECORDING] Could not query device info: %s", e)
+            # NEW-CQ-020: log at WARNING (not DEBUG) so the user knows
+            # the native-rate detection failed and PortAudio will do
+            # internal resampling (which may introduce artifacts).
+            log.warning(
+                "[RECORDING] Could not query device info for device %s: %s. "
+                "Falling back to target rate %d Hz (PortAudio will resample "
+                "internally — audio quality may be lower).",
+                device, e, target_sr,
+            )
             return target_sr, dev_info_extra
 
     def _all_input_device_candidates(self) -> list[int]:
