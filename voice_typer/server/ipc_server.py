@@ -293,7 +293,12 @@ class IPCServer:
         from voice_typer.server.service import VoiceTyperService
         self.service = VoiceTyperService(app)
         self._running = False
-        self._lock = threading.Lock()
+        # NEW-CQ-018: use RLock instead of Lock so _hook_tray_set_state
+        # (which calls self.push() → self._send() → acquires _lock) can
+        # safely re-enter if a future change makes set_state indirectly
+        # trigger an IPC call. Lock would deadlock; RLock allows the
+        # same thread to re-acquire.
+        self._lock = threading.RLock()
         self._tcp_client: _TCPLineIO | None = None
         self._tcp_mode = False
         self._pending_tcp: list[str] = []
@@ -631,30 +636,39 @@ class IPCServer:
 
         elif cmd == "set_config":
             try:
-                if isinstance(data, dict):
-                    # SEC-002: validate the caller payload against the
-                    # explicit IPC allowlist BEFORE touching the Config
-                    # object.  Unknown keys are silently dropped (debug-
-                    # logged); type/range/enum violations abort the
-                    # entire payload atomically and return an error so
-                    # the renderer can surface the rejection.
-                    validated, errors = validate_config_update(data)
-                    if errors:
-                        log.warning("[IPC] set_config rejected: %s", "; ".join(errors))
-                        resp["type"] = "error"
-                        resp["data"] = {"message": errors[0]}
-                        return resp
-                    # Side-effect: live-register/unregister the prewarm
-                    # scheduled task when fast_startup changes, so the
-                    # Settings toggle takes effect without a restart.
-                    if (
-                        "fast_startup" in validated
-                        and validated["fast_startup"] != getattr(self.app.config, "fast_startup", None)
-                    ):
-                        self.app.config.fast_startup = bool(validated["fast_startup"])
-                    # Apply only allowlisted, validated values.
-                    for k, v in validated.items():
-                        setattr(self.app.config, k, v)
+                # NEW-IPC-005: reject non-dict data with an explicit error
+                # instead of silently no-oping. Previously, if data was a
+                # list/string/None, the isinstance guard skipped all
+                # setattr + side-effect blocks but still returned
+                # {type: "ack"} success — the worst IPC failure mode.
+                if not isinstance(data, dict):
+                    resp["type"] = "error"
+                    resp["data"] = {"message": "set_config requires data: object"}
+                    log.warning("[IPC] set_config rejected: data is %s, not dict", type(data).__name__)
+                    return resp
+                # SEC-002: validate the caller payload against the
+                # explicit IPC allowlist BEFORE touching the Config
+                # object.  Unknown keys are silently dropped (debug-
+                # logged); type/range/enum violations abort the
+                # entire payload atomically and return an error so
+                # the renderer can surface the rejection.
+                validated, errors = validate_config_update(data)
+                if errors:
+                    log.warning("[IPC] set_config rejected: %s", "; ".join(errors))
+                    resp["type"] = "error"
+                    resp["data"] = {"message": errors[0]}
+                    return resp
+                # Side-effect: live-register/unregister the prewarm
+                # scheduled task when fast_startup changes, so the
+                # Settings toggle takes effect without a restart.
+                if (
+                    "fast_startup" in validated
+                    and validated["fast_startup"] != getattr(self.app.config, "fast_startup", None)
+                ):
+                    self.app.config.fast_startup = bool(validated["fast_startup"])
+                # Apply only allowlisted, validated values.
+                for k, v in validated.items():
+                    setattr(self.app.config, k, v)
                 self.app.config.save()
                 # ARCH-043: invalidate the tray menu cache so the next
                 # menu build picks up the new config values (model size,
@@ -665,7 +679,7 @@ class IPCServer:
                 except Exception:
                     log.debug("[IPC] tray.invalidate_menu_cache failed", exc_info=True)
                 # ARCH-005: Delegate all side effects to the service layer
-                self.service.apply_config_side_effects(data if isinstance(data, dict) else {})
+                self.service.apply_config_side_effects(data)
                 resp["type"] = "ack"
             except Exception as e:
                 log.error("[IPC] set_config failed: %s", e, exc_info=True)
@@ -803,8 +817,50 @@ class IPCServer:
 
         elif cmd == "save_vocabulary":
             # ARCH-005: delegates to service layer
+            # NEW-SEC-011: cap payload size to prevent DoS. A 1 GB JSON
+            # payload would exhaust disk and CPU; a 10 MB `good` value
+            # would re-compile regex per transcription chunk.
             try:
-                result = self.service.save_vocabulary_with_diff(data if isinstance(data, dict) else {})
+                if not isinstance(data, dict):
+                    resp["type"] = "error"
+                    resp["data"] = {"message": "save_vocabulary requires data: object"}
+                    return resp
+                # Cap total JSON payload at 1 MB
+                _MAX_VOCAB_PAYLOAD = 1 * 1024 * 1024
+                import json as _json_mod
+                payload_size = len(_json_mod.dumps(data))
+                if payload_size > _MAX_VOCAB_PAYLOAD:
+                    resp["type"] = "error"
+                    resp["data"] = {"message": (
+                        f"vocabulary payload too large ({payload_size}"
+                        f" bytes; max {_MAX_VOCAB_PAYLOAD})"
+                    )}
+                    log.warning("[IPC] save_vocabulary rejected: payload %d > %d", payload_size, _MAX_VOCAB_PAYLOAD)
+                    return resp
+                # Cap individual string values at 1024 chars
+                _MAX_VALUE_LEN = 1024
+                for cat, entries in data.items():
+                    if isinstance(entries, dict):
+                        for k, v in entries.items():
+                            if isinstance(v, str) and len(v) > _MAX_VALUE_LEN:
+                                resp["type"] = "error"
+                                resp["data"] = {"message": (
+                                    f"vocabulary value too long in {cat}.{k}"
+                                    f" ({len(v)} > {_MAX_VALUE_LEN})"
+                                )}
+                                return resp
+                    elif isinstance(entries, list):
+                        for entry in entries:
+                            if isinstance(entry, (list, tuple)):
+                                for v in entry:
+                                    if isinstance(v, str) and len(v) > _MAX_VALUE_LEN:
+                                        resp["type"] = "error"
+                                        resp["data"] = {"message": (
+                                            f"vocabulary value too long in {cat}"
+                                            f" ({len(v)} > {_MAX_VALUE_LEN})"
+                                        )}
+                                        return resp
+                result = self.service.save_vocabulary_with_diff(data)
                 resp["type"] = "ack"
                 resp["data"] = result
             except Exception as e:
@@ -1117,28 +1173,30 @@ def main() -> None:
     _setup_logging()
     _single_instance_mutex = _ensure_single_instance(silent=True)
 
-    # Hook os._exit to log who calls it — pystray or our own code might
-    # exit the process without going through an exception handler.
-    _original_os_exit = os._exit
-    def _logged_os_exit(code):
-        print(f"[IPC] os._exit({code}) called from:", file=sys.stderr)
-        import traceback as _tb
-        _tb.print_stack(file=sys.stderr)
-        _original_os_exit(code)
-    os._exit = _logged_os_exit
+    # NEW-SEC-015: the os._exit monkey-patch that printed a stack trace
+    # on every shutdown has been removed.
 
     app = VoiceTyperApp()
 
-    # Parse --port for TCP mode
-    port = None
-    if "--port" in sys.argv:
-        idx = sys.argv.index("--port")
-        if idx + 1 < len(sys.argv):
-            try:
-                port = int(sys.argv[idx + 1])
-            except ValueError:
-                print(f"Invalid port: {sys.argv[idx + 1]}", file=sys.stderr)
-                sys.exit(1)
+    # NEW-CLI-002: use argparse for --port instead of hand-rolled
+    # sys.argv walk. Supports --port=N and --port N, validates the
+    # port range (1..65535), and emits --help. Previously a typo in
+    # a wrapper script (e.g. --port with no value as the last arg)
+    # silently started Python in stdin/stdout mode.
+    import argparse
+    parser = argparse.ArgumentParser(
+        prog="voice_typer.server.ipc_server",
+        description="Voice Typer IPC server (spawned by Electron)",
+        add_help=False,  # we add --help manually to avoid conflict with app
+    )
+    parser.add_argument("--port", type=int, default=None, metavar="N",
+                        help="TCP port to listen on (1..65535). "
+                             "If omitted, uses stdin/stdout IPC.")
+    args, _unknown = parser.parse_known_args(sys.argv[1:])
+    port = args.port
+    if port is not None and not (1 <= port <= 65535):
+        print(f"Invalid port: {port} (must be 1..65535)", file=sys.stderr)
+        sys.exit(1)
 
     server = IPCServer(app)
     server.start()
