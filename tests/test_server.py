@@ -9,7 +9,7 @@ import json
 import sys
 import threading
 import pytest
-from unittest.mock import MagicMock, PropertyMock
+from unittest.mock import MagicMock
 
 # Mock pystray + PIL before importing tray (which is imported by ipc_server
 # transitively).  Without this, pystray tries to connect to an X display on
@@ -1466,7 +1466,7 @@ class TestSec018TcpAuth:
     def test_auth_with_wrong_token_drops_connection(self, monkeypatch):
         """When the client sends the wrong auth token, the connection
         must be dropped without processing any subsequent messages."""
-        import json as _json
+        # TEST-021: removed unused `import json as _json` (ruff F401).
         from voice_typer.server.ipc_server import IPCServer
 
         token = "correct-token"
@@ -1620,7 +1620,8 @@ class TestEndToEndHappyPath:
 
     def test_full_ipc_roundtrip(self, server, mock_app):
         """Verify a sequence of IPC commands produces correct responses."""
-        import json
+        # TEST-021: removed unused local `import json` (ruff F401).
+        # json is already imported at module level (line 8).
 
         # 1. Check initial status
         result = server._dispatch({"id": 1, "type": "get_status"})
@@ -1692,3 +1693,62 @@ class TestEndToEndHappyPath:
         result = server._dispatch({"id": 2, "type": "get_status"})
         assert result["type"] == "status"
         assert result["data"]["status"] == "idle"
+
+
+class TestDispatchNonDictDataRobustness:
+    """TEST-039: _dispatch must handle non-dict `data` gracefully for
+    every command, not just set_config. Previously the audit noted that
+    ``data = msg.get("data")`` could be a list, string, or None, and
+    only set_config had an isinstance guard. We now test multiple
+    commands with non-dict data to verify they don't raise.
+    """
+
+    def test_get_history_with_list_data_does_not_crash(self, server, mock_app):
+        """get_history with data=[1,2,3] should fall back to defaults."""
+        mock_app.history_db.get_recent = MagicMock(return_value=[])
+        result = server._dispatch({
+            "id": 1, "type": "get_history", "data": [1, 2, 3],
+        })
+        assert result["type"] == "history"
+        # Default limit=50, offset=0 should be used
+        mock_app.history_db.get_recent.assert_called_once()
+
+    def test_get_history_with_string_data_does_not_crash(self, server, mock_app):
+        """get_history with data="bad" should fall back to defaults."""
+        mock_app.history_db.get_recent = MagicMock(return_value=[])
+        result = server._dispatch({
+            "id": 1, "type": "get_history", "data": "bad",
+        })
+        assert result["type"] == "history"
+
+    def test_get_history_with_none_data_does_not_crash(self, server, mock_app):
+        """get_history with data=None should fall back to defaults."""
+        mock_app.history_db.get_recent = MagicMock(return_value=[])
+        result = server._dispatch({
+            "id": 1, "type": "get_history", "data": None,
+        })
+        assert result["type"] == "history"
+
+    def test_delete_history_with_non_dict_data_returns_error(self, server, mock_app):
+        """delete_history with data=[1,2] should return an error, not crash."""
+        result = server._dispatch({
+            "id": 1, "type": "delete_history", "data": [1, 2],
+        })
+        assert result["type"] == "error"
+        assert "Missing 'id'" in result["data"]["message"]
+
+    def test_toggle_favorite_with_string_data_returns_error(self, server, mock_app):
+        """toggle_favorite with data="bad" should return an error."""
+        result = server._dispatch({
+            "id": 1, "type": "toggle_favorite", "data": "bad",
+        })
+        assert result["type"] == "error"
+        assert "Missing 'id'" in result["data"]["message"]
+
+    def test_search_history_with_list_data_does_not_crash(self, server, mock_app):
+        """search_history with data=[1,2] should fall back to empty query."""
+        mock_app.history_db.search = MagicMock(return_value=[])
+        result = server._dispatch({
+            "id": 1, "type": "search_history", "data": [1, 2],
+        })
+        assert result["type"] == "history"
