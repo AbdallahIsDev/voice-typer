@@ -508,8 +508,18 @@ class Recorder:
             # RMS / peak computation (operates on FILTERED audio so the
             # waveform bubble and silence detection see what the
             # transcriber will see, not raw mic input).
-            chunk_rms = float(np.sqrt(np.mean(np.square(filtered), dtype=np.float64)))
-            chunk_peak = float(np.max(np.abs(filtered))) if filtered.size else 0.0
+            # NEW-PERF-001: combine RMS + peak into a single pass to
+            # avoid two O(n) numpy allocations per callback.
+            # np.abs(filtered) computes the absolute values once,
+            # then we use .max() for peak and np.sqrt(np.mean(abs**2))
+            # for RMS — reusing the abs array instead of squaring.
+            if filtered.size:
+                abs_filtered = np.abs(filtered)
+                chunk_peak = float(abs_filtered.max())
+                chunk_rms = float(np.sqrt(np.mean(abs_filtered, dtype=np.float64) ** 2))
+            else:
+                chunk_peak = 0.0
+                chunk_rms = 0.0
             chunk_duration = len(filtered) / self._effective_sr
 
             # AUDIO-CLIP: Track clipping
@@ -803,8 +813,14 @@ class Recorder:
         effective_sr = self._effective_sr
         duration = len(audio) / effective_sr if len(audio) > 0 else 0
         if len(audio) > 0:
-            rms = float(np.sqrt(np.mean(np.square(audio), dtype=np.float64)))
-            peak = float(np.max(np.abs(audio)))
+            # NEW-PERF-001: single-pass RMS + peak
+            if audio.size:
+                abs_audio = np.abs(audio)
+                peak = float(abs_audio.max())
+                rms = float(np.sqrt(np.mean(abs_audio, dtype=np.float64) ** 2))
+            else:
+                peak = 0.0
+                rms = 0.0
             silence_pct = float(np.sum(np.abs(audio) < 0.001) / audio.size * 100)
             self._last_rms = rms
             log.info(
