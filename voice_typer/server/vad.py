@@ -78,6 +78,13 @@ def compute_vad_prob(audio_chunk: np.ndarray, sample_rate: int = 16000) -> Optio
 
     Returns:
         Probability of speech (0.0–1.0), or None if VAD is unavailable.
+
+    VAD-001: Silero VAD strictly expects 512 samples at 16kHz (or 256
+    at 8kHz). When the audio chunk is a different size (e.g. 1136
+    samples from a WASAPI device with no blocksize set), the model
+    raises ValueError. We now pad or truncate the chunk to the
+    expected size before inference, so VAD works regardless of the
+    PortAudio buffer size.
     """
     model, utils = _load_model()
     if model is None:
@@ -89,6 +96,21 @@ def compute_vad_prob(audio_chunk: np.ndarray, sample_rate: int = 16000) -> Optio
         audio_tensor = torch.from_numpy(audio_chunk).float()
         if audio_tensor.dim() > 1:
             audio_tensor = audio_tensor.squeeze()
+
+        # VAD-001: Silero VAD requires exactly 512 samples at 16kHz
+        # (or 256 at 8kHz). PortAudio may deliver chunks of arbitrary
+        # size (e.g. 1136 on WASAPI). Pad with zeros or truncate to
+        # the expected size so VAD works on any device.
+        _EXPECTED_SAMPLES = {16000: 512, 8000: 256}
+        expected = _EXPECTED_SAMPLES.get(sample_rate, 512)
+        if audio_tensor.shape[0] != expected:
+            if audio_tensor.shape[0] < expected:
+                # Pad with zeros at the end
+                padding = torch.zeros(expected - audio_tensor.shape[0])
+                audio_tensor = torch.cat([audio_tensor, padding])
+            else:
+                # Truncate to expected size (take the first N samples)
+                audio_tensor = audio_tensor[:expected]
 
         with torch.no_grad():
             prob = model(audio_tensor, sample_rate).item()

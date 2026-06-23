@@ -638,6 +638,11 @@ class Recorder:
                     dtype=np.float32,
                     device=candidate,
                     callback=callback,
+                    # VAD-001: request 512-sample blocks so Silero VAD
+                    # gets the exact chunk size it expects. PortAudio
+                    # may still deliver a different size on some drivers,
+                    # but vad.py now pads/truncates to handle that.
+                    blocksize=512,
                 )
                 stream.start()
             except Exception as e:
@@ -697,6 +702,8 @@ class Recorder:
                         dtype=np.float32,
                         device=candidate,
                         callback=callback,
+                        # VAD-001: request 512-sample blocks for Silero VAD
+                        blocksize=512,
                     )
                     stream.start()
                 except Exception as e:

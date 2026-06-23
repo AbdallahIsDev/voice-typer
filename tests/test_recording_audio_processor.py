@@ -59,13 +59,15 @@ class FakeInputStream:
     Recorder.start() and stop() work unmodified.
     """
 
-    def __init__(self, samplerate, channels, dtype, device, callback):
+    def __init__(self, samplerate, channels, dtype, device, callback, **kwargs):
         self.samplerate = samplerate
         self.channels = channels
         self.dtype = dtype
         self.device = device
         self.callback = callback
         self.started = False
+        # VAD-001: blocksize is now passed by recording.py; accept it
+        self.blocksize = kwargs.get("blocksize")
 
     def start(self):
         self.started = True
