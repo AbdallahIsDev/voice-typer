@@ -60,10 +60,15 @@ def substitute_variables(text: str) -> str:
 
 
 def _safe_getuser() -> str:
-    """Get username safely, returning 'user' on any failure."""
+    """Get username safely, returning 'user' on any failure.
+
+    NEW-CQ-013: ``getpass.getuser()`` always returns ``str`` (or raises).
+    The previous ``isinstance(name, str)`` check was dead code. Simplified
+    to a direct truthiness check.
+    """
     try:
         name = getpass.getuser()
-        return str(name) if name and isinstance(name, str) else "user"
+        return name if name else "user"
     except Exception:
         return "user"
 
