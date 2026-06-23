@@ -17,19 +17,16 @@ from typing import Optional, Callable
 
 log = logging.getLogger(__name__)
 
-_CONFIG_DIR: Path | None = None
-
-
-def _config_dir() -> Path:
-    global _CONFIG_DIR
-    if _CONFIG_DIR is None:
-        from voice_typer.server.config import _config_dir as _cfg
-        _CONFIG_DIR = _cfg()
-    return _CONFIG_DIR
+# NEW-DEAD-027: removed the module-level ``_CONFIG_DIR`` cache.
+# It was a one-line indirection over ``config._config_dir()`` that
+# provided no measurable performance benefit (Path construction is
+# ~1 µs) and made the code harder to read.  Callers now use
+# ``config._config_dir()`` directly.
 
 
 def ensure_hf_env():
     """Ensure HF_HOME points to ~/.voice-typer/huggingface/."""
+    from voice_typer.server.config import _config_dir
     hf_home = str(_config_dir() / "huggingface")
     if os.environ.get("HF_HOME") != hf_home:
         os.environ["HF_HOME"] = hf_home

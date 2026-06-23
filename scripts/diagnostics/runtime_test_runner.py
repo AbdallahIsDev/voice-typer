@@ -173,10 +173,20 @@ def main():
 
     # Wait for the stop/transcription cycle
     print("\n[8] Waiting for transcription cycle to complete (up to 60s)...")
-    # Look for _busy reset as the key indicator
-    busy_reset = wait_for_log(LOG_FILE, "_busy reset to False", timeout=60)
-    if not busy_reset:
-        print("  [WARN] _busy may not have been reset — checking for force recover")
+    # NEW-DEAD-002: previously this grepped for "_busy reset to False"
+    # which was a Flet-era marker that no longer exists in the
+    # refactored code.  The production code now logs
+    # "[TRANSCRIBE] Transcription complete" (dictation_pipeline.py:98)
+    # and "[DICTATION] Audio too short, skipping transcription" for
+    # short-audio cases.  We look for either as the "cycle finished"
+    # indicator.  When neither appears, we still check for FORCE
+    # RECOVER (which is still emitted by recording_controller.py:623).
+    cycle_done = (
+        wait_for_log(LOG_FILE, "[TRANSCRIBE] Transcription complete", timeout=60)
+        or wait_for_log(LOG_FILE, "Audio too short, skipping transcription", timeout=5)
+    )
+    if not cycle_done:
+        print("  [WARN] transcription cycle did not complete — checking for force recover")
         force_recover = wait_for_log(LOG_FILE, "FORCE RECOVER", timeout=10)
 
     # 8b. Wait a bit more for any recovery timers
@@ -217,8 +227,17 @@ def main():
     audio_too_short = any("too short" in l.lower() for l in lines)
 
     # Check: _busy recovered?
+    # NEW-DEAD-002: the production code no longer logs "_busy reset to
+    # False".  Instead, the transcription-completion path logs
+    # "[TRANSCRIBE] Transcription complete" and the recovery path
+    # logs "FORCE RECOVER".  We treat either as the "busy recovered"
+    # signal.
     busy_set = any("_busy=True" in l or "busy=True" in l for l in lines)
-    busy_reset = any("_busy reset to False" in l for l in lines)
+    busy_reset = any(
+        "[TRANSCRIBE] Transcription complete" in l
+        or "Audio too short, skipping transcription" in l
+        for l in lines
+    )
     force_recover = any("FORCE RECOVER" in l for l in lines)
     f2_blocked = any("F2 BLOCKED" in l for l in lines)
 

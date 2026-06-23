@@ -62,7 +62,9 @@ class MockTrayIcon:
         self._current_message = ""
 
     def set_state(self, state, message=""):
-        from voice_typer.tray import AppState
+        # NEW-DEAD-002: AppState moved from voice_typer.tray to
+        # voice_typer.server.tray_types.
+        from voice_typer.server.tray_types import AppState
         state_name = state.value if isinstance(state, AppState) else str(state)
         ts = time.time()
         self.states.append((state_name, message, ts))
@@ -90,9 +92,14 @@ class MockTrayIcon:
 
 def run_runtime_proof():
     """Run the actual runtime verification cycle."""
-    from voice_typer.config import Config
-    from voice_typer.transcription import TranscriptionEngine
-    from voice_typer.tray import AppState
+    # NEW-DEAD-002: fixed the module paths.  The script previously
+    # imported from ``voice_typer.config``, ``voice_typer.transcription``,
+    # and ``voice_typer.tray`` — all of which were moved to
+    # ``voice_typer.server.*`` during the package reorganization.
+    # The script would crash on import; now it actually runs.
+    from voice_typer.server.config import Config
+    from voice_typer.server.transcription import TranscriptionEngine
+    from voice_typer.server.tray_types import AppState
 
     log.info("=" * 70)
     log.info("RUNTIME PROOF TEST STARTING")

@@ -474,6 +474,18 @@ class Config:
         the caller (load()) can surface them via the
         ``last_load_warnings`` field. Previously warnings were only
         logged; the user had no way to know their config was corrected.
+
+        NEW-DUP-005: this is NOT a duplicate of the type coercion that
+        ``cls(**data)`` would do.  Python dataclasses do NOT coerce
+        ``1`` → ``True`` or ``"true"`` → ``True`` — they store the raw
+        value as-is, which would then fail downstream type checks
+        (e.g. ``isinstance(cfg.autostart, bool)`` returns False for
+        ``1``).  This validator is a migration layer that fixes up
+        legacy on-disk configs (written by older versions of the app
+        that used ints/strings for bool fields) BEFORE the dataclass
+        constructor sees them.  Without it, a config.json with
+        ``"autostart": 1`` would silently store ``1`` instead of
+        ``True``, breaking every ``if cfg.autostart:`` check.
         """
         warnings: list[str] = []
         bool_fields = {

@@ -34,10 +34,13 @@ class OnboardingController:
         self.selected_microphone: Optional[str] = None
         self.selected_hotkey: str = "<f2>"
         self.selected_model: str = "small.en"
-
-        # Callbacks
-        self.on_step_change: Optional[Callable[[int], None]] = None
-        self.on_complete: Optional[Callable[[], None]] = None
+        # NEW-DEAD-033: removed the ``on_step_change`` and ``on_complete``
+        # callbacks — they were declared but never set by any caller.
+        # The renderer tracks step changes via the IPC response
+        # (``onboarding_next_step`` / ``onboarding_prev_step`` return
+        # the new step number), and completion is tracked via
+        # ``onboarding_completed`` in the config.  The callbacks were
+        # dead infrastructure.
 
     # ── First-run detection ──────────────────────────────────────────
 
@@ -104,28 +107,20 @@ class OnboardingController:
         """Advance to the next step. Returns the new step number."""
         if self._current_step < self._total_steps - 1:
             self._current_step += 1
-            if self.on_step_change:
-                self.on_step_change(self._current_step)
             if self._current_step == self._total_steps - 1:
                 # Last step reached
                 self.mark_complete()
-                if self.on_complete:
-                    self.on_complete()
         return self._current_step
 
     def prev_step(self) -> int:
         """Go back to the previous step. Returns the new step number."""
         if self._current_step > 0:
             self._current_step -= 1
-            if self.on_step_change:
-                self.on_step_change(self._current_step)
         return self._current_step
 
     def skip(self) -> None:
         """Skip onboarding entirely."""
         self.mark_complete()
-        if self.on_complete:
-            self.on_complete()
 
     # ─── Microphone selection ────────────────────────────────────────
 

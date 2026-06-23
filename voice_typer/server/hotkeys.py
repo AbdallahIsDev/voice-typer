@@ -51,9 +51,21 @@ class HotkeyBackend(ABC):
     def is_alive(self) -> bool:
         """Return True if the listener thread is running."""
 
-    @abstractmethod
+    # NEW-DEAD-009: ``diagnose`` was previously @abstractmethod, forcing
+    # every subclass to implement a debug string even though only test
+    # callers invoke it.  We provide a default no-op implementation so
+    # new backends (e.g. a future macOS or Linux native backend) don't
+    # have to implement it just to satisfy the Protocol.  Existing
+    # backends (PynputHotkey, Win32Hotkey, etc.) still override it
+    # because their tests rely on the diagnostic output.
     def diagnose(self) -> str:
-        """Return a human-readable diagnostic string."""
+        """Return a human-readable diagnostic string.
+
+        Default implementation returns an empty string.  Subclasses
+        override to provide backend-specific debug info (registered
+        hotkeys, listener thread state, etc.).
+        """
+        return ""
 
 
 # ─── Pynput backend ──────────────────────────────────────────────────────────
@@ -117,9 +129,21 @@ class PynputHotkey(HotkeyBackend):
                 f"Cannot parse hotkey {self.hotkey_str!r} for fallback"
             )
 
-        # For composite hotkeys (tuple), extract the target key only
-        match_key = target[1] if isinstance(target, tuple) else target
+        # NEW-DEAD-030: for composite hotkeys (tuple), extract BOTH the
+        # modifier keys and the target key.  Previously the fallback
+        # listener only matched on the target key, ignoring modifiers —
+        # so ``<ctrl>+<f2>`` would fire on bare ``<f2>``.  We now track
+        # which modifier keys are currently held (via the pynput
+        # on_press/on_release events) and require ALL of them to be held
+        # before firing the callback.
+        if isinstance(target, tuple):
+            modifier_keys, match_key = target
+        else:
+            modifier_keys, match_key = (), target
 
+        # Track currently-held modifier keys so we can check the full
+        # composite state before firing.
+        held_modifiers = set()
         # UX-001: track whether the matched key is currently held down
         # so we can fire the on_release callback exactly once per
         # press-release cycle (pynput fires repeated on_press events
@@ -127,13 +151,26 @@ class PynputHotkey(HotkeyBackend):
         held = {"value": False}
 
         def on_press(key):
+            # Track modifier presses.
+            if modifier_keys and key in modifier_keys:
+                held_modifiers.add(key)
             if key == match_key:
+                # NEW-DEAD-030: only fire if ALL modifiers are held.
+                if modifier_keys and len(held_modifiers) < len(modifier_keys):
+                    return
                 if not held["value"]:
                     held["value"] = True
-                    log.info("[HOTKEY FALLBACK] Matched key: %s", key)
+                    log.info(
+                        "[HOTKEY FALLBACK] Matched key: %s (mods=%d/%d)",
+                        key, len(held_modifiers), len(modifier_keys),
+                    )
                     callback()
 
         def on_release(key):
+            # NEW-DEAD-030: track modifier releases so the held_modifiers
+            # set stays accurate.
+            if modifier_keys and key in modifier_keys:
+                held_modifiers.discard(key)
             # UX-001: invoke the on_release callback (used by
             # push-to-talk mode) when the matched key is released.
             # The check ``held["value"]`` ensures we only fire on the

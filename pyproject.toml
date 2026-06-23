@@ -117,9 +117,15 @@ project-includes = ["voice_typer", "tests"]
 [tool.setuptools.packages.find]
 include = ["voice_typer*"]
 
-[tool.setuptools.package-data]
-"voice_typer.server" = ["assets/fonts/hgi-stroke-rounded.ttf"]
-
+# NEW-DEAD-003: removed the dead HugeIcons font reference (the
+# ``assets/fonts/*.ttf`` entry, ~1.9 MB).  The file was referenced as
+# package-data but no Python source file ever loaded it — the new
+# Electron app uses ``@hugeicons/react`` from npm instead.  The
+# ``assets/icons/`` directory referenced 19 SVG files that were also
+# unused; that directory doesn't even exist in the current source
+# tree (likely removed in an earlier refactor but the package-data
+# reference lingered).  Dropping the reference saves 1.9 MB in the
+# built wheel and installer.
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"

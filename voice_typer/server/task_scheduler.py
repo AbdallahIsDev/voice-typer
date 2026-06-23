@@ -94,9 +94,16 @@ def _prewarm_command() -> str | None:
     Task Scheduler action runs ``pythonw.exe`` directly with no cmd host
     (and thus no console window — pythonw.exe has no console by design).
 
-    Mirrors ``asr_setup.get_voice_typer_python()``: prefer the app venv
-    at ``~/.voice-typer/venv/`` (the interpreter Electron spawns), and
+    Mirrors the venv-resolution logic that the Electron main process
+    uses to spawn the IPC server: prefer the app venv at
+    ``~/.voice-typer/venv/`` (the interpreter Electron spawns), and
     fall back to ``sys.executable``.
+
+    NEW-DUP-001: previously this comment referenced
+    ``asr_setup.get_voice_typer_python()``, a function that no longer
+    exists (it was removed in an earlier refactor).  The comment is
+    now updated to describe the actual logic without referencing dead
+    code.
     """
     # Try pythonw.exe first (no console window).
     venv_pythonw = Path.home() / ".voice-typer" / "venv" / "Scripts" / "pythonw.exe"

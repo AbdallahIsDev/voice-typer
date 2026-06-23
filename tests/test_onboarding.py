@@ -84,28 +84,25 @@ class TestOnboardingSteps:
         ctrl._current_step = 0
         assert ctrl.prev_step() == 0
 
-    def test_on_step_change_callback(self, ctrl):
-        steps_reached = []
-        ctrl.on_step_change = lambda s: steps_reached.append(s)
-        ctrl.next_step()
-        assert len(steps_reached) == 1
-        assert steps_reached[0] == 1
+    def test_step_change_advances_step(self, ctrl):
+        """NEW-DEAD-033: callbacks were removed; verify step still advances."""
+        assert ctrl.next_step() == 1
+        assert ctrl._current_step == 1
 
-    def test_on_complete_callback_on_last_step(self, ctrl):
-        completed = []
-        ctrl.on_complete = lambda: completed.append(True)
+    def test_complete_on_last_step(self, ctrl):
+        """NEW-DEAD-033: callbacks were removed; verify completion still
+        marks the onboarding as done."""
         ctrl._current_step = 3
         ctrl.next_step()  # Step 4 = last step
-        assert len(completed) == 1
+        assert ctrl.is_first_run() is False
 
 
 class TestOnboardingSkip:
     def test_skip_marks_complete(self, ctrl):
-        completed = []
-        ctrl.on_complete = lambda: completed.append(True)
+        """NEW-DEAD-033: callbacks were removed; verify skip still
+        marks the onboarding as complete."""
         ctrl.skip()
         assert ctrl.is_first_run() is False
-        assert len(completed) == 1
 
 
 class TestOnboardingSelections:

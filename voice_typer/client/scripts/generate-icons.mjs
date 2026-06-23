@@ -1,11 +1,15 @@
 import sharp from 'sharp'
-import { writeFileSync, mkdirSync, readFileSync } from 'fs'
+import { writeFileSync, mkdirSync, readFileSync, existsSync } from 'fs'
 import os from 'os'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const root = resolve(__dirname, '..')
+// NEW-DEAD-034: renamed ``root`` → ``clientDir`` and kept
+// ``projectRoot`` for the repo root.  The old names (``root`` vs
+// ``projectRoot``) were confusing — ``root`` sounded like the repo
+// root but was actually the client/ directory.
+const clientDir = resolve(__dirname, '..')
 const projectRoot = resolve(__dirname, '..', '..', '..')
 const svgPath = resolve(__dirname, 'logo.svg')
 
@@ -17,8 +21,8 @@ const sizes = {
 }
 
 async function generateIcons(svg, label, suffix) {
-  const resourcesDir = resolve(root, 'resources')
-  const publicDir = resolve(root, 'src', 'renderer', 'public')
+  const resourcesDir = resolve(clientDir, 'resources')
+  const publicDir = resolve(clientDir, 'src', 'renderer', 'public')
 
   // Electron resources
   await sharp(Buffer.from(svg)).resize(512, 512).png().toFile(resolve(resourcesDir, `icon${suffix}.png`))
@@ -54,14 +58,42 @@ async function generateIcons(svg, label, suffix) {
 
 async function generateIco(pngPath, icoPath) {
   const { execSync } = await import('child_process')
-  const venvPython = resolve(os.homedir(), '.voice-typer', 'venv', 'Scripts', 'python.exe')
+  // NEW-DEAD-023: previously hardcoded the venv python path
+  // (``~/.voice-typer/venv/Scripts/python.exe``), which only works
+  // on Windows with that specific venv.  We now try a fallback chain:
+  //   1. The app venv python (Windows: python.exe, Linux/Mac: python3)
+  //   2. ``python3`` from PATH
+  //   3. ``python`` from PATH
+  // The first one that exists and can import PIL is used.
+  const candidates = [
+    resolve(os.homedir(), '.voice-typer', 'venv', 'Scripts', 'python.exe'),
+    resolve(os.homedir(), '.voice-typer', 'venv', 'bin', 'python3'),
+    'python3',
+    'python',
+  ]
   const icoScript = `
 from PIL import Image
 img = Image.open("${pngPath.replace(/\\/g, '/')}")
 img.save("${icoPath.replace(/\\/g, '/')}", format="ICO", sizes=[(16,16),(24,24),(32,32),(48,48),(64,64),(128,128),(256,256)])
 print("ICO generated")
 `
-  execSync(`"${venvPython}" -c "${icoScript.replace(/"/g, '\\"')}"`, { stdio: 'pipe' })
+  let lastErr = null
+  for (const py of candidates) {
+    // Skip venv candidates that don't exist on this platform.
+    if (py.includes('.voice-typer') && !existsSync(py)) continue
+    try {
+      execSync(`"${py}" -c "${icoScript.replace(/"/g, '\\"')}"`, { stdio: 'pipe' })
+      return  // success
+    } catch (e) {
+      lastErr = e
+      // Try next candidate
+    }
+  }
+  throw new Error(
+    `Failed to generate ICO: no working Python+PIL found. ` +
+    `Tried: ${candidates.join(', ')}. ` +
+    `Last error: ${lastErr?.message ?? 'unknown'}`
+  )
 }
 
 async function main() {
@@ -76,7 +108,7 @@ async function main() {
   await generateIcons(darkSvg, 'dark', '-dark')
 
   // .ico generation
-  const resourcesDir = resolve(root, 'resources')
+  const resourcesDir = resolve(clientDir, 'resources')
   await generateIco(
     resolve(resourcesDir, 'icon-256.png'),
     resolve(resourcesDir, 'icon.ico')
