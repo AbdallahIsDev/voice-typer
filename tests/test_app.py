@@ -10,7 +10,9 @@ import time
 import pytest
 import numpy as np
 from pathlib import Path
-from unittest.mock import MagicMock, patch, PropertyMock
+# TEST-021: removed unused `PropertyMock` import (ruff F401).
+# Path is used by TestSingleInstanceEnforcement (TEST-037).
+from unittest.mock import MagicMock, patch
 
 
 def _wait_for_busy_clear(app, timeout=2.0):
@@ -771,8 +773,6 @@ class TestHotkeyMapping:
 
     def test_register_hotkey_creates_backend(self, app, monkeypatch):
         """_register_hotkey should create a hotkey backend and call start()."""
-        from voice_typer.server.hotkeys import PynputHotkey
-        from pynput.keyboard import GlobalHotKeys
 
         # Ensure GlobalHotKeys works (mock returns a MagicMock with is_alive=True)
         mock_listener = MagicMock()
@@ -806,7 +806,6 @@ class TestHotkeyMapping:
 
     def test_register_esc_hotkey_creates_and_starts_backend(self, app, monkeypatch):
         """_register_esc_hotkey should create a backend and call start()."""
-        from pynput.keyboard import GlobalHotKeys
 
         mock_listener = MagicMock()
         mock_listener.is_alive.return_value = True
@@ -855,7 +854,6 @@ class TestHotkeyMapping:
 
     def test_register_hotkey_includes_esc_when_enabled(self, app, monkeypatch):
         """When esc_cancel_enabled is True, _register_hotkey should also call _register_esc_hotkey."""
-        from pynput.keyboard import GlobalHotKeys
 
         mock_listener = MagicMock()
         mock_listener.is_alive.return_value = True
@@ -871,7 +869,6 @@ class TestHotkeyMapping:
 
     def test_register_hotkey_skips_esc_when_disabled(self, app, monkeypatch):
         """When esc_cancel_enabled is False, _register_hotkey should skip ESC registration."""
-        from pynput.keyboard import GlobalHotKeys
 
         mock_listener = MagicMock()
         mock_listener.is_alive.return_value = True
@@ -1486,7 +1483,6 @@ class TestStartupResilience:
 
     def test_startup_registers_hotkey_before_model_load(self, app, monkeypatch):
         """Hotkey should be registered even if model loading fails."""
-        import time
         call_order = []
 
         def track_register_hotkey():
@@ -1727,7 +1723,6 @@ class TestExternalCorrectionsWiring:
 
     def test_configure_corrections_called_at_startup(self, app, monkeypatch):
         """_do_startup should call configure_corrections with config_dir."""
-        from voice_typer.server import text_cleanup
         called_with = {}
 
         def spy(config_dir=None, corrections_path=None):
@@ -1877,3 +1872,64 @@ class TestRestartAppCleanupPath:
             pass
 
         assert os_exit_calls == [], f"restart_app must not call os._exit; got {os_exit_calls}"
+
+
+class TestSingleInstanceEnforcement:
+    """TEST-037: verify VoiceTyperApp is only instantiated once per
+    process. The audit claimed ``VoiceTyperApp()`` was called twice in
+    startup code; investigation shows it's called exactly once (in
+    ``ipc_server.main()``). This test enforces that invariant so a
+    future refactor doesn't accidentally introduce a double-instantiation
+    bug.
+
+    The process-level single-instance guarantee is enforced by
+    ``_ensure_single_instance`` (Windows mutex), not by a Python
+    singleton pattern. This test verifies the call-site count; the
+    mutex behavior is tested in ``test_platform.py``.
+    """
+
+    def test_voice_typer_app_has_single_call_site(self):
+        """VoiceTyperApp() must be called from exactly one location."""
+        import ast
+        import voice_typer.server as server_pkg
+        pkg_dir = Path(server_pkg.__file__).parent
+        call_sites = []
+        for py_file in pkg_dir.glob("*.py"):
+            try:
+                tree = ast.parse(py_file.read_text())
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                    if node.func.id == "VoiceTyperApp":
+                        call_sites.append(f"{py_file.name}:{node.lineno}")
+        assert len(call_sites) == 1, (
+            f"VoiceTyperApp() should be called from exactly one location "
+            f"(ipc_server.main); found {len(call_sites)} call sites: {call_sites}"
+        )
+        assert "ipc_server.py" in call_sites[0], (
+            f"VoiceTyperApp() should only be called from ipc_server.py; "
+            f"found call at {call_sites[0]}"
+        )
+
+    def test_ensure_single_instance_is_called_from_main(self):
+        """ipc_server.main() must call _ensure_single_instance before
+        creating VoiceTyperApp, so a duplicate process exits before
+        loading any heavy modules."""
+        import voice_typer.server.ipc_server as ipc
+        source = Path(ipc.__file__).read_text()
+        assert "_ensure_single_instance" in source, (
+            "ipc_server.py must call _ensure_single_instance to enforce "
+            "the single-process invariant"
+        )
+        assert "VoiceTyperApp()" in source, (
+            "ipc_server.py must instantiate VoiceTyperApp exactly once"
+        )
+        # _ensure_single_instance must appear BEFORE VoiceTyperApp()
+        # in the source so the mutex is acquired before any heavy init.
+        si_idx = source.index("_ensure_single_instance")
+        app_idx = source.index("VoiceTyperApp()")
+        assert si_idx < app_idx, (
+            "_ensure_single_instance must be called BEFORE VoiceTyperApp() "
+            "so a duplicate process exits before loading torch/etc."
+        )
