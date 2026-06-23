@@ -189,14 +189,17 @@ class TestDispatchSetConfig:
         assert result == {"id": 1, "type": "ack"}
         assert mock_app.config._saved is True
 
-    def test_no_data_still_saves_and_acks(self, server, mock_app):
+    def test_no_data_returns_error(self, server, mock_app):
+        """NEW-IPC-005: set_config with no data field must return an error,
+        not silently succeed with {type: "ack"}."""
         mock_app.config._saved = False
         result = server._dispatch({
             "id": 1,
             "type": "set_config",
         })
-        assert result == {"id": 1, "type": "ack"}
-        assert mock_app.config._saved is True
+        assert result["type"] == "error"
+        assert "data: object" in result["data"]["message"]
+        assert mock_app.config._saved is False
 
     def test_ignores_unknown_fields_without_crashing(self, server, mock_app):
         """set_config with unknown fields should not crash."""
@@ -208,16 +211,19 @@ class TestDispatchSetConfig:
         assert result == {"id": 1, "type": "ack"}
         assert mock_app.config._saved is True
 
-    def test_non_dict_data_does_not_crash(self, server, mock_app):
-        """set_config with non-dict data (e.g. a string) should not crash."""
+    def test_non_dict_data_returns_error(self, server, mock_app):
+        """NEW-IPC-005: set_config with non-dict data must return an error,
+        not silently succeed with {type: "ack"}."""
         mock_app.config._saved = False
         result = server._dispatch({
             "id": 1,
             "type": "set_config",
             "data": "bad",
         })
-        assert result == {"id": 1, "type": "ack"}
-        assert mock_app.config._saved is True
+        assert result["type"] == "error"
+        assert "data: object" in result["data"]["message"]
+        # Config must NOT have been saved
+        assert mock_app.config._saved is False
         # Config fields should not have been overwritten
         assert mock_app.config.hotkey == "<f2>"
 
