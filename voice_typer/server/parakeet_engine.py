@@ -399,7 +399,10 @@ class ParakeetEngine:
     def _transcribe_impl(self, audio: np.ndarray) -> str:
         """Core transcription without lock or error handling for fallback.
 
-        Applies the same chunked approach as transcribe() for long audio.
+        NEW-CQ-027: NOT a duplicate of transcribe(). This method uses
+        _transcribe_segment_unlocked() (no lock) while transcribe()
+        uses _transcribe_segment() (with lock). The fallback path
+        calls this after releasing the lock for CPU retry.
         """
         duration = len(audio) / 16000
         if duration <= _CHUNK_SECONDS:

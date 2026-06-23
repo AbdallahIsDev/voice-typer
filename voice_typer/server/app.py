@@ -268,16 +268,10 @@ def _setup_logging():
         except OSError:
             pass
 
-    # Also log to stderr with ANSI colors when the output reaches a
-    # terminal.  In Electron dev mode, electron-vite spawns Electron with
-    # piped stdio; Python inherits the pipe so isatty() returns False
-    # even though the output goes to a terminal.  We detect this case by
-    # checking for ``--port`` in argv (Electron passes --port, standalone
-    # ``voice-typer`` does not) and add colors then too.
+    # Log to stderr with ANSI colors (terminal or --port mode).
     do_color = sys.stderr.isatty() or ("--port" in sys.argv)
     if sys.stderr is not None and do_color:
         stream = logging.StreamHandler()
-        # NEW-CLI-001: --debug sets VOICE_TYPER_DEBUG=1 → DEBUG to console
         debug_mode = os.environ.get("VOICE_TYPER_DEBUG", "").lower() in ("1", "true", "yes")
         stream.setLevel(logging.DEBUG if debug_mode else logging.INFO)
         stream.setFormatter(_ColorFormatter())
@@ -1515,11 +1509,7 @@ class VoiceTyperApp:
         window.show()
 
     def _open_config_file(self):
-        """Open config file for troubleshooting.
-
-        NEW-SEC-006: hardcode System32\\notepad.exe on Windows instead
-        of ``shutil.which("notepad")`` to prevent PATH poisoning.
-        """
+        """Open config file. NEW-SEC-006: hardcoded notepad path."""
         config_file = self.config.config_dir / "config.json"
         if not config_file.exists():
             self.config.save()

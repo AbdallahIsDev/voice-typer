@@ -1204,6 +1204,7 @@ class IPCServer:
 
 
 def main() -> None:
+    from voice_typer.__main__ import EXIT_BAD_ARGS, EXIT_CRASH
     """Create a ``VoiceTyperApp``, wrap it in an ``IPCServer``, and block.
 
     Designed as the subprocess entry point for an Electron frontend::
@@ -1259,7 +1260,7 @@ def main() -> None:
     port = args.port
     if port is not None and not (1 <= port <= 65535):
         print(f"Invalid port: {port} (must be 1..65535)", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_BAD_ARGS)
 
     server = IPCServer(app)
     server.start()
