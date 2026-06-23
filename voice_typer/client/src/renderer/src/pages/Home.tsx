@@ -70,6 +70,11 @@ export default function Home({ recordingState, lastError, onNavigate }: HomeProp
   const [cfg, setCfg] = useState<VoiceTyperConfig | null>(null)
   const { imageRef, shareAsImage } = useStatsShare()
 
+  // NEW-TS-008: normalize hotkey to uppercase for display. Server
+  // stores as `<f2>` (lowercase); display should be `F2` (uppercase).
+  const normalizeHotkey = (raw: string): string =>
+    raw.replace(/[<>]/g, '').toUpperCase()
+
   useEffect(() => {
     let cancelled = false
     const load = async () => {
@@ -77,8 +82,8 @@ export default function Home({ recordingState, lastError, onNavigate }: HomeProp
         const cfg = await call<VoiceTyperConfig>('get_config')
         if (!cancelled) setCfg(cfg)
         if (cancelled) return
-        const raw = cfg?.hotkey ?? '<F2>'
-        setHotkey(raw.replace(/[<>]/g, ''))
+        const raw = cfg?.hotkey ?? '<f2>'
+        setHotkey(normalizeHotkey(raw))
       } catch {}
       try {
         const s = await call<TodayStats>('get_today_stats')
@@ -108,8 +113,8 @@ export default function Home({ recordingState, lastError, onNavigate }: HomeProp
       try {
         const cfg = await call<VoiceTyperConfig>('get_config')
         if (cancelled) return
-        const raw = cfg?.hotkey ?? '<F2>'
-        setHotkey(raw.replace(/[<>]/g, ''))
+        const raw = cfg?.hotkey ?? '<f2>'
+        setHotkey(normalizeHotkey(raw))
       } catch {}
     }
     reloadHotkey()
