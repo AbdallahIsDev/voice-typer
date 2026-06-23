@@ -174,7 +174,7 @@ export default function DashboardPage({ onNavigate: _onNavigate }: DashboardPage
       const [cfg, todayStats, history] = await Promise.all([
         call<VoiceTyperConfig>('get_config'),
         call<TodayStats>('get_today_stats').catch(() => ({ count: 0, chars: 0, word_count: 0, duration: 0 })),
-        call<HistoryRecord[]>('get_history', { limit: 10000 }).catch(() => [] as HistoryRecord[]),
+        call<HistoryRecord[]>('get_history', { limit: 200 }).catch(() => [] as HistoryRecord[]),  // NEW-IPC-004: capped at 200
       ])
 
       const recs = history ?? []
