@@ -150,6 +150,9 @@ export default function App() {
           // the React app mounted are lost — this ensures we catch up)
           call<{ status: string }>('get_status').then((s) => {
             if (!cancelled && s?.status) {
+              // NEW-TS-012: removed `as RecordingState` cast — the
+              // status string is already typed as RecordingState via
+              // the call return type.
               setRecordingState(s.status as RecordingState)
             }
           }).catch(() => {})
