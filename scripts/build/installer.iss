@@ -27,6 +27,13 @@ WizardStyle=modern
 PrivilegesRequired=lowest
 DisableProgramGroupPage=yes
 UninstallDisplayIcon={app}\{#MyAppExeName}
+; NEW-SEC-018: enforce minimum Windows version and architecture.
+; MinVersion=10.0 prevents install on Windows 7/8/8.1 (unsupported).
+; ArchitecturesAllowed=x64compatible prevents install on ARM64
+; (no native torch wheels) and 32-bit Windows (deprecated).
+MinVersion=10.0
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -35,8 +42,11 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "autostart"; Description: "&Launch on Windows startup"; GroupDescription: "Startup options:"; Flags: checkedonce
 
 [Files]
-Source: "{#MyBuildDir}\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#MyBuildDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; NEW-SEC-018: use confirmoverwrite instead of ignoreversion so a
+; tampered installer with a lower file version can't silently replace
+; a running app. confirmoverwrite prompts the user before overwriting.
+Source: "{#MyBuildDir}\{#MyAppExeName}"; DestDir: "{app}"; Flags: confirmoverwrite
+Source: "{#MyBuildDir}\*"; DestDir: "{app}"; Flags: confirmoverwrite recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"
