@@ -84,26 +84,23 @@ class CrashRecovery:
 
         SEC-007: on POSIX, restricts file permissions to 0o600 so
         transcription text in the recovery file is not world-readable.
+
+        NEW-SEC-008: uses the shared _secure_atomic_write which applies
+        O_NOFOLLOW on POSIX to prevent symlink TOCTOU attacks.
         """
         try:
+            from voice_typer.server.config import _secure_atomic_write
             self._path.parent.mkdir(parents=True, exist_ok=True)
             if sys.platform != "win32":
                 try:
                     os.chmod(self._path.parent, 0o700)
                 except OSError as e:
                     log.warning("[RECOVERY] Failed to chmod dir: %s", e)
-            tmp = self._path.with_suffix(".tmp")
             with self._lock:
                 snapshot = json.dumps(
                     {"entries": self._entries}, indent=2, ensure_ascii=False,
                 )
-            tmp.write_text(snapshot, encoding="utf-8")
-            if sys.platform != "win32":
-                try:
-                    os.chmod(tmp, 0o600)
-                except OSError as e:
-                    log.warning("[RECOVERY] Failed to chmod file: %s", e)
-            tmp.replace(self._path)
+            _secure_atomic_write(self._path, snapshot)
         except Exception as exc:
             log.error("[RECOVERY] Failed to save: %s", exc)
 

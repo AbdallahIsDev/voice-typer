@@ -150,25 +150,20 @@ class VocabularyManager:
         """
         import os
         import time as _time
+        from voice_typer.server.config import _secure_atomic_write
 
         max_retries = 3
         last_exc: Exception | None = None
         try:
             self._user_path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self._user_path.with_suffix(".tmp")
-            with open(tmp, "w", encoding="utf-8") as fh:
-                fh.write(json.dumps(self._data, indent=2, ensure_ascii=False))
-                fh.flush()
-                try:
-                    os.fsync(fh.fileno())
-                except OSError:
-                    # fsync may not be available on all platforms / FS
-                    # types (network mounts). The write is still
-                    # durable-enough for our purposes.
-                    pass
+            content = json.dumps(self._data, indent=2, ensure_ascii=False)
+            # NEW-SEC-008: use the shared secure atomic write which
+            # applies O_NOFOLLOW on POSIX to prevent symlink TOCTOU.
+            # We still retry on PermissionError (file locked by
+            # editor/cloud-sync) by re-attempting the write.
             for attempt in range(max_retries):
                 try:
-                    os.replace(str(tmp), str(self._user_path))
+                    _secure_atomic_write(self._user_path, content)
                     log.debug("[VOCAB] Saved user vocabulary")
                     return
                 except PermissionError as exc:
@@ -184,8 +179,8 @@ class VocabularyManager:
                     else:
                         log.error(
                             "[VOCAB] Failed to save user vocabulary after %d "
-                            "attempts: %s (tmp file left at %s)",
-                            max_retries, exc, tmp,
+                            "attempts: %s",
+                            max_retries, exc,
                         )
                 except OSError as exc:
                     last_exc = exc

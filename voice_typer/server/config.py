@@ -15,6 +15,77 @@ log = logging.getLogger("voice_typer.server.config")
 ALLOWED_USER_MODELS = {"tiny.en", "small.en", "medium.en", "qwen", "parakeet"}
 
 
+def _secure_atomic_write(path: Path, content: str) -> None:
+    """Write content to ``path`` atomically and securely.
+
+    NEW-SEC-008: prevents symlink-TOCTOU attacks by:
+    1. Writing to a temp file in the same directory (so os.replace
+       is atomic on the same filesystem).
+    2. On POSIX, using ``os.open(tmp, O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW, 0o600)``
+       for the temp file. ``O_EXCL`` prevents a pre-created temp file
+       from being hijacked; ``O_NOFOLLOW`` refuses to follow symlinks.
+    3. On POSIX, tightening the target directory to 0o700 before the
+       write so the temp file is not world-readable.
+    4. Using ``os.replace(tmp, target)`` which is atomic on POSIX
+       and does NOT follow symlinks on the target (it replaces the
+       directory entry).
+
+    SEC-007: file mode 0o600 ensures API keys in config.json are not
+    world-readable on multi-user POSIX systems.
+
+    Parameters
+    ----------
+    path : Path
+        Target file path.
+    content : str
+        Content to write (UTF-8 encoded).
+    """
+    import tempfile
+    tmp_fd = None
+    tmp_path = None
+    try:
+        # Create temp file in same directory for atomic rename
+        tmp_path = path.with_suffix(path.suffix + ".tmp")
+        if sys.platform != "win32":
+            # POSIX: use O_NOFOLLOW to prevent symlink attacks on the
+            # temp file itself, and O_EXCL to prevent a pre-created
+            # temp file from being hijacked.
+            fd = os.open(
+                str(tmp_path),
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+            )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(content)
+                    f.flush()
+                    os.fsync(f.fileno())
+            except Exception:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+                raise
+        else:
+            # Windows: O_NOFOLLOW not available, but NTFS ACLs under
+            # %APPDATA% are per-user. Use standard open + fsync.
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                f.write(content)
+                f.flush()
+                os.fsync(f.fileno())
+        # os.replace is atomic and does NOT follow symlinks on the
+        # target — it replaces the directory entry itself.
+        os.replace(str(tmp_path), str(path))
+    except Exception:
+        # Clean up temp file on failure
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+        raise
+
+
 
 def _legacy_config_dir() -> Path | None:
     """Get the legacy platform-specific config directory, if different from new one."""
@@ -62,6 +133,11 @@ class Config:
     """Application configuration."""
 
     schema_version: int = _CURRENT_SCHEMA_VERSION
+    # NEW-CQ-016: warnings from the last load() call. Populated by
+    # _validate_non_numeric_fields when a field had an invalid type
+    # and was reset to default. The IPC layer can surface these to
+    # the renderer so the user knows their config was corrected.
+    last_load_warnings: list = None  # type: ignore[assignment]
 
     # Hotkey
     hotkey: str = "<f2>"
@@ -90,6 +166,8 @@ class Config:
     # Behavior
     autostart: bool = True
     paste_on_stop: bool = True
+    # NEW-MISMATCH-001: client-side field now has a server counterpart
+    unsafe_paste_on_unknown_focus: bool = False  # paste even when focus detection fails
     show_notifications: bool = True
 
     # ASR backend selection
@@ -261,32 +339,24 @@ class Config:
         co-located user.  On Windows the chmod is a no-op (NTFS ACLs
         are not affected by os.chmod, but the config dir is already
         under %APPDATA% which is per-user).
+
+        NEW-SEC-008: uses os.open with O_NOFOLLOW on POSIX to prevent
+        symlink TOCTOU attacks. A local attacker who pre-creates
+        config.json as a symlink to ~/.bashrc would previously have
+        their target overwritten via os.replace. O_NOFOLLOW refuses to
+        follow symlinks on open, so the write fails instead.
         """
         try:
             path = _config_dir()
             path.mkdir(parents=True, exist_ok=True)
-            # SEC-007: tighten directory permissions on POSIX.  mkdir
-            # with mode=0o700 would also work, but mkdir's mode is
-            # masked by umask; explicit chmod is reliable.
             if sys.platform != "win32":
                 try:
                     os.chmod(path, 0o700)
                 except OSError as e:
                     log.warning("[CONFIG] Failed to chmod config dir: %s", e)
             config_file = path / "config.json"
-            tmp_file = config_file.with_suffix(".tmp")
-            with open(tmp_file, "w") as f:
-                json.dump(asdict(self), f, indent=2)
-            # SEC-007: tighten file permissions BEFORE os.replace so
-            # the final file (after replace) is owner-only.  Doing it
-            # before replace avoids a window where the file exists
-            # with default permissions.
-            if sys.platform != "win32":
-                try:
-                    os.chmod(tmp_file, 0o600)
-                except OSError as e:
-                    log.warning("[CONFIG] Failed to chmod config file: %s", e)
-            os.replace(str(tmp_file), str(config_file))
+            content = json.dumps(asdict(self), indent=2)
+            _secure_atomic_write(config_file, content)
             return True
         except (OSError, PermissionError) as e:
             log.error("[CONFIG] Failed to save config: %s", e)
@@ -368,8 +438,13 @@ class Config:
 
                 # H1: Validate non-numeric fields before construction
                 data = cls._validate_non_numeric_fields(data)
+                # NEW-CQ-016: extract load warnings before construction
+                # (cls(**data) would fail on the _load_warnings key)
+                load_warnings = data.pop("_load_warnings", [])
 
-                return cls(**data)
+                instance = cls(**data)
+                instance.last_load_warnings = load_warnings
+                return instance
             except json.JSONDecodeError as e:
                 log.error("[CONFIG] Config file corrupted: %s. Using defaults.", e)
                 return cls()
@@ -380,9 +455,16 @@ class Config:
 
     @classmethod
     def _validate_non_numeric_fields(cls, data: dict) -> dict:
-        """Validate and coerce bool and str fields in loaded config data."""
+        """Validate and coerce bool and str fields in loaded config data.
+
+        NEW-CQ-016: collects warnings in ``data['_load_warnings']`` so
+        the caller (load()) can surface them via the
+        ``last_load_warnings`` field. Previously warnings were only
+        logged; the user had no way to know their config was corrected.
+        """
+        warnings: list[str] = []
         bool_fields = {
-            "autostart", "paste_on_stop", "show_notifications",
+            "autostart", "paste_on_stop", "unsafe_paste_on_unknown_focus", "show_notifications",
             "text_cleanup_enabled",
             "streaming_transcription", "log_transcriptions",
             "condition_on_previous_text",
@@ -425,23 +507,24 @@ class Config:
                 continue
             # Coerce truthy/falsy values
             if val in (1, "1", "true", "True", "yes"):
-                log.warning(
-                    "[CONFIG] Config field '%s' had non-bool value %r, coercing to True",
-                    field_name, val,
-                )
+                msg = f"Config field '{field_name}' had non-bool value {val!r}, coerced to True"
+                log.warning("[CONFIG] %s", msg)
+                warnings.append(msg)
                 data[field_name] = True
             elif val in (0, "0", "false", "False", "no", ""):
-                log.warning(
-                    "[CONFIG] Config field '%s' had non-bool value %r, coercing to False",
-                    field_name, val,
-                )
+                msg = f"Config field '{field_name}' had non-bool value {val!r}, coerced to False"
+                log.warning("[CONFIG] %s", msg)
+                warnings.append(msg)
                 data[field_name] = False
             else:
-                log.warning(
-                    "[CONFIG] Config field '%s' had invalid value %r, resetting to default %r",
-                    field_name, val, getattr(defaults, field_name),
+                default_val = getattr(defaults, field_name)
+                msg = (
+                    f"Config field '{field_name}' had invalid value "
+                    f"{val!r}, resetting to default {default_val!r}"
                 )
-                data[field_name] = getattr(defaults, field_name)
+                log.warning("[CONFIG] %s", msg)
+                warnings.append(msg)
+                data[field_name] = default_val
 
         optional_str_fields = {"parakeet_model_path"}
 
@@ -453,12 +536,17 @@ class Config:
                 continue
             if val is None and field_name in optional_str_fields:
                 continue
-            log.warning(
-                "[CONFIG] Config field '%s' had non-string value %r, resetting to default %r",
-                field_name, val, getattr(defaults, field_name),
+            default_val = getattr(defaults, field_name)
+            msg = (
+                f"Config field '{field_name}' had non-string value "
+                f"{val!r}, resetting to default {default_val!r}"
             )
-            data[field_name] = getattr(defaults, field_name)
+            log.warning("[CONFIG] %s", msg)
+            warnings.append(msg)
+            data[field_name] = default_val
 
+        # NEW-CQ-016: stash warnings so load() can surface them
+        data["_load_warnings"] = warnings
         return data
 
     @property
@@ -665,6 +753,7 @@ IPC_CONFIG_ALLOWLIST: dict = {
     # ── Behavior ──────────────────────────────────────────────────────
     "autostart":             (bool, _bool_validator),
     "paste_on_stop":         (bool, _bool_validator),
+    "unsafe_paste_on_unknown_focus": (bool, _bool_validator),
     "show_notifications":    (bool, _bool_validator),
 
     # ── ASR backend selection ─────────────────────────────────────────

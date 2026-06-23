@@ -108,15 +108,18 @@ class TemplateManager:
             self._templates = []
 
     def _save(self) -> None:
-        """Save templates to JSON file."""
+        """Save templates to JSON file.
+
+        NEW-SEC-008: uses the shared _secure_atomic_write which applies
+        O_NOFOLLOW on POSIX to prevent symlink TOCTOU attacks.
+        """
         try:
+            from voice_typer.server.config import _secure_atomic_write
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self._path.with_suffix(".tmp")
-            tmp.write_text(
-                json.dumps({"templates": self._templates}, indent=2, ensure_ascii=False),
-                encoding="utf-8",
+            content = json.dumps(
+                {"templates": self._templates}, indent=2, ensure_ascii=False,
             )
-            tmp.replace(self._path)
+            _secure_atomic_write(self._path, content)
             log.debug("[TEMPLATES] Saved %d templates", len(self._templates))
         except Exception as exc:
             log.error("[TEMPLATES] Failed to save: %s", exc)

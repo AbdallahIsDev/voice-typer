@@ -322,7 +322,13 @@ class TestAtomicConfigSave:
         original_data = config_file.read_text()
 
         c2 = Config(hotkey="<f9>")
-        with patch("builtins.open", side_effect=OSError("disk full")):
+        # NEW-SEC-008: save() now delegates to _secure_atomic_write.
+        # Mock it to raise OSError so the test verifies the existing
+        # config is preserved when the write fails.
+        with patch(
+            "voice_typer.server.config._secure_atomic_write",
+            side_effect=OSError("disk full"),
+        ):
             try:
                 c2.save()
             except OSError:
@@ -462,10 +468,12 @@ class TestM4SaveErrorHandling:
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         c = Config()
         import json
-        original_dump = json.dump
-        def failing_dump(*args, **kwargs):
+        # NEW-SEC-008: save() now uses json.dumps (string) not json.dump (file).
+        # Mock json.dumps to raise OSError so the test verifies save()
+        # returns False on error.
+        def failing_dumps(*args, **kwargs):
             raise OSError("disk full")
-        monkeypatch.setattr("json.dump", failing_dump)
+        monkeypatch.setattr("json.dumps", failing_dumps)
         result = c.save()
         assert result is False
 
