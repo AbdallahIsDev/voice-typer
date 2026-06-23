@@ -54,13 +54,7 @@ def _make_icon(state: AppState, size: int = 0) -> Image.Image:
         AppState.TRANSCRIBING: (52, 152, 219, 255),
         AppState.LOADING: (243, 156, 18, 255),
         AppState.ERROR: (231, 76, 60, 255),
-        AppState.PAUSED: (155, 89, 182, 255),
-        AppState.WARMING_UP: (230, 126, 34, 255),
-        AppState.DOWNLOADING: (52, 73, 94, 255),
-        AppState.PROCESSING: (22, 160, 133, 255),
         AppState.CANCELLING: (192, 57, 43, 255),
-        AppState.SETUP: (41, 128, 185, 255),
-        AppState.NOT_CONFIGURED: (149, 165, 166, 255),
     }
     color = colors.get(state, (120, 120, 120, 255))
 

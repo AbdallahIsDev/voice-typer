@@ -59,7 +59,7 @@ class TrayIcon:
         self._state = AppState.IDLE
         self._message = ""
         self._notifications_enabled = True
-        self._microphones: list[dict] = []  # populated by app
+        # NEW-CQ-008: _microphones cache removed — was write-only
         self._autostart_enabled = False
 
         # Pre-run state queue — flushed once pystray event loop is live
@@ -101,9 +101,8 @@ class TrayIcon:
                 self._pending_states.append((state, message))
 
     def set_microphones(self, mics: list[dict]) -> None:
-        """Update the cached microphone list."""
-        self._microphones = mics
-        self._menu_cache_valid = False
+        """No-op: microphone cache removed (NEW-CQ-008)."""
+        pass
 
     def set_autostart_enabled(self, enabled: bool) -> None:
         """Update the cached autostart state."""

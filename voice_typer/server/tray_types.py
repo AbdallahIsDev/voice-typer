@@ -12,27 +12,19 @@ from typing import Protocol
 class AppState(Enum):
     """Tray icon + app lifecycle states.
 
-    ARCH-035: the tray icon only renders 4 distinct icons (IDLE,
-    RECORDING, TRANSCRIBING, ERROR). The other states (PAUSED,
-    WARMING_UP, DOWNLOADING, etc.) are used for status text /
-    accessibility labels and don't have unique icons. They're kept
-    as enum values so callers can ask "is the app in a non-idle
-    state" without inspecting the status string. Removing them would
-    lose semantic information; reducing to 4 would force callers to
-    overload the status text.
+    NEW-CQ-002: removed dead values PAUSED, WARMING_UP, DOWNLOADING,
+    PROCESSING, SETUP, NOT_CONFIGURED — they were never set in
+    production code, only referenced in the icon color dict. The
+    icon colors for those states are also removed from tray_icon.py.
+    CANCELLING is kept because it IS set during the cancel path
+    (recording_controller.py:381).
     """
     IDLE = "idle"
     RECORDING = "recording"
     TRANSCRIBING = "transcribing"
     LOADING = "loading"
     ERROR = "error"
-    PAUSED = "paused"
-    WARMING_UP = "warming_up"
-    DOWNLOADING = "downloading"
-    PROCESSING = "processing"
     CANCELLING = "cancelling"
-    SETUP = "setup"
-    NOT_CONFIGURED = "not_configured"
 
 
 class TrayController(Protocol):
