@@ -361,7 +361,17 @@ def parse_hotkey_to_vk(hotkey_str: str) -> Optional[int]:
 
 
 def parse_hotkey_to_win32(hotkey_str: str) -> Optional[tuple[int, int]]:
-    """Convert a hotkey string to ``(virtual_key, RegisterHotKey modifiers)``."""
+    """Convert a hotkey string to ``(virtual_key, RegisterHotKey modifiers)``.
+
+    NEW-CQ-022: previously this returned the LAST non-modifier key found
+    in the ``+``-separated string. For ``f2+ctrl+1+3``, it would set
+    key_name to ``"3"``, missing ``"1"`` and ``"f2"``. The fix uses
+    FIRST-match-wins: the first non-modifier token is the primary key,
+    and any subsequent non-modifier tokens are ignored (with a warning).
+    This matches user expectation: ``<f2>`` is the hotkey, ``ctrl`` is
+    the modifier; writing ``f2+ctrl`` vs ``ctrl+f2`` should produce the
+    same result.
+    """
     _init_vk_map()
     modifiers = 0
     key_name = None
@@ -382,7 +392,16 @@ def parse_hotkey_to_win32(hotkey_str: str) -> Optional[tuple[int, int]]:
         if part in {"cmd", "win", "super"}:
             modifiers |= _MOD_WIN
             continue
-        key_name = part
+        # NEW-CQ-022: first non-modifier key wins. Subsequent non-modifier
+        # tokens are ignored (they're likely a typo or a multi-key combo
+        # that Win32 RegisterHotKey doesn't support).
+        if key_name is None:
+            key_name = part
+        else:
+            log.warning(
+                "[HOTKEY] Ignoring extra key %r in hotkey %r (already have %r)",
+                part, hotkey_str, key_name,
+            )
 
     if key_name is None:
         return None
@@ -545,6 +564,12 @@ class WindowsNativeHotkey(HotkeyBackend):
         drain per hour on laptops.  10Hz is still responsive enough
         for a push-to-talk hotkey (max 100ms latency) while halving
         the wakeups.
+
+        NEW-CQ-029: now also detects key-up transitions for PTT mode.
+        When the key transitions from pressed to not-pressed, the
+        ``_on_release_callback`` is invoked (if set). This makes PTT
+        mode work with the Win32 native polling backend, not just the
+        pynput fallback.
         """
         vk = self._vk
         was_pressed = False
@@ -566,6 +591,18 @@ class WindowsNativeHotkey(HotkeyBackend):
                         "[HOTKEY] Callback raised in polling loop; "
                         "hotkey still armed for next press"
                     )
+            # NEW-CQ-029: detect key-up transition for PTT mode.
+            # Fire on_release when the key transitions from pressed
+            # to not-pressed.
+            if not is_pressed and was_pressed:
+                if self._on_release_callback is not None:
+                    log.info("[HOTKEY] Key released (PTT on_release)")
+                    try:
+                        self._on_release_callback()
+                    except Exception:
+                        log.exception(
+                            "[HOTKEY] on_release callback raised in polling loop"
+                        )
             was_pressed = is_pressed
             # PERF-003: 100ms = 10Hz (was 50ms = 20Hz)
             # pyrefly: ignore [missing-attribute]
