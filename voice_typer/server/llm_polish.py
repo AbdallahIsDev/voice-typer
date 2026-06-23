@@ -15,7 +15,6 @@ Pipeline order: transcribe → text cleanup → vocabulary → templates → LLM
 
 import json
 import logging
-import re
 from typing import Optional
 from urllib.request import Request, urlopen
 from urllib.error import URLError

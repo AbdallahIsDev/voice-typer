@@ -500,20 +500,10 @@ def _capitalize_pronoun_i(text: str) -> str:
     return ''.join(result)
 
 
-def _add_terminal_punctuation(text: str) -> str:
-    """Add terminal punctuation to sentences that lack it.
-
-    REMOVED from the cleanup pipeline by default.  Still available
-    for callers who explicitly want auto-punctuation.
-    """
-    if not text or text[-1] in ".!?":
-        return text
-    words = text.split()
-    if len(words) <= 4:
-        return text
-    if _looks_like_question(text):
-        return f"{text}?"
-    return f"{text}."
+# NEW-CQ-007: _add_terminal_punctuation deleted. The safe variant
+# (_add_safe_terminal_punctuation) is the only one used in the pipeline.
+# The unsafe variant was dead code that shipped in the bundle but was
+# never called.
 
 
 # ─── M2: File extension fix ──────────────────────────────────────────────
