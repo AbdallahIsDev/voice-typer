@@ -277,7 +277,9 @@ def _setup_logging():
     do_color = sys.stderr.isatty() or ("--port" in sys.argv)
     if sys.stderr is not None and do_color:
         stream = logging.StreamHandler()
-        stream.setLevel(logging.INFO)
+        # NEW-CLI-001: --debug sets VOICE_TYPER_DEBUG=1 → DEBUG to console
+        debug_mode = os.environ.get("VOICE_TYPER_DEBUG", "").lower() in ("1", "true", "yes")
+        stream.setLevel(logging.DEBUG if debug_mode else logging.INFO)
         stream.setFormatter(_ColorFormatter())
         root.addHandler(stream)
 
@@ -1504,23 +1506,26 @@ class VoiceTyperApp:
         window.show()
 
     def _open_config_file(self):
-        """Open raw settings file for troubleshooting."""
+        """Open config file for troubleshooting.
+
+        NEW-SEC-006: hardcode System32\\notepad.exe on Windows instead
+        of ``shutil.which("notepad")`` to prevent PATH poisoning.
+        """
         config_file = self.config.config_dir / "config.json"
         if not config_file.exists():
             self.config.save()
-
-        import shutil
         import subprocess
         try:
             if sys.platform == "win32":
-                editor = shutil.which("notepad") or "notepad"
-                subprocess.Popen([editor, str(config_file)])
+                notepad = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "notepad.exe"
+                if notepad.exists():
+                    subprocess.Popen([str(notepad), str(config_file)])
+                else:
+                    os.startfile(str(config_file))  # type: ignore[attr-defined]
             elif sys.platform == "darwin":
-                editor = shutil.which("open") or "open"
-                subprocess.Popen([editor, str(config_file)])
+                subprocess.Popen(["open", str(config_file)])
             else:
-                editor = shutil.which("xdg-open") or "xdg-open"
-                subprocess.Popen([editor, str(config_file)])
+                subprocess.Popen(["xdg-open", str(config_file)])
         except Exception as e:
             log.warning("[CONFIG] Could not open editor: %s", e)
             self.tray.notify("Voice Typer", f"Config file:\n{config_file}")

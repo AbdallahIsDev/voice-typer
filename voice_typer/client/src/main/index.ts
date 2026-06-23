@@ -533,7 +533,8 @@ function createBubbleWindow(): BrowserWindow {
     console.error(`${ts()}  ${BUBBLE_CLR}[BUBBLE] preload-error file=${file}${RESET}`, err);
   });
   win.webContents.on("console-message", (_e, level, message, line, source) => {
-    if (message.includes("Content-Security-Policy")) return; // suppress dev warning
+    // NEW-SEC-002: no longer suppress CSP warnings — if a CSP violation
+    // occurs it should be visible in the log so we can fix it.
     if (level >= 2) {
       const tag = ["VRB", "INF", "WRN", "ERR"][level] ?? "LOG";
       console.warn(`${ts()}  ${BUBBLE_CLR}[BUBBLE renderer ${tag}] ${message} (${source}:${line})${RESET}`);
@@ -911,15 +912,19 @@ app.whenReady().then(() => {
   }
 
   // ── Content Security Policy (HTTP headers) ───────────────────
-  // SEC-012: CSP is also set via <meta> tags in index.html and
-  // bubble.html for production file:// loads, but certain directives
+  // SEC-012 / NEW-SEC-002: CSP is also set via <meta> tags in index.html
+  // and bubble.html for production file:// loads, but certain directives
   // (frame-ancestors, form-action) are only honored when delivered
   // as actual HTTP headers.  Setting them here via Electron's
   // onHeadersReceived ensures they're properly enforced in dev mode
-  // (http://localhost:5173) and silences the Electron security warning.
+  // (http://localhost:5173) and in production.
+  //
+  // NEW-SEC-002: script-src does NOT include 'unsafe-inline' — the
+  // renderer uses Vite module scripts (type="module") which are covered
+  // by 'self'.  Inline event handlers (onclick="...") are blocked.
   const CSP = [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline'",
+    "script-src 'self'",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data:",
     "font-src 'self' data:",
