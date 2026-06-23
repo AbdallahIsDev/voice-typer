@@ -76,7 +76,15 @@ build = [
     "wheel",
 ]
 # Windows volume ducking — kept as alias for explicit pip install .[windows]
-windows = ["pycaw>=20230407", "comtypes>=1.1"]
+# BUILD-N24: include pywin32 so shortcut creation uses the native COM
+# approach (WScript.Shell via win32com.client) instead of falling back
+# to the slower, less robust PowerShell path. pywin32 is ~10 MB which
+# is acceptable for the Windows installer payload.
+windows = [
+    "pycaw>=20230407",
+    "comtypes>=1.1",
+    "pywin32>=306; sys_platform == 'win32'",
+]
 # macOS volume ducking — kept as alias for explicit pip install .[macos]
 macos = ["pyobjc-core>=9.0", "pyobjc-framework-CoreAudio>=9.0"]
 # Noise filtering (optional — high-pass + gate use scipy which is already a dep)

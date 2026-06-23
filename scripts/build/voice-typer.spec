@@ -43,6 +43,12 @@ a = Analysis(
         "pycaw",
         "comtypes",
         "comtypes.gen",
+        # BUILD-N24: pywin32 (win32com.client) is used by platform.py
+        # to create Desktop/Start Menu shortcuts via the native COM
+        # approach (WScript.Shell). Without this hiddenimport, the
+        # bundled EXE falls back to the slower PowerShell path.
+        "win32com",
+        "win32com.client",
         # macOS volume ducking — lazy-imported inside
         # MacVolumeBackend.initialize().
         "CoreAudio",
