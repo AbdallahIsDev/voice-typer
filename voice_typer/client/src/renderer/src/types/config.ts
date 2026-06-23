@@ -150,27 +150,9 @@ export interface MicrophoneDevice {
   rate?: number
 }
 
-export type PythonRequestType =
-  | 'get_config'
-  | 'update_config'
-  | 'get_microphones'
-  | 'restart'
-
-export interface PythonRequest {
-  id: string
-  type: PythonRequestType
-  data?: Record<string, unknown>
-}
-
-export interface PythonResponse {
-  id: string
-  type: string
-  success: boolean
-  data?: unknown
-  error?: string
-}
-
-export interface PythonEvent {
-  type: string
-  data?: Record<string, unknown>
-}
+// NEW-TS-002/003: PythonRequestType / PythonRequest / PythonResponse /
+// PythonEvent types deleted. They were never imported anywhere, and
+// the IPC command names were wrong ('update_config' should be
+// 'set_config', 'restart' should be 'restart_app'). The actual IPC
+// contract is defined by the server's _dispatch() method; the
+// renderer uses untyped `call<T>(cmd, data)` which is sufficient.

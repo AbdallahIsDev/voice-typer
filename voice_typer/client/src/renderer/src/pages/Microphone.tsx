@@ -11,27 +11,19 @@ import {
 import PageHeading from '@/components/PageHeading'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import type { VoiceTyperConfig } from '@/types/config'
+// NEW-TS-011: import the shared MicrophoneDevice type instead of
+// re-declaring it as MicrophoneDevice. The two interfaces were identical.
+import type { VoiceTyperConfig, MicrophoneDevice } from '@/types/config'
 import { Spinner } from '@/components/Spinner'
 
 // Module-level cache — persists across page navigations so microphone settings
 // render instantly on re-visit instead of showing a loading spinner.
-let _cachedMicrophones: MicDevice[] = []
+let _cachedMicrophones: MicrophoneDevice[] = []
 let _cachedConfig: VoiceTyperConfig | null = null
-
-interface MicDevice {
-  index: number
-  id?: string
-  name: string
-  host_api: string
-  default?: boolean
-  channels?: number
-  rate?: number
-}
 
 export default function MicrophonePage() {
   const { call } = usePython()
-  const [microphones, setMicrophones] = useState<MicDevice[]>(_cachedMicrophones)
+  const [microphones, setMicrophones] = useState<MicrophoneDevice[]>(_cachedMicrophones)
   const [config, setConfig] = useState<VoiceTyperConfig | null>(_cachedConfig)
   const [loading, setLoading] = useState(true)
   const [testRunning, setTestRunning] = useState(false)
@@ -44,7 +36,7 @@ export default function MicrophonePage() {
     setLoading(true)
     try {
       const [mics, cfg] = await Promise.all([
-        call<MicDevice[]>('get_microphones'),
+        call<MicrophoneDevice[]>('get_microphones'),
         call<VoiceTyperConfig>('get_config'),
       ])
       _cachedMicrophones = Array.isArray(mics) ? mics : []
