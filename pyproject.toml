@@ -41,6 +41,12 @@ dependencies = [
     # SUPPLY-001: psutil is used by _another_voice_typer_alive
     # (ARCH-012) and is required for process scanning on all platforms.
     "psutil>=5.9,<7.0",
+    # NEW-CQ-009: huggingface_hub is used by asr_setup.py,
+    # parakeet_engine.py, service.py, and transcription.py for
+    # snapshot_download. Previously imported with # type: ignore
+    # but not declared — cold pip install succeeded but first model
+    # load crashed with ModuleNotFoundError.
+    "huggingface_hub>=0.20,<1.0",
     # Volume ducking on Windows (pycaw + comtypes).
     # Lazy-imported in WinVolumeBackend — safe on other platforms.
     "pycaw>=20230407; sys_platform == 'win32'",
@@ -87,6 +93,10 @@ windows = [
 ]
 # macOS volume ducking — kept as alias for explicit pip install .[macos]
 macos = ["pyobjc-core>=9.0", "pyobjc-framework-CoreAudio>=9.0"]
+# NEW-CQ-009: Qwen3-ASR-0.6B optional backend. Lazy-imported in
+# qwen_engine.py — the module can be imported without this package,
+# but the QwenEngine.load() will raise ImportError if not installed.
+qwen = ["qwen-asr>=0.1"]
 # Noise filtering (optional — high-pass + gate use scipy which is already a dep)
 noise-filter = [
     "noisereduce>=3.0",
