@@ -142,7 +142,7 @@ select = ["E", "F", "W", "I"]
 ignore = []
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.10"  # NEW-CQ-023: match requires-python minimum
 warn_return_any = true
 warn_unused_configs = true
 # ERR-ERR-006: do not blanket-disable missing-import checking. Per-module
