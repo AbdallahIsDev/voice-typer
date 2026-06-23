@@ -283,6 +283,15 @@ def _setup_logging():
         stream.setFormatter(_ColorFormatter())
         root.addHandler(stream)
 
+        # LOG-006: configure third-party loggers (transformers, torch)
+        # to use our colored stderr formatter instead of their own
+        # bare-handler output that lacks timestamps and colors.
+        for lib in ("transformers", "torch", "huggingface_hub"):
+            lib_logger = logging.getLogger(lib)
+            lib_logger.setLevel(logging.WARNING)
+            lib_logger.handlers.clear()
+            lib_logger.propagate = True
+
 
 class VoiceTyperApp:
     """The main application."""
