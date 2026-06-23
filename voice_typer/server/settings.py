@@ -267,7 +267,12 @@ class SettingsWindow:
         for mic in self.microphones:
             if self._microphone_display(mic) == selected:
                 return mic.get("id")
-        return selected
+        # NEW-CQ-032: previously returned `selected` (the display label)
+        # when no match was found. This caused int(label) to raise
+        # ValueError downstream, and the recorder would silently fall
+        # back to the system default. Return None so the recorder uses
+        # the system default explicitly.
+        return None
 
     def _microphone_display(self, mic):
         name = mic.get("name", "")
