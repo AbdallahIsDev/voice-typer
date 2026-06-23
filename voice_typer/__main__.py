@@ -8,6 +8,21 @@ NEW-CLI-003: Standardized exit codes:
   2 = port conflict
   3 = duplicate instance
   4 = bad CLI args
+
+NEW-DUP-008: this is NOT a duplicate of the ``voice-typer`` console
+script (pyproject.toml ``[project.scripts]``).  The two serve
+different purposes:
+
+- ``voice-typer`` console script → ``voice_typer.server.ipc_server:main``
+  — spawned by Electron as the backend subprocess (TCP IPC mode, no
+  CLI arg parsing, --port only).
+
+- ``python -m voice_typer`` (this file) → user-facing CLI with
+  --help, --version, --debug, --no-tray, --quiet, --config flags.
+  Used by developers and power users to run the app from the
+  terminal with diagnostic options.
+
+Both are intentional; removing either would break a real use case.
 """
 
 import argparse

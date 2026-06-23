@@ -42,6 +42,17 @@ _RATE_LIMIT_WINDOW_SECONDS = 1.0
 _RATE_LIMIT_BURST = 200
 _RATE_LIMIT_SUSTAINED = 60  # per second
 
+# NEW-CONC-003: write timeout for TCP sendall.  A stalled Electron
+# renderer (e.g. GC pause, dev-tools inspection, or a busy main thread)
+# can stop draining its TCP receive buffer.  Without a timeout, sendall
+# blocks indefinitely, holding the IPC lock (pre-NEW-IPC-014) or
+# blocking the bubble_level worker thread (post-NEW-IPC-014).  2
+# seconds is generous for a localhost write — under normal load the
+# kernel buffer accepts data in microseconds.  When the timeout fires,
+# we drop the client connection so the accept loop can pick up the
+# next reconnect.
+_TCP_WRITE_TIMEOUT_SECONDS = 2.0
+
 
 class _RateLimiter:
     """Sliding-window per-connection rate limiter.
@@ -191,29 +202,68 @@ def _sanitize_config_for_ipc(config) -> dict:
 # events without needing a reference to the app or the server, and
 # without closure-capture surprises when multiple VoiceTyperApp
 # instances exist in the same process (tests, restarts, etc.).
-_push_event: "Optional[Callable[[dict], None]]" = None
+#
+# NEW-IPC-013: this used to be a single Optional[Callable].  When two
+# IPCServer instances existed in the same process (e.g. a test fixture
+# plus the production server), the second start() would stomp the
+# first server's push fn, and the first server's stop() would clear
+# the global — leaving the second server unable to push events.  We
+# now keep a registry (set) of push functions; _push_event_now fans
+# out to ALL registered servers.  Each IPCServer registers on start
+# and unregisters on stop, so the registry stays consistent across
+# any number of concurrent instances.
+_push_event_registry: "set[Callable[[dict], None]]" = set()
+_push_event_registry_lock = threading.Lock()
 
 
 def _set_push_event(fn) -> None:
-    global _push_event
-    _push_event = fn
+    """Register *fn* as an active push target.
+
+    NEW-IPC-013: now operates on a registry instead of a single global
+    callable.  Safe to call from multiple IPCServer instances in the
+    same process.
+    """
+    if fn is None:
+        return
+    with _push_event_registry_lock:
+        _push_event_registry.add(fn)
+
+
+def _clear_push_event(fn) -> None:
+    """Unregister *fn* from the active push target set.
+
+    Used by IPCServer.stop() to remove its own push callable without
+    affecting other registered servers.
+    """
+    with _push_event_registry_lock:
+        _push_event_registry.discard(fn)
 
 
 def _push_event_now(msg: dict) -> bool:
-    """Push a raw event to the active IPC server, if one is wired.
+    """Push a raw event to ALL active IPC servers, if any are wired.
 
-    Returns True if the event was sent, False if no server is active.
-    Safe to call from any thread; never raises.
+    Returns True if at least one server accepted the event, False if
+    no server is active.  Safe to call from any thread; never raises.
+
+    NEW-IPC-013: previously pushed to a single global callable.  When
+    two IPCServer instances existed in the same process (tests +
+    production), the second start() would stomp the first's push fn,
+    and the first's stop() would clear the global entirely — leaving
+    the second server unable to push.  We now fan out to ALL servers
+    in the registry so both receive the event.
     """
-    fn = _push_event
-    if fn is None:
+    with _push_event_registry_lock:
+        fns = list(_push_event_registry)
+    if not fns:
         return False
-    try:
-        fn(msg)
-        return True
-    except Exception:
-        log.debug("[IPC] _push_event_now raised", exc_info=True)
-        return False
+    delivered = False
+    for fn in fns:
+        try:
+            fn(msg)
+            delivered = True
+        except Exception:
+            log.debug("[IPC] _push_event_now raised", exc_info=True)
+    return delivered
 
 
 class _TCPLineIO:
@@ -302,6 +352,18 @@ class IPCServer:
         self._tcp_client: _TCPLineIO | None = None
         self._tcp_mode = False
         self._pending_tcp: list[str] = []
+        # NEW-IPC-001: store the listening TCP server socket so stop()
+        # can close it to unblock the accept() loop.  Previously the
+        # socket was a local variable in _accept_tcp and stop() had no
+        # way to wake the loop, leaving the daemon thread blocked on
+        # accept() forever (acceptable in production but leaks threads
+        # and sockets in test start/stop cycles).
+        self._tcp_server_socket: socket.socket | None = None
+        # NEW-IPC-013: this server's push callable, registered in the
+        # module-level _push_event_registry on start() and unregistered
+        # on stop().  Tracked on the instance so stop() can remove just
+        # our callable without affecting other active servers.
+        self._push_fn: "Optional[Callable[[dict], None]]" = None
 
     # ── Lifecycle ───────────────────────────────────────────────────────
 
@@ -320,7 +382,12 @@ class IPCServer:
         # the bullet-proof path: any code (waveform listeners, hot
         # paths, audio callback) can call ``_push_event_now(msg)``
         # without holding a reference to the app or the server.
-        _set_push_event(self.push)
+        # NEW-IPC-013: _set_push_event now adds to a registry instead
+        # of stomping a single global.  We track our own push callable
+        # so stop() can unregister just ours without affecting other
+        # active servers.
+        self._push_fn = self.push
+        _set_push_event(self._push_fn)
         self._hook_tray_set_state()
         # Always start the stdin listener (legacy mode).  In TCP mode
         # stdin is unused (inherited from Electron, connected to /dev/null
@@ -333,13 +400,43 @@ class IPCServer:
         log.info("[IPC] server started; push hook registered")
 
     def stop(self) -> None:
-        """Signal the stdin loop to stop on the next iteration."""
-        global _push_event
+        """Signal the stdin loop and TCP accept loop to stop.
+
+        NEW-IPC-001: previously ``stop()`` only set ``_running = False``
+        and cleared the push hook, but the TCP accept loop checked
+        ``getattr(self, '_stopped', False)`` — a flag that was never
+        set anywhere — and the listening socket was a local variable
+        in ``_accept_tcp`` with no external reference.  The result was
+        that ``stop()`` could not unblock a daemon thread sitting in
+        ``server.accept()``; the thread (and socket) leaked until
+        process exit.  We now (a) reuse ``_running`` as the lifecycle
+        flag the accept loop checks, and (b) close the listening socket
+        here so ``accept()`` raises ``OSError`` and the loop exits
+        cleanly.
+
+        NEW-IPC-013: stop() now unregisters OUR push callable from the
+        module-level registry instead of clearing the global outright.
+        Other active servers in the same process keep working.
+        """
         self._running = False
-        _push_event = None
+        # Unregister our push callable.  Other servers in the registry
+        # are unaffected.
+        push_fn = getattr(self, "_push_fn", None)
+        if push_fn is not None:
+            _clear_push_event(push_fn)
+            self._push_fn = None
         if self._tcp_client is not None:
             self._tcp_client.close()
             self._tcp_client = None
+        # Close the listening socket to unblock the accept() loop.
+        # The accept loop catches OSError and breaks out.
+        server_sock = self._tcp_server_socket
+        if server_sock is not None:
+            try:
+                server_sock.close()
+            except OSError:
+                pass
+            self._tcp_server_socket = None
         # Keep the app-level reference so existing closures still
         # work after a stop+start cycle in tests.
 
@@ -390,7 +487,16 @@ class IPCServer:
             log.info("[TCP] listening on 127.0.0.1:%d", port)
         except Exception:
             log.exception("[TCP] failed to bind on port %d", port)
+            # Make sure we don't leak the socket on bind failure.
+            try:
+                server.close()
+            except OSError:
+                pass
             return
+
+        # NEW-IPC-001: store the listening socket on the instance so
+        # stop() can close it to unblock the accept() call below.
+        self._tcp_server_socket = server
 
         # NEW-IPC-001: accept connections in a loop so that a network
         # blip, sleep/resume, or Electron crash+restart doesn't brick
@@ -398,12 +504,19 @@ class IPCServer:
         # called after the first accept, so a single disconnect meant
         # no reconnection was possible until the Python process was
         # manually restarted.
-        while not getattr(self, '_stopped', False):
+        #
+        # We check `self._running` (the canonical lifecycle flag set to
+        # False by stop()) instead of the legacy getattr(self, "_stopped",
+        # False) — that flag was never set anywhere, so the loop only
+        # exited via OSError when stop() closed the socket (which it
+        # couldn't do, because the socket was a local variable).
+        while self._running:
             try:
                 conn, addr = server.accept()
                 log.info("[TCP] client connected from %s:%d", *addr)
             except OSError:
-                # Server socket closed during shutdown
+                # Server socket closed during shutdown (stop() called
+                # server_sock.close()).
                 break
             try:
                 self._handle_tcp_connection(conn, addr, expected_token)
@@ -415,6 +528,10 @@ class IPCServer:
             server.close()
         except OSError:
             pass
+        # Clear the instance reference so a subsequent start_tcp() can
+        # store a fresh socket without confusion.
+        if self._tcp_server_socket is server:
+            self._tcp_server_socket = None
 
     def _handle_tcp_connection(self, conn, addr, expected_token: str) -> None:
         """Handle a single TCP client connection (auth + dispatch loop).
@@ -957,6 +1074,12 @@ class IPCServer:
 
         elif cmd == "restart_app":
             resp["type"] = "ack"
+            # NEW-IPC-006: ensure ack carries an explicit ``data: {}`` for
+            # shape consistency with the other ack responses.  This call
+            # sends the response directly (returns None) so the
+            # ``resp.setdefault("data", {})`` at the end of _dispatch
+            # never runs for this branch — we add it here instead.
+            resp.setdefault("data", {})
             try:
                 self._send(resp)
                 self.service.restart()
@@ -967,6 +1090,8 @@ class IPCServer:
 
         elif cmd == "quit_app":
             resp["type"] = "ack"
+            # NEW-IPC-006: same as restart_app — add explicit ``data: {}``.
+            resp.setdefault("data", {})
             try:
                 self._send(resp)
                 self.service.quit()
@@ -1123,6 +1248,19 @@ class IPCServer:
                 log.error("[IPC] download_model failed: %s", e)
                 resp["type"] = "error"
                 resp["data"] = {"message": str(e)}
+
+        elif cmd == "test_llm_connection":
+            # NEW-DEAD-015: wire up the previously-dead
+            # ``LLMPolisher.test_connection`` method so the renderer can
+            # add a "Test connection" button on the Settings page.
+            try:
+                result = self.service.test_llm_connection()
+                resp["type"] = "test_llm_connection_result"
+                resp["data"] = result
+            except Exception as e:
+                log.error("[IPC] test_llm_connection failed: %s", e)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
                 
         else:
             resp["type"] = "error"
@@ -1138,6 +1276,16 @@ class IPCServer:
                 "command": cmd,
             }
 
+        # NEW-IPC-006: ensure every response has a `data` field so the
+        # client can always read `resp.data` without a defensive guard.
+        # Previously 5 commands returned ``{type: "ack"}`` with no data,
+        # forcing the renderer to do ``result?.field ?? null`` in every
+        # call site.  Setting ``data: {}`` for empty acks is backward-
+        # compatible: existing call sites that do ``if (result?.x)``
+        # still see ``undefined`` for missing fields, and call sites
+        # that do ``Object.keys(result ?? {})`` no longer crash.
+        resp.setdefault("data", {})
+
         return resp
 
     # ── Output ──────────────────────────────────────────────────────────
@@ -1147,16 +1295,75 @@ class IPCServer:
         self._send(msg)
 
     def _send(self, msg: dict | None, _out=None) -> None:
+        """Serialize *msg* and write it to the active transport.
+
+        NEW-IPC-014 / NEW-CONC-001 / NEW-CONC-003: previously the entire
+        send path (json.dumps + sendall + pending drain) ran under
+        ``self._lock``, which meant:
+
+        - Every other IPC dispatch command blocked while a slow Electron
+          renderer drained its TCP receive buffer (NEW-CONC-001).
+        - The audio-callback-spawned bubble_level worker could stall
+          inside ``sendall`` with no timeout, holding the lock and
+          stalling every other dispatch path (NEW-CONC-003).
+        - ``Microphone.tsx::testMicrophone → get_microphones`` saw
+          user-visible lag during recording (NEW-CONC-001 details).
+
+        The fix splits the work:
+        1. Under the lock: snapshot the current client / mode / pending
+           list.  This is the only state that needs mutual exclusion.
+        2. Outside the lock: serialize the message, perform the actual
+           ``sendall`` (with a write timeout — NEW-CONC-003), and drain
+           the pending list.  A slow client can no longer block other
+           dispatchers.
+        """
         if msg is None:
             return
+
+        # Step 1: snapshot transport state under the lock.  This is fast
+        # (no I/O) and is the only section that needs mutual exclusion.
         with self._lock:
-            line = json.dumps(msg)
-            if _out is not None:
-                _out.write(line + "\n")
-                _out.flush()
-            elif self._tcp_client is not None:
-                self._tcp_client.write(line + "\n")
-                self._tcp_client.flush()
+            out = _out
+            tcp_client = self._tcp_client
+            tcp_mode = self._tcp_mode
+            # Snapshot and clear the pending list atomically.  Anything
+            # pushed between this snapshot and the actual send will be
+            # picked up by the NEXT _send call (or this one's drain
+            # loop, since we re-check after each write).
+            pending = list(self._pending_tcp) if self._pending_tcp else None
+            if pending:
+                self._pending_tcp.clear()
+
+        # Step 2: serialize + write OUTSIDE the lock.  A slow client can
+        # stall here without blocking other dispatchers.
+        line = json.dumps(msg)
+
+        if out is not None:
+            # Stdin/stdout mode — used in tests and the legacy console
+            # script.  Writes to a TextIO are typically fast (pipe to
+            # Electron parent), but still don't need the lock.
+            out.write(line + "\n")
+            out.flush()
+            return
+
+        if tcp_client is not None:
+            # NEW-CONC-003: set a write timeout so a stalled renderer
+            # can't block the worker thread indefinitely.  2 seconds is
+            # generous for a localhost TCP write — under normal load the
+            # kernel buffer accepts the data immediately.  If we hit the
+            # timeout, the write raises ``socket.timeout`` and we drop
+            # the connection (the accept loop will catch the next
+            # reconnect).
+            try:
+                tcp_client.conn.settimeout(_TCP_WRITE_TIMEOUT_SECONDS)
+            except (OSError, AttributeError):
+                # settimeout can fail if the socket is already closed;
+                # that's fine — the write below will also fail and we'll
+                # drop the connection cleanly.
+                pass
+            try:
+                tcp_client.write(line + "\n")
+                tcp_client.flush()
                 # PERF-NEW-014 / SEC-008: drain at most the most recent
                 # K pending entries, not the whole list.  When the
                 # client was disconnected for a while, _pending_tcp
@@ -1165,46 +1372,98 @@ class IPCServer:
                 # all of them on every push event was O(n) per push
                 # and blocked the audio thread.
                 _DRAIN_CAP = 100
-                if self._pending_tcp:
-                    pending = self._pending_tcp[-_DRAIN_CAP:]
-                    self._pending_tcp.clear()
-                    for p in pending:
+                if pending:
+                    # Already snapshot under lock — drain up to _DRAIN_CAP
+                    # of the most recent entries.
+                    recent = pending[-_DRAIN_CAP:]
+                    for p in recent:
                         try:
-                            self._tcp_client.write(p + "\n")
-                            self._tcp_client.flush()
+                            tcp_client.write(p + "\n")
+                            tcp_client.flush()
                         except Exception:
                             log.debug("[IPC] client write failed during pending drain")
                             break
-            elif self._tcp_mode:
-                # SEC-008: cap _pending_tcp to prevent unbounded
-                # memory growth while the client is disconnected.
-                # When the cap is hit, drop the OLDEST entries
-                # (waveform bubble level events are stale by the
-                # time the client reconnects; transcription-complete
-                # events are also in history_db).
-                _PENDING_CAP = 1000
+            except (OSError, socket.timeout) as exc:
+                log.debug("[IPC] client write failed: %s", exc)
+                # Mark the client as dead so the accept loop will pick
+                # up the next reconnect.  We do this under the lock to
+                # avoid a race with a concurrent _send that just
+                # snapshotted the (now-dead) client.
+                with self._lock:
+                    if self._tcp_client is tcp_client:
+                        try:
+                            self._tcp_client.close()
+                        except Exception:
+                            pass
+                        self._tcp_client = None
+            finally:
+                # Restore blocking mode (timeout=None means blocking
+                # with no timeout, the default for TCP sockets).
+                try:
+                    tcp_client.conn.settimeout(None)
+                except (OSError, AttributeError):
+                    pass
+            return
+
+        if tcp_mode:
+            # SEC-008: cap _pending_tcp to prevent unbounded
+            # memory growth while the client is disconnected.
+            # When the cap is hit, drop the OLDEST entries
+            # (waveform bubble level events are stale by the
+            # time the client reconnects; transcription-complete
+            # events are also in history_db).
+            _PENDING_CAP = 1000
+            with self._lock:
+                # Re-merge any pending we snapshot earlier (they belong
+                # before this new message in the queue).
+                if pending:
+                    self._pending_tcp.extend(pending)
                 self._pending_tcp.append(line)
                 if len(self._pending_tcp) > _PENDING_CAP:
                     dropped = len(self._pending_tcp) - _PENDING_CAP
                     del self._pending_tcp[:dropped]
-                    log.warning(
-                        "[IPC] _pending_tcp cap exceeded; dropped %d old entries",
-                        dropped,
-                    )
-            else:
-                # No IPC client connected (e.g. the ``voice-typer`` console
-                # script running without an Electron frontend).  Do NOT dump
-                # raw JSON to stdout — it pollutes the terminal and interleaves
-                # with structured logs.  Push events are only meaningful to an
-                # IPC client; with none attached, they are silently dropped.
-                log.debug("[IPC] no client connected; dropping push event")
+                    cap_dropped = dropped
+                else:
+                    cap_dropped = 0
+            if cap_dropped:
+                log.warning(
+                    "[IPC] _pending_tcp cap exceeded; dropped %d old entries",
+                    cap_dropped,
+                )
+            return
+
+        # No IPC client connected.  Two scenarios:
+        #
+        # 1. Console mode: the user ran ``voice-typer`` (or
+        #    ``python -m voice_typer.server.ipc_server`` without
+        #    ``--port``) for diagnosis.  Previously push events
+        #    were silently dropped here at DEBUG level, making
+        #    the console session useless for observing state
+        #    changes / errors / background-audio events.
+        #    NEW-IPC-008: surface these at INFO level so the
+        #    user can actually see what the app is doing.
+        #
+        # 2. Brief disconnect during normal Electron use: the
+        #    client is reconnecting.  INFO-level logging here
+        #    is mildly noisy but bounded — the rate of push
+        #    events is dominated by waveform bubbles which are
+        #    already capped by the audio callback.  Acceptable
+        #    trade-off vs. diagnostic value.
+        msg_type = msg.get("type", "unknown")
+        # Waveform bubble level events are very high frequency
+        # (15-50 Hz).  Keep them at DEBUG to avoid flooding the
+        # log; everything else goes to INFO so the user can
+        # see state changes, errors, etc.
+        if msg_type in ("bubble_level", "waveform"):
+            log.debug("[IPC] no client; dropping high-freq %s event", msg_type)
+        else:
+            log.info("[IPC] no client; dropping %s event: %s", msg_type, msg)
 
 
 # ── Entry point ─────────────────────────────────────────────────────────
 
 
 def main() -> None:
-    from voice_typer.__main__ import EXIT_BAD_ARGS, EXIT_CRASH
     """Create a ``VoiceTyperApp``, wrap it in an ``IPCServer``, and block.
 
     Designed as the subprocess entry point for an Electron frontend::
@@ -1217,17 +1476,23 @@ def main() -> None:
     during the heavy torch import.  Push events reach the frontend
     via TCP, and the terminal sees normal log output.
     """
+    # NEW-CLI-003: import the standardized exit-code constants. Both
+    # EXIT_BAD_ARGS (bad --port) and EXIT_CRASH (uncaught exception in
+    # app.start()) are used below; previously EXIT_CRASH was imported
+    # but unused and the crash path called sys.exit with a raw literal.
+    from voice_typer.__main__ import EXIT_BAD_ARGS, EXIT_CRASH
     # When run as ``python -m voice_typer.server.ipc_server``, this
     # module is loaded as ``__main__`` and is NOT registered in
     # ``sys.modules`` under its canonical dotted name.  Any code that
     # later does ``from voice_typer.server.ipc_server import ...``
     # (notably ``app._wire_waveform_bubble``, which imports
     # ``_push_event_now``) would trigger a SECOND module load with
-    # fresh, uninitialized globals — so ``_push_event`` would be ``None``
-    # in the copy the bubble callbacks read from, and every push event
-    # would silently fail (``push=NO IPC``).  Register the canonical name
-    # to point at THIS running module so all imports return the same
-    # single instance whose ``_push_event`` is set by ``IPCServer.start()``.
+    # fresh, uninitialized globals — so the push-event registry would
+    # be empty in the copy the bubble callbacks read from, and every
+    # push event would silently fail (``push=NO IPC``).  Register the
+    # canonical name to point at THIS running module so all imports
+    # return the same single instance whose push-event registry is
+    # populated by ``IPCServer.start()``.
     _CANONICAL = "voice_typer.server.ipc_server"
     if _CANONICAL not in sys.modules:
         sys.modules[_CANONICAL] = sys.modules["__main__"]
@@ -1286,7 +1551,8 @@ def main() -> None:
         # KeyboardInterrupt and GeneratorExit. Now catches only Exception
         # so Ctrl+C and SystemExit propagate normally to the finally block.
         log.exception("app.start() raised — shutting down")
-        sys.exit(1)
+        # NEW-CLI-003: use the standardized exit code instead of raw 1.
+        sys.exit(EXIT_CRASH)
     else:
         log.info("[IPC] main() exiting normally")
     finally:

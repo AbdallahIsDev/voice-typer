@@ -320,6 +320,9 @@ function sendToPython(msg: Record<string, unknown>): Promise<unknown> {
       "onboarding_get_model_options",
       "onboarding_get_hotkey_presets",
       "download_model",
+      // NEW-DEAD-015: allow test_llm_connection so the renderer can
+      // wire up a "Test connection" button on the Settings page.
+      "test_llm_connection",
     ]);
     const cmd = String(msg?.type ?? "").trim();
     if (!ALLOWED_COMMANDS.has(cmd)) {

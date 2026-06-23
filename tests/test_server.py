@@ -143,7 +143,11 @@ class TestDispatchGetStatus:
 class TestDispatchToggleDictation:
     def test_calls_toggle_and_returns_ack(self, server, mock_app):
         result = server._dispatch({"id": 1, "type": "toggle_dictation"})
-        assert result == {"id": 1, "type": "ack"}
+        # NEW-IPC-006: ack responses now always include ``data: {}`` for
+        # shape consistency.  Previously this returned just
+        # ``{"id": 1, "type": "ack"}`` with no data, forcing the renderer
+        # to defensively guard against ``undefined``.
+        assert result == {"id": 1, "type": "ack", "data": {}}
         assert mock_app.toggle_called is True
 
     def test_exception_returns_error_response(self, server, mock_app):
@@ -789,7 +793,8 @@ class TestDispatchRestartApp:
         result = server._dispatch({"id": 1, "type": "restart_app"})
         # Returns None because ack was already sent
         assert result is None
-        server._send.assert_called_once_with({"id": 1, "type": "ack"})
+        # NEW-IPC-006: ack now includes explicit ``data: {}``.
+        server._send.assert_called_once_with({"id": 1, "type": "ack", "data": {}})
         assert mock_app.restart_called is True
 
 
@@ -798,7 +803,7 @@ class TestDispatchQuitApp:
         server._send = MagicMock()
         result = server._dispatch({"id": 1, "type": "quit_app"})
         assert result is None
-        server._send.assert_called_once_with({"id": 1, "type": "ack"})
+        server._send.assert_called_once_with({"id": 1, "type": "ack", "data": {}})
         assert mock_app.quit_called is True
 
 
@@ -862,7 +867,8 @@ class TestRunLoop:
         assert msg1["type"] == "status"
         assert msg1["data"]["status"] == "idle"
         msg2 = json.loads(lines[1])
-        assert msg2 == {"id": 2, "type": "ack"}
+        # NEW-IPC-006: ack responses now include ``data: {}``.
+        assert msg2 == {"id": 2, "type": "ack", "data": {}}
         msg3 = json.loads(lines[2])
         assert msg3["id"] == 3
         assert msg3["type"] == "config"
@@ -911,7 +917,8 @@ class TestRunLoopRestartQuit:
         result = server._dispatch({"id": 1, "type": "restart_app"})
 
         assert result is None
-        server._send.assert_called_once_with({"id": 1, "type": "ack"})
+        # NEW-IPC-006: ack now includes explicit ``data: {}``.
+        server._send.assert_called_once_with({"id": 1, "type": "ack", "data": {}})
         assert mock_app.restart_called is True
 
     def test_quit_sends_ack_then_calls_method(self, server, mock_app):
@@ -921,7 +928,8 @@ class TestRunLoopRestartQuit:
         result = server._dispatch({"id": 1, "type": "quit_app"})
 
         assert result is None
-        server._send.assert_called_once_with({"id": 1, "type": "ack"})
+        # NEW-IPC-006: ack now includes explicit ``data: {}``.
+        server._send.assert_called_once_with({"id": 1, "type": "ack", "data": {}})
         assert mock_app.quit_called is True
 
     def test_unknown_last_command_does_not_block(self, server):
@@ -1033,18 +1041,29 @@ class TestErrorHandling:
 
 
 class TestPushEventNow:
-    """_push_event_now sends events to the active IPC server instance."""
+    """_push_event_now sends events to the active IPC server instance.
+
+    NEW-IPC-013: the global ``_push_event`` was replaced by a registry
+    (``_push_event_registry`` + ``_push_event_registry_lock``).  Tests
+    that previously manipulated ``ipc_mod._push_event`` directly now
+    use the registry helpers (``_set_push_event`` / ``_clear_push_event``)
+    or clear the registry set directly.
+    """
 
     def test_returns_false_when_no_server(self, monkeypatch):
         """With no active push function, should return False."""
         import voice_typer.server.ipc_server as ipc_mod
-        original = ipc_mod._push_event
-        ipc_mod._push_event = None
+        # Snapshot and clear the registry so the test sees an empty
+        # state; restore it on the way out so other tests aren't affected.
+        with ipc_mod._push_event_registry_lock:
+            original = set(ipc_mod._push_event_registry)
+            ipc_mod._push_event_registry.clear()
         try:
             result = ipc_mod._push_event_now({"type": "show_window"})
             assert result is False
         finally:
-            ipc_mod._push_event = original
+            with ipc_mod._push_event_registry_lock:
+                ipc_mod._push_event_registry.update(original)
 
     def test_returns_true_when_server_active(self, server, monkeypatch):
         """With an active server, _push_event_now should succeed."""
@@ -1067,16 +1086,21 @@ class TestPushEventNow:
         server.stop()
 
     def test_exception_in_push_returns_false(self, server, monkeypatch):
-        """If the push function raises, _push_event_now should return False."""
+        """If the push function raises, _push_event_now should return False.
+
+        NEW-IPC-013: a broken fn registered via _set_push_event is now
+        tried, but the exception is swallowed and the result is False
+        because no other registered fn delivered the event.
+        """
         import voice_typer.server.ipc_server as ipc_mod
         def broken_fn(msg):
             raise RuntimeError("broken")
-        ipc_mod._push_event = broken_fn
+        ipc_mod._set_push_event(broken_fn)
         try:
             result = ipc_mod._push_event_now({"type": "show_window"})
             assert result is False
         finally:
-            ipc_mod._push_event = None
+            ipc_mod._clear_push_event(broken_fn)
 
 
 # ── RELIABILITY-006: per-connection rate limiter ─────────────────────────
@@ -1684,7 +1708,8 @@ class TestEndToEndHappyPath:
         mock_app.undo_last = undo_last
 
         result = server._dispatch({"id": 1, "type": "undo_last"})
-        assert result == {"id": 1, "type": "ack"}
+        # NEW-IPC-006: ack responses now include ``data: {}``.
+        assert result == {"id": 1, "type": "ack", "data": {}}
         assert mock_app.undo_called is True
 
     def test_error_recovery_after_failed_command(self, server, mock_app):
