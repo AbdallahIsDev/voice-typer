@@ -184,6 +184,11 @@ export function Bubble() {
 
   return (
     <div
+      // NEW-TS-013: add role="status" + aria-live="polite" + aria-label
+      // so screen readers announce the bubble as a status indicator.
+      role="status"
+      aria-live="polite"
+      aria-label="Voice Typer recording indicator"
       className={`
         inline-flex items-center justify-center
         ${animState === 'enter' ? 'animate-bubble-enter' : ''}
