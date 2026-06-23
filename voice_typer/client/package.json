@@ -24,7 +24,11 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prebuild": "node scripts/generate-icons.mjs"
+    "prebuild": "node scripts/generate-icons.mjs",
+    "biome:check": "biome check \"src/**/*.{ts,tsx}\"",
+    "biome:write": "biome check --write \"src/**/*.{ts,tsx}\"",
+    "doctor": "react-doctor",
+    "doctor:ci": "react-doctor --scope changed --base main"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",
@@ -47,6 +51,7 @@
     "jsdom": "^25.0.1",
     "postcss": "^8.5.15",
     "prettier": "^3.4.2",
+    "react-doctor": "^0.5.8",
     "sharp": "^0.34.5",
     "tailwindcss": "^4.3.0",
     "typescript": "^5.6.0",
