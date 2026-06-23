@@ -44,6 +44,8 @@ export default function ExportFormatMenu({ onExport, disabled }: ExportFormatMen
         onClick={() => setShow(prev => !prev)}
         disabled={disabled}
         className="gap-2"
+        aria-haspopup="menu"
+        aria-expanded={show}
       >
         <HugeiconsIcon icon={Download01Icon} strokeWidth={1.625} className="h-4 w-4" />
         Export
@@ -51,9 +53,12 @@ export default function ExportFormatMenu({ onExport, disabled }: ExportFormatMen
       {show && (
         <div
           ref={menuRef}
+          role="menu"
+          aria-label="Export format"
           className="absolute right-0 top-full mt-1 z-10 w-30 rounded-xl border border-border bg-(--bg-subtle) shadow-lg overflow-hidden"
         >
           <button
+            role="menuitem"
             onClick={() => {
               setShow(false)
               onExport('json')
@@ -63,6 +68,7 @@ export default function ExportFormatMenu({ onExport, disabled }: ExportFormatMen
             Export as JSON
           </button>
           <button
+            role="menuitem"
             onClick={() => {
               setShow(false)
               onExport('csv')
