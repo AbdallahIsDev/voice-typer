@@ -66,7 +66,12 @@ _TERMINAL_PROCESS_NAMES: set[str] = {
 class ClipboardManager:
     """Handles copying text to clipboard and pasting into the focused app."""
 
-    _PASTE_RATE_LIMIT = 1.0
+    # NEW-CQ-025: rate limit for paste operations. The PROBLEMS
+    # invariant says "500ms"; the code previously said 1.0s. We
+    # align to 500ms (0.5s) which is the documented invariant —
+    # fast enough for rapid dictation but slow enough to prevent
+    # accidental double-paste from a stuck hotkey.
+    _PASTE_RATE_LIMIT = 0.5
 
     def __init__(self, paste_enabled: bool = True):
         self.paste_enabled = paste_enabled
