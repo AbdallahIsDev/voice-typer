@@ -507,13 +507,20 @@ def _enable_autostart_macos() -> bool:
     <key>WorkingDirectory</key>
     <string>~</string>
     <key>StandardOutPath</key>
-    <string>/tmp/voice-typer-autostart.log</string>
+    <string>{escape(str(Path.home() / ".voice-typer" / "autostart.log"))}</string>
     <key>StandardErrorPath</key>
-    <string>/tmp/voice-typer-autostart.log</string>
+    <string>{escape(str(Path.home() / ".voice-typer" / "autostart.log"))}</string>
 </dict>
 </plist>"""
     plist_path.write_text(plist_content)
-    plist_path.chmod(0o644)
+    plist_path.chmod(0o600)
+    # NEW-PRIV-002: ensure the log directory exists with private perms
+    log_dir = Path.home() / ".voice-typer"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(log_dir, 0o700)
+    except OSError:
+        pass
     try:
         import subprocess
         subprocess.run(["launchctl", "load", str(plist_path)], check=False, capture_output=True)
