@@ -19,6 +19,7 @@ import OnboardingPage from '@/pages/Onboarding'
 import { cn } from '@/lib/utils'
 import type { RecordingState, Page, WindowBridge } from '@/types/ipc'
 import type { VoiceTyperConfig } from '@/types/config'
+import { Spinner } from '@/components/Spinner'
 
 export default function App() {
   // ── Routing ───────────────────────────────────────────────────
@@ -347,7 +348,7 @@ export default function App() {
           <main id="main-content" role="main" className="flex-1 overflow-y-auto rounded-l-xl border-border border border-r-0 border-b-0 bg-(--bg)" style={{ scrollbarGutter: 'stable' }}>
             {connectionStatus === 'connecting' ? (
               <div className="flex h-full flex-col items-center justify-center gap-3">
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+                <Spinner />
                 <p className="text-sm text-(--text-muted)">
                   Starting Python backend...
                 </p>

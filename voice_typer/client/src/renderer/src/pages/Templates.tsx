@@ -20,6 +20,7 @@ import {
 import PageHeading from '@/components/PageHeading'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import { cn } from '@/lib/utils'
+import { Spinner } from '@/components/Spinner'
 
 // Templates are stored client-side in localStorage because the Python Config
 // dataclass has no `templates_data` field and the IPC server drops writes
@@ -229,7 +230,7 @@ export default function TemplatesPage() {
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+        <Spinner />
       </div>
     )
   }

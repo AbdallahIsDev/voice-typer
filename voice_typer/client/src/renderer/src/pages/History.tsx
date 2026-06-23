@@ -11,6 +11,7 @@ import ActivityList from '@/components/ActivityList'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import ExportFormatMenu from '@/components/ExportFormatMenu'
 import type { HistoryRecord, TodayStats, WindowBridge } from '@/types/ipc'
+import { Spinner } from '@/components/Spinner'
 
 // Module-level cache — persists across page navigations so the records list
 // and stats render instantly on re-visit instead of showing a spinner.
@@ -263,7 +264,7 @@ export default function HistoryPage() {
 
       {loading && records.length === 0 ? (
         <div className="flex min-h-full items-center justify-center py-20">
-          <div className="h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+          <Spinner />
         </div>
       ) : records.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 gap-3">

@@ -17,6 +17,7 @@ import PageHeading from '@/components/PageHeading'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import { cn } from '@/lib/utils'
 import type { VoiceTyperConfig } from '@/types/config'
+import { Spinner } from '@/components/Spinner'
 
 // Module-level cache — persists across page navigations so the models view
 // renders instantly on re-visit instead of showing a loading spinner.
@@ -262,7 +263,7 @@ export default function ModelsPage() {
   if (!_cachedConfig && !config) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+        <Spinner />
       </div>
     )
   }

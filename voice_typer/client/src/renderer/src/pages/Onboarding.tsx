@@ -10,6 +10,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { Spinner } from '@/components/Spinner'
 
 interface StepInfo {
   step: number
@@ -116,7 +117,7 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+        <Spinner />
       </div>
     )
   }

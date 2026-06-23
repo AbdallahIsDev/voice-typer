@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { File02Icon, RefreshIcon } from '@hugeicons/core-free-icons'
 import type { VoiceTyperConfig } from '@/types/config'
+import { Spinner } from '@/components/Spinner'
 
 // Module-level cache — persists across page navigations so settings render
 // instantly on re-visit instead of showing a loading spinner.
@@ -270,7 +271,7 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="space-y-2 text-center">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-accent border-t-transparent mx-auto" />
+          <Spinner size={24} className="mx-auto" />
           <p className="text-sm text-(--text-muted)">Loading settings...</p>
         </div>
       </div>

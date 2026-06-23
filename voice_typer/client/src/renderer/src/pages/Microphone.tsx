@@ -12,6 +12,7 @@ import PageHeading from '@/components/PageHeading'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { VoiceTyperConfig } from '@/types/config'
+import { Spinner } from '@/components/Spinner'
 
 // Module-level cache — persists across page navigations so microphone settings
 // render instantly on re-visit instead of showing a loading spinner.
@@ -116,7 +117,7 @@ export default function MicrophonePage() {
   if (!_cachedMicrophones.length && !_cachedConfig && loading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+        <Spinner />
       </div>
     )
   }

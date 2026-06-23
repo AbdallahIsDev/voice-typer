@@ -18,6 +18,7 @@ import { useStatsShare, computeShareStats } from '@/hooks/useStatsShare'
 import type { TodayStats, HistoryRecord, Page } from '@/types/ipc'
 import type { VoiceTyperConfig } from '@/types/config'
 import { Button } from '@/components/ui/button.tsx'
+import { Spinner } from '@/components/Spinner'
 
 // ── Module-level cache ────────────────────────────────────────────
 let _cachedData: DashboardData | null = null
@@ -264,7 +265,7 @@ export default function DashboardPage({ onNavigate: _onNavigate }: DashboardPage
   if (!_cachedData && !data) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+        <Spinner />
       </div>
     )
   }

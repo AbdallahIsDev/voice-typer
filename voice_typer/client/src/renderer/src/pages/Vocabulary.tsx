@@ -17,6 +17,7 @@ import ConfirmDialog from '@/components/ConfirmDialog'
 import ExportFormatMenu from '@/components/ExportFormatMenu'
 import { cn } from '@/lib/utils'
 import type { VocabularyData, VocabularyEntry } from '@/types/ipc'
+import { Spinner } from '@/components/Spinner'
 
 // ── Backend categories (kept internally for save-back, hidden from UI) ──
 
@@ -252,7 +253,7 @@ export default function VocabularyPage() {
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+        <Spinner />
       </div>
     )
   }
