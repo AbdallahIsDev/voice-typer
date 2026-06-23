@@ -125,6 +125,14 @@ class AudioWindowPlanner:
         requested_start_seconds: float,
         requested_end_seconds: float,
     ) -> float:
+        """Find the best boundary point between audio windows.
+
+        NEW-CQ-026: previously returned the CENTER of the quietest frame
+        (best_index = index + len(frame) // 2), which is offset by half
+        a frame from where the next voice should start. Now returns the
+        END of the quietest frame (best_index = index + len(frame)),
+        which is the start of the next voice segment.
+        """
         search_seconds = min(1.0, requested_end_seconds - requested_start_seconds)
         if search_seconds <= 0:
             return requested_end_seconds
@@ -145,7 +153,10 @@ class AudioWindowPlanner:
             rms = float(np.sqrt(np.mean(np.square(frame, dtype=np.float64))))
             if rms < best_rms:
                 best_rms = rms
-                best_index = index + len(frame) // 2
+                # NEW-CQ-026: use end of the quietest frame (index +
+                # len(frame)) as the boundary, not the center. This
+                # marks where the next voice segment should begin.
+                best_index = index + len(frame)
 
         if best_index is None or best_rms > self.config.silence_threshold:
             return requested_end_seconds
