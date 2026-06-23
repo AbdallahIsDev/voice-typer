@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { Button } from '@/components/ui/button'
 import { Copy01Icon, Tick02Icon, Delete01Icon, StarIcon } from '@hugeicons/core-free-icons'
@@ -35,13 +35,22 @@ export default function ActivityList({
   onToggleFavorite,
 }: ActivityListProps) {
   const [copiedId, setCopiedId] = useState<number | null>(null)
+  // NEW-TS-020: track copy timeout in a ref and clear on unmount
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
+    }
+  }, [])
 
   const handleCopy = useCallback(async (item: HistoryRecord) => {
     try {
       await navigator.clipboard.writeText(item.text)
       setCopiedId(item.id)
       toast.success('Copied to clipboard')
-      setTimeout(() => setCopiedId(null), 2000)
+      // NEW-TS-020: clear previous timeout before setting new one
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
+      copyTimeoutRef.current = setTimeout(() => setCopiedId(null), 2000)
     } catch {
       toast.error('Failed to copy')
     }
