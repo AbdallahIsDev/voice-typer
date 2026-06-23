@@ -17,14 +17,8 @@
     "emitDeclarationOnly": true,
     "paths": {
       "@/*": ["./src/renderer/src/*"],
-      "#components": ["./src/renderer/src/components/index.ts"],
-      "#components/*": ["./src/renderer/src/components/*"],
       "#ui/*": ["./src/renderer/src/components/ui/*"],
-      "#lib": ["./src/renderer/src/lib/index.ts"],
-      "#lib/*": ["./src/renderer/src/lib/*"],
-      "#utils": ["./src/renderer/src/lib/utils.ts"],
-      "#hooks": ["./src/renderer/src/hooks/index.ts"],
-      "#hooks/*": ["./src/renderer/src/hooks/*"]
+      "#utils": ["./src/renderer/src/lib/utils.ts"]
     }
   },
   "include": ["src/renderer/src/**/*"]

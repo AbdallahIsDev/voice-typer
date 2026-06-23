@@ -42,11 +42,10 @@ export default defineConfig({
     resolve: {
       alias: {
         '@': resolve(__dirname, 'src/renderer/src'),
-        '#components': resolve(__dirname, 'src/renderer/src/components/index.ts'),
+        // NEW-TS-016: removed non-existent barrel file aliases
+        // (#components, #lib, #hooks). Code uses @/... instead.
         '#ui': resolve(__dirname, 'src/renderer/src/components/ui'),
-        '#lib': resolve(__dirname, 'src/renderer/src/lib/index.ts'),
-        '#utils': resolve(__dirname, 'src/renderer/src/lib/utils.ts'),
-        '#hooks': resolve(__dirname, 'src/renderer/src/hooks/index.ts')
+        '#utils': resolve(__dirname, 'src/renderer/src/lib/utils.ts')
       }
     }
   }
