@@ -192,6 +192,7 @@ def assert_url_allowed(
     *,
     field_name: str = "url",
     client_name: str = "client",
+    require_https: bool = True,
 ) -> None:
     """Raise ``ValueError`` if ``url`` is not in the allowlist.
 
@@ -203,6 +204,13 @@ def assert_url_allowed(
         The config field name (for the error message).
     client_name : str
         The client name (for the error message).
+    require_https : bool
+        NEW-SEC-003: when True (default), non-loopback hosts must use
+        HTTPS. Loopback hosts (localhost, 127.0.0.1, ::1) are exempt
+        so local development servers can use HTTP. This prevents a
+        loopback IPC attacker from exfiltrating transcribed text to
+        ``http://attacker.example.com/steal`` even if the attacker
+        somehow adds the host to the allowlist.
 
     Raises
     ------
@@ -229,4 +237,14 @@ def assert_url_allowed(
         raise ValueError(
             f"{client_name}: {field_name} host {host!r} is not in the "
             f"trusted allowlist.  Call extend_url_allowlist() to add it."
+        )
+    # NEW-SEC-003: enforce HTTPS for non-loopback hosts to prevent
+    # cleartext exfiltration of transcribed text + API keys.
+    _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+    if require_https and parsed.scheme == "http" and host not in _LOOPBACK_HOSTS:
+        raise ValueError(
+            f"{client_name}: {field_name} must use HTTPS for non-loopback "
+            f"host {host!r} (HTTP is only allowed for localhost/127.0.0.1/::1 "
+            f"for local development). Cleartext transmission of API keys "
+            f"and transcribed text over the public internet is not permitted."
         )
