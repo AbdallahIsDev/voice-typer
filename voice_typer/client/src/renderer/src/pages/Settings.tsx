@@ -252,6 +252,11 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
           // user's real keys with "<redacted>".
           if (value === '<redacted>') continue
           // Skip schema_version and internal state fields.
+          // NEW-UX-019: onboarding_completed is intentionally preserved
+          // — resetting it would force the user to redo the 5-step
+          // wizard every time they reset settings, which is bad UX.
+          // The wizard can be re-triggered manually via the tray menu
+          // if needed.
           if (['schema_version', 'wayland_warned', 'onboarding_completed'].includes(key)) continue
           safeDefaults[key] = value
         }

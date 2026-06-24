@@ -328,3 +328,19 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* NEW-A11Y-005: Windows high-contrast mode support.
+   WCAG 2.1 SC 1.4.11.  When the user has high-contrast mode enabled
+   (forced-colors: active), we let the OS override our colors and
+   add visible focus indicators. */
+@media (forced-colors: active) {
+  /* Ensure all interactive elements have visible focus rings. */
+  *:focus-visible {
+    outline: 2px solid CanvasText !important;
+    outline-offset: 2px !important;
+  }
+  /* Ensure borders are visible in high-contrast mode. */
+  .border, .border-t, .border-b, .border-l, .border-r {
+    border-color: CanvasText !important;
+  }
+}

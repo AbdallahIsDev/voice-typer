@@ -289,6 +289,16 @@ export default function VocabularyPage() {
             placeholder="Search vocabulary..."
             className="pl-9 rounded-xl bg-(--bg-subtle)"
           />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              aria-label="Clear search"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-(--text-muted) hover:text-(--text-primary)"
+            >
+              <HugeiconsIcon icon={Delete01Icon} strokeWidth={1.625} className="h-4 w-4" />
+            </button>
+          )}
         </div>
 
         {/* List */}
