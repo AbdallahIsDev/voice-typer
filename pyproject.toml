@@ -170,7 +170,17 @@ testpaths = ["tests"]
 addopts = "-q"
 filterwarnings = [
     "ignore::pytest.PytestUnraisableExceptionWarning",
-    "ignore::ResourceWarning",
+    # NEW-TEST-003: previously ``ignore::ResourceWarning`` was blanket-
+    # ignored, hiding real file-handle / socket leaks.  The tray app is
+    # a 24/7 long-running process — a 1 KB leak per dictation cycle
+    # compounds to ~1 MB/day.  ResourceWarning is the canonical signal
+    # for these leaks.  We now only ignore the specific
+    # PytestUnraisableExceptionWarning (which fires when __del__ raises
+    # during GC and is not actionable), and let ResourceWarning surface
+    # so we can fix the underlying leaks.
+    # If a specific ResourceWarning is known-noise from a third-party
+    # library, add a targeted filter here (e.g.
+    # "ignore::ResourceWarning:sounddevice").
 ]
 
 [tool.ruff]
