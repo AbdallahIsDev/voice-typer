@@ -201,8 +201,10 @@ class TestAppStateTransitions:
 
         _wait_for_busy_clear(app)
 
-        # Forced terminal punctuation was removed from the pipeline
-        app.clipboard.copy.assert_called_once_with("Can we test this now")
+        # Forced terminal punctuation was removed from the pipeline.
+        # NEW-UX-010: auto_punctuation now defaults to True, so the
+        # auto-punctuation step adds a "?" at the end of the question.
+        app.clipboard.copy.assert_called_once_with("Can we test this now?")
 
     def test_clipboard_copy_failure_prevents_paste(self, app):
         """Regression test for Finding 1: stale clipboard must not be pasted."""

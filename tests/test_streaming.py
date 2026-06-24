@@ -644,7 +644,8 @@ class TestAudioPipelineProperties:
         import numpy as np
         audio = np.array([0.5, np.nan, -0.5], dtype=np.float32)
         # np.clip with NaN returns NaN; astype(int16) converts NaN to 0
-        int16 = np.clip(audio * 32767, -32768, 32767).astype(np.int16)
+        with np.errstate(invalid='ignore'):
+            int16 = np.clip(audio * 32767, -32768, 32767).astype(np.int16)
         # NaN → 0 in int16 conversion (platform-dependent but safe)
         assert len(int16) == 3
 

@@ -127,13 +127,14 @@ def is_speech(audio_chunk: np.ndarray, sample_rate: int = 16000) -> bool:
     False otherwise.  Falls back to a simple RMS-based check
     if VAD is unavailable.
     """
+    if len(audio_chunk) == 0:
+        return False
+
     prob = compute_vad_prob(audio_chunk, sample_rate)
     if prob is not None:
         return prob > VAD_THRESHOLD
 
     # Fallback: simple RMS energy check if VAD is unavailable
-    if len(audio_chunk) == 0:
-        return False
     rms = float(np.sqrt(np.mean(audio_chunk ** 2)))
     return rms > 0.01
 
