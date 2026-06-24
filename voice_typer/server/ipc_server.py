@@ -900,6 +900,21 @@ class IPCServer:
                 resp["type"] = "error"
                 resp["data"] = {"message": str(e)}
 
+        elif cmd == "restore_history":
+            # NEW-UX-004: re-insert a previously-deleted record so the
+            # renderer's Undo-delete toast can recover the entry.
+            try:
+                record = data.get("record") if isinstance(data, dict) else None
+                if not isinstance(record, dict):
+                    raise ValueError("Missing 'record' dict")
+                new_id = self.service.restore_history(record)
+                resp["type"] = "ack"
+                resp["data"] = {"id": new_id}
+            except Exception as e:
+                log.error("[IPC] restore_history failed: %s", e, exc_info=True)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
         elif cmd == "clear_history":
             try:
                 self.service.clear_history()

@@ -4,6 +4,7 @@ import { HugeiconsIcon } from '@hugeicons/react'
 import { HistoryIcon } from '@hugeicons/core-free-icons'
 import { Search01Icon, Delete01Icon, StarIcon, ArrowDown01Icon } from '@hugeicons/core-free-icons'
 import { toast } from 'sonner'
+import { showUndoableToast } from '@/hooks/useSnackbar'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import PageHeading from '@/components/PageHeading'
@@ -150,13 +151,36 @@ export default function HistoryPage() {
   }, [favoritesOnly, load, searchQuery])
 
   const handleDelete = useCallback(async (id: number) => {
+    // NEW-UX-004: capture the record before delete so we can offer Undo.
+    const deleted = records.find(r => r.id === id)
     try {
       await call('delete_history', { id })
       setRecords(prev => prev.filter(r => r.id !== id))
+      // NEW-UX-004: show an undoable toast.  When the user clicks
+      // Undo, we re-add the record via the `restore_history` IPC
+      // command (added to the backend below).  This matches the
+      // macOS Mail / iOS Photos "delete now, undo for 6 seconds"
+      // pattern.
+      if (deleted) {
+        showUndoableToast(
+          'Entry deleted',
+          async () => {
+            try {
+              await call('restore_history', { record: deleted })
+              // Reload to reflect the restored entry.
+              load()
+              toast.success('Entry restored')
+            } catch {
+              toast.error('Failed to restore entry')
+            }
+          },
+          { undoLabel: 'Undo', type: 'warning', timeoutMs: 6000 },
+        )
+      }
     } catch {
       toast.error('Failed to delete item')
     }
-  }, [call])
+  }, [call, records, load])
 
   const handleToggleFavorite = useCallback(async (id: number) => {
     try {

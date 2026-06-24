@@ -54,6 +54,79 @@ function statusKeyFor(state: RecordingState, hasError: boolean): string {
   return state
 }
 
+// NEW-UX-029: play a short audio cue using the Web Audio API.
+// No asset files needed — works offline, no network.  The cue
+// is gated by the ``sound_feedback_enabled`` config flag (read
+// from localStorage cache updated by Settings).
+//
+// We use a shared AudioContext (created lazily on first call) so
+// we don't pay the cost of creating a new context per cue.
+let _sharedAudioContext: AudioContext | null = null
+function getAudioContext(): AudioContext | null {
+  if (typeof window === 'undefined') return null
+  if (_sharedAudioContext) return _sharedAudioContext
+  try {
+    const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+    if (!Ctor) return null
+    _sharedAudioContext = new Ctor()
+    return _sharedAudioContext
+  } catch {
+    return null
+  }
+}
+
+function playSoundCue(kind: 'start' | 'stop') {
+  // Check the sound feedback toggle.  The Settings page writes this
+  // to localStorage on every change, so we read it fresh each time
+  // (cheap).
+  try {
+    // The actual source of truth is the Python config, but we cache
+    // it in localStorage from the Settings page so the audio cue
+    // plays immediately without waiting for an IPC round-trip.
+    // If the cache is missing, default to OFF (matches config default).
+    const enabled = localStorage.getItem('vt_sound_feedback_enabled') === '1'
+    if (!enabled) return
+  } catch {
+    return  // localStorage unavailable — skip cue.
+  }
+
+  const ctx = getAudioContext()
+  if (!ctx) return
+
+  // Resume the context if it's suspended (browsers suspend AudioContext
+  // until the user interacts with the page).
+  if (ctx.state === 'suspended') {
+    ctx.resume().catch(() => {})
+  }
+
+  const now = ctx.currentTime
+  const osc = ctx.createOscillator()
+  const gain = ctx.createGain()
+
+  // Start cue: 660Hz (E5), 120ms, gentle attack/release.
+  // Stop cue: 440Hz (A4), 180ms, slightly longer release.
+  if (kind === 'start') {
+    osc.frequency.setValueAtTime(660, now)
+    osc.frequency.exponentialRampToValueAtTime(880, now + 0.08)
+    gain.gain.setValueAtTime(0.0001, now)
+    gain.gain.exponentialRampToValueAtTime(0.15, now + 0.01)
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12)
+    osc.connect(gain).connect(ctx.destination)
+    osc.start(now)
+    osc.stop(now + 0.13)
+  } else {
+    // stop cue
+    osc.frequency.setValueAtTime(523, now)  // C5
+    osc.frequency.exponentialRampToValueAtTime(392, now + 0.10)  // G4
+    gain.gain.setValueAtTime(0.0001, now)
+    gain.gain.exponentialRampToValueAtTime(0.15, now + 0.01)
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18)
+    osc.connect(gain).connect(ctx.destination)
+    osc.start(now)
+    osc.stop(now + 0.19)
+  }
+}
+
 export default function Home({ recordingState, lastError, onNavigate }: HomeProps) {
   const { call } = usePython()
 
@@ -137,6 +210,42 @@ export default function Home({ recordingState, lastError, onNavigate }: HomeProp
       // The timer is reset on each new transcription.
       if (lastTextTimer.current) clearTimeout(lastTextTimer.current)
       lastTextTimer.current = setTimeout(() => setLastText(''), 5000)
+
+      // NEW-UX-013: First-recording celebration.  If this is the user's
+      // first ever transcription (no prior history), show a celebratory
+      // toast to acknowledge the milestone.  We use localStorage to
+      // track whether we've already celebrated — cheap and persistent
+      // across app restarts.  This is a one-time event, not on every
+      // transcription.
+      try {
+        const celebrated = localStorage.getItem('vt_first_recording_celebrated') === '1'
+        if (!celebrated) {
+          // Check if there's any prior history.  If the count is 1,
+          // this IS the first transcription.
+          call<TodayStats>('get_today_stats').then((s) => {
+            // today's count == 1 AND we haven't celebrated yet → first
+            // transcription of the user's lifetime (today is their
+            // first day using Voice Typer).
+            if (s && s.count === 1) {
+              import('sonner').then(({ toast }) => {
+                toast.success('🎉 Your first dictation!', {
+                  description: 'Welcome to Voice Typer. Press the hotkey anytime to dictate.',
+                  duration: 6000,
+                })
+              })
+              localStorage.setItem('vt_first_recording_celebrated', '1')
+            }
+          }).catch(() => {
+            // Non-critical — skip celebration if stats fetch fails.
+          })
+        }
+      } catch {
+        // localStorage may be unavailable — non-fatal.
+      }
+
+      // NEW-UX-029: play a stop-recording sound (gated by the
+      // sound_feedback_enabled setting inside playSoundCue).
+      playSoundCue('stop')
     }
 
     // Proactive background refresh: silently refresh the cached recent
@@ -166,6 +275,11 @@ export default function Home({ recordingState, lastError, onNavigate }: HomeProp
       clearTimeout(lastTextTimer.current)
       lastTextTimer.current = null
     }
+    // NEW-UX-029: play a start-recording sound if the user has enabled
+    // sound feedback.  We use the Web Audio API to synthesize a short
+    // tone — no asset files needed, works offline, no network.  The
+    // tone is a soft 660Hz sine for 120ms with a quick fade-out.
+    playSoundCue('start')
   })
 
   // Clean up pending refresh timer on unmount
@@ -199,13 +313,29 @@ export default function Home({ recordingState, lastError, onNavigate }: HomeProp
 
   return (
     <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col items-center justify-center gap-5 px-6 py-4">
-      <div className="flex items-center gap-2">
+      {/* NEW-UX-016: status pill now has a smooth transition animation
+          so the dot + label fade between states instead of snapping.
+          The `transition-colors duration-300` on the dot animates the
+          color change; the `transition-opacity duration-200` on the
+          label cross-fades the text.  The `animate-fade-in` on the
+          whole pill makes the initial appearance polished. */}
+      <div
+        className="flex items-center gap-2 animate-fade-in"
+        role="status"
+        aria-live="polite"
+      >
         <span
-          className="h-2 w-2 rounded-full"
+          className={cn(
+            'h-2 w-2 rounded-full transition-colors duration-300',
+            isRecording && 'animate-pulse',
+          )}
           style={{ backgroundColor: statusColor }}
           aria-hidden
         />
-        <span className="text-[11px] font-medium uppercase tracking-wider text-(--text-muted)">
+        <span
+          key={statusLabel}
+          className="text-[11px] font-medium uppercase tracking-wider text-(--text-muted) transition-opacity duration-200 animate-fade-in"
+        >
           {statusLabel}
         </span>
       </div>

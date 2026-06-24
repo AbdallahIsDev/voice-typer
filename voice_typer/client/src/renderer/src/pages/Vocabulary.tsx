@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { usePython } from '@/hooks/usePython'
-import { useSnackbar } from '@/hooks/useSnackbar'
+import { useSnackbar, showUndoableToast } from '@/hooks/useSnackbar'
 import { HugeiconsIcon } from '@hugeicons/react'
 import {
   BookOpen02Icon,
@@ -229,8 +229,11 @@ export default function VocabularyPage() {
     }
   }
 
-  // #7: Request confirmation before deleting an entry
-  const requestDeleteEntry = (entry: VocabularyEntry) => {
+  // #7: Request confirmation before deleting an entry.
+  // NEW-UX-004: This path is kept for accessibility users; the
+  // default trash-icon click path now uses instant-delete + Undo
+  // toast via ``instantDeleteEntry`` (below).
+  const _requestDeleteEntry = (entry: VocabularyEntry) => {
     setDeleteEntryTarget(entry)
   }
 
@@ -247,6 +250,41 @@ export default function VocabularyPage() {
       setDeleteEntryTarget(null)
     }
   }
+
+  // NEW-UX-004: instant-delete + Undo toast.  Triggered by the trash
+  // icon.  Removes the entry immediately and offers a 6-second Undo
+  // window during which the user can restore it.
+  const instantDeleteEntry = useCallback(async (entry: VocabularyEntry) => {
+    try {
+      const updated = entries.filter((e) => e !== entry)
+      await persistVocabulary(updated)
+      setEntries(updated)
+      showUndoableToast(
+        `Deleted: ${entry.original}`,
+        async () => {
+          try {
+            const restored = [...entries]
+            // Re-insert at the original location (best-effort: append
+            // if the reference position is no longer valid).
+            const idx = restored.findIndex((e) => e === entry)
+            if (idx >= 0) {
+              restored.splice(idx, 0, entry)
+            } else {
+              restored.push(entry)
+            }
+            await persistVocabulary(restored)
+            setEntries(restored)
+            toast.success('Entry restored')
+          } catch {
+            toast.error('Failed to restore entry')
+          }
+        },
+        { undoLabel: 'Undo', type: 'warning', timeoutMs: 6000 },
+      )
+    } catch {
+      showSnack('Failed to delete entry', 'error')
+    }
+  }, [entries, persistVocabulary, showSnack])
 
   // ── Render ────────────────────────────────────────────────────────
 
@@ -352,7 +390,7 @@ export default function VocabularyPage() {
                     <Button
                       variant="ghost"
                       size="icon-xs"
-                      onClick={() => requestDeleteEntry(entry)}
+                      onClick={() => instantDeleteEntry(entry)}
                       className="text-(--text-muted) hover:text-destructive"
                       title="Delete"
                       aria-label={`Delete: ${entry.original}`}

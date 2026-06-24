@@ -358,7 +358,7 @@ export default function App() {
       case 'analytics':
         return <DashboardPage onNavigate={navigate} />
       case 'settings':
-        return <SettingsPage onThemeChange={handleThemeChange} />
+        return <SettingsPage onThemeChange={handleThemeChange} onNavigate={navigate} />
       case 'about':
         // NEW-UX-009: About/Diagnostics page.
         return <AboutPage />

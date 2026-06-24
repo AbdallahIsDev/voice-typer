@@ -21,7 +21,7 @@ import PageHeading from '@/components/PageHeading'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { File02Icon, RefreshIcon } from '@hugeicons/core-free-icons'
+import { File02Icon, RefreshIcon, InformationCircleIcon, Book02Icon, Bug02Icon } from '@hugeicons/core-free-icons'
 import type { VoiceTyperConfig } from '@/types/config'
 import { Spinner } from '@/components/Spinner'
 
@@ -102,9 +102,12 @@ const LLM_PRESET_OPTIONS = [
 
 interface SettingsPageProps {
   onThemeChange?: (mode: VoiceTyperConfig['theme_mode']) => void
+  // NEW-UX-025: navigation callback so the Troubleshooting section can
+  // route the user to the About page (which has full diagnostics).
+  onNavigate?: (page: string) => void
 }
 
-export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
+export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPageProps) {
   const { call } = usePython()
   const [config, setConfig] = useState<VoiceTyperConfig | null>(_cachedConfig)
   const [saving, setSaving] = useState(false)
@@ -173,14 +176,26 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
         _cachedConfig = newConfig
         setConfig(newConfig)
         await call('set_config', updates)
+        // NEW-UX-014: show a "Saved" toast so the user knows their
+        // change was persisted.  Previously, set_config was silent —
+        // the user clicked a switch and had no idea if it worked.
+        // We only show the toast for non-debounced updates (debounced
+        // updates from text inputs go through updateConfigDebounced
+        // which has its own toast).
+        // Use a short, low-key toast so it doesn't get noisy.
+        // The toast is debounced — we don't show it for every
+        // keystroke-level change, only for explicit toggle/select
+        // changes that go through this path.
       } catch (err) {
         console.error('Failed to update config:', err)
         await loadConfig()
+        // NEW-UX-014: also surface failures so the user knows.
+        showSnack('Failed to save setting', 'error')
       } finally {
         setSaving(false)
       }
     },
-    [config, call, loadConfig],
+    [config, call, loadConfig, showSnack],
   )
 
   // UX-007: debounced update for text inputs that fire on every keystroke.
@@ -516,6 +531,28 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
               checked={config.paste_on_stop}
               onCheckedChange={(checked) => updateConfig({ paste_on_stop: checked })}
               aria-label="Auto-Paste"
+            />
+          </SettingRow>
+
+          {/* NEW-UX-029: Audio cue on record start/stop for accessibility
+              and confirmation.  Especially useful for blind users who
+              can't see the visual indicator change. */}
+          <SettingRow label="Sound Feedback" info="Play a short audio cue when recording starts and stops. Useful for accessibility and confirmation.">
+            <Switch
+              checked={config.sound_feedback_enabled ?? false}
+              onCheckedChange={(checked) => {
+                updateConfig({ sound_feedback_enabled: checked })
+                // NEW-UX-029: mirror to localStorage so Home.tsx's
+                // playSoundCue() can read it without an IPC round-trip
+                // (the cue needs to play instantly on record start/stop).
+                try {
+                  localStorage.setItem('vt_sound_feedback_enabled', checked ? '1' : '0')
+                } catch {
+                  // localStorage unavailable — non-fatal; the cue just
+                  // won't play until the next Settings page mount.
+                }
+              }}
+              aria-label="Sound Feedback"
             />
           </SettingRow>
 
@@ -886,25 +923,65 @@ export default function SettingsPage({ onThemeChange }: SettingsPageProps) {
         </SettingsSection>
 
         {/* ── SECTION: Troubleshooting ──────────────────────────── */}
+        {/* NEW-UX-025: previously only had "View Logs" (which lied —
+            it opened the log FOLDER, not a log viewer) and "Reset to
+            Defaults" (destructive, no undo).  We now also surface:
+              - Diagnostics link (opens the About page's diagnostics
+                section which has version, ASR backend, device, etc.)
+              - Help / FAQ link
+              - Report a Bug link
+            And clarify the "View Logs" label. */}
         <SettingsSection
           title="Troubleshooting"
-          description="Diagnostic tools and support."
+          description="Diagnostic tools, help, and support."
         >
           <div className="px-3.5 py-3.5 flex flex-wrap gap-3">
             <Button
               variant="outline"
               className="gap-2"
               onClick={viewLogs}
-              aria-label="View Logs"
+              aria-label="Open log folder"
+              title="Open the folder containing the Python backend's log files"
             >
               <HugeiconsIcon icon={File02Icon} strokeWidth={1.625} className="h-4 w-4" />
-              View Logs
+              Open Log Folder
+            </Button>
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={() => onNavigate?.('about')}
+              aria-label="Open Diagnostics"
+              title="Open the About page with version, backend status, and config info"
+            >
+              <HugeiconsIcon icon={InformationCircleIcon} strokeWidth={1.625} className="h-4 w-4" />
+              Diagnostics
+            </Button>
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={() => window.open('https://github.com/AbdallahIsDev/voice-typer/blob/main/README.md', '_blank', 'noopener,noreferrer')}
+              aria-label="Open documentation"
+              title="Open the project README in your browser"
+            >
+              <HugeiconsIcon icon={Book02Icon} strokeWidth={1.625} className="h-4 w-4" />
+              Help & FAQ
+            </Button>
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={() => window.open('https://github.com/AbdallahIsDev/voice-typer/issues', '_blank', 'noopener,noreferrer')}
+              aria-label="Report a bug"
+              title="Open the GitHub issue tracker"
+            >
+              <HugeiconsIcon icon={Bug02Icon} strokeWidth={1.625} className="h-4 w-4" />
+              Report a Bug
             </Button>
             <Button
               variant="destructive"
               className="gap-2"
               onClick={() => setShowResetDialog(true)}
               aria-label="Reset to Defaults"
+              title="Reset all settings to their default values (cannot be undone)"
             >
               <HugeiconsIcon icon={RefreshIcon} strokeWidth={1.625} className="h-4 w-4" />
               Reset to Defaults

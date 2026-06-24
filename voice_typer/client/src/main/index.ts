@@ -294,6 +294,7 @@ function sendToPython(msg: Record<string, unknown>): Promise<unknown> {
       "search_history",
       "get_today_stats",
       "delete_history",
+      "restore_history",
       "clear_history",
       "toggle_favorite",
       "get_favorites",

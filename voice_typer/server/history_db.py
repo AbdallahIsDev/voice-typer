@@ -326,6 +326,47 @@ class HistoryDB:
                 raise HistoryDBError(str(e)) from e
             return False
 
+    def restore(
+        self,
+        record: dict,
+        *,
+        raise_on_error: bool = False,
+    ) -> int:
+        """Re-insert a previously-deleted transcription record.
+
+        NEW-UX-004: supports the Undo-delete toast in the renderer.
+        ``record`` should be the dict shape returned by ``get_recent``
+        (id is ignored — a new row with a new id is inserted).
+
+        Returns the new row id, or -1 on failure.
+        """
+        try:
+            text = str(record.get("text", ""))
+            duration = float(record.get("duration", 0) or 0)
+            model = str(record.get("model", "") or "")
+            device = str(record.get("device", "") or "")
+            language = str(record.get("language", "") or "")
+            word_count = int(record.get("word_count", 0) or len(text.split()))
+            char_count = int(record.get("char_count", 0) or len(text))
+            favorite = 1 if record.get("favorite") else 0
+
+            conn = self._get_conn()
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO transcriptions
+                (text, duration, model, device, word_count, char_count, language, favorite)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (text, duration, model, device, word_count, char_count, language, favorite))
+            conn.commit()
+            new_id = cursor.lastrowid
+            log.info("[HISTORY] Restored transcription as id=%d (%d chars)", new_id, char_count)
+            return new_id
+        except Exception as e:
+            log.error("[HISTORY] Failed to restore transcription: %s", e)
+            if raise_on_error:
+                raise HistoryDBError(str(e)) from e
+            return -1
+
     def clear_all(self, *, raise_on_error: bool = False) -> bool:
         """Clear all transcriptions.
 

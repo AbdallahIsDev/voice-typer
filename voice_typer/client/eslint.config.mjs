@@ -52,6 +52,9 @@ const ALL_GLOBALS = {
   navigator: 'readonly',
   requestAnimationFrame: 'readonly',
   cancelAnimationFrame: 'readonly',
+  // NEW-UX-029: Web Audio API globals for the sound feedback cue.
+  AudioContext: 'readonly',
+  webkitAudioContext: 'readonly',
   React: 'readonly',
   NodeJS: 'readonly',
   // Electron globals (used in main + preload)
