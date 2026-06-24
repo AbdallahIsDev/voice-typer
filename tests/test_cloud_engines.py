@@ -8,68 +8,68 @@ from unittest.mock import MagicMock, patch
 class TestCloudEngineFactory:
     def test_create_openai_engine(self):
         from voice_typer.server.cloud_engines import CloudEngine
-        engine = CloudEngine(provider="openai", api_key="test-key")
+        engine = CloudEngine(provider="openai", api_key="test-key", consent_given=True)
         assert engine.provider == "openai"
         assert engine.api_key == "test-key"
         assert "openai" in engine.api_url
 
     def test_create_groq_engine(self):
         from voice_typer.server.cloud_engines import CloudEngine
-        engine = CloudEngine(provider="groq", api_key="test-key")
+        engine = CloudEngine(provider="groq", api_key="test-key", consent_given=True)
         assert engine.provider == "groq"
         assert "groq" in engine.api_url
 
     def test_create_deepgram_engine(self):
         from voice_typer.server.cloud_engines import CloudEngine
-        engine = CloudEngine(provider="deepgram", api_key="test-key")
+        engine = CloudEngine(provider="deepgram", api_key="test-key", consent_given=True)
         assert engine.provider == "deepgram"
         assert "deepgram" in engine.api_url
 
     def test_custom_api_url(self):
         from voice_typer.server.cloud_engines import CloudEngine
-        engine = CloudEngine(provider="openai", api_key="key", api_url="https://custom.api/v1")
+        engine = CloudEngine(provider="openai", api_key="key", api_url="https://custom.api/v1", consent_given=True)
         assert engine.api_url == "https://custom.api/v1"
 
 
 class TestCloudEngineProtocol:
     def test_is_loaded_with_key(self):
         from voice_typer.server.cloud_engines import CloudEngine
-        engine = CloudEngine(provider="openai", api_key="test-key")
+        engine = CloudEngine(provider="openai", api_key="test-key", consent_given=True)
         assert engine.is_loaded is True
 
     def test_is_loaded_without_key(self):
         from voice_typer.server.cloud_engines import CloudEngine
-        engine = CloudEngine(provider="openai", api_key="")
+        engine = CloudEngine(provider="openai", api_key="", consent_given=True)
         assert engine.is_loaded is False
 
     def test_load_noop(self):
         from voice_typer.server.cloud_engines import CloudEngine
-        engine = CloudEngine(provider="openai", api_key="test-key")
+        engine = CloudEngine(provider="openai", api_key="test-key", consent_given=True)
         # Should not raise
         engine.load()
 
     def test_device_info(self):
         from voice_typer.server.cloud_engines import CloudEngine
-        engine = CloudEngine(provider="openai", api_key="test-key")
+        engine = CloudEngine(provider="openai", api_key="test-key", consent_given=True)
         assert "openai" in engine.device_info
 
     def test_loaded_via(self):
         from voice_typer.server.cloud_engines import CloudEngine
-        engine = CloudEngine(provider="groq", api_key="test-key", model="whisper-large-v3")
+        engine = CloudEngine(provider="groq", api_key="test-key", model="whisper-large-v3", consent_given=True)
         assert "groq" in engine.loaded_via
         assert "whisper-large-v3" in engine.loaded_via
 
     def test_transcribe_empty_audio(self):
         from voice_typer.server.cloud_engines import CloudEngine
         import numpy as np
-        engine = CloudEngine(provider="openai", api_key="test-key")
+        engine = CloudEngine(provider="openai", api_key="test-key", consent_given=True)
         result = engine.transcribe(np.array([], dtype=np.float32))
         assert result == ""
 
     def test_transcribe_with_fallback(self):
         from voice_typer.server.cloud_engines import CloudEngine
         import numpy as np
-        engine = CloudEngine(provider="openai", api_key="test-key")
+        engine = CloudEngine(provider="openai", api_key="test-key", consent_given=True)
         # Should delegate to transcribe
         audio = np.zeros(16000, dtype=np.float32)
         with patch.object(engine, '_send_request', return_value="test text"):
@@ -80,7 +80,7 @@ class TestCloudEngineProtocol:
 class TestCloudEngineMultipart:
     def test_build_multipart_body(self):
         from voice_typer.server.cloud_engines import CloudEngine
-        engine = CloudEngine(provider="openai", api_key="test-key", model="whisper-1")
+        engine = CloudEngine(provider="openai", api_key="test-key", model="whisper-1", consent_given=True)
         body = engine._build_multipart_body(b"fake_wav_data", "audio.wav", "boundary123")
         assert b"fake_wav_data" in body
         assert b"whisper-1" in body
@@ -90,7 +90,7 @@ class TestCloudEngineMultipart:
 class TestCloudEngineTestConnection:
     def test_test_connection_no_key(self):
         from voice_typer.server.cloud_engines import CloudEngine
-        engine = CloudEngine(provider="openai", api_key="")
+        engine = CloudEngine(provider="openai", api_key="", consent_given=True)
         success, msg = engine.test_connection()
         assert success is False
         assert "API key" in msg
@@ -117,6 +117,7 @@ class TestCloudEngineUrlAllowlist:
             api_key="sk-test",
             api_url="https://evil.example.com/exfiltrate",
             model="whisper-1",
+            consent_given=True,
         )
         with pytest.raises(ValueError, match="not in the trusted allowlist"):
             engine.transcribe(np.zeros(16000, dtype=np.float32))
@@ -129,6 +130,7 @@ class TestCloudEngineUrlAllowlist:
             api_key="test-token",
             api_url="https://evil.example.com/v1/listen",
             model="nova-2",
+            consent_given=True,
         )
         with pytest.raises(ValueError, match="not in the trusted allowlist"):
             engine.transcribe(np.zeros(16000, dtype=np.float32))
@@ -137,7 +139,7 @@ class TestCloudEngineUrlAllowlist:
         """The default provider URL must pass the allowlist check."""
         from voice_typer.server.cloud_engines import CloudEngine
         import numpy as np
-        engine = CloudEngine(provider="openai", api_key="sk-test")
+        engine = CloudEngine(provider="openai", api_key="sk-test", consent_given=True)
         # Should not raise on the allowlist check; the actual HTTP
         # request will fail (no network) but the error should be a
         # RuntimeError, not a ValueError.
@@ -152,6 +154,7 @@ class TestCloudEngineUrlAllowlist:
             provider="openai",
             api_key="sk-test",
             api_url="http://localhost:11434/v1/audio/transcriptions",
+            consent_given=True,
         )
         # Allowlist check passes; HTTP fails (no server) -> RuntimeError
         with pytest.raises(RuntimeError):
@@ -164,6 +167,7 @@ class TestCloudEngineUrlAllowlist:
             provider="openai",
             api_key="sk-test",
             api_url="https://evil.example.com/exfiltrate",
+            consent_given=True,
         )
         success, msg = engine.test_connection()
         assert success is False
@@ -187,6 +191,7 @@ class TestCloudEngineKeyRedaction:
         engine = CloudEngine(
             provider="openai",
             api_key="sk-abcdefghijklmnopqrstuvwxyz1234567890ABCDEF",
+            consent_given=True,
         )
         # Patch urlopen to raise a URLError whose str includes the
         # request URL (which the engine constructs with the key in
@@ -207,7 +212,7 @@ class TestCloudEngineKeyRedaction:
         from urllib.error import URLError
 
         key = "sk-abcdefghijklmnopqrstuvwxyz1234567890ABCDEF"
-        engine = CloudEngine(provider="openai", api_key=key)
+        engine = CloudEngine(provider="openai", api_key=key, consent_given=True)
         with patch(
             "voice_typer.server.cloud_engines.urlopen",
             side_effect=URLError(f"refused: Bearer {key}"),
@@ -240,6 +245,7 @@ class TestDeepgramUrlParameterInjection:
             api_key="test-token",
             api_url="https://api.deepgram.com/v1/listen",
             model="nova-2&punctuate=false",  # injection attempt
+            consent_given=True,
         )
         with pytest.raises(RuntimeError, match="invalid characters"):
             engine.transcribe(np.zeros(16000, dtype=np.float32))
@@ -253,6 +259,7 @@ class TestDeepgramUrlParameterInjection:
             api_url="https://api.deepgram.com/v1/listen",
             model="nova-2",
             language="en&smart_format=true",  # injection attempt
+            consent_given=True,
         )
         with pytest.raises(RuntimeError, match="invalid characters"):
             engine.transcribe(np.zeros(16000, dtype=np.float32))
@@ -266,6 +273,7 @@ class TestDeepgramUrlParameterInjection:
             api_url="https://api.deepgram.com/v1/listen",
             model="nova-2",
             language="en",
+            consent_given=True,
         )
         # The validation happens inside _send_deepgram; we verify it
         # passes the validation step by checking that the engine
@@ -286,6 +294,7 @@ class TestDeepgramUrlParameterInjection:
             api_key="test-token",
             api_url="https://api.deepgram.com/v1/listen",
             model="../../etc/passwd",
+            consent_given=True,
         )
         with pytest.raises(RuntimeError, match="invalid characters"):
             engine.transcribe(np.zeros(16000, dtype=np.float32))

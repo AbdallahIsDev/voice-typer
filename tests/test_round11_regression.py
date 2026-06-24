@@ -140,7 +140,8 @@ class TestCloudEngineUlopenTimeout:
         from voice_typer.server import cloud_engines
 
         engine = cloud_engines.CloudEngine(
-            provider="openai", api_key="test-key"
+            provider="openai", api_key="test-key",
+            consent_given=True,
         )
 
         # Patch the module-level opener so we can capture the timeout

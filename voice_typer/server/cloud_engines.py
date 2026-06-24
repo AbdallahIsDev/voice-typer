@@ -34,6 +34,17 @@ log = logging.getLogger(__name__)
 # Reuses TCP connections across requests (like requests.Session).
 _opener = build_opener(HTTPSHandler())
 
+
+class ConsentRequiredError(RuntimeError):
+    """NEW-PRIV-006: raised when a cloud engine is asked to transcribe
+    audio but the user hasn't granted consent for that provider.
+
+    Subclass of RuntimeError so existing ``except RuntimeError`` catch
+    clauses still work — but the IPC layer can ``isinstance``-check
+    for this type to surface a consent dialog instead of an error
+    toast.
+    """
+
 # Provider-specific defaults
 _PROVIDER_DEFAULTS = {
     "openai": {
@@ -172,6 +183,14 @@ class CloudEngine:
 
     Supports OpenAI, Groq, and Deepgram APIs (all OpenAI-compatible
     except Deepgram which uses its own format).
+
+    NEW-PRIV-006: each CloudEngine instance has a ``consent_given``
+    flag that must be True before any audio is sent to the provider.
+    The flag is set from the per-provider consent field on the Config
+    dataclass (``cloud_openai_consent``, ``cloud_groq_consent``,
+    ``cloud_deepgram_consent``).  When consent is False, ``is_loaded``
+    returns False and ``transcribe`` raises a ConsentRequiredError so
+    the IPC layer can surface a consent dialog to the renderer.
     """
 
     def __init__(
@@ -181,10 +200,15 @@ class CloudEngine:
         api_url: Optional[str] = None,
         model: Optional[str] = None,
         language: str = "en",
+        consent_given: bool = False,
     ):
         self.provider = provider
         self.api_key = api_key
         self.language = language
+        # NEW-PRIV-006: per-instance consent flag.  Must be True before
+        # any audio is sent.  Set from Config.cloud_{provider}_consent
+        # by the app when the engine is constructed.
+        self.consent_given = bool(consent_given)
         self._lock = threading.RLock()
 
         defaults = _PROVIDER_DEFAULTS.get(provider, {})
@@ -197,7 +221,10 @@ class CloudEngine:
 
     @property
     def is_loaded(self) -> bool:
-        return self._loaded and bool(self.api_key)
+        # NEW-PRIV-006: consent is required for the engine to be
+        # considered "loaded" — without consent, the engine should
+        # not be selected for transcription.
+        return self._loaded and bool(self.api_key) and self.consent_given
 
     def load(self, progress_callback=None) -> None:
         """No-op for cloud engines — no local model to load."""
@@ -206,7 +233,17 @@ class CloudEngine:
         self._loaded = True
 
     def transcribe(self, audio: np.ndarray) -> str:
-        """Transcribe audio via cloud API."""
+        """Transcribe audio via cloud API.
+
+        NEW-PRIV-006: refuses to send audio if consent hasn't been
+        given.  Raises ConsentRequiredError (a subclass of RuntimeError
+        so existing catch clauses still work) so the IPC layer can
+        detect this case and show the consent dialog.
+        """
+        if not self.consent_given:
+            raise ConsentRequiredError(
+                f"Cloud {self.provider} consent not given — refusing to send audio."
+            )
         if not self.is_loaded:
             raise RuntimeError("Cloud engine not configured (missing API key)")
         if len(audio) == 0:

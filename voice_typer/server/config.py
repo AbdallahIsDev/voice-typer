@@ -278,6 +278,34 @@ class Config:
     # turning it back on doesn't bypass the consent dialog).
     llm_polish_consent: bool = False
 
+    # NEW-PRIV-005: explicit consent that model weights are downloaded
+    # from HuggingFace on first use.  The download reveals the user's
+    # IP to a US-headquartered third party — GDPR Art. 13/44 require
+    # disclosure + consent for this.  When False, the first model
+    # download shows a consent dialog in the renderer; only after the
+    # user accepts does the download proceed.
+    huggingface_consent: bool = False
+
+    # NEW-PRIV-006: explicit per-provider consent for cloud ASR.
+    # Storing an API key alone is NOT consent — the user must
+    # explicitly agree that audio will be sent to that provider.
+    # Each provider has its own flag so consent is granular.
+    cloud_openai_consent: bool = False
+    cloud_groq_consent: bool = False
+    cloud_deepgram_consent: bool = False
+
+    # NEW-PRIV-009: explicit consent that voice recordings (which may
+    # constitute biometric data under BIPA / GDPR Art. 9) are
+    # processed locally for transcription.  Required for compliance
+    # in jurisdictions that classify voice as biometric.
+    voice_biometric_consent: bool = False
+
+    # NEW-UX-029: play a short audio cue when recording starts/stops.
+    # Many users (especially blind users) prefer an auditory signal
+    # instead of (or in addition to) the visual indicator.  Default
+    # OFF — opt-in to avoid surprising users with sound.
+    sound_feedback_enabled: bool = False
+
     # Crash recovery
     crash_recovery_enabled: bool = True
 
@@ -532,6 +560,12 @@ class Config:
             "condition_on_previous_text",
             "esc_cancel_enabled", "auto_punctuation", "llm_polish",
             "llm_polish_consent",
+            # NEW-PRIV-005/006/009: privacy consent flags are bools.
+            "huggingface_consent",
+            "cloud_openai_consent", "cloud_groq_consent", "cloud_deepgram_consent",
+            "voice_biometric_consent",
+            # NEW-UX-029: sound feedback toggle.
+            "sound_feedback_enabled",
             "crash_recovery_enabled", "audio_quality_warnings",
             "templates_enabled", "vocabulary_enabled",
             "waveform_bubble", "onboarding_completed", "onboarding_failed", "wayland_warned",
@@ -854,6 +888,17 @@ IPC_CONFIG_ALLOWLIST: dict = {
     # PRIVACY-001: consent flag is user-tunable (the consent dialog
     # itself sets this), but it's still subject to type validation.
     "llm_polish_consent":    (bool, _bool_validator),
+    # NEW-PRIV-005/006/009: privacy consent flags.  All user-tunable
+    # via the consent dialogs in the renderer; all subject to type
+    # validation so a malicious IPC client can't set them to non-bool
+    # values to bypass the consent UI.
+    "huggingface_consent":       (bool, _bool_validator),
+    "cloud_openai_consent":      (bool, _bool_validator),
+    "cloud_groq_consent":        (bool, _bool_validator),
+    "cloud_deepgram_consent":    (bool, _bool_validator),
+    "voice_biometric_consent":   (bool, _bool_validator),
+    # NEW-UX-029: sound feedback toggle.
+    "sound_feedback_enabled":    (bool, _bool_validator),
 
     # ── Crash recovery ────────────────────────────────────────────────
     "crash_recovery_enabled": (bool, _bool_validator),

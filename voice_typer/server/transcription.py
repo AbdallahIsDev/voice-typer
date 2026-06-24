@@ -492,6 +492,15 @@ class TranscriptionEngine:
         a background thread, so parallelizing would just add complexity
         without measurable benefit (WhisperModel.__init__ needs the
         files anyway).
+
+        NEW-PRIV-005: HuggingFace downloads reveal the user's IP to a
+        US-headquartered third party.  We check the
+        ``huggingface_consent`` config flag before downloading; if
+        consent hasn't been given, we raise a ConsentRequiredError so
+        the IPC layer can surface a consent dialog to the renderer.
+        The cache-check path (``local_files_only=True``) does NOT
+        require consent — it only reads local files and never
+        contacts HuggingFace.
         """
         # Skip pre-download for non-Whisper model sizes (e.g. "parakeet" or "qwen")
         if not model_size or model_size in ("parakeet", "qwen"):
@@ -512,6 +521,26 @@ class TranscriptionEngine:
                 return
             except Exception:
                 pass
+
+            # NEW-PRIV-005: require explicit consent before downloading
+            # from HuggingFace.  The cache check above is local-only
+            # and doesn't need consent; the actual download does.
+            if not getattr(self.config, 'huggingface_consent', False):
+                log.warning(
+                    "[MODEL] HuggingFace consent not given — refusing to download "
+                    "model '%s'. The renderer should show a consent dialog."
+                    , model_size,
+                )
+                if progress_callback:
+                    progress_callback(
+                        "HuggingFace consent required before downloading model."
+                    )
+                # Return without downloading.  The renderer is
+                # responsible for showing the consent dialog when the
+                # user tries to download a model via the Models page
+                # UI; once consent is granted, the download retry
+                # will succeed.
+                return
 
             log.info("[MODEL] Model '%s' not cached, downloading...", model_size)
             if progress_callback:
