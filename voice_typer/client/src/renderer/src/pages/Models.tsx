@@ -213,10 +213,25 @@ export default function ModelsPage() {
     setDeleteModelTarget(model)
   }
 
-  const confirmDeleteModel = () => {
+  const confirmDeleteModel = async () => {
     if (!deleteModelTarget) return
-    setModels((prev) => prev.filter((m) => m.name !== deleteModelTarget.name))
-    showSnack(`Deleted model: ${deleteModelTarget.name}`, 'warning')
+    // NEW-UX-005: actually call the backend to delete the model files
+    // from disk, not just remove from the UI list.  Previously this
+    // was a no-op that left 1.5 GB of files on disk.
+    try {
+      const result = await call<{ success: boolean; message: string }>(
+        'delete_model',
+        { model: deleteModelTarget.name }
+      )
+      if (result?.success) {
+        setModels((prev) => prev.filter((m) => m.name !== deleteModelTarget.name))
+        showSnack(`Deleted: ${deleteModelTarget.name}`, 'warning')
+      } else {
+        showSnack(result?.message ?? 'Delete failed', 'error')
+      }
+    } catch (e) {
+      showSnack(`Delete failed: ${e}`, 'error')
+    }
     setDeleteModelTarget(null)
   }
 

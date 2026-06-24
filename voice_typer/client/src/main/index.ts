@@ -323,6 +323,9 @@ function sendToPython(msg: Record<string, unknown>): Promise<unknown> {
       // NEW-DEAD-015: allow test_llm_connection so the renderer can
       // wire up a "Test connection" button on the Settings page.
       "test_llm_connection",
+      // NEW-UX-005: allow delete_model so the renderer can actually
+      // delete model files from disk (not just remove from UI list).
+      "delete_model",
     ]);
     const cmd = String(msg?.type ?? "").trim();
     if (!ALLOWED_COMMANDS.has(cmd)) {

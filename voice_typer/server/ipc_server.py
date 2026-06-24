@@ -1261,6 +1261,23 @@ class IPCServer:
                 log.error("[IPC] test_llm_connection failed: %s", e)
                 resp["type"] = "error"
                 resp["data"] = {"message": str(e)}
+
+        elif cmd == "delete_model":
+            # NEW-UX-005: actually delete the model files from disk,
+            # not just remove from the UI list.
+            try:
+                model_name = (data or {}).get("model", "") if isinstance(data, dict) else ""
+                if not model_name:
+                    resp["type"] = "error"
+                    resp["data"] = {"message": "Missing 'model' parameter"}
+                else:
+                    result = self.service.delete_model(model_name)
+                    resp["type"] = "delete_model_result"
+                    resp["data"] = result
+            except Exception as e:
+                log.error("[IPC] delete_model failed: %s", e)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
                 
         else:
             resp["type"] = "error"

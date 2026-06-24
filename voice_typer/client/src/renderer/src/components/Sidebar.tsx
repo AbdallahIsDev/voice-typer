@@ -83,6 +83,9 @@ export function Sidebar({ currentPage, onNavigate, themeMode, onThemeChange, col
                 key={item.id}
                 variant="ghost"
                 title={collapsed ? item.label : undefined}
+                // NEW-A11Y-003: aria-current="page" tells screen readers
+                // which nav item represents the current page.
+                aria-current={isActive ? 'page' : undefined}
                 className={cn(
                   'w-full justify-start gap-3 text-sm tracking-wide normal-case font-normal rounded-md',
                   'transition-all duration-200 ease-out',

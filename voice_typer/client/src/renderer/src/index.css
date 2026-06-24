@@ -311,3 +311,20 @@
 .animate-glow-pulse {
   animation: glowPulse 2.5s ease-in-out infinite;
 }
+
+/* NEW-A11Y-001: respect prefers-reduced-motion.
+   WCAG 2.1 SC 2.3.3 requires that motion be disable-able.  When the
+   user has this setting enabled (common for vestibular disorders,
+   motion sensitivity, or simply preference), we disable ALL CSS
+   animations and transitions app-wide.  The bubble visualizer, sidebar
+   collapse, page transitions, and glow pulse all stop. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

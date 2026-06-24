@@ -240,6 +240,69 @@ class VoiceTyperService:
 
         return status
 
+    def delete_model(self, model_name: str) -> dict:
+        """Delete a downloaded model from the HuggingFace cache.
+
+        NEW-UX-005: previously the Models page only removed the model
+        from the UI list without actually deleting the files.  A 1.5 GB
+        model left on disk is a waste of space and confuses users who
+        think they deleted it.  We now actually delete the cached files.
+
+        Returns ``{"success": bool, "message": str}``.
+        """
+        import shutil
+        from voice_typer.server.config import _config_dir
+
+        cache_dir = _config_dir() / "huggingface" / "hub"
+
+        # Map model name to HuggingFace repo ID.
+        repo_map = {
+            "tiny.en": "Systran/faster-whisper-tiny.en",
+            "small.en": "Systran/faster-whisper-small.en",
+            "medium.en": "Systran/faster-whisper-medium.en",
+            "parakeet": "nvidia/parakeet-tdt-0.6b-v3",
+        }
+        repo_id = repo_map.get(model_name)
+        if not repo_id:
+            return {"success": False, "message": f"Unknown model: {model_name}"}
+
+        # Don't allow deleting the active model.
+        current_backend = getattr(self._app.config, "asr_backend", "whisper")
+        current_model = getattr(self._app.config, "model_size", "tiny.en")
+        is_active = (
+            (model_name == current_model and current_backend == "whisper")
+            or (model_name == "parakeet" and current_backend == "parakeet")
+            or (model_name == "qwen" and current_backend == "qwen")
+        )
+        if is_active:
+            return {
+                "success": False,
+                "message": "Cannot delete the active model. Switch to another model first.",
+            }
+
+        model_dir = cache_dir / f"models--{repo_id.replace('/', '--')}"
+        if not model_dir.exists():
+            return {"success": False, "message": f"Model '{model_name}' is not downloaded."}
+
+        try:
+            shutil.rmtree(model_dir)
+            # Invalidate the tray models submenu cache so the next
+            # right-click reflects the deletion.
+            try:
+                from voice_typer.server.tray_models import (
+                    invalidate_model_availability_cache,
+                )
+                invalidate_model_availability_cache()
+            except Exception:
+                pass
+            return {
+                "success": True,
+                "message": f"Deleted model '{model_name}' ({repo_id}).",
+            }
+        except Exception as exc:
+            log.warning("[SERVICE] delete_model failed: %s", exc)
+            return {"success": False, "message": str(exc)}
+
     def test_llm_connection(self) -> dict:
         """Test the LLM polish API connection.
 

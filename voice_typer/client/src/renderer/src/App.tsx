@@ -20,6 +20,9 @@ import { cn } from '@/lib/utils'
 import type { RecordingState, Page, WindowBridge } from '@/types/ipc'
 import type { VoiceTyperConfig } from '@/types/config'
 import { Spinner } from '@/components/Spinner'
+// NEW-UX-015: ErrorBoundary catches render errors so a single bad
+// config or component crash doesn't white-screen the entire app.
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 
 // NEW-TS-012: runtime validator for the RecordingState string-literal
 // union.  The backend emits status values as plain strings over IPC;
@@ -361,7 +364,19 @@ export default function App() {
 
   // ── Render ────────────────────────────────────────────────────
 
+  // NEW-UX-015: wrap the entire app in ErrorBoundary so a render error
+  // in any page/component shows a recovery UI instead of white-screening.
   return (
+    <ErrorBoundary>
+    {/* NEW-A11Y-004: Skip-to-main-content link for keyboard users.
+        Visually hidden until focused, then appears as a floating button.
+        WCAG 2.1 SC 2.4.1 (Bypass Blocks). */}
+    <a
+      href="#main-content"
+      className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-lg focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground"
+    >
+      Skip to main content
+    </a>
     <div className={cn('flex h-screen flex-col bg-(--bg-subtle) font-sans text-(--text-primary) overflow-hidden', !isMaximized && 'rounded-lg border border-border')}>
       <TitleBar
         onToggleSidebar={() => setSidebarCollapsed((c) => !c)}
@@ -418,6 +433,7 @@ export default function App() {
         {recordingState !== 'idle' ? `Recording state: ${recordingState}` : ''}
       </div>
     </div>
+    </ErrorBoundary>
   )
 }
 
