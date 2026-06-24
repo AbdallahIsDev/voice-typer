@@ -108,11 +108,40 @@ def _config_dir() -> Path:
     """Get the voice-typer data directory.
 
     NEW-CLI-004: honors VOICE_TYPER_CONFIG_DIR env var.
+    NEW-XPLAT-001: uses platform-appropriate paths instead of always
+    ``~/.voice-typer``.  On Windows this is ``%APPDATA%/voice-typer``,
+    on macOS ``~/Library/Application Support/voice-typer``, on Linux
+    ``$XDG_DATA_HOME/voice-typer`` (falling back to
+    ``~/.local/share/voice-typer``).  The legacy ``~/.voice-typer`` is
+    still checked first for migration — existing users' data is
+    automatically found and used.
     """
     custom = os.environ.get("VOICE_TYPER_CONFIG_DIR")
     if custom:
         return Path(custom)
-    return Path.home() / ".voice-typer"
+
+    # NEW-XPLAT-001: check for legacy ~/.voice-typer first (migration
+    # path — existing users keep their data where it is).
+    legacy = Path.home() / ".voice-typer"
+    if legacy.exists():
+        return legacy
+
+    # Platform-specific paths for new installations.
+    if sys.platform == "win32":
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            return Path(appdata) / "voice-typer"
+    elif sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "voice-typer"
+    else:
+        # Linux / FreeBSD: honor XDG_DATA_HOME.
+        xdg = os.environ.get("XDG_DATA_HOME")
+        if xdg:
+            return Path(xdg) / "voice-typer"
+        return Path.home() / ".local" / "share" / "voice-typer"
+
+    # Fallback for any platform where the above checks didn't return.
+    return legacy
 
 
 def _migrate_from_legacy():
@@ -204,13 +233,21 @@ class Config:
     push_to_talk_hotkey: str = ""  # Separate hotkey for PTT (empty = same as toggle)
 
     # ESC to cancel at any stage
-    esc_cancel_enabled: bool = False
+    # NEW-UX-020: Esc-to-cancel defaults ON so users can cancel a
+    # recording they started by mistake.  Previously OFF and hidden in
+    # Settings, so the only way to cancel was to wait for silence
+    # auto-stop or toggle the hotkey again.
+    esc_cancel_enabled: bool = True
 
     # Repaste last transcription
     repaste_hotkey: str = "<ctrl>+<alt>+v"  # Hotkey for repasting last
 
     # Auto-punctuation (runs AFTER template matching)
-    auto_punctuation: bool = False
+    # NEW-UX-010: Auto-punctuation defaults ON.  The #1 voice-typing
+    # complaint is missing punctuation.  This feature adds periods,
+    # commas, and capitalization automatically.  Previously OFF and
+    # undocumented in-app.
+    auto_punctuation: bool = True
 
     # ─── P2 Features ───────────────────────────────────────────────
 
