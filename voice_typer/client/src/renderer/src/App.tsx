@@ -12,6 +12,8 @@ import ModelsPage from '@/pages/Models'
 import MicrophonePage from '@/pages/Microphone'
 import DashboardPage from '@/pages/Dashboard'
 import SettingsPage from '@/pages/Settings'
+// NEW-UX-009: About/Diagnostics page.
+import AboutPage from '@/pages/About'
 // #8: Onboarding wizard — was previously dead code (275-line component
 // never imported, never rendered). Now wired in via the first-run check
 // in the connection lifecycle effect below.
@@ -357,6 +359,9 @@ export default function App() {
         return <DashboardPage onNavigate={navigate} />
       case 'settings':
         return <SettingsPage onThemeChange={handleThemeChange} />
+      case 'about':
+        // NEW-UX-009: About/Diagnostics page.
+        return <AboutPage />
       case 'onboarding':
         return <OnboardingPage onComplete={handleOnboardingComplete} />
     }
@@ -373,7 +378,7 @@ export default function App() {
         WCAG 2.1 SC 2.4.1 (Bypass Blocks). */}
     <a
       href="#main-content"
-      className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-lg focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground"
+      className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-100 focus:rounded-lg focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground"
     >
       Skip to main content
     </a>
@@ -428,9 +433,17 @@ export default function App() {
       </div>
       <Toaster />
 
-      {/* #9: Screen reader live region for dynamic status updates */}
+      {/* #9: Screen reader live region for dynamic status updates.
+          NEW-A11Y-002: NVDA/JAWS/VoiceOver users press F2, hear nothing,
+          don't know if recording started.  This aria-live region announces
+          state transitions so screen reader users know what's happening. */}
       <div aria-live="polite" className="sr-only">
-        {recordingState !== 'idle' ? `Recording state: ${recordingState}` : ''}
+        {recordingState === 'recording' ? 'Recording started.' : ''}
+        {recordingState === 'transcribing' ? 'Transcribing audio…' : ''}
+        {recordingState === 'idle' ? 'Ready.' : ''}
+        {recordingState === 'error' ? 'Error occurred.' : ''}
+        {recordingState === 'loading' ? 'Loading model…' : ''}
+        {recordingState === 'cancelling' ? 'Cancelling…' : ''}
       </div>
     </div>
     </ErrorBoundary>

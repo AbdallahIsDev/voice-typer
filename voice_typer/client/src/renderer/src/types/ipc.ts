@@ -21,7 +21,7 @@ export type RecordingState =
   | 'cancelling'
   | 'error'
 
-export type Page = 'home' | 'history' | 'templates' | 'vocabulary' | 'models' | 'microphone' | 'analytics' | 'settings' | 'onboarding'
+export type Page = 'home' | 'history' | 'templates' | 'vocabulary' | 'models' | 'microphone' | 'analytics' | 'settings' | 'onboarding' | 'about'
 
 // ── History data shapes (from Python history_db) ───────────────────
 

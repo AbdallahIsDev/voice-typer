@@ -9,6 +9,7 @@ import {
   Mic02Icon,
   Analytics01Icon,
   Settings03Icon,
+  InformationCircleIcon,
 } from "@hugeicons/core-free-icons"
 import type { Page } from '@/types/ipc'
 import type { VoiceTyperConfig } from '@/types/config'
@@ -32,6 +33,8 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'models', label: 'Models', icon: AiBrain03Icon },
   { id: 'microphone', label: 'Microphone', icon: Mic02Icon },
   { id: 'settings', label: 'Settings', icon: Settings03Icon },
+  // NEW-UX-009: About/Diagnostics page with version, config info, privacy, help.
+  { id: 'about', label: 'About', icon: InformationCircleIcon },
 ]
 
 interface SidebarProps {
