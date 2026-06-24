@@ -87,6 +87,12 @@ dependencies = [
     # Lazy-imported in MacVolumeBackend — safe on other platforms.
     "pyobjc-core>=9.0; sys_platform == 'darwin'",
     "pyobjc-framework-CoreAudio>=9.0; sys_platform == 'darwin'",
+    # NEW-XPLAT-004: pystray on macOS uses Cocoa (AppKit) via pyobjc.
+    # Without pyobjc-framework-Cocoa installed, pystray.Icon() raises
+    # ImportError at runtime and the tray silently fails.  Adding the
+    # explicit dep here so a fresh ``pip install voice-typer`` on
+    # macOS gets a working tray out of the box.
+    "pyobjc-framework-Cocoa>=9.0; sys_platform == 'darwin'",
 ]
 
 [project.urls]

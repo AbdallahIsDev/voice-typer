@@ -134,6 +134,37 @@ def find_microphone_by_id(mic_id: str) -> Optional[dict]:
 
 # ─── Autostart ─────────────────────────────────────────────────────────
 
+def _desktop_quote(arg: str) -> str:
+    """Quote ``arg`` per the freedesktop Desktop Entry Spec's Exec rules.
+
+    The spec (https://specifications.freedesktop.org/desktop-entry/latest/exec-variables.html)
+    says: "If an argument contains a reserved character then the argument
+    must be quoted in its entirety. Reserved characters are space, tab,
+    newline, double quote, single quote, backslash, greater-than sign,
+    less-than sign, tilde, pipe character, ampersand, semicolon, dollar
+    sign, asterisk, question mark, hash, parentheses."
+
+    Within a quoted string, the characters ``" \\ ` $`` must be escaped
+    with a backslash.
+
+    NEW-XPLAT-007: previously the code just wrapped paths in double
+    quotes without escaping backslashes or quotes — so a path like
+    ``C:\\Users\\John "Bob"\\app`` would corrupt the .desktop Exec
+    field.  We now do proper spec-compliant quoting.
+    """
+    reserved = set(' \t\n"\'\\><~|&;$*?#()')
+    if not any(c in reserved for c in arg):
+        return arg  # no quoting needed
+    # Escape backslash, double-quote, backtick, dollar per spec.
+    escaped = (
+        arg.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("`", "\\`")
+        .replace("$", "\\$")
+    )
+    return f'"{escaped}"'
+
+
 def _autostart_command() -> str:
     """Build the command that the OS autostart entry should run.
 
@@ -154,18 +185,24 @@ def _autostart_command() -> str:
     fires at logon+0 s) a head start on warming the OS file cache,
     so the app's cold imports of torch/transformers hit RAM instead
     of contending with prewarm on disk.
+
+    NEW-XPLAT-007: the result is properly quoted per the freedesktop
+    Desktop Entry Spec's Exec-quoting rules so paths containing
+    spaces, apostrophes, or other reserved characters (e.g.
+    ``/home/john doe/voice-typer``) survive XFCE's and KDE's
+    .desktop file parsers without truncation.
     """
     # The launcher lives next to this module (voice_typer/server/).
     launcher = Path(__file__).resolve().parent / "autostart_launcher.py"
-    # STARTUP-2: delay in seconds before the launcher spawns Electron.
-    # 0 on non-Windows (prewarm is Windows-only; no benefit elsewhere).
-    delay_flag = "--delay 30" if sys.platform == "win32" else ""
+    # Build the argument list, then quote each arg per the desktop spec.
     if sys.platform == "win32":
         pythonw = Path(sys.executable).parent / "pythonw.exe"
-        python_bin = pythonw if pythonw.exists() else Path(sys.executable)
-        return f'"{python_bin}" "{launcher}" --hidden {delay_flag}'.strip()
-    # macOS / Linux: use the current interpreter, quoted.
-    return f'"{sys.executable}" "{launcher}" --hidden'.strip()
+        python_bin = str(pythonw) if pythonw.exists() else sys.executable
+        args = [python_bin, str(launcher), "--hidden", "--delay", "30"]
+    else:
+        # macOS / Linux: use the current interpreter.
+        args = [sys.executable, str(launcher), "--hidden"]
+    return " ".join(_desktop_quote(arg) for arg in args)
 
 
 def get_autostart_dir() -> Path:
@@ -489,6 +526,16 @@ def _enable_autostart_macos() -> bool:
     plist_path = plist_dir / "com.voicetyper.plist"
     launcher = Path(__file__).resolve().parent / "autostart_launcher.py"
 
+    # NEW-XPLAT-006: previously the plist's ``WorkingDirectory`` was
+    # set to the literal string ``~``.  launchd does NOT expand ``~``
+    # in plist values — the WorkingDirectory must be an absolute path.
+    # The literal ``~`` caused launchd to fail to chdir into anything
+    # (silently on some macOS versions, noisily on others), so the
+    # autostarted Python process inherited launchd's ``/`` working
+    # directory — which in turn made relative file operations in
+    # autostart_launcher.py resolve to the wrong place.
+    working_dir = str(Path.home())
+
     plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -505,7 +552,7 @@ def _enable_autostart_macos() -> bool:
     <key>KeepAlive</key>
     <false/>
     <key>WorkingDirectory</key>
-    <string>~</string>
+    <string>{escape(working_dir)}</string>
     <key>StandardOutPath</key>
     <string>{escape(str(Path.home() / ".voice-typer" / "autostart.log"))}</string>
     <key>StandardErrorPath</key>
@@ -523,7 +570,19 @@ def _enable_autostart_macos() -> bool:
         pass
     try:
         import subprocess
-        subprocess.run(["launchctl", "load", str(plist_path)], check=False, capture_output=True)
+        # NEW-XPLAT-005: previously ``launchctl load`` had no timeout,
+        # so a hung launchd (rare but possible after a macOS upgrade
+        # or in a stuck boot) would block this thread forever.  The
+        # 5-second timeout matches what the Apple docs say is the
+        # upper bound for a healthy launchctl load.
+        subprocess.run(
+            ["launchctl", "load", str(plist_path)],
+            check=False,
+            capture_output=True,
+            timeout=5.0,
+        )
+    except subprocess.TimeoutExpired:
+        log.warning("[CONFIG] launchctl load timed out after 5s — launchd may be unresponsive")
     except Exception as e:
         log.warning("[CONFIG] launchctl load failed: %s", e)
     log.info("[CONFIG] Autostart enabled (macOS): %s", plist_path)

@@ -124,11 +124,27 @@ def open_electron_window() -> None:
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         client_dir = os.path.join(project_root, "voice_typer", "client")
         log.info("[TRAY] Build-first failed, trying dev mode from %s", client_dir)
-        subprocess.Popen(
-            ["npm", "run", "dev"],
-            cwd=client_dir,
-            shell=True,
-        )
+        # NEW-XPLAT-003: previously used ``shell=True`` here (which
+        # spawns a shell to find npm, propagating PATH/env to it).
+        # We now resolve the npm path explicitly via ``shutil.which``
+        # (same helper used by autostart_launcher._npm_command) so
+        # the list form works on Windows too (where npm is npm.cmd).
+        import shutil
+        npm_path = shutil.which("npm")
+        if npm_path is not None:
+            subprocess.Popen(
+                [npm_path, "run", "dev"],
+                cwd=client_dir,
+            )
+        else:
+            # Last-resort fallback: shell=True only when npm truly
+            # can't be resolved (e.g. unusual embedded environments).
+            log.warning("[TRAY] npm not on PATH; falling back to shell=True")
+            subprocess.Popen(
+                "npm run dev",
+                cwd=client_dir,
+                shell=True,
+            )
         log.info("[TRAY] Electron app launched (dev mode fallback)")
     except Exception as e:
         log.error("[TRAY] Failed to launch Electron app: %s", e)

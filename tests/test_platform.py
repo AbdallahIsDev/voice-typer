@@ -34,9 +34,16 @@ class TestAutostartCommand:
 
     @pytest.mark.skipif(sys.platform == "win32", reason="Non-Windows test")
     def test_unix_uses_quoted_executable(self):
+        # NEW-XPLAT-007: the autostart command now uses spec-compliant
+        # quoting — paths without reserved characters are NOT wrapped
+        # in quotes (per the freedesktop Desktop Entry Spec).  We just
+        # verify the executable appears in the command and the
+        # launcher is present.
         cmd = _autostart_command()
-        assert cmd.startswith('"')
-        assert sys.executable in cmd
+        assert sys.executable in cmd, (
+            f"Expected sys.executable ({sys.executable}) in cmd: {cmd}"
+        )
+        assert "autostart_launcher.py" in cmd
 
 
 class TestLinuxDesktopExec:

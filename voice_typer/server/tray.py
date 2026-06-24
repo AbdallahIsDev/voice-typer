@@ -118,6 +118,73 @@ class TrayIcon:
         self._hotkey = hotkey
         self._menu_cache_valid = False
 
+    @staticmethod
+    def _is_linux_wayland_without_sni() -> bool:
+        """NEW-XPLAT-002: detect Linux Wayland without StatusNotifierItem.
+
+        Returns True if ALL of the following are true:
+          1. We're on Linux (sys.platform starts with "linux").
+          2. The session is Wayland (XDG_SESSION_TYPE=wayland).
+          3. No StatusNotifierItem watcher is registered on the D-Bus
+             session bus.
+
+        Detection of (3) is best-effort: we try to call the
+        ``org.kde.StatusNotifierWatcher`` service via D-Bus.  If the
+        call fails (service unknown, bus unavailable, dbus module
+        missing), we assume SNI is not available — which matches the
+        user's complaint that "the tray silently fails" on Sway/Hyprland.
+
+        We DON'T try to detect specific compositors by name (Sway,
+        Hyprland, etc.) because new compositors appear regularly and
+        the SNI-availability check is the actual contract that
+        matters.
+        """
+        import sys
+        import os
+        if not sys.platform.startswith("linux"):
+            return False
+        if os.environ.get("XDG_SESSION_TYPE") != "wayland":
+            return False
+        # Try to detect the StatusNotifierItem watcher service on D-Bus.
+        try:
+            import dbus  # type: ignore[import-untyped]
+        except ImportError:
+            # No dbus module — we can't detect SNI programmatically.
+            # Conservative: assume SNI is NOT available (matches the
+            # user's complaint of "silent failure" on minimal Wayland
+            # setups that typically don't have python-dbus installed).
+            log.debug(
+                "[TRAY] Wayland session detected but python-dbus not installed; "
+                "assuming StatusNotifierItem is unavailable."
+            )
+            return True
+        try:
+            bus = dbus.SessionBus()
+            # The SNI watcher is the well-known name registered by
+            # the compositor's tray (e.g. waybar, swaync, KDE's
+            # plasma-workspace).  If it's not registered, the
+            # NameHasOwner call returns False.
+            proxy = bus.get_object(
+                "org.freedesktop.DBus", "/org/freedesktop/DBus",
+            )
+            has_owner = bool(proxy.NameHasOwner(
+                "org.kde.StatusNotifierWatcher",
+                dbus_interface="org.freedesktop.DBus",
+            ))
+            if not has_owner:
+                log.info(
+                    "[TRAY] Wayland session detected and org.kde.StatusNotifierWatcher "
+                    "is NOT registered on the D-Bus session bus. Tray will be skipped."
+                )
+                return True
+            return False
+        except Exception as exc:
+            log.debug(
+                "[TRAY] D-Bus check for StatusNotifierItem failed: %s — "
+                "assuming SNI is unavailable.", exc,
+            )
+            return True
+
     def refresh_config(self, config) -> None:
         """Replace the cached Config reference and rebuild the menu.
 
@@ -142,8 +209,33 @@ class TrayIcon:
         thread silently. We now catch the OSError, log it, and notify
         the user that the tray is unavailable — the app keeps running
         so the hotkey + IPC server still work.
+
+        NEW-XPLAT-002: on Linux Wayland compositors that don't implement
+        the StatusNotifierItem D-Bus interface (Sway, Hyprland, dwl,
+        river, bare wlroots), pystray has no tray to attach to.  We
+        detect this case proactively and skip tray creation rather
+        than letting pystray hang on ``icon.run()``.  The app remains
+        usable via hotkey + IPC + Electron window.
         """
         self._bg_work_fn = bg_work
+
+        # NEW-XPLAT-002: Linux Wayland without StatusNotifierItem.
+        # pystray's GTK backend hangs forever on `icon.run()` when
+        # there's no StatusNotifierItem service to register with.
+        # Detect this case and skip tray creation entirely.
+        if self._is_linux_wayland_without_sni():
+            log.warning(
+                "[TRAY] Linux Wayland session without StatusNotifierItem detected "
+                "(common on Sway/Hyprland/dwl/river). Tray icon will not be created. "
+                "The app remains usable via the global hotkey and the Electron window."
+            )
+            self._icon = None
+            self._tray_unavailable = True
+            # Still start background work so the app boots normally.
+            if self._bg_work_fn:
+                self._bg_work_thread = threading.Thread(target=self._bg_work_fn, daemon=True)
+                self._bg_work_thread.start()
+            return
 
         # Phase 2: Build minimal menu
         menu = pystray.Menu(self._build_menu)
