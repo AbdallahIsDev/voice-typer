@@ -5,6 +5,9 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+  # NEW-CI-001: also run on PRs so lint/coverage/audit gates are enforced.
+  pull_request:
+    branches: [main, master]
 
 jobs:
   test:
@@ -12,7 +15,8 @@ jobs:
     strategy:
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
-        python-version: ["3.12"]
+        # NEW-DOC-012: test on all supported Python versions, not just 3.12.
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
       fail-fast: false
 
     steps:
@@ -27,10 +31,54 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install ".[test]"
+          # NEW-CI-001: install lint + audit tools.
+          pip install ruff pip-audit
           pip list
 
-      - name: Run tests
-        run: python -m pytest tests/ -v --tb=short -q
+      - name: Run ruff linter
+        # NEW-CI-001: ruff is configured in pyproject.toml but was never
+        # invoked in CI.  Run it on the server tree (E501 line-length check).
+        run: python -m ruff check voice_typer/server/ --select E501
+
+      - name: Run tests with coverage
+        # NEW-CI-001: run pytest with coverage reporting.
+        run: |
+          python -m pytest tests/ -v --tb=short -q \
+            --cov=voice_typer --cov-report=xml --cov-report=term-missing
+
+      - name: Upload coverage to Codecov
+        # NEW-CI-001: upload coverage so it's visible in the PR UI.
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: false
+
+      - name: Run pip-audit
+        # NEW-CI-001: scan installed dependencies for known CVEs.
+        # Non-blocking (continue-on-error) — we don't want to block
+        # every PR on an upstream CVE, but we want visibility.
+        continue-on-error: true
+        run: pip-audit --strict
+
+  # NEW-CI-002: version sync check — verify all version strings match
+  # pyproject.toml before building.
+  version-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check version sync
+        run: |
+          pip install -e ".[test]"
+          # sync_versions.py exits 0 if all in sync, 1 if not.
+          # In CI we want to FAIL if not in sync.
+          python scripts/build/sync_versions.py
+          # Also verify __version__ matches.
+          python -c "from voice_typer import __version__; print(__version__)"
 
   # BUILD-N08: client-build job — type-check the Electron/React/TS
   # client on every release tag. Without this, TypeScript strict-mode
@@ -77,7 +125,7 @@ jobs:
           path: voice_typer/client/out/
 
   build:
-    needs: [test, client-build]
+    needs: [test, client-build, version-check]
     runs-on: windows-latest
     permissions:
       contents: write
@@ -96,6 +144,23 @@ jobs:
           pip install ".[build]"
           pip install .
           pip list
+
+      # NEW-CI-002: verify installer.iss version matches the git tag
+      # before building.  If they drift, the installer will claim a
+      # different version than the actual release.
+      - name: Verify version matches git tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $tagVersion = $env:GITHUB_REF_NAME -replace '^v', ''
+          $installerVersion = (Get-Content scripts/build/installer.iss | Select-String '#define MyAppVersion "([^"]+)"').Matches.Groups[1].Value
+          Write-Host "Git tag version: $tagVersion"
+          Write-Host "Installer version: $installerVersion"
+          if ($tagVersion -ne $installerVersion) {
+            Write-Error "Version mismatch! Git tag=$tagVersion, installer.iss=$installerVersion"
+            exit 1
+          }
+          Write-Host "Versions match."
 
       - name: Generate app icon
         run: python scripts/build/generate_icon.py scripts/build/voice-typer.ico
