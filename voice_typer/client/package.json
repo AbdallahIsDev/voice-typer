@@ -7,6 +7,18 @@
   "engines": {
     "node": ">=20"
   },
+  "keywords": [
+    "voice-to-text",
+    "speech-to-text",
+    "asr",
+    "whisper",
+    "dictation",
+    "accessibility",
+    "offline",
+    "electron",
+    "windows"
+  ],
+  "author": "Abdallah IsDev",
   "imports": {
     "#ui/*": "./src/renderer/src/components/ui/*",
     "#utils": "./src/renderer/src/lib/utils.ts"

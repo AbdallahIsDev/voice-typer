@@ -25,6 +25,13 @@ No cloud. No API keys. No rate limits. Fully offline after first model download.
 
 No Python, no terminal, no commands needed.
 
+> **Note:** The installer does not bundle a `LicenseFile` — Inno Setup
+> defaults to showing a standard license wizard page only if one is
+> configured.  **Autostart is enabled by default** (the installer
+> creates a Windows Scheduled Task).  To disable autostart after
+> installation, right-click the tray icon → uncheck "Start with
+> Windows", or delete the scheduled task in Task Scheduler.
+
 ## Requirements
 
 - Windows 10/11 (primary target; platform.py has stubs for macOS/Linux autostart but the app is not tested on those platforms)
@@ -102,7 +109,7 @@ A desktop shortcut with a microphone icon is automatically created on first star
 
 ## Fast Startup
 
-The tray icon appears quickly on startup. The transcription engine is created in a background thread while the UI becomes immediately responsive. The hotkey is usable in approximately 4 seconds once the model finishes loading. If the model hasn't loaded yet when you press it, you'll see a "Starting up — please wait" message. See `bench/` for benchmark tooling.
+The tray icon appears quickly on startup (typically < 1 second for the import + tray setup; run `python bench/bench_startup.py` to measure on your hardware). The transcription engine is created in a background thread while the UI becomes immediately responsive. The hotkey is usable once the model finishes loading — cold-start load time varies by model size and disk speed (run `python bench/bench_transcription.py` for measurements). If the model hasn't loaded yet when you press it, you'll see a "Starting up — please wait" message. See `bench/` for benchmark tooling.
 
 ## Settings
 

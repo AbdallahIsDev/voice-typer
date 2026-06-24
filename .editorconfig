@@ -1,8 +1,6 @@
 # EditorConfig is awesome: https://editorconfig.org
-# BUILD-N09: ensures consistent line endings, indentation, and final
-# newlines across editors / IDEs / CI. Without this, developers on
-# Windows CRLF machines produce diffs that Linux contributors see as
-# "every line changed".
+# NEW-DOC-011: standard editor configuration for consistent formatting
+# across editors and IDEs.
 
 root = true
 
@@ -12,14 +10,21 @@ end_of_line = lf
 insert_final_newline = true
 trim_trailing_whitespace = true
 indent_style = space
+indent_size = 4
+
+[*.{js,mjs,cjs,jsx,ts,tsx,json,jsonc,css,html,md,yml,yaml}]
 indent_size = 2
 
-[*.py]
+[*.{py,pyi}]
+# Python: ruff enforces line-length = 120 (see pyproject.toml).
+# EditorConfig just sets the default indent; ruff handles wrapping.
 indent_size = 4
-max_line_length = 100
-
-[*.{md,markdown}]
-trim_trailing_whitespace = false
 
 [Makefile]
 indent_style = tab
+
+[*.{svg,xml}]
+indent_size = 2
+
+[.gitignore]
+indent_size = 2

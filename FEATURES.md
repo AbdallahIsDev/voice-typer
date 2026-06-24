@@ -8,6 +8,13 @@ Last updated: 2026-06-22
 
 7 open-source projects analyzed. Key gaps identified in Voice Typer.
 
+> **Note:** This competitive analysis is a snapshot from 2026-06-22.
+> Star counts and feature sets may have changed since then.  To refresh,
+> re-run the research against the latest GitHub data and update the
+> table below.  The key takeaways (gaps in undo, a11y, cross-platform,
+> privacy consent) are structural and unlikely to change without
+> deliberate effort.
+
 ### Projects Analyzed
 
 | Project | Stars | Language | Framework | Platform | ASR Engines |

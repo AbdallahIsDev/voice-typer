@@ -20,6 +20,38 @@ name = "voice-typer"
 version = "1.0.0"
 description = "Background voice-to-text utility with system tray"
 requires-python = ">=3.10"
+# NEW-DOC-012: added standard project metadata fields.
+license = {text = "MIT"}
+readme = "README.md"
+authors = [
+    {name = "Abdallah IsDev", email = "noreply@github.com"},
+]
+keywords = [
+    "voice-to-text",
+    "speech-to-text",
+    "asr",
+    "whisper",
+    "dictation",
+    "accessibility",
+    "offline",
+    "tray",
+    "windows",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows :: Windows 10",
+    "Operating System :: Microsoft :: Windows :: Windows 11",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Topic :: Accessibility",
+]
 dependencies = [
     "faster-whisper>=1.0,<2.0",
     "sounddevice>=0.5,<1.0",
@@ -56,6 +88,13 @@ dependencies = [
     "pyobjc-core>=9.0; sys_platform == 'darwin'",
     "pyobjc-framework-CoreAudio>=9.0; sys_platform == 'darwin'",
 ]
+
+[project.urls]
+# NEW-DOC-012: standard project URLs for PyPI / GitHub sidebar.
+Homepage = "https://github.com/AbdallahIsDev/voice-typer"
+Repository = "https://github.com/AbdallahIsDev/voice-typer"
+Issues = "https://github.com/AbdallahIsDev/voice-typer/issues"
+Changelog = "https://github.com/AbdallahIsDev/voice-typer/blob/main/CHANGELOG.md"
 
 [project.scripts]
 voice-typer = "voice_typer.server.ipc_server:main"
