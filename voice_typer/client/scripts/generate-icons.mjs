@@ -58,18 +58,30 @@ async function generateIcons(svg, label, suffix) {
 
 async function generateIco(pngPath, icoPath) {
   const { execSync } = await import('child_process')
-  // NEW-DEAD-023: previously hardcoded the venv python path
-  // (``~/.voice-typer/venv/Scripts/python.exe``), which only works
-  // on Windows with that specific venv.  We now try a fallback chain:
-  //   1. The app venv python (Windows: python.exe, Linux/Mac: python3)
-  //   2. ``python3`` from PATH
-  //   3. ``python`` from PATH
-  // The first one that exists and can import PIL is used.
+  // NEW-DOC-024: previously this hardcoded a venv python path as the
+  // FIRST candidate (``~/.voice-typer/venv/Scripts/python.exe``) —
+  // a path that almost never exists on a developer's machine (it
+  // only exists inside an installed app's bundled venv, not in a
+  // source checkout).  The order is now:
+  //   1. The current project's venv (``.venv/bin/python`` or
+  //      ``.venv/Scripts/python.exe`` relative to the repo root).
+  //   2. ``python3`` from PATH (the most common dev environment).
+  //   3. ``python`` from PATH (Windows often only has ``python``).
+  //   4. The legacy app venv path (only present inside an installed
+  //      app, kept as a last-resort fallback for build pipelines
+  //      that run inside the installed app's directory).
+  // The first one that exists AND can import PIL wins.
+  const projectVenvPython = process.platform === 'win32'
+    ? resolve(projectRoot, '.venv', 'Scripts', 'python.exe')
+    : resolve(projectRoot, '.venv', 'bin', 'python')
+  const legacyAppVenvPython = process.platform === 'win32'
+    ? resolve(os.homedir(), '.voice-typer', 'venv', 'Scripts', 'python.exe')
+    : resolve(os.homedir(), '.voice-typer', 'venv', 'bin', 'python3')
   const candidates = [
-    resolve(os.homedir(), '.voice-typer', 'venv', 'Scripts', 'python.exe'),
-    resolve(os.homedir(), '.voice-typer', 'venv', 'bin', 'python3'),
+    projectVenvPython,
     'python3',
     'python',
+    legacyAppVenvPython,
   ]
   const icoScript = `
 from PIL import Image
@@ -79,8 +91,9 @@ print("ICO generated")
 `
   let lastErr = null
   for (const py of candidates) {
-    // Skip venv candidates that don't exist on this platform.
-    if (py.includes('.voice-typer') && !existsSync(py)) continue
+    // Skip venv candidates (paths starting with . or /) that don't
+    // exist on this platform — they would just produce a noisy error.
+    if ((py.startsWith('.') || py.startsWith('/')) && !existsSync(py)) continue
     try {
       execSync(`"${py}" -c "${icoScript.replace(/"/g, '\\"')}"`, { stdio: 'pipe' })
       return  // success
@@ -92,6 +105,7 @@ print("ICO generated")
   throw new Error(
     `Failed to generate ICO: no working Python+PIL found. ` +
     `Tried: ${candidates.join(', ')}. ` +
+    `Install Pillow with: pip install Pillow. ` +
     `Last error: ${lastErr?.message ?? 'unknown'}`
   )
 }

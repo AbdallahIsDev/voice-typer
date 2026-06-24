@@ -28,7 +28,7 @@
     "build": "electron-vite build",
     "build:dist:electron": "electron-vite build && electron-builder",
     "start": "electron-vite preview",
-    "python:dev": "python -m voice_typer.server.ipc_server",
+    "python:dev": "python3 -m voice_typer.server.ipc_server || python -m voice_typer.server.ipc_server",
     "lint": "eslint \"src/**/*.{ts,tsx}\" --max-warnings=0",
     "lint:fix": "eslint \"src/**/*.{ts,tsx}\" --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,md,json}\"",
@@ -37,8 +37,6 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "prebuild": "node scripts/generate-icons.mjs",
-    "biome:check": "biome check \"src/**/*.{ts,tsx}\"",
-    "biome:write": "biome check --write \"src/**/*.{ts,tsx}\"",
     "doctor": "react-doctor",
     "doctor:ci": "react-doctor --scope changed --base main"
   },
