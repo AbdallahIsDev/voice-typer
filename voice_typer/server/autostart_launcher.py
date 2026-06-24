@@ -217,6 +217,10 @@ def _launch_electron_built(exe: str, hidden: bool = False) -> subprocess.Popen |
         stdin=subprocess.DEVNULL,
     )
     sk.update(_spawn_flags())
+    # NEW-PRIV-003: Electron needs the full env for native module loading,
+    # PATH resolution, and platform-specific init.  Unlike the Python IPC
+    # server restart path, Electron does NOT expose env vars via IPC, so
+    # the risk of key exfiltration is lower.  We keep the full env here.
     env = dict(os.environ)
     if hidden:
         env["VT_START_HIDDEN"] = "1"

@@ -1630,19 +1630,22 @@ class VoiceTyperApp:
         time.sleep(0.5)
 
         # 1. Launch the new instance
-        env = os.environ.copy()
+        # NEW-PRIV-003: allowlist env vars to prevent API key leakage.
+        _SAFE = {
+            "PATH", "PYTHONPATH", "PYTHONHOME", "SYSTEMROOT",
+            "APPDATA", "LOCALAPPDATA", "USERPROFILE", "TEMP", "TMP",
+            "HOME", "LANG", "LC_ALL", "LC_CTYPE",
+            "VOICE_TYPER_CONFIG_DIR", "VOICE_TYPER_DEBUG",
+            "VOICE_TYPER_QUIET", "VOICE_TYPER_NO_TRAY",
+            "VOICE_TYPER_IPC_TOKEN", "HF_HOME",
+            "HF_HUB_DISABLE_SYMLINKS_WARNING", "HF_HUB_DISABLE_XET",
+            "HF_HUB_DISABLE_UNVERIFIED_ACCESS_WARNING",
+            "CUDA_VISIBLE_DEVICES", "DISPLAY", "WAYLAND_DISPLAY",
+            "XDG_RUNTIME_DIR",
+        }
+        env = {k: v for k, v in os.environ.items() if k in _SAFE}
         env["VOICE_TYPER_RESTART"] = "1"
-        # IMPORTANT: the restarter spawns the SAME module the Electron
-        # main process spawns.  If we used a different module here
-        # we'd end up with two Python processes that don't share the
-        # same IPC channel -- the Electron main would be reading the
-        # old process's stdout, the new process's bubble pushes
-        # would go nowhere, and the bubble window would never appear.
-        # Forward the --port argument so the restarted backend listens on
-        # the SAME TCP port Electron is connected to.  Without this the new
-        # process starts in stdin/stdout mode and Electron (still connected
-        # to the old port) never receives push events - including waveform
-        # bubble show/hide/level events.
+        # Spawn same module Electron spawns, forwarding --port.
         restart_args = [sys.executable, "-m", "voice_typer.server.ipc_server"]
         try:
             if "--port" in sys.argv:
@@ -1875,16 +1878,9 @@ class VoiceTyperApp:
             )
             try:
                 self._kernel32.FreeConsole()
-                # PERF-004: previously this opened a NEW devnull file
-                # object on every CTRL_CLOSE_EVENT and appended it to
-                # ``_devnull_files`` without ever closing the previous
-                # one.  After ~250 events (e.g. RDP logout cycles),
-                # the process would hit Windows' per-process handle
-                # cap (10,000) and ``open()`` would start failing.
-                #
-                # Fix: reuse the existing devnull object if one was
-                # already opened for this handler.  We track it on
-                # ``self._devnull`` so subsequent events are no-ops.
+                # PERF-004: reuse the existing devnull object instead of
+                # opening a new one on every CTRL_CLOSE_EVENT (would hit
+                # Windows' 10,000 handle cap after ~250 RDP logout cycles).
                 if getattr(self, "_devnull", None) is None or self._devnull.closed:
                     self._devnull = open(os.devnull, 'w')
                     _process_state.devnull_files.append(self._devnull)
