@@ -52,6 +52,17 @@ a = Analysis(
         # macOS volume ducking — lazy-imported inside
         # MacVolumeBackend.initialize().
         "CoreAudio",
+        # NEW-BUILD-001: ASR engine hiddenimports (lazy-imported).
+        "voice_typer.server.parakeet_engine",
+        "voice_typer.server.qwen_engine",
+        "voice_typer.server.cloud_engines",
+        "voice_typer.server.asr_registry",
+        "transformers",
+        "transformers.models",
+        "accelerate",
+        "ctranslate2",
+        "tokenizers",
+        "huggingface_hub",
     ],
     hookspath=[],
     hooksconfig={},

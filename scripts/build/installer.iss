@@ -9,7 +9,7 @@
 #define MyBuildDir "..\..\dist"
 
 [Setup]
-AppId={{8E6F5B1A-2C3D-4A5E-9B7C-1D2E3F4A5B6C}
+AppId={{8E6F5B1A-2C3D-4A5E-9B7C-1D2E3F4A5B6C}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}

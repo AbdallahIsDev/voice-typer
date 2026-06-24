@@ -1,21 +1,18 @@
 # BUILD-N07 / BUILD-N16: electron-builder distribution config.
-# - `asar: true` packages the renderer into a single archive, reducing
-#   file count and preventing users from accidentally editing source
-#   inside the installed app.
-# - `publish: null` explicitly disables auto-publishing to GitHub
-#   releases / S3 / snap. Releases are uploaded manually after CI
-#   verifies the artifact.
-# - `artifactName` produces a deterministic, arch-tagged filename so
-#   multiple arches can coexist in the same release page.
-# - mac.category / linux.category make the app show up correctly in
-#   Launchpad / app stores.
-# - DMG and AppImage blocks set explicit volume names and per-target
-#   artifactName overrides (BUILD-N16).
+# NEW-DOC-014: added code signing + auto-update config.
 appId: com.voicetyper.app
 productName: Voice Typer
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 asar: true
-publish: null
+# NEW-DOC-014: publish config for auto-update via GitHub releases.
+# When a new release is published, the app's auto-updater checks this
+# provider for newer versions. The `provider: github` uses the
+# GITHUB_TOKEN environment variable set by CI.
+publish:
+  provider: github
+  owner: AbdallahIsDev
+  repo: voice-typer
+  releaseType: release
 
 directories:
   buildResources: resources
@@ -31,6 +28,14 @@ win:
   icon: resources/icon.png
   target:
     - nsis
+  # NEW-DOC-014: Windows code signing config.
+  # These use env vars so secrets aren't committed. When the env vars
+  # are not set, electron-builder skips signing (unsigned build).
+  signingHashAlgorithms: [sha256]
+  certificateFile: ${env.WIN_CERT_FILE}
+  certificatePassword: ${env.WIN_CERT_PASSWORD}
+  publisherName: ${env.WIN_PUBLISHER_NAME}
+  signAndEditExecutable: true
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
@@ -47,6 +52,10 @@ mac:
         - arm64
   hardenedRuntime: true
   gatekeeperAssess: false
+  # NEW-DOC-014: macOS notarization + signing config.
+  identity: ${env.MAC_SIGNING_IDENTITY}
+  notarize:
+    teamId: ${env.APPLE_TEAM_ID}
   artifactName: ${productName}-${version}-mac-${arch}.${ext}
 dmg:
   artifactName: ${productName}-${version}-mac-${arch}.${ext}
@@ -69,11 +78,3 @@ linux:
   artifactName: ${productName}-${version}-linux-${arch}.${ext}
 AppImage:
   artifactName: ${productName}-${version}-linux-${arch}.AppImage
-
-# BUILD-N20: code signing configuration is intentionally left as a
-# placeholder. CI must export macOS / Windows signing secrets before
-# these will activate. Without signing, SmartScreen and Gatekeeper
-# will warn end users — see SEC-020.
-# win.certificateFile: ${env.WIN_CERT_FILE}
-# win.certificatePassword: ${env.WIN_CERT_PASSWORD}
-# mac.identity: ${env.MAC_SIGNING_IDENTITY}
