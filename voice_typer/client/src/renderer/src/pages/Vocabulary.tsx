@@ -12,6 +12,13 @@ import { Search01Icon } from '@hugeicons/core-free-icons'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import PageHeading from '@/components/PageHeading'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import ExportFormatMenu from '@/components/ExportFormatMenu'
@@ -29,6 +36,40 @@ const CATEGORIES = [
   'names',
   'products',
 ] as const
+
+// NEW-UX-039: human-readable labels + descriptions for each category.
+const CATEGORY_LABELS: Record<string, { label: string; description: string; example: string }> = {
+  misspellings: {
+    label: 'Misspellings',
+    description: 'Single words the ASR gets wrong (spelling).',
+    example: 'recieve \u2192 receive',
+  },
+  phrase_corrections: {
+    label: 'Phrase Corrections',
+    description: 'Multi-word phrases the ASR gets wrong.',
+    example: "i am going to \u2192 I'm going to",
+  },
+  extra_word_patterns: {
+    label: 'Extra Word Patterns',
+    description: 'Words or patterns to remove from output.',
+    example: 'um, uh, like \u2192 (removed)',
+  },
+  technical_terms: {
+    label: 'Technical Terms',
+    description: 'Jargon, acronyms, product names from your field.',
+    example: 'kubernetes \u2192 Kubernetes',
+  },
+  names: {
+    label: 'Names',
+    description: 'People, places, and proper nouns the ASR mishears.',
+    example: 'jon \u2192 John',
+  },
+  products: {
+    label: 'Products',
+    description: 'Brand and product names.',
+    example: 'ipad \u2192 iPad',
+  },
+}
 
 /** Flatten category-shaped VocabularyData into a flat array. */
 function flattenEntries(data: VocabularyData): VocabularyEntry[] {
@@ -91,6 +132,8 @@ export default function VocabularyPage() {
   const [editingEntry, setEditingEntry] = useState<VocabularyEntry | null>(null)
   const [trigger, setTrigger] = useState('')
   const [replacement, setReplacement] = useState('')
+  // NEW-UX-039: explicit category selection.
+  const [category, setCategory] = useState<string>('auto')
 
   // #7: ConfirmDialog state for entry deletion
   const [deleteEntryTarget, setDeleteEntryTarget] = useState<VocabularyEntry | null>(null)
@@ -189,12 +232,15 @@ export default function VocabularyPage() {
     setEditingEntry(null)
     setTrigger('')
     setReplacement('')
+    setCategory('auto')
     setShowDialog(true)
   }
 
   const openEditDialog = (entry: VocabularyEntry) => {
     setEditingEntry(entry)
     setTrigger(entry.original)
+    // NEW-UX-039: pre-select the entry's existing category.
+    setCategory(entry.category || 'auto')
     setReplacement(entry.correction)
     setShowDialog(true)
   }
@@ -206,16 +252,18 @@ export default function VocabularyPage() {
       showSnack('Please fill in both fields', 'warning')
       return
     }
+    // NEW-UX-039: use the explicit category if the user picked one.
+    const resolvedCategory = category === 'auto' ? detectCategory(t) : category
     try {
       let updated: VocabularyEntry[]
       if (editingEntry) {
         updated = entries.map((e) =>
           e === editingEntry
-            ? { category: detectCategory(t), original: t, correction: r }
+            ? { category: resolvedCategory as VocabularyEntry['category'], original: t, correction: r }
             : e,
         )
       } else {
-        updated = [...entries, { category: detectCategory(t), original: t, correction: r }]
+        updated = [...entries, { category: resolvedCategory as VocabularyEntry['category'], original: t, correction: r }]
       }
       await persistVocabulary(updated)
       setEntries(updated)
@@ -449,6 +497,11 @@ export default function VocabularyPage() {
                   className="w-full"
                   autoFocus
                 />
+                {/* NEW-UX-026: help text explaining what to type. */}
+                <p className="mt-1.5 text-xs text-(--text-muted)">
+                  Type the word(s) exactly as the ASR mishears them.
+                  Single words \u2192 misspellings; multi-word phrases \u2192 phrase corrections.
+                </p>
               </div>
 
               <div>
@@ -461,6 +514,48 @@ export default function VocabularyPage() {
                   placeholder="treat this, My Name Is"
                   className="w-full"
                 />
+                {/* NEW-UX-026: help text for the replacement field. */}
+                <p className="mt-1.5 text-xs text-(--text-muted)">
+                  The corrected text that will be pasted. Case matters \u2014
+                  what you type here is exactly what gets output.
+                </p>
+              </div>
+
+              {/* NEW-UX-039: explicit category picker. */}
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-(--text-primary)">
+                  Category
+                </label>
+                <Select value={category} onValueChange={setCategory}>
+                  <SelectTrigger className="w-full" aria-label="Vocabulary category">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">
+                      <span className="flex flex-col">
+                        <span>Auto-detect</span>
+                        <span className="text-xs text-(--text-muted)">
+                          Single word \u2192 Misspellings, phrase \u2192 Phrase Corrections
+                        </span>
+                      </span>
+                    </SelectItem>
+                    {CATEGORIES.map((cat) => (
+                      <SelectItem key={cat} value={cat}>
+                        <span className="flex flex-col">
+                          <span>{CATEGORY_LABELS[cat]?.label ?? cat}</span>
+                          <span className="text-xs text-(--text-muted)">
+                            {CATEGORY_LABELS[cat]?.example ?? ''}
+                          </span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {category !== 'auto' && CATEGORY_LABELS[category] && (
+                  <p className="mt-1.5 text-xs text-(--text-muted)">
+                    {CATEGORY_LABELS[category].description}
+                  </p>
+                )}
               </div>
             </div>
 

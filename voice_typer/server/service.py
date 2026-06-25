@@ -45,9 +45,18 @@ class VoiceTyperService:
             xruns = int(getattr(app.recorder, "_xruns", 0) or 0)
         except Exception:
             log.debug("[SERVICE] could not read xrun counter", exc_info=True)
+        # NEW-UX-038: read the active engine's loaded_via property.
+        loaded_via = ""
+        try:
+            active = app.models._registry.get_active() if hasattr(app, "models") and app.models else None
+            if active is not None and hasattr(active, "loaded_via"):
+                loaded_via = str(active.loaded_via)
+        except Exception:
+            log.debug("[SERVICE] could not read loaded_via", exc_info=True)
         return {
             "status": status_str,
             "xruns_since_start": xruns,
+            "loaded_via": loaded_via,
         }
 
     # ── Dictation ───────────────────────────────────────────────

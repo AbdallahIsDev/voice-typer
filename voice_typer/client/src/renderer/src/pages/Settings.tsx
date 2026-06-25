@@ -558,12 +558,15 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
           </SettingRow>
 
           {/* ── Inputs ─────────────────────────────────────────── */}
-          <SettingRow label="Re-Paste Key" info="Keyboard shortcut to re-paste the last transcription.">
-            <Input
+          <SettingRow
+            label="Re-Paste Key"
+            info="Keyboard shortcut to re-paste the last transcription. Click the button to record a new combo, or pick from the preset list."
+          >
+            <HotkeyPicker
               value={config.repaste_hotkey ?? '<ctrl>+<alt>+v'}
-              onChange={(e) => updateConfigDebounced('repaste_hotkey', e.target.value)}
-              className="w-32 font-mono text-center"
-              aria-label="Re-Paste Key"
+              onChange={(h) => updateConfig({ repaste_hotkey: h })}
+              mode="combo"
+              aria-label="Re-paste key"
             />
           </SettingRow>
 

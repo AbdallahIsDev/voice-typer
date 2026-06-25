@@ -67,6 +67,9 @@ export default function AboutPage() {
   const [configDir, setConfigDir] = useState<string>('~/.voice-typer')
   // null = still probing, true/false = settled.
   const [backendConnected, setBackendConnected] = useState<boolean | null>(null)
+  // NEW-UX-038: the active model's loaded_via string (e.g.
+  // "cuda/float16/small.en" or "cpu/int8/tiny.en").
+  const [loadedVia, setLoadedVia] = useState<string>('')
   // NEW-UX-023: latest release from GitHub (null = not checked yet).
   const [latestVersion, setLatestVersion] = useState<string | null>(null)
   const [checkingUpdate, setCheckingUpdate] = useState(false)
@@ -79,12 +82,16 @@ export default function AboutPage() {
       // Python backend is down (or the bridge isn't installed), the
       // call rejects and we mark the backend as disconnected.
       try {
-        const status = await call<{ config_dir?: string; status?: string }>(
+        const status = await call<{ config_dir?: string; status?: string; loaded_via?: string }>(
           'get_status',
         )
         if (!cancelled) {
           setBackendConnected(true)
           if (status?.config_dir) setConfigDir(status.config_dir)
+          // NEW-UX-038: capture loaded_via so the user can see if
+          // their GPU is actually being used or if the model fell
+          // back to CPU.
+          if (status?.loaded_via) setLoadedVia(status.loaded_via)
         }
       } catch {
         if (!cancelled) setBackendConnected(false)
@@ -196,6 +203,12 @@ export default function AboutPage() {
           <Row label="Config Directory" value={configDir} />
           <Row label="ASR Backend" value={asrBackend} />
           <Row label="Device" value={device} />
+          {/* NEW-UX-038: show which device/compute_type the model
+              actually loaded via. */}
+          <Row
+            label="Loaded Via"
+            value={loadedVia || '\u2014'}
+          />
           <Row label="Hotkey" value={hotkey} />
           <Row label="Microphone" value={microphone} />
         </SettingsSection>

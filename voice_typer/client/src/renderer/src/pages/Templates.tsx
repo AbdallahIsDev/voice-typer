@@ -532,6 +532,12 @@ export default function TemplatesPage() {
                   className="w-full"
                   autoFocus
                 />
+                {/* NEW-UX-026: help text explaining what to type. */}
+                <p className="mt-1.5 text-xs text-(--text-muted)">
+                  The phrase you'll say during dictation. When the ASR
+                  transcribes this phrase, it's replaced by the output text.
+                  Keep it short and distinctive to avoid false matches.
+                </p>
               </div>
 
               <div>
@@ -550,6 +556,14 @@ export default function TemplatesPage() {
                     'focus:border-accent focus:outline-none',
                   )}
                 />
+                {/* NEW-UX-026: help text + variable list. */}
+                <p className="mt-1.5 text-xs text-(--text-muted)">
+                  The text that replaces the trigger. Supports variables:
+                  <code className="mx-1 rounded bg-(--bg-subtle) px-1">{`{today}`}</code>
+                  <code className="mx-1 rounded bg-(--bg-subtle) px-1">{`{now}`}</code>
+                  <code className="mx-1 rounded bg-(--bg-subtle) px-1">{`{clipboard}`}</code>
+                  <code className="mx-1 rounded bg-(--bg-subtle) px-1">{`{username}`}</code>
+                </p>
               </div>
 
               <div>
