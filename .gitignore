@@ -10,9 +10,11 @@ __pycache__/
 voice_typer/client/out/
 voice_typer/client/src/renderer/dist/
 # BUILD-N15: also ignore the root build/ and dist/ dirs used by
-# setuptools and PyInstaller.
-build/
-dist/
+# setuptools and PyInstaller.  Note: the leading slash anchors these
+# to the repo root so they don't accidentally match subdirectories
+# like scripts/build/ (which contains tracked build scripts).
+/build/
+/dist/
 *.tsbuildinfo
 
 # Runtime/debug output
