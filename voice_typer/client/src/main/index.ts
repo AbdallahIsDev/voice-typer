@@ -5,6 +5,13 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 
+// Suppress Electron's built-in security-warning console spam in dev mode
+// (the "Insecure Content-Security-Policy" message about unsafe-eval).
+// Vite dev mode needs unsafe-eval for sourcemaps — this is expected.
+if (process.env.npm_lifecycle_event === 'dev' || !app.isPackaged) {
+  process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true'
+}
+
 // Augment Electron's App interface with isQuitting so the close-to-tray
 // handler can distinguish a real quit (tray Quit → let the window close)
 // from the X button (→ hide instead).
@@ -159,6 +166,13 @@ let bubblePosition: 'top' | 'bottom' = 'top';
 const DIM = "\x1b[38;5;242m";      // dim grey for timestamps
 const RESET = "\x1b[0m";
 const BUBBLE_CLR = "\x1b[38;5;39m"; // bright cyan for [BUBBLE] tags
+const RENDERER_CLR = "\x1b[38;5;227m"; // bright yellow for [MAIN renderer] tags
+
+// Strip printf-style CSS format specifiers (%c …;) from Electron
+// console messages so raw terminal output doesn't show artifacts
+// like "font-weight: bold;" injected by Electron's internal warnings.
+const cleanCssFormat = (msg: string): string =>
+  msg.replace(/^%c[^;]+;\s*/, '').replace(/%c/g, '')
 
 /**
  * Format current time as H:MM:SS (12h, no leading zero), wrapped in ANSI
@@ -419,6 +433,13 @@ function createMainWindow(forceShow = false) {
   mainWindow.on("maximize", () => broadcastMaximized(true));
   mainWindow.on("unmaximize", () => broadcastMaximized(false));
 
+  mainWindow.webContents.on("console-message", (_e, level, message, line, source) => {
+    if (level >= 2) {
+      const tag = ["VRB", "INFO", "WARN", "ERROR"][level] ?? "LOG";
+      console.warn(`${ts()}  ${RENDERER_CLR}[${tag}]${RESET} ${cleanCssFormat(message)} (${source}:${line})`);
+    }
+  });
+
   mainWindow.webContents.on("before-input-event", (_event, input) => {
     if (
       (input.control || input.meta) &&
@@ -543,11 +564,9 @@ function createBubbleWindow(): BrowserWindow {
     console.error(`${ts()}  ${BUBBLE_CLR}[BUBBLE] preload-error file=${file}${RESET}`, err);
   });
   win.webContents.on("console-message", (_e, level, message, line, source) => {
-    // NEW-SEC-002: no longer suppress CSP warnings — if a CSP violation
-    // occurs it should be visible in the log so we can fix it.
     if (level >= 2) {
-      const tag = ["VRB", "INF", "WRN", "ERR"][level] ?? "LOG";
-      console.warn(`${ts()}  ${BUBBLE_CLR}[BUBBLE renderer ${tag}] ${message} (${source}:${line})${RESET}`);
+      const tag = ["VRB", "INFO", "WARN", "ERROR"][level] ?? "LOG";
+      console.warn(`${ts()}  ${BUBBLE_CLR}[BUBBLE] renderer ${tag}${RESET} ${cleanCssFormat(message)} (${source}:${line})`);
     }
   });
 
@@ -994,12 +1013,15 @@ app.whenReady().then(() => {
   // onHeadersReceived ensures they're properly enforced in dev mode
   // (http://localhost:5173) and in production.
   //
-  // NEW-SEC-002: script-src does NOT include 'unsafe-inline' — the
-  // renderer uses Vite module scripts (type="module") which are covered
-  // by 'self'.  Inline event handlers (onclick="...") are blocked.
+  // In dev mode (app.isPackaged === false), Vite's dev server injects
+  // inline scripts (React Refresh preamble + HMR client) and uses eval
+  // for sourcemaps.  We add 'unsafe-inline' and 'unsafe-eval' only in
+  // dev mode to allow these.  Production builds have no inline scripts
+  // or eval, so the strict 'self' directive applies and inline event
+  // handlers (onclick="...") remain blocked.
   const CSP = [
     "default-src 'self'",
-    "script-src 'self'",
+    `script-src 'self'${app.isPackaged === false ? " 'unsafe-eval' 'unsafe-inline'" : ""}`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data:",
     "font-src 'self' data:",
