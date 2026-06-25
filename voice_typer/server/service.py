@@ -25,6 +25,8 @@ class VoiceTyperService:
 
     def __init__(self, app) -> None:
         self._app = app
+        # NEW-PRIV-011: cancellation event for in-progress model downloads.
+        self._download_cancel_event: Any = None
 
     # ── Status ──────────────────────────────────────────────────
 
@@ -719,6 +721,18 @@ class VoiceTyperService:
 
     # ── Download model (UX-005) ─────────────────────────────────────
 
+    def cancel_model_download(self) -> dict:
+        """Cancel an in-progress model download.
+
+        NEW-PRIV-011: sets the cancellation event so the download_model
+        polling loop stops waiting and returns a "cancelled" result.
+        """
+        if self._download_cancel_event is not None:
+            self._download_cancel_event.set()
+            log.info("[SERVICE] Model download cancellation requested")
+            return {"cancelled": True}
+        return {"cancelled": False}
+
     def download_model(self, model_name: str) -> dict:
         """Download a model weight file via HuggingFace.
 
@@ -774,6 +788,9 @@ class VoiceTyperService:
                         # Start the download in a thread so we can poll
                         # the cache directory size while it runs.
                         import threading
+                        # NEW-PRIV-011: create a cancellation event for
+                        # this download.
+                        self._download_cancel_event = threading.Event()
                         download_err: list = []
                         def _do_download():
                             try:
@@ -786,7 +803,8 @@ class VoiceTyperService:
                                 download_err.append(e)
                         t = threading.Thread(target=_do_download, daemon=True)
                         t.start()
-                        # Poll cache size until download thread exits.
+                        # Poll cache size until download thread exits OR
+                        # the user cancels.
                         # Approximate total sizes (MB) for progress estimation.
                         size_targets = {
                             "tiny.en": 75, "small.en": 466,
@@ -794,7 +812,17 @@ class VoiceTyperService:
                         }
                         target_mb = size_targets.get(model_name, 500)
                         import time
+                        cancelled = False
                         while t.is_alive():
+                            # NEW-PRIV-011: check for cancellation.
+                            if self._download_cancel_event.is_set():
+                                cancelled = True
+                                log.info(
+                                    "[SERVICE] Download of %s cancelled by user",
+                                    model_name,
+                                )
+                                _push_progress(0, "Download cancelled")
+                                break
                             t.join(timeout=1.0)
                             try:
                                 if cache_dir.exists():
@@ -810,6 +838,16 @@ class VoiceTyperService:
                                     )
                             except Exception:
                                 pass
+                        # NEW-PRIV-011: if cancelled, return early.
+                        self._download_cancel_event = None
+                        if cancelled:
+                            return {
+                                "success": False,
+                                "cancelled": True,
+                                "message": f"Download of {model_name} cancelled. "
+                                           "Partial files remain in cache; "
+                                           "retry to resume.",
+                            }
                         if download_err:
                             raise download_err[0]
                         _push_progress(100, f"{model_name} download complete")
@@ -844,6 +882,8 @@ class VoiceTyperService:
                         "[SERVICE] failed to invalidate tray model cache",
                         exc_info=True,
                     )
+                # NEW-PRIV-011: clear cancel event on successful completion.
+                self._download_cancel_event = None
                 _notify("Voice Typer", f"Model '{model_name}' downloaded successfully")
                 return {"success": True, "model": model_name}
             elif model_name == "qwen":
@@ -878,6 +918,8 @@ class VoiceTyperService:
                 return {"success": False, "error": f"Unknown model: {model_name}"}
         except Exception as exc:
             log.error("download_model failed for %s: %s", model_name, exc)
+            # NEW-PRIV-011: clear cancel event on failure too.
+            self._download_cancel_event = None
             _push_progress(0, f"Download failed: {exc}")
             _notify("Voice Typer", f"Failed to download {model_name}: {exc}")
             return {"success": False, "error": str(exc)}

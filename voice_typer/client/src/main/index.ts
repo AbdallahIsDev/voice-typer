@@ -321,6 +321,9 @@ function sendToPython(msg: Record<string, unknown>): Promise<unknown> {
       "onboarding_get_model_options",
       "onboarding_get_hotkey_presets",
       "download_model",
+      // NEW-PRIV-011: allow cancel_model_download so the renderer can
+      // cancel an in-progress HuggingFace download.
+      "cancel_model_download",
       // NEW-DEAD-015: allow test_llm_connection so the renderer can
       // wire up a "Test connection" button on the Settings page.
       "test_llm_connection",

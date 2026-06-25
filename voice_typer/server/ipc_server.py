@@ -1264,6 +1264,17 @@ class IPCServer:
                 resp["type"] = "error"
                 resp["data"] = {"message": str(e)}
 
+        elif cmd == "cancel_model_download":
+            # NEW-PRIV-011: cancel an in-progress HuggingFace download.
+            try:
+                result = self.service.cancel_model_download()
+                resp["type"] = "ack"
+                resp["data"] = result
+            except Exception as e:
+                log.error("[IPC] cancel_model_download failed: %s", e)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
         elif cmd == "test_llm_connection":
             # NEW-DEAD-015: wire up the previously-dead
             # ``LLMPolisher.test_connection`` method so the renderer can

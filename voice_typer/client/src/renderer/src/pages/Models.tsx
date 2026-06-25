@@ -411,7 +411,26 @@ export default function ModelsPage() {
                 style={{ width: `${downloadProgress}%` }}
               />
             </div>
-            <p className="text-xs text-(--text-muted)">{downloadStatus}</p>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs text-(--text-muted)">{downloadStatus}</p>
+              {/* NEW-PRIV-011: Cancel button for in-progress downloads. */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    await call('cancel_model_download')
+                    showSnack('Download cancelled. Partial files will be reused on retry.', 'warning')
+                  } catch (err) {
+                    showSnack(`Failed to cancel: ${err}`, 'error')
+                  }
+                }}
+                aria-label="Cancel model download"
+                className="h-7 px-3 text-xs"
+              >
+                Cancel
+              </Button>
+            </div>
           </div>
         )}
 
