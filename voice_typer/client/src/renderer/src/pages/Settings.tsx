@@ -23,7 +23,9 @@ import { cn } from '@/lib/utils'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { File02Icon, RefreshIcon, InformationCircleIcon, Book02Icon, Bug02Icon } from '@hugeicons/core-free-icons'
 import type { VoiceTyperConfig } from '@/types/config'
+import type { Page } from '@/types/ipc'
 import { Spinner } from '@/components/Spinner'
+import { HotkeyPicker } from '@/components/HotkeyPicker'
 
 // Module-level cache — persists across page navigations so settings render
 // instantly on re-visit instead of showing a loading spinner.
@@ -104,7 +106,8 @@ interface SettingsPageProps {
   onThemeChange?: (mode: VoiceTyperConfig['theme_mode']) => void
   // NEW-UX-025: navigation callback so the Troubleshooting section can
   // route the user to the About page (which has full diagnostics).
-  onNavigate?: (page: string) => void
+  // NEW-TS-ERR-R2-001: typed as `Page` (not `string`).
+  onNavigate?: (page: Page) => void
 }
 
 export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPageProps) {
@@ -455,24 +458,16 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
           title="Hotkey"
           description="Key to start and stop dictation."
         >
-          <SettingRow label="Dictation Key" info="The keyboard key used to start and stop recording.">
-            <Select
-              value={config.hotkey.replace(/[<>]/g, '')}
-              onValueChange={(v) => updateConfig({ hotkey: `<${v}>` })}
-            >
-              <SelectTrigger className="w-32" aria-label="Dictation Key">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {['f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12'].map(
-                  (key) => (
-                    <SelectItem key={key} value={key}>
-                      {key.toUpperCase()}
-                    </SelectItem>
-                  ),
-                )}
-              </SelectContent>
-            </Select>
+          <SettingRow
+            label="Dictation Key"
+            info="The keyboard key used to start and stop recording. Click the button to record a new key, or pick from the preset list. Supports F1-F19, Caps Lock, Print Screen, and more."
+          >
+            <HotkeyPicker
+              value={config.hotkey}
+              onChange={(h) => updateConfig({ hotkey: h })}
+              mode="single"
+              aria-label="Dictation key"
+            />
           </SettingRow>
         </SettingsSection>
 
@@ -1131,11 +1126,21 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
         </SettingsSection>
 
         {/* Status indicator */}
-        {saving && (
-          <div className="fixed bottom-4 right-4 rounded-lg bg-(--surface) border border-border px-4 py-2 text-sm text-(--text-muted) shadow-lg">
-            Saving...
-          </div>
-        )}
+        {/* NEW-UX-030: replaced the transient "Saving..." indicator with
+            a persistent auto-save notice. */}
+        <div className="fixed bottom-4 right-4 rounded-lg bg-(--surface) border border-border px-4 py-2 text-xs text-(--text-muted) shadow-lg">
+          {saving ? (
+            <span className="flex items-center gap-2">
+              <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-amber-400" />
+              Saving\u2026
+            </span>
+          ) : (
+            <span className="flex items-center gap-2">
+              <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+              Changes are saved automatically
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Reset Confirmation Dialog */}

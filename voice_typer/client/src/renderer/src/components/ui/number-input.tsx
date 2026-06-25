@@ -3,7 +3,7 @@ import * as React from "react"
 import { cn } from "#utils"
 
 interface NumberInputProps
-  extends Omit<React.ComponentProps<"input">, "type" | "onChange"> {
+  extends Omit<React.ComponentProps<"input">, "type" | "onChange" | "onInvalid"> {
   min?: number
   max?: number
   step?: number
