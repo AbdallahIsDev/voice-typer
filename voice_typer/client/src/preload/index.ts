@@ -73,6 +73,11 @@ contextBridge.exposeInMainWorld("window_", {
     ipcRenderer.invoke("history:export", { data, format }) as Promise<{ success: boolean; path?: string; error?: string }>,
   exportVocabulary: (data: Record<string, unknown>, format: 'json' | 'csv') =>
     ipcRenderer.invoke("vocabulary:export", { data, format }) as Promise<{ success: boolean; path?: string; error?: string }>,
+  // NEW-PRIV-007: GDPR right-to-export for templates + config.
+  exportTemplates: (data: unknown) =>
+    ipcRenderer.invoke("templates:export", { data }) as Promise<{ success: boolean; path?: string; error?: string }>,
+  exportConfig: (data: unknown) =>
+    ipcRenderer.invoke("config:export", { data }) as Promise<{ success: boolean; path?: string; error?: string }>,
   // UX-008: actually open the log folder in the OS file manager.
   // Previously the Settings page just showed a snackbar saying
   // "Log folder opened" without opening anything.

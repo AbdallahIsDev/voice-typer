@@ -918,6 +918,53 @@ app.whenReady().then(() => {
     sessionNonce = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
 
+  // NEW-PRIV-010: unify Electron's userData directory with the Python
+  // backend's config directory.  Previously these were two separate
+  // directories:
+  //   - Python: ~/.voice-typer (legacy) or platform-appropriate path
+  //     (see voice_typer/server/config.py:_config_dir())
+  //   - Electron: app.getPath('userData') which defaults to
+  //     %APPDATA%/voice-typer-desktop (based on package.json "name")
+  //
+  // This caused user confusion ("where is my data?") and made GDPR
+  // right-to-portability harder (two locations to scrub).  We now
+  // explicitly set Electron's userData to match the Python config dir
+  // so both sides read/write the same location.
+  //
+  // The path computation here mirrors _config_dir() in config.py:
+  //   1. VOICE_TYPER_CONFIG_DIR env var (if set)
+  //   2. Legacy ~/.voice-typer (if it exists — migration path)
+  //   3. Platform-appropriate path (%APPDATA%/voice-typer on Windows,
+  //      ~/Library/Application Support/voice-typer on macOS,
+  //      $XDG_DATA_HOME/voice-typer on Linux)
+  try {
+    const os = require("os");
+    const fsLocal = require("fs");
+    let configDir: string;
+    const envOverride = process.env.VOICE_TYPER_CONFIG_DIR;
+    if (envOverride) {
+      configDir = envOverride;
+    } else {
+      const legacy = path.join(os.homedir(), ".voice-typer");
+      if (fsLocal.existsSync(legacy)) {
+        configDir = legacy;
+      } else if (process.platform === "win32") {
+        configDir = path.join(process.env.APPDATA || os.homedir(), "voice-typer");
+      } else if (process.platform === "darwin") {
+        configDir = path.join(os.homedir(), "Library", "Application Support", "voice-typer");
+      } else {
+        configDir = path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share"), "voice-typer");
+      }
+    }
+    // Ensure the directory exists before Electron tries to use it.
+    try { fsLocal.mkdirSync(configDir, { recursive: true }); } catch { /* ignore */ }
+    app.setPath("userData", configDir);
+    console.warn(`[MAIN] userData set to: ${configDir}`);
+  } catch (e) {
+    console.warn("[MAIN] Failed to override userData path:", e);
+    // Non-fatal — Electron falls back to its default userData location.
+  }
+
   // ── Content Security Policy (HTTP headers) ───────────────────
   // SEC-012 / NEW-SEC-002: CSP is also set via <meta> tags in index.html
   // and bubble.html for production file:// loads, but certain directives
@@ -1134,6 +1181,53 @@ ipcMain.handle("vocabulary:export", async (_event, { data, format }: { data: Rec
       const vocab = data as Record<string, unknown>
       fs.writeFileSync(filePath, JSON.stringify(vocab.entries ?? [], null, 2), 'utf-8')
     }
+    return { success: true, path: filePath }
+  } catch (e: unknown) {
+    return { success: false, error: (e as Error).message }
+  }
+})
+
+// ── Templates export (NEW-PRIV-007: GDPR right-to-export) ──────
+// Previously only history and vocabulary were exportable.  Templates
+// (trigger → output pairs) are user data under GDPR Art. 15 (right
+// of access) and Art. 20 (right to data portability).  This handler
+// writes the templates list to a JSON file chosen by the user.
+
+ipcMain.handle("templates:export", async (_event, { data }: { data: unknown }) => {
+  const { canceled, filePath } = await dialog.showSaveDialog({
+    title: 'Export Templates',
+    defaultPath: 'voice-typer-templates.json',
+    filters: [{ name: 'JSON', extensions: ['json'] }],
+  })
+
+  if (canceled || !filePath) return { success: false }
+
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8')
+    return { success: true, path: filePath }
+  } catch (e: unknown) {
+    return { success: false, error: (e as Error).message }
+  }
+})
+
+// ── Config export (NEW-PRIV-007: GDPR right-to-export) ─────────
+// The user's full configuration (settings, preferences, hotkeys)
+// is personal data under GDPR Art. 15/20.  This handler writes the
+// config dict to a JSON file.  API keys are redacted by the Python
+// backend's get_config handler (SEC-003) so they don't leak via
+// this export path.
+
+ipcMain.handle("config:export", async (_event, { data }: { data: unknown }) => {
+  const { canceled, filePath } = await dialog.showSaveDialog({
+    title: 'Export Configuration',
+    defaultPath: 'voice-typer-config.json',
+    filters: [{ name: 'JSON', extensions: ['json'] }],
+  })
+
+  if (canceled || !filePath) return { success: false }
+
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8')
     return { success: true, path: filePath }
   } catch (e: unknown) {
     return { success: false, error: (e as Error).message }

@@ -230,9 +230,10 @@ export default function AboutPage() {
             <p>
               <span className="font-medium text-(--text-primary)">Voice biometrics.</span>{' '}
               Your voice recordings may be considered biometric data under
-              Illinois BIPA and other regulations. Voice Typer does not store
-              raw audio after transcription completes — only the transcribed
-              text is kept in the local history database.
+              Illinois BIPA and GDPR Article 9 (special categories of personal
+              data). Voice Typer does not store raw audio after transcription
+              completes — only the transcribed text is kept in the local
+              history database.
             </p>
             <p>
               <span className="font-medium text-(--text-primary)">Local data.</span>{' '}

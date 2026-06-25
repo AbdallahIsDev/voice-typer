@@ -176,16 +176,17 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
         _cachedConfig = newConfig
         setConfig(newConfig)
         await call('set_config', updates)
-        // NEW-UX-014: show a "Saved" toast so the user knows their
-        // change was persisted.  Previously, set_config was silent —
-        // the user clicked a switch and had no idea if it worked.
-        // We only show the toast for non-debounced updates (debounced
-        // updates from text inputs go through updateConfigDebounced
-        // which has its own toast).
-        // Use a short, low-key toast so it doesn't get noisy.
-        // The toast is debounced — we don't show it for every
-        // keystroke-level change, only for explicit toggle/select
-        // changes that go through this path.
+        // NEW-UX-014 / NEW-UX-035: show a "Saved" toast so the user
+        // knows their change was persisted.  Previously this was a
+        // comment-only "intent" with no actual call — the success
+        // path was completely silent.  Every toggle/select/radio in
+        // Settings now confirms the save via this toast.
+        //
+        // We don't show a toast for every keystroke (those go through
+        // updateConfigDebounced which is debounced).  This path is
+        // only hit by explicit toggle/select changes, so toasting
+        // here is appropriate.
+        showSnack('Saved', 'success')
       } catch (err) {
         console.error('Failed to update config:', err)
         await loadConfig()
@@ -920,6 +921,143 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
           </SettingRow>
 
           </div>
+        </SettingsSection>
+
+        {/* ── SECTION: Privacy & Consent ─────────────────────────── */}
+        {/* NEW-PRIV-005/006/009: centralized consent management.
+            All four consent flags live in the Python Config and are
+            enforced by the backend (HuggingFace download refusal,
+            CloudEngine ConsentRequiredError, etc.).  This section
+            gives the user a single place to view and revoke any
+            consent they've previously granted.  Initial grant
+            happens contextually (HuggingFace banner on Models page,
+            per-provider toggles on Models page) — this section is
+            primarily for review/revocation. */}
+        <SettingsSection
+          title="Privacy & Consent"
+          description="Review and revoke consent for data processing."
+        >
+          {/* HuggingFace consent */}
+          <SettingRow
+            label="HuggingFace model downloads"
+            info="Allows downloading Whisper model weights from huggingface.co. Reveals your IP to a US-headquartered third party (Hugging Face, Inc.). Audio itself is never sent."
+          >
+            <Switch
+              checked={config.huggingface_consent ?? false}
+              onCheckedChange={(checked) => updateConfig({ huggingface_consent: checked })}
+              aria-label="HuggingFace download consent"
+            />
+          </SettingRow>
+
+          {/* Voice biometric consent */}
+          <SettingRow
+            label="Voice biometric processing"
+            info="Allows Voice Typer to process your voice recordings locally for transcription. Voice recordings may be considered biometric data under Illinois BIPA and GDPR Article 9. Voice Typer does not store raw audio after transcription — only the transcribed text is kept."
+          >
+            <Switch
+              checked={config.voice_biometric_consent ?? false}
+              onCheckedChange={(checked) => updateConfig({ voice_biometric_consent: checked })}
+              aria-label="Voice biometric processing consent"
+            />
+          </SettingRow>
+
+          {/* Per-provider cloud ASR consent — mirrors Models page toggles */}
+          <SettingRow
+            label="OpenAI cloud ASR"
+            info="Allows sending audio recordings to OpenAI's Whisper API for transcription. Only takes effect when OpenAI is the active ASR backend AND an API key is configured."
+          >
+            <Switch
+              checked={config.cloud_openai_consent ?? false}
+              onCheckedChange={(checked) => updateConfig({ cloud_openai_consent: checked })}
+              aria-label="OpenAI cloud ASR consent"
+            />
+          </SettingRow>
+          <SettingRow
+            label="Groq cloud ASR"
+            info="Allows sending audio recordings to Groq's Whisper API for transcription. Only takes effect when Groq is the active ASR backend AND an API key is configured."
+          >
+            <Switch
+              checked={config.cloud_groq_consent ?? false}
+              onCheckedChange={(checked) => updateConfig({ cloud_groq_consent: checked })}
+              aria-label="Groq cloud ASR consent"
+            />
+          </SettingRow>
+          <SettingRow
+            label="Deepgram cloud ASR"
+            info="Allows sending audio recordings to Deepgram's nova-2 API for transcription. Only takes effect when Deepgram is the active ASR backend AND an API key is configured."
+          >
+            <Switch
+              checked={config.cloud_deepgram_consent ?? false}
+              onCheckedChange={(checked) => updateConfig({ cloud_deepgram_consent: checked })}
+              aria-label="Deepgram cloud ASR consent"
+            />
+          </SettingRow>
+
+          {/* LLM polish consent (existing field, surfaced here for completeness) */}
+          <SettingRow
+            label="LLM text polishing"
+            info="Allows sending transcribed TEXT (not audio) to an OpenAI-compatible LLM API for polishing. Requires an LLM API key in the Post-Processing section."
+          >
+            <Switch
+              checked={config.llm_polish_consent ?? false}
+              onCheckedChange={(checked) => updateConfig({ llm_polish_consent: checked })}
+              aria-label="LLM polish consent"
+            />
+          </SettingRow>
+
+          {/* NEW-PRIV-007: GDPR right-to-export (Art. 15/20).
+              Previously only history + vocabulary were exportable.
+              Templates and config are also user data and must be
+              exportable on request.  The handlers live in
+              main/index.ts (templates:export, config:export) and
+              are exposed via the preload bridge. */}
+          <SettingRow
+            label="Export all data (GDPR Art. 15/20)"
+            info="Download your templates and full configuration as JSON files. API keys are redacted in the config export."
+          >
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    const templates = await call('get_templates')
+                    const result = await (window.window_ as { exportTemplates?: (data: unknown) => Promise<{ success: boolean; path?: string; error?: string }> }).exportTemplates?.(templates)
+                    if (result?.success) {
+                      showSnack(`Templates exported: ${result.path?.split(/[\\/]/).pop() ?? 'file'}`, 'success')
+                    } else if (result?.error) {
+                      showSnack(`Export failed: ${result.error}`, 'error')
+                    }
+                  } catch (err) {
+                    showSnack(`Export failed: ${err}`, 'error')
+                  }
+                }}
+                aria-label="Export templates as JSON"
+              >
+                Export Templates
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    const cfg = await call('get_config')
+                    const result = await (window.window_ as { exportConfig?: (data: unknown) => Promise<{ success: boolean; path?: string; error?: string }> }).exportConfig?.(cfg)
+                    if (result?.success) {
+                      showSnack(`Config exported: ${result.path?.split(/[\\/]/).pop() ?? 'file'}`, 'success')
+                    } else if (result?.error) {
+                      showSnack(`Export failed: ${result.error}`, 'error')
+                    }
+                  } catch (err) {
+                    showSnack(`Export failed: ${err}`, 'error')
+                  }
+                }}
+                aria-label="Export configuration as JSON"
+              >
+                Export Config
+              </Button>
+            </div>
+          </SettingRow>
         </SettingsSection>
 
         {/* ── SECTION: Troubleshooting ──────────────────────────── */}

@@ -262,6 +262,9 @@ export interface WindowBridge {
   onMaximizedChanged: (callback: (maximized: boolean) => void) => () => void
   exportHistory: (data: Record<string, unknown>[], format: 'json' | 'csv') => Promise<{ success: boolean; path?: string; error?: string }>
   exportVocabulary: (data: Record<string, unknown>, format: 'json' | 'csv') => Promise<{ success: boolean; path?: string; error?: string }>
+  // NEW-PRIV-007: GDPR right-to-export for templates + config.
+  exportTemplates?: (data: unknown) => Promise<{ success: boolean; path?: string; error?: string }>
+  exportConfig?: (data: unknown) => Promise<{ success: boolean; path?: string; error?: string }>
   openLogs?: () => Promise<{ success: boolean; error?: string }>
 }
 

@@ -138,6 +138,27 @@ export interface VoiceTyperConfig {
   noise_filter_gate_threshold: number
   noise_filter_rnnoise: boolean
   noise_filter_post_capture: boolean
+
+  // NEW-PRIV-005/006/009: privacy consent flags.  All default to
+  // false in the Python Config dataclass; the renderer must show a
+  // consent dialog before flipping any of these to true.  See the
+  // individual field docstrings in voice_typer/server/config.py for
+  // the legal rationale (GDPR Art. 6/9/13/44, Illinois BIPA).
+  huggingface_consent: boolean
+  cloud_openai_consent: boolean
+  cloud_groq_consent: boolean
+  cloud_deepgram_consent: boolean
+  voice_biometric_consent: boolean
+  // PRIVACY-001 (pre-existing): consent for sending transcribed TEXT
+  // to an LLM API for polishing.  Surfaced in Settings → Privacy &
+  // Consent for centralized review/revocation.
+  llm_polish_consent: boolean
+
+  // NEW-UX-029: sound feedback on record start/stop.  Opt-in (default
+  // false).  When true, the renderer plays a short Web Audio API cue
+  // when recording starts and stops — useful for accessibility and
+  // for users who prefer an auditory signal.
+  sound_feedback_enabled: boolean
 }
 
 export interface MicrophoneDevice {

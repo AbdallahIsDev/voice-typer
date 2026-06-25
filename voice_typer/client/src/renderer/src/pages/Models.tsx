@@ -10,9 +10,11 @@ import {
   SparklesIcon,
   Shield01Icon,
   ZapIcon,
+  Alert02Icon,
 } from '@hugeicons/core-free-icons'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 import PageHeading from '@/components/PageHeading'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import { cn } from '@/lib/utils'
@@ -245,6 +247,58 @@ export default function ModelsPage() {
     showSnack(`${CLOUD_PROVIDERS.find((p) => p.key === provider)?.label} API key saved`, 'success')
   }
 
+  // NEW-PRIV-006: per-provider consent toggle.  The backend
+  // CloudEngine refuses to transcribe without consent (raises
+  // ConsentRequiredError), so the renderer MUST expose a way to
+  // grant it.  Without this UI, a user who pastes a cloud API key
+  // would hit a silent error at dictation time with no in-app
+  // explanation.  The toggle is shown only when an API key is
+  // configured for the provider — there's no point granting consent
+  // without a key.
+  //
+  // The consent disclosure (what the user is agreeing to) is shown
+  // inline above the toggle so the user can make an informed decision
+  // without leaving the page.
+  const setCloudConsent = async (provider: string, granted: boolean) => {
+    const configKey =
+      provider === 'openai' ? 'cloud_openai_consent' :
+      provider === 'groq' ? 'cloud_groq_consent' :
+      'cloud_deepgram_consent'
+    const updates = { [configKey]: granted } as Partial<VoiceTyperConfig>
+    await updateConfig(updates)
+    // Mirror to local state so the toggle reflects immediately.
+    setConfig((prev) => prev ? { ...prev, [configKey]: granted } : prev)
+    showSnack(
+      granted
+        ? `Consent granted for ${CLOUD_PROVIDERS.find((p) => p.key === provider)?.label} — audio will be sent to this provider.`
+        : `Consent revoked for ${CLOUD_PROVIDERS.find((p) => p.key === provider)?.label} — audio will NOT be sent.`,
+      granted ? 'success' : 'warning',
+    )
+  }
+
+  // NEW-PRIV-005: HuggingFace consent toggle.  Shown at the top of
+  // the Models page so the user understands why their first model
+  // download requires consent.  The backend's _pre_download_model
+  // refuses to download without this flag.
+  const setHuggingFaceConsent = async (granted: boolean) => {
+    await updateConfig({ huggingface_consent: granted })
+    setConfig((prev) => prev ? { ...prev, huggingface_consent: granted } : prev)
+    showSnack(
+      granted
+        ? 'Consent granted — model downloads from HuggingFace will proceed.'
+        : 'Consent revoked — model downloads from HuggingFace are blocked.',
+      granted ? 'success' : 'warning',
+    )
+  }
+
+  // NEW-PRIV-006: helper to look up the consent flag name for a
+  // provider.  Avoids repeating the ternary in 4 places in the JSX.
+  const consentKeyFor = (provider: string): keyof VoiceTyperConfig => {
+    if (provider === 'openai') return 'cloud_openai_consent'
+    if (provider === 'groq') return 'cloud_groq_consent'
+    return 'cloud_deepgram_consent'
+  }
+
   const testConnection = async (provider: string) => {
     // DEAD-021-025: previously this faked success for any key > 10
     // chars.  We now show an honest "not implemented" message.
@@ -304,6 +358,50 @@ export default function ModelsPage() {
       </PageHeading>
 
       <div className="space-y-6">
+        {/* NEW-PRIV-005: HuggingFace consent banner.  Shown when the
+            user has at least one uncached model AND consent hasn't
+            been granted yet.  Explains why consent is needed (IP
+            exposure to a US-headquartered third party) and provides
+            a one-click grant button. */}
+        {config && !config.huggingface_consent && (
+          <div className="rounded-lg border border-amber-400/40 bg-amber-400/5 p-4">
+            <div className="flex items-start gap-3">
+              <HugeiconsIcon
+                icon={Alert02Icon}
+                strokeWidth={1.625}
+                className="mt-0.5 h-5 w-5 shrink-0 text-amber-500"
+              />
+              <div className="flex-1">
+                <h3 className="text-sm font-semibold text-(--text-primary)">
+                  HuggingFace download consent required
+                </h3>
+                <p className="mt-1 text-xs leading-relaxed text-(--text-muted)">
+                  Local Whisper models (tiny.en, small.en, medium.en) download
+                  weights from <strong>huggingface.co</strong> on first use.
+                  This download reveals your IP address to a US-headquartered
+                  third party (Hugging Face, Inc.). Under GDPR Art. 13/44
+                  (Schrems II), we need your explicit consent before initiating
+                  the download. Audio itself is never sent — only the model
+                  weights are fetched.
+                </p>
+                <div className="mt-3 flex items-center gap-3">
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => setHuggingFaceConsent(true)}
+                    aria-label="Grant HuggingFace download consent"
+                  >
+                    Grant consent
+                  </Button>
+                  <span className="text-xs text-(--text-muted)">
+                    Model downloads are blocked until you grant consent.
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Download Progress */}
         {isDownloading && (
           <div className="space-y-2">
@@ -470,6 +568,44 @@ export default function ModelsPage() {
                     </span>
                   )}
                 </div>
+
+                {/* NEW-PRIV-006: per-provider consent toggle.  The
+                    backend CloudEngine refuses to transcribe without
+                    this — without this UI, a user who pastes a key
+                    would hit ConsentRequiredError at dictation time
+                    with no in-app explanation.  Shown only when an
+                    API key is present (no point without one). */}
+                {(apiKeys[provider.key] || config?.[consentKeyFor(provider.key)]) && (
+                  <div className="mt-4 rounded-lg border border-border bg-(--bg) p-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1">
+                        <h4 className="text-sm font-semibold text-(--text-primary)">
+                          Audio transmission consent
+                        </h4>
+                        <p className="mt-1 text-xs leading-relaxed text-(--text-muted)">
+                          When this provider is selected as the active ASR
+                          backend, your <strong>audio recordings will be
+                          sent</strong> to {provider.label} for transcription.
+                          The provider's privacy policy applies to the audio
+                          sent. Voice Typer never enables cloud ASR without
+                          your explicit consent — even if an API key is
+                          configured.
+                        </p>
+                        <p className="mt-2 text-xs text-(--text-muted)">
+                          Status:{' '}
+                          {config?.[consentKeyFor(provider.key)]
+                            ? <span className="font-medium text-emerald-500">Consent granted — audio will be sent when this provider is active.</span>
+                            : <span className="font-medium text-amber-500">Consent not granted — this provider will refuse to transcribe.</span>}
+                        </p>
+                      </div>
+                      <Switch
+                        checked={(config?.[consentKeyFor(provider.key)] as boolean | undefined) ?? false}
+                        onCheckedChange={(checked) => setCloudConsent(provider.key, checked)}
+                        aria-label={`Grant audio transmission consent for ${provider.label}`}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
