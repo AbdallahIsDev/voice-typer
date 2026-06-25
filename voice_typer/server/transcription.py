@@ -5,7 +5,7 @@ import os
 import site
 import sys
 import threading
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 import numpy as np
 
@@ -200,6 +200,7 @@ class TranscriptionEngine:
         beam_size: int = 1,
         best_of: int = 1,
         condition_on_previous_text: bool = False,
+        config: Any = None,
     ):
         self.model_size = model_size
         self._configured_model_size = model_size
@@ -213,6 +214,21 @@ class TranscriptionEngine:
         self._requested_device = device  # defer CUDA detection to load()
         self._device = "cpu"
         self._compute_type = "int8"
+        # NEW-PRIV-005: store a reference to the app's Config dataclass
+        # so the HuggingFace-consent check in _pre_download_model can
+        # read ``huggingface_consent`` without crashing.  Previously
+        # ``self.config`` was never assigned in __init__, but the
+        # consent check at line ~528 did ``getattr(self.config, ...)``
+        # — which raised ``AttributeError`` on every uncached model
+        # download attempt (the most common production path).
+        #
+        # ``config`` may be None when constructed by callers that
+        # don't have access to the app's Config (e.g. service.py
+        # benchmark path, or test stubs).  In that case, the consent
+        # check below treats None as "consent not given" and refuses
+        # to download — which is the safe default per GDPR Art. 6/13.
+        # Callers that need to download must pass a real Config.
+        self.config = config
 
     def _resolve_device(self, device: str) -> tuple[str, str]:
         """Auto-detect best device and compute type.
@@ -525,7 +541,22 @@ class TranscriptionEngine:
             # NEW-PRIV-005: require explicit consent before downloading
             # from HuggingFace.  The cache check above is local-only
             # and doesn't need consent; the actual download does.
-            if not getattr(self.config, 'huggingface_consent', False):
+            #
+            # Defensive: ``self.config`` may be None when the engine
+            # is constructed without a Config reference (e.g. test
+            # stubs, benchmark path).  In that case, treat consent as
+            # NOT given — safe default per GDPR Art. 6/13.  This is
+            # also a regression guard: previously, the bare
+            # ``getattr(self.config, ...)`` call raised AttributeError
+            # because ``self.config`` itself was missing (now assigned
+            # in __init__, but we keep the defensive check so future
+            # refactors don't reintroduce the crash).
+            cfg = self.config
+            if cfg is None:
+                consent = False
+            else:
+                consent = getattr(cfg, 'huggingface_consent', False)
+            if not consent:
                 log.warning(
                     "[MODEL] HuggingFace consent not given — refusing to download "
                     "model '%s'. The renderer should show a consent dialog."

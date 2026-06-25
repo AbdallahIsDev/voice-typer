@@ -181,6 +181,14 @@ class ModelManager:
                         beam_size=self._app.config.beam_size,
                         best_of=self._app.config.best_of,
                         condition_on_previous_text=self._app.config.condition_on_previous_text,
+                        # NEW-PRIV-005: pass the live Config reference so
+                        # TranscriptionEngine._pre_download_model can
+                        # read huggingface_consent without crashing on
+                        # AttributeError.  Previously this kwarg was
+                        # missing, so self.config was None in the engine
+                        # and the consent check raised AttributeError
+                        # on every uncached Whisper download.
+                        config=self._app.config,
                     ),
                 )
         except Exception as exc:
@@ -299,12 +307,20 @@ class ModelManager:
                     beam_size=self._app.config.beam_size,
                     best_of=self._app.config.best_of,
                     condition_on_previous_text=self._app.config.condition_on_previous_text,
+                    # NEW-PRIV-005: pass live Config so consent check works.
+                    config=self._app.config,
                 ),
             )
             self._sync_legacy_fields()
         else:
             existing.model_size = "tiny.en"
             existing._configured_model_size = "tiny.en"
+            # NEW-PRIV-005: also backfill the config reference on the
+            # existing engine in case it was constructed without one
+            # (e.g. by an older code path or a test).  No-op if the
+            # engine already has a non-None config.
+            if getattr(existing, "config", None) is None:
+                existing.config = self._app.config
 
         self._sync_registry_from_fields()
 

@@ -797,7 +797,16 @@ class VoiceTyperService:
                 # Now load + unload the engine to verify the download
                 _push_progress(100, f"Verifying {model_name}...")
                 from voice_typer.server.transcription import TranscriptionEngine
-                engine = TranscriptionEngine(model_size=model_name, device="cpu")
+                # NEW-PRIV-005: pass the live Config so the engine's
+                # HuggingFace-consent check in _pre_download_model can
+                # read huggingface_consent without crashing.  Without
+                # this, the verification load would raise AttributeError
+                # on the uncached-model path.
+                engine = TranscriptionEngine(
+                    model_size=model_name,
+                    device="cpu",
+                    config=self._app.config,
+                )
                 engine.load()
                 engine.unload()
                 # NEW-PERF-004: invalidate the tray models submenu cache
