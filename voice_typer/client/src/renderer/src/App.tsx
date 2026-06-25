@@ -192,7 +192,7 @@ export default function App() {
       try {
         const cfg = await call<VoiceTyperConfig>('get_config')
         if (cfg?.theme_mode) setThemeMode(cfg.theme_mode)
-      } catch {}
+      } catch { }
     }
     loadTheme()
   }, [call])
@@ -204,7 +204,7 @@ export default function App() {
   useEffect(() => {
     if (!bridge) return
     let cancelled = false
-    bridge.isMaximized().then((v) => { if (!cancelled) setIsMaximized(v) }).catch(() => {})
+    bridge.isMaximized().then((v) => { if (!cancelled) setIsMaximized(v) }).catch(() => { })
     const unsub = bridge.onMaximizedChanged((v) => { if (!cancelled) setIsMaximized(v) })
     return () => { cancelled = true; unsub() }
   }, [bridge])
@@ -239,7 +239,7 @@ export default function App() {
               const validated = asRecordingState(s.status)
               if (validated) setRecordingState(validated)
             }
-          }).catch(() => {})
+          }).catch(() => { })
           // Send saved bubble_position to the Electron main process
           // so it persists across restarts (main process initializes to 'top')
           const pos = cfg?.bubble_position
@@ -423,131 +423,131 @@ export default function App() {
   // in any page/component shows a recovery UI instead of white-screening.
   return (
     <ErrorBoundary>
-    {/* NEW-A11Y-004: Skip-to-main-content link for keyboard users.
+      {/* NEW-A11Y-004: Skip-to-main-content link for keyboard users.
         Visually hidden until focused, then appears as a floating button.
         WCAG 2.1 SC 2.4.1 (Bypass Blocks). */}
-    <a
-      href="#main-content"
-      className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-100 focus:rounded-lg focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground"
-    >
-      Skip to main content
-    </a>
-    <div className={cn('flex h-screen flex-col bg-(--bg-subtle) font-sans text-(--text-primary) overflow-hidden', !isMaximized && 'rounded-lg border border-border')}>
-      <TitleBar
-        onToggleSidebar={() => setSidebarCollapsed((c) => !c)}
-        onGoBack={goBack}
-        onGoForward={goForward}
-        canGoBack={navIndex.current > 0}
-        canGoForward={navIndex.current < navHistory.current.length - 1}
-        // NEW-TS-007: pass isMaximized down so TitleBar doesn't need
-        // its own subscription to bridge.onMaximizedChanged.
-        isMaximized={isMaximized}
-      />
-
-      <div className="flex min-h-0 flex-1">
-        <Sidebar
-          currentPage={currentPage}
-          onNavigate={navigate}
-          themeMode={themeMode}
-          onThemeChange={handleThemeChange}
-          collapsed={sidebarCollapsed}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-100 focus:rounded-lg focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground"
+      >
+        Skip to main content
+      </a>
+      <div className={cn('flex h-screen flex-col bg-(--bg-subtle) font-sans text-(--text-primary) overflow-hidden', !isMaximized && 'rounded-lg border border-border')}>
+        <TitleBar
+          onToggleSidebar={() => setSidebarCollapsed((c) => !c)}
+          onGoBack={goBack}
+          onGoForward={goForward}
+          canGoBack={navIndex.current > 0}
+          canGoForward={navIndex.current < navHistory.current.length - 1}
+          // NEW-TS-007: pass isMaximized down so TitleBar doesn't need
+          // its own subscription to bridge.onMaximizedChanged.
+          isMaximized={isMaximized}
         />
 
-          <div className="flex min-w-0 flex-1 flex-col">
-          <main id="main-content" role="main" className="flex-1 overflow-y-auto rounded-l-xl border-border border border-r-0 border-b-0 bg-(--bg)" style={{ scrollbarGutter: 'stable' }}>
-            {connectionStatus === 'connecting' ? (
-              <div className="flex h-full flex-col items-center justify-center gap-4 px-8 text-center">
-                <Spinner />
-                <div className="space-y-2">
-                  <p className="text-sm font-medium text-(--text-primary)">
-                    Starting Python backend\u2026
-                  </p>
-                  <p className="text-xs text-(--text-muted) max-w-md">
-                    First launch can take 30\u201360 seconds while we download
-                    the speech model (~466 MB for small.en). Subsequent
-                    launches are much faster. You can close this window \u2014
-                    dictation will work from the system tray once ready.
-                  </p>
-                </div>
-              </div>
-            ) : connectionStatus === 'disconnected' ? (
-              <div className="flex h-full flex-col items-center justify-center gap-4">
-                <p className="text-sm text-destructive">
-                  Lost connection to Python backend
-                </p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleRetryConnection}
-                >
-                  Retry Connection
-                </Button>
-              </div>
-            ) : (
-              renderPage()
-            )}
-          </main>
-        </div>
-      </div>
-      <Toaster />
+        <div className="flex min-h-0 flex-1">
+          <Sidebar
+            currentPage={currentPage}
+            onNavigate={navigate}
+            themeMode={themeMode}
+            onThemeChange={handleThemeChange}
+            collapsed={sidebarCollapsed}
+          />
 
-      {/* NEW-UX-043: "?" help overlay */}
-      {showHelpOverlay && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-          onClick={() => setShowHelpOverlay(false)}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="help-overlay-title"
-        >
-          <div
-            className="animate-scale-in w-110 rounded-xl border border-border bg-(--bg) p-6 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => { if (e.key === 'Escape') setShowHelpOverlay(false) }}
-          >
-            <h2 id="help-overlay-title" className="mb-4 text-lg font-semibold text-(--text-primary)">
-              Keyboard Shortcuts
-            </h2>
-            <div className="space-y-2 text-sm">
-              {[
-                { keys: 'F2 (or your hotkey)', desc: 'Start / stop dictation' },
-                { keys: 'Esc', desc: 'Cancel recording, or close this dialog' },
-                { keys: 'Ctrl+Alt+V', desc: 'Re-paste last transcription' },
-                { keys: 'Ctrl+B', desc: 'Toggle sidebar' },
-                { keys: 'Tab / Shift+Tab', desc: 'Navigate between controls' },
-                { keys: 'Space', desc: 'Toggle switches / press buttons' },
-                { keys: 'Enter', desc: 'Activate focused control' },
-                { keys: '?', desc: 'Open this help overlay' },
-                { keys: 'Alt+Left / Alt+Right', desc: 'Navigate back / forward' },
-              ].map((shortcut) => (
-                <div key={shortcut.keys} className="flex items-center justify-between gap-4">
-                  <span className="text-(--text-muted)">{shortcut.desc}</span>
-                  <kbd className="rounded border border-border bg-(--bg-subtle) px-2 py-0.5 font-mono text-xs text-(--text-primary)">
-                    {shortcut.keys}
-                  </kbd>
+          <div className="flex min-w-0 flex-1 flex-col">
+            <main id="main-content" role="main" className="flex-1 overflow-y-auto rounded-l-xl border-border border border-r-0 border-b-0 bg-(--bg)" style={{ scrollbarGutter: 'stable' }}>
+              {connectionStatus === 'connecting' ? (
+                <div className="flex h-full flex-col items-center justify-center gap-4 px-8 text-center">
+                  <Spinner />
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-(--text-primary)">
+                      Starting Python backend\u2026
+                    </p>
+                    <p className="text-xs text-(--text-muted) max-w-md">
+                      First launch can take 30\u201360 seconds while we download
+                      the speech model (~466 MB for small.en). Subsequent
+                      launches are much faster. You can close this window \u2014
+                      dictation will work from the system tray once ready.
+                    </p>
+                  </div>
                 </div>
-              ))}
-            </div>
-            <p className="mt-4 text-xs text-(--text-muted)">
-              Press <kbd className="rounded border border-border px-1">Esc</kbd> or click outside to close.
-            </p>
+              ) : connectionStatus === 'disconnected' ? (
+                <div className="flex h-full flex-col items-center justify-center gap-4">
+                  <p className="text-sm text-destructive">
+                    Lost connection to Python backend
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRetryConnection}
+                  >
+                    Retry Connection
+                  </Button>
+                </div>
+              ) : (
+                renderPage()
+              )}
+            </main>
           </div>
         </div>
-      )}
+        <Toaster />
 
-      {/* #9: Screen reader live region for dynamic status updates.
+        {/* NEW-UX-043: "?" help overlay */}
+        {showHelpOverlay && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+            onClick={() => setShowHelpOverlay(false)}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="help-overlay-title"
+          >
+            <div
+              className="animate-scale-in w-110 rounded-xl border border-border bg-(--bg) p-6 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => { if (e.key === 'Escape') setShowHelpOverlay(false) }}
+            >
+              <h2 id="help-overlay-title" className="mb-4 text-lg font-semibold text-(--text-primary)">
+                Keyboard Shortcuts
+              </h2>
+              <div className="space-y-2 text-sm">
+                {[
+                  { keys: 'F2 (or your hotkey)', desc: 'Start / stop dictation' },
+                  { keys: 'Esc', desc: 'Cancel recording, or close this dialog' },
+                  { keys: 'Ctrl+Alt+V', desc: 'Re-paste last transcription' },
+                  { keys: 'Ctrl+B', desc: 'Toggle sidebar' },
+                  { keys: 'Tab / Shift+Tab', desc: 'Navigate between controls' },
+                  { keys: 'Space', desc: 'Toggle switches / press buttons' },
+                  { keys: 'Enter', desc: 'Activate focused control' },
+                  { keys: '?', desc: 'Open this help overlay' },
+                  { keys: 'Alt+Left / Alt+Right', desc: 'Navigate back / forward' },
+                ].map((shortcut) => (
+                  <div key={shortcut.keys} className="flex items-center justify-between gap-4">
+                    <span className="text-(--text-muted)">{shortcut.desc}</span>
+                    <kbd className="rounded border border-border bg-(--bg-subtle) px-2 py-0.5 font-mono text-xs text-(--text-primary)">
+                      {shortcut.keys}
+                    </kbd>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-4 text-xs text-(--text-muted)">
+                Press <kbd className="rounded border border-border px-1">Esc</kbd> or click outside to close.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* #9: Screen reader live region for dynamic status updates.
           NEW-A11Y-002: NVDA/JAWS/VoiceOver users press F2, hear nothing,
           don't know if recording started.  This aria-live region announces
           state transitions so screen reader users know what's happening. */}
-      <div aria-live="polite" className="sr-only">
-        {recordingState === 'recording' ? 'Recording started.' : ''}
-        {recordingState === 'transcribing' ? 'Transcribing audio…' : ''}
-        {recordingState === 'idle' ? 'Ready.' : ''}
-        {recordingState === 'error' ? 'Error occurred.' : ''}
-        {recordingState === 'loading' ? 'Loading model…' : ''}
-        {recordingState === 'cancelling' ? 'Cancelling…' : ''}
+        <div aria-live="polite" className="sr-only">
+          {recordingState === 'recording' ? 'Recording started.' : ''}
+          {recordingState === 'transcribing' ? 'Transcribing audio…' : ''}
+          {recordingState === 'idle' ? 'Ready.' : ''}
+          {recordingState === 'error' ? 'Error occurred.' : ''}
+          {recordingState === 'loading' ? 'Loading model…' : ''}
+          {recordingState === 'cancelling' ? 'Cancelling…' : ''}
+        </div>
       </div>
-    </div>
     </ErrorBoundary>
   )
 }

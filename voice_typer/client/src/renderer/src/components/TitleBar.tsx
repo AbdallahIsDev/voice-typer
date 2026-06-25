@@ -74,13 +74,13 @@ function TitleBarButton({ onClick, ariaLabel, variant = 'default', children }: T
         'focus:outline-none',
         isClose
           ? cn(
-              'hover:bg-[#C42B1C] hover:text-white',
-              'focus-visible:bg-[#C42B1C] focus-visible:text-white',
-            )
+            'hover:bg-[#C42B1C] hover:text-white',
+            'focus-visible:bg-[#C42B1C] focus-visible:text-white',
+          )
           : cn(
-              'hover:bg-black/5 dark:hover:bg-white/5',
-              'hover:text-(--text-primary)',
-            ),
+            'hover:bg-black/5 dark:hover:bg-white/5',
+            'hover:text-(--text-primary)',
+          ),
       )}
     >
       {children}
@@ -102,16 +102,16 @@ export function TitleBar({ onToggleSidebar, onGoBack, onGoForward, canGoBack, ca
     if (isMaximizedProp !== undefined) return
     if (!bridge) return
     let cancelled = false
-    bridge.isMaximized().then((v) => { if (!cancelled) setLocalIsMaximized(v) }).catch(() => {})
+    bridge.isMaximized().then((v) => { if (!cancelled) setLocalIsMaximized(v) }).catch(() => { })
     const unsub = bridge.onMaximizedChanged((v) => { if (!cancelled) setLocalIsMaximized(v) })
     return () => { cancelled = true; unsub() }
   }, [bridge, isMaximizedProp])
 
   const isMaximized = isMaximizedProp !== undefined ? isMaximizedProp : localIsMaximized
 
-  const handleMinimize = () => bridge?.minimize().catch(() => {})
-  const handleToggleMaximize = () => bridge?.toggleMaximize().catch(() => {})
-  const handleClose = () => bridge?.close().catch(() => {})
+  const handleMinimize = () => bridge?.minimize().catch(() => { })
+  const handleToggleMaximize = () => bridge?.toggleMaximize().catch(() => { })
+  const handleClose = () => bridge?.close().catch(() => { })
 
   return (
     <div className="drag-region flex w-full shrink-0 items-center select-none h-8">
@@ -147,7 +147,7 @@ export function TitleBar({ onToggleSidebar, onGoBack, onGoForward, canGoBack, ca
         )}
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <path d="M10 12L6 8L10 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          <path d="M10 12L6 8L10 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </button>
       <button
@@ -166,7 +166,7 @@ export function TitleBar({ onToggleSidebar, onGoBack, onGoForward, canGoBack, ca
         )}
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <path d="M6 4L10 8L6 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          <path d="M6 4L10 8L6 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </button>
 

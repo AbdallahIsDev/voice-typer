@@ -29,10 +29,10 @@ const CARDS: {
   icon: typeof Mic02Icon
   format: (v: number) => string
 }[] = [
-  { label: 'Voice Dictations', key: 'count', icon: Mic02Icon, format: formatCompactNumber },
-  { label: 'Text Transcribed', key: 'chars', icon: TextIcon, format: formatCompactNumber },
-  { label: 'Dictation Time', key: 'duration', icon: Time02Icon, format: formatDuration },
-]
+    { label: 'Voice Dictations', key: 'count', icon: Mic02Icon, format: formatCompactNumber },
+    { label: 'Text Transcribed', key: 'chars', icon: TextIcon, format: formatCompactNumber },
+    { label: 'Dictation Time', key: 'duration', icon: Time02Icon, format: formatDuration },
+  ]
 
 interface StatCardsProps {
   stats: TodayStats

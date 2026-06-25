@@ -1,23 +1,36 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!--
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!--
       SEC-012: Content Security Policy for the bubble window.
       Same hardening as index.html.  The bubble renders waveform data
       only; no remote resources are ever needed.
     -->
-    <meta http-equiv="Content-Security-Policy"
-          content="default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; form-action 'none'; base-uri 'self';" />
-    <title>Voice Typer — Bubble</title>
-    <style>
-      html, body { margin: 0; padding: 0; height: 100%; background: transparent; }
-      body { font-family: 'Geist Variable', system-ui, sans-serif; overflow: hidden; }
-    </style>
-  </head>
-  <body>
-    <div id="bubble-root"></div>
-    <script type="module" src="/src/bubble-main.tsx"></script>
-  </body>
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; form-action 'none'; base-uri 'self';" />
+  <title>Voice Typer — Bubble</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: transparent;
+    }
+
+    body {
+      font-family: 'Geist Variable', system-ui, sans-serif;
+      overflow: hidden;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="bubble-root"></div>
+  <script type="module" src="/src/bubble-main.tsx"></script>
+</body>
+
 </html>

@@ -238,119 +238,118 @@ export default function HistoryPage() {
 
   return (
     <>
-    <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
-      <PageHeading
-        title="History"
-        description={stats ? `${stats.count} transcription${stats.count !== 1 ? 's' : ''} today${stats.chars > 0 ? ` (${stats.chars.toLocaleString()} chars)` : ''}` : '0 transcriptions today'}
-      />
-
-      {/* Search */}
-      <div className="relative mt-4">
-        <HugeiconsIcon icon={Search01Icon} strokeWidth={1.625} className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-(--text-muted) pointer-events-none" />
-        <Input
-          value={searchQuery}
-          onChange={e => handleSearch(e.target.value)}
-          placeholder="Search history..."
-          className="pl-9 rounded-xl bg-(--bg-subtle)"
+      <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
+        <PageHeading
+          title="History"
+          description={stats ? `${stats.count} transcription${stats.count !== 1 ? 's' : ''} today${stats.chars > 0 ? ` (${stats.chars.toLocaleString()} chars)` : ''}` : '0 transcriptions today'}
         />
-        {/* NEW-UX-031: clear (×) button for the search field. */}
-        {searchQuery && (
-          <button
-            type="button"
-            onClick={() => handleSearch('')}
-            aria-label="Clear search"
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-(--text-muted) hover:text-(--text-primary)"
+
+        {/* Search */}
+        <div className="relative mt-4">
+          <HugeiconsIcon icon={Search01Icon} strokeWidth={1.625} className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-(--text-muted) pointer-events-none" />
+          <Input
+            value={searchQuery}
+            onChange={e => handleSearch(e.target.value)}
+            placeholder="Search history..."
+            className="pl-9 rounded-xl bg-(--bg-subtle)"
+          />
+          {/* NEW-UX-031: clear (×) button for the search field. */}
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => handleSearch('')}
+              aria-label="Clear search"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-(--text-muted) hover:text-(--text-primary)"
+            >
+              <HugeiconsIcon icon={Delete01Icon} strokeWidth={1.625} className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
+        {/* Action buttons */}
+        <div className="flex items-center gap-2 mt-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={toggleFavorites}
+            aria-label={favoritesOnly ? 'Show all history' : 'Show favorites only'}
+            className={`gap-2 ${favoritesOnly
+                ? 'bg-amber-400/15 text-amber-400 border-amber-400/30 hover:bg-amber-400/20'
+                : 'text-(--text-muted) hover:text-(--text-primary)'
+              }`}
+          >
+            <HugeiconsIcon icon={StarIcon} strokeWidth={1.625} className={`h-4 w-4 ${favoritesOnly ? 'text-amber-400' : ''}`} />
+            Favorites
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleClearAll}
+            aria-label="Clear all history"
+            className="gap-2 text-(--text-muted) hover:text-red-400"
           >
             <HugeiconsIcon icon={Delete01Icon} strokeWidth={1.625} className="h-4 w-4" />
-          </button>
+            Clear All
+          </Button>
+          <div className="ml-auto">
+            <ExportFormatMenu onExport={doExport} disabled={records.length === 0} />
+          </div>
+        </div>
+
+        {loading && records.length === 0 ? (
+          <div className="flex min-h-full items-center justify-center py-20">
+            <Spinner />
+          </div>
+        ) : records.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 gap-3">
+            <HugeiconsIcon icon={HistoryIcon} strokeWidth={1.625} className="h-8 w-8 text-(--text-muted) opacity-30" />
+            <p className="text-sm text-(--text-muted) opacity-50">
+              {searchQuery ? 'No results found' : favoritesOnly ? 'No favorites yet' : 'No transcriptions yet'}
+            </p>
+          </div>
+        ) : (
+          <>
+            <ActivityList
+              items={records}
+              lineClamp={3}
+              onDelete={handleDelete}
+              onToggleFavorite={handleToggleFavorite}
+            />
+
+            {hasMore && (
+              <Button
+                variant="outline"
+                size="default"
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="mt-4 w-full gap-2 text-xs rounded-xl border border-dashed border-border/30"
+              >
+                {loadingMore ? (
+                  <>
+                    <Spinner className="border-current" />
+                    Loading...
+                  </>
+                ) : (
+                  <>
+                    <HugeiconsIcon icon={ArrowDown01Icon} strokeWidth={1.625} className="h-4 w-4" />
+                    Load More
+                  </>
+                )}
+              </Button>
+            )}
+          </>
         )}
       </div>
 
-      {/* Action buttons */}
-      <div className="flex items-center gap-2 mt-3">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={toggleFavorites}
-          aria-label={favoritesOnly ? 'Show all history' : 'Show favorites only'}
-          className={`gap-2 ${
-            favoritesOnly
-              ? 'bg-amber-400/15 text-amber-400 border-amber-400/30 hover:bg-amber-400/20'
-              : 'text-(--text-muted) hover:text-(--text-primary)'
-          }`}
-        >
-          <HugeiconsIcon icon={StarIcon} strokeWidth={1.625} className={`h-4 w-4 ${favoritesOnly ? 'text-amber-400' : ''}`} />
-          Favorites
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleClearAll}
-          aria-label="Clear all history"
-          className="gap-2 text-(--text-muted) hover:text-red-400"
-        >
-          <HugeiconsIcon icon={Delete01Icon} strokeWidth={1.625} className="h-4 w-4" />
-          Clear All
-        </Button>
-        <div className="ml-auto">
-            <ExportFormatMenu onExport={doExport} disabled={records.length === 0} />
-          </div>
-      </div>
-
-      {loading && records.length === 0 ? (
-        <div className="flex min-h-full items-center justify-center py-20">
-          <Spinner />
-        </div>
-      ) : records.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 gap-3">
-          <HugeiconsIcon icon={HistoryIcon} strokeWidth={1.625} className="h-8 w-8 text-(--text-muted) opacity-30" />
-          <p className="text-sm text-(--text-muted) opacity-50">
-            {searchQuery ? 'No results found' : favoritesOnly ? 'No favorites yet' : 'No transcriptions yet'}
-          </p>
-        </div>
-      ) : (
-        <>
-          <ActivityList
-            items={records}
-            lineClamp={3}
-            onDelete={handleDelete}
-            onToggleFavorite={handleToggleFavorite}
-          />
-
-          {hasMore && (
-            <Button
-              variant="outline"
-              size="default"
-              onClick={loadMore}
-              disabled={loadingMore}
-              className="mt-4 w-full gap-2 text-xs rounded-xl border border-dashed border-border/30"
-            >
-              {loadingMore ? (
-                <>
-                  <Spinner className="border-current" />
-                  Loading...
-                </>
-              ) : (
-                <>
-                  <HugeiconsIcon icon={ArrowDown01Icon} strokeWidth={1.625} className="h-4 w-4" />
-                  Load More
-                </>
-              )}
-            </Button>
-          )}
-        </>
-      )}
-    </div>
-
-    {/* #7: ConfirmDialog for Clear All */}
-    <ConfirmDialog
-      open={showClearConfirm}
-      title="Clear All History"
-      message="Are you sure you want to clear all transcription history? Favorites will also be deleted. This action cannot be undone."
-      confirmLabel="Clear All"
-      onConfirm={confirmClearAll}
-      onCancel={() => setShowClearConfirm(false)}
-    />
+      {/* #7: ConfirmDialog for Clear All */}
+      <ConfirmDialog
+        open={showClearConfirm}
+        title="Clear All History"
+        message="Are you sure you want to clear all transcription history? Favorites will also be deleted. This action cannot be undone."
+        confirmLabel="Clear All"
+        onConfirm={confirmClearAll}
+        onCancel={() => setShowClearConfirm(false)}
+      />
     </>
   )
 }

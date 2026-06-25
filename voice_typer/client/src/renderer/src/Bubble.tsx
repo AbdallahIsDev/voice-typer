@@ -224,7 +224,7 @@ export function Bubble() {
       className={`
         inline-flex items-center justify-center
         ${animState === 'enter' ? 'animate-bubble-enter' : ''}
-        ${animState === 'exit'  ? 'animate-bubble-exit'  : ''}
+        ${animState === 'exit' ? 'animate-bubble-exit' : ''}
       `}
       onAnimationEnd={handleAnimEnd}
     >

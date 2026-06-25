@@ -759,164 +759,164 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
         >
           <div className="animate-fade-in space-y-0 divide-y divide-border">
 
-          {/* ── Volume Backend status ── */}
-          <SettingRow label="Volume Backend"
-            info="The active audio control backend. 'disabled' means ducking won't work on this platform — install the platform's optional dependency (pycaw on Windows, pyobjc on macOS).">
-            <span className="text-sm text-(--text-muted) tabular-nums">
-              {volumeBackend
-                ? (volumeBackend.available ? volumeBackend.name : `${volumeBackend.name} (unavailable)`)
-                : 'Detecting…'}
-            </span>
-          </SettingRow>
+            {/* ── Volume Backend status ── */}
+            <SettingRow label="Volume Backend"
+              info="The active audio control backend. 'disabled' means ducking won't work on this platform — install the platform's optional dependency (pycaw on Windows, pyobjc on macOS).">
+              <span className="text-sm text-(--text-muted) tabular-nums">
+                {volumeBackend
+                  ? (volumeBackend.available ? volumeBackend.name : `${volumeBackend.name} (unavailable)`)
+                  : 'Detecting…'}
+              </span>
+            </SettingRow>
 
-          {/* ── Auto Duck Volume ── */}
-          <SettingRow label="Auto Duck Volume"
-            info="Reduce system volume during dictation to prevent speaker bleed into the mic.">
-            <Switch
-              checked={config.volume_duck_enabled ?? true}
-              onCheckedChange={(checked) => updateConfig({ volume_duck_enabled: checked })}
-              aria-label="Auto Duck Volume"
-            />
-          </SettingRow>
-          <SettingRow label="Duck Level"
-            info="How quiet to make system audio. 25% = whisper-quiet, 50% = slight dip.">
-            <div className="flex items-center gap-2">
-              <input
-                type="range"
-                min={0} max={0.5} step={0.05}
-                value={config.volume_duck_level ?? 0.25}
-                onChange={(e) => updateConfigDebounced('volume_duck_level', Number(e.target.value))}
-                className="w-24"
-                aria-label="Duck Level"
+            {/* ── Auto Duck Volume ── */}
+            <SettingRow label="Auto Duck Volume"
+              info="Reduce system volume during dictation to prevent speaker bleed into the mic.">
+              <Switch
+                checked={config.volume_duck_enabled ?? true}
+                onCheckedChange={(checked) => updateConfig({ volume_duck_enabled: checked })}
+                aria-label="Auto Duck Volume"
               />
-              <span className="text-sm text-(--text-muted) w-10">
-                {Math.round((config.volume_duck_level ?? 0.25) * 100)}%
-              </span>
-            </div>
-          </SettingRow>
-          <SettingRow label="Duck Fade Duration"
-            info="How long to ramp volume up/down when ducking or restoring. 0ms = instant (can cause audio clicks). 150ms is the default.">
-            <div className="flex items-center gap-2">
-              <input
-                type="range"
-                min={0} max={1000} step={50}
-                value={config.volume_duck_fade_ms ?? 150}
-                onChange={(e) => updateConfigDebounced('volume_duck_fade_ms', Number(e.target.value))}
-                className="w-24"
-                aria-label="Duck Fade Duration"
+            </SettingRow>
+            <SettingRow label="Duck Level"
+              info="How quiet to make system audio. 25% = whisper-quiet, 50% = slight dip.">
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min={0} max={0.5} step={0.05}
+                  value={config.volume_duck_level ?? 0.25}
+                  onChange={(e) => updateConfigDebounced('volume_duck_level', Number(e.target.value))}
+                  className="w-24"
+                  aria-label="Duck Level"
+                />
+                <span className="text-sm text-(--text-muted) w-10">
+                  {Math.round((config.volume_duck_level ?? 0.25) * 100)}%
+                </span>
+              </div>
+            </SettingRow>
+            <SettingRow label="Duck Fade Duration"
+              info="How long to ramp volume up/down when ducking or restoring. 0ms = instant (can cause audio clicks). 150ms is the default.">
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min={0} max={1000} step={50}
+                  value={config.volume_duck_fade_ms ?? 150}
+                  onChange={(e) => updateConfigDebounced('volume_duck_fade_ms', Number(e.target.value))}
+                  className="w-24"
+                  aria-label="Duck Fade Duration"
+                />
+                <span className="text-sm text-(--text-muted) w-14">
+                  {config.volume_duck_fade_ms ?? 150}ms
+                </span>
+              </div>
+            </SettingRow>
+            <SettingRow label="Smart Duck"
+              info="Only duck when audio is actually playing through the speakers. Skips the volume change (and the speaker-icon animation) during silent dictation. A background monitor polls speaker activity every 'Smart Duck Poll Interval' ms and retroactively ducks if audio starts mid-dictation. Cross-platform: Windows uses IAudioMeterInformation peak detection; macOS uses an audio-app heuristic; Linux uses pactl/wpctl or /proc/asound.">
+              <Switch
+                checked={config.volume_duck_smart ?? true}
+                onCheckedChange={(checked) => updateConfig({ volume_duck_smart: checked })}
+                aria-label="Smart Duck"
               />
-              <span className="text-sm text-(--text-muted) w-14">
-                {config.volume_duck_fade_ms ?? 150}ms
-              </span>
-            </div>
-          </SettingRow>
-          <SettingRow label="Smart Duck"
-            info="Only duck when audio is actually playing through the speakers. Skips the volume change (and the speaker-icon animation) during silent dictation. A background monitor polls speaker activity every 'Smart Duck Poll Interval' ms and retroactively ducks if audio starts mid-dictation. Cross-platform: Windows uses IAudioMeterInformation peak detection; macOS uses an audio-app heuristic; Linux uses pactl/wpctl or /proc/asound.">
-            <Switch
-              checked={config.volume_duck_smart ?? true}
-              onCheckedChange={(checked) => updateConfig({ volume_duck_smart: checked })}
-              aria-label="Smart Duck"
-            />
-          </SettingRow>
-          <SettingRow label="Smart Duck Poll Interval"
-            info="How often (in milliseconds) to check if audio has started playing during a smart-duck skip. Lower = catches audio faster but uses more CPU. Higher = less CPU but slower to duck when audio starts. 500ms is a good default.">
-            <div className="flex items-center gap-2">
-              <input
-                type="range"
-                min={50} max={2000} step={50}
-                value={config.volume_duck_smart_poll_interval_ms ?? 500}
-                onChange={(e) => updateConfigDebounced('volume_duck_smart_poll_interval_ms', Number(e.target.value))}
-                className="w-24"
-                aria-label="Smart Duck Poll Interval"
+            </SettingRow>
+            <SettingRow label="Smart Duck Poll Interval"
+              info="How often (in milliseconds) to check if audio has started playing during a smart-duck skip. Lower = catches audio faster but uses more CPU. Higher = less CPU but slower to duck when audio starts. 500ms is a good default.">
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min={50} max={2000} step={50}
+                  value={config.volume_duck_smart_poll_interval_ms ?? 500}
+                  onChange={(e) => updateConfigDebounced('volume_duck_smart_poll_interval_ms', Number(e.target.value))}
+                  className="w-24"
+                  aria-label="Smart Duck Poll Interval"
+                />
+                <span className="text-sm text-(--text-muted) w-16">
+                  {config.volume_duck_smart_poll_interval_ms ?? 500}ms
+                </span>
+              </div>
+            </SettingRow>
+            <SettingRow label="Per-Session Duck (Windows)"
+              info="Duck only other apps' audio, keeping system alerts audible. Windows only — disabled on macOS/Linux because they have no clean per-app volume API.">
+              <Switch
+                checked={config.volume_duck_per_session ?? false}
+                disabled={!volumeBackend?.is_windows || !volumeBackend?.supports_per_session}
+                onCheckedChange={(checked) => updateConfig({ volume_duck_per_session: checked })}
+                aria-label="Per-Session Duck"
               />
-              <span className="text-sm text-(--text-muted) w-16">
-                {config.volume_duck_smart_poll_interval_ms ?? 500}ms
-              </span>
-            </div>
-          </SettingRow>
-          <SettingRow label="Per-Session Duck (Windows)"
-            info="Duck only other apps' audio, keeping system alerts audible. Windows only — disabled on macOS/Linux because they have no clean per-app volume API.">
-            <Switch
-              checked={config.volume_duck_per_session ?? false}
-              disabled={!volumeBackend?.is_windows || !volumeBackend?.supports_per_session}
-              onCheckedChange={(checked) => updateConfig({ volume_duck_per_session: checked })}
-              aria-label="Per-Session Duck"
-            />
-          </SettingRow>
+            </SettingRow>
 
-          {/* ── Noise Filtering ── */}
-          <SettingRow label="Noise Filter"
-            info="Clean the microphone signal: removes fan noise, keyboard clicks, HVAC rumble.">
-            <Switch
-              checked={config.noise_filter_enabled ?? true}
-              onCheckedChange={(checked) => updateConfig({ noise_filter_enabled: checked })}
-              aria-label="Noise Filter"
-            />
-          </SettingRow>
-          <SettingRow label="High-Pass Filter"
-            info="Remove low-frequency rumble (HVAC, traffic) below the cutoff frequency.">
-            <Switch
-              checked={config.noise_filter_highpass ?? true}
-              onCheckedChange={(checked) => updateConfig({ noise_filter_highpass: checked })}
-              aria-label="High-Pass Filter"
-            />
-          </SettingRow>
-          <SettingRow label="High-Pass Cutoff"
-            info="Frequencies below this are attenuated. 80Hz removes HVAC rumble. 100–150Hz also removes traffic. Above 200Hz may cut into male speech.">
-            <div className="flex items-center gap-2">
-              <input
-                type="range"
-                min={20} max={500} step={10}
-                value={config.noise_filter_highpass_cutoff_hz ?? 80}
-                onChange={(e) => updateConfigDebounced('noise_filter_highpass_cutoff_hz', Number(e.target.value))}
-                className="w-24"
-                aria-label="High-Pass Cutoff"
+            {/* ── Noise Filtering ── */}
+            <SettingRow label="Noise Filter"
+              info="Clean the microphone signal: removes fan noise, keyboard clicks, HVAC rumble.">
+              <Switch
+                checked={config.noise_filter_enabled ?? true}
+                onCheckedChange={(checked) => updateConfig({ noise_filter_enabled: checked })}
+                aria-label="Noise Filter"
               />
-              <span className="text-sm text-(--text-muted) w-14">
-                {config.noise_filter_highpass_cutoff_hz ?? 80}Hz
-              </span>
-            </div>
-          </SettingRow>
-          <SettingRow label="Noise Gate"
-            info="Silence audio below a threshold to remove idle hiss.">
-            <Switch
-              checked={config.noise_filter_gate ?? true}
-              onCheckedChange={(checked) => updateConfig({ noise_filter_gate: checked })}
-              aria-label="Noise Gate"
-            />
-          </SettingRow>
-          <SettingRow label="Noise Gate Threshold"
-            info="Audio below this RMS level is silenced. Lower = more permissive (keeps quiet speech). Higher = more aggressive (may cut quiet speech). 0.015 ≈ -45dBFS is a good default.">
-            <div className="flex items-center gap-2">
-              <input
-                type="range"
-                min={0} max={0.1} step={0.005}
-                value={config.noise_filter_gate_threshold ?? 0.015}
-                onChange={(e) => updateConfigDebounced('noise_filter_gate_threshold', Number(e.target.value))}
-                className="w-24"
-                aria-label="Noise Gate Threshold"
+            </SettingRow>
+            <SettingRow label="High-Pass Filter"
+              info="Remove low-frequency rumble (HVAC, traffic) below the cutoff frequency.">
+              <Switch
+                checked={config.noise_filter_highpass ?? true}
+                onCheckedChange={(checked) => updateConfig({ noise_filter_highpass: checked })}
+                aria-label="High-Pass Filter"
               />
-              <span className="text-sm text-(--text-muted) w-14 tabular-nums">
-                {(config.noise_filter_gate_threshold ?? 0.015).toFixed(3)}
-              </span>
-            </div>
-          </SettingRow>
-          <SettingRow label="RNNoise (Neural)"
-            info="AI-based real-time denoising. Higher quality but uses more CPU. Experimental.">
-            <Switch
-              checked={config.noise_filter_rnnoise ?? false}
-              onCheckedChange={(checked) => updateConfig({ noise_filter_rnnoise: checked })}
-              aria-label="RNNoise"
-            />
-          </SettingRow>
-          <SettingRow label="Post-Capture Cleanup"
-            info="Run spectral noise reduction on the full recording after stop. Improves quality if real-time filters miss noise.">
-            <Switch
-              checked={config.noise_filter_post_capture ?? true}
-              onCheckedChange={(checked) => updateConfig({ noise_filter_post_capture: checked })}
-              aria-label="Post-Capture Cleanup"
-            />
-          </SettingRow>
+            </SettingRow>
+            <SettingRow label="High-Pass Cutoff"
+              info="Frequencies below this are attenuated. 80Hz removes HVAC rumble. 100–150Hz also removes traffic. Above 200Hz may cut into male speech.">
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min={20} max={500} step={10}
+                  value={config.noise_filter_highpass_cutoff_hz ?? 80}
+                  onChange={(e) => updateConfigDebounced('noise_filter_highpass_cutoff_hz', Number(e.target.value))}
+                  className="w-24"
+                  aria-label="High-Pass Cutoff"
+                />
+                <span className="text-sm text-(--text-muted) w-14">
+                  {config.noise_filter_highpass_cutoff_hz ?? 80}Hz
+                </span>
+              </div>
+            </SettingRow>
+            <SettingRow label="Noise Gate"
+              info="Silence audio below a threshold to remove idle hiss.">
+              <Switch
+                checked={config.noise_filter_gate ?? true}
+                onCheckedChange={(checked) => updateConfig({ noise_filter_gate: checked })}
+                aria-label="Noise Gate"
+              />
+            </SettingRow>
+            <SettingRow label="Noise Gate Threshold"
+              info="Audio below this RMS level is silenced. Lower = more permissive (keeps quiet speech). Higher = more aggressive (may cut quiet speech). 0.015 ≈ -45dBFS is a good default.">
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min={0} max={0.1} step={0.005}
+                  value={config.noise_filter_gate_threshold ?? 0.015}
+                  onChange={(e) => updateConfigDebounced('noise_filter_gate_threshold', Number(e.target.value))}
+                  className="w-24"
+                  aria-label="Noise Gate Threshold"
+                />
+                <span className="text-sm text-(--text-muted) w-14 tabular-nums">
+                  {(config.noise_filter_gate_threshold ?? 0.015).toFixed(3)}
+                </span>
+              </div>
+            </SettingRow>
+            <SettingRow label="RNNoise (Neural)"
+              info="AI-based real-time denoising. Higher quality but uses more CPU. Experimental.">
+              <Switch
+                checked={config.noise_filter_rnnoise ?? false}
+                onCheckedChange={(checked) => updateConfig({ noise_filter_rnnoise: checked })}
+                aria-label="RNNoise"
+              />
+            </SettingRow>
+            <SettingRow label="Post-Capture Cleanup"
+              info="Run spectral noise reduction on the full recording after stop. Improves quality if real-time filters miss noise.">
+              <Switch
+                checked={config.noise_filter_post_capture ?? true}
+                onCheckedChange={(checked) => updateConfig({ noise_filter_post_capture: checked })}
+                aria-label="Post-Capture Cleanup"
+              />
+            </SettingRow>
 
           </div>
         </SettingsSection>

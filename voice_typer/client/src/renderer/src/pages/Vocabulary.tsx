@@ -221,9 +221,9 @@ export default function VocabularyPage() {
 
   const filtered = searchQuery.trim()
     ? entries.filter((e) =>
-        e.original.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        e.correction.toLowerCase().includes(searchQuery.toLowerCase()),
-      )
+      e.original.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      e.correction.toLowerCase().includes(searchQuery.toLowerCase()),
+    )
     : entries
 
   // ── Add / Edit dialog ─────────────────────────────────────────────

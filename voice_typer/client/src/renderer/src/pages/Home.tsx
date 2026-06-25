@@ -96,7 +96,7 @@ function playSoundCue(kind: 'start' | 'stop') {
   // Resume the context if it's suspended (browsers suspend AudioContext
   // until the user interacts with the page).
   if (ctx.state === 'suspended') {
-    ctx.resume().catch(() => {})
+    ctx.resume().catch(() => { })
   }
 
   const now = ctx.currentTime
@@ -152,18 +152,18 @@ export default function Home({ recordingState, lastError, onNavigate }: HomeProp
         if (cancelled) return
         const raw = cfg?.hotkey ?? '<f2>'
         setHotkey(normalizeHotkey(raw))
-      } catch {}
+      } catch { }
       try {
         const s = await call<TodayStats>('get_today_stats')
         if (cancelled) return
         setStats(s)
-      } catch {}
+      } catch { }
       try {
         const h = await call<HistoryRecord[]>('get_history', { limit: 4 })
         if (cancelled) return
         _cachedRecent = h ?? []
         setRecent(_cachedRecent)
-      } catch {}
+      } catch { }
     }
     load()
     return () => { cancelled = true }
@@ -183,7 +183,7 @@ export default function Home({ recordingState, lastError, onNavigate }: HomeProp
         if (cancelled) return
         const raw = cfg?.hotkey ?? '<f2>'
         setHotkey(normalizeHotkey(raw))
-      } catch {}
+      } catch { }
     }
     reloadHotkey()
     return () => { cancelled = true }

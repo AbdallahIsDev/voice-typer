@@ -27,9 +27,9 @@ export function computeShareStats(
   const minutesSaved =
     durationMinutes > 0
       ? Math.max(
-          0,
-          Math.round(todayStats.word_count / AVG_TYPING_WPM - durationMinutes),
-        )
+        0,
+        Math.round(todayStats.word_count / AVG_TYPING_WPM - durationMinutes),
+      )
       : 0
 
   const isCloud = CLOUD_BACKENDS.has(asrBackend)

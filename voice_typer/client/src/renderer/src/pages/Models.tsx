@@ -241,7 +241,7 @@ export default function ModelsPage() {
     const key = apiKeys[provider] ?? ''
     const configKey =
       provider === 'openai' ? 'openai_api_key' :
-      provider === 'groq' ? 'groq_api_key' : 'deepgram_api_key'
+        provider === 'groq' ? 'groq_api_key' : 'deepgram_api_key'
     const updates = { [configKey]: key } as Partial<VoiceTyperConfig>
     await updateConfig(updates)
     showSnack(`${CLOUD_PROVIDERS.find((p) => p.key === provider)?.label} API key saved`, 'success')
@@ -262,8 +262,8 @@ export default function ModelsPage() {
   const setCloudConsent = async (provider: string, granted: boolean) => {
     const configKey =
       provider === 'openai' ? 'cloud_openai_consent' :
-      provider === 'groq' ? 'cloud_groq_consent' :
-      'cloud_deepgram_consent'
+        provider === 'groq' ? 'cloud_groq_consent' :
+          'cloud_deepgram_consent'
     const updates = { [configKey]: granted } as Partial<VoiceTyperConfig>
     await updateConfig(updates)
     // Mirror to local state so the toggle reflects immediately.
@@ -604,7 +604,7 @@ export default function ModelsPage() {
                         <p className="mt-1 text-xs leading-relaxed text-(--text-muted)">
                           When this provider is selected as the active ASR
                           backend, your <strong>audio recordings will be
-                          sent</strong> to {provider.label} for transcription.
+                            sent</strong> to {provider.label} for transcription.
                           The provider's privacy policy applies to the audio
                           sent. Voice Typer never enables cloud ASR without
                           your explicit consent — even if an API key is
