@@ -589,6 +589,19 @@ class VoiceTyperService:
             except Exception as e:
                 log.warning("Failed to sync repaste hotkey: %s", e)
 
+        # NEW-UX-027: re-register the dictation hotkey when recording_mode
+        # or hotkey changes.
+        if "recording_mode" in updates or "hotkey" in updates or "push_to_talk_hotkey" in updates:
+            try:
+                app.hotkeys.restart(getattr(config, "hotkey", "<f2>"))
+                log.info(
+                    "[SERVICE] Re-registered hotkey after recording_mode/hotkey "
+                    "change (mode=%s)",
+                    getattr(config, "recording_mode", "toggle"),
+                )
+            except Exception as e:
+                log.warning("Failed to re-register hotkey after mode change: %s", e)
+
     # ── Onboarding (#8) ─────────────────────────────────────────────
 
     def onboarding_is_first_run(self) -> dict:
