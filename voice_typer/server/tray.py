@@ -232,9 +232,16 @@ class TrayIcon:
             self._icon = None
             self._tray_unavailable = True
             # Still start background work so the app boots normally.
+            # MINOR FIX: previously this path assigned a *different*
+            # attribute name from the one used everywhere else (the
+            # canonical name is ``self._bg_thread``).  Neither name
+            # is referenced in stop() today, so no runtime failure —
+            # but if stop() is ever extended to join the background
+            # thread, the Wayland path's thread would be orphaned.
+            # Use the canonical name for consistency.
             if self._bg_work_fn:
-                self._bg_work_thread = threading.Thread(target=self._bg_work_fn, daemon=True)
-                self._bg_work_thread.start()
+                self._bg_thread = threading.Thread(target=self._bg_work_fn, daemon=True)
+                self._bg_thread.start()
             return
 
         # Phase 2: Build minimal menu
