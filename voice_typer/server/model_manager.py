@@ -341,7 +341,8 @@ class ModelManager:
                 AppState.ERROR, "Model failed to load -- press F2 to retry"
             )
             if notify_on_failure:
-                self._app.tray.notify(
+                # NEW-UX-018: critical — bypass toggle (model load failed).
+                self._app.tray.notify_safety(
                     "Voice Typer",
                     "Could not load the speech model.\n"
                     "The app will keep running. Press F2 to retry loading.",

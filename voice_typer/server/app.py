@@ -833,15 +833,16 @@ class VoiceTyperApp:
                     self._onboarding_fail_count = getattr(
                         self, "_onboarding_fail_count", 0
                     ) + 1
-                    if self._onboarding_fail_count >= 3 and self.config.show_notifications:
+                    if self._onboarding_fail_count >= 3:
                         self.config.onboarding_completed = True
                         self.config.onboarding_failed = True
                         try:
                             self.config.save()
                         except Exception:
                             log.exception("[STARTUP] Could not save onboarding_failed flag")
+                        # NEW-UX-018: critical — bypass show_notifications toggle.
                         try:
-                            self.tray.notify(
+                            self.tray.notify_safety(
                                 "Voice Typer",
                                 "Onboarding setup kept failing. The app will "
                                 "start with default settings. Open Settings to "
@@ -865,9 +866,10 @@ class VoiceTyperApp:
         # so they know why their corrections aren't taking effect.
         try:
             err = configure_corrections(config_dir=self.config.config_dir)
-            if err is not None and self.config.show_notifications:
+            if err is not None:
+                # NEW-UX-018: critical — bypass toggle (broken corrections file).
                 try:
-                    self.tray.notify(
+                    self.tray.notify_safety(
                         "Voice Typer — Corrections Error",
                         f"{err}\nCorrections will use built-in defaults. "
                         f"Fix the file and restart.",
@@ -883,7 +885,8 @@ class VoiceTyperApp:
                 unpasted = self._crash_recovery.check_on_startup()
                 if unpasted:
                     log.info("[STARTUP] Found %d unpasted transcriptions from previous session", len(unpasted))
-                    self.tray.notify(
+                    # NEW-UX-018: critical — bypass toggle (recovered user data).
+                    self.tray.notify_safety(
                         "Voice Typer",
                         f"Recovered {len(unpasted)} transcription(s) from last session. Open History to view.",
                     )
@@ -916,7 +919,8 @@ class VoiceTyperApp:
                         "Install one for hotkey support on Wayland: "
                         "'sudo apt install wtype' or 'sudo apt install ydotool'"
                     )
-                    self.tray.notify(
+                    # NEW-UX-018: critical — bypass toggle (hotkeys broken).
+                    self.tray.notify_safety(
                         "Voice Typer — Wayland Hotkeys",
                         "Global hotkeys may not work on Wayland. "
                         "Install 'wtype' or 'ydotool' for hotkey support, "
@@ -950,10 +954,11 @@ class VoiceTyperApp:
                 )
                 if result.returncode != 0:
                     log.warning("[STARTUP] macOS Accessibility permission may be missing")
-                    self.tray.notify(
+                    # NEW-UX-018: critical — bypass toggle (hotkeys broken).
+                    self.tray.notify_safety(
                         "Voice Typer — Accessibility Permission",
                         "Global hotkeys require Accessibility permission. "
-                        "Open System Settings → Privacy & Security → Accessibility "
+                        "Open System Settings \u2192 Privacy & Security \u2192 Accessibility "
                         "and add Voice Typer (or Terminal).",
                     )
             except Exception:
@@ -1244,7 +1249,8 @@ class VoiceTyperApp:
             self._cancel_streaming_session()
             self._restore_volume()
             self.tray.set_state(AppState.ERROR, "Stop failed")
-            self.tray.notify("Voice Typer", f"Could not stop recording.\n{e}")
+            # NEW-UX-018: critical — bypass toggle (dictation failed).
+            self.tray.notify_safety("Voice Typer", f"Could not stop recording.\n{e}")
             self._busy_event.set()  # busy = False
             self._schedule_timer(3.0, lambda: self.tray.set_state(AppState.IDLE))
             return
