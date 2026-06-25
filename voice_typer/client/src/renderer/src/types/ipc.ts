@@ -279,6 +279,8 @@ export interface WindowBubble {
   show?: () => void
   hide?: () => void
   setLevel?: (level: number) => void
+  // NEW-A11Y-006: keyboard-based move (accessibility alternative to drag).
+  moveBy?: (deltaX: number, deltaY: number) => void
   // Event subscriptions (bubble window → main process) — always present
   // when the bubble window is loaded (exposed by the preload script)
   onLevel: (cb: (data: { rms: number; peak: number }) => void) => () => void

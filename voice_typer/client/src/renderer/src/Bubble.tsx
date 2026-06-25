@@ -164,6 +164,28 @@ export function Bubble() {
     return off
   }, [])
 
+  // NEW-A11Y-006: keyboard-based bubble repositioning.
+  // Arrow keys move the bubble by 10px (or 1px with Shift for fine control).
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!draggable) return
+      const step = e.shiftKey ? 1 : 10
+      let deltaX = 0
+      let deltaY = 0
+      switch (e.key) {
+        case 'ArrowLeft': deltaX = -step; break
+        case 'ArrowRight': deltaX = step; break
+        case 'ArrowUp': deltaY = -step; break
+        case 'ArrowDown': deltaY = step; break
+        default: return
+      }
+      e.preventDefault()
+      window.bubble?.moveBy?.(deltaX, deltaY)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [draggable])
+
   // ── Animation-end callback ──────────────────────────────────────
   // When the exit CSS transition completes, tell the main process
   // it's safe to actually hide() the BrowserWindow.

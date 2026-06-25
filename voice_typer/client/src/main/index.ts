@@ -707,6 +707,24 @@ ipcMain.on("bubble:drag-end", (event) => {
   bubbleDragging = false;
 });
 
+// NEW-A11Y-006: keyboard-based bubble repositioning for accessibility.
+// Arrow keys move the bubble by 10px; Shift+Arrow moves by 1px (fine).
+// The bubble renderer listens for keydown when focused and sends these.
+ipcMain.on("bubble:move-by", (event, { deltaX, deltaY }: { deltaX: number; deltaY: number }) => {
+  if (!assertFromBubble(event)) return;
+  if (!bubbleWindow || bubbleWindow.isDestroyed()) return;
+  const [x, y] = bubbleWindow.getPosition();
+  // Clamp to screen bounds so the bubble doesn't move off-screen.
+  const screen = require("electron").screen;
+  const display = screen.getDisplayMatching(x, y);
+  const bounds = display.workArea;
+  const bubbleW = bubbleWindow.getBounds().width;
+  const bubbleH = bubbleWindow.getBounds().height;
+  const newX = Math.max(bounds.x, Math.min(bounds.x + bounds.width - bubbleW, x + deltaX));
+  const newY = Math.max(bounds.y, Math.min(bounds.y + bounds.height - bubbleH, y + deltaY));
+  bubbleWindow.setPosition(newX, newY);
+});
+
 let bubbleDraggable = true;
 
 ipcMain.on("bubble:draggable", (_event, draggable: boolean) => {
