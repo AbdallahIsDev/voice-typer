@@ -116,16 +116,30 @@ class WaveformBubble:
         the visualizer — only updates when speech is detected.  When
         VAD indicates non-speech, the level decays smoothly.
         """
-        # T021: VAD gate — only update visualizer if speech is detected
+        # T021: VAD gate — only update visualizer if speech is detected.
+        # BUGFIX 2026-06-25: reduced decay factor from 0.85→0.95 and
+        # lowered visualizer VAD threshold to 0.3 so quiet speech still
+        # animates the bars instead of decaying instantly. The old 0.85
+        # decay caused bars to drop to 44% within 5 chunks (~160ms) of
+        # VAD non-speech, making short pauses between words look like
+        # dead bars. The higher threshold of 0.5 classified quiet speech
+        # as non-speech, starving the visualizer.
         if audio_chunk is not None:
             try:
-                from voice_typer.server.vad import is_speech
-                if not is_speech(audio_chunk):
+                from voice_typer.server.vad import compute_vad_prob
+                vad_prob = compute_vad_prob(audio_chunk)
+                # Use a lenient threshold for the visualizer (0.3) — the
+                # standard 0.5 is too aggressive for quiet speech and
+                # causes the visualizer to decay during natural pauses.
+                _VISUALIZER_VAD_THRESHOLD = 0.3
+                if vad_prob is not None and vad_prob < _VISUALIZER_VAD_THRESHOLD:
                     # Non-speech: decay the level smoothly instead of
-                    # letting ambient noise animate the visualizer
+                    # letting ambient noise animate the visualizer.
+                    # Use a gentle decay so short pauses between words
+                    # don't make the bars collapse to resting height.
                     with self._lock:
-                        self._rms_level *= 0.85
-                        self._peak_level *= 0.8
+                        self._rms_level *= 0.95
+                        self._peak_level *= 0.9
                         self._is_speaking = False
                         cb = self.on_level
                         rms_out = self._rms_level
@@ -138,14 +152,21 @@ class WaveformBubble:
                     return
             except ImportError:
                 pass  # VAD not available, fall through to RMS-only path
+            except Exception:
+                log.debug("[WAVEFORM] VAD inference failed on chunk", exc_info=True)
 
         with self._lock:
             # Cheap low-pass smoothing so the bubble doesn't jitter
             # chunk-to-chunk; the visualizer still reacts quickly to
             # voice onset because we lerp toward the new value.
-            self._rms_level = (self._rms_level * 0.55) + (rms * 0.45)
-            self._peak_level = max(self._peak_level * 0.7, peak)
-            self._is_speaking = self._rms_level > 0.01
+            # BUGFIX 2026-06-25: increased forward weight from 0.45→0.5
+            # so the visualizer responds faster to voice onset. Increased
+            # peak persistence from 0.7→0.85 so transients linger longer
+            # on the bars. Lowered is_speaking threshold from 0.01→0.005
+            # so quiet speech is still considered active speech.
+            self._rms_level = (self._rms_level * 0.50) + (rms * 0.50)
+            self._peak_level = max(self._peak_level * 0.85, peak)
+            self._is_speaking = self._rms_level > 0.005
             cb = self.on_level
             rms_out = self._rms_level
             peak_out = self._peak_level

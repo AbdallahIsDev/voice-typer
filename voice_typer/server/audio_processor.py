@@ -58,7 +58,8 @@ class AudioProcessorConfig:
     highpass: bool = True
     highpass_cutoff_hz: float = 80.0
     noise_gate: bool = True
-    noise_gate_threshold: float = 0.015
+    noise_gate_threshold: float = 0.003  # ~-50 dBFS (lowered from 0.015)
+    noise_gate_hold_ms: float = 300.0   # keep gate open across syllable gaps + word endings
     rnnoise: bool = False
     post_capture: bool = True
 
@@ -70,7 +71,8 @@ class AudioProcessorConfig:
             highpass=bool(getattr(config, "noise_filter_highpass", True)),
             highpass_cutoff_hz=float(getattr(config, "noise_filter_highpass_cutoff_hz", 80.0)),
             noise_gate=bool(getattr(config, "noise_filter_gate", True)),
-            noise_gate_threshold=float(getattr(config, "noise_filter_gate_threshold", 0.015)),
+            noise_gate_threshold=float(getattr(config, "noise_filter_gate_threshold", 0.003)),
+            noise_gate_hold_ms=float(getattr(config, "noise_filter_gate_hold_ms", 150.0)),
             rnnoise=bool(getattr(config, "noise_filter_rnnoise", False)),
             post_capture=bool(getattr(config, "noise_filter_post_capture", True)),
         )
@@ -100,6 +102,14 @@ class AudioProcessor:
         self._rnnoise_frame_size: int = 480  # 30 ms at 16 kHz
         self._rnnoise_carry: np.ndarray = np.array([], dtype=np.float32)
         self._quality_callback: Optional[QualityCallback] = None
+        # Noise gate state — tracked across chunks so the gate stays open
+        # through natural pauses in speech (syllable gaps ~50-100ms).
+        self._gate_open: bool = False
+        self._gate_hold_samples: int = 0
+        # Gain smoothing for the expander — a moving average that
+        # prevents audible transitions when the gate closes/opens.
+        # Initialized to 1.0 (full gain) and updated per chunk.
+        self._gate_current_gain: float = 1.0
         self._init_filters()
 
     # ── Lifecycle ───────────────────────────────────────────────────
@@ -159,6 +169,9 @@ class AudioProcessor:
             b, a, _ = self._hp_state
             self._hp_state = (b, a, np.zeros(max(len(a), len(b)) - 1, dtype=np.float64))
         self._rnnoise_carry = np.array([], dtype=np.float32)
+        self._gate_open = False
+        self._gate_hold_samples = 0
+        self._gate_current_gain = 1.0
 
     def set_quality_callback(self, cb: QualityCallback) -> None:
         """Wire a quality detector callback (revives audio_quality.py).
@@ -221,13 +234,75 @@ class AudioProcessor:
         return filtered.astype(np.float32, copy=False).reshape(original_shape)
 
     def _apply_noise_gate(self, chunk: np.ndarray) -> np.ndarray:
-        """Silence audio below the threshold (removes idle hiss)."""
+        """Apply downward expansion with smooth gain reduction.
+
+        Replaces a traditional hard gate with a smooth expander that
+        reduces gain below threshold instead of snapping to silence.
+        This preserves speech tails and avoids audible chopping.
+
+        How it works:
+        1. Above threshold: full gain (1.0), gate opens, hold resets
+        2. Below threshold, hold active: full gain (speech tails
+           and natural pauses pass through intact)
+        3. Below threshold, hold expired: gain is smoothly reduced
+           proportional to (rms / threshold)^2 — quiet sounds get
+           quieter but don't disappear
+        4. Gain transitions are smoothed with attack (~2ms) and
+           release (~20ms) time constants to avoid pumping artifacts
+
+        States:
+        - Signal >= threshold: gate opens, hold resets, gain → 1.0
+        - Signal < threshold && hold > 0: gate stays open, full gain
+        - Signal < threshold && hold == 0: smooth gain reduction
+        """
         if chunk.size == 0:
             return chunk
+
+        threshold = self._config.noise_gate_threshold
+        hold_samples = int(
+            self._config.noise_gate_hold_ms * self._sample_rate / 1000
+        )
         rms = float(np.sqrt(np.mean(np.square(chunk, dtype=np.float64))))
-        if rms < self._config.noise_gate_threshold:
-            # In-place zero — cheaper than allocating a new array.
-            chunk.fill(0.0)
+
+        if rms >= threshold:
+            # Signal is loud enough — open (or keep open) the gate.
+            self._gate_open = True
+            self._gate_hold_samples = hold_samples
+            # Smoothly return to full gain (fast attack ~2ms for mono)
+            alpha = 1.0 - np.exp(-chunk.size / (self._sample_rate * 0.002))
+            self._gate_current_gain += alpha * (1.0 - self._gate_current_gain)
+            if self._gate_current_gain < 1.0:
+                chunk = chunk * self._gate_current_gain
+            return chunk
+
+        # Signal is below threshold.
+        if self._gate_open and self._gate_hold_samples > 0:
+            # Hold period still active — keep the gate fully open.
+            consumed = min(chunk.size, self._gate_hold_samples)
+            self._gate_hold_samples -= consumed
+            return chunk
+
+        # Below threshold, hold expired.
+        # Compute expander target gain: when rms is just below threshold,
+        # gain is ~1.0; when rms is ~10% of threshold, gain is ~0.01.
+        # This is much gentler than hard silence — quiet sounds get
+        # quieter but the transition is smooth and inaudible.
+        self._gate_open = False
+        ratio = 2.0  # gentle expansion ratio
+        target_gain = min(1.0, max(0.01, (rms / threshold) ** ratio))
+
+        # Smooth gain transitions with one-pole filter.
+        # Release (gain going down): ~25ms for natural fade
+        # Attack (gain coming up): ~5ms to avoid sudden volume jumps
+        if target_gain < self._gate_current_gain:
+            alpha = 1.0 - np.exp(-chunk.size / (self._sample_rate * 0.025))
+        else:
+            alpha = 1.0 - np.exp(-chunk.size / (self._sample_rate * 0.005))
+
+        self._gate_current_gain += alpha * (target_gain - self._gate_current_gain)
+
+        if self._gate_current_gain < 0.999:
+            chunk = chunk * self._gate_current_gain
         return chunk
 
     def _apply_rnnoise(self, chunk: np.ndarray) -> np.ndarray:

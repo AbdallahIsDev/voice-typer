@@ -15,6 +15,55 @@ from typing import Any, Optional
 log = logging.getLogger(__name__)
 
 
+def _apply_audio_preset(preset: str) -> dict:
+    """Map an audio enhancement preset name to individual filter settings.
+
+    Presets:
+        "none"        — all filters OFF
+        "recommended" — noise filter on + RNNoise
+        "noisy_room"  — noise filter + RNNoise + noise gate + highpass
+        "studio"      — highpass only
+        "custom"      — no automatic changes (user controls each toggle)
+
+    Returns:
+        dict of noise_filter_* settings to apply.
+    """
+    presets = {
+        "none": {
+            "noise_filter_enabled": False,
+            "noise_filter_highpass": False,
+            "noise_filter_gate": False,
+            "noise_filter_rnnoise": False,
+            "noise_filter_post_capture": False,
+        },
+        "recommended": {
+            "noise_filter_enabled": True,
+            "noise_filter_highpass": False,
+            "noise_filter_gate": False,
+            "noise_filter_rnnoise": True,
+            "noise_filter_post_capture": False,
+        },
+        "noisy_room": {
+            "noise_filter_enabled": True,
+            "noise_filter_highpass": True,
+            "noise_filter_gate": True,
+            "noise_filter_rnnoise": True,
+            "noise_filter_post_capture": False,
+        },
+        "studio": {
+            "noise_filter_enabled": True,
+            "noise_filter_highpass": True,
+            "noise_filter_gate": False,
+            "noise_filter_rnnoise": False,
+            "noise_filter_post_capture": False,
+        },
+        "custom": {
+            # No automatic changes — user controls each toggle manually
+        },
+    }
+    return presets.get(preset, presets["recommended"])
+
+
 class VoiceTyperService:
     """Service facade over VoiceTyperApp.
 
@@ -170,6 +219,141 @@ class VoiceTyperService:
     def get_microphones(self) -> list[dict]:
         """Return available microphones."""
         return self._app._microphones
+
+    def microphone_test_start(self, mic_id: str | None = None,
+                               duration: float = 10.0,
+                               filters: dict | None = None) -> dict:
+        """Start a microphone test recording.
+
+        Args:
+            mic_id: Device index string or None for system default.
+            duration: Recording duration in seconds (default 10).
+            filters: Optional dict of audio enhancement filter overrides.
+
+        Returns:
+            dict with success, message, duration, sample_rate.
+        """
+        from voice_typer.server.microphone_test import start_test
+        return start_test(mic_id=mic_id, duration=duration, filters=filters)
+
+    def microphone_test_stop(self) -> dict:
+        """Stop the microphone test and return audio data as base64 WAV.
+
+        Also attempts to auto-transcribe the recorded audio (best-effort)
+        so the frontend can show "You said: ..." with recognition confidence.
+
+        Returns:
+            dict with success, audio_base64, raw_audio_base64, duration_ms,
+            sample_rate, quality, message, and optionally transcription and
+            transcription_confidence.
+        """
+        from voice_typer.server.microphone_test import stop_test
+        result = stop_test()
+
+        # Best-effort auto-transcription of the test recording
+        # Uses the already-loaded active engine (avoids loading a new
+        # engine from scratch which can take 30+ seconds).
+        if result.get("success") and result.get("audio_base64"):
+            try:
+                import base64, io, wave
+                import numpy as np
+
+                wav_bytes = base64.b64decode(result["audio_base64"])
+                sr = result.get("sample_rate", 16000)
+
+                # Decode WAV to float32
+                with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
+                    frames = wf.readframes(wf.getnframes())
+                    audio_f32 = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32767
+
+                # Use the app's already-loaded active engine
+                models = getattr(self._app, "models", None)
+                if models is not None:
+                    engine = models.active_transcriber()
+                    if engine is not None and getattr(engine, "is_loaded", False):
+                        try:
+                            transcription = engine.transcribe(audio_f32)
+                            text = str(transcription) if transcription else ""
+                            if text.strip():
+                                result["transcription"] = text
+                                result["transcription_confidence"] = None
+                                log.info(
+                                    "[SERVICE] Test transcription: %.60s...", text,
+                                )
+                            else:
+                                log.debug("[SERVICE] Test transcription: no speech detected")
+                        except Exception as tx_err:
+                            log.debug("[SERVICE] Test transcription failed: %s", tx_err)
+                    else:
+                        log.debug("[SERVICE] Active engine not loaded — skipping transcription")
+            except Exception as transcribe_err:
+                log.debug("[SERVICE] Test transcription setup failed: %s", transcribe_err)
+
+        return result
+
+    def microphone_test_cancel(self) -> dict:
+        """Cancel a running microphone test without returning audio."""
+        from voice_typer.server.microphone_test import cancel_test
+        return cancel_test()
+
+    def microphone_test_status(self) -> dict:
+        """Check if a microphone test is currently active."""
+        from voice_typer.server.microphone_test import is_test_active
+        return {"active": is_test_active()}
+
+    def microphone_test_get_level(self) -> dict:
+        """Get the current real-time audio level.
+
+        Both the test and the level monitor use the same single PortAudio
+        stream (see :mod:`level_monitor`), so there is a single source of
+        truth.  The level is always from the level monitor.
+
+        Returns dict with level (0-1), peak (0-1), and active (bool).
+        """
+        from voice_typer.server.level_monitor import get_level
+        return get_level()
+
+    def level_monitor_start(self, mic_id: str | None = None) -> dict:
+        """Start continuous audio level monitoring.
+
+        Also initialises the audio processor for the live level bar
+        from the current noise-filter config so the bar reflects
+        enabled filters immediately.
+
+        Args:
+            mic_id: Device index string or None for system default.
+
+        Returns:
+            dict with success, message, sample_rate.
+        """
+        from voice_typer.server.level_monitor import (
+            start_monitoring,
+            update_level_processor,
+        )
+        result = start_monitoring(mic_id=mic_id)
+        # Seed the level processor from the current config
+        try:
+            cfg = self._app.config
+            update_level_processor({
+                "noise_filter_enabled": getattr(cfg, "noise_filter_enabled", True),
+                "noise_filter_highpass": getattr(cfg, "noise_filter_highpass", True),
+                "noise_filter_gate": getattr(cfg, "noise_filter_gate", True),
+                "noise_filter_rnnoise": getattr(cfg, "noise_filter_rnnoise", False),
+                "noise_filter_post_capture": getattr(cfg, "noise_filter_post_capture", True),
+            })
+        except Exception:
+            pass
+        return result
+
+    def level_monitor_stop(self) -> dict:
+        """Stop continuous audio level monitoring."""
+        from voice_typer.server.level_monitor import stop_monitoring
+        return stop_monitoring()
+
+    def level_monitor_status(self) -> dict:
+        """Check if continuous level monitoring is active."""
+        from voice_typer.server.level_monitor import is_monitoring
+        return {"active": is_monitoring()}
 
     # ── Lifecycle ───────────────────────────────────────────────
 
@@ -603,6 +787,111 @@ class VoiceTyperService:
                 )
             except Exception as e:
                 log.warning("Failed to re-register hotkey after mode change: %s", e)
+
+        # BUGFIX: tray_left_click_action was never handled — the tray
+        # hardcoded "Toggle Dictation" as the left-click default, so the
+        # Settings page choice was completely ignored.
+        if "tray_left_click_action" in updates:
+            try:
+                app.tray.invalidate_menu_cache()
+                log.info(
+                    "[SERVICE] Tray left-click action updated to: %s",
+                    updates["tray_left_click_action"],
+                )
+            except Exception as e:
+                log.warning("Failed to update tray left-click action: %s", e)
+
+        # BUGFIX: show_notifications changes were not applied until restart.
+        if "show_notifications" in updates:
+            try:
+                app.tray.set_notifications_enabled(bool(updates["show_notifications"]))
+                log.info(
+                    "[SERVICE] Notifications %s",
+                    "enabled" if updates["show_notifications"] else "disabled",
+                )
+            except Exception as e:
+                log.warning("Failed to update notifications: %s", e)
+
+        # BUGFIX: bubble_behavior changes were not applied until restart.
+        if "bubble_behavior" in updates:
+            try:
+                behavior = updates["bubble_behavior"]
+                if behavior == "always_visible":
+                    try:
+                        if hasattr(app, "_waveform_bubble"):
+                            app._waveform_bubble.show()
+                    except Exception:
+                        pass
+                elif behavior == "show_on_record":
+                    # Hide bubble immediately when switching away from always_visible
+                    try:
+                        if hasattr(app, "_waveform_bubble") and app._waveform_bubble.visible:
+                            app._waveform_bubble.hide()
+                    except Exception:
+                        pass
+                log.info("[SERVICE] Bubble behavior updated to: %s", behavior)
+            except Exception as e:
+                log.warning("Failed to update bubble behavior: %s", e)
+
+        # BUGFIX: volume_duck_smart changes were not applied until restart.
+        if "volume_duck_smart" in updates:
+            try:
+                if hasattr(app, "_volume_ducker"):
+                    app._volume_ducker.set_smart_duck_enabled(
+                        bool(updates["volume_duck_smart"])
+                    )
+            except Exception as e:
+                log.warning("Failed to update smart duck: %s", e)
+
+        # BUGFIX: volume_duck_smart_poll_interval_ms changes not applied until restart.
+        if "volume_duck_smart_poll_interval_ms" in updates:
+            try:
+                if hasattr(app, "_volume_ducker"):
+                    app._volume_ducker.set_smart_duck_poll_interval(
+                        int(updates["volume_duck_smart_poll_interval_ms"])
+                    )
+            except Exception as e:
+                log.warning("Failed to update smart duck poll interval: %s", e)
+
+        # Apply the audio enhancement preset: map preset name to filter toggles.
+        if "audio_preset" in updates:
+            try:
+                preset = updates["audio_preset"]
+                preset_filters = _apply_audio_preset(preset)
+                # Set individual filter toggles from the preset
+                for k, v in preset_filters.items():
+                    setattr(config, k, v)
+                log.info("[SERVICE] Applied audio preset '%s': %s", preset, preset_filters)
+            except Exception as e:
+                log.warning("Failed to apply audio preset: %s", e)
+
+        # Sync the live level bar's audio processor when any noise filter
+        # setting changes, so the level bar reflects filters immediately.
+        noise_filter_keys = {
+            "noise_filter_enabled", "noise_filter_highpass",
+            "noise_filter_gate", "noise_filter_rnnoise",
+            "noise_filter_post_capture",
+        }
+        if noise_filter_keys & set(updates.keys()):
+            try:
+                from voice_typer.server.level_monitor import (
+                    update_level_processor,
+                    update_test_filters,
+                )
+                filters_dict = {
+                    "noise_filter_enabled": getattr(config, "noise_filter_enabled", True),
+                    "noise_filter_highpass": getattr(config, "noise_filter_highpass", True),
+                    "noise_filter_gate": getattr(config, "noise_filter_gate", True),
+                    "noise_filter_rnnoise": getattr(config, "noise_filter_rnnoise", False),
+                    "noise_filter_post_capture": getattr(config, "noise_filter_post_capture", True),
+                }
+                update_level_processor(filters_dict)
+                # Also update the active test recording's filters in
+                # real-time so the captured audio reflects the latest
+                # settings instead of only the ones at test start.
+                update_test_filters(filters_dict)
+            except Exception as e:
+                log.warning("Failed to sync level bar processor: %s", e)
 
     # ── Onboarding (#8) ─────────────────────────────────────────────
 

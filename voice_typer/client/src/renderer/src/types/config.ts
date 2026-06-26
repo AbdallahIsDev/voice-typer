@@ -130,6 +130,9 @@ export interface VoiceTyperConfig {
   volume_duck_smart: boolean
   volume_duck_smart_poll_interval_ms: number
 
+  // Audio enhancement preset
+  audio_preset: 'none' | 'recommended' | 'noisy_room' | 'studio' | 'custom'
+
   // Noise filtering
   noise_filter_enabled: boolean
   noise_filter_highpass: boolean

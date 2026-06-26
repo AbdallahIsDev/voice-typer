@@ -168,11 +168,20 @@ const RESET = "\x1b[0m";
 const BUBBLE_CLR = "\x1b[38;5;39m"; // bright cyan for [BUBBLE] tags
 const RENDERER_CLR = "\x1b[38;5;227m"; // bright yellow for [MAIN renderer] tags
 
-// Strip printf-style CSS format specifiers (%c …;) from Electron
-// console messages so raw terminal output doesn't show artifacts
-// like "font-weight: bold;" injected by Electron's internal warnings.
-const cleanCssFormat = (msg: string): string =>
-  msg.replace(/^%c[^;]+;\s*/, '').replace(/%c/g, '')
+// Clean Electron console-message format strings for terminal output.
+// Strips printf-style format specifiers (%c, %o, %s, %d, %i, %f) that
+// Electron's console-message event doesn't interpolate — it only
+// captures the first argument (the format string).  React error
+// boundaries commonly log with console.error('%o\n\n%s\n%s', obj, ...)
+// which would otherwise leave raw "%o\n\n%s\n%s" artifacts in the log.
+// Also collapses runs of whitespace/newlines into a single space.
+const cleanConsoleMsg = (msg: string): string =>
+  msg
+    .replace(/^%c[^;]+;\s*/, '')
+    .replace(/%[csoidf]/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]+/g, ' ')
+    .trim()
 
 /**
  * Format current time as H:MM:SS (12h, no leading zero), wrapped in ANSI
@@ -344,6 +353,16 @@ function sendToPython(msg: Record<string, unknown>): Promise<unknown> {
       // NEW-UX-005: allow delete_model so the renderer can actually
       // delete model files from disk (not just remove from UI list).
       "delete_model",
+      // Microphone test commands
+      "microphone_test_start",
+      "microphone_test_stop",
+      "microphone_test_cancel",
+      "microphone_test_status",
+      "microphone_test_get_level",
+      // Continuous level monitor
+      "level_monitor_start",
+      "level_monitor_stop",
+      "level_monitor_status",
     ]);
     const cmd = String(msg?.type ?? "").trim();
     if (!ALLOWED_COMMANDS.has(cmd)) {
@@ -436,7 +455,7 @@ function createMainWindow(forceShow = false) {
   mainWindow.webContents.on("console-message", (_e, level, message, line, source) => {
     if (level >= 2) {
       const tag = ["VRB", "INFO", "WARN", "ERROR"][level] ?? "LOG";
-      console.warn(`${ts()}  ${RENDERER_CLR}[${tag}]${RESET} ${cleanCssFormat(message)} (${source}:${line})`);
+      console.warn(`${ts()}  ${RENDERER_CLR}[${tag}]${RESET} ${cleanConsoleMsg(message)} (${source}:${line})`);
     }
   });
 
@@ -566,7 +585,7 @@ function createBubbleWindow(): BrowserWindow {
   win.webContents.on("console-message", (_e, level, message, line, source) => {
     if (level >= 2) {
       const tag = ["VRB", "INFO", "WARN", "ERROR"][level] ?? "LOG";
-      console.warn(`${ts()}  ${BUBBLE_CLR}[BUBBLE] renderer ${tag}${RESET} ${cleanCssFormat(message)} (${source}:${line})`);
+      console.warn(`${ts()}  ${BUBBLE_CLR}[BUBBLE] renderer ${tag}${RESET} ${cleanConsoleMsg(message)} (${source}:${line})`);
     }
   });
 
@@ -1025,7 +1044,8 @@ app.whenReady().then(() => {
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data:",
     "font-src 'self' data:",
-    "connect-src 'self'",
+    "media-src 'self' data:",
+    "connect-src 'self' https://api.github.com",
     "frame-ancestors 'none'",
     "form-action 'none'",
     "base-uri 'self'",

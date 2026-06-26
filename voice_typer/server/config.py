@@ -394,6 +394,15 @@ class Config:
     # call).  Range 50–5000ms.  See VolumeDucker._smart_duck_monitor_loop.
     volume_duck_smart_poll_interval_ms: int = 500
 
+    # ─── Audio enhancement preset (UX redesign) ─────────────────────
+    # Preset name that maps to a combination of noise filter toggles:
+    #   "none"        — all filters OFF
+    #   "recommended" — noise_filter_enabled + rnnoise
+    #   "noisy_room"  — noise_filter_enabled + rnnoise + noise_gate + highpass
+    #   "studio"      — highpass only
+    #   "custom"      — user manually controls each toggle
+    audio_preset: str = "recommended"
+
     # ─── Noise filtering (v1.1.0) ───────────────────────────────────
     # Cleans the microphone signal: removes fan noise, keyboard clicks,
     # HVAC rumble, and residual speaker bleed.
@@ -401,7 +410,8 @@ class Config:
     noise_filter_highpass: bool = True
     noise_filter_highpass_cutoff_hz: float = 80.0  # 20–500
     noise_filter_gate: bool = True
-    noise_filter_gate_threshold: float = 0.015  # 0.0–0.1, ~-45dBFS
+    noise_filter_gate_threshold: float = 0.003  # 0.0–0.1, ~-50dBFS (lowered from 0.015)
+    noise_filter_gate_hold_ms: float = 150.0  # 0–1000 ms, keep gate open across syllable gaps
     noise_filter_rnnoise: bool = False  # opt-in (CPU cost), neural denoise
     noise_filter_post_capture: bool = True  # noisereduce on stop()
 
@@ -592,6 +602,7 @@ class Config:
             "tray_left_click_action",
             "parakeet_model_path",
             "bubble_position", "bubble_behavior",
+            "audio_preset",
         }
         defaults = cls()
 
@@ -942,12 +953,16 @@ IPC_CONFIG_ALLOWLIST: dict = {
     "volume_duck_smart":            (bool, _bool_validator),
     "volume_duck_smart_poll_interval_ms": (int, _make_int_validator(lo=50, hi=5000)),
 
+    # ── Audio enhancement preset ──────────────────────────────────────
+    "audio_preset":                    (str, _make_enum_validator({"none", "recommended", "noisy_room", "studio", "custom"})),
+
     # ── Noise filtering (v1.1.0) ──────────────────────────────────────
     "noise_filter_enabled":             (bool, _bool_validator),
     "noise_filter_highpass":            (bool, _bool_validator),
     "noise_filter_highpass_cutoff_hz":  (float, _make_float_validator(lo=20.0, hi=500.0)),
     "noise_filter_gate":                (bool, _bool_validator),
     "noise_filter_gate_threshold":      (float, _make_float_validator(lo=0.0, hi=0.1)),
+    "noise_filter_gate_hold_ms":        (float, _make_float_validator(lo=0.0, hi=1000.0)),
     "noise_filter_rnnoise":             (bool, _bool_validator),
     "noise_filter_post_capture":        (bool, _bool_validator),
 }

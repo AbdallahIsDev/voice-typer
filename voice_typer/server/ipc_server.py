@@ -1248,6 +1248,93 @@ class IPCServer:
                 resp["type"] = "error"
                 resp["data"] = {"message": str(e)}
 
+        # ── Microphone test (NEW) ─────────────────────────────────────
+        elif cmd == "microphone_test_start":
+            try:
+                d = data if isinstance(data, dict) else {}
+                mic_id = d.get("mic_id", None)
+                duration = float(d.get("duration", 10.0))
+                filters = d.get("filters", None)
+                result = self.service.microphone_test_start(mic_id=mic_id, duration=duration, filters=filters)
+                resp["type"] = "microphone_test_result"
+                resp["data"] = result
+            except Exception as e:
+                log.error("[IPC] microphone_test_start failed: %s", e)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
+        elif cmd == "microphone_test_stop":
+            try:
+                result = self.service.microphone_test_stop()
+                resp["type"] = "microphone_test_result"
+                resp["data"] = result
+            except Exception as e:
+                log.error("[IPC] microphone_test_stop failed: %s", e)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
+        elif cmd == "microphone_test_cancel":
+            try:
+                result = self.service.microphone_test_cancel()
+                resp["type"] = "microphone_test_result"
+                resp["data"] = result
+            except Exception as e:
+                log.error("[IPC] microphone_test_cancel failed: %s", e)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
+        elif cmd == "microphone_test_status":
+            try:
+                result = self.service.microphone_test_status()
+                resp["type"] = "microphone_test_status"
+                resp["data"] = result
+            except Exception as e:
+                log.error("[IPC] microphone_test_status failed: %s", e)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
+        elif cmd == "microphone_test_get_level":
+            try:
+                result = self.service.microphone_test_get_level()
+                resp["type"] = "microphone_test_level"
+                resp["data"] = result
+            except Exception as e:
+                log.error("[IPC] microphone_test_get_level failed: %s", e)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
+        # ── Continuous level monitor (NEW) ────────────────────────────
+        elif cmd == "level_monitor_start":
+            try:
+                mic_id = (data or {}).get("mic_id", None) if isinstance(data, dict) else None
+                result = self.service.level_monitor_start(mic_id=mic_id)
+                resp["type"] = "level_monitor_status"
+                resp["data"] = result
+            except Exception as e:
+                log.error("[IPC] level_monitor_start failed: %s", e)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
+        elif cmd == "level_monitor_stop":
+            try:
+                result = self.service.level_monitor_stop()
+                resp["type"] = "level_monitor_status"
+                resp["data"] = result
+            except Exception as e:
+                log.error("[IPC] level_monitor_stop failed: %s", e)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
+        elif cmd == "level_monitor_status":
+            try:
+                result = self.service.level_monitor_status()
+                resp["type"] = "level_monitor_status"
+                resp["data"] = result
+            except Exception as e:
+                log.error("[IPC] level_monitor_status failed: %s", e)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
         # ── UX-005: Download model IPC route ─────────────────────────
         elif cmd == "download_model":
             try:
