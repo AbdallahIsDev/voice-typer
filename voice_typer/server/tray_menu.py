@@ -88,6 +88,11 @@ def build_menu(
     restart_app: Callable[[], None],
     quit_app: Callable[[], None],
     build_models_submenu: Callable[[], list],
+    # BUGFIX: tray_left_click_action was never read from config — the
+    # tray hardcoded ``default=True`` on "Toggle Dictation", so left-click
+    # ALWAYS started recording regardless of the Settings page choice.
+    # Now this parameter controls which menu item gets ``default=True``.
+    left_click_action: str = "open_app",
 ) -> tuple:
     """Build the Phase 2 minimal tray menu with Models submenu.
 
@@ -107,21 +112,29 @@ def build_menu(
         Returns the list of MenuItem for the Models submenu. Delegated
         to the caller because it depends on TrayIcon's controller +
         open_electron_window methods (kept in tray.py).
+    left_click_action : str
+        Controls which menu item gets ``default=True`` (the left-click
+        action). "open_app" (default) opens/focuses the Electron window;
+        "toggle_dictation" starts/stops recording.
     """
     items = []
     hotkey_label = display_hotkey(hotkey)
+
+    dictation_default = left_click_action == "toggle_dictation"
+    open_app_default = left_click_action == "open_app"
 
     items.append(
         pystray.MenuItem(
             f"Toggle Dictation ({hotkey_label})",
             wrap_callback(toggle_dictation),
-            default=True,
+            default=dictation_default,
         )
     )
     items.append(
         pystray.MenuItem(
             "Open App",
             wrap_callback(open_app),
+            default=open_app_default,
         )
     )
 

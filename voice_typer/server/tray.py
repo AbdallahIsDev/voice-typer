@@ -391,6 +391,9 @@ class TrayIcon:
         if self._menu_cache_valid and self._cached_menu is not None:
             return self._cached_menu
 
+        # BUGFIX: tray_left_click_action was never passed to build_menu,
+        # so the tray always defaulted to toggle_dictation on left-click.
+        left_click = getattr(self._config, "tray_left_click_action", "open_app") or "open_app"
         result = build_menu(
             hotkey=self._hotkey or getattr(self._config, "hotkey", "<f2>") or "<f2>",
             toggle_dictation=self._controller.toggle_dictation,
@@ -398,6 +401,7 @@ class TrayIcon:
             restart_app=self._controller.restart_app,
             quit_app=self._controller.quit_app,
             build_models_submenu=self._build_models_submenu,
+            left_click_action=left_click,
         )
         self._cached_menu = result
         self._menu_cache_valid = True
