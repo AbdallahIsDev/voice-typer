@@ -20,7 +20,8 @@ def default_config() -> AudioProcessorConfig:
         highpass=True,
         highpass_cutoff_hz=80.0,
         noise_gate=True,
-        noise_gate_threshold=0.015,
+        noise_gate_threshold=0.003,
+        noise_gate_hold_ms=300.0,
         rnnoise=False,
         post_capture=False,  # OFF by default in tests (noisereduce may be missing)
     )
@@ -49,7 +50,8 @@ class TestAudioProcessorConfig:
         assert cfg.highpass is True
         assert cfg.highpass_cutoff_hz == 80.0
         assert cfg.noise_gate is True
-        assert cfg.noise_gate_threshold == 0.015
+        assert cfg.noise_gate_threshold == 0.003
+        assert cfg.noise_gate_hold_ms == 300.0
         assert cfg.rnnoise is False
         assert cfg.post_capture is True
 
@@ -60,6 +62,7 @@ class TestAudioProcessorConfig:
             noise_filter_highpass_cutoff_hz = 100.0
             noise_filter_gate = False
             noise_filter_gate_threshold = 0.02
+            noise_filter_gate_hold_ms = 200.0
             noise_filter_rnnoise = True
             noise_filter_post_capture = False
 
@@ -69,6 +72,7 @@ class TestAudioProcessorConfig:
         assert cfg.highpass_cutoff_hz == 100.0
         assert cfg.noise_gate is False
         assert cfg.noise_gate_threshold == 0.02
+        assert cfg.noise_gate_hold_ms == 200.0
         assert cfg.rnnoise is True
         assert cfg.post_capture is False
 
@@ -162,7 +166,11 @@ class TestHighPassFilter:
 
 
 class TestNoiseGate:
-    def test_silences_below_threshold(self) -> None:
+    def test_attenuates_below_threshold(self) -> None:
+        """Audio below threshold should be heavily gain-reduced
+        (expander), not necessarily all zeros.  The expander applies
+        gain proportional to (rms/threshold)^2, so 0.01 RMS with
+        0.05 threshold yields ~0.04 gain → output ~0.0004."""
         cfg = AudioProcessorConfig(
             enabled=True, highpass=False, noise_gate=True,
             noise_gate_threshold=0.05, post_capture=False,
@@ -171,7 +179,8 @@ class TestNoiseGate:
 
         quiet = np.full(1024, 0.01, dtype=np.float32)  # below 0.05
         out = proc.process_chunk(quiet.copy())
-        assert np.all(out == 0.0), "Audio below threshold should be silenced"
+        assert np.max(np.abs(out)) < 0.005, \
+            "Audio below threshold should be heavily attenuated (expander gain ~0.04)"
 
     def test_passes_above_threshold(self) -> None:
         cfg = AudioProcessorConfig(
@@ -194,6 +203,54 @@ class TestNoiseGate:
         loud = make_sine(freq=440, duration_s=0.1, amp=0.3)
         out = proc.process_chunk(loud.copy())
         assert np.max(np.abs(out)) > 0.2  # amplitude preserved
+
+    def test_hold_keeps_gate_open_across_short_gaps(self) -> None:
+        """The gate should stay open across brief drops below threshold
+        (e.g., syllable gaps ~20-80 ms) when the hold period is active."""
+        cfg = AudioProcessorConfig(
+            enabled=True, highpass=False, noise_gate=True,
+            noise_gate_threshold=0.05, noise_gate_hold_ms=31.25,  # 500 samples at 16kHz
+            post_capture=False,
+        )
+        proc = AudioProcessor(cfg, sample_rate=16000)
+
+        # First chunk: loud (above 0.05) — opens the gate, hold = 500
+        loud = np.full(512, 0.3, dtype=np.float32)
+        out1 = proc.process_chunk(loud.copy())
+        assert not np.all(out1 == 0.0), "First loud chunk should pass"
+
+        # Second chunk: quiet but within hold window (consumes 500 of 512 hold samples)
+        quiet = np.full(512, 0.01, dtype=np.float32)
+        out2 = proc.process_chunk(quiet.copy())
+        assert not np.all(out2 == 0.0), \
+            "Quiet chunk within hold window should still pass"
+
+        # Third chunk: quiet — hold fully consumed, expander should
+        # heavily attenuate (gain ~0.04, output ~0.0004)
+        out3 = proc.process_chunk(quiet.copy())
+        assert np.max(np.abs(out3)) < 0.005, \
+            "Quiet chunk after hold expiry should be heavily attenuated (expander gain ~0.04)"
+
+    def test_gate_without_hold_silences_immediately(self) -> None:
+        """With hold disabled (0 ms), a quiet chunk after a loud chunk
+        should be silenced immediately — the hold period is zero, so
+        the gate closes on the first below-threshold chunk."""
+        cfg = AudioProcessorConfig(
+            enabled=True, highpass=False, noise_gate=True,
+            noise_gate_threshold=0.05, noise_gate_hold_ms=0.0,
+            post_capture=False,
+        )
+        proc = AudioProcessor(cfg, sample_rate=16000)
+
+        # Single loud chunk to open the gate
+        loud = np.full(512, 0.3, dtype=np.float32)
+        proc.process_chunk(loud.copy())
+
+        # Quiet chunk — gate has no hold, should heavily attenuate
+        quiet = np.full(512, 0.01, dtype=np.float32)
+        out = proc.process_chunk(quiet.copy())
+        assert np.max(np.abs(out)) < 0.005, \
+            "Gate with no hold should heavily attenuate quiet chunk (expander gain ~0.04)"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -304,8 +361,8 @@ class TestFullChain:
         chunk = make_sine(freq=40, duration_s=0.1, amp=0.01)
         out = proc.process_chunk(chunk.copy())
 
-        assert np.all(out == 0.0), \
-            "Low-freq + low-amplitude audio should be silenced by HPF + gate"
+        assert np.max(np.abs(out)) < 0.005, \
+            "Low-freq + low-amplitude audio should be heavily attenuated by HPF + gate"
 
     def test_speech_frequency_passes_through(self) -> None:
         """A 200 Hz tone (speech range) at normal amplitude should pass."""

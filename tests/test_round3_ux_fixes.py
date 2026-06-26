@@ -219,24 +219,32 @@ class TestNewUx018CriticalNotifications:
 
 
 class TestNewUx030AutoSaveIndicator:
-    """Settings must show a persistent auto-save indicator so the user
-    knows there's no manual save step."""
+    """Settings must show a subtle auto-save indicator near the heading
+    so the user knows changes are persisted without manual saving.
+    
+    BUGFIX 2026-06-25: the old design was a distracting fixed bottom-right
+    banner with green dot and 'Changes are saved automatically' text.
+    Replaced with a dim subtitle near PageHeading showing 'Auto-save'
+    in very subtle text, with a brief 'Saving...' animation during saves.
+    """
 
     def test_settings_has_auto_save_notice(self):
         settings = _read("pages/Settings.tsx")
-        assert "Changes are saved automatically" in settings, (
-            "Settings must have a persistent 'Changes are saved automatically' notice"
+        assert "Auto-save" in settings, (
+            "Settings must have an 'Auto-save' notice"
         )
 
     def test_settings_saving_indicator_still_present(self):
-        """Regression guard: the 'Saving…' indicator must still be there
+        """Regression guard: the 'Saving...' indicator must still be there
         for when a save is in progress."""
         settings = _read("pages/Settings.tsx")
-        assert "Saving…" in settings or "Saving..." in settings
+        assert "Saving..." in settings
 
-    def test_settings_has_visual_status_dot(self):
-        """The indicator must have a colored status dot (amber for saving,
-        emerald for idle) so the user can see the state at a glance."""
+    def test_settings_has_visual_saving_state(self):
+        """The indicator must have a colored status dot for saving state,
+        and use dim/low-opacity text for idle state instead of a dot."""
         settings = _read("pages/Settings.tsx")
         assert "bg-amber-400" in settings or "bg-amber-500" in settings
-        assert "bg-emerald-500" in settings or "bg-emerald-400" in settings
+        assert "text-(--text-muted)/40" in settings, (
+            "Idle state uses low-opacity muted text instead of a colored dot"
+        )
