@@ -334,7 +334,7 @@ export default function Home({ recordingState, lastError, onNavigate }: HomeProp
         />
         <span
           key={statusLabel}
-          className="text-[11px] font-medium uppercase tracking-wider text-(--text-muted) transition-opacity duration-200 animate-fade-in"
+          className="text-[11px] font-medium uppercase tracking-wide text-(--text-muted) transition-opacity duration-200 animate-fade-in"
         >
           {statusLabel}
         </span>
@@ -385,7 +385,7 @@ export default function Home({ recordingState, lastError, onNavigate }: HomeProp
       {stats && (
         <div className="mt-4 w-full">
           <div className="mb-3 flex items-center justify-between">
-            <span className="text-xs font-medium text-(--text-muted) uppercase tracking-wider">
+            <span className="text-xs font-medium text-(--text-muted) capitalize tracking-wide">
               Today's Stats
             </span>
             <Button
@@ -395,7 +395,7 @@ export default function Home({ recordingState, lastError, onNavigate }: HomeProp
               disabled={!cfg || stats.count === 0}
               className="gap-2"
             >
-              <HugeiconsIcon icon={Share08Icon} strokeWidth={1.625} className="h-4 w-4" />
+              <HugeiconsIcon icon={Share08Icon} strokeWidth={2.25} className="h-4 w-4" />
               Share Stats
             </Button>
           </div>

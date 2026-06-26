@@ -13,6 +13,8 @@ import {
   Share08Icon,
 } from '@hugeicons/core-free-icons'
 import PageHeading from '@/components/PageHeading'
+import { DashboardStatCard } from '@/components/DashboardStatCard'
+import { QuickInfoCard } from '@/components/QuickInfoCard'
 import { StatsShareImage } from '@/components/StatsShareImage'
 import { useStatsShare, computeShareStats } from '@/hooks/useStatsShare'
 import type { TodayStats, HistoryRecord, Page } from '@/types/ipc'
@@ -237,29 +239,6 @@ export default function DashboardPage({ onNavigate: _onNavigate }: DashboardPage
 
 
 
-  // ── Stat Card Component ──────────────────────────────────────────
-
-  const StatCard = ({
-    label,
-    value,
-    icon,
-    sublabel,
-  }: {
-    label: string
-    value: string
-    icon: IconSvgElement
-    sublabel?: string
-  }) => (
-    <div className="card-hover rounded-xl border border-border bg-(--bg-subtle) p-5 flex flex-col items-center justify-center gap-2 text-center">
-      <HugeiconsIcon icon={icon} strokeWidth={1.625} className="h-4 w-4 text-accent" />
-      <p className="text-2xl font-bold text-(--text-primary) leading-none tracking-tight">{value}</p>
-      <p className="text-xs text-(--text-muted)">{label}</p>
-      {sublabel && (
-        <p className="text-[10px] text-(--text-muted) opacity-60">{sublabel}</p>
-      )}
-    </div>
-  )
-
   // ── Loading State ────────────────────────────────────────────────
 
   if (!_cachedData && !data) {
@@ -297,25 +276,25 @@ export default function DashboardPage({ onNavigate: _onNavigate }: DashboardPage
       <div className="space-y-8">
         {/* ── Today's Stats Grid ──────────────────────────────────── */}
         <div className="grid grid-cols-4 gap-3">
-          <StatCard
+          <DashboardStatCard
             label="Dictations Today"
             value={String(d.todayCount)}
             icon={SpeechToTextIcon}
             sublabel={`${d.todayChars.toLocaleString()} chars`}
           />
-          <StatCard
+          <DashboardStatCard
             label="Recording Time"
             value={formatDuration(d.todayDuration)}
             icon={Time02Icon}
             sublabel="Today"
           />
-          <StatCard
+          <DashboardStatCard
             label="All-time Total"
             value={compactNumber(d.totalCount)}
             icon={File02Icon}
             sublabel={`${d.totalChars.toLocaleString()} chars`}
           />
-          <StatCard
+          <DashboardStatCard
             label="Active Days"
             value={String(d.activeDays)}
             icon={Calendar01Icon}
@@ -349,33 +328,13 @@ export default function DashboardPage({ onNavigate: _onNavigate }: DashboardPage
 
         {/* ── Quick Stats Bar ──────────────────────────────────────── */}
         <div className="grid grid-cols-3 gap-3">
-          <div className="rounded-lg border border-border bg-(--bg-subtle) p-3.5 flex items-center gap-3">
-            <div className="rounded-lg bg-accent/10 p-2">
-              <HugeiconsIcon icon={AiBrain03Icon} strokeWidth={1.625} className="h-4 w-4 text-accent" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-[11px] text-(--text-muted) font-medium">Model</p>
-              <p className="text-sm font-semibold text-(--text-primary) truncate">{d.model}</p>
-            </div>
-          </div>
-          <div className="rounded-lg border border-border bg-(--bg-subtle) p-3.5 flex items-center gap-3">
-            <div className="rounded-lg bg-accent/10 p-2">
-              <HugeiconsIcon icon={LayoutGridIcon} strokeWidth={1.625} className="h-4 w-4 text-accent" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-[11px] text-(--text-muted) font-medium">Device</p>
-              <p className="text-sm font-semibold text-(--text-primary) truncate">{d.device.toUpperCase()}</p>
-            </div>
-          </div>
-          <div className="rounded-lg border border-border bg-(--bg-subtle) p-3.5 flex items-center gap-3">
-            <div className="rounded-lg bg-accent/10 p-2">
-              <HugeiconsIcon icon={Activity03Icon} strokeWidth={1.625} className="h-4 w-4 text-accent" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-[11px] text-(--text-muted) font-medium">Language</p>
-              <p className="text-sm font-semibold text-(--text-primary) truncate">{d.language}</p>
-            </div>
-          </div>
+          <QuickInfoCard icon={AiBrain03Icon} label="Model" value={d.model} />
+          <QuickInfoCard
+            icon={LayoutGridIcon}
+            label="Device"
+            value={d.device.toUpperCase()}
+          />
+          <QuickInfoCard icon={Activity03Icon} label="Language" value={d.language} />
         </div>
 
         {/* Data path */}

@@ -38,9 +38,9 @@ export function ThemeSwitch({ themeMode, onThemeChange, collapsed = false }: The
     <button
       onClick={handleClick}
       className={cn(
-        'inline-flex items-center justify-center gap-2 rounded-full transition-all duration-200 ease-out',
+        'inline-flex items-center justify-center gap-2 rounded-full transition-[padding] duration-200 ease-out',
         'hover:bg-black/5 dark:hover:bg-white/10',
-        collapsed ? 'h-7 w-7 justify-center' : 'h-7 px-2.5',
+        collapsed ? 'h-7 w-7 justify-center gap-0' : 'h-7 px-2.5 gap-2',
       )}
       title={`${current.label} mode — click to switch`}
       aria-label={`Current theme: ${current.label}. Click to switch.`}
@@ -48,9 +48,9 @@ export function ThemeSwitch({ themeMode, onThemeChange, collapsed = false }: The
       <HugeiconsIcon icon={current.icon} strokeWidth={1.625} className="h-3.5 w-3.5 shrink-0" />
       <span
         className={cn(
-          'overflow-hidden whitespace-nowrap text-xs font-medium',
-          'transition-all duration-200 ease-out',
-          collapsed ? 'max-w-0 opacity-0 hidden' : 'max-w-16 opacity-100',
+          'overflow-hidden whitespace-nowrap text-sm font-medium dark:font-normal',
+          'transition-[max-width,opacity,filter] duration-200 ease-out',
+          collapsed ? 'max-w-0 opacity-0 filter-[blur(4px)]' : 'max-w-16 opacity-100',
         )}
       >
         {current.label}

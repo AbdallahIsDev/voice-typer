@@ -8,6 +8,7 @@ import {
   PencilEdit02Icon,
   Delete01Icon,
 } from '@hugeicons/core-free-icons'
+import { EmptyState } from '@/components/EmptyState'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -418,24 +419,20 @@ export default function TemplatesPage() {
             aria-label="Add new template"
             className="gap-2"
           >
-            <HugeiconsIcon icon={Add01Icon} strokeWidth={1.625} className="h-4 w-4" />
+            <HugeiconsIcon icon={Add01Icon} strokeWidth={2.25} className="h-4 w-4" />
             Add Template
           </Button>
         </PageHeading>
 
         <div>
           {templates.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-4 py-20">
-              <HugeiconsIcon icon={File02Icon} strokeWidth={1.625} className="h-12 w-12 text-(--text-muted) opacity-30" />
-              <p className="text-base font-medium text-(--text-muted)">No templates yet</p>
-              <p className="text-sm text-(--text-muted) opacity-70">
-                Say a phrase to trigger a text expansion
-              </p>
-              <Button variant="default" className="mt-2 gap-2" onClick={openAddDialog} aria-label="Create first template">
-                <HugeiconsIcon icon={Add01Icon} strokeWidth={1.625} className="h-4 w-4" />
-                Create First Template
-              </Button>
-            </div>
+            <EmptyState
+              icon={File02Icon}
+              title="No templates yet"
+              description="Say a phrase to trigger a text expansion"
+              actionLabel="Create First Template"
+              onAction={openAddDialog}
+            />
           ) : (
             <div className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
               {templates.map((t) => (
@@ -475,7 +472,7 @@ export default function TemplatesPage() {
                       title="Edit template"
                       aria-label={`Edit template: ${t.trigger}`}
                     >
-                      <HugeiconsIcon icon={PencilEdit02Icon} strokeWidth={1.625} className="h-4 w-4" />
+                      <HugeiconsIcon icon={PencilEdit02Icon} strokeWidth={2.5} className="h-4 w-4" />
                     </Button>
                     <Button
                       variant="ghost"
@@ -485,7 +482,7 @@ export default function TemplatesPage() {
                       title="Delete template"
                       aria-label={`Delete template: ${t.trigger}`}
                     >
-                      <HugeiconsIcon icon={Delete01Icon} strokeWidth={1.625} className="h-4 w-4" />
+                      <HugeiconsIcon icon={Delete01Icon} strokeWidth={2.5} className="h-4 w-4" />
                     </Button>
                   </div>
                 </div>

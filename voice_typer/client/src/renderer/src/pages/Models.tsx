@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { usePython, usePythonEvent } from '@/hooks/usePython'
 import { useSnackbar } from '@/hooks/useSnackbar'
 import { HugeiconsIcon } from '@hugeicons/react'
+import { EmptyState } from '@/components/EmptyState'
 import {
   Download01Icon,
   Delete01Icon,
@@ -352,7 +353,7 @@ export default function ModelsPage() {
           className="gap-2"
           aria-label={allDownloaded ? 'All models downloaded' : 'Download model'}
         >
-          <HugeiconsIcon icon={Download01Icon} strokeWidth={1.625} className="h-4 w-4" />
+          <HugeiconsIcon icon={Download01Icon} strokeWidth={2.25} className="h-4 w-4" />
           {allDownloaded ? 'All Downloaded' : 'Download Model'}
         </Button>
       </PageHeading>
@@ -368,7 +369,7 @@ export default function ModelsPage() {
             <div className="flex items-start gap-3">
               <HugeiconsIcon
                 icon={Alert02Icon}
-                strokeWidth={1.625}
+                strokeWidth={2}
                 className="mt-0.5 h-5 w-5 shrink-0 text-amber-500"
               />
               <div className="flex-1">
@@ -474,7 +475,7 @@ export default function ModelsPage() {
                       disabled={isDownloading}
                       aria-label={`Download dependencies for ${model.name}`}
                     >
-                      <HugeiconsIcon icon={Download01Icon} strokeWidth={1.625} className="h-4 w-4" />
+                      <HugeiconsIcon icon={Download01Icon} strokeWidth={2.25} className="h-4 w-4" />
                       Download Deps
                     </Button>
                   ) : (
@@ -488,7 +489,7 @@ export default function ModelsPage() {
                     >
                       <HugeiconsIcon
                         icon={model.isActive ? Tick02Icon : PlayIcon}
-                        strokeWidth={1.625}
+                        strokeWidth={2.25}
                         className="h-4 w-4"
                       />
                       {model.isActive ? 'Active' : 'Use'}
@@ -503,7 +504,7 @@ export default function ModelsPage() {
                     aria-label={`Delete ${model.name}`}
                     title={`Delete ${model.name}`}
                   >
-                    <HugeiconsIcon icon={Delete01Icon} strokeWidth={1.625} className="h-4 w-4" />
+                    <HugeiconsIcon icon={Delete01Icon} strokeWidth={2.25} className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
@@ -529,7 +530,7 @@ export default function ModelsPage() {
                 <div className="flex items-center gap-2.5 mb-4">
                   <HugeiconsIcon
                     icon={Shield01Icon}
-                    strokeWidth={1.625}
+                    strokeWidth={2.25}
                     className="h-4 w-4 text-accent"
                   />
                   <h3 className="text-base font-semibold text-(--text-primary)">
@@ -569,7 +570,7 @@ export default function ModelsPage() {
                     onClick={() => testConnection(provider.key)}
                     aria-label={`Test ${provider.label} connection`}
                   >
-                    <HugeiconsIcon icon={SparklesIcon} strokeWidth={1.625} className="h-4 w-4" />
+                    <HugeiconsIcon icon={SparklesIcon} strokeWidth={2.25} className="h-4 w-4" />
                     Test Connection
                   </Button>
                   {testResults[provider.key] && (
@@ -645,7 +646,7 @@ export default function ModelsPage() {
             disabled={isBenchmarking}
             aria-label="Run model benchmark"
           >
-            <HugeiconsIcon icon={ZapIcon} strokeWidth={1.625} className="h-4 w-4" />
+            <HugeiconsIcon icon={ZapIcon} strokeWidth={2.25} className="h-4 w-4" />
             {isBenchmarking ? 'Running...' : 'Run Benchmark'}
           </Button>
           {benchmarkResult && (

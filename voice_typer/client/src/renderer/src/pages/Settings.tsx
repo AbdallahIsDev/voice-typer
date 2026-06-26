@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input'
 import { NumberInput } from '@/components/ui/number-input'
 import PageHeading from '@/components/PageHeading'
 import { Button } from '@/components/ui/button'
+import { RangeSlider } from '@/components/RangeSlider'
 import { cn } from '@/lib/utils'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { File02Icon, RefreshIcon, InformationCircleIcon, Book02Icon, Bug02Icon } from '@hugeicons/core-free-icons'
@@ -165,8 +166,14 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
     }
   }, [call])
 
+  // Skip initial fetch when module-level cache is populated —
+  // re-renders instantly from cache instead of flashing a spinner
+  // on every page navigation. The fetch still runs on first visit
+  // (when _cachedConfig is null).
   useEffect(() => {
-    loadConfig()
+    if (!_cachedConfig) {
+      loadConfig()
+    }
     loadVolumeBackend()
   }, [loadConfig, loadVolumeBackend])
 
@@ -780,35 +787,23 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
             </SettingRow>
             <SettingRow label="Duck Level"
               info="How quiet to make system audio. 25% = whisper-quiet, 50% = slight dip.">
-              <div className="flex items-center gap-2">
-                <input
-                  type="range"
-                  min={0} max={0.5} step={0.05}
-                  value={config.volume_duck_level ?? 0.25}
-                  onChange={(e) => updateConfigDebounced('volume_duck_level', Number(e.target.value))}
-                  className="w-24"
-                  aria-label="Duck Level"
-                />
-                <span className="text-sm text-(--text-muted) w-10">
-                  {Math.round((config.volume_duck_level ?? 0.25) * 100)}%
-                </span>
-              </div>
+              <RangeSlider
+                value={config.volume_duck_level ?? 0.25}
+                min={0} max={0.5} step={0.05}
+                onChange={(v) => updateConfigDebounced('volume_duck_level', v)}
+                ariaLabel="Duck Level"
+                suffix="%"
+              />
             </SettingRow>
             <SettingRow label="Duck Fade Duration"
               info="How long to ramp volume up/down when ducking or restoring. 0ms = instant (can cause audio clicks). 150ms is the default.">
-              <div className="flex items-center gap-2">
-                <input
-                  type="range"
-                  min={0} max={1000} step={50}
-                  value={config.volume_duck_fade_ms ?? 150}
-                  onChange={(e) => updateConfigDebounced('volume_duck_fade_ms', Number(e.target.value))}
-                  className="w-24"
-                  aria-label="Duck Fade Duration"
-                />
-                <span className="text-sm text-(--text-muted) w-14">
-                  {config.volume_duck_fade_ms ?? 150}ms
-                </span>
-              </div>
+              <RangeSlider
+                value={config.volume_duck_fade_ms ?? 150}
+                min={0} max={1000} step={50}
+                onChange={(v) => updateConfigDebounced('volume_duck_fade_ms', v)}
+                ariaLabel="Duck Fade Duration"
+                suffix="ms"
+              />
             </SettingRow>
             <SettingRow label="Smart Duck"
               info="Only duck when audio is actually playing through the speakers. Skips the volume change (and the speaker-icon animation) during silent dictation. A background monitor polls speaker activity every 'Smart Duck Poll Interval' ms and retroactively ducks if audio starts mid-dictation. Cross-platform: Windows uses IAudioMeterInformation peak detection; macOS uses an audio-app heuristic; Linux uses pactl/wpctl or /proc/asound.">
@@ -820,19 +815,13 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
             </SettingRow>
             <SettingRow label="Smart Duck Poll Interval"
               info="How often (in milliseconds) to check if audio has started playing during a smart-duck skip. Lower = catches audio faster but uses more CPU. Higher = less CPU but slower to duck when audio starts. 500ms is a good default.">
-              <div className="flex items-center gap-2">
-                <input
-                  type="range"
-                  min={50} max={2000} step={50}
-                  value={config.volume_duck_smart_poll_interval_ms ?? 500}
-                  onChange={(e) => updateConfigDebounced('volume_duck_smart_poll_interval_ms', Number(e.target.value))}
-                  className="w-24"
-                  aria-label="Smart Duck Poll Interval"
-                />
-                <span className="text-sm text-(--text-muted) w-16">
-                  {config.volume_duck_smart_poll_interval_ms ?? 500}ms
-                </span>
-              </div>
+              <RangeSlider
+                value={config.volume_duck_smart_poll_interval_ms ?? 500}
+                min={50} max={2000} step={50}
+                onChange={(v) => updateConfigDebounced('volume_duck_smart_poll_interval_ms', v)}
+                ariaLabel="Smart Duck Poll Interval"
+                suffix="ms"
+              />
             </SettingRow>
             <SettingRow label="Per-Session Duck (Windows)"
               info="Duck only other apps' audio, keeping system alerts audible. Windows only — disabled on macOS/Linux because they have no clean per-app volume API.">
@@ -863,19 +852,13 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
             </SettingRow>
             <SettingRow label="High-Pass Cutoff"
               info="Frequencies below this are attenuated. 80Hz removes HVAC rumble. 100–150Hz also removes traffic. Above 200Hz may cut into male speech.">
-              <div className="flex items-center gap-2">
-                <input
-                  type="range"
-                  min={20} max={500} step={10}
-                  value={config.noise_filter_highpass_cutoff_hz ?? 80}
-                  onChange={(e) => updateConfigDebounced('noise_filter_highpass_cutoff_hz', Number(e.target.value))}
-                  className="w-24"
-                  aria-label="High-Pass Cutoff"
-                />
-                <span className="text-sm text-(--text-muted) w-14">
-                  {config.noise_filter_highpass_cutoff_hz ?? 80}Hz
-                </span>
-              </div>
+              <RangeSlider
+                value={config.noise_filter_highpass_cutoff_hz ?? 80}
+                min={20} max={500} step={10}
+                onChange={(v) => updateConfigDebounced('noise_filter_highpass_cutoff_hz', v)}
+                ariaLabel="High-Pass Cutoff"
+                suffix="Hz"
+              />
             </SettingRow>
             <SettingRow label="Noise Gate"
               info="Silence audio below a threshold to remove idle hiss.">
@@ -887,19 +870,13 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
             </SettingRow>
             <SettingRow label="Noise Gate Threshold"
               info="Audio below this RMS level is silenced. Lower = more permissive (keeps quiet speech). Higher = more aggressive (may cut quiet speech). 0.015 ≈ -45dBFS is a good default.">
-              <div className="flex items-center gap-2">
-                <input
-                  type="range"
-                  min={0} max={0.1} step={0.005}
-                  value={config.noise_filter_gate_threshold ?? 0.015}
-                  onChange={(e) => updateConfigDebounced('noise_filter_gate_threshold', Number(e.target.value))}
-                  className="w-24"
-                  aria-label="Noise Gate Threshold"
-                />
-                <span className="text-sm text-(--text-muted) w-14 tabular-nums">
-                  {(config.noise_filter_gate_threshold ?? 0.015).toFixed(3)}
-                </span>
-              </div>
+              <RangeSlider
+                value={config.noise_filter_gate_threshold ?? 0.015}
+                min={0} max={0.1} step={0.005}
+                onChange={(v) => updateConfigDebounced('noise_filter_gate_threshold', v)}
+                ariaLabel="Noise Gate Threshold"
+                suffix=""
+              />
             </SettingRow>
             <SettingRow label="RNNoise (Neural)"
               info="AI-based real-time denoising. Higher quality but uses more CPU. Experimental.">
@@ -1125,22 +1102,22 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
           </div>
         </SettingsSection>
 
-        {/* Status indicator */}
-        {/* NEW-UX-030: replaced the transient "Saving..." indicator with
-            a persistent auto-save notice. */}
-        <div className="fixed bottom-4 right-4 rounded-lg bg-(--surface) border border-border px-4 py-2 text-xs text-(--text-muted) shadow-lg">
+        {/* BUGFIX: replaced the fixed bottom-right banner with a subtle
+            header subtitle that's barely visible — shows "Auto-save" in
+            dim text only during the brief save operation, then fades to
+            invisible. The old design was distracting and always visible. */}
+        <p className="-mt-6 mb-0 text-[10px] text-(--text-muted)/40 text-right">
           {saving ? (
-            <span className="flex items-center gap-2">
-              <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-amber-400" />
-              Saving\u2026
+            <span className="inline-flex items-center gap-1">
+              <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
+              Saving...
             </span>
           ) : (
-            <span className="flex items-center gap-2">
-              <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
-              Changes are saved automatically
+            <span className="inline-flex items-center gap-1">
+              Auto-save
             </span>
           )}
-        </div>
+        </p>
       </div>
 
       {/* Reset Confirmation Dialog */}

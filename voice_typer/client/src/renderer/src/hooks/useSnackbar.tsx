@@ -24,7 +24,7 @@
 import { useCallback } from 'react'
 import { toast } from 'sonner'
 
-export type SnackbarType = 'success' | 'error' | 'warning'
+export type SnackbarType = 'success' | 'error' | 'warning' | 'info'
 
 export interface SnackbarState {
   message: string
@@ -57,6 +57,9 @@ export function useSnackbar(timeoutMs = 3000) {
           break
         case 'warning':
           toast.warning(message, opts)
+          break
+        case 'info':
+          toast.info(message, opts)
           break
       }
     },
@@ -119,6 +122,9 @@ export function showUndoableToast(
       break
     case 'warning':
       toast.warning(message, opts)
+      break
+    case 'info':
+      toast.info(message, opts)
       break
   }
 }

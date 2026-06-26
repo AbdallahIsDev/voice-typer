@@ -2,15 +2,16 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { usePython, usePythonEvent } from '@/hooks/usePython'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { HistoryIcon } from '@hugeicons/core-free-icons'
-import { Search01Icon, Delete01Icon, StarIcon, ArrowDown01Icon } from '@hugeicons/core-free-icons'
+import { StarIcon, ArrowDown01Icon, Delete01Icon } from '@hugeicons/core-free-icons'
 import { toast } from 'sonner'
 import { showUndoableToast } from '@/hooks/useSnackbar'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import PageHeading from '@/components/PageHeading'
 import ActivityList from '@/components/ActivityList'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import ExportFormatMenu from '@/components/ExportFormatMenu'
+import { SearchField } from '@/components/SearchField'
+import { EmptyState } from '@/components/EmptyState'
 import type { HistoryRecord, TodayStats, WindowBridge } from '@/types/ipc'
 import { Spinner } from '@/components/Spinner'
 
@@ -245,25 +246,12 @@ export default function HistoryPage() {
         />
 
         {/* Search */}
-        <div className="relative mt-4">
-          <HugeiconsIcon icon={Search01Icon} strokeWidth={1.625} className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-(--text-muted) pointer-events-none" />
-          <Input
+        <div className="mt-4">
+          <SearchField
             value={searchQuery}
-            onChange={e => handleSearch(e.target.value)}
+            onChange={handleSearch}
             placeholder="Search history..."
-            className="pl-9 rounded-xl bg-(--bg-subtle)"
           />
-          {/* NEW-UX-031: clear (×) button for the search field. */}
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => handleSearch('')}
-              aria-label="Clear search"
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-(--text-muted) hover:text-(--text-primary)"
-            >
-              <HugeiconsIcon icon={Delete01Icon} strokeWidth={1.625} className="h-4 w-4" />
-            </button>
-          )}
         </div>
 
         {/* Action buttons */}
@@ -278,7 +266,7 @@ export default function HistoryPage() {
                 : 'text-(--text-muted) hover:text-(--text-primary)'
               }`}
           >
-            <HugeiconsIcon icon={StarIcon} strokeWidth={1.625} className={`h-4 w-4 ${favoritesOnly ? 'text-amber-400' : ''}`} />
+            <HugeiconsIcon icon={StarIcon} strokeWidth={2.25} className={`h-4 w-4 ${favoritesOnly ? 'text-amber-400' : ''}`} />
             Favorites
           </Button>
           <Button
@@ -288,7 +276,7 @@ export default function HistoryPage() {
             aria-label="Clear all history"
             className="gap-2 text-(--text-muted) hover:text-red-400"
           >
-            <HugeiconsIcon icon={Delete01Icon} strokeWidth={1.625} className="h-4 w-4" />
+            <HugeiconsIcon icon={Delete01Icon} strokeWidth={2.25} className="h-4 w-4" />
             Clear All
           </Button>
           <div className="ml-auto">
@@ -301,12 +289,10 @@ export default function HistoryPage() {
             <Spinner />
           </div>
         ) : records.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 gap-3">
-            <HugeiconsIcon icon={HistoryIcon} strokeWidth={1.625} className="h-8 w-8 text-(--text-muted) opacity-30" />
-            <p className="text-sm text-(--text-muted) opacity-50">
-              {searchQuery ? 'No results found' : favoritesOnly ? 'No favorites yet' : 'No transcriptions yet'}
-            </p>
-          </div>
+          <EmptyState
+            icon={HistoryIcon}
+            title={searchQuery ? 'No results found' : favoritesOnly ? 'No favorites yet' : 'No transcriptions yet'}
+          />
         ) : (
           <>
             <ActivityList
@@ -331,7 +317,7 @@ export default function HistoryPage() {
                   </>
                 ) : (
                   <>
-                    <HugeiconsIcon icon={ArrowDown01Icon} strokeWidth={1.625} className="h-4 w-4" />
+                    <HugeiconsIcon icon={ArrowDown01Icon} strokeWidth={2.25} className="h-4 w-4" />
                     Load More
                   </>
                 )}

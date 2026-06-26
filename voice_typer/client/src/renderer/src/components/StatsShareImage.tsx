@@ -227,7 +227,7 @@ export function StatsShareImage({ stats }: StatsShareImageProps) {
         {/* ── Branding ──────────────────────────────────────── */}
         <div
           style={{
-            fontSize: '11px',
+            fontSize: '12px',
             color: 'rgba(255,255,255,0.25)',
             fontWeight: 500,
             letterSpacing: '0.08em',

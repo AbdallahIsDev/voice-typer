@@ -1,25 +1,28 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 // ── Constants ────────────────────────────────────────────────────
 
 const DOT_COUNT = 7
-const MIN_HEIGHT = 4       // px — resting bar height
-const MAX_HEIGHT = 30      // px — peak bar height
+const MIN_HEIGHT = 5       // px — resting bar height (was 4, bumped so bars are always subtly visible)
+const MAX_HEIGHT = 32      // px — peak bar height (was 30, slightly more range)
 
 /**
  * Per-bar response weights.  A gentle bell shape so the spectrum looks
  * organic (centre bars tallest) instead of every bar moving in lockstep
  * like a single volume meter.
  */
-const DOT_WEIGHTS = [0.55, 0.8, 1.0, 0.9, 1.0, 0.8, 0.55]
+const DOT_WEIGHTS = [0.5, 0.75, 1.0, 0.95, 1.0, 0.75, 0.5]
 
 /**
  * RMS → normalised level [0, 1].
  * Speech RMS typically lives in [0, ~0.3].  We apply a soft compressor
  * so loud transients don't peg every bar.
+ * BUGFIX 2026-06-25: multiplier increased from 5→8 so quiet speech
+ * (RMS ~0.02) produces a norm of 0.16 instead of 0.1, making bars
+ * visibly animate without needing to shout.
  */
 function rmsToNorm(rms: number): number {
-  return Math.min(1, rms * 5)
+  return Math.min(1, rms * 8)
 }
 
 // ── Custom hook: direct-DOM animation at 60fps ────────────────────
@@ -35,19 +38,22 @@ function useAudioLevels(dotRefs: React.RefObject<(HTMLSpanElement | null)[]>) {
     const api = window.bubble
     if (!api) return
 
-    // ── Level listener ──────────────────────────────────────────
-    // Asymmetric smoothing: fast attack (reacts the instant the user
-    // speaks), slower release (graceful decay back to rest).  This is
-    // what makes a visualizer feel "live" rather than laggy.
-    const onLevel = (data: { rms: number; peak: number }) => {
-      const norm = rmsToNorm(data.rms)
-      const cur = rawLevelRef.current
-      if (norm > cur) {
-        rawLevelRef.current = cur * 0.3 + norm * 0.7   // fast attack
-      } else {
-        rawLevelRef.current = cur * 0.86 + norm * 0.14 // slower release
+    // ── Level listener ──────────────────────────────────────────    // Asymmetric smoothing: fast attack (reacts the instant the user
+      // speaks), slower release (graceful decay back to rest).  This is
+      // what makes a visualizer feel "live" rather than laggy.
+      // BUGFIX 2026-06-25: increased attack weight from 0.7→0.8 so the
+      // first spoken syllable immediately pops the bars instead of a
+      // gradual fade-in. Increased release floor from 0.14→0.18 so the
+      // decay doesn't drop to zero too fast between words.
+      const onLevel = (data: { rms: number; peak: number }) => {
+        const norm = rmsToNorm(data.rms)
+        const cur = rawLevelRef.current
+        if (norm > cur) {
+          rawLevelRef.current = cur * 0.2 + norm * 0.8   // fast attack (was 0.3/0.7)
+        } else {
+          rawLevelRef.current = cur * 0.82 + norm * 0.18 // slower release (was 0.86/0.14)
+        }
       }
-    }
 
     const off = api.onLevel(onLevel)
 
@@ -72,11 +78,11 @@ function useAudioLevels(dotRefs: React.RefObject<(HTMLSpanElement | null)[]>) {
         const target = MIN_HEIGHT + level * weight * (MAX_HEIGHT - MIN_HEIGHT)
         // Ease the rendered bar toward the target so motion is smooth.
         const cur = parseFloat(el.style.height) || MIN_HEIGHT
-        const next = cur + (target - cur) * 0.32
+        const next = cur + (target - cur) * 0.36
         el.style.height = `${Math.max(MIN_HEIGHT, next)}px`
         el.style.backgroundColor = barColor
         // Opacity tracks level: dim at rest, fully visible when speaking.
-        el.style.opacity = `${0.3 + level * 0.7}`
+        el.style.opacity = `${0.35 + level * 0.65}`
       }
 
       frameRef.current = requestAnimationFrame(animate)

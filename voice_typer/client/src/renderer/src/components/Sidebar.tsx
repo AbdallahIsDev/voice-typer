@@ -69,7 +69,7 @@ export function Sidebar({ currentPage, onNavigate, themeMode, onThemeChange, col
           className={cn(
             'overflow-hidden whitespace-nowrap text-base font-medium tracking-normal text-(--text-primary)',
             'transition-all duration-200 ease-out',
-            collapsed ? 'max-w-0 opacity-0 filter-[blur(4px)]' : 'max-w-32 opacity-100 filter-[blur(0px)]',
+            collapsed ? 'max-w-0 opacity-0 filter-[blur(4px)]' : 'max-w-32 opacity-100 filter-none',
           )}
         >
           Voice Typer
@@ -102,9 +102,9 @@ export function Sidebar({ currentPage, onNavigate, themeMode, onThemeChange, col
                 <HugeiconsIcon icon={item.icon} strokeWidth={1.625} className="h-4.5 w-4.5 shrink-0" />
                 <span
                   className={cn(
-                    'overflow-hidden whitespace-nowrap',
+                    'overflow-hidden whitespace-nowrap text-sm font-medium dark:font-normal',
                     'transition-all duration-200 ease-out',
-                    collapsed ? 'max-w-0 opacity-0 filter-[blur(4px)]' : 'max-w-40 opacity-100 filter-[blur(0px)]',
+                    collapsed ? 'max-w-0 opacity-0 filter-[blur(4px)]' : 'max-w-40 opacity-100 filter-none',
                   )}
                 >
                   {item.label}

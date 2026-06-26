@@ -8,7 +8,8 @@ import {
   PencilEdit02Icon,
   Delete01Icon,
 } from '@hugeicons/core-free-icons'
-import { Search01Icon } from '@hugeicons/core-free-icons'
+import { SearchField } from '@/components/SearchField'
+import { EmptyState } from '@/components/EmptyState'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -367,45 +368,27 @@ export default function VocabularyPage() {
         </PageHeading>
 
         {/* Search */}
-        <div className="relative">
-          <HugeiconsIcon icon={Search01Icon} strokeWidth={1.625} className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-(--text-muted) pointer-events-none" />
-          <Input
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search vocabulary..."
-            className="pl-9 rounded-xl bg-(--bg-subtle)"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              aria-label="Clear search"
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-(--text-muted) hover:text-(--text-primary)"
-            >
-              <HugeiconsIcon icon={Delete01Icon} strokeWidth={1.625} className="h-4 w-4" />
-            </button>
-          )}
-        </div>
+        <SearchField
+          value={searchQuery}
+          onChange={(value) => setSearchQuery(value)}
+          placeholder="Search vocabulary..."
+        />
 
         {/* List */}
         <div className="mt-4">
           {entries.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-4 py-16">
-              <HugeiconsIcon icon={BookOpen02Icon} strokeWidth={1.625} className="h-10 w-10 text-(--text-muted) opacity-30" />
-              <p className="text-sm text-(--text-muted)">No vocabulary entries yet</p>
-              <p className="text-xs text-(--text-muted) opacity-70">
-                Add words or phrases that Voice Typer should correct
-              </p>
-              <Button variant="outline" className="mt-2 gap-2" onClick={openAddDialog}>
-                <HugeiconsIcon icon={Add01Icon} strokeWidth={1.625} className="h-4 w-4" />
-                Add Your First Word
-              </Button>
-            </div>
+            <EmptyState
+              icon={BookOpen02Icon}
+              title="No vocabulary entries yet"
+              description="Add words or phrases that Voice Typer should correct"
+              actionLabel="Add Your First Word"
+              onAction={openAddDialog}
+            />
           ) : filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-3">
-              <HugeiconsIcon icon={BookOpen02Icon} strokeWidth={1.625} className="h-8 w-8 text-(--text-muted) opacity-30" />
-              <p className="text-sm text-(--text-muted)">No results found</p>
-            </div>
+            <EmptyState
+              icon={BookOpen02Icon}
+              title="No results found"
+            />
           ) : (
             <div className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
               {filtered.map((entry, idx) => (
