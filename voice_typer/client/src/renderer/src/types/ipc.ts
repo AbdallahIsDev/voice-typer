@@ -288,6 +288,9 @@ export interface WindowBubble {
   onHide: (cb: () => void) => () => void
   onDraggable: (cb: (draggable: boolean) => void) => () => void
   hideComplete: () => void
+  // Auto-resize the BrowserWindow to exactly fit the pill content,
+  // eliminating the transparent dead zone around the bubble.
+  resizeTo?: (width: number, height: number) => void
 }
 
 declare global {

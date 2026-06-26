@@ -155,8 +155,8 @@ let pythonExitedEarly = false;
 let sessionNonce: string = "";
 
 // Bubble geometry (logical px).
-const BUBBLE_WIDTH = 220;
-const BUBBLE_HEIGHT = 60;
+const BUBBLE_WIDTH = 74;
+const BUBBLE_HEIGHT = 27;
 
 // Bubble screen position preference (persisted via IPC from renderer).
 let bubblePosition: 'top' | 'bottom' = 'top';
@@ -488,8 +488,8 @@ function centerOnPrimaryDisplay(): { x: number; y: number } {
     const display = screen.getPrimaryDisplay();
     const wa = display.workArea;
     const y = bubblePosition === 'top'
-      ? Math.round(wa.y + 16)   // breathing room from top
-      : Math.round(wa.y + wa.height - BUBBLE_HEIGHT - 16);  // breathing room from bottom
+      ? Math.round(wa.y + 48)
+      : Math.round(wa.y + wa.height - BUBBLE_HEIGHT - 48);
     return {
       x: Math.round(wa.x + (wa.width - BUBBLE_WIDTH) / 2),
       y,
@@ -775,6 +775,17 @@ ipcMain.on("bubble:draggable", (_event, draggable: boolean) => {
   if (bubbleWindow && !bubbleWindow.isDestroyed()) {
     bubbleWindow.webContents.send("bubble:draggable", draggable);
   }
+});
+
+// ── Auto-resize bubble window to fit pill content exactly ────────────
+// The pill content is smaller than the default 74x27 BrowserWindow.
+// Without resizing, the transparent window area around the pill
+// intercepts OS mouse events and blocks clicks to windows underneath.
+ipcMain.on("bubble:resize", (event, { width, height }: { width: number; height: number }) => {
+  if (!assertFromBubble(event)) return;
+  if (!bubbleWindow || bubbleWindow.isDestroyed()) return;
+  const [x, y] = bubbleWindow.getPosition();
+  bubbleWindow.setBounds({ x, y, width: Math.round(width), height: Math.round(height) });
 });
 
 ipcMain.on("bubble:show-from-renderer", (event) => {

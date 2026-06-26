@@ -124,7 +124,7 @@ function useThemeSync() {
 
 // ── Bubble component ───────────────────────────────────────────────
 
-export function Bubble() {
+export function Bubble({ className }: { className?: string }) {
   const dotRefs = useRef<(HTMLSpanElement | null)[]>([])
   const [animState, setAnimState] = useState<AnimState>('enter')
   const [draggable, setDraggable] = useState(true)
@@ -192,6 +192,27 @@ export function Bubble() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [draggable])
 
+  // ── Auto-resize the BrowserWindow to fit the pill ──────────────
+  // The BrowserWindow starts at 74x27.  We measure the actual pill
+  // scroll dimensions after mount and after each show, then resize
+  // the OS window exactly to that size.  This eliminates the
+  // transparent dead zone that blocks clicks to underlying windows.
+  const pillRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (animState !== '' && animState !== 'exit') return
+    if (animState === '') {
+      // Stable (enter complete or idle) — measure and resize.
+      const el = pillRef.current
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      const w = Math.ceil(rect.width)
+      const h = Math.ceil(rect.height)
+      // Add 1px safety margin so the window fully contains the pill.
+      window.bubble?.resizeTo?.(w + 1, h + 1)
+    }
+  }, [animState])
+
   // ── Animation-end callback ──────────────────────────────────────
   // When the exit CSS transition completes, tell the main process
   // it's safe to actually hide() the BrowserWindow.
@@ -214,11 +235,11 @@ export function Bubble() {
   // Chromium/OS level, so it survives window hide/show cycles — unlike
   // JavaScript pointer-capture which breaks after BrowserWindow.hide().
   //
-  // The outer wrapper is the drag region (full width).  The inner pill
-  // carries `no-drag` so the visualizer bars remain clickable/visible
-  // without triggering a drag.  An invisible drag-handle element sits
-  // behind the pill to provide a grab target that doesn't interfere
-  // with the visual content.
+  // The bubble window is transparent.  `-webkit-app-region: drag` only
+  // works on non-transparent pixels (OS-level hit-testing fails on
+  // transparent areas).  Therefore `drag-region` goes on the visible
+  // pill itself — the only opaque element in the window.  The visualizer
+  // bars are purely decorative (no user interaction).
 
   return (
     <div
@@ -235,12 +256,13 @@ export function Bubble() {
       onAnimationEnd={handleAnimEnd}
     >
       <div
+        ref={pillRef}
         className={`
-          drag-region inline-flex items-center gap-3 rounded-full
+          inline-flex items-center gap-3 rounded-full
           border border-zinc-200 dark:border-white/10
           bg-white dark:bg-zinc-900
           px-4 py-2.5
-          ${draggable ? '' : 'no-drag'}
+          ${draggable ? 'drag-region' : 'no-drag'}
         `}
       >
         {/* ── Voice level visualiser ──────────────────────────── */}

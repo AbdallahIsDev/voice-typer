@@ -63,4 +63,12 @@ contextBridge.exposeInMainWorld("bubble", {
   hideComplete: () => {
     ipcRenderer.send("bubble:hidden");
   },
+  // ── Auto-resize bubble window to match pill size ─────────
+  // The BrowserWindow is 74x27 initially, but the pill content
+  // is smaller.  We resize the window exactly to the pill bounds
+  // so there's no invisible dead zone around the bubble that
+  // blocks clicks to the windows underneath.
+  resizeTo: (width: number, height: number) => {
+    ipcRenderer.send("bubble:resize", { width, height });
+  },
 });
