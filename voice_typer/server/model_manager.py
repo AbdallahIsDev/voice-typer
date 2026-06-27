@@ -51,7 +51,15 @@ class ModelManager:
     - Update ``app.tray`` state during loads
     - Schedule the pending-dictation callback via ``app._schedule_timer``
     - Read ``app._shutting_down`` / ``app._pending_dictation`` flags
+
+    PERF-015: includes an LRU cache for loaded models. When loading a
+    new model, if more than 2 models are loaded, the least recently
+    used one is unloaded. This prevents GPU OOM from accumulating
+    multiple model instances.
     """
+
+    # PERF-015: maximum number of concurrently loaded models
+    _MAX_LOADED_MODELS = 2
 
     def __init__(self, app: Any) -> None:
         self._app = app
@@ -77,6 +85,13 @@ class ModelManager:
         # but previously never actually applied the change. We capture
         # the requested model here and apply it on the next _start_dictation.
         self._pending_model_change: Optional[str] = None
+
+        # PERF-015: LRU tracking for loaded models.
+        # Maps backend_name → last-access timestamp. When loading a new
+        # model and more than _MAX_LOADED_MODELS are present, the oldest
+        # entry is unloaded.
+        self._model_access_times: dict[str, float] = {}
+        self._model_lru_lock = threading.Lock()
 
     # ── Registry access ────────────────────────────────────────────────
 
@@ -532,3 +547,51 @@ class ModelManager:
                 self._ensure_engine(backend)
                 self._sync_registry_from_fields()
         return self.active_transcriber()
+
+    def _evict_lru_model(self) -> None:
+        """PERF-015: Evict the least recently used model if too many are loaded.
+
+        When more than ``_MAX_LOADED_MODELS`` models are loaded concurrently,
+        unloads the least recently used one to prevent GPU OOM. Called after
+        loading a new model.
+
+        The LRU is based on ``_model_access_times`` which is updated each
+        time a model is used for transcription.
+        """
+        with self._model_lru_lock:
+            if len(self._model_access_times) <= self._MAX_LOADED_MODELS:
+                return
+
+            # Find the oldest (least recently used) backend
+            oldest_backend = min(self._model_access_times, key=self._model_access_times.get)
+            oldest_time = self._model_access_times[oldest_backend]
+            log.info(
+                "[PERF-015] Evicting LRU model '%s' (last used %.1fs ago) — "
+                "%d models loaded, max is %d",
+                oldest_backend,
+                __import__("time").monotonic() - oldest_time,
+                len(self._model_access_times),
+                self._MAX_LOADED_MODELS,
+            )
+
+            # Unload the engine
+            engine = self._registry.get(oldest_backend)
+            if engine is not None:
+                try:
+                    if hasattr(engine, "unload"):
+                        engine.unload()
+                except Exception as exc:
+                    log.warning("[PERF-015] Failed to unload '%s': %s", oldest_backend, exc)
+
+            # Remove from tracking
+            del self._model_access_times[oldest_backend]
+
+    def touch_model(self, backend_name: str) -> None:
+        """PERF-015: Update the last-access timestamp for a model backend.
+
+        Called when a model is used for transcription so the LRU eviction
+        knows which models are actively being used.
+        """
+        import time
+        with self._model_lru_lock:
+            self._model_access_times[backend_name] = time.monotonic()

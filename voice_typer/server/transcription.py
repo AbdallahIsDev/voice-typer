@@ -37,6 +37,26 @@ _WHISPER_SAMPLE_RATE = 16000  # Whisper always expects 16kHz input
 _nvidia_dll_path_handles: list[object] = []
 
 
+# PROD-004: Approximate model sizes (MB) for disk-space pre-check.
+# These are the uncompressed sizes of the faster-whisper models.
+_MODEL_SIZE_MB = {
+    "tiny.en": 75,
+    "tiny": 75,
+    "base.en": 150,
+    "base": 150,
+    "small.en": 500,
+    "small": 500,
+    "medium.en": 1500,
+    "medium": 1500,
+    "large-v1": 3000,
+    "large-v2": 3000,
+    "large-v3": 3000,
+    "large": 3000,
+}
+# Extra margin for temporary files, metadata, tokenizer, etc.
+_DISK_SPACE_MARGIN_MB = 500
+
+
 def release_gpu_memory() -> None:
     """Release GPU memory held by PyTorch's caching allocator.
 
@@ -103,12 +123,134 @@ def _free_nvidia_dll_path_handles() -> None:
             log.debug("[CUDA-DLL] Error closing handle %s: %s", handle, exc)
     _nvidia_dll_path_handles = []
 _nvidia_dll_paths_configured = False
+# RACE-029: module-level lock to serialize _configure_nvidia_dll_paths()
+# calls.  Previously concurrent calls from the load path could both
+# read _nvidia_dll_paths_configured==False and then both mutate
+# _nvidia_dll_path_handles and os.environ["PATH"], causing duplicate
+# DLL directory additions and race-conditional PATH corruption.
+_nvidia_config_lock = threading.Lock()
 
-from voice_typer.server.hallucination import should_reject_low_audio_hallucination
+from voice_typer.server.hallucination import should_reject_low_audio_hallucination, log_hallucination_rejection
+
+
+def _download_with_retry(
+    download_fn,
+    *,
+    max_attempts: int = 3,
+    delays: tuple[float, ...] = (5.0, 15.0, 45.0),
+    **kwargs,
+) -> str:
+    """PROD-004: Wrap snapshot_download() with exponential backoff retry.
+
+    Downloads can fail due to transient network issues, HuggingFace
+    rate limits, or CDN timeouts.  Retrying with increasing delays
+    gives the network time to recover and avoids failing the entire
+    model load on a single transient error.
+
+    Parameters
+    ----------
+    download_fn : callable
+        The ``snapshot_download`` function (or a wrapper).
+    max_attempts : int
+        Maximum number of download attempts.
+    delays : tuple[float, ...]
+        Delay in seconds before each retry.  The first attempt has no
+        delay; ``delays[i]`` is the delay before attempt ``i+1``.
+    **kwargs
+        Forwarded to ``download_fn``.
+
+    Returns
+    -------
+    str
+        The path to the downloaded model directory.
+
+    Raises
+    ------
+    Exception
+        The last exception if all attempts fail.
+    """
+    import time as _time
+    last_exc = None
+    for attempt in range(max_attempts):
+        try:
+            return download_fn(**kwargs)
+        except Exception as exc:
+            last_exc = exc
+            if attempt < max_attempts - 1:
+                delay = delays[attempt] if attempt < len(delays) else delays[-1]
+                log.warning(
+                    "[PROD-004] Download attempt %d/%d failed: %s. "
+                    "Retrying in %.0fs...",
+                    attempt + 1, max_attempts, exc, delay,
+                )
+                _time.sleep(delay)
+            else:
+                log.error(
+                    "[PROD-004] All %d download attempts failed. Last error: %s",
+                    max_attempts, exc,
+                )
+    raise last_exc  # type: ignore[misc]
+
+
+def _check_disk_space_for_download(repo_id: str, model_size: str) -> None:
+    """PROD-005: Check available disk space before model download.
+
+    Compares available space in the HuggingFace cache directory
+    against the estimated model size with a 500 MB margin.
+    Raises ``RuntimeError`` with a user-friendly message if
+    insufficient space is detected.
+    """
+    import shutil
+    try:
+        # Determine the cache directory
+        from huggingface_hub import constants
+        cache_dir = constants.HF_HUB_CACHE
+    except (ImportError, AttributeError):
+        try:
+            cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
+        except Exception:
+            return  # Can't determine cache dir, skip check
+
+    try:
+        usage = shutil.disk_usage(cache_dir)
+        available_mb = usage.free // (1024 * 1024)
+        estimated_mb = _MODEL_SIZE_MB.get(model_size, 500) + _DISK_SPACE_MARGIN_MB
+
+        if available_mb < estimated_mb:
+            raise RuntimeError(
+                f"Insufficient disk space to download model '{model_size}'. "
+                f"Available: {available_mb} MB, "
+                f"Required (estimated): {estimated_mb} MB "
+                f"(model ~{_MODEL_SIZE_MB.get(model_size, 500)} MB + "
+                f"{_DISK_SPACE_MARGIN_MB} MB margin). "
+                f"Free up disk space and try again."
+            )
+        log.debug(
+            "[PROD-005] Disk space check passed: %d MB available, "
+            "~%d MB needed for '%s'",
+            available_mb, estimated_mb, model_size,
+        )
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        # If we can't check disk space, don't block the download —
+        # the download itself will fail with a clear error if space
+        # runs out during the transfer.
+        log.debug("[PROD-005] Disk space check skipped: %s", exc)
 
 
 def _configure_nvidia_dll_paths():
-    """Expose NVIDIA wheel DLL directories to the Windows loader."""
+    """Expose NVIDIA wheel DLL directories to the Windows loader.
+
+    RACE-029: serialized by _nvidia_config_lock to prevent concurrent
+    calls from corrupting _nvidia_dll_path_handles and PATH.
+    """
+    with _nvidia_config_lock:
+        _configure_nvidia_dll_paths_locked()
+
+
+def _configure_nvidia_dll_paths_locked():
+    """Inner implementation, called under _nvidia_config_lock."""
     global _nvidia_dll_paths_configured
     if _nvidia_dll_paths_configured or sys.platform != "win32":
         return
@@ -388,6 +530,11 @@ class TranscriptionEngine:
                 # (with a clean fallback to CPU) rather than mid-recording.
                 if self._device == "cuda" and acquire_lock:
                     self._probe_cuda_runtime(progress_callback)
+
+                # PERF-007: warm-up inference with 0.5s of silence.
+                # Primes CUDA kernels so the first real transcription
+                # doesn't pay the kernel compilation cost (~2-5s).
+                self._warm_up_model()
                 return
             except Exception as exc:
                 last_error = exc
@@ -494,6 +641,38 @@ class TranscriptionEngine:
             else:
                 raise
 
+    def _warm_up_model(self) -> None:
+        """PERF-007: Run a warm-up inference with silence to prime CUDA kernels.
+
+        The first CUDA inference typically takes 2-5 seconds longer than
+        subsequent ones because the GPU kernels need to be compiled (JIT)
+        and memory allocated. This method runs a 0.5-second silence
+        transcription after model load so the first real dictation is fast.
+
+        If the model is on CPU or warm-up fails, this is a no-op.
+        """
+        if self._model is None or self._device != "cuda":
+            return
+        try:
+            import numpy as np
+            warmup_audio = np.zeros(int(16000 * 0.5), dtype=np.float32)
+            segments, _ = self._model.transcribe(
+                warmup_audio,
+                beam_size=1,
+                best_of=1,
+                temperature=0.0,
+                vad_filter=False,
+                language=self.language,
+                without_timestamps=True,
+            )
+            # Force iteration to complete the warm-up
+            for _ in segments:
+                pass
+            log.info("[PERF-007] Warm-up inference completed — CUDA kernels primed")
+        except Exception as exc:
+            # Warm-up failure is non-critical — log and continue
+            log.debug("[PERF-007] Warm-up inference skipped: %s", exc)
+
     def _pre_download_model(self, model_size: str, progress_callback=None):
         """Pre-download model files via huggingface_hub if not already cached.
 
@@ -526,11 +705,26 @@ class TranscriptionEngine:
             from huggingface_hub import snapshot_download
 
             repo_id = f"Systran/faster-whisper-{model_size}"
+
+            # SEC-audit-005: Use pinned revision from MODEL_HASHES manifest
+            from voice_typer.server.security import MODEL_HASHES
+            WHISPER_REVISION = MODEL_HASHES.get(repo_id, {}).get("revision", "main")
+
+            # SEC-audit-005: Allowlist of file patterns permitted in downloads
+            _whisper_allow_patterns = [
+                "*.safetensors", "*.bin", "config.json", "tokenizer.json",
+                "tokenizer_config.json", "special_tokens_map.json",
+                "preprocessor_config.json", "feature_extractor_config.json",
+                "generation_config.json", "model.safetensors.index.json", "*.model",
+            ]
+
             if progress_callback:
                 progress_callback(f"Checking model cache for '{model_size}'...")
             try:
                 snapshot_download(
                     repo_id=repo_id,
+                    revision=WHISPER_REVISION,
+                    allow_patterns=_whisper_allow_patterns,
                     local_files_only=True,
                 )
                 log.info("[MODEL] Model '%s' already cached", model_size)
@@ -577,8 +771,15 @@ class TranscriptionEngine:
             if progress_callback:
                 progress_callback(f"Downloading model '{model_size}' (varies by size)...")
 
-            snapshot_download(
+            # PROD-005: check disk space before downloading
+            _check_disk_space_for_download(repo_id, model_size)
+
+            # PROD-004: download with retry and exponential backoff
+            _download_with_retry(
+                snapshot_download,
                 repo_id=repo_id,
+                revision=WHISPER_REVISION,
+                allow_patterns=_whisper_allow_patterns,
                 resume_download=True,
             )
             log.info("[MODEL] Model '%s' download complete", model_size)
@@ -690,14 +891,20 @@ class TranscriptionEngine:
             first_segment_start=first_segment_start,
             last_segment_end=last_segment_end,
         ):
-            log.warning(
-                "[TRANSCRIBE] Rejected likely low-audio hallucination: %r "
-                "(duration=%.1fs, RMS=%.6f, peak=%.6f, silence=%.1f%%)",
-                result[:80],
-                duration,
-                rms,
-                peak,
-                silence_pct,
+            # SEC-009: Use the PII-safe logging helper instead of raw text
+            log_transcriptions = (
+                self.config is not None
+                and getattr(self.config, 'log_transcriptions', False)
+            )
+            log_hallucination_rejection(
+                "[TRANSCRIBE]", result,
+                reason="low-audio hallucination",
+                log_transcriptions=log_transcriptions,
+            )
+            log.info(
+                "[TRANSCRIBE] Hallucination stats: duration=%.1fs, RMS=%.6f, "
+                "peak=%.6f, silence=%.1f%%",
+                duration, rms, peak, silence_pct,
             )
             return ""
         if result:
@@ -724,7 +931,17 @@ class TranscriptionEngine:
         When provided, the engine skips its own stats computation.
         """
         with self._lock:
-            return self._transcribe_with_fallback_unlocked(audio, audio_stats=audio_stats)
+            result = self._transcribe_with_fallback_unlocked(audio, audio_stats=audio_stats)
+        # RACE-023: perform deferred gc.collect() OUTSIDE the lock
+        if getattr(self, '_pending_gc_collect', False):
+            self._pending_gc_collect = False
+            try:
+                import gc
+                gc.collect()
+                release_gpu_memory()
+            except Exception:
+                pass
+        return result
 
     def _transcribe_with_fallback_unlocked(
         self,
@@ -746,17 +963,21 @@ class TranscriptionEngine:
             # NEW-MEM-001: also call torch.cuda.empty_cache() so the
             # cached CUDA blocks are released back to the OS, not just
             # held for reuse by a different (non-Whisper) backend.
+            # RACE-023: gc.collect() moved OUTSIDE the lock to avoid
+            # blocking is_loaded / transcribe for 10-100ms.
             try:
                 del self._model
-                import gc
-                gc.collect()
-                release_gpu_memory()
             except Exception:
                 pass
             self._model = None
             self._device = "cpu"
             self._compute_type = "int8"
             self._reload_under_lock()
+            # RACE-023: gc.collect() and release_gpu_memory() called
+            # OUTSIDE the lock (the lock is released when we return
+            # and the caller's `with self._lock:` block exits).
+            # We store a flag so the caller can do the cleanup.
+            self._pending_gc_collect = True
             # NEW-PERF-010: pass through the pre-computed stats to the
             # CPU retry as well.
             return self._transcribe_unlocked(audio, audio_stats=audio_stats)
@@ -764,7 +985,17 @@ class TranscriptionEngine:
     def transcribe_words(self, audio: np.ndarray, offset_seconds: float = 0.0):
         """Transcribe audio array into word timings with a global offset."""
         with self._lock:
-            return self._transcribe_words_with_fallback_unlocked(audio, offset_seconds)
+            result = self._transcribe_words_with_fallback_unlocked(audio, offset_seconds)
+        # RACE-023: perform deferred gc.collect() OUTSIDE the lock
+        if getattr(self, '_pending_gc_collect', False):
+            self._pending_gc_collect = False
+            try:
+                import gc
+                gc.collect()
+                release_gpu_memory()
+            except Exception:
+                pass
+        return result
 
     def _transcribe_words_with_fallback_unlocked(
         self,
@@ -783,17 +1014,16 @@ class TranscriptionEngine:
             )
             # M9: Explicitly free GPU memory before reload
             # NEW-MEM-001: also release CUDA cached blocks.
+            # RACE-023: gc.collect() deferred outside the lock.
             try:
                 del self._model
-                import gc
-                gc.collect()
-                release_gpu_memory()
             except Exception:
                 pass
             self._model = None
             self._device = "cpu"
             self._compute_type = "int8"
             self._reload_under_lock()
+            self._pending_gc_collect = True
             return self._transcribe_words_unlocked(audio, offset_seconds)
 
     def _transcribe_words_unlocked(self, audio: np.ndarray, offset_seconds: float):
@@ -921,11 +1151,15 @@ class TranscriptionEngine:
         the OS.  Without this, switching backends (Whisper → Parakeet
         → Whisper) accumulates cached blocks and OOMs on RTX 3060/4060
         (8–12 GB VRAM) after ~2 switches.
+
+        RACE-023: gc.collect() moved OUTSIDE the lock to avoid blocking
+        is_loaded / transcribe for 10-100ms.
         """
         import gc
         with self._lock:
             self._model = None
-            gc.collect()
+        # RACE-023: gc.collect() OUTSIDE the lock
+        gc.collect()
         # NEW-MEM-001: release CUDA cached blocks.
         release_gpu_memory()
         # PERF-NEW-020: release DLL directory handles outside the lock

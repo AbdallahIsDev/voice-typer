@@ -13,7 +13,7 @@ from typing import Optional, Callable
 
 import numpy as np
 
-from voice_typer.server.hallucination import should_reject_low_audio_hallucination
+from voice_typer.server.hallucination import should_reject_low_audio_hallucination, log_hallucination_rejection
 
 log = logging.getLogger(__name__)
 
@@ -58,14 +58,31 @@ def _is_likely_english(text: str) -> bool:
     non_latin = sum(1 for ch in text if not _is_latin_char(ch))
     ratio = non_latin / len(text)
     if ratio > _NON_LATIN_RATIO_LIMIT:
-        log.info(
-            "[PARAKEET] Rejected non-English output (%.0f%% non-Latin chars): %s",
-            ratio * 100, ascii(text[:80]),
+        # SEC-009: Use PII-safe logging helper for hallucination text
+        log_hallucination_rejection(
+            "[PARAKEET]", text,
+            reason=f"non-English output ({ratio * 100:.0f}% non-Latin chars)",
+            log_transcriptions=False,
         )
         return False
     return True
 
 _PARAKERT_MODEL_ID = "nvidia/parakeet-tdt-0.6b-v3"
+
+# SEC-audit-005: Allowlist of file patterns permitted in Parakeet model downloads.
+# Prevents supply-chain attacks where a compromised HF repo could include
+# executables, scripts, or other unexpected files.
+_PARAKEET_ALLOW_PATTERNS = [
+    "*.safetensors", "*.bin", "config.json", "tokenizer.json",
+    "tokenizer_config.json", "special_tokens_map.json",
+    "preprocessor_config.json", "feature_extractor_config.json",
+    "generation_config.json", "model.safetensors.index.json", "*.model",
+]
+
+# SEC-audit-005: Pin to a specific revision for reproducibility.
+# Use the centralized MODEL_HASHES manifest from security.py.
+from voice_typer.server.security import MODEL_HASHES as _MODEL_HASHES
+_PARAKEET_REVISION = _MODEL_HASHES.get(_PARAKERT_MODEL_ID, {}).get("revision", "main")
 
 # Parakeet's Conformer encoder has a practical limit of ~30s of audio.
 # Longer recordings are split into overlapping chunks.  3s overlap gives
@@ -197,6 +214,8 @@ class ParakeetEngine:
 
                     snapshot_download(
                         repo_id=_PARAKERT_MODEL_ID,
+                        revision=_PARAKEET_REVISION,
+                        allow_patterns=_PARAKEET_ALLOW_PATTERNS,
                         resume_download=True,
                     )
                 except Exception as exc:
@@ -210,6 +229,23 @@ class ParakeetEngine:
                     if progress_callback:
                         progress_callback("Model not found in cache after download")
                     return False
+
+                # SEC-audit-005: Verify model integrity after download
+                from voice_typer.server.asr_setup import _verify_model_integrity
+                from voice_typer.server.config import _config_dir
+                cache_root = _config_dir() / "huggingface" / "hub"
+                model_dir = cache_root / f"models--{_PARAKERT_MODEL_ID.replace('/', '--')}"
+                if model_dir.is_dir():
+                    verified = False
+                    try:
+                        for snapshot in (model_dir / "snapshots").iterdir():
+                            if snapshot.is_dir() and _verify_model_integrity(_PARAKERT_MODEL_ID, str(snapshot)):
+                                verified = True
+                                break
+                    except OSError:
+                        pass
+                    if not verified:
+                        log.warning("[PARAKEET] Model integrity check failed after download")
 
             # Load model from cache
             try:
@@ -264,11 +300,16 @@ class ParakeetEngine:
                     progress_callback(f"Model load failed: {exc}")
                 return False
 
-    def transcribe(self, audio: np.ndarray) -> str:
+    def transcribe(self, audio: np.ndarray, audio_stats: "tuple[float, float, float] | None" = None) -> str:
         """Transcribe audio array. Returns cleaned text string.
 
         Long audio (>CHUNK_SECONDS) is split into overlapping chunks
         to stay within the Conformer encoder's input-length limit.
+
+        PERF-STATS: ``audio_stats`` is an optional pre-computed
+        ``(rms, peak, silence_pct)`` tuple from ``Recorder.stop()``.
+        When provided, the engine skips its own RMS computation in
+        hallucination detection.
         """
         with self._lock:
             if self._model is None or self._processor is None:
@@ -281,7 +322,7 @@ class ParakeetEngine:
 
             duration = len(audio) / 16000
             if duration <= _CHUNK_SECONDS:
-                return self._transcribe_segment(audio)
+                return self._transcribe_segment(audio, audio_stats=audio_stats)
 
             chunks = self._split_audio(audio, _CHUNK_SECONDS, _CHUNK_OVERLAP_SECONDS)
             log.info("[PARAKEET] Splitting %.1fs audio into %d chunks", duration, len(chunks))
@@ -299,8 +340,13 @@ class ParakeetEngine:
             merged = self._merge_chunks(results)
             return merged
 
-    def _transcribe_segment(self, audio: np.ndarray) -> str:
-        """Transcribe one audio segment (assumed to be within model limits)."""
+    def _transcribe_segment(self, audio: np.ndarray, audio_stats: "tuple[float, float, float] | None" = None) -> str:
+        """Transcribe one audio segment (assumed to be within model limits).
+
+        PERF-STATS: ``audio_stats`` is an optional pre-computed
+        ``(rms, peak, silence_pct)`` tuple. When provided, the
+        engine skips its own RMS computation in hallucination detection.
+        """
         try:
             inputs = self._processor(
                 [audio],
@@ -328,9 +374,18 @@ class ParakeetEngine:
         if self.language == "en" and not _is_likely_english(text):
             return ""
 
-        rms = float(np.sqrt(np.mean(np.square(audio), dtype=np.float64)))
+        # PERF-STATS: reuse pre-computed RMS when provided
+        if audio_stats is not None:
+            rms = audio_stats[0]
+        else:
+            rms = float(np.sqrt(np.mean(np.square(audio), dtype=np.float64)))
         if should_reject_low_audio_hallucination(text, rms):
-            log.warning("[PARAKEET] Rejected likely hallucination: %r", text[:80])
+            # SEC-009: Use PII-safe logging helper instead of raw text
+            log_hallucination_rejection(
+                "[PARAKEET]", text,
+                reason="hallucination",
+                log_transcriptions=False,
+            )
             return ""
 
         return text
@@ -464,8 +519,12 @@ class ParakeetEngine:
         # scales with chunk length, unlike the old ratio-based skip.
         return 1 if len(new_words) > 1 else 0
 
-    def transcribe_with_fallback(self, audio: np.ndarray) -> str:
+    def transcribe_with_fallback(self, audio: np.ndarray, audio_stats: "tuple[float, float, float] | None" = None) -> str:
         """transcribe with GPU→CPU fallback on CUDA errors.
+
+        PERF-STATS: ``audio_stats`` is an optional pre-computed
+        ``(rms, peak, silence_pct)`` tuple. When provided, the
+        engine skips its own RMS computation.
 
         Raises:
             TranscriptionBackendError: if both the GPU path and the CPU
@@ -481,7 +540,7 @@ class ParakeetEngine:
                 return ""
 
             try:
-                return self.transcribe(audio)
+                return self.transcribe(audio, audio_stats=audio_stats)
             except Exception as exc:
                 err_str = str(exc).lower()
                 if self.device == "cuda" and ("cuda" in err_str or "cublas" in err_str or "cudnn" in err_str):
@@ -553,6 +612,12 @@ class ParakeetEngine:
 
         rms = float(np.sqrt(np.mean(np.square(audio), dtype=np.float64)))
         if should_reject_low_audio_hallucination(text, rms):
+            # SEC-009: Use PII-safe logging helper for unlocked fallback path
+            log_hallucination_rejection(
+                "[PARAKEET]", text,
+                reason="hallucination",
+                log_transcriptions=False,
+            )
             return ""
         return text
 
@@ -565,13 +630,17 @@ class ParakeetEngine:
         this, the cached blocks from the Parakeet model linger in the
         allocator and cause GPU OOMs after 2 backend switches on
         RTX 3060/4060 (8–12 GB VRAM).
+
+        RACE-023: gc.collect() moved OUTSIDE the lock to avoid blocking
+        is_loaded / transcribe for 10-100ms.
         """
         import gc
         from voice_typer.server.transcription import release_gpu_memory
         with self._lock:
             self._model = None
             self._processor = None
-            gc.collect()
+        # RACE-023: gc.collect() OUTSIDE the lock
+        gc.collect()
         # NEW-MEM-001: release CUDA cached blocks.
         release_gpu_memory()
         log.info("[PARAKEET] Model unloaded")
