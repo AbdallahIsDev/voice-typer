@@ -387,27 +387,36 @@ class Recorder:
 
     # ── AUDIO-HOT: hot-plug disconnect handling ─────────────────────────
 
-    def _stream_error_callback(self, err_msg: str) -> None:
-        """AUDIO-HOT: PortAudio stream error callback.
+    def _stream_finished_callback(self) -> None:
+        """AUDIO-HOT: Called by sounddevice when the stream finishes.
 
-        Called by sounddevice when a PortAudio error occurs (e.g. device
-        disconnection). Immediately stops recording and triggers the
-        silence auto-stop callback so the app can notify the user.
+        sounddevice's finished_callback fires when the PortAudio stream
+        stops for any reason — including device disconnection, driver error,
+        or explicit stop(). We check whether we expected the stream to stop;
+        if not, it was likely an unexpected device disconnect.
+
+        Note: sd.InputStream does NOT support an error_callback parameter.
+        The finished_callback is the correct way to detect stream termination
+        in sounddevice. The primary disconnect detection is done in the audio
+        callback via zero-filled indata detection (see _audio_callback_record).
         """
-        log.error(
-            "[RECORDING] PortAudio stream error: %s — stopping recording",
-            err_msg,
-        )
-        self._device_disconnected = True
-        # Schedule disconnect handling off the audio thread
-        try:
-            threading.Thread(
-                target=self._handle_device_disconnect,
-                name="stream-error-handler",
-                daemon=True,
-            ).start()
-        except Exception:
-            pass
+        if self._device_disconnected:
+            return  # already handling disconnect via callback detection
+        # If the stream stopped but we didn't call stop() ourselves,
+        # treat it as an unexpected disconnect.
+        if self._stream is not None and not self._recording_event.is_set():
+            log.warning(
+                "[RECORDING] Stream finished unexpectedly — possible device disconnect"
+            )
+            self._device_disconnected = True
+            try:
+                threading.Thread(
+                    target=self._handle_device_disconnect,
+                    name="stream-finished-handler",
+                    daemon=True,
+                ).start()
+            except Exception:
+                pass
 
     def _handle_device_disconnect(self) -> None:
         """Attempt to restart recording with the default device after a disconnect.
@@ -461,8 +470,8 @@ class Recorder:
                 device=None,  # default device
                 callback=self._current_callback,
                 blocksize=512,
-                # AUDIO-HOT: error callback for device disconnection
-                error_callback=self._stream_error_callback,
+                # AUDIO-HOT: finished_callback detects unexpected stream termination
+                finished_callback=self._stream_finished_callback,
             )
             stream.start()
             self._stream = stream
@@ -1278,8 +1287,8 @@ class Recorder:
                     # may still deliver a different size on some drivers,
                     # but vad.py now pads/truncates to handle that.
                     blocksize=512,
-                    # AUDIO-HOT: error callback for device disconnection
-                    error_callback=self._stream_error_callback,
+                    # AUDIO-HOT: finished_callback detects unexpected stream termination
+                    finished_callback=self._stream_finished_callback,
                 )
                 stream.start()
 
@@ -1370,8 +1379,8 @@ class Recorder:
                         callback=callback,
                         # VAD-001: request 512-sample blocks for Silero VAD
                         blocksize=512,
-                        # AUDIO-HOT: error callback for device disconnection
-                        error_callback=self._stream_error_callback,
+                        # AUDIO-HOT: finished_callback detects unexpected stream termination
+                        finished_callback=self._stream_finished_callback,
                     )
                     stream.start()
                 except Exception as e:
