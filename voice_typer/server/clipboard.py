@@ -279,6 +279,12 @@ def _is_password_field() -> bool:
     the user that dictation into password fields is disabled for security.
 
     Returns True if a password field is detected, False otherwise.
+
+    PLAT-014 (revised): The previous code had a no-op ctypes fallback
+    block (lines 310-316) that just did ``pass`` if comtypes wasn't
+    installed — meaning password detection silently failed open. Now
+    we explicitly log when comtypes is unavailable and the check is
+    skipped, so operators can install comtypes to enable the check.
     """
     if sys.platform != "win32":
         return False
@@ -286,7 +292,7 @@ def _is_password_field() -> bool:
         import ctypes
         from ctypes import wintypes
 
-        # Try using comtypes for UI Automation
+        # Try using comtypes for UI Automation (preferred path)
         try:
             import comtypes.client
             UIA = comtypes.client.GetModule("UIAutomationCore.dll")
@@ -304,17 +310,27 @@ def _is_password_field() -> bool:
                         "dictation into password fields is disabled for security"
                     )
                     return True
-        except Exception:
-            pass
+        except ImportError:
+            # comtypes not installed — log so operators can install it
+            # to enable password field detection. The check fails open
+            # (returns False) because we can't determine if the focused
+            # element is a password field without UIA.
+            log.info(
+                "[CLIPBOARD] comtypes not installed — password field detection "
+                "disabled (install 'comtypes' to enable)"
+            )
+        except Exception as exc:
+            # comtypes is installed but UIA call failed (e.g. desktop
+            # bridge app, UAC dialog). Log and fail open.
+            log.debug(
+                "[CLIPBOARD] UIA password field check failed: %s — failing open",
+                exc,
+            )
 
-        # Fallback: try raw ctypes approach with UIAutomationCore.dll
-        try:
-            uia_core = ctypes.windll.UIAutomationCore
-            # This is complex — if comtypes failed, just skip
-            pass
-        except Exception:
-            pass
-
+        # No raw ctypes fallback: implementing IsPassword via raw ctypes
+        # requires defining the full IUIAutomation COM interface vtable
+        # by hand (80+ methods), which is fragile and error-prone.
+        # comtypes is the supported way to call UIA from Python.
         return False
     except Exception:
         return False
@@ -345,6 +361,25 @@ class ClipboardManager:
         self._clear_thread = None
         # PLAT-SECURE: saved clipboard content for restore after paste
         self._saved_clipboard: str | None = None
+        # PLAT-SECURE (revised): cached config flag for clipboard_save_restore.
+        # Initialized to True (default) and refreshed via refresh_config()
+        # when the user changes the setting. Used to gate both the save
+        # (in copy()) and the restore (in schedule_clipboard_clear()).
+        self._clipboard_save_restore_enabled: bool = True
+
+    def refresh_config(self, config) -> None:
+        """Refresh cached config flags from a Config object.
+
+        PLAT-SECURE (revised): Call this whenever the user changes
+        clipboard-related settings via IPC so the cached flag is kept
+        in sync without re-reading the config on every copy().
+        """
+        try:
+            self._clipboard_save_restore_enabled = bool(
+                getattr(config, "clipboard_save_restore", True)
+            )
+        except Exception:
+            self._clipboard_save_restore_enabled = True  # safe default
 
     @staticmethod
     def _get_clipboard_sequence_number() -> int:
@@ -383,8 +418,29 @@ class ClipboardManager:
                 log.warning("[CLIPBOARD] Blocked paste into security-sensitive window (class=%s)", class_name)
                 return False
 
-            # PLAT-013: warn if the target is elevated and we are not
-            _is_elevated_target()
+            # PLAT-013 (revised): Block paste if the target is elevated
+            # and we are not. The previous code called _is_elevated_target()
+            # but discarded the return value — only the side-effect (a log
+            # line inside the function) was observed, and the paste
+            # proceeded anyway. This was unsafe: if the target is elevated
+            # (e.g. an Administrator cmd window), our SendInput will be
+            # silently blocked by UIPI, but we'd still try to paste —
+            # potentially into the wrong window if the user switched focus
+            # at the last moment.
+            #
+            # Now we actually USE the return value: if the target is
+            # elevated and we are not, return False to abort the paste.
+            # The user will see no paste and can investigate (the function
+            # logs a warning explaining why).
+            try:
+                if _is_elevated_target():
+                    log.warning(
+                        "[CLIPBOARD] Target window is elevated but we are not — "
+                        "blocking paste to avoid UIPI failure"
+                    )
+                    return False
+            except Exception:
+                log.debug("[CLIPBOARD] _is_elevated_target check failed", exc_info=True)
 
             # PLAT-014: check if the focused element is a password field
             if _is_password_field():
@@ -446,15 +502,27 @@ class ClipboardManager:
             # ctypes.windll.user32 calls.
             _win32_empty_clipboard()
 
-            # PLAT-SECURE / SEC-012: save existing clipboard content before
-            # overwriting, if clipboard_save_restore is enabled (default True).
+            # PLAT-SECURE / SEC-012 (revised): save existing clipboard
+            # content before overwriting, ONLY if clipboard_save_restore
+            # is enabled (default True). The previous code unconditionally
+            # called pyperclip.paste() on every copy() — even when the user
+            # had disabled save/restore. This wasted a clipboard read on
+            # every copy and stored stale content in _saved_clipboard that
+            # was never restored (because schedule_clipboard_clear checks
+            # the config flag before restoring). The fix gates the save
+            # behind the same config flag that gates the restore.
             self._saved_clipboard = None
             try:
-                self._saved_clipboard = pyperclip.paste()
+                # Cache the config flag once to avoid re-reading on every copy.
+                # _clipboard_save_restore_enabled is set in __init__ and
+                # refreshed via refresh_config() when settings change.
+                if self._clipboard_save_restore_enabled:
+                    self._saved_clipboard = pyperclip.paste()
             except Exception:
                 pass
-            log.debug("[CLIPBOARD-AUDIT] Saved previous clipboard content for restore (len=%d)",
-                      len(self._saved_clipboard) if self._saved_clipboard else 0)
+            log.debug("[CLIPBOARD-AUDIT] Saved previous clipboard content for restore (len=%d, save_restore=%s)",
+                      len(self._saved_clipboard) if self._saved_clipboard else 0,
+                      self._clipboard_save_restore_enabled)
 
             # PLAT-007: Retry clipboard access on ERROR_ACCESS_DENIED
             for attempt in range(3):
@@ -603,11 +671,40 @@ class ClipboardManager:
         # PLAT-STUCK: release any stuck modifier keys before pasting
         self._release_stuck_modifiers()
 
-        # PLAT-CLIPRACE: verify clipboard wasn't modified between copy and paste
+        # PLAT-CLIPRACE (revised): verify clipboard wasn't modified between
+        # copy and paste. The previous code only LOGGED a warning when the
+        # clipboard sequence number changed between copy() and paste() —
+        # paste proceeded anyway with potentially stale clipboard content.
+        #
+        # Now we actually RECOVER: if the seq changed, re-copy the
+        # text before pasting. This handles the case where another app
+        # (clipboard manager, password manager, screenshot tool) overwrote
+        # the clipboard between our copy() and the paste keystroke.
         if sys.platform == "win32" and hasattr(self, '_clipboard_seq') and self._clipboard_seq:
             current_seq = self._get_clipboard_sequence_number()
             if current_seq != self._clipboard_seq:
-                log.warning("[CLIPBOARD] Clipboard modified between copy and paste (seq %d -> %d)", self._clipboard_seq, current_seq)
+                log.warning(
+                    "[CLIPBOARD] Clipboard modified between copy and paste "
+                    "(seq %d -> %d) — re-copying before paste",
+                    self._clipboard_seq, current_seq,
+                )
+                # Re-copy the text we want to paste. Use the stored
+                # _last_copied_text to avoid passing the wrong content.
+                # Use the module-level pyperclip (not a fresh import) so
+                # tests that monkeypatch clipboard.pyperclip can intercept.
+                try:
+                    if self._last_copied_text:
+                        pyperclip.copy(self._last_copied_text)
+                        # Brief delay to let the clipboard settle
+                        time.sleep(0.02)
+                        # Update seq so a subsequent mismatch check is accurate
+                        self._clipboard_seq = self._get_clipboard_sequence_number()
+                except Exception as exc:
+                    log.error(
+                        "[CLIPBOARD] Failed to re-copy after seq mismatch: %s — "
+                        "paste may deliver stale content",
+                        exc,
+                    )
 
         # PLAT-RDP: increase paste delay in RDP sessions where clipboard
         # sync is slower
@@ -732,12 +829,61 @@ class ClipboardManager:
 
         result = SendInput(4, ctypes.byref(events), ctypes.sizeof(INPUT))
         if result != 4:
+            # PLAT-001 (revised): SendInput returns the number of events
+            # successfully inserted. Values 1..3 mean SOME but not all of
+            # the Ctrl+V keystroke events were delivered — e.g. result=2
+            # means Ctrl-down + V-down happened but V-up + Ctrl-up did not.
+            #
+            # The previous code fell back to pynput._safe_key_press() in
+            # this case, which would deliver ANOTHER full Ctrl+V sequence
+            # — causing a DOUBLE-PASTE if the partial SendInput already
+            # pasted the clipboard content (e.g. result=2 with Ctrl-down +
+            # V-down is enough to trigger paste in most apps).
+            #
+            # Fix: when result is in [1, 3], we DO NOT fall back to pynput.
+            # Instead we log the partial failure and synthesize the missing
+            # KEYUP events explicitly to release any stuck modifiers, then
+            # return without paste. The caller can retry the full paste
+            # sequence on the next hotkey press.
+            #
+            # When result == 0 (complete failure), no events were delivered,
+            # so falling back to pynput is safe (no double-paste risk).
             log.warning(
                 "[CLIPBOARD] SendInput returned %d (expected 4) — "
-                "this may be caused by UIPI blocking if the target is elevated. "
-                "Falling back to pynput Controller.",
+                "this may be caused by UIPI blocking if the target is elevated.",
                 result,
             )
+            if 1 <= result <= 3:
+                # Partial success — synthesize KEYUP for any keys that may
+                # be stuck down (Ctrl and/or V) to avoid leaving the
+                # keyboard in a wedged state.
+                log.error(
+                    "[CLIPBOARD] SendInput partial success (%d/4 events) — "
+                    "NOT falling back to pynput to avoid double-paste. "
+                    "Releasing any stuck modifiers.",
+                    result,
+                )
+                try:
+                    # Best-effort: send both KEYUP events; harmless if the
+                    # key wasn't actually down.
+                    release_events = (INPUT * 2)(
+                        INPUT(
+                            INPUT.KEYBOARD,
+                            INPUT_union(ki=KEYBDINPUT(wVk=VK_V, wScan=0, dwFlags=KEYBDINPUT.KEYUP, time=0, dwExtraInfo=0)),
+                        ),
+                        INPUT(
+                            INPUT.KEYBOARD,
+                            INPUT_union(ki=KEYBDINPUT(wVk=VK_CONTROL, wScan=0, dwFlags=KEYBDINPUT.KEYUP, time=0, dwExtraInfo=0)),
+                        ),
+                    )
+                    SendInput(2, ctypes.byref(release_events), ctypes.sizeof(INPUT))
+                except Exception:
+                    log.debug("[CLIPBOARD] failed to synthesize KEYUP cleanup", exc_info=True)
+                return  # paste did not complete cleanly; do not proceed
+
+            # result == 0: complete failure — safe to fall back to pynput
+            # (no events were delivered, so no double-paste risk).
+            log.info("[CLIPBOARD] SendInput returned 0 — falling back to pynput Controller")
             # PLAT-001: fallback to pynput Controller as last resort.
             # Note: pynput.keyboard.Controller is also subject to UIPI,
             # so this may also fail silently.
