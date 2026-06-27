@@ -6,8 +6,6 @@ import re
 from pathlib import Path
 
 log = logging.getLogger(__name__)
-
-
 # Question openers used by _looks_like_question().
 # "how" and "what" are EXCLUDED because they frequently start
 # declarative sentences (e.g. "How to install Python",
@@ -81,7 +79,10 @@ def _load_external_corrections(
 
     if _BUNDLED_CORRECTIONS_PATH.exists():
         try:
-            data = json.loads(_BUNDLED_CORRECTIONS_PATH.read_text(encoding="utf-8"))
+            # SEC-002: use _secure_read_text to prevent symlink-TOCTOU attacks
+            from voice_typer.server.config import _secure_read_text
+            raw = _secure_read_text(_BUNDLED_CORRECTIONS_PATH, encoding="utf-8")
+            data = json.loads(raw)
             misspellings = dict(data.get("misspellings", {}))
             phrase_corrections = [
                 tuple(item) for item in data.get("phrase_corrections", [])
@@ -105,7 +106,10 @@ def _load_external_corrections(
 
     if path is not None and path.exists():
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            # SEC-002: use _secure_read_text to prevent symlink-TOCTOU attacks
+            from voice_typer.server.config import _secure_read_text
+            raw = _secure_read_text(path, encoding="utf-8")
+            data = json.loads(raw)
             if "misspellings" in data and isinstance(data["misspellings"], dict):
                 misspellings.update(data["misspellings"])
             if "phrase_corrections" in data and isinstance(data["phrase_corrections"], list):
@@ -136,6 +140,71 @@ def _load_external_corrections(
                 + "; ".join(load_errors)
             )
         return None
+
+    # SEC-010/SEC-011: Cap corrections to prevent ReDoS and resource exhaustion
+    MAX_CORRECTIONS_ENTRIES = 5000
+    MAX_PATTERN_LENGTH = 200
+    MAX_REPLACEMENT_LENGTH = 500
+
+    MAX_MISSPELLINGS = MAX_CORRECTIONS_ENTRIES
+    MAX_PHRASE_CORRECTIONS = MAX_CORRECTIONS_ENTRIES
+    MAX_EXTRA_WORD_PATTERNS = MAX_CORRECTIONS_ENTRIES
+
+    if len(misspellings) > MAX_MISSPELLINGS:
+        log.warning("[CLEANUP] Too many misspellings (%d > %d), truncating", len(misspellings), MAX_MISSPELLINGS)
+        misspellings = dict(list(misspellings.items())[:MAX_MISSPELLINGS])
+    if len(phrase_corrections) > MAX_PHRASE_CORRECTIONS:
+        log.warning("[CLEANUP] Too many phrase corrections, truncating")
+        phrase_corrections = phrase_corrections[:MAX_PHRASE_CORRECTIONS]
+    if len(extra_word_patterns) > MAX_EXTRA_WORD_PATTERNS:
+        log.warning("[CLEANUP] Too many extra word patterns, truncating")
+        extra_word_patterns = extra_word_patterns[:MAX_EXTRA_WORD_PATTERNS]
+
+    # SEC-011: Validate string lengths — patterns and replacements have
+    # separate limits to prevent ReDoS (long patterns cause expensive
+    # regex backtracking) and resource exhaustion (long replacements
+    # cause excessive memory/CPU during substitution).
+    _dropped_pattern = 0
+    _dropped_replacement = 0
+    misspellings_filtered = {}
+    for k, v in misspellings.items():
+        if len(k) > MAX_PATTERN_LENGTH:
+            _dropped_pattern += 1
+            continue
+        if len(v) > MAX_REPLACEMENT_LENGTH:
+            _dropped_replacement += 1
+            continue
+        misspellings_filtered[k] = v
+    misspellings = misspellings_filtered
+    if _dropped_pattern:
+        log.warning("[CLEANUP] Dropped %d misspellings with pattern > %d chars", _dropped_pattern, MAX_PATTERN_LENGTH)
+    if _dropped_replacement:
+        log.warning("[CLEANUP] Dropped %d misspellings with replacement > %d chars", _dropped_replacement, MAX_REPLACEMENT_LENGTH)
+
+    _dropped_phrase = 0
+    filtered_phrases = []
+    for b, g in phrase_corrections:
+        if len(b) > MAX_PATTERN_LENGTH or len(g) > MAX_REPLACEMENT_LENGTH:
+            _dropped_phrase += 1
+            continue
+        filtered_phrases.append((b, g))
+    phrase_corrections = filtered_phrases
+    if _dropped_phrase:
+        log.warning("[CLEANUP] Dropped %d phrase corrections exceeding length limits", _dropped_phrase)
+
+    _dropped_extra = 0
+    filtered_extra = []
+    for b, g in extra_word_patterns:
+        if len(b) > MAX_PATTERN_LENGTH:
+            _dropped_extra += 1
+            continue
+        if len(g) > MAX_REPLACEMENT_LENGTH:
+            _dropped_extra += 1
+            continue
+        filtered_extra.append((b, g))
+    extra_word_patterns = filtered_extra
+    if _dropped_extra:
+        log.warning("[CLEANUP] Dropped %d extra word patterns exceeding length limits", _dropped_extra)
 
     return misspellings, phrase_corrections, extra_word_patterns
 
@@ -170,23 +239,34 @@ _active_state_lock = __import__("threading").Lock()
 
 # ARCH-031: cache of compiled regex patterns for phrase corrections.
 # Keyed on the (lowercased) phrase string; value is a compiled regex
-# with re.IGNORECASE. The cache is bounded by the number of distinct
-# phrases in the corrections file (typically 50-300), so we don't
-# need an LRU eviction.
+# with re.IGNORECASE.
+# SEC-011: The cache now has LRU eviction with a max size of 5000
+# to prevent unbounded memory growth if many distinct phrases are
+# processed over the lifetime of the process.
+_PHRASE_PATTERN_CACHE_MAXSIZE = 5000
 _phrase_pattern_cache: dict[str, "re.Pattern[str]"] = {}
 
 
 def _get_compiled_phrase_pattern(phrase: str) -> "re.Pattern[str]":
     """Return a compiled, case-insensitive regex for matching ``phrase``.
 
-    Compiled once per phrase and cached for the lifetime of the
-    process. Re-compiling on every dictation (the old behavior) was a
-    measurable hot-spot under streaming transcription.
+    Compiled once per phrase and cached. SEC-011: implements LRU
+    eviction when the cache exceeds _PHRASE_PATTERN_CACHE_MAXSIZE
+    entries, preventing unbounded memory growth from a large or
+    frequently-changing corrections file.
     """
     cached = _phrase_pattern_cache.get(phrase)
     if cached is not None:
         return cached
     compiled = re.compile(re.escape(phrase), re.IGNORECASE)
+    # SEC-011: Evict oldest entries when cache exceeds max size
+    if len(_phrase_pattern_cache) >= _PHRASE_PATTERN_CACHE_MAXSIZE:
+        # Remove the first (oldest) entry — dict preserves insertion order in Python 3.7+
+        try:
+            oldest_key = next(iter(_phrase_pattern_cache))
+            del _phrase_pattern_cache[oldest_key]
+        except (StopIteration, KeyError):
+            pass
     _phrase_pattern_cache[phrase] = compiled
     return compiled
 
@@ -221,7 +301,10 @@ def configure_corrections(
     error_msg: str | None = None
     if user_path is not None and user_path.exists():
         try:
-            json.loads(user_path.read_text(encoding="utf-8"))
+            # SEC-002: use _secure_read_text to prevent symlink-TOCTOU attacks
+            from voice_typer.server.config import _secure_read_text
+            raw = _secure_read_text(user_path, encoding="utf-8")
+            json.loads(raw)
         except Exception as e:
             error_msg = f"Corrections file {user_path.name} is malformed: {e}"
             log.warning("[CLEANUP] %s", error_msg)
@@ -271,10 +354,25 @@ def clean_transcribed_text(
     return cleaned
 
 
+# PERF-004: precompile all regex patterns at module level to avoid
+# recompilation on every call. Each regex was previously compiled
+# inline inside the function body — this is wasteful for functions
+# called per-chunk in the transcription pipeline.
+_RE_SPACING_WS = re.compile(r"\s+")
+_RE_SPACING_PUNCT_BEFORE = re.compile(r"\s+([,.;:!?])")
+_RE_SPACING_PUNCT_AFTER = re.compile(r"([,.;:!?])(?=[^\s,.;:!?])")
+# PERF-PIPE: precompile the regex used in _token_key at module level.
+# This is called thousands of times per cleanup pass.
+_RE_TOKEN_KEY = re.compile(r"^\W+|\W+$")
+# _fix_file_extensions compiled pattern
+_RE_FILE_EXT = re.compile(r'(\w+)\.\s+([a-zA-Z]{2,4})\b')
+
+
 def _normalize_spacing(text: str) -> str:
-    text = re.sub(r"\s+", " ", text).strip()
-    text = re.sub(r"\s+([,.;:!?])", r"\1", text)
-    text = re.sub(r"([,.;:!?])(?=[^\s,.;:!?])", r"\1 ", text)
+    # PERF-004: use precompiled patterns
+    text = _RE_SPACING_WS.sub(" ", text).strip()
+    text = _RE_SPACING_PUNCT_BEFORE.sub(r"\1", text)
+    text = _RE_SPACING_PUNCT_AFTER.sub(r"\1 ", text)
     return text.strip()
 
 
@@ -438,7 +536,8 @@ def _remove_extra_words(text: str) -> str:
 
 
 def _token_key(token: str) -> str:
-    return re.sub(r"^\W+|\W+$", "", token).lower()
+    # PERF-PIPE: use precompiled regex instead of re.sub(pattern, ...)
+    return _RE_TOKEN_KEY.sub("", token).lower()
 
 
 def _capitalize_sentences(text: str) -> str:
@@ -543,8 +642,8 @@ def _fix_file_extensions(text: str) -> str:
         return m.group(0)
 
     # Match word. ext  (e.g., "features. md")
-    text = re.sub(
-        r'(\w+)\.\s+([a-zA-Z]{2,4})\b',
+    # PERF-004: use precompiled pattern
+    text = _RE_FILE_EXT.sub(
         _replace_extension,
         text,
     )

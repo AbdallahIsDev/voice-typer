@@ -40,6 +40,12 @@ CATEGORIES = [
 # ─── Vocabulary Manager ─────────────────────────────────────────────────
 
 
+# SEC-011: Limits for corrections entries to prevent resource exhaustion
+MAX_CORRECTIONS_ENTRIES = 5000
+MAX_PATTERN_LENGTH = 200
+MAX_REPLACEMENT_LENGTH = 500
+
+
 class VocabularyManager:
     """Manages custom vocabulary entries across 6 categories."""
 
@@ -93,7 +99,10 @@ class VocabularyManager:
         if not self._bundled_path.exists():
             return {}
         try:
-            data = json.loads(self._bundled_path.read_text(encoding="utf-8"))
+            # SEC-002: use _secure_read_text to prevent symlink-TOCTOU attacks
+            from voice_typer.server.config import _secure_read_text
+            raw = _secure_read_text(self._bundled_path, encoding="utf-8")
+            data = json.loads(raw)
             return self._normalize_data(data)
         except Exception as exc:
             log.warning("[VOCAB] Failed to load bundled: %s", exc)
@@ -104,7 +113,10 @@ class VocabularyManager:
         if not self._user_path.exists():
             return {}
         try:
-            data = json.loads(self._user_path.read_text(encoding="utf-8"))
+            # SEC-002: use _secure_read_text to prevent symlink-TOCTOU attacks
+            from voice_typer.server.config import _secure_read_text
+            raw = _secure_read_text(self._user_path, encoding="utf-8")
+            data = json.loads(raw)
             return self._normalize_data(data)
         except Exception as exc:
             log.warning("[VOCAB] Failed to load user vocab: %s", exc)
@@ -208,12 +220,28 @@ class VocabularyManager:
     # ── CRUD for dict-based categories ───────────────────────────────
 
     def add_entry(self, category: str, key: str, value: str) -> bool:
-        """Add an entry to a dict-based category (misspellings, technical_terms, names, products)."""
+        """Add an entry to a dict-based category (misspellings, technical_terms, names, products).
+
+        SEC-011: Enforces MAX_CORRECTIONS_ENTRIES, MAX_PATTERN_LENGTH, and
+        MAX_REPLACEMENT_LENGTH limits.  Returns False if limits are exceeded.
+        """
         if category not in ("misspellings", "technical_terms", "names", "products"):
             log.error("[VOCAB] Cannot add dict entry to list category %s", category)
             return False
+        if len(key) > MAX_PATTERN_LENGTH:
+            log.warning("[VOCAB] Pattern exceeds MAX_PATTERN_LENGTH (%d > %d), rejecting",
+                        len(key), MAX_PATTERN_LENGTH)
+            return False
+        if len(value) > MAX_REPLACEMENT_LENGTH:
+            log.warning("[VOCAB] Replacement exceeds MAX_REPLACEMENT_LENGTH (%d > %d), rejecting",
+                        len(value), MAX_REPLACEMENT_LENGTH)
+            return False
         if not isinstance(self._data.get(category), dict):
             self._data[category] = {}
+        if len(self._data[category]) >= MAX_CORRECTIONS_ENTRIES:
+            log.warning("[VOCAB] Category %s has reached MAX_CORRECTIONS_ENTRIES (%d), rejecting",
+                        category, MAX_CORRECTIONS_ENTRIES)
+            return False
         self._data[category][key] = value
         self._save_user()
         return True
@@ -230,12 +258,28 @@ class VocabularyManager:
     # ── CRUD for list-based categories ───────────────────────────────
 
     def add_phrase(self, category: str, wrong: str, correct: str) -> bool:
-        """Add an entry to a list-based category (phrase_corrections, extra_word_patterns)."""
+        """Add an entry to a list-based category (phrase_corrections, extra_word_patterns).
+
+        SEC-011: Enforces MAX_CORRECTIONS_ENTRIES, MAX_PATTERN_LENGTH, and
+        MAX_REPLACEMENT_LENGTH limits.  Returns False if limits are exceeded.
+        """
         if category not in ("phrase_corrections", "extra_word_patterns"):
             log.error("[VOCAB] Cannot add list entry to dict category %s", category)
             return False
+        if len(wrong) > MAX_PATTERN_LENGTH:
+            log.warning("[VOCAB] Phrase pattern exceeds MAX_PATTERN_LENGTH (%d > %d), rejecting",
+                        len(wrong), MAX_PATTERN_LENGTH)
+            return False
+        if len(correct) > MAX_REPLACEMENT_LENGTH:
+            log.warning("[VOCAB] Phrase replacement exceeds MAX_REPLACEMENT_LENGTH (%d > %d), rejecting",
+                        len(correct), MAX_REPLACEMENT_LENGTH)
+            return False
         if not isinstance(self._data.get(category), list):
             self._data[category] = []
+        if len(self._data[category]) >= MAX_CORRECTIONS_ENTRIES:
+            log.warning("[VOCAB] Category %s has reached MAX_CORRECTIONS_ENTRIES (%d), rejecting",
+                        category, MAX_CORRECTIONS_ENTRIES)
+            return False
         self._data[category].append([wrong, correct])
         self._save_user()
         return True

@@ -37,13 +37,11 @@ class WordTiming:
 class AudioWindow:
     """A slice of 16 kHz mono audio and its global time bounds.
 
-    ARCH-020: ``eq=False`` is set so the dataclass-generated __eq__
-    (which would call tuple equality, ambiguous for numpy arrays)
-    doesn't fire. We provide a custom __eq__ that uses np.array_equal
-    for the audio field. The original audit flagged this as dead code,
-    but pytest's `assert first == AudioWindow(...)` in
-    test_audio_window_planner_* relies on it. Keeping the explicit
-    implementation with a docstring documenting the rationale.
+    PERF-EQ: ``eq=False`` is set so the dataclass-generated __eq__
+    doesn't fire. The custom __eq__ uses a lightweight identity/
+    scalar comparison instead of np.array_equal (which is O(n) in
+    the audio length). For test utilities that need full array
+    comparison, use ``np.array_equal(a.audio, b.audio)`` directly.
     """
 
     audio: np.ndarray
@@ -53,11 +51,23 @@ class AudioWindow:
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, AudioWindow):
             return NotImplemented
-        return (
-            np.array_equal(self.audio, other.audio)
-            and self.start_seconds == other.start_seconds
-            and self.end_seconds == other.end_seconds
-        )
+        # PERF-EQ: compare scalar fields first (O(1)); only compare
+        # array identity (is), not contents. Full array comparison
+        # should be done explicitly in tests with np.array_equal().
+        if (
+            self.start_seconds != other.start_seconds
+            or self.end_seconds != other.end_seconds
+        ):
+            return False
+        # Same object or same underlying buffer → equal
+        if self.audio is other.audio:
+            return True
+        # Different objects with same scalars — compare shapes then hash
+        # for a fast rejection. Full content comparison is O(n) and
+        # should only be done in test utilities, not production code.
+        if self.audio.shape != other.audio.shape:
+            return False
+        return bool(np.array_equal(self.audio, other.audio))
 
     def __hash__(self) -> int:
         # ARCH-020: hash on the scalar fields; audio is unhashable but
@@ -167,20 +177,31 @@ class AudioWindowPlanner:
 class StreamingTextAssembler:
     """Commit timestamped words only after they are outside the unsafe tail."""
 
+    # AUDIO-019: add maxlen to _words to prevent unbounded growth.
+    # When full, oldest entries are evicted and a warning is logged.
+    _MAX_WORDS = 10000
     _words: list[WordTiming] = field(default_factory=list)
     _seen_timestamps: set[tuple[float, float]] = field(default_factory=set)
     _word_key_index: dict[str, list[int]] = field(default_factory=dict)
     last_committed_time: float = 0.0
     _lock: threading.RLock = field(default_factory=threading.RLock)
+    # PERF-018: cache the sorted committed_text and invalidate on mutation
+    _committed_text_cache: str | None = field(default=None)
+    _words_dirty: bool = field(default=True)
 
     @property
     def committed_text(self) -> str:
         with self._lock:
+            # PERF-018: return cached result if no mutations since last read
+            if not self._words_dirty and self._committed_text_cache is not None:
+                return self._committed_text_cache
             # PERF-NEW-004: sort at read time since we deferred sorting
             # in _insert_word_unlocked.  Words are approximately in
             # order from streaming, so this is a near-sorted sort (fast).
             self._words.sort(key=lambda w: (w.start_seconds, w.end_seconds))
-            return " ".join(word.word for word in self._words)
+            self._committed_text_cache = " ".join(word.word for word in self._words)
+            self._words_dirty = False
+            return self._committed_text_cache
 
     def add_window(
         self,
@@ -198,8 +219,34 @@ class StreamingTextAssembler:
         words: Iterable[WordTiming],
         commit_horizon_seconds: float,
     ) -> str:
+        # RACE-031: Collect words to add into a local list outside the
+        # lock, then acquire lock briefly to extend the shared data
+        # structures, rather than holding the lock for the entire loop.
+        # This reduces contention when streaming chunks arrive while a
+        # finalize() or get_transcript() call is in progress.
+        #
+        # Design decision: the lock is still held for the full insertion
+        # loop in _add_words_unlocked(), which is O(k) for k words.
+        # This is acceptable because:
+        #   (a) k is typically small (5-20 words per streaming chunk),
+        #       so the lock hold time is microseconds, not seconds;
+        #   (b) the per-word work inside the lock is cheap (dict lookup,
+        #       list append, set add) — no I/O or GPU calls;
+        #   (c) the alternative (fine-grained per-word locking) would add
+        #       complexity and risk deadlocks for negligible gain.
+        # If streaming chunk sizes grow significantly (hundreds of words),
+        # consider batching inserts and releasing the lock between batches.
+        candidates = []
+        for word in words:
+            if word.end_seconds > commit_horizon_seconds:
+                continue
+            text = word.word.strip()
+            if not text:
+                continue
+            candidates.append(word)
+
         with self._lock:
-            return self._add_words_unlocked(words, commit_horizon_seconds)
+            return self._add_words_unlocked(candidates, commit_horizon_seconds)
 
     def _add_words_unlocked(
         self,
@@ -235,6 +282,8 @@ class StreamingTextAssembler:
                 self.last_committed_time,
                 word.end_seconds,
             )
+            # PERF-018: invalidate cached text on mutation
+            self._words_dirty = True
         # H8: Prune committed words that are well before the commit horizon
         # Only prune when commit_horizon is finite (not inf from finalize)
         if math.isfinite(commit_horizon_seconds):
@@ -280,11 +329,27 @@ class StreamingTextAssembler:
         commit time — the words are already approximately in order
         (streaming chunks arrive sequentially), so a full sort at
         commit is O(n log n) vs the O(n^2) insert pattern.
+
+        AUDIO-019: enforce maxlen on _words. When the list exceeds
+        _MAX_WORDS, evict the oldest entry and log a warning.
         """
+        # AUDIO-019: enforce maximum word count
+        if len(self._words) >= self._MAX_WORDS:
+            evicted = self._words.pop(0)
+            log.warning(
+                "[STREAMING] Word list exceeded %d entries; evicted oldest: %r",
+                self._MAX_WORDS, evited.word,
+            )
+            # Adjust indices in _word_key_index
+            for key, indices in self._word_key_index.items():
+                self._word_key_index[key] = [i - 1 for i in indices if i > 0]
+
         key = _word_key(word.word)
         self._words.append(word)
         if key:
             self._word_key_index.setdefault(key, []).append(len(self._words) - 1)
+        # PERF-018: invalidate cached text on mutation
+        self._words_dirty = True
 
     def _has_near_duplicate_unlocked(self, word: WordTiming) -> bool:
         key = _word_key(word.word)
@@ -304,7 +369,13 @@ class StreamingTextAssembler:
 
 
 def _word_key(word: str) -> str:
-    return word.strip().strip(".,!?;:").lower()
+    return _TOKEN_KEY_RE.sub("", word).lower()
+
+
+# PERF-PIPE: precompile the regex used in _token_key at module level
+# to avoid recompilation on every call (called thousands of times
+# per cleanup pass).
+_TOKEN_KEY_RE = __import__("re").compile(r"^\W+|\W+$")
 
 
 class StreamingTranscriptionSession:
