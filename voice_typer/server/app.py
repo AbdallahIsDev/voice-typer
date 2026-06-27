@@ -1779,6 +1779,15 @@ class VoiceTyperApp:
         ensures the on-disk config is always in sync with the in-memory
         config when the user starts editing, and that changes made in
         the editor are picked up when editing is done.
+
+        SEC-audit-011 (revised): holds ``_config_mutation_lock`` for
+        the duration of the editor session so the IPC ``set_config``
+        handler cannot atomically replace config.json via
+        ``_secure_atomic_write`` while Notepad is mid-edit. Without
+        this lock, a TOCTOU race exists: IPC set_config could write a
+        new config between Notepad reading and saving, silently
+        overwriting the user's manual edits. The lock is held until
+        Notepad closes and the config is reloaded.
         """
         config_file = self.config.config_dir / "config.json"
         # Save current in-memory config so the editor sees the latest state
@@ -1795,18 +1804,21 @@ class VoiceTyperApp:
                     # Hardcoded fallback per SEC-audit-011
                     notepad = Path(r"C:\Windows\System32\notepad.exe")
                 if notepad.exists():
-                    # SEC-audit-011: Use Popen().wait() to block until
-                    # notepad closes, then reload the config.
-                    proc = subprocess.Popen([str(notepad), str(config_file)])
-                    try:
-                        proc.wait()
-                    except Exception:
-                        pass
-                    # Reload config after notepad closes
-                    try:
-                        self.config = type(self.config).load()
-                    except Exception as exc:
-                        log.warning("[CONFIG] Failed to reload config after editor: %s", exc)
+                    # SEC-audit-011: Hold _config_mutation_lock for the
+                    # full editor session so IPC set_config can't race.
+                    with self._config_mutation_lock:
+                        # SEC-audit-011: Use Popen().wait() to block until
+                        # notepad closes, then reload the config.
+                        proc = subprocess.Popen([str(notepad), str(config_file)])
+                        try:
+                            proc.wait()
+                        except Exception:
+                            pass
+                        # Reload config after notepad closes
+                        try:
+                            self.config = type(self.config).load()
+                        except Exception as exc:
+                            log.warning("[CONFIG] Failed to reload config after editor: %s", exc)
                 else:
                     os.startfile(str(config_file))  # type: ignore[attr-defined]
             elif sys.platform == "darwin":
