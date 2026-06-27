@@ -100,6 +100,11 @@ def app(tmp_config_dir, monkeypatch):
     instance = VoiceTyperApp()
     # Ensure esc_cancel_enabled is False for deterministic test behavior
     instance.config.esc_cancel_enabled = False
+    # NEW-PRIV-009 (revised): RecordingController.start() now enforces
+    # voice_biometric_consent before capturing audio. Tests that exercise
+    # the recording path must explicitly opt in (just like real users
+    # must enable the toggle in Settings > Privacy before recording).
+    instance.config.voice_biometric_consent = True
     # TranscriptionEngine is now created in _do_startup (background), not __init__
     # Set a mock transcriber for tests that need it
     instance.transcriber = MagicMock()

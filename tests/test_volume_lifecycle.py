@@ -182,6 +182,11 @@ def app_with_fake_ducker(tmp_config_dir, monkeypatch):
     from voice_typer.server.app import VoiceTyperApp
     instance = VoiceTyperApp()
     instance.config.esc_cancel_enabled = False
+    # NEW-PRIV-009 (revised): RecordingController.start() now enforces
+    # voice_biometric_consent before capturing audio. Tests that exercise
+    # the recording path must explicitly opt in (just like real users
+    # must enable the toggle in Settings → Privacy before recording).
+    instance.config.voice_biometric_consent = True
     instance.transcriber = MagicMock()
     instance.transcriber.is_loaded = True
 
@@ -572,6 +577,10 @@ class TestPerSessionDuckGatedOnSupport:
 
         instance = VoiceTyperApp()
         instance.config.esc_cancel_enabled = False
+        # NEW-PRIV-009 (revised): RecordingController.start() enforces
+        # voice_biometric_consent — tests that exercise the recording
+        # path must explicitly opt in.
+        instance.config.voice_biometric_consent = True
         instance.transcriber = MagicMock()
         instance.transcriber.is_loaded = True
 

@@ -174,6 +174,39 @@ class RecordingController:
             log.info("[DICTATION] _start_dictation: already recording, no-op")
             return
 
+        # NEW-PRIV-009 (revised): Enforce voice_biometric_consent before
+        # capturing any audio. The config field and Electron UI toggle
+        # existed previously, but the audio pipeline never checked the
+        # flag — meaning the consent was a UI decoration with zero
+        # enforcement. Now we refuse to start recording if the user has
+        # not explicitly consented to voice biometric processing.
+        #
+        # This is a GDPR Art. 9 requirement for processing biometric
+        # data (voice is biometric). The default is False — the user
+        # MUST opt in via the Settings UI before any recording happens.
+        # See FORENSIC_REVIEW_COMPLETE.md → NEW-PRIV-009.
+        try:
+            if not getattr(app.config, "voice_biometric_consent", False):
+                log.warning(
+                    "[DICTATION] Refusing to start recording - voice_biometric_consent "
+                    "is False. User must enable it in Settings > Privacy."
+                )
+                try:
+                    app.tray.set_state(AppState.ERROR, "Voice biometric consent required")
+                    app.tray.notify_safety(
+                        "Voice Typer",
+                        "Voice biometric consent is required to start recording.\n"
+                        "Enable it in Settings > Privacy > Voice Biometric Consent.",
+                    )
+                except Exception:
+                    log.debug("[DICTATION] failed to notify about missing consent", exc_info=True)
+                return
+        except Exception:
+            # If we can't read the config, fail open (allow recording)
+            # to avoid locking the user out of their own app due to a
+            # config read error. Log the failure for diagnosis.
+            log.exception("[DICTATION] Failed to check voice_biometric_consent - failing open")
+
         # Cancel any stale pending timers from previous sessions
         app._cancel_pending_timers()
 
