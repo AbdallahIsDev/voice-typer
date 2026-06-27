@@ -473,7 +473,8 @@ class TestCorruptionsRecoveryWithBuiltins:
         assert result2 is None  # Should succeed now
 
         # Cleanup should work with the valid corrections
-        assert "the" in clean_transcribed_text("teh code")
+        # Note: clean_transcribed_text capitalizes the first letter
+        assert "the" in clean_transcribed_text("teh code").lower()
 
 
 # ── TEST-039: corrections.json explicit loadability test ────────────────
