@@ -100,13 +100,11 @@ def _get_icon_path(state: AppState, size: int = 0) -> Optional[Path]:
     return None
 
 
-# PLAT-021: Shape definitions for tray icons.
-# Current implementation uses color-only differentiation (grey=idle,
-# orange=recording, etc.). This is insufficient for color-blind users.
-# The shapes below are documented for a future release that will
-# render distinct shapes (circle, square, triangle) in addition to
-# colors. The current PNG-based approach can't easily add shapes
-# without re-rendering the SVGs, so we document the intent here.
+# PLAT-021 / TRAY-032: Shape definitions for tray icons.
+# Icons use BOTH color AND shape to differentiate states, making them
+# accessible to color-blind users. When a pre-rendered PNG icon is
+# available, the shape is overlaid as a small indicator in the corner.
+# When no PNG is found, a shape-only icon is drawn as fallback.
 _ICON_SHAPES = {
     AppState.IDLE: "circle",
     AppState.RECORDING: "square",
@@ -115,6 +113,96 @@ _ICON_SHAPES = {
     AppState.ERROR: "triangle",
     AppState.CANCELLING: "square",
 }
+
+
+def _draw_shape(shape: str, size: int, color: tuple) -> Image.Image:
+    """TRAY-032: Draw a shape-only icon as fallback when no PNG is available.
+
+    Creates a solid-color shape on a transparent background. Each state
+    has a distinct shape (circle, square, diamond, triangle) so that
+    color-blind users can differentiate states by shape alone.
+
+    Parameters
+    ----------
+    shape : str
+        One of "circle", "square", "diamond", "triangle".
+    size : int
+        Icon size in pixels (width = height).
+    color : tuple
+        RGBA color tuple.
+
+    Returns
+    -------
+    PIL.Image.Image
+        The rendered shape icon.
+    """
+    from PIL import ImageDraw
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    margin = max(2, size // 8)
+    inner = size - 2 * margin
+
+    if shape == "circle":
+        draw.ellipse([margin, margin, margin + inner, margin + inner], fill=color)
+    elif shape == "square":
+        draw.rectangle([margin, margin, margin + inner, margin + inner], fill=color)
+    elif shape == "diamond":
+        cx, cy = size // 2, size // 2
+        half = inner // 2
+        draw.polygon([(cx, cy - half), (cx + half, cy), (cx, cy + half), (cx - half, cy)], fill=color)
+    elif shape == "triangle":
+        cx = size // 2
+        draw.polygon([(cx, margin), (margin + inner, margin + inner), (margin, margin + inner)], fill=color)
+    else:
+        # Unknown shape — fallback to circle
+        draw.ellipse([margin, margin, margin + inner, margin + inner], fill=color)
+
+    return img
+
+
+def _draw_shape_indicator(img: Image.Image, shape: str, color: tuple) -> Image.Image:
+    """TRAY-032: Overlay a small shape indicator in the bottom-right corner.
+
+    This adds a visible shape marker to the microphone icon so that
+    color-blind users can identify the state by shape in addition to color.
+
+    Parameters
+    ----------
+    img : PIL.Image.Image
+        The base microphone icon (already colorized).
+    shape : str
+        One of "circle", "square", "diamond", "triangle".
+    color : tuple
+        RGBA color tuple for the indicator.
+
+    Returns
+    -------
+    PIL.Image.Image
+        The icon with a small shape indicator overlay.
+    """
+    from PIL import ImageDraw
+    img = img.copy()
+    draw = ImageDraw.Draw(img)
+    img_size = img.size
+    if not img_size or len(img_size) != 2:
+        return img  # Can't draw indicator on image without valid size
+    w, h = img_size
+    ind_size = max(4, w // 5)  # indicator is ~20% of icon size
+    x0 = w - ind_size - 1
+    y0 = h - ind_size - 1
+
+    if shape == "circle":
+        draw.ellipse([x0, y0, x0 + ind_size, y0 + ind_size], fill=color)
+    elif shape == "square":
+        draw.rectangle([x0, y0, x0 + ind_size, y0 + ind_size], fill=color)
+    elif shape == "diamond":
+        cx, cy = x0 + ind_size // 2, y0 + ind_size // 2
+        half = ind_size // 2
+        draw.polygon([(cx, cy - half), (cx + half, cy), (cx, cy + half), (cx - half, cy)], fill=color)
+    elif shape == "triangle":
+        draw.polygon([(x0 + ind_size // 2, y0), (x0 + ind_size, y0 + ind_size), (x0, y0 + ind_size)], fill=color)
+
+    return img
 
 
 def _make_icon(state: AppState, size: int = 0) -> Image.Image:
@@ -126,11 +214,11 @@ def _make_icon(state: AppState, size: int = 0) -> Image.Image:
     NEW-DUP-009: the old ``vt_logo.svg`` reference was stale — that file
     was removed; the source SVG now lives at ``client/scripts/logo.svg``.
 
-    PLAT-021: Icons use both color AND shape to differentiate states.
-    Color-only differentiation is insufficient for color-blind users.
-    Shape definitions are in _ICON_SHAPES above. Currently shapes are
-    documented but not rendered (requires SVG re-rendering). A future
-    release should render shape-differentiated icons.
+    PLAT-021/TRAY-032: Icons use both color AND shape to differentiate
+    states. When a PNG microphone icon is available, a small shape
+    indicator is overlaid in the bottom-right corner. When no PNG is
+    found, a shape-only icon is drawn as fallback (fully accessible
+    to color-blind users who can identify states by shape alone).
     """
     if size == 0:
         size = _get_dpi_aware_icon_size()
@@ -152,7 +240,9 @@ def _make_icon(state: AppState, size: int = 0) -> Image.Image:
         AppState.CANCELLING: (243, 156, 18, 255),   # Orange
     }
     color = colors.get(state, (120, 120, 120, 255))
+    shape = _ICON_SHAPES.get(state, "circle")
 
+    png_loaded = False
     try:
         asset_dir = Path(__file__).resolve().parent / "assets"
         available = [16, 24, 32, 48, 64]
@@ -160,16 +250,21 @@ def _make_icon(state: AppState, size: int = 0) -> Image.Image:
         mic_img = Image.open(str(asset_dir / f"tray-mic-{best}.png")).convert("RGBA")
         colored = Image.new("RGBA", mic_img.size, color)
         # NEW-MEM-004: use getchannel('A') instead of split()[3].
-        # split() creates 4 separate channel images (R, G, B, A) even
-        # though we only need the alpha channel.  getchannel('A')
-        # extracts just the alpha band.  This only runs on cache miss
-        # (~12 times per session), so the savings are small, but the
-        # code is also clearer about intent.
         colored.putalpha(mic_img.getchannel('A'))
         if colored.size != (size, size):
             colored = colored.resize((size, size), Image.LANCZOS)
+        png_loaded = True
     except Exception:
-        colored = Image.new("RGBA", (size, size), color)
+        pass
+
+    if not png_loaded:
+        # TRAY-032: No PNG icon available — use shape-only fallback
+        colored = _draw_shape(shape, size, color)
+    else:
+        # TRAY-032: PNG loaded — overlay a small shape indicator
+        # for color-blind accessibility (shape visible even if color
+        # perception is impaired)
+        colored = _draw_shape_indicator(colored, shape, color)
 
     if sys.platform == "win32":
         # PLAT-024: Save as ICO format for Windows tray.
