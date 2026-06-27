@@ -163,62 +163,71 @@ def download_parakeet_weights(
     except Exception:
         pass
 
-    # PROD-005: check disk space before download
-    if not _check_disk_space(repo_id):
-        msg = "Not enough disk space to download model"
+    # PROD-005 (revised): Use the canonical disk space check from
+    # transcription.py instead of the local _check_disk_space() duplicate.
+    # The two implementations had different size tables and different
+    # return semantics (bool vs raise RuntimeError), creating a
+    # maintenance hazard. Now asr_setup delegates to the canonical version.
+    # See FORENSIC_REVIEW_COMPLETE.md → PROD-005.
+    try:
+        from voice_typer.server.transcription import _check_disk_space_for_download
+        _check_disk_space_for_download(repo_id, "parakeet")  # raises on insufficient space
+    except RuntimeError as e:
+        msg = str(e)
         log.error("[ASR_SETUP] %s", msg)
         if progress_callback:
             progress_callback(msg)
         return False
+    except Exception as e:
+        # If the canonical check can't be imported or fails unexpectedly,
+        # fall back to the local _check_disk_space (which returns bool).
+        log.debug("[ASR_SETUP] canonical disk space check unavailable, using local: %s", e)
+        if not _check_disk_space(repo_id):
+            msg = "Not enough disk space to download model"
+            log.error("[ASR_SETUP] %s", msg)
+            if progress_callback:
+                progress_callback(msg)
+            return False
 
     msg = "Downloading Parakeet TDT v3 model..."
     log.info("[ASR_SETUP] %s", msg)
     if progress_callback:
         progress_callback(msg)
 
-    # PROD-004: retry with exponential backoff
-    last_error = None
-    for attempt in range(_MAX_DOWNLOAD_RETRIES):
-        try:
-            local_dir = snapshot_download(
-                repo_id=repo_id,
-                revision=PARAKEET_REVISION,
-                allow_patterns=_HF_ALLOW_PATTERNS,
-                resume_download=True,
-            )
-            # PROD-006: Verify model integrity after download
-            if not _verify_model_integrity(repo_id, local_dir):
-                log.error("[ASR_SETUP] Model integrity check failed after download")
-                if progress_callback:
-                    progress_callback("Download completed but integrity check failed")
-                return False
-            msg = "Parakeet model download complete"
-            log.info("[ASR_SETUP] %s", msg)
-            if progress_callback:
-                progress_callback(msg)
-            return True
-        except Exception as e:
-            last_error = e
-            if attempt < _MAX_DOWNLOAD_RETRIES - 1:
-                backoff = 2 ** attempt  # 1s, 2s, 4s, 8s
-                log.warning(
-                    "[ASR_SETUP] Download attempt %d/%d failed: %s. "
-                    "Retrying in %ds...",
-                    attempt + 1, _MAX_DOWNLOAD_RETRIES, e, backoff,
-                )
-                if progress_callback:
-                    progress_callback(
-                        f"Download attempt {attempt + 1} failed. "
-                        f"Retrying in {backoff}s..."
-                    )
-                time.sleep(backoff)
-            else:
-                log.error(
-                    "[ASR_SETUP] All %d download attempts failed. Last error: %s",
-                    _MAX_DOWNLOAD_RETRIES, e,
-                )
-
-    if last_error is not None:
+    # PROD-004 (revised): Use the canonical _download_with_retry from
+    # transcription.py instead of the inline retry loop. The two
+    # implementations had different delay tables ([5,15,45] vs 2**attempt)
+    # and different API shapes (callable vs inline). Now asr_setup
+    # delegates to the canonical version. See FORENSIC_REVIEW_COMPLETE.md
+    # → PROD-004.
+    try:
+        from voice_typer.server.transcription import _download_with_retry
+        local_dir = _download_with_retry(
+            snapshot_download,
+            max_attempts=_MAX_DOWNLOAD_RETRIES,
+            delays=tuple(2 ** i for i in range(_MAX_DOWNLOAD_RETRIES)),  # keep exponential backoff
+            repo_id=repo_id,
+            revision=PARAKEET_REVISION,
+            allow_patterns=_HF_ALLOW_PATTERNS,
+            resume_download=True,
+        )
+    except Exception as e:
+        log.error(
+            "[ASR_SETUP] All %d download attempts failed. Last error: %s",
+            _MAX_DOWNLOAD_RETRIES, e,
+        )
         if progress_callback:
-            progress_callback(f"Download failed after {_MAX_DOWNLOAD_RETRIES} attempts: {last_error}")
-    return False
+            progress_callback(f"Download failed after {_MAX_DOWNLOAD_RETRIES} attempts: {e}")
+        return False
+
+    # PROD-006: Verify model integrity after download
+    if not _verify_model_integrity(repo_id, local_dir):
+        log.error("[ASR_SETUP] Model integrity check failed after download")
+        if progress_callback:
+            progress_callback("Download completed but integrity check failed")
+        return False
+    msg = "Parakeet model download complete"
+    log.info("[ASR_SETUP] %s", msg)
+    if progress_callback:
+        progress_callback(msg)
+    return True
