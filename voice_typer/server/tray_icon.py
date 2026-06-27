@@ -7,7 +7,7 @@ logic from the menu/callback logic.
 import sys
 import logging
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 from PIL import Image
 
@@ -73,6 +73,50 @@ def invalidate_dpi_cache() -> None:
     _dpi_aware_size_cache = None
 
 
+def _get_icon_path(state: AppState, size: int = 0) -> Optional[Path]:
+    """PLAT-024: Return the path to the appropriate icon file for the state.
+
+    On Windows, prefers ICO format (multiple sizes in one file, sharper
+    on Windows 11). On other platforms, returns the PNG path.
+
+    Returns None if no icon file is found.
+    """
+    if size == 0:
+        size = _get_dpi_aware_icon_size()
+    asset_dir = Path(__file__).resolve().parent / "assets"
+
+    # PLAT-024: on Windows, prefer .ico files for sharper tray icons
+    if sys.platform == "win32":
+        ico_path = asset_dir / f"tray-mic-{state.value}.ico"
+        if ico_path.exists():
+            return ico_path
+
+    # Fallback: use the PNG icon
+    available = [16, 24, 32, 48, 64]
+    best = min(available, key=lambda x: abs(x - size))
+    png_path = asset_dir / f"tray-mic-{best}.png"
+    if png_path.exists():
+        return png_path
+    return None
+
+
+# PLAT-021: Shape definitions for tray icons.
+# Current implementation uses color-only differentiation (grey=idle,
+# orange=recording, etc.). This is insufficient for color-blind users.
+# The shapes below are documented for a future release that will
+# render distinct shapes (circle, square, triangle) in addition to
+# colors. The current PNG-based approach can't easily add shapes
+# without re-rendering the SVGs, so we document the intent here.
+_ICON_SHAPES = {
+    AppState.IDLE: "circle",
+    AppState.RECORDING: "square",
+    AppState.TRANSCRIBING: "diamond",
+    AppState.LOADING: "triangle",
+    AppState.ERROR: "triangle",
+    AppState.CANCELLING: "square",
+}
+
+
 def _make_icon(state: AppState, size: int = 0) -> Image.Image:
     """Generate a colored microphone icon based on state.
 
@@ -81,6 +125,12 @@ def _make_icon(state: AppState, size: int = 0) -> Image.Image:
     TRAY-020: If size is 0, auto-detect DPI.
     NEW-DUP-009: the old ``vt_logo.svg`` reference was stale — that file
     was removed; the source SVG now lives at ``client/scripts/logo.svg``.
+
+    PLAT-021: Icons use both color AND shape to differentiate states.
+    Color-only differentiation is insufficient for color-blind users.
+    Shape definitions are in _ICON_SHAPES above. Currently shapes are
+    documented but not rendered (requires SVG re-rendering). A future
+    release should render shape-differentiated icons.
     """
     if size == 0:
         size = _get_dpi_aware_icon_size()
@@ -88,13 +138,18 @@ def _make_icon(state: AppState, size: int = 0) -> Image.Image:
     if cache_key in _icon_cache:
         return _icon_cache[cache_key]
 
+    # PLAT-021/TRAY-006: Color-blind accessible colors.
+    # RECORDING: bright green (was red/orange) — clearly distinct from
+    #   ERROR red and CANCELLING orange for color-blind users.
+    # ERROR: red — keeps the universal "error" association.
+    # CANCELLING: orange — distinct from both green and red.
     colors = {
         AppState.IDLE: (120, 120, 120, 255),
-        AppState.RECORDING: (235, 64, 52, 255),
+        AppState.RECORDING: (46, 204, 113, 255),   # Bright green
         AppState.TRANSCRIBING: (52, 152, 219, 255),
         AppState.LOADING: (243, 156, 18, 255),
-        AppState.ERROR: (231, 76, 60, 255),
-        AppState.CANCELLING: (192, 57, 43, 255),
+        AppState.ERROR: (231, 76, 60, 255),         # Red
+        AppState.CANCELLING: (243, 156, 18, 255),   # Orange
     }
     color = colors.get(state, (120, 120, 120, 255))
 
@@ -115,6 +170,20 @@ def _make_icon(state: AppState, size: int = 0) -> Image.Image:
             colored = colored.resize((size, size), Image.LANCZOS)
     except Exception:
         colored = Image.new("RGBA", (size, size), color)
+
+    if sys.platform == "win32":
+        # PLAT-024: Save as ICO format for Windows tray.
+        # ICO supports multiple sizes (16, 32, 48, 256) and is the
+        # native format for Windows tray icons — sharper than PNG on
+        # Windows 11 with per-monitor DPI scaling.
+        try:
+            import io
+            ico_buf = io.BytesIO()
+            colored.save(ico_buf, format='ICO', sizes=[(16, 16), (32, 32), (48, 48), (256, 256)])
+            ico_buf.seek(0)
+            colored = Image.open(ico_buf)
+        except Exception:
+            pass
 
     _icon_cache[cache_key] = colored
     return colored

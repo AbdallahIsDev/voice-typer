@@ -15,6 +15,21 @@ import sys
 
 log = logging.getLogger("voice_typer.server.tray_window")
 
+# PROD-003: Track the PID of the Electron subprocess we launched
+# so quit() can terminate it explicitly as a safety net.
+_electron_pid: int | None = None
+
+
+def set_electron_pid(pid: int) -> None:
+    """Store the PID of the Electron subprocess for cleanup on shutdown."""
+    global _electron_pid
+    _electron_pid = pid
+
+
+def get_electron_pid() -> int | None:
+    """Return the PID of the Electron subprocess, if tracked."""
+    return _electron_pid
+
 
 def bring_electron_to_front() -> bool:
     """Find an existing Voice Typer Electron window and bring it to front.
@@ -132,19 +147,23 @@ def open_electron_window() -> None:
         import shutil
         npm_path = shutil.which("npm")
         if npm_path is not None:
-            subprocess.Popen(
+            proc = subprocess.Popen(
                 [npm_path, "run", "dev"],
                 cwd=client_dir,
             )
+            # PROD-003: track PID for cleanup on shutdown
+            set_electron_pid(proc.pid)
         else:
             # Last-resort fallback: shell=True only when npm truly
             # can't be resolved (e.g. unusual embedded environments).
             log.warning("[TRAY] npm not on PATH; falling back to shell=True")
-            subprocess.Popen(
+            proc = subprocess.Popen(
                 "npm run dev",
                 cwd=client_dir,
                 shell=True,
             )
+            # PROD-003: track PID for cleanup on shutdown
+            set_electron_pid(proc.pid)
         log.info("[TRAY] Electron app launched (dev mode fallback)")
     except Exception as e:
         log.error("[TRAY] Failed to launch Electron app: %s", e)

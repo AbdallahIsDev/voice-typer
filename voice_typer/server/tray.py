@@ -35,6 +35,36 @@ from voice_typer.server.tray_menu import build_menu, display_hotkey, wrap_callba
 # ARCH-003: types extracted to tray_types.py; icon rendering to tray_icon.py
 from voice_typer.server.tray_types import AppState, TrayController
 
+# TRAY-008: Minimal localization dict for tray menu labels.
+# Uses English as default. Wrap hardcoded strings with _() function.
+_TRAY_LABELS: dict[str, str] = {
+    "toggle_dictation": "Toggle Dictation",
+    "open_app": "Open App",
+    "models": "Models",
+    "restart": "Restart",
+    "quit": "Quit",
+    "about": "About",
+    "diagnostics": "Diagnostics",
+    "show_last_notification": "Show Last Notification",
+    "recording_active": "Recording active",
+    "confirm_quit": "Quit while recording?",
+    "confirm_quit_message": "A recording is in progress. Are you sure you want to quit?",
+    "update_available": "Update Available",
+    "version": "version",
+}
+
+
+def _(key: str) -> str:
+    """TRAY-008: Return the localized tray label for the given key.
+
+    Falls back to the key itself if not found. This mirrors the i18n
+    approach used in the Electron frontend (i18n.ts). To add a new
+    language, extend _TRAY_LABELS with a locale-prefixed dict and
+    look up the current locale here.
+    """
+    return _TRAY_LABELS.get(key, key)
+
+
 log = logging.getLogger(__name__)
 
 
@@ -62,6 +92,18 @@ class TrayIcon:
         # NEW-CQ-008: _microphones cache removed — was write-only
         self._autostart_enabled = False
 
+        # TRAY-025 / TRAY-035: Store the last notification text so the user
+        # can re-display it via the tray menu. This works around the OS
+        # limitation that notification duration is controlled by the OS, not
+        # the app (TRAY-035), and the pystray limitation that drag-then-release
+        # misses notifications (TRAY-025).
+        self._last_notification_title: str = ""
+        self._last_notification_message: str = ""
+
+        # TRAY-015: Periodic update check state
+        self._update_check_timer: Optional[threading.Timer] = None
+        self._check_updates: bool = getattr(config, 'check_updates', True) if config else True
+
         # Pre-run state queue — flushed once pystray event loop is live
         self._pending_states: list[tuple[AppState, str]] = []
         self._pending_notifications: list[tuple[str, str]] = []
@@ -78,6 +120,11 @@ class TrayIcon:
 
     @property
     def state(self) -> AppState:
+        """Return the current tray application state.
+
+        Returns:
+            The current AppState enum value (e.g. IDLE, RECORDING, PROCESSING).
+        """
         return self._state
 
     def set_state(self, state: AppState, message: str = "") -> None:
@@ -89,6 +136,10 @@ class TrayIcon:
         transitions — only the icon does.  Menu cache is now only
         invalidated by explicit config changes (microphone list,
         autostart toggle, etc.).
+
+        Args:
+            state: The new AppState to set.
+            message: Optional status message for the tray tooltip.
         """
         self._state = state
         self._message = message
@@ -101,20 +152,37 @@ class TrayIcon:
                 self._pending_states.append((state, message))
 
     def set_microphones(self, mics: list[dict]) -> None:
-        """No-op: microphone cache removed (NEW-CQ-008)."""
+        """No-op: microphone cache removed (NEW-CQ-008).
+
+        Args:
+            mics: List of microphone device dicts (ignored).
+        """
         pass
 
     def set_autostart_enabled(self, enabled: bool) -> None:
-        """Update the cached autostart state."""
+        """Update the cached autostart state.
+
+        Args:
+            enabled: Whether autostart is enabled.
+        """
         self._autostart_enabled = enabled
         self._menu_cache_valid = False
 
     def set_notifications_enabled(self, enabled: bool) -> None:
+        """Update the cached notifications state.
+
+        Args:
+            enabled: Whether notifications are enabled.
+        """
         self._notifications_enabled = enabled
         self._menu_cache_valid = False
 
     def set_hotkey(self, hotkey: str) -> None:
-        """Update the stored hotkey string for the next menu rebuild."""
+        """Update the stored hotkey string for the next menu rebuild.
+
+        Args:
+            hotkey: The new hotkey string (e.g. '<f2>').
+        """
         self._hotkey = hotkey
         self._menu_cache_valid = False
 
@@ -308,7 +376,13 @@ class TrayIcon:
         log.info("[SHUTDOWN] Tray icon stopped")
 
     def notify(self, title: str, message: str) -> None:
-        """Show a notification if notifications are enabled."""
+        """Show a notification if notifications are enabled.
+
+        TRAY-025 / TRAY-035: Also stores the notification text so the
+        user can re-display it via the tray menu.
+        """
+        self._last_notification_title = title
+        self._last_notification_message = message
         if not self._notifications_enabled:
             return
         if self._icon:
@@ -348,11 +422,16 @@ class TrayIcon:
         self._icon.title = title
 
     def notify_safety(self, title: str, message: str) -> None:
-        """Show a notification that bypasses the notification toggle."""
+        """Show a notification that bypasses the notification toggle.
+
+        RACE-022: guard _pending_notifications append with _queue_lock
+        to prevent race with the flush in run().
+        """
         if self._icon:
             self._do_notify(title, message)
         else:
-            self._pending_notifications.append((title, message))
+            with self._queue_lock:
+                self._pending_notifications.append((title, message))
 
     def _do_notify(self, title: str, message: str) -> None:
         """Send a notification through the icon."""
@@ -399,9 +478,16 @@ class TrayIcon:
             toggle_dictation=self._controller.toggle_dictation,
             open_app=self.open_electron_window,
             restart_app=self._controller.restart_app,
-            quit_app=self._controller.quit_app,
+            quit_app=self._confirm_quit_while_recording,
             build_models_submenu=self._build_models_submenu,
             left_click_action=left_click,
+            # TRAY-014: About and Diagnostics entries
+            about_callback=self._show_about,
+            diagnostics_callback=self._run_diagnostics,
+            # TRAY-025 / TRAY-035: Re-show last notification
+            show_last_notification_callback=self._show_last_notification,
+            # TRAY-008: localization function
+            localize=_,
         )
         self._cached_menu = result
         self._menu_cache_valid = True
@@ -443,3 +529,142 @@ class TrayIcon:
     # Kept here as a static-method alias for backwards compatibility with
     # any code that calls TrayIcon._wrap(fn) directly.
     _wrap = staticmethod(wrap_callback)
+
+    # ─── TRAY-003/028: Confirm quit while recording ─────────────────────
+
+    def _confirm_quit_while_recording(self) -> None:
+        """TRAY-003/028: When quit is selected while recording, show a
+        confirmation dialog. If confirmed, stop recording then quit.
+        """
+        if self._state == AppState.RECORDING:
+            # Try to show a confirmation dialog. On platforms where
+            # messageboxes are available, use them. Otherwise just quit.
+            try:
+                import tkinter as tk
+                from tkinter import messagebox
+                root = tk.Tk()
+                root.withdraw()
+                confirmed = messagebox.askyesno(
+                    _("confirm_quit"),
+                    _("confirm_quit_message"),
+                    icon='warning',
+                )
+                root.destroy()
+                if not confirmed:
+                    return
+            except Exception:
+                # If tkinter is unavailable, proceed with quit
+                log.info("[TRAY] Could not show confirmation dialog; proceeding with quit")
+            # Stop recording first if still active
+            try:
+                self._controller.toggle_dictation()
+            except Exception:
+                pass
+        self._controller.quit_app()
+
+    # ─── TRAY-014: About and Diagnostics ────────────────────────────────
+
+    def _show_about(self) -> None:
+        """TRAY-014: Show About dialog with version info."""
+        try:
+            import tkinter as tk
+            from tkinter import messagebox
+            try:
+                from voice_typer import __version__ as version
+            except ImportError:
+                version = "1.0.0"
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showinfo(
+                f"About Voice Typer",
+                f"Voice Typer {version}\n\nA background voice-to-text utility.\nhttps://github.com/AbdallahIsDev/voice-typer",
+            )
+            root.destroy()
+        except Exception as e:
+            log.warning("[TRAY] Could not show About dialog: %s", e)
+
+    def _run_diagnostics(self) -> None:
+        """TRAY-014: Trigger diagnostic bundle generation."""
+        try:
+            from voice_typer.server.crash_recovery import CrashRecovery
+            recovery = CrashRecovery()
+            path = recovery.create_diagnostic_bundle()
+            if path:
+                self.notify(_("diagnostics"), f"Diagnostic bundle saved: {path}")
+            else:
+                self.notify(_("diagnostics"), "Could not generate diagnostic bundle")
+        except Exception as e:
+            log.warning("[TRAY] Diagnostics failed: %s", e)
+            self.notify(_("diagnostics"), f"Diagnostics error: {e}")
+
+    # ─── TRAY-025 / TRAY-035: Re-show last notification ─────────────────
+
+    def _show_last_notification(self) -> None:
+        """TRAY-025 / TRAY-035: Re-display the last notification.
+
+        Workaround for:
+        - TRAY-025: pystray drag-then-release miss (pystray library
+          limitation — notifications can be lost if the user drags
+          the tray icon and releases. Adding a click handler that
+          re-shows the last notification gives the user a way to
+          recover the missed information.)
+        - TRAY-035: notification duration is controlled by the OS,
+          not the app. This is an OS limitation. The user can
+          re-display the notification via this menu item.
+        """
+        if self._last_notification_title or self._last_notification_message:
+            self._do_notify(self._last_notification_title, self._last_notification_message)
+        else:
+            self._do_notify("Voice Typer", "No recent notifications")
+
+    # ─── TRAY-015: Periodic update check ────────────────────────────────
+
+    def start_update_checker(self) -> None:
+        """TRAY-015: Start a periodic update check (once per day).
+
+        Compares the current version against the latest GitHub release.
+        If a new version is available, shows a notification.
+        Does NOT auto-download — just notifies. Config option
+        ``check_updates`` (default True) controls whether this runs.
+        """
+        if not self._check_updates:
+            return
+        self._schedule_update_check()
+
+    def _schedule_update_check(self) -> None:
+        """Schedule the next update check (24 hours from now)."""
+        if self._update_check_timer:
+            self._update_check_timer.cancel()
+        self._update_check_timer = threading.Timer(
+            86400.0,  # 24 hours
+            self._do_update_check,
+        )
+        self._update_check_timer.daemon = True
+        self._update_check_timer.start()
+
+    def _do_update_check(self) -> None:
+        """Check GitHub for the latest release and notify if newer."""
+        try:
+            import urllib.request
+            import json as _json
+            url = "https://api.github.com/repos/AbdallahIsDev/voice-typer/releases/latest"
+            req = urllib.request.Request(url, headers={"User-Agent": "voice-typer"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = _json.loads(resp.read())
+            latest_tag = data.get("tag_name", "").lstrip("v")
+            if not latest_tag:
+                return
+            try:
+                from voice_typer import __version__ as current
+            except ImportError:
+                current = "1.0.0"
+            if latest_tag != current:
+                self.notify(
+                    _("update_available"),
+                    f"Voice Typer {latest_tag} is available (you have {current})",
+                )
+        except Exception as e:
+            log.debug("[TRAY] Update check failed: %s", e)
+        finally:
+            # Schedule next check regardless of success/failure
+            self._schedule_update_check()

@@ -93,6 +93,13 @@ def build_menu(
     # ALWAYS started recording regardless of the Settings page choice.
     # Now this parameter controls which menu item gets ``default=True``.
     left_click_action: str = "open_app",
+    # TRAY-014: About and Diagnostics entries
+    about_callback: Optional[Callable[[], None]] = None,
+    diagnostics_callback: Optional[Callable[[], None]] = None,
+    # TRAY-025 / TRAY-035: Re-show last notification
+    show_last_notification_callback: Optional[Callable[[], None]] = None,
+    # TRAY-008: localization function
+    localize: Callable[[str], str] = lambda k: k,
 ) -> tuple:
     """Build the Phase 2 minimal tray menu with Models submenu.
 
@@ -125,14 +132,14 @@ def build_menu(
 
     items.append(
         pystray.MenuItem(
-            f"Toggle Dictation ({hotkey_label})",
+            f"{localize('toggle_dictation')} ({hotkey_label})",
             wrap_callback(toggle_dictation),
             default=dictation_default,
         )
     )
     items.append(
         pystray.MenuItem(
-            "Open App",
+            localize("open_app"),
             wrap_callback(open_app),
             default=open_app_default,
         )
@@ -142,14 +149,27 @@ def build_menu(
 
     # Models submenu — only show downloaded models
     models_sub = build_models_submenu()
-    items.append(pystray.MenuItem("Models", pystray.Menu(*models_sub)))
+    items.append(pystray.MenuItem(localize("models"), pystray.Menu(*models_sub)))
+
+    # TRAY-014: About and Diagnostics entries
+    if about_callback:
+        items.append(pystray.MenuItem(localize("about"), wrap_callback(about_callback)))
+    if diagnostics_callback:
+        items.append(pystray.MenuItem(localize("diagnostics"), wrap_callback(diagnostics_callback)))
+
+    # TRAY-025 / TRAY-035: Re-show last notification
+    if show_last_notification_callback:
+        items.append(pystray.MenuItem(
+            localize("show_last_notification"),
+            wrap_callback(show_last_notification_callback),
+        ))
 
     items.append(pystray.Menu.SEPARATOR)
 
     # Restart
-    items.append(pystray.MenuItem("Restart", wrap_callback(restart_app)))
+    items.append(pystray.MenuItem(localize("restart"), wrap_callback(restart_app)))
 
     # Quit
-    items.append(pystray.MenuItem("Quit", wrap_callback(quit_app)))
+    items.append(pystray.MenuItem(localize("quit"), wrap_callback(quit_app)))
 
     return tuple(items)

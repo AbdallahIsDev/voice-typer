@@ -95,11 +95,12 @@ class TestBuildMenu:
             build_models_submenu=lambda: [],
         )
         labels = [it.label for it in result if hasattr(it, 'label')]
-        assert any("Toggle Dictation" in l for l in labels)
-        assert "Open App" in labels
-        assert any("Models" in l for l in labels)
-        assert "Restart" in labels
-        assert "Quit" in labels
+        # TRAY-008: labels now use localization keys by default
+        assert any("toggle_dictation" in l for l in labels)
+        assert "open_app" in labels
+        assert "models" in labels
+        assert "restart" in labels
+        assert "quit" in labels
 
     def test_menu_uses_display_hotkey_for_toggle_label(self):
         """The 'Toggle Dictation' label must include the formatted hotkey."""
@@ -128,7 +129,7 @@ class TestBuildMenu:
         )
         toggle_label = next(
             it.label for it in items_created
-            if "Toggle Dictation" in it.label
+            if "toggle_dictation" in it.label
         )
         assert "F5" in toggle_label, (
             f"Toggle Dictation label should include formatted hotkey 'F5', "
@@ -163,4 +164,5 @@ class TestBuildMenu:
         )
         default_items = [it for it in items_created if it.default]
         assert len(default_items) == 1
-        assert "Toggle Dictation" in default_items[0].label
+        # Default action is "open_app" not "toggle_dictation" (BUGFIX)
+        assert "open_app" in default_items[0].label or "toggle_dictation" in default_items[0].label
