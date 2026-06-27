@@ -12,7 +12,6 @@ dependency install feature.
 
 import logging
 import os
-import shutil
 import time
 from pathlib import Path
 from typing import Optional, Callable
@@ -38,46 +37,14 @@ _HF_ALLOW_PATTERNS = [
 # PROD-004: maximum number of download retries with exponential backoff.
 _MAX_DOWNLOAD_RETRIES = 4
 
-# PROD-005: estimated model sizes in bytes for disk-space pre-check.
-_ESTIMATED_MODEL_SIZES = {
-    "nvidia/parakeet-tdt-0.6b-v3": 2 * 1024 * 1024 * 1024,  # ~2 GB
-    "Systran/faster-whisper-tiny.en": 75 * 1024 * 1024,  # ~75 MB
-    "Systran/faster-whisper-small.en": 466 * 1024 * 1024,  # ~466 MB
-    "Systran/faster-whisper-medium.en": 1500 * 1024 * 1024,  # ~1.5 GB
-    "Systran/faster-whisper-large-v3": 3000 * 1024 * 1024,  # ~3 GB
-}
-
-
-def _check_disk_space(repo_id: str, cache_dir: Optional[Path] = None) -> bool:
-    """PROD-005: Check available disk space before model download.
-
-    Returns True if there is sufficient disk space for the model,
-    False otherwise.  If the model size is unknown, assumes 2 GB.
-    """
-    try:
-        estimated_size = _ESTIMATED_MODEL_SIZES.get(repo_id, 2 * 1024 * 1024 * 1024)
-        if cache_dir is None:
-            from voice_typer.server.config import _config_dir
-            cache_dir = _config_dir() / "huggingface"
-        target_dir = cache_dir if cache_dir.exists() else Path.home()
-        usage = shutil.disk_usage(str(target_dir))
-        available_gb = usage.free / (1024 * 1024 * 1024)
-        required_gb = estimated_size / (1024 * 1024 * 1024)
-        if usage.free < estimated_size:
-            log.warning(
-                "[ASR_SETUP] Insufficient disk space for %s: "
-                "%.1f GB available, ~%.1f GB required",
-                repo_id, available_gb, required_gb,
-            )
-            return False
-        log.debug(
-            "[ASR_SETUP] Disk space OK for %s: %.1f GB available, ~%.1f GB required",
-            repo_id, available_gb, required_gb,
-        )
-        return True
-    except Exception as exc:
-        log.debug("[ASR_SETUP] Disk space check failed (proceeding anyway): %s", exc)
-        return True  # proceed if we can't check
+# PROD-005: the local ``_check_disk_space`` and ``_ESTIMATED_MODEL_SIZES``
+# duplicate was REMOVED. The canonical disk-space check lives in
+# ``transcription.py::_check_disk_space_for_download`` (raises RuntimeError
+# on insufficient space). ``asr_setup.py`` delegates to it (see
+# ``download_parakeet_weights`` below). If the canonical import fails, we
+# log the error and proceed — the model download will fail naturally if
+# there's truly no space, which is a safer failure mode than running a
+# second, divergent size table that could drift out of sync.
 
 
 def ensure_hf_env():
@@ -179,15 +146,14 @@ def download_parakeet_weights(
             progress_callback(msg)
         return False
     except Exception as e:
-        # If the canonical check can't be imported or fails unexpectedly,
-        # fall back to the local _check_disk_space (which returns bool).
-        log.debug("[ASR_SETUP] canonical disk space check unavailable, using local: %s", e)
-        if not _check_disk_space(repo_id):
-            msg = "Not enough disk space to download model"
-            log.error("[ASR_SETUP] %s", msg)
-            if progress_callback:
-                progress_callback(msg)
-            return False
+        # PROD-005: If the canonical check can't be imported, log and
+        # proceed. The model download itself will fail naturally if
+        # there's truly no space — a safer failure mode than running a
+        # divergent local size table. Pre-fix this fell back to a local
+        # ``_check_disk_space`` duplicate that had different size
+        # thresholds and could drift out of sync with the canonical
+        # version.
+        log.debug("[ASR_SETUP] canonical disk space check unavailable, proceeding: %s", e)
 
     msg = "Downloading Parakeet TDT v3 model..."
     log.info("[ASR_SETUP] %s", msg)

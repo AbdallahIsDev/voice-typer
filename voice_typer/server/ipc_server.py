@@ -1437,6 +1437,48 @@ class IPCServer:
                 resp["type"] = "error"
                 resp["data"] = {"message": str(e)}
 
+        elif cmd == "check_accessibility":
+            # PLAT-030: macOS Accessibility permission check.
+            # Returns {"granted": bool, "platform": "macos"|"windows"|"linux"}.
+            # On non-macOS platforms, always returns granted=True (no
+            # accessibility permission required). The Electron UI uses
+            # this to show a persistent warning banner on macOS when
+            # the permission is missing, and to gate the onboarding
+            # wizard's "Grant Accessibility" step.
+            try:
+                import sys as _sys
+                granted = True
+                if _sys.platform == "darwin":
+                    try:
+                        import ctypes
+                        # AXIsProcessTrusted() is the official API.
+                        # Returns True iff the process has Accessibility.
+                        app_services = ctypes.cdll.LoadLibrary(
+                            "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
+                        )
+                        granted = bool(app_services.AXIsProcessTrusted())
+                    except Exception:
+                        # Fallback: osascript check
+                        import subprocess as _sp
+                        try:
+                            result = _sp.run(
+                                ["osascript", "-e",
+                                 'tell application "System Events" to UI elements enabled'],
+                                capture_output=True, text=True, timeout=3,
+                            )
+                            granted = result.returncode == 0 and "true" in result.stdout.lower()
+                        except Exception:
+                            granted = False
+                resp["type"] = "accessibility_status"
+                resp["data"] = {
+                    "granted": granted,
+                    "platform": _sys.platform,
+                }
+            except Exception as e:
+                log.error("[IPC] check_accessibility failed: %s", e)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
         else:
             resp["type"] = "error"
             # ERR-009: include a structured `code` field so clients can
