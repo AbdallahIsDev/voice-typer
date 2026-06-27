@@ -474,7 +474,13 @@ class TestResampleFallback:
 
         # Set the error time far enough in the past that retry is allowed
         rec_mod._resample_poly_error = RuntimeError("transient error")
-        rec_mod._resample_poly_error_time = time.time() - rec_mod._RESAMPLE_RETRY_INTERVAL - 1
+        # AUDIO-003: use time.monotonic() to match the source code at
+        # recording.py:163 (which reads time.monotonic() - error_time).
+        # Pre-fix this used time.time() (wall clock) which differs from
+        # the monotonic clock by an arbitrary offset — under NTP/DST
+        # adjustments the wall clock can jump backwards and cause the
+        # retry-timeout comparison to behave unexpectedly.
+        rec_mod._resample_poly_error_time = time.monotonic() - rec_mod._RESAMPLE_RETRY_INTERVAL - 1
 
         call_count = [0]
 
@@ -495,7 +501,10 @@ class TestResampleFallback:
 
         # Set the error time very recently (within retry interval)
         rec_mod._resample_poly_error = RuntimeError("recent error")
-        rec_mod._resample_poly_error_time = time.time()
+        # AUDIO-003: use time.monotonic() to match source code at
+        # recording.py:163. See test_resample_retry_after_timeout for
+        # the full rationale.
+        rec_mod._resample_poly_error_time = time.monotonic()
 
         # The error should still be set (not cleared for retry yet)
         assert rec_mod._resample_poly_error is not None

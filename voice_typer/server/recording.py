@@ -211,7 +211,10 @@ class Recorder:
         # AUDIO-002: rolling window of xrun timestamps for rate-limited logging
         self._xrun_timestamps: collections.deque = collections.deque(maxlen=_XRUN_WINDOW_MAXLEN)
         self._recording_event = threading.Event()
-        self._in_callback = threading.Event()  # AUDIO-009: guard flag for in-flight callback
+        # AUDIO-009/AUDIO-015: removed dead ``_in_callback`` field — it
+        # was declared here but never set, cleared, or read anywhere in
+        # the codebase. The actual in-flight-callback guard is
+        # ``_is_in_audio_callback`` (declared below at line ~285).
         self._effective_sr: int = config.sample_rate
         self._last_rms: float = 0.0
         self._chunk_count: int = 0
@@ -591,9 +594,15 @@ class Recorder:
             self._vad_consecutive_silence_frames += 1
             self._vad_consecutive_speech_frames = 0
         else:
-            # Between thresholds — don't change counters
-            self._vad_consecutive_silence_frames = 0
-            self._vad_consecutive_speech_frames = 0
+            # AUDIO-013: Grey zone (between speech and silence thresholds).
+            # Standard VAD hysteresis: leave counters unchanged so a long
+            # run of grey-zone chunks doesn't discard accumulated frame
+            # history. Resetting both counters here would cause spurious
+            # state-machine stalls when audio hovers near the threshold
+            # boundary (e.g. low-volume speech or breathy silence).
+            # Pre-fix this block reset both counters, contradicting the
+            # comment — the code now matches the comment.
+            pass
 
         # State transitions with hysteresis
         old_state = self._vad_state
@@ -1135,6 +1144,14 @@ class Recorder:
                 self._chunk_count += 1
                 chunk_count = self._chunk_count
                 buffer_len = len(self._buffer)
+                # RACE-003: snapshot _recent_rms_values INSIDE the lock
+                # so the post-lock code can iterate without a torn read
+                # from a concurrent callback. Pre-fix, the deque
+                # reference was read outside the lock and could be
+                # mutated mid-iteration (append + maxlen eviction).
+                # list() copies the references in O(k) where k is the
+                # deque maxlen (default 50) — negligible.
+                recent_rms_snapshot = list(self._recent_rms_values)
 
             # AUDIO-019: Backpressure detection — if the deque dropped chunks
             # (maxlen exceeded), increment a counter and warn the user
@@ -1156,7 +1173,9 @@ class Recorder:
             silence_warning_cb = self.on_silence_warning
             silence_auto_stop_cb = self.on_silence_auto_stop
             max_duration_cb = self.on_max_duration_auto_stop
-            recent_rms = self._recent_rms_values
+            # RACE-003: use the snapshot taken inside the lock above;
+            # do NOT re-read _recent_rms_values here.
+            recent_rms = recent_rms_snapshot
             silence_timer = self._silence_timer
             silence_warning_count = self._silence_warning_count
             recording_start = self._recording_start_time
@@ -1180,17 +1199,22 @@ class Recorder:
                 chunk_rms = 0.0
             chunk_duration = len(filtered) / self._effective_sr
 
+            # AUDIO-AGC: apply automatic gain control BEFORE storing
+            # _last_rms so the value exposed to UI/IPC matches the
+            # value VAD uses internally. Pre-fix, _last_rms stored the
+            # pre-AGC RMS while VAD consumed the post-AGC recomputed
+            # value, causing the UI level meter to disagree with the
+            # VAD speech/silence decision.
             # AUDIO-RMS: store _last_rms in the callback so it's
-            # reachable from UI/IPC during recording
-            with self._lock:
-                self._last_rms = chunk_rms
-
-            # AUDIO-AGC: apply automatic gain control
+            # reachable from UI/IPC during recording.
             filtered = self._agc_update(chunk_rms, filtered)
             # Recompute RMS after AGC if gain was applied
             if abs(self._agc_gain - 1.0) > 0.01 and filtered.size:
                 flat = filtered.reshape(-1)
                 chunk_rms = float(np.sqrt(np.dot(flat, flat) / flat.size))
+
+            with self._lock:
+                self._last_rms = chunk_rms
 
             # AUDIO-CLIP: Track clipping
             if chunk_peak >= 0.99:
