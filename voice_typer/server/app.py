@@ -2382,11 +2382,6 @@ def _ensure_single_instance(silent=False):
 
     On duplicate launch, Windows returns ``ERROR_ALREADY_EXISTS`` from
     ``CreateMutexW`` — this is the authoritative signal that another
-    # PLAT-HLEAK: register atexit handler for mutex cleanup
-    import atexit
-    if mutex:
-        self._mutex_handle = mutex
-        atexit.register(lambda: _close_mutex_handle(mutex))
     instance owns the lock.  We bail immediately.  (Previously the code
     second-guessed Windows with a flaky ``wmic``-based process scan and,
     when that scan returned False, proceeded to create a *new* mutex —
@@ -2510,28 +2505,21 @@ def _close_mutex_handle(handle) -> None:
     except Exception:
         pass
 
+
 def _instance_hash() -> str:
     """PLAT-RUN: Hash the install path for unique mutex/autostart names.
 
     Allows multiple installations in different directories to coexist
     without conflicting on the mutex name or autostart task name.
+    Uses SHA-256 (not MD5) for consistency with the mutex hash above.
     """
     import hashlib
     import os
     try:
         install_path = os.path.dirname(os.path.abspath(__file__))
-        return hashlib.md5(install_path.encode()).hexdigest()[:8]
+        return hashlib.sha256(install_path.encode()).hexdigest()[:8]
     except Exception:
         return ""
-
-
-def _close_mutex_handle(handle) -> None:
-    """PLAT-HLEAK: Close the single-instance mutex handle."""
-    try:
-        import ctypes
-        ctypes.windll.kernel32.CloseHandle(handle)
-    except Exception:
-        pass
 
 
 def main() -> None:
