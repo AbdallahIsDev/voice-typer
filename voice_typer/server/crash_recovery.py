@@ -196,6 +196,10 @@ class CrashRecovery:
         """Add a transcription to the recovery buffer.
 
         Keeps only the last MAX_RECOVERY_ENTRIES entries.
+
+        Args:
+            text: The transcribed text to store.
+            pasted: Whether the text was successfully pasted.
         """
         from datetime import datetime
         entry = {
@@ -211,7 +215,14 @@ class CrashRecovery:
         self._enqueue_save()
 
     def mark_pasted(self, index: int) -> bool:
-        """Mark an entry as successfully pasted."""
+        """Mark an entry as successfully pasted.
+
+        Args:
+            index: The index of the entry to mark.
+
+        Returns:
+            True if the entry was found and marked, False otherwise.
+        """
         with self._lock:
             if 0 <= index < len(self._entries):
                 self._entries[index]["pasted"] = True
@@ -220,19 +231,31 @@ class CrashRecovery:
             return False
 
     def mark_latest_pasted(self) -> None:
-        """Mark the most recent entry as pasted."""
+        """Mark the most recent entry as pasted.
+
+        This is called after a successful paste operation to indicate
+        the transcription was delivered to the target application.
+        """
         with self._lock:
             if self._entries:
                 self._entries[-1]["pasted"] = True
         self._enqueue_save()
 
     def get_unpasted(self) -> list[dict]:
-        """Return all entries that were not pasted (potential crash losses)."""
+        """Return all entries that were not pasted (potential crash losses).
+
+        Returns:
+            List of entry dicts with 'text', 'timestamp', and 'pasted' keys.
+        """
         with self._lock:
             return [e for e in self._entries if not e.get("pasted", False)]
 
     def get_all(self) -> list[dict]:
-        """Return all recovery entries."""
+        """Return all recovery entries.
+
+        Returns:
+            List of all entry dicts (copies, safe to modify).
+        """
         with self._lock:
             return list(self._entries)
 
@@ -240,7 +263,11 @@ class CrashRecovery:
         """Check for unpasted transcriptions from a previous session.
 
         Returns a list of unpasted entries if any exist, or None.
-        The caller should notify the user about these entries.
+        The caller should notify the user about these entries so they
+        can recover the text that was lost due to a crash or forced close.
+
+        Returns:
+            List of unpasted entry dicts, or None if no unpasted entries.
         """
         unpasted = self.get_unpasted()
         if unpasted:
@@ -249,7 +276,10 @@ class CrashRecovery:
         return None
 
     def clear(self) -> None:
-        """Clear all recovery entries (after user acknowledgment)."""
+        """Clear all recovery entries after user acknowledgment.
+
+        Removes all stored entries and saves the empty state to disk.
+        """
         with self._lock:
             self._entries.clear()
         self._enqueue_save()
@@ -283,3 +313,101 @@ class CrashRecovery:
                     self._save_sync()
         except Exception:
             pass  # __del__ must never raise
+
+    def create_diagnostic_bundle(self) -> Optional[str]:
+        """PROD-010: Create a diagnostic bundle zip file.
+
+        Collects:
+          - voice-typer.log
+          - config.json (redacted — API keys removed)
+          - System info (platform, Python version, GPU info)
+          - Model info (loaded model, device)
+          - Crash recovery entries
+
+        Returns the path to the created zip file, or None on failure.
+        """
+        import zipfile
+        from datetime import datetime
+
+        try:
+            from voice_typer.server.config import _config_dir
+            config_dir = _config_dir()
+        except Exception:
+            config_dir = self._path.parent
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        bundle_name = f"voice-typer-diagnostics-{timestamp}.zip"
+        bundle_path = config_dir / bundle_name
+
+        try:
+            with zipfile.ZipFile(str(bundle_path), "w", zipfile.ZIP_DEFLATED) as zf:
+                # 1. Log file
+                log_path = config_dir / "voice-typer.log"
+                if log_path.exists():
+                    try:
+                        zf.write(str(log_path), "voice-typer.log")
+                    except Exception:
+                        pass
+
+                # 2. Config (redacted)
+                config_path = config_dir / "config.json"
+                if config_path.exists():
+                    try:
+                        import json
+                        raw = config_path.read_text(encoding="utf-8")
+                        data = json.loads(raw)
+                        # Redact sensitive keys
+                        for key in ("llm_api_key", "openai_api_key", "deepgram_api_key"):
+                            if key in data and data[key]:
+                                data[key] = "[REDACTED]"
+                        zf.writestr("config.json", json.dumps(data, indent=2))
+                    except Exception:
+                        pass
+
+                # 3. System info
+                import platform
+                import sys
+                sys_info = [
+                    f"Platform: {platform.platform()}",
+                    f"Python: {sys.version}",
+                    f"Architecture: {platform.machine()}",
+                    f"Processor: {platform.processor()}",
+                ]
+                # GPU info
+                try:
+                    import torch
+                    sys_info.append(f"CUDA available: {torch.cuda.is_available()}")
+                    if torch.cuda.is_available():
+                        sys_info.append(f"CUDA version: {torch.version.cuda}")
+                        sys_info.append(f"GPU: {torch.cuda.get_device_name(0)}")
+                        sys_info.append(f"GPU memory: {torch.cuda.get_device_properties(0).total_mem // (1024*1024)} MB")
+                except ImportError:
+                    sys_info.append("PyTorch not installed")
+                except Exception as exc:
+                    sys_info.append(f"GPU info error: {exc}")
+                zf.writestr("system_info.txt", "\n".join(sys_info))
+
+                # 4. Model info
+                try:
+                    from voice_typer.server.config import Config
+                    cfg = Config.load()
+                    model_info = [
+                        f"Model: {cfg.model_size}",
+                        f"Device: {cfg.device}",
+                    ]
+                    zf.writestr("model_info.txt", "\n".join(model_info))
+                except Exception:
+                    pass
+
+                # 5. Crash recovery entries
+                with self._lock:
+                    entries_json = json.dumps(
+                        {"entries": self._entries}, indent=2, ensure_ascii=False,
+                    )
+                zf.writestr("crash_recovery.json", entries_json)
+
+            log.info("[RECOVERY] Diagnostic bundle created: %s", bundle_path)
+            return str(bundle_path)
+        except Exception as exc:
+            log.error("[RECOVERY] Failed to create diagnostic bundle: %s", exc)
+            return None

@@ -220,6 +220,46 @@ class VoiceTyperService:
         """Return available microphones."""
         return self._app._microphones
 
+    # AUDIO-MIC: refresh the microphone list by re-querying PortAudio.
+    def refresh_microphones(self) -> list[dict]:
+        """AUDIO-MIC: Re-query PortAudio for available microphones.
+
+        Called when the user clicks "Refresh Microphones" in the UI
+        after plugging in a new USB/BT device. Updates the cached list
+        and the tray menu.
+        """
+        from voice_typer.server.platform import list_microphones
+        try:
+            mics = list_microphones()
+            self._app._microphones = mics
+            try:
+                self._app.tray.set_microphones(mics)
+            except Exception:
+                pass
+            return mics
+        except Exception as e:
+            log.error("[SERVICE] refresh_microphones failed: %s", e)
+            return self._app._microphones
+
+    # AUDIO-RMS: IPC endpoint for real-time RMS level.
+    def get_rms_level(self) -> dict:
+        """AUDIO-RMS: Return the current RMS level from the recorder.
+
+        Returns dict with 'rms' (float, 0.0 if not recording) and
+        'recording' (bool).
+        """
+        try:
+            recorder = getattr(self._app, "recorder", None)
+            if recorder is None:
+                return {"rms": 0.0, "recording": False}
+            return {
+                "rms": recorder.last_rms,
+                "recording": recorder.recording,
+            }
+        except Exception as e:
+            log.debug("[SERVICE] get_rms_level failed: %s", e)
+            return {"rms": 0.0, "recording": False}
+
     def microphone_test_start(self, mic_id: str | None = None,
                                duration: float = 10.0,
                                filters: dict | None = None) -> dict:
@@ -722,14 +762,14 @@ class VoiceTyperService:
                         user_only[cat] = diff
 
         # Write only user customizations to the user file
+        # SEC-003: Use _secure_atomic_write to ensure 0o600 permissions
         user_path = _config_dir() / VOCAB_FILENAME
         user_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = user_path.with_suffix(".tmp")
-        tmp.write_text(
+        from voice_typer.server.config import _secure_atomic_write
+        _secure_atomic_write(
+            user_path,
             json.dumps(user_only, indent=2, ensure_ascii=False),
-            encoding="utf-8",
         )
-        tmp.replace(user_path)
 
         return {"imported_categories": len(user_only)}
 
@@ -1067,10 +1107,27 @@ class VoiceTyperService:
                     from voice_typer.server.config import _config_dir
                     repo_id = f"Systran/faster-whisper-{model_name}"
                     cache_dir = _config_dir() / "huggingface" / "hub"
+
+                    # SEC-audit-005: Allowlist of file patterns permitted in downloads
+                    _service_allow_patterns = [
+                        "*.safetensors", "*.bin", "config.json", "tokenizer.json",
+                        "tokenizer_config.json", "special_tokens_map.json",
+                        "preprocessor_config.json", "feature_extractor_config.json",
+                        "generation_config.json", "model.safetensors.index.json", "*.model",
+                    ]
+                    # SEC-audit-005: Use pinned revision from MODEL_HASHES manifest
+                    from voice_typer.server.security import MODEL_HASHES
+                    _service_revision = MODEL_HASHES.get(repo_id, {}).get("revision", "main")
+
                     _push_progress(5, f"Checking cache for {model_name}...")
                     # Try local-only first; if cached, skip the polling.
                     try:
-                        snapshot_download(repo_id=repo_id, local_files_only=True)
+                        snapshot_download(
+                            repo_id=repo_id,
+                            revision=_service_revision,
+                            allow_patterns=_service_allow_patterns,
+                            local_files_only=True,
+                        )
                         _push_progress(100, f"{model_name} already cached")
                     except Exception:
                         _push_progress(10, f"Downloading {model_name} from HuggingFace...")
@@ -1083,8 +1140,13 @@ class VoiceTyperService:
                         download_err: list = []
                         def _do_download():
                             try:
-                                snapshot_download(
+                                # PROD-004: use retry-with-backoff wrapper
+                                from voice_typer.server.transcription import _download_with_retry
+                                _download_with_retry(
+                                    snapshot_download,
                                     repo_id=repo_id,
+                                    revision=_service_revision,
+                                    allow_patterns=_service_allow_patterns,
                                     resume_download=True,
                                     cache_dir=str(cache_dir),
                                 )
@@ -1212,3 +1274,26 @@ class VoiceTyperService:
             _push_progress(0, f"Download failed: {exc}")
             _notify("Voice Typer", f"Failed to download {model_name}: {exc}")
             return {"success": False, "error": str(exc)}
+
+    # ── PROD-010: Export diagnostics ─────────────────────────────────
+
+    def export_diagnostics(self) -> dict:
+        """PROD-010: Create a diagnostic bundle for support.
+
+        Delegates to CrashRecovery.create_diagnostic_bundle().
+        Returns ``{"success": bool, "path": str}`` on success or
+        ``{"success": False, "message": str}`` on failure.
+        """
+        try:
+            recovery = self._app._crash_recovery
+            if recovery is None:
+                from voice_typer.server.crash_recovery import CrashRecovery
+                recovery = CrashRecovery()
+            path = recovery.create_diagnostic_bundle()
+            if path:
+                return {"success": True, "path": path}
+            else:
+                return {"success": False, "message": "Failed to create diagnostic bundle"}
+        except Exception as exc:
+            log.error("export_diagnostics failed: %s", exc)
+            return {"success": False, "message": str(exc)}

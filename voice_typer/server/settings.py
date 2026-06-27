@@ -1,9 +1,22 @@
-"""Settings helpers, controller, and native tkinter window."""
+"""DEPRECATED: This module is unreachable dead code (tkinter settings UI).
+
+CQ-006: The settings UI is now provided by the Electron frontend.
+This module is kept only for reference and will be removed in a
+future version. Do not import this module.
+"""
 
 from __future__ import annotations
 
 import re
+import warnings
 from typing import Callable, Optional
+
+warnings.warn(
+    "voice_typer.server.settings is deprecated and will be removed. "
+    "Use the Electron settings UI instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 ALLOWED_MODELS = ("tiny.en", "small.en", "medium.en", "qwen", "parakeet")
 

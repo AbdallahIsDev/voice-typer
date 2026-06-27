@@ -973,6 +973,32 @@ class IPCServer:
                 resp["type"] = "error"
                 resp["data"] = {"message": str(e)}
 
+        elif cmd == "refresh_microphones":
+            # AUDIO-MIC: re-query PortAudio for available microphones.
+            # Called when the user clicks "Refresh Microphones" in the
+            # Electron UI after plugging in a new USB/BT device.
+            try:
+                mics = self.service.refresh_microphones()
+                resp["type"] = "microphones"
+                resp["data"] = mics
+            except Exception as e:
+                log.error("[IPC] refresh_microphones failed: %s", e, exc_info=True)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
+        elif cmd == "get_rms_level":
+            # AUDIO-RMS: return the current RMS level from the recorder.
+            # Allows the Electron UI to show real-time audio level
+            # without depending on the waveform bubble callback.
+            try:
+                result = self.service.get_rms_level()
+                resp["type"] = "rms_level"
+                resp["data"] = result
+            except Exception as e:
+                log.error("[IPC] get_rms_level failed: %s", e, exc_info=True)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
         elif cmd == "get_volume_backend_status":
             # Returns the active volume backend's name + capability flags
             # ARCH-005: delegates to service layer
@@ -1391,7 +1417,18 @@ class IPCServer:
                 log.error("[IPC] delete_model failed: %s", e)
                 resp["type"] = "error"
                 resp["data"] = {"message": str(e)}
-                
+
+        # ── PROD-010: Export diagnostics ──────────────────────────────
+        elif cmd == "export_diagnostics":
+            try:
+                result = self.service.export_diagnostics()
+                resp["type"] = "diagnostics_result"
+                resp["data"] = result
+            except Exception as e:
+                log.error("[IPC] export_diagnostics failed: %s", e)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
         else:
             resp["type"] = "error"
             # ERR-009: include a structured `code` field so clients can
@@ -1627,6 +1664,18 @@ def main() -> None:
     if _CANONICAL not in sys.modules:
         sys.modules[_CANONICAL] = sys.modules["__main__"]
 
+    # RACE-018: Enable faulthandler for automatic thread-dump on SIGSEGV/SIGABRT.
+    # Invaluable for debugging production crashes with CUDA/GPU drivers.
+    try:
+        import faulthandler
+        faulthandler.enable()
+        # Optional: register SIGUSR1 for on-demand thread dumps (POSIX only)
+        import signal
+        if hasattr(signal, 'SIGUSR1'):
+            signal.signal(signal.SIGUSR1, faulthandler.dump_traceback_later)
+    except Exception:
+        pass  # Not available on all platforms
+
     from voice_typer.server.app import VoiceTyperApp, _setup_logging, _ensure_single_instance
 
     _setup_logging()
@@ -1636,6 +1685,9 @@ def main() -> None:
     # on every shutdown has been removed.
 
     app = VoiceTyperApp()
+    # PLAT-HLEAK: store the mutex handle on the app instance so
+    # quit() can CloseHandle it on shutdown
+    app._mutex_handle = _single_instance_mutex
 
     # NEW-CLI-002: use argparse for --port instead of hand-rolled
     # sys.argv walk. Supports --port=N and --port N, validates the
