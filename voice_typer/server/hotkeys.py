@@ -129,7 +129,7 @@ class PynputHotkey(HotkeyBackend):
                     "[HOTKEY] macOS: pynput keyboard listener failed. "
                     "This usually means the Accessibility permission is not "
                     "granted to Voice Typer. To fix:\n"
-                    "  1. Open System Preferences → Privacy & Security → "
+                    "  1. Open System Preferences > Privacy & Security > "
                     "Accessibility\n"
                     "  2. Click the lock icon and authenticate\n"
                     "  3. Add Voice Typer (or your terminal/Python) to the "
@@ -148,8 +148,8 @@ class PynputHotkey(HotkeyBackend):
                     log.warning(
                         "[HOTKEY] macOS: Both GlobalHotKeys and Listener "
                         "failed. Please grant Accessibility permissions:\n"
-                        "  System Preferences → Privacy & Security → "
-                        "Accessibility → add Voice Typer"
+                        "  System Preferences > Privacy & Security > "
+                        "Accessibility > add Voice Typer"
                     )
 
     # --- internal helpers ---------------------------------------------------
