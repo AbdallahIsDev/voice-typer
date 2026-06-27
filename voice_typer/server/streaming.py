@@ -1,5 +1,6 @@
 """Core helpers for hidden streaming transcription."""
 
+import collections
 import logging
 import math
 import threading
@@ -177,10 +178,22 @@ class AudioWindowPlanner:
 class StreamingTextAssembler:
     """Commit timestamped words only after they are outside the unsafe tail."""
 
-    # AUDIO-019: add maxlen to _words to prevent unbounded growth.
-    # When full, oldest entries are evicted and a warning is logged.
+    # AUDIO-019: cap _words to prevent unbounded growth. Pre-fix this
+    # used a plain ``list`` with ``pop(0)`` eviction (O(n) per eviction
+    # — every eviction shifted up to 9999 pointers). Now we use a
+    # ``collections.deque(maxlen=_MAX_WORDS)`` for O(1) eviction plus
+    # a ``_base_offset`` counter so the external ``_word_key_index``
+    # stores ABSOLUTE indices that don't shift on eviction.
     _MAX_WORDS = 10000
-    _words: list[WordTiming] = field(default_factory=list)
+    _words: collections.deque = field(
+        default_factory=lambda: collections.deque(maxlen=StreamingTextAssembler._MAX_WORDS)
+    )
+    # AUDIO-019: number of items evicted from the front of ``_words``.
+    # External indices stored in ``_word_key_index`` are absolute
+    # (= base_offset + deque_index); we convert to deque index at
+    # access time via ``abs_idx - _base_offset``. This makes eviction
+    # O(1) — no need to shift every stored index by 1.
+    _base_offset: int = 0
     _seen_timestamps: set[tuple[float, float]] = field(default_factory=set)
     _word_key_index: dict[str, list[int]] = field(default_factory=dict)
     last_committed_time: float = 0.0
@@ -198,8 +211,10 @@ class StreamingTextAssembler:
             # PERF-NEW-004: sort at read time since we deferred sorting
             # in _insert_word_unlocked.  Words are approximately in
             # order from streaming, so this is a near-sorted sort (fast).
-            self._words.sort(key=lambda w: (w.start_seconds, w.end_seconds))
-            self._committed_text_cache = " ".join(word.word for word in self._words)
+            # AUDIO-019: deque has no .sort(); convert to list first.
+            words_list = list(self._words)
+            words_list.sort(key=lambda w: (w.start_seconds, w.end_seconds))
+            self._committed_text_cache = " ".join(word.word for word in words_list)
             self._words_dirty = False
             return self._committed_text_cache
 
@@ -333,21 +348,35 @@ class StreamingTextAssembler:
         AUDIO-019: enforce maxlen on _words. When the list exceeds
         _MAX_WORDS, evict the oldest entry and log a warning.
         """
-        # AUDIO-019: enforce maximum word count
-        if len(self._words) >= self._MAX_WORDS:
-            evicted = self._words.pop(0)
+        # AUDIO-019: detect imminent eviction BEFORE appending so we
+        # can log which word is being evicted and adjust indices.
+        if len(self._words) >= self._words.maxlen:
+            # Peek the leftmost item; deque.append will evict it.
+            evicted_word = self._words[0]
+            evicted_absolute_idx = self._base_offset  # current offset → 0 in deque
             log.warning(
                 "[STREAMING] Word list exceeded %d entries; evicted oldest: %r",
-                self._MAX_WORDS, evited.word,
+                self._MAX_WORDS, evicted_word.word,
             )
-            # Adjust indices in _word_key_index
-            for key, indices in self._word_key_index.items():
-                self._word_key_index[key] = [i - 1 for i in indices if i > 0]
+            # Bump base offset so all future absolute-index → deque-index
+            # conversions account for the eviction.
+            self._base_offset += 1
+            # Drop the index entry pointing at the evicted word. Other
+            # indices stay valid (they're absolute, not relative).
+            for key, indices in list(self._word_key_index.items()):
+                if evicted_absolute_idx in indices:
+                    new_indices = [i for i in indices if i != evicted_absolute_idx]
+                    if new_indices:
+                        self._word_key_index[key] = new_indices
+                    else:
+                        del self._word_key_index[key]
 
         key = _word_key(word.word)
+        # Absolute index = base_offset + current deque length (before append).
+        absolute_idx = self._base_offset + len(self._words)
         self._words.append(word)
         if key:
-            self._word_key_index.setdefault(key, []).append(len(self._words) - 1)
+            self._word_key_index.setdefault(key, []).append(absolute_idx)
         # PERF-018: invalidate cached text on mutation
         self._words_dirty = True
 
@@ -356,10 +385,12 @@ class StreamingTextAssembler:
         if not key:
             return False
         matching_indices = self._word_key_index.get(key, [])
-        for idx in matching_indices:
-            if idx >= len(self._words):
+        for abs_idx in matching_indices:
+            # AUDIO-019: convert absolute index → deque index.
+            deque_idx = abs_idx - self._base_offset
+            if deque_idx < 0 or deque_idx >= len(self._words):
                 continue
-            existing = self._words[idx]
+            existing = self._words[deque_idx]
             if (
                 abs(existing.start_seconds - word.start_seconds) <= 0.25
                 and abs(existing.end_seconds - word.end_seconds) <= 0.25
