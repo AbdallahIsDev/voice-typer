@@ -417,7 +417,19 @@ def _verify_qwen_model_hashes(model_path: str) -> bool:
         # hard gate that prevents loading unexpected file types.
         # Operators can copy the logged hashes into model_hashes.json
         # under the "qwen" entry's "files" dict to enable enforcement.
-        log.info("[QWEN] No pinned hashes for Qwen model — logging computed hashes for audit")
+        # SEC-audit-005: emit a WARNING (not just INFO) so operators
+        # notice that Qwen integrity verification is effectively a
+        # no-op. Pre-fix the empty-files state was invisible at default
+        # log levels — operators had no way to know their model_hashes.json
+        # was empty for the Qwen entry.
+        log.warning(
+            "[QWEN] Model integrity check is a NO-OP for %s — "
+            "model_hashes.json has empty \"files\" dict for the qwen entry. "
+            "Computed hashes are logged below; copy them into "
+            "model_hashes.json under the \"qwen\" entry's \"files\" field "
+            "to enable enforcement on the next run.",
+            model_path,
+        )
         try:
             for entry in path.rglob("*"):
                 if not entry.is_file():

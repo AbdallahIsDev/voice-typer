@@ -303,7 +303,22 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
         # No pinned hashes — log computed hashes for future audit.
         # This is a soft pass; the structural checks above are the
         # hard gate that prevents loading completely wrong file types.
-        log.info("[SECURITY] No pinned file hashes for %s — logging computed hashes for audit", repo_id)
+        # SEC-audit-005: emit a WARNING (not just INFO) so operators
+        # notice that model integrity verification is effectively a
+        # no-op for this repo. Pre-fix the empty-files state produced
+        # zero enforcement but only an INFO log, which is invisible at
+        # default log levels — operators had no way to know their
+        # model_hashes.json was empty. The WARNING surfaces the issue
+        # in normal logs without refusing to load (the structural
+        # checks above are still enforced).
+        log.warning(
+            "[SECURITY] Model integrity check is a NO-OP for %s — "
+            "model_hashes.json has empty \"files\" dict for this repo. "
+            "Computed hashes are logged below; copy them into "
+            "model_hashes.json under the repo's \"files\" field to "
+            "enable enforcement on the next run.",
+            repo_id,
+        )
         for entry in model_path.rglob("*"):
             if not entry.is_file():
                 continue

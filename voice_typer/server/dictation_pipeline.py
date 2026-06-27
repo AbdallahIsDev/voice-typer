@@ -425,7 +425,17 @@ class DictationPipeline:
             pass
 
         if self._app.config.log_transcriptions:
-            log.info("[TRANSCRIBE] Transcription: %s", text[:200])
+            # SEC-009: run transcription text through ``redact_pii()``
+            # before logging so emails, phone numbers, SSNs, and credit-
+            # card-like patterns are masked even when the user has opted
+            # into verbose transcription logging. Pre-fix this used the
+            # raw text, which would land PII in the log file.
+            # ``PIIRedactionFilter`` already redacts log records at the
+            # logging.Handler level, but defence-in-depth: redact here
+            # too so a future change to the filter can't accidentally
+            # expose PII from this high-volume logging path.
+            from voice_typer.server.security import redact_pii
+            log.info("[TRANSCRIBE] Transcription: %s", redact_pii(text[:200]))
         else:
             log.info("[TRANSCRIBE] Transcription: %d chars", len(text))
 
