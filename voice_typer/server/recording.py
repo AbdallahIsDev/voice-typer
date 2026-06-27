@@ -47,8 +47,13 @@ _AGC_MIN_GAIN = 0.5         # minimum gain multiplier
 _AGC_MAX_GAIN = 4.0         # maximum gain multiplier
 
 
-# AUDIO-PRE: pre-roll buffer size in seconds
-_PREROLL_SECONDS = 1.0
+# AUDIO-PRE (revised): The dead ``_PREROLL_SECONDS = 1.0`` constant
+# that previously lived here was NEVER referenced anywhere in the
+# codebase — actual preroll duration comes from the config field
+# ``preroll_seconds`` (see Recorder.__init__). The dead constant was
+# misleading maintainers into thinking preroll was hardcoded when it
+# was actually configurable. Removed — see FORENSIC_REVIEW_COMPLETE.md
+# → AUDIO-PRE.
 
 
 # AUDIO-DEAD: dead-air timeout — auto-stop recording after N seconds
@@ -318,9 +323,13 @@ class Recorder:
         self._silence_next_warning_wait: float = 10.0
         self._recording_start_time: float = 0.0
         self._recent_rms_values: collections.deque = collections.deque(maxlen=50)
-        # ARCH-023: per-session warning-sent flags. Reset in start().
-        self._max_duration_warning_sent: bool = False
-        self._silence_warning_sent: bool = False
+        # ARCH-023 (revised): the dead ``_max_duration_warning_sent``
+        # and ``_silence_warning_sent`` boolean flags have been REMOVED.
+        # They were declared and reset but NEVER read — the actual
+        # silence-warning state machine uses ``_silence_warning_count``
+        # (an int counter, see recording.py:1109). Removing the dead
+        # flags prevents maintainers from thinking warning deduplication
+        # exists when it doesn't.
 
         # H12 callbacks (wired by app.py)
         self.on_silence_warning = None  # type: Optional[callable]
@@ -472,10 +481,25 @@ class Recorder:
         # Try to open with default device
         try:
             candidate_sr, _ = self._resolve_effective_sample_rate(None)
-            # AUDIO-CH: query default device for channel count
+            # AUDIO-CH (revised): The previous code did
+            # ``channels = min(1, default_dev.get("max_input_channels", 1))``
+            # which ALWAYS returned 1 for any valid device (min(1, N>=1) == 1).
+            # This meant a stereo-capable device was always reopened as mono,
+            # losing the second channel even when the user wanted stereo.
+            #
+            # We now use the device's actual max_input_channels, clamped to
+            # [1, 2] (we never need more than 2 channels for voice recording,
+            # and ASR pipelines expect mono or stereo). If the device reports
+            # 0 channels (broken driver), we fall back to 1 (mono).
+            # See FORENSIC_REVIEW_COMPLETE.md → AUDIO-HOT.
             try:
                 default_dev = sd.query_devices(kind="input")
-                channels = min(1, default_dev.get("max_input_channels", 1))
+                max_ch = int(default_dev.get("max_input_channels", 1) or 1)
+                if max_ch < 1:
+                    max_ch = 1
+                elif max_ch > 2:
+                    max_ch = 2
+                channels = max_ch
             except Exception:
                 channels = 1
 
@@ -587,7 +611,7 @@ class Recorder:
 
         if self._vad_state != old_state:
             log.debug(
-                "[RECORDING] VAD: %s → %s (rms_db=%.1f, speech_frames=%d, silence_frames=%d)",
+                "[RECORDING] VAD: %s -> %s (rms_db=%.1f, speech_frames=%d, silence_frames=%d)",
                 old_state.value, self._vad_state.value, chunk_rms_db,
                 self._vad_consecutive_speech_frames, self._vad_consecutive_silence_frames,
             )
@@ -820,9 +844,41 @@ class Recorder:
         Previously some flags (_max_duration_warning_sent,
         _silence_warning_sent, etc.) persisted across recordings,
         causing stale state to suppress warnings on the next session.
+
+        ARCH-023 (revised): The dead ``_silence_warning_sent`` and
+        ``_max_duration_warning_sent`` boolean flags have been REMOVED.
+        They were declared and reset here but NEVER read in any
+        conditional — the actual silence-warning state machine uses
+        the integer counter ``_silence_warning_count`` (which IS read
+        at recording.py:1109). The dead flags were misleading
+        maintainers into thinking warning deduplication existed when
+        it didn't — see FORENSIC_REVIEW_COMPLETE.md → ARCH-023.
+
+        SEC-audit-008: ``_secure_clear_array`` is now actually used
+        here to zero cached audio arrays (``_cached_resampled`` and
+        ``_cached_no_resample_arr``) before they're dropped. This
+        prevents forensic recovery of audio data from process memory
+        between sessions.
         """
         if self._recording_event.is_set():
             return
+
+        # SEC-audit-008: securely zero cached audio arrays before clearing.
+        # _secure_clear_array is defined at recording.py:78 but was
+        # previously never called from any production path (only the
+        # inline chunk.fill(0) calls in stop()/discard() zeroed chunks).
+        # Without this, the previous session's audio could linger in
+        # process memory until the next GC pass freed the numpy arrays.
+        try:
+            if self._cached_resampled is not None and self._cached_resampled.size > 0:
+                _secure_clear_array(self._cached_resampled)
+        except Exception:
+            pass
+        try:
+            if self._cached_no_resample_arr is not None and self._cached_no_resample_arr.size > 0:
+                _secure_clear_array(self._cached_no_resample_arr)
+        except Exception:
+            pass
 
         self._buffer.clear()
         self._chunk_count = 0
@@ -846,10 +902,6 @@ class Recorder:
         self._clip_count = 0
         self._peak = 0.0
         self._last_clip_log_time = 0.0
-        # ARCH-023: reset the per-session warning-sent flags so the
-        # next session gets fresh warnings.
-        self._max_duration_warning_sent = False
-        self._silence_warning_sent = False
         self._last_rms = 0.0
         # AUDIO-013: reset VAD state machine
         self._vad_state = VadState.UNKNOWN
