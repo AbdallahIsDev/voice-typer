@@ -536,3 +536,100 @@ class TestSec007ConfigFilePermissions:
         config_file = tmp_path / "config.json"
         mode = stat.S_IMODE(os.stat(config_file).st_mode)
         assert mode == 0o600
+
+
+# ── TEST-032: Parametrized config tests ─────────────────────────────────
+
+
+class TestConfigParametrized:
+    """TEST-032: Use @pytest.mark.parametrize for multiple config values."""
+
+    @pytest.mark.parametrize("field,value", [
+        ("hotkey", "<f5>"),
+        ("hotkey", "<caps_lock>"),
+        ("language", "fr"),
+        ("language", "zh"),
+        ("model_size", "medium.en"),
+        ("device", "cpu"),
+        ("device", "cuda"),
+    ])
+    def test_config_field_roundtrip(self, tmp_path, monkeypatch, field, value):
+        """Config field values should survive save/load roundtrip."""
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+        c = Config(**{field: value})
+        c.save()
+        loaded = Config.load()
+        assert getattr(loaded, field) == value
+
+    @pytest.mark.parametrize("sample_rate", [8000, 16000, 22050, 44100, 48000])
+    def test_various_sample_rates(self, tmp_path, monkeypatch, sample_rate):
+        """Different sample rates should be preserved in config."""
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+        c = Config(sample_rate=sample_rate)
+        c.save()
+        loaded = Config.load()
+        assert loaded.sample_rate == sample_rate
+
+    @pytest.mark.parametrize("beam_size", [1, 2, 3, 5])
+    def test_various_beam_sizes(self, tmp_path, monkeypatch, beam_size):
+        """Different beam sizes should be preserved in config."""
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+        c = Config(beam_size=beam_size)
+        c.save()
+        loaded = Config.load()
+        assert loaded.beam_size == beam_size
+
+    @pytest.mark.parametrize("autostart", [True, False])
+    def test_autostart_roundtrip(self, tmp_path, monkeypatch, autostart):
+        """Autostart flag should survive save/load roundtrip."""
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+        c = Config(autostart=autostart)
+        c.save()
+        loaded = Config.load()
+        assert loaded.autostart == autostart
+
+    @pytest.mark.parametrize("paste_on_stop", [True, False])
+    def test_paste_on_stop_roundtrip(self, tmp_path, monkeypatch, paste_on_stop):
+        """paste_on_stop flag should survive save/load roundtrip."""
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+        c = Config(paste_on_stop=paste_on_stop)
+        c.save()
+        loaded = Config.load()
+        assert loaded.paste_on_stop == paste_on_stop
+
+    @pytest.mark.parametrize("show_notifications", [True, False])
+    def test_show_notifications_roundtrip(self, tmp_path, monkeypatch, show_notifications):
+        """show_notifications flag should survive save/load roundtrip."""
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+        c = Config(show_notifications=show_notifications)
+        c.save()
+        loaded = Config.load()
+        assert loaded.show_notifications == show_notifications
+
+    @pytest.mark.parametrize("streaming_transcription", [True, False])
+    def test_streaming_transcription_roundtrip(self, tmp_path, monkeypatch, streaming_transcription):
+        """streaming_transcription flag should survive save/load roundtrip."""
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+        c = Config(streaming_transcription=streaming_transcription)
+        c.save()
+        loaded = Config.load()
+        assert loaded.streaming_transcription == streaming_transcription
+
+    @pytest.mark.parametrize("corrupt_content", [
+        "NOT VALID JSON {{{",
+        "",
+        "{",
+        "null",
+        "[]",
+        "42",
+        '"string"',
+    ])
+    def test_various_corrupt_config_files(self, tmp_path, monkeypatch, corrupt_content):
+        """Various types of corrupt config files should fall back to defaults."""
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+        config_file = tmp_path / "config.json"
+        config_file.write_text(corrupt_content)
+        c = Config.load()
+        # Should return defaults, not crash
+        assert c.hotkey == "<f2>"
+        assert c.sample_rate == 16000

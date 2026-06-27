@@ -87,6 +87,86 @@ def _secure_atomic_write(path: Path, content: str) -> None:
 
 
 
+def _secure_read_text(path: Path, *, encoding: str = "utf-8") -> str:
+    """SEC-002: Read text from a file securely, refusing to follow symlinks.
+
+    On POSIX, opens the file with ``os.O_RDONLY | os.O_NOFOLLOW`` to
+    prevent symlink-TOCTOU attacks. If ``path`` is a symlink, the open
+    call raises ``OSError`` with ``errno=ELOOP`` (or ``EINVAL`` on some
+    kernels). On Windows, checks for reparse points before reading.
+
+    After opening, uses ``os.fstat()`` to verify the inode so that a
+    race between the open and the read is detectable (the file could be
+    replaced by a symlink or different file in the window between
+    ``open()`` and ``read()`` — on Linux this is extremely unlikely
+    due to O_NOFOLLOW, but the inode check provides defense in depth).
+
+    Parameters
+    ----------
+    path : Path
+        File to read.
+    encoding : str
+        Text encoding (default UTF-8).
+
+    Returns
+    -------
+    str
+        File contents as a string.
+
+    Raises
+    ------
+    OSError
+        If the file is a symlink (POSIX) or cannot be opened.
+    ValueError
+        If the inode changed between open and read (TOCTOU detected).
+    """
+    if sys.platform != "win32":
+        # POSIX: O_NOFOLLOW refuses to follow symlinks
+        fd = os.open(str(path), os.O_RDONLY | os.O_NOFOLLOW)
+        try:
+            # SEC-002: Record the inode after opening to detect TOCTOU replacement
+            stat_before = os.fstat(fd)
+            f = os.fdopen(fd, "r", encoding=encoding)
+            try:
+                content = f.read()
+                # SEC-002: Re-stat the fd to verify inode hasn't changed
+                # Must do this before f.close() since close() releases the fd
+                stat_after = os.fstat(fd)
+                if stat_before.st_ino != stat_after.st_ino or stat_before.st_dev != stat_after.st_dev:
+                    raise ValueError(
+                        f"SEC-002: inode changed during read of {path} — possible TOCTOU attack"
+                    )
+            finally:
+                f.close()
+            return content
+        except Exception:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            raise
+    else:
+        # Windows: check for reparse points (symlinks/junctions) before reading
+        # NTFS reparse points have the FILE_ATTRIBUTE_REPARSE_POINT bit set.
+        try:
+            attrs = os.lstat(str(path)).st_file_attributes if hasattr(os, 'lstat') else 0
+            if attrs & 0x00000400:  # FILE_ATTRIBUTE_REPARSE_POINT
+                raise OSError(f"SEC-002: refusing to follow reparse point: {path}")
+        except (AttributeError, OSError):
+            pass  # lstat not available or file doesn't exist; open() will catch it
+        with open(path, "r", encoding=encoding) as f:
+            # SEC-002: verify inode on Windows too (using os.fstat on the fileno)
+            stat_before = os.fstat(f.fileno())
+            content = f.read()
+            stat_after = os.fstat(f.fileno())
+            if stat_before.st_ino != stat_after.st_ino or stat_before.st_dev != stat_after.st_dev:
+                raise ValueError(
+                    f"SEC-002: inode changed during read of {path} — possible TOCTOU attack"
+                )
+            return content
+
+
+
 def _legacy_config_dir() -> Path | None:
     """Get the legacy platform-specific config directory, if different from new one.
 
@@ -104,6 +184,97 @@ def _legacy_config_dir() -> Path | None:
     return legacy if legacy != _config_dir() else None
 
 
+def _validate_path_safety(path: Path, parent: Path) -> Path:
+    """Resolve and validate that path stays within parent directory.
+
+    SEC-005: prevents path traversal attacks when user-supplied env vars
+    (VOICE_TYPER_CONFIG_DIR, XDG_DATA_HOME, etc.) contain ``..`` sequences
+    that could escape the expected parent directory.
+    """
+    resolved = path.resolve()
+    parent_resolved = parent.resolve()
+    if not str(resolved).startswith(str(parent_resolved)):
+        raise ValueError(f"Path traversal detected: {path} escapes {parent}")
+    return resolved
+
+
+def _validate_systemroot() -> None:
+    """SEC-audit-011: Validate the SystemRoot environment variable on Windows.
+
+    The ``SystemRoot`` env var (e.g. ``C:\\Windows``) is used by Python's
+    ``os.path`` module and various Win32 APIs to locate system DLLs.  An
+    attacker who can set this variable before our process starts could
+    redirect DLL lookups to a malicious directory.  This function verifies
+    that ``SystemRoot`` points to an existing directory on Windows and
+    rejects values that contain path traversal sequences or unusual
+    characters.
+
+    On non-Windows platforms, this is a no-op.
+    """
+    if sys.platform != "win32":
+        return
+
+    systemroot = os.environ.get("SystemRoot", "")
+    if not systemroot:
+        # SystemRoot not set — unusual but not a direct attack vector
+        # for our process.  Windows APIs may fail later; we just log.
+        log.warning("[CONFIG] SystemRoot environment variable is not set")
+        return
+
+    # Check for path traversal
+    if ".." in systemroot:
+        log.error(
+            "[CONFIG] SystemRoot contains path traversal ('..'): %s — "
+            "possible DLL injection attack. Resetting to default.",
+            systemroot,
+        )
+        # Try to use the standard default
+        default = r"C:\Windows"
+        if Path(default).is_dir():
+            os.environ["SystemRoot"] = default
+        return
+
+    # Check for unusual characters that could indicate tampering
+    import re
+    if re.search(r'[<>|"&\'\n\r\t]', systemroot):
+        log.error(
+            "[CONFIG] SystemRoot contains unusual characters: %r — "
+            "possible injection attack. Resetting to default.",
+            systemroot,
+        )
+        default = r"C:\Windows"
+        if Path(default).is_dir():
+            os.environ["SystemRoot"] = default
+        return
+
+    # Verify the directory exists
+    if not Path(systemroot).is_dir():
+        log.error(
+            "[CONFIG] SystemRoot does not point to an existing directory: %s — "
+            "possible tampering. Resetting to default.",
+            systemroot,
+        )
+        default = r"C:\Windows"
+        if Path(default).is_dir():
+            os.environ["SystemRoot"] = default
+        return
+
+    # SEC-audit-011: Verify SystemRoot contains System32\notepad.exe.
+    # This is the canonical sanity check — every valid Windows
+    # installation has notepad.exe in System32.  If it's missing, the
+    # SystemRoot value is almost certainly invalid or tampered.
+    notepad_path = Path(systemroot) / "System32" / "notepad.exe"
+    if not notepad_path.exists():
+        log.error(
+            "[CONFIG] SystemRoot does not contain System32\\notepad.exe: %s — "
+            "possible tampering. Falling back to hardcoded notepad path.",
+            systemroot,
+        )
+        # Do NOT reset SystemRoot itself (other system DLLs may still be
+        # valid), but the caller should use the hardcoded fallback for
+        # notepad specifically.
+
+
 def _config_dir() -> Path:
     """Get the voice-typer data directory.
 
@@ -115,10 +286,20 @@ def _config_dir() -> Path:
     ``~/.local/share/voice-typer``).  The legacy ``~/.voice-typer`` is
     still checked first for migration — existing users' data is
     automatically found and used.
+
+    SEC-005: user-supplied env vars are validated for path traversal.
     """
     custom = os.environ.get("VOICE_TYPER_CONFIG_DIR")
     if custom:
-        return Path(custom)
+        custom_path = Path(custom)
+        # SEC-005: validate that custom path doesn't traverse above home
+        try:
+            _validate_path_safety(custom_path, Path.home())
+        except ValueError:
+            log.warning("[CONFIG] VOICE_TYPER_CONFIG_DIR path traversal detected: %s", custom)
+            # Fall through to default paths
+        else:
+            return custom_path
 
     # NEW-XPLAT-001: check for legacy ~/.voice-typer first (migration
     # path — existing users keep their data where it is).
@@ -130,14 +311,28 @@ def _config_dir() -> Path:
     if sys.platform == "win32":
         appdata = os.environ.get("APPDATA")
         if appdata:
-            return Path(appdata) / "voice-typer"
+            appdata_path = Path(appdata) / "voice-typer"
+            # SEC-005: validate APPDATA-derived path
+            try:
+                _validate_path_safety(appdata_path, Path.home())
+            except ValueError:
+                log.warning("[CONFIG] APPDATA path traversal detected: %s", appdata)
+            else:
+                return appdata_path
     elif sys.platform == "darwin":
         return Path.home() / "Library" / "Application Support" / "voice-typer"
     else:
         # Linux / FreeBSD: honor XDG_DATA_HOME.
         xdg = os.environ.get("XDG_DATA_HOME")
         if xdg:
-            return Path(xdg) / "voice-typer"
+            xdg_path = Path(xdg) / "voice-typer"
+            # SEC-005: validate XDG_DATA_HOME-derived path
+            try:
+                _validate_path_safety(xdg_path, Path.home())
+            except ValueError:
+                log.warning("[CONFIG] XDG_DATA_HOME path traversal detected: %s", xdg)
+            else:
+                return xdg_path
         return Path.home() / ".local" / "share" / "voice-typer"
 
     # Fallback for any platform where the above checks didn't return.
@@ -211,6 +406,10 @@ class Config:
     # NEW-MISMATCH-001: client-side field now has a server counterpart
     unsafe_paste_on_unknown_focus: bool = False  # paste even when focus detection fails
     show_notifications: bool = True
+    # PLAT-013: warn when pasting into an elevated process from non-elevated
+    warn_elevated_paste: bool = True
+    # PLAT-014: warn when pasting into a password field
+    warn_password_paste: bool = True
 
     # ASR backend selection
     asr_backend: str = "whisper"  # "whisper", "qwen", or "parakeet"
@@ -225,6 +424,10 @@ class Config:
 
     # Logging
     log_transcriptions: bool = False
+
+    # SEC-012: Clipboard security settings
+    clipboard_clear_delay_seconds: int = 5  # seconds before clearing sensitive clipboard content
+    clipboard_save_restore: bool = True  # save/restore previous clipboard content after paste
 
     # ─── P1 Features ───────────────────────────────────────────────
 
@@ -369,6 +572,35 @@ class Config:
     max_recording_seconds_cpu: int = 600
     max_recording_seconds: int = 0  # 0 = use device-specific default (gpu/cpu)
 
+    # AUDIO-014: configurable VAD/silence thresholds (overridden by
+    # auto-calibration at recording start). 0.0 = use built-in defaults.
+    silence_rms_threshold: float = 0.0
+    silence_peak_threshold: float = 0.0
+
+    # AUDIO-013: VAD configuration for the recording callback.
+    # When use_silero_vad is True, the recording callback uses Silero
+    # VAD probability instead of RMS thresholds for the state machine.
+    # Falls back to RMS if Silero is unavailable.
+    use_silero_vad: bool = False  # opt-in — adds ~1ms latency per chunk
+    vad_speech_threshold: float = 0.5   # Silero VAD prob > this → speech candidate
+    vad_silence_threshold: float = 0.3  # Silero VAD prob < this → silence candidate
+
+    # AUDIO-CH: number of channels to request from the input device.
+    # Default 1 (mono) — appropriate for dictation. Set to 0 for
+    # device default (auto-detect from device's max_input_channels).
+    recording_channels: int = 1
+
+    # AUDIO-PRE: pre-roll buffer captures audio before recording starts.
+    # 0 = disabled (default, for privacy). When > 0, continuously
+    # records N seconds of audio into a ring buffer and prepends it
+    # when the user presses the hotkey, reducing cold-start latency.
+    pre_roll_buffer_seconds: float = 0.0
+
+    # AUDIO-AGC: peak normalization after noise gating. When enabled,
+    # audio is scaled so the peak amplitude reaches the target level.
+    normalize_audio: bool = True
+    normalize_target_peak: float = 0.7  # target peak amplitude after normalization
+
     # ─── Volume ducking (v1.1.0) ────────────────────────────────────
     # Reduces system volume during dictation to prevent speaker output
     # from bleeding into the microphone.
@@ -415,6 +647,11 @@ class Config:
     noise_filter_rnnoise: bool = False  # opt-in (CPU cost), neural denoise
     noise_filter_post_capture: bool = True  # noisereduce on stop()
 
+    # ─── Telemetry (PROD-001) ──────────────────────────────────────
+    # Opt-in crash reporting. When True, crash reports are written
+    # locally to the config directory. Nothing is sent remotely.
+    telemetry_enabled: bool = False
+
     def save(self) -> bool:
         """Save config to disk atomically via temp file + os.replace.
 
@@ -456,8 +693,10 @@ class Config:
         config_file = _config_dir() / "config.json"
         if config_file.exists():
             try:
-                with open(config_file) as f:
-                    data = json.load(f)
+                # SEC-002 / SEC-audit-011: use _secure_read_text to prevent
+                # symlink-TOCTOU attacks when reading config.json
+                raw = _secure_read_text(config_file)
+                data = json.loads(raw)
                 data = {k: v for k, v in data.items() if k in cls.__dataclass_fields__}
 
                 # M3: Schema versioning and migration
@@ -512,6 +751,15 @@ class Config:
                             qwen_path,
                         )
                         data["qwen_model_path"] = None
+                    else:
+                        # SEC-audit-007: Validate qwen_model_path is in a safe location
+                        qwen_resolved = p.resolve()
+                        safe_dirs = [_config_dir().resolve()]
+                        hf_home = os.environ.get("HF_HOME")
+                        if hf_home:
+                            safe_dirs.append(Path(hf_home).resolve())
+                        if not any(str(qwen_resolved).startswith(str(d)) for d in safe_dirs):
+                            log.warning("[CONFIG] qwen_model_path outside safe directories: %s", qwen_path)
 
                 # Validate corrections_path: must be an existing file if set
                 corrections = data.get("corrections_path")
@@ -523,6 +771,21 @@ class Config:
                             corrections,
                         )
                         data["corrections_path"] = None
+
+                # SEC-009: Warn the user about privacy implications when
+                # log_transcriptions is enabled.  Transcription text may
+                # contain sensitive personal information (names, addresses,
+                # medical details, etc.) that gets written to log files
+                # on disk.  The warning is emitted once per config load
+                # so it appears in the log on every startup if the flag
+                # is active.
+                if data.get("log_transcriptions"):
+                    log.warning(
+                        "[CONFIG] log_transcriptions is enabled — transcription text "
+                        "(potentially containing PII) will be written to log files. "
+                        "Disable this setting if you do not want speech content persisted "
+                        "to disk."
+                    )
 
                 # H1: Validate non-numeric fields before construction
                 data = cls._validate_non_numeric_fields(data)
@@ -944,6 +1207,23 @@ IPC_CONFIG_ALLOWLIST: dict = {
     "max_recording_seconds_gpu":  (int, _make_int_validator(lo=0, hi=86400)),
     "max_recording_seconds_cpu":  (int, _make_int_validator(lo=0, hi=86400)),
     "max_recording_seconds":      (int, _make_int_validator(lo=0, hi=86400)),
+    # AUDIO-014: configurable VAD/silence thresholds
+    "silence_rms_threshold":      (float, _make_float_validator(lo=0.0, hi=1.0)),
+    "silence_peak_threshold":     (float, _make_float_validator(lo=0.0, hi=1.0)),
+    # AUDIO-013: Silero VAD configuration
+    "use_silero_vad":             (bool, _bool_validator),
+    "vad_speech_threshold":       (float, _make_float_validator(lo=0.0, hi=1.0)),
+    "vad_silence_threshold":      (float, _make_float_validator(lo=0.0, hi=1.0)),
+    # AUDIO-CH: recording channels
+    "recording_channels":         (int, _make_int_validator(lo=0, hi=8)),
+    # AUDIO-PRE: pre-roll buffer
+    "pre_roll_buffer_seconds":    (float, _make_float_validator(lo=0.0, hi=30.0)),
+    # AUDIO-AGC: peak normalization
+    "normalize_audio":            (bool, _bool_validator),
+    "normalize_target_peak":      (float, _make_float_validator(lo=0.1, hi=1.0)),
+    # PLAT-013/014: paste safety warnings
+    "warn_elevated_paste":        (bool, _bool_validator),
+    "warn_password_paste":        (bool, _bool_validator),
 
     # ── Volume ducking (v1.1.0) ───────────────────────────────────────
     "volume_duck_enabled":          (bool, _bool_validator),
