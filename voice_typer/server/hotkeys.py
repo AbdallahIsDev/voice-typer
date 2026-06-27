@@ -734,15 +734,29 @@ class WindowsNativeHotkey(HotkeyBackend):
         vk = self._vk
         was_pressed = False
         log.info("[HOTKEY] Polling loop started for VK=0x%X modifiers=0x%X", vk, self._modifiers)
+        # PLAT-PUMP: hoist the win32gui import OUT of the polling loop.
+        # Pre-fix this ran ``import win32gui`` on every 1ms iteration,
+        # which is wasteful (Python's import system acquires the import
+        # lock and does a dict lookup even for cached modules). The
+        # import is now done once before the loop starts. If win32gui
+        # is unavailable (non-Windows or pywin32 not installed), we
+        # skip the message pump entirely — WM_HOTKEY delivery is a
+        # Windows-only concern.
+        _pump_messages = None
+        try:
+            import win32gui
+            _pump_messages = win32gui.PumpWaitingMessages
+        except ImportError:
+            pass
         while not self._stop_event.is_set():
             # PLAT-020: suppress hotkey triggers during IME composition
             if self._is_ime_composing():
                 was_pressed = False
-                try:
-                    import win32gui
-                    win32gui.PumpWaitingMessages()
-                except Exception:
-                    pass
+                if _pump_messages is not None:
+                    try:
+                        _pump_messages()
+                    except Exception:
+                        pass
                 self._kernel32.Sleep(50)
                 continue
 
@@ -778,11 +792,11 @@ class WindowsNativeHotkey(HotkeyBackend):
             # PLAT-PUMP: pump Win32 messages so RegisterHotKey WM_HOTKEY
             # messages are dispatched. Without this, hotkeys silently fail
             # after ~30s on some Win11 builds.
-            try:
-                import win32gui
-                win32gui.PumpWaitingMessages()
-            except Exception:
-                pass
+            if _pump_messages is not None:
+                try:
+                    _pump_messages()
+                except Exception:
+                    pass
             # PERF-012: 1ms sleep gives near-instant hotkey response
             # while still yielding CPU to other threads.
             # pyrefly: ignore [missing-attribute]
@@ -962,10 +976,14 @@ class WaylandHotkey(HotkeyBackend):
             _socket.AF_UNIX, _socket.SOCK_STREAM
         )
         self._server_socket.bind(self.SOCKET_PATH)
-        # Make socket accessible to all users on the system
+        # PLAT-WAYLAND: restrict socket to owner-only (0o600). Pre-fix
+        # this was 0o666 (world-writable) which allowed any local user
+        # to send "toggle" commands to the socket. The socket is only
+        # used by the same user's wtype/ydotool wrapper script, so
+        # group/other access is unnecessary.
         os.chmod(
             self.SOCKET_PATH,
-            stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP | stat.S_IROTH | stat.S_IWOTH,
+            stat.S_IRUSR | stat.S_IWUSR,
         )
         self._server_socket.listen(5)
         self._server_socket.settimeout(1.0)
