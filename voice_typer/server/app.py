@@ -1466,16 +1466,20 @@ class VoiceTyperApp:
             except Exception:
                 pass
 
-        # Safety watchdog: if transcription hangs for >60s, force-recover.
-        # ARCH-017: route through _schedule_timer so the watchdog is
-        # tracked in _pending_timers. Previously a fire-and-forget
-        # threading.Timer was used; if shutdown happened before the 60s
-        # fire, the timer held a reference that delayed GC and could
-        # fire _force_recover_from_stuck_transcription post-quit.
-        watchdog = self._schedule_timer(
-            60.0,
-            lambda: self._force_recover_from_stuck_transcription(),
-        )
+        # RACE-013 / ARCH-017: The legacy Timer-based watchdog that used
+        # to live here has been REMOVED. It was duplicating the Event-based
+        # persistent watchdog thread started by RecordingController.stop()
+        # (see recording_controller.py:_start_watchdog_thread), causing BOTH
+        # to fire 60s after a transcription completed normally — the Timer
+        # would force-recover an already-healthy app.
+        #
+        # The pipeline's finally block (dictation_pipeline.py:166-169) now
+        # resets + stops the Event-based watchdog via _reset_watchdog() +
+        # _stop_watchdog_thread(). There is no Timer to cancel anymore.
+        #
+        # The `watchdog` argument to DictationPipeline.run() below is kept
+        # for backward compatibility with older tests that still construct
+        # DictationPipeline directly; it is ignored inside the pipeline.
 
         _captured_cycle_id = self._cycle_id
 
@@ -1491,7 +1495,7 @@ class VoiceTyperApp:
                 duration=duration,
                 recorded_rms=recorded_rms,
                 cycle_id=_captured_cycle_id,
-                watchdog=watchdog,
+                watchdog=None,  # RACE-013: Event-based watchdog is used, not Timer
             )
 
         self._transcription_thread = threading.Thread(
@@ -2406,14 +2410,49 @@ def _ensure_single_instance(silent=False):
     # Skip mutex check during restart -- old instance releases mutex on quit
     if os.environ.get("VOICE_TYPER_RESTART"):
         if _verify_restart_token():
-            # SEC-001: Time-limit the restart bypass — only allow if the
-            # restart token was generated within the last 30 seconds.
+            # SEC-001 (revised): Time-limit the restart bypass — only
+            # allow if the restart token was generated within the last
+            # 30 seconds. The previous code used ``time.time() - mtime``
+            # which is vulnerable to system clock jumps (NTP sync,
+            # daylight saving, manual changes). If the clock jumps
+            # backward, age goes negative (silently bypassing the 30s
+            # window); if forward, age gets inflated (false denials).
+            #
+            # Fix: detect clock-jump anomalies (negative age or age > 1 day)
+            # and deny the bypass in those cases. The 30s window is short
+            # enough that legitimate restarts won't be affected, but a
+            # 1-day cap catches clock-jump corruption.
             try:
                 from voice_typer.server.config import _config_dir
                 token_path = _config_dir() / ".restart_token"
                 if token_path.exists():
                     mtime = token_path.stat().st_mtime
                     age = time.time() - mtime
+                    # SEC-001: detect clock jumps
+                    if age < 0:
+                        log.warning(
+                            "[STARTUP] Restart token age is negative (%.1fs) — "
+                            "system clock may have jumped backward. Blocking "
+                            "duplicate launch to be safe.", age,
+                        )
+                        if not silent and sys.stderr is not None:
+                            print(
+                                "Voice Typer: clock jump detected, duplicate launch blocked.",
+                                file=sys.stderr,
+                            )
+                        sys.exit(0)
+                    if age > 86400.0:  # > 1 day — almost certainly a clock jump
+                        log.warning(
+                            "[STARTUP] Restart token age is suspiciously large "
+                            "(%.1fs > 86400s) — system clock may have jumped "
+                            "forward. Blocking duplicate launch.", age,
+                        )
+                        if not silent and sys.stderr is not None:
+                            print(
+                                "Voice Typer: clock jump detected, duplicate launch blocked.",
+                                file=sys.stderr,
+                            )
+                        sys.exit(0)
                     if age > 30.0:
                         log.warning(
                             "[STARTUP] Restart token too old (%.1fs > 30s) — "
@@ -2426,6 +2465,8 @@ def _ensure_single_instance(silent=False):
                                 file=sys.stderr,
                             )
                         sys.exit(0)
+            except SystemExit:
+                raise  # don't catch sys.exit
             except Exception:
                 # If we can't check the time, deny the bypass (safe default)
                 log.warning("[STARTUP] Cannot verify restart token age — blocking duplicate")
