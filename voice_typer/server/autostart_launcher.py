@@ -237,12 +237,17 @@ def _launch_electron_built(exe: str, hidden: bool = False) -> subprocess.Popen |
 
 
 def _write_pid_file(launcher_pid: int, child_pid: int | None) -> None:
-    """Persist our PID + the child's PID for the reaper to find."""
+    """Persist our PID + the child's PID for the reaper to find.
+
+    SEC-003: Uses _secure_atomic_write to ensure 0o600 permissions
+    on POSIX and O_NOFOLLOW symlink protection.
+    """
     try:
         _config_dir().mkdir(parents=True, exist_ok=True)
-        _pid_file().write_text(
+        from voice_typer.server.config import _secure_atomic_write
+        _secure_atomic_write(
+            _pid_file(),
             f"launcher={launcher_pid}\nchild={child_pid or ''}\n",
-            encoding="utf-8",
         )
     except OSError as exc:
         log.warning("[AUTOSTART] could not write pid file: %s", exc)

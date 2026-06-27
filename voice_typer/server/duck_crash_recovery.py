@@ -49,21 +49,15 @@ class DuckCrashRecovery:
         Called by ``VolumeDucker.duck()`` after the volume has been
         successfully reduced.  If writing fails, a warning is logged but
         no exception is raised — crash recovery is best-effort.
+
+        SEC-003: Uses _secure_atomic_write to ensure 0o600 permissions
+        on POSIX and O_NOFOLLOW symlink protection.
         """
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             data = {"linear": state.linear, "muted": state.muted}
-            tmp = self._path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(data))
-            import os
-            import sys
-
-            if sys.platform != "win32":
-                try:
-                    os.chmod(tmp, 0o600)
-                except OSError:
-                    pass
-            tmp.replace(self._path)
+            from voice_typer.server.config import _secure_atomic_write
+            _secure_atomic_write(self._path, json.dumps(data))
         except Exception as exc:
             log.warning("[VOLUME-CRASH] Failed to persist duck state: %s", exc)
 
@@ -74,11 +68,15 @@ class DuckCrashRecovery:
         or ``None`` if no file is present or it cannot be parsed.
         Does **not** delete the file — the caller is responsible for
         calling :meth:`clear` after successfully restoring.
+
+        SEC-002: Uses _secure_read_text to prevent symlink-TOCTOU attacks.
         """
         if not self._path.exists():
             return None
         try:
-            data = json.loads(self._path.read_text())
+            from voice_typer.server.config import _secure_read_text
+            raw = _secure_read_text(self._path, encoding="utf-8")
+            data = json.loads(raw)
             return VolumeState(
                 linear=float(data["linear"]),
                 muted=bool(data["muted"]),

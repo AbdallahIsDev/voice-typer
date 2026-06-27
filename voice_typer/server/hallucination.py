@@ -3,10 +3,20 @@
 Extracts the duplicated hallucination detection logic from both
 transcription.py and qwen_engine.py into a single module so that
 both engines use identical rejection criteria.
+
+SEC-009: Provides a safe logging helper for hallucination rejections
+that gates detailed text logging behind the ``log_transcriptions``
+config flag and applies PII redaction + truncation to 40 chars.
 """
 
+import logging
 import re
 from typing import Optional
+
+log = logging.getLogger(__name__)
+
+# Maximum chars to log from hallucination text (SEC-009)
+_HALLUCINATION_LOG_MAX_CHARS = 40
 
 # Known phrases that Whisper emits on near-silence audio
 KNOWN_LOW_AUDIO_HALLUCINATIONS = {
@@ -84,3 +94,59 @@ def should_reject_low_audio_hallucination(
             return True
 
     return False
+
+
+def log_hallucination_rejection(
+    engine_tag: str,
+    text: str,
+    reason: str = "hallucination",
+    *,
+    log_transcriptions: bool = False,
+) -> None:
+    """SEC-009: Log a hallucination rejection with PII-safe output.
+
+    When ``log_transcriptions`` is False (the default), only logs the
+    character count and rejection reason — never the text content.
+    When True, logs the text but applies PII redaction using the
+    existing PIIRedactionFilter patterns and truncates to 40 chars
+    (down from the previous 80).
+
+    Parameters
+    ----------
+    engine_tag : str
+        Engine identifier (e.g. "[PARAKEET]", "[QWEN]", "[TRANSCRIBE]").
+    text : str
+        The rejected transcription text.
+    reason : str
+        Short reason for the rejection (e.g. "hallucination", "non-English").
+    log_transcriptions : bool
+        Whether the user has enabled transcription logging.
+    """
+    char_count = len(text)
+    if not log_transcriptions:
+        # SEC-009: When logging is disabled, only log metadata — no text content
+        log.warning(
+            "%s Rejected likely %s (%d chars)",
+            engine_tag, reason, char_count,
+        )
+        return
+
+    # SEC-009: When logging is enabled, apply PII redaction and truncation
+    safe_text = text[:_HALLUCINATION_LOG_MAX_CHARS]
+    try:
+        from voice_typer.server.security import PIIRedactionFilter
+        _pii_filter = PIIRedactionFilter()
+        # Create a temporary LogRecord to apply PII redaction
+        record = logging.LogRecord(
+            name=log.name, level=logging.WARNING, pathname="", lineno=0,
+            msg=safe_text, args=(), exc_info=None,
+        )
+        _pii_filter.filter(record)
+        safe_text = record.msg
+    except Exception:
+        # If PII filter fails, fall back to truncation only
+        pass
+    log.warning(
+        "%s Rejected likely %s: %r",
+        engine_tag, reason, safe_text,
+    )

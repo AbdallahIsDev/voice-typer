@@ -1,0 +1,18 @@
+{
+    "_comment": "SEC-audit-005: Pinned revision hashes for HuggingFace model downloads. Each entry maps a repo_id to its pinned revision. The 'revision' field should be updated to a specific commit SHA after audit. Using 'main' is a placeholder that still allows the download to proceed but does not protect against supply-chain attacks where a compromised repo pushes a new commit with malicious model files.",
+    "nvidia/parakeet-tdt-0.6b-v3": {
+        "revision": "main"
+    },
+    "Systran/faster-whisper-tiny.en": {
+        "revision": "main"
+    },
+    "Systran/faster-whisper-small.en": {
+        "revision": "main"
+    },
+    "Systran/faster-whisper-medium.en": {
+        "revision": "main"
+    },
+    "Systran/faster-whisper-large-v3": {
+        "revision": "main"
+    }
+}

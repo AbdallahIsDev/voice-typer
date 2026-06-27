@@ -72,12 +72,17 @@ class OnboardingController:
             return True
 
     def mark_complete(self) -> None:
-        """Mark onboarding as complete so it doesn't show again."""
+        """Mark onboarding as complete so it doesn't show again.
+
+        SEC-003: Uses _secure_atomic_write to ensure 0o600 permissions
+        on POSIX and O_NOFOLLOW symlink protection.
+        """
         try:
             self._config_dir.mkdir(parents=True, exist_ok=True)
-            self._marker_path.write_text(
+            from voice_typer.server.config import _secure_atomic_write
+            _secure_atomic_write(
+                self._marker_path,
                 json.dumps({"completed": True, "version": 1}),
-                encoding="utf-8",
             )
             log.info("[ONBOARDING] Marked as complete")
         except Exception as exc:
