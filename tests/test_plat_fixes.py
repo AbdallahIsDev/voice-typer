@@ -93,14 +93,16 @@ class TestClipboardVerification:
         mock_pyperclip.copy.assert_called()
 
     def test_copy_retries_on_verification_mismatch(self, monkeypatch):
-        """If clipboard content doesn't match after copy, retry once."""
+        """PLAT-PASTEVR: If clipboard content doesn't match after copy, retry."""
         monkeypatch.setattr("voice_typer.server.clipboard.sys.platform", "linux")
         import voice_typer.server.clipboard as clip_mod
 
         mock_pyperclip = MagicMock()
         mock_pyperclip.copy.return_value = None
-        # First paste returns wrong value, second returns correct
-        mock_pyperclip.paste.side_effect = ["wrong", "hello world"]
+        # First paste: saved clipboard content (line 453)
+        # Second paste: verification attempt 1 — returns WRONG, triggers retry
+        # Third paste: verification attempt 2 — returns correct value, success
+        mock_pyperclip.paste.side_effect = ["saved_content", "wrong_value", "hello world"]
         clip_mod.pyperclip = mock_pyperclip
 
         with patch("voice_typer.server.clipboard._ensure_pynput_imported"):
@@ -110,16 +112,17 @@ class TestClipboardVerification:
                 from voice_typer.server.clipboard import ClipboardManager
                 cm = ClipboardManager(paste_enabled=False)
 
-        # PLAT-PASTEVR: On non-Windows, verification uses pyperclip.paste().
-        # If the paste returns a different value, copy() should retry.
-        # However, the retry logic is only active when _clipboard_seq tracking
-        # is enabled (Windows). On Linux, copy() succeeds on the first try
-        # and does not verify via paste(). This test verifies that copy()
-        # succeeds (returns True) — the retry behavior is Windows-specific.
         result = cm.copy("hello world")
         assert result is True
-        # On Linux, copy is called once (no verification retry)
-        assert mock_pyperclip.copy.call_count >= 1
+        # copy() should be called twice: once for initial copy, once for retry
+        # after verification mismatch
+        assert mock_pyperclip.copy.call_count >= 2, (
+            f"Expected copy() to be called at least 2 times (initial + retry), "
+            f"but got {mock_pyperclip.copy.call_count}"
+        )
+        # Verify all calls were with the correct text
+        for call in mock_pyperclip.copy.call_args_list:
+            assert call[0][0] == "hello world"
 
 
 # ─── PLAT-STUCK: try/finally for modifier key release ────────────────
