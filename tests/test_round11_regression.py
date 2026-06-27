@@ -360,12 +360,20 @@ class TestWatchdogForceRecover:
         ctrl._app = app
 
         # RACE-013: The watchdog now uses Event.wait instead of Timer.
-        # When not forcing, it should reset the watchdog event to re-arm.
+        # When not forcing and worker is alive, _force_recover_from_stuck_transcription
+        # returns early WITHOUT touching _watchdog_event — the persistent
+        # watchdog thread's next Event.wait(timeout=60) cycle naturally
+        # re-arms. The previous assertion (event.set called) was based on
+        # an older Timer-based implementation that needed explicit re-arming.
         ctrl._force_recover_from_stuck_transcription(force=False)
-        # busy was NOT cleared.
+        # busy was NOT cleared (we left the worker alone).
         app._busy_event.set.assert_not_called()
-        # The watchdog event should be set (re-armed) instead of Timer
-        ctrl._watchdog_event.set.assert_called()
+        # _stop_watchdog_thread was NOT called (watchdog stays armed).
+        ctrl._watchdog_stop_event.set.assert_not_called()
+        # Tray state was updated to indicate "still transcribing".
+        app.tray.set_state.assert_called()
+        # Tray notification was sent to inform the user.
+        app.tray.notify.assert_called()
 
 
 # ── ERR-003: Pending model change applies on next start ───────────────
