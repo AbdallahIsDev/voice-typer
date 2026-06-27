@@ -18,12 +18,17 @@ class TestCopy:
         monkeypatch.setattr("voice_typer.server.clipboard.pyperclip", MagicMock())
         import voice_typer.server.clipboard as mod
         mod.pyperclip = MagicMock()
+        # PLAT-PASTEVR: copy() verifies clipboard content via pyperclip.paste().
+        # Make paste() return the same text so verification passes on first try.
+        mod.pyperclip.paste.return_value = "hello world"
 
         cm = ClipboardManager(paste_enabled=False)
         result = cm.copy("hello world")
 
         assert result is True
-        mod.pyperclip.copy.assert_called_once_with("hello world")
+        mod.pyperclip.copy.assert_called_with("hello world")
+        # PLAT-PASTEVR: with working verification, copy is called exactly once
+        assert mod.pyperclip.copy.call_count == 1
 
     def test_copy_returns_false_for_empty_text(self):
         cm = ClipboardManager(paste_enabled=False)
