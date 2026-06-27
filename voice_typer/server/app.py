@@ -1134,6 +1134,10 @@ class VoiceTyperApp:
                         fut.result(timeout=10)
                     except Exception as exc:
                         log.warning("[STARTUP] %s task failed: %s", label, exc)
+            # AUDIO-MIC: start the background device-change poller so
+            # USB/BT mic hotplug events are detected without requiring
+            # a manual "Refresh Microphones" click.
+            self._start_device_change_poller()
 
         # 1b. Create desktop launcher shortcut on first run (if absent)
         # (Run before parallel work so the shortcut exists before mic
@@ -1295,11 +1299,76 @@ class VoiceTyperApp:
             return
         try:
             mics = list_microphones()
+            # AUDIO-MIC: detect device changes by comparing the new
+            # list against the cached one. If the set of device IDs
+            # changed (USB mic plugged/unplugged), notify the UI via
+            # IPC push event so the Electron renderer can refresh its
+            # microphone dropdown without a manual "Refresh" click.
+            old_ids = {m["id"] for m in self._microphones} if self._microphones else set()
+            new_ids = {m["id"] for m in mics}
             self._microphones = mics
             self.tray.set_microphones(mics)
             log.info("[RECORDING] Found %d microphone(s)", len(mics))
+            # AUDIO-MIC: push a device-change IPC event if the device
+            # set changed since the last enumeration.
+            if old_ids and old_ids != new_ids:
+                added = new_ids - old_ids
+                removed = old_ids - new_ids
+                log.info(
+                    "[AUDIO-MIC] Device set changed: +%d added, -%d removed",
+                    len(added), len(removed),
+                )
+                try:
+                    from voice_typer.server.ipc_server import _push_event_now
+                    _push_event_now({
+                        "type": "microphones_changed",
+                        "data": {"count": len(mics)},
+                    })
+                except Exception:
+                    pass
         except Exception as e:
             log.warning("[RECORDING] Could not enumerate microphones: %s", e)
+
+    def _start_device_change_poller(self) -> None:
+        """AUDIO-MIC: Start a background thread that periodically polls
+        for audio device changes (every 30 seconds).
+
+        Cross-platform fallback for the lack of WM_DEVICECHANGE (Windows),
+        CoreAudio notifications (macOS), and PipeWire signals (Linux).
+        When a device set change is detected, ``_load_microphones`` is
+        called, which pushes a ``microphones_changed`` IPC event so the
+        Electron UI can refresh its microphone dropdown.
+
+        The poller is a daemon thread that exits when ``_shutting_down``
+        is set. The 30-second interval is a trade-off between
+        responsiveness (user plugs in a USB mic and waits for it to
+        appear) and CPU cost (one ``sd.query_devices()`` call per
+        poll, ~1-5 ms).
+        """
+        import threading
+
+        def _poll_loop():
+            while not self._shutting_down:
+                # Sleep in 1-second increments so we can exit quickly
+                # when _shutting_down is set.
+                for _ in range(30):
+                    if self._shutting_down:
+                        return
+                    threading.Event().wait(1.0)
+                if self._shutting_down:
+                    return
+                try:
+                    # Re-enumerate; _load_microphones will detect
+                    # changes and push the IPC event.
+                    self._load_microphones()
+                except Exception:
+                    log.debug("[AUDIO-MIC] Device-change poll failed", exc_info=True)
+
+        t = threading.Thread(target=_poll_loop, daemon=True, name="AudioDevicePoller")
+        # RACE-008: daemon=True is acceptable because the poller only
+        # reads device state — no critical cleanup. On shutdown,
+        # _shutting_down is set and the thread exits within 1 second.
+        t.start()
 
     def _fallback_to_whisper(self, notify_on_failure: bool = False):
         """#2 (Round 9): delegate to ModelManager.fallback_to_whisper()."""

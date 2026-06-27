@@ -1228,6 +1228,25 @@ class Recorder:
                         chunk_peak, self._clip_count
                     )
                     self._last_clip_log_time = now
+                    # AUDIO-CLIP: push a real-time IPC event so the
+                    # Electron UI can flash a red level-bar / show a
+                    # "Clipping!" toast while recording. Pre-fix the
+                    # only notification was post-recording via
+                    # _finalize_audio_quality_report, which is too late
+                    # for the user to adjust mic gain mid-dictation.
+                    # The event is throttled to 1 Hz (same as the log)
+                    # to avoid flooding the IPC channel.
+                    try:
+                        from voice_typer.server.ipc_server import _push_event_now
+                        _push_event_now({
+                            "type": "audio_clip",
+                            "data": {
+                                "peak": float(chunk_peak),
+                                "count": int(self._clip_count),
+                            },
+                        })
+                    except Exception:
+                        pass
 
             recent_rms.append(chunk_rms)
 
