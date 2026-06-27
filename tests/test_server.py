@@ -96,6 +96,12 @@ class MockApp:
         self._volume_ducker.backend_name = "fake (test)"
         self._volume_ducker.supports_per_session = False
         self._volume_ducker.initialize = MagicMock(return_value=True)
+        # RACE-011: the IPC set_config handler acquires this lock to
+        # serialize Config mutations. VoiceTyperApp initializes it in
+        # __init__; MockApp must do the same so the IPC handler doesn't
+        # AttributeError.
+        import threading
+        self._config_mutation_lock = threading.RLock()
 
     def toggle_dictation(self):
         self.toggle_called = True

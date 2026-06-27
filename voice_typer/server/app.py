@@ -453,6 +453,16 @@ class VoiceTyperApp:
         self._busy_event = threading.Event()
         self._busy_event.set()  # SET = not busy
         self._lock = threading.Lock()
+        # RACE-011: serialize Config mutations between the IPC set_config
+        # handler (IPC server thread) and the deprecated tkinter
+        # SettingsController.apply() path (tkinter main thread). Without
+        # this lock, concurrent set_config + SettingsController.apply()
+        # calls can interleave attribute writes and produce a torn
+        # config state — e.g. half the fields from IPC, half from the
+        # tkinter window. The lock is held for the full read-modify-save
+        # sequence so each mutation sees a consistent view of the Config
+        # object.
+        self._config_mutation_lock = threading.RLock()
 
         # #2 (Round 9): _model_load_attempted / _model_load_thread /
         # _pending_dictation now live in ModelManager. They're exposed
@@ -1678,6 +1688,10 @@ class VoiceTyperApp:
             on_microphone_changed=self._select_microphone,
             on_autostart_changed=self._set_autostart,
             on_notifications_changed=self._set_notifications,
+            # RACE-011: share the app-wide config-mutation lock so
+            # SettingsController.apply() and IPC set_config can't
+            # interleave Config attribute writes.
+            config_mutation_lock=self._config_mutation_lock,
         )
         window = SettingsWindow(
             controller,

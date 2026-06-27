@@ -621,8 +621,12 @@ class WindowsNativeHotkey(HotkeyBackend):
                 # ── Hotkey detection ──
                 # Use GetAsyncKeyState polling for reliable hotkey detection.
                 # RegisterHotKey + GetMessageW does not reliably deliver WM_HOTKEY
-                # on all Windows configurations.  Polling at 20Hz uses negligible
-                # CPU and works universally.
+                # on all Windows configurations.  PERF-012: the polling loop in
+                # _run_polling_loop() uses Sleep(1) (~1000 Hz effective check
+                # rate), which gives ~1 ms hotkey-detection latency while still
+                # yielding the CPU between checks — the thread spends >99.9% of
+                # its time sleeping in the kernel.  See _run_polling_loop() for
+                # the rationale and the regression test that pins this invariant.
                 log.info("[HOTKEY] Starting hotkey detection via GetAsyncKeyState polling")
                 self._using_polling = True
                 self._run_polling_loop(callback)

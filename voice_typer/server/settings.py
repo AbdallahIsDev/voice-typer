@@ -7,9 +7,16 @@ future version. Do not import this module.
 
 from __future__ import annotations
 
+import contextlib
 import re
 import warnings
 from typing import Callable, Optional
+
+# RACE-011: ``contextlib.nullcontext`` is used as the no-op context
+# manager when ``SettingsController._config_mutation_lock`` is None
+# (i.e. no shared lock was provided). This avoids a conditional
+# ``if lock: with lock: ...`` branching pattern.
+_nullcontext = contextlib.nullcontext
 
 warnings.warn(
     "voice_typer.server.settings is deprecated and will be removed. "
@@ -91,6 +98,7 @@ class SettingsController:
         on_microphone_changed: Optional[Callable[[Optional[str]], None]] = None,
         on_autostart_changed: Optional[Callable[[bool], None]] = None,
         on_notifications_changed: Optional[Callable[[bool], None]] = None,
+        config_mutation_lock: Optional["object"] = None,
     ):
         self.config = config
         self.on_hotkey_changed = on_hotkey_changed
@@ -98,6 +106,12 @@ class SettingsController:
         self.on_microphone_changed = on_microphone_changed
         self.on_autostart_changed = on_autostart_changed
         self.on_notifications_changed = on_notifications_changed
+        # RACE-011: optional lock shared with the IPC set_config handler
+        # so concurrent IPC + tkinter Config mutations can't interleave.
+        # When None, no locking is applied (legacy behaviour). The app
+        # passes its ``_config_mutation_lock`` here so both paths
+        # serialize on the same RLock.
+        self._config_mutation_lock = config_mutation_lock
 
     def apply(
         self,
@@ -114,20 +128,27 @@ class SettingsController:
             raise ValueError(f"Unsupported hotkey: {hotkey}")
 
         hotkey = hotkey.strip().lower()
-        changes = {
-            "hotkey": self.config.hotkey != hotkey,
-            "model_size": self.config.model_size != model_size,
-            "microphone": self.config.microphone != microphone,
-            "autostart": self.config.autostart != autostart,
-            "show_notifications": self.config.show_notifications != show_notifications,
-        }
+        # RACE-011: snapshot the "before" values inside the lock so the
+        # ``changes`` dict is computed atomically with the read. The
+        # subsequent write+save happens inside the same lock context
+        # so a concurrent IPC set_config can't interleave.
+        lock = self._config_mutation_lock
+        ctx = _nullcontext() if lock is None else lock
+        with ctx:
+            changes = {
+                "hotkey": self.config.hotkey != hotkey,
+                "model_size": self.config.model_size != model_size,
+                "microphone": self.config.microphone != microphone,
+                "autostart": self.config.autostart != autostart,
+                "show_notifications": self.config.show_notifications != show_notifications,
+            }
 
-        self.config.hotkey = hotkey
-        self.config.model_size = model_size
-        self.config.microphone = microphone
-        self.config.autostart = autostart
-        self.config.show_notifications = show_notifications
-        self.config.save()
+            self.config.hotkey = hotkey
+            self.config.model_size = model_size
+            self.config.microphone = microphone
+            self.config.autostart = autostart
+            self.config.show_notifications = show_notifications
+            self.config.save()
 
         if changes["hotkey"] and self.on_hotkey_changed:
             self.on_hotkey_changed(hotkey)

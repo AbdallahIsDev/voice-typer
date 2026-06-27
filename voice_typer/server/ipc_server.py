@@ -839,9 +839,17 @@ class IPCServer:
                     except Exception as e:
                         log.warning("[IPC] set_active_backend failed: %s", e)
                 # Apply only allowlisted, validated values.
-                for k, v in validated.items():
-                    setattr(self.app.config, k, v)
-                self.app.config.save()
+                # RACE-011: hold the app's config-mutation lock for the
+                # full apply+save sequence so a concurrent
+                # SettingsController.apply() (from the deprecated
+                # tkinter settings window) can't interleave attribute
+                # writes with this IPC-driven update. Without this
+                # lock, half the fields could come from IPC and half
+                # from the tkinter window, producing a torn config.
+                with self.app._config_mutation_lock:
+                    for k, v in validated.items():
+                        setattr(self.app.config, k, v)
+                    self.app.config.save()
                 # ARCH-043: invalidate the tray menu cache so the next
                 # menu build picks up the new config values (model size,
                 # hotkey, etc.). Without this, the tray menu shows stale
