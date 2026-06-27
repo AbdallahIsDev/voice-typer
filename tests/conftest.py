@@ -42,10 +42,14 @@ from unittest.mock import MagicMock
 
 
 def pytest_configure(config):
-    """TEST-003: register the real_pynput marker."""
+    """TEST-003: register the real_pynput and real_pil markers."""
     config.addinivalue_line(
         "markers",
         "real_pynput: opt out of the pynput mock (use real pynput.keyboard)",
+    )
+    config.addinivalue_line(
+        "markers",
+        "real_pil: opt out of the PIL mock (use real PIL for image tests)",
     )
 
 
@@ -88,10 +92,45 @@ def mock_heavy_imports(monkeypatch, request):
     mock_pystray = MagicMock()
     monkeypatch.setitem(sys.modules, "pystray", mock_pystray)
 
-    mock_pil = MagicMock()
-    monkeypatch.setitem(sys.modules, "PIL", mock_pil)
-    monkeypatch.setitem(sys.modules, "PIL.Image", MagicMock())
-    monkeypatch.setitem(sys.modules, "PIL.ImageDraw", MagicMock())
+    # TEST-033: only mock PIL if the test doesn't request real PIL
+    if not request.node.get_closest_marker("real_pil"):
+        mock_pil = MagicMock()
+        monkeypatch.setitem(sys.modules, "PIL", mock_pil)
+        monkeypatch.setitem(sys.modules, "PIL.Image", MagicMock())
+        monkeypatch.setitem(sys.modules, "PIL.ImageDraw", MagicMock())
+    else:
+        # Ensure the real PIL is available in sys.modules.
+        #
+        # Some test modules (e.g. tests/test_tray.py) call
+        # ``sys.modules.setdefault("PIL", MagicMock())`` at *collection*
+        # time, which permanently installs a MagicMock for PIL in
+        # sys.modules. When a ``real_pil`` test runs afterwards, a plain
+        # ``import PIL`` returns that MagicMock instead of the real
+        # package, causing ``PIL.ImageDraw`` attribute access to fail
+        # with ``AttributeError: module 'PIL' has no attribute
+        # 'ImageDraw'``.
+        #
+        # Fix: detect and evict any mock entries for PIL/PIL.Image/
+        # PIL.ImageDraw from sys.modules before importing the real
+        # package. We identify mocks by checking ``__spec__`` — real
+        # modules have a non-None ``__spec__``; MagicMocks do not.
+        import types as _types
+        for _key in ("PIL", "PIL.Image", "PIL.ImageDraw"):
+            _existing = sys.modules.get(_key)
+            if _existing is not None and getattr(_existing, "__spec__", None) is None:
+                # Looks like a mock (or a non-module object) — evict it
+                # so the real import below actually loads the package.
+                del sys.modules[_key]
+        try:
+            import importlib as _importlib
+            _real_pil = _importlib.import_module("PIL")
+            _real_pil_image = _importlib.import_module("PIL.Image")
+            _real_pil_imagedraw = _importlib.import_module("PIL.ImageDraw")
+            monkeypatch.setitem(sys.modules, "PIL", _real_pil)
+            monkeypatch.setitem(sys.modules, "PIL.Image", _real_pil_image)
+            monkeypatch.setitem(sys.modules, "PIL.ImageDraw", _real_pil_imagedraw)
+        except ImportError:
+            pass  # PIL not available — tests will skip
 
     monkeypatch.setitem(sys.modules, "pyperclip", MagicMock())
 

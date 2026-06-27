@@ -20,17 +20,25 @@ import pytest
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-# Mock pystray + PIL at module level so the tray module can be imported
+# Mock pystray at module level so the tray module can be imported
 # without needing an X display (headless CI).
+#
+# NOTE: PIL is NOT mocked at module level. tray.py imports pystray
+# directly but uses ``_make_icon`` from ``tray_icon.py``, which in turn
+# uses *lazy* imports of PIL inside its drawing functions. So PIL is
+# never imported at module load time, and mocking it here would
+# permanently pollute ``sys.modules`` — breaking any later test that
+# needs real PIL (e.g. tests/test_tray_icon.py, which is marked
+# ``@pytest.mark.real_pil``).
+#
+# Per-test PIL mocking is handled by the autouse ``mock_heavy_imports``
+# fixture below (lines 102-105) and by ``tests/conftest.py``.
 _mock_pystray = MagicMock()
 _mock_pystray.Menu = MagicMock
 _mock_pystray.Menu.SEPARATOR = "SEP"
 _mock_pystray.MenuItem = MagicMock
 _mock_pystray.Icon = MagicMock
 sys.modules.setdefault("pystray", _mock_pystray)
-sys.modules.setdefault("PIL", MagicMock())
-sys.modules.setdefault("PIL.Image", MagicMock())
-sys.modules.setdefault("PIL.ImageDraw", MagicMock())
 
 from voice_typer.server.tray import TrayIcon
 
@@ -104,8 +112,15 @@ def mock_heavy_imports(monkeypatch):
     monkeypatch.setitem(sys.modules, "PIL.Image", MagicMock())
     monkeypatch.setitem(sys.modules, "PIL.ImageDraw", MagicMock())
 
-    # _make_icon now calls Image.open() — replace with a dummy that
-    # returns a simple transparent image to keep tests running.
+    # Replace _make_icon with a stub that returns a sentinel object.
+    # The original implementation called Image.open() on a real PNG, but
+    # we don't need a real PIL image here — tray tests only verify that
+    # _make_icon is invoked, not that the returned icon has pixels.
+    # ``__import__("PIL.Image", ...)`` returns whatever is in
+    # sys.modules["PIL.Image"] (the MagicMock set on line 112), so
+    # ``_dummy_icon`` ends up being a MagicMock. That's fine because
+    # the lambda on line 119 just hands it back to tray code, which
+    # never inspects its contents.
     _real_image = __import__("PIL.Image", fromlist=["Image"])
     _dummy_icon = _real_image.new("RGBA", (64, 64), (0, 0, 0, 0))
     monkeypatch.setattr(tray_mod, "_make_icon", lambda state, size=0: _dummy_icon)

@@ -39,17 +39,20 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# Mock pystray + PIL before importing the ipc_server (which transitively
+# Mock pystray before importing the ipc_server (which transitively
 # imports tray, which imports pystray).  Without this, pystray tries to
 # connect to an X display on Linux and crashes in headless CI.
+#
+# NOTE: PIL is NOT mocked at module level. tray.py and ipc_server.py use
+# lazy imports for PIL (via tray_icon._get_pil_image), so PIL is never
+# imported at module load time. Mocking it here would permanently
+# pollute ``sys.modules`` and break later tests that need real PIL
+# (e.g. tests/test_tray_icon.py with @pytest.mark.real_pil).
 _mock_pystray = MagicMock()
 _mock_pystray.Menu.SEPARATOR = "SEP"
 _mock_pystray.MenuItem = MagicMock
 _mock_pystray.Icon = MagicMock
 sys.modules.setdefault("pystray", _mock_pystray)
-sys.modules.setdefault("PIL", MagicMock())
-sys.modules.setdefault("PIL.Image", MagicMock())
-sys.modules.setdefault("PIL.ImageDraw", MagicMock())
 
 from voice_typer.server.ipc_server import IPCServer
 from voice_typer.server.tray import AppState
