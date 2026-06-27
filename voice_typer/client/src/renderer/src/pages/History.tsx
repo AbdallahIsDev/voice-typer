@@ -6,6 +6,7 @@ import { StarIcon, ArrowDown01Icon, Delete01Icon } from '@hugeicons/core-free-ic
 import { toast } from 'sonner'
 import { showUndoableToast } from '@/hooks/useSnackbar'
 import { Button } from '@/components/ui/button'
+import { InfoTooltip } from '@/components/InfoTooltip'
 import PageHeading from '@/components/PageHeading'
 import ActivityList from '@/components/ActivityList'
 import ConfirmDialog from '@/components/ConfirmDialog'
@@ -279,6 +280,8 @@ export default function HistoryPage() {
             <HugeiconsIcon icon={Delete01Icon} strokeWidth={2.25} className="h-4 w-4" />
             Clear All
           </Button>
+          {/* UX-033: InfoTooltip on Clear All button */}
+          <InfoTooltip text="Permanently delete all transcription history. This action cannot be undone." />
           <div className="ml-auto">
             <ExportFormatMenu onExport={doExport} disabled={records.length === 0} />
           </div>

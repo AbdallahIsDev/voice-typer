@@ -8,6 +8,7 @@ import StatCards from '@/components/StatCards'
 import ActivityList from '@/components/ActivityList'
 import { StatsShareImage } from '@/components/StatsShareImage'
 import { useStatsShare, computeShareStats } from '@/hooks/useStatsShare'
+import { InfoTooltip } from '@/components/InfoTooltip'
 import type { RecordingState, TodayStats, HistoryRecord, Page } from '@/types/ipc'
 import type { VoiceTyperConfig } from '@/types/config'
 
@@ -348,6 +349,7 @@ export default function Home({ recordingState, lastError, onNavigate }: HomeProp
           onClick={handleToggle}
           disabled={toggling}
           aria-label={isRecording ? 'Stop dictation' : 'Start dictation'}
+          title={isRecording ? 'Stop dictation' : 'Start dictation'}
           className={cn(
             'press-scale relative z-10 flex h-21 w-21 items-center justify-center rounded-full',
             'transition-all duration-200 ease-out',
@@ -388,16 +390,20 @@ export default function Home({ recordingState, lastError, onNavigate }: HomeProp
             <span className="text-xs font-medium text-(--text-muted) capitalize tracking-wide">
               Today's Stats
             </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={shareStats}
-              disabled={!cfg || stats.count === 0}
-              className="gap-2"
-            >
-              <HugeiconsIcon icon={Share08Icon} strokeWidth={2.25} className="h-4 w-4" />
-              Share Stats
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={shareStats}
+                disabled={!cfg || stats.count === 0}
+                className="gap-2"
+              >
+                <HugeiconsIcon icon={Share08Icon} strokeWidth={2.25} className="h-4 w-4" />
+                Share Stats
+              </Button>
+              {/* UX-033: InfoTooltip on the Share Stats button */}
+              <InfoTooltip text="Share a screenshot of your Voice Typer usage statistics." />
+            </div>
           </div>
           <StatCards stats={stats} />
         </div>

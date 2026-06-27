@@ -12,6 +12,7 @@ import { SearchField } from '@/components/SearchField'
 import { EmptyState } from '@/components/EmptyState'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { InfoTooltip } from '@/components/InfoTooltip'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -364,6 +365,8 @@ export default function VocabularyPage() {
               <HugeiconsIcon icon={Add01Icon} strokeWidth={1.625} className="h-4 w-4" />
               Add Word
             </Button>
+            {/* UX-033: InfoTooltip on Add Word button */}
+            <InfoTooltip text="Add custom words or phrases to improve transcription accuracy for specialized vocabulary." />
           </div>
         </PageHeading>
 

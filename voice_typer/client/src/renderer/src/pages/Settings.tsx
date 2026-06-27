@@ -27,6 +27,8 @@ import type { VoiceTyperConfig } from '@/types/config'
 import type { Page } from '@/types/ipc'
 import { Spinner } from '@/components/Spinner'
 import { HotkeyPicker } from '@/components/HotkeyPicker'
+import { SearchField } from '@/components/SearchField'
+import { t } from '@/i18n/i18n'
 
 // Module-level cache — persists across page navigations so settings render
 // instantly on re-visit instead of showing a loading spinner.
@@ -116,6 +118,8 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
   const [config, setConfig] = useState<VoiceTyperConfig | null>(_cachedConfig)
   const [saving, setSaving] = useState(false)
   const [showResetDialog, setShowResetDialog] = useState(false)
+  // UX-028: search/filter state for settings
+  const [settingsFilter, setSettingsFilter] = useState('')
   // NEW-TS-004: use the shared useSnackbar hook.  The hook manages the
   // timer ref and clears it on unmount, fixing the leak risk of the
   // previous inline setTimeout (which wasn't cleared if the page
@@ -317,20 +321,48 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
     )
   }
 
+  // UX-028: filter settings sections by label/description
+  const _filter_settings = (label: string, info?: string): boolean => {
+    if (!settingsFilter.trim()) return true
+    const q = settingsFilter.toLowerCase()
+    return label.toLowerCase().includes(q) || (info && info.toLowerCase().includes(q)) || false
+  }
+
+  // UX-028: check if a section has any visible settings
+  const _section_has_visible_items = (items: Array<{ label: string; info?: string }>): boolean => {
+    if (!settingsFilter.trim()) return true
+    return items.some(item => _filter_settings(item.label, item.info))
+  }
+
   return (
     <div className="min-h-full">
       <div className="mx-auto max-w-2xl space-y-8 px-6 pt-28 pb-6">
         {/* Header */}
         <PageHeading
-          title="Settings"
+          title={t('settings.title')}
           description="Adjust Voice Typer to your preferences."
         />
 
+        {/* UX-028: Settings search/filter */}
+        <SearchField
+          value={settingsFilter}
+          onChange={setSettingsFilter}
+          placeholder={t('settings.searchPlaceholder')}
+        />
+
         {/* ── SECTION: General ──────────────────────────────────── */}
+        {_section_has_visible_items([
+          { label: 'Launch at Login', info: 'Automatically start Voice Typer when you log into Windows.' },
+          { label: 'Fast Startup', info: 'Keep the speech model cached between restarts so the app is ready faster. Recommended.' },
+          { label: 'Notifications', info: 'Show a desktop notification when transcription completes or an error occurs.' },
+          { label: 'Theme', info: 'Choose between light, dark, or follow your system setting.' },
+          { label: 'Tray Click', info: 'What happens when you left-click the Voice Typer icon in the system tray.' },
+        ]) && (
         <SettingsSection
-          title="General"
+          title={t('settings.general')}
           description="Behavior, startup, and appearance."
         >
+          {_filter_settings('Launch at Login', 'Automatically start Voice Typer when you log into Windows.') && (
           <SettingRow label="Launch at Login" info="Automatically start Voice Typer when you log into Windows.">
             <Switch
               checked={config.autostart}
@@ -338,7 +370,9 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
               aria-label="Launch at Login"
             />
           </SettingRow>
+          )}
 
+          {_filter_settings('Fast Startup', 'Keep the speech model cached') && (
           <SettingRow
             label="Fast Startup"
             info="Keep the speech model cached between restarts so the app is ready faster. Recommended."
@@ -349,7 +383,9 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
               aria-label="Fast Startup"
             />
           </SettingRow>
+          )}
 
+          {_filter_settings('Notifications', 'Show a desktop notification') && (
           <SettingRow label="Notifications" info="Show a desktop notification when transcription completes or an error occurs.">
             <Switch
               checked={config.show_notifications}
@@ -357,14 +393,18 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
               aria-label="Notifications"
             />
           </SettingRow>
+          )}
 
+          {_filter_settings('Theme', 'Choose between light, dark') && (
           <SettingRow label="Theme" info="Choose between light, dark, or follow your system setting. Use the theme picker in the sidebar for quick access.">
             <span className="text-sm text-(--text-muted)">
               {config.theme_mode === 'system' ? 'System' : config.theme_mode === 'dark' ? 'Dark' : 'Light'}
               {' (change in sidebar)'}
             </span>
           </SettingRow>
+          )}
 
+          {_filter_settings('Tray Click', 'What happens when you left-click') && (
           <SettingRow label="Tray Click" info="What happens when you left-click the Voice Typer icon in the system tray.">
             <Select
               value={config.tray_left_click_action ?? 'open_app'}
@@ -382,7 +422,9 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
               </SelectContent>
             </Select>
           </SettingRow>
+          )}
         </SettingsSection>
+        )}
 
         {/* ── SECTION: Overlay ──────────────────────────────────── */}
         <SettingsSection

@@ -16,6 +16,7 @@ import type { VoiceTyperConfig } from '@/types/config'
 import { Button } from '@/components/ui/button'
 import { Logo } from '@/components/Logo'
 import { ThemeSwitch } from '@/components/ThemeSwitch'
+import { InfoTooltip } from '@/components/InfoTooltip'
 import { cn } from '@/lib/utils'
 
 interface NavItem {
@@ -99,7 +100,13 @@ export function Sidebar({ currentPage, onNavigate, themeMode, onThemeChange, col
                 )}
                 onClick={() => onNavigate(item.id)}
               >
-                <HugeiconsIcon icon={item.icon} strokeWidth={1.625} className="h-4.5 w-4.5 shrink-0" />
+                {/* UX-033: InfoTooltip on the settings button */}
+              {item.id === 'settings' && (
+                <span className="ml-auto shrink-0" onClick={(e) => e.stopPropagation()}>
+                  <InfoTooltip text="Configure Voice Typer behavior, appearance, and recording settings." />
+                </span>
+              )}
+              <HugeiconsIcon icon={item.icon} strokeWidth={1.625} className="h-4.5 w-4.5 shrink-0" />
                 <span
                   className={cn(
                     'overflow-hidden whitespace-nowrap text-sm font-medium dark:font-normal',

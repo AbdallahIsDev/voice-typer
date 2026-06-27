@@ -10,6 +10,7 @@ import {
 } from '@hugeicons/core-free-icons'
 import { EmptyState } from '@/components/EmptyState'
 import { Button } from '@/components/ui/button'
+import { InfoTooltip } from '@/components/InfoTooltip'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -422,6 +423,8 @@ export default function TemplatesPage() {
             <HugeiconsIcon icon={Add01Icon} strokeWidth={2.25} className="h-4 w-4" />
             Add Template
           </Button>
+          {/* UX-033: InfoTooltip on Add Template button */}
+          <InfoTooltip text="Create voice shortcuts that automatically expand into full text templates when dictated." />
         </PageHeading>
 
         <div>

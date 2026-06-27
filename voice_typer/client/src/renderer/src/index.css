@@ -424,3 +424,54 @@
     border-color: CanvasText !important;
   }
 }
+
+/* UX-036: High-contrast mode support.
+   WCAG 2.1 SC 1.4.11: @media (prefers-contrast: high) increases
+   contrast for text, borders, and interactive elements on platforms
+   that support it (e.g. macOS Increase Contrast setting). */
+@media (prefers-contrast: high) {
+
+  /* Strengthen text contrast */
+  :root {
+    --text-primary: oklch(0 0 0);
+    --text-secondary: oklch(0.2 0 0);
+    --text-muted: oklch(0.3 0 0);
+  }
+
+  .dark {
+    --text-primary: oklch(1 0 0);
+    --text-secondary: oklch(0.9 0 0);
+    --text-muted: oklch(0.8 0 0);
+  }
+
+  /* Ensure borders are clearly visible */
+  .border {
+    border-color: oklch(0.3 0 0) !important;
+  }
+
+  .dark .border {
+    border-color: oklch(0.7 0 0) !important;
+  }
+
+  /* Ensure interactive elements have strong contrast */
+  button:not(:disabled),
+  a,
+  select,
+  input {
+    outline-offset: 2px;
+  }
+
+  button:focus-visible,
+  a:focus-visible,
+  select:focus-visible,
+  input:focus-visible {
+    outline: 2px solid oklch(0.4 0 0) !important;
+  }
+
+  .dark button:focus-visible,
+  .dark a:focus-visible,
+  .dark select:focus-visible,
+  .dark input:focus-visible {
+    outline: 2px solid oklch(0.8 0 0) !important;
+  }
+}

@@ -28,7 +28,7 @@ function MinimizeIcon() {
 
 function MaximizeIcon() {
   return (
-    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden className="stroke-current fill-none" strokeWidth="1.625">
+    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden className="stroke-current fill-none" strokeWidth="1.25">
       <rect x="0.5" y="0.5" width="9" height="9" />
     </svg>
   )
@@ -36,7 +36,7 @@ function MaximizeIcon() {
 
 function RestoreIcon() {
   return (
-    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden className="stroke-current fill-none" strokeWidth="1.625">
+    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden className="stroke-current fill-none" strokeWidth="1.25">
       <path d="M3 0.5 H9.5 V7" />
       <rect x="0.5" y="2.5" width="7" height="7" />
     </svg>
@@ -45,7 +45,7 @@ function RestoreIcon() {
 
 function CloseIcon() {
   return (
-    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden className="stroke-current" strokeWidth="1.625">
+    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden className="stroke-current" strokeWidth="1.25">
       <line x1="0.5" y1="0.5" x2="9.5" y2="9.5" />
       <line x1="9.5" y1="0.5" x2="0.5" y2="9.5" />
     </svg>
