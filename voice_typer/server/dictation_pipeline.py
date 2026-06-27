@@ -146,12 +146,39 @@ class DictationPipeline:
             self._app._schedule_timer(3.0, lambda: self._app.tray.set_state(AppState.IDLE))
 
         finally:
-            if self._watchdog:
-                self._watchdog.cancel()
-            session = self._app._get_streaming_session()
-            if session is not None and not self._app.recorder.recording:
-                self._app._set_streaming_session(None)
-            self._app._busy_event.set()  # busy = False
+            # SEC-audit-008: Zero the audio array after transcription
+            # completes to prevent forensic recovery of voice data
+            # from process memory.  The audio buffer contains potentially
+            # sensitive biometric data (voice recordings) that should not
+            # linger in memory longer than necessary.
+            try:
+                if self._audio is not None and isinstance(self._audio, np.ndarray):
+                    self._audio.fill(0)
+                    self._audio = None
+            except Exception:
+                pass
+            # RACE-013: reset the persistent watchdog thread (signal
+            # that transcription completed normally). Old code used
+            # watchdog.cancel() for Timer-based watchdogs; now we
+            # signal the Event-based persistent watchdog thread.
+            # RACE-016: wrap daemon thread finally block with
+            # try/except to prevent exceptions during shutdown.
+            try:
+                if hasattr(self._app, '_recording_controller') and self._app._recording_controller is not None:
+                    self._app._recording_controller._reset_watchdog()
+                    self._app._recording_controller._stop_watchdog_thread()
+            except Exception:
+                pass
+            try:
+                session = self._app._get_streaming_session()
+                if session is not None and not self._app.recorder.recording:
+                    self._app._set_streaming_session(None)
+            except Exception:
+                log.debug("[TRANSCRIBE] finally: session cleanup failed", exc_info=True)
+            try:
+                self._app._busy_event.set()  # busy = False
+            except Exception:
+                pass
             # ARCH-016: clear _transcription_thread under the app's
             # state lock so concurrent readers (e.g. _cancel_streaming_session
             # in another thread) don't see a torn None vs Thread object.
@@ -166,9 +193,15 @@ class DictationPipeline:
                     "_transcription_thread; assigning without lock",
                     exc_info=True,
                 )
-                self._app._transcription_thread = None
-            import gc
-            gc.collect()
+                try:
+                    self._app._transcription_thread = None
+                except Exception:
+                    pass
+            try:
+                import gc
+                gc.collect()
+            except Exception:
+                pass
             log.info("[TRANSCRIBE] busy reset to False (cycle=%s)", self._cycle_id)
 
     # ── Pipeline steps ────────────────────────────────────────────

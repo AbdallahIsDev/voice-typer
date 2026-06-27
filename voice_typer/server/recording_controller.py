@@ -54,6 +54,10 @@ class RecordingController:
         self._app = app
         self._streaming_session: Optional[StreamingTranscriptionSession] = None
         self._transcription_thread: Optional[threading.Thread] = None
+        # RACE-025: toggle serialization lock. Prevents concurrent toggle_dictation
+        # calls from different threads (hotkey thread + tray thread) from both
+        # passing the _busy_event check before either modifies it.
+        self._toggle_lock = threading.Lock()
         # ERR-002: watchdog firing counter for the current transcription
         # cycle. Reset to 0 whenever a new transcription thread starts.
         # After _watchdog_max_firings consecutive watchdog expirations
@@ -68,6 +72,15 @@ class RecordingController:
         # start()/cancel() calls could see torn reads or trigger
         # duplicate add_final callbacks.
         self._streaming_session_lock = threading.Lock()
+        # RACE-013: persistent watchdog thread + Event instead of chained
+        # threading.Timer. Under CPU pressure, chained Timers can stack up
+        # (each Timer fires and schedules the next, but the next hasn't
+        # started yet so there's no cancellation path). A single persistent
+        # thread using Event.wait(timeout=60) is immune to stacking and
+        # cheaper than creating a new Timer object every 60s.
+        self._watchdog_event = threading.Event()
+        self._watchdog_stop_event = threading.Event()
+        self._watchdog_thread: Optional[threading.Thread] = None
 
     # ── Streaming session accessors ────────────────────────────────────
 
@@ -90,7 +103,17 @@ class RecordingController:
     # ── Toggle / start / stop / cancel ─────────────────────────────────
 
     def toggle(self) -> None:
-        """Toggle recording on/off."""
+        """Toggle recording on/off.
+
+        RACE-025: Serializes concurrent toggle calls from different threads
+        (hotkey thread + tray thread) to prevent TOCTOU where two near-
+        simultaneous F2 presses both pass the _busy_event check.
+        """
+        with self._toggle_lock:
+            self._toggle_impl()
+
+    def _toggle_impl(self) -> None:
+        """Inner toggle implementation, called under _toggle_lock."""
         app = self._app
         # Generate cycle correlation ID for this dictation
         app._cycle_counter += 1
@@ -313,37 +336,22 @@ class RecordingController:
             except Exception:
                 pass
 
-        # Safety watchdog: if transcription hangs for >60s, force-recover.
-        # ERR-002: re-arm up to _watchdog_max_firings times. After that,
-        # the next firing force-recovers even if the worker is still
-        # alive (covers deadlocks inside ctranslate2).
-        def _watchdog_fire():
-            with self._watchdog_lock:
-                self._watchdog_firings += 1
-                firings = self._watchdog_firings
-            self._force_recover_from_stuck_transcription(force=firings >= self._watchdog_max_firings)
-
-        watchdog = threading.Timer(
-            60.0,
-            _watchdog_fire,
-        )
-        watchdog.daemon = True
-        # ARCH-017: track the watchdog Timer in the app's _pending_timers
-        # list so quit() / _cancel_pending_timers() cancels it on shutdown.
-        # Otherwise the timer holds a reference to the closure (which
-        # captures `self`) and delays GC; worse, it may fire post-quit
-        # and call _force_recover on a half-torn-down app.
-        try:
-            with app._pending_timers_lock:
-                app._pending_timers.append(watchdog)
-        except Exception:
-            log.debug("[WATCHDOG] could not track in _pending_timers", exc_info=True)
-        watchdog.start()
+        # RACE-013: Start persistent watchdog thread using Event.wait(timeout=60).
+        # Replaces chained threading.Timer which could stack under CPU pressure.
+        # The watchdog thread waits on _watchdog_event with a 60s timeout.
+        # If the transcription completes normally, _reset_watchdog() is called
+        # from the pipeline's finally block, setting the event so wait() returns
+        # immediately and the loop resets. If wait() times out (transcription
+        # hung), the watchdog fires the recovery action.
+        self._start_watchdog_thread()
 
         _captured_cycle_id = app._cycle_id
 
         # ARCH-006: transcribe_thread extracted to DictationPipeline class.
         from voice_typer.server.dictation_pipeline import DictationPipeline
+
+        # Capture the current watchdog reference for the pipeline's finally block
+        _watchdog_thread_ref = self._watchdog_thread
 
         def transcribe_thread():
             pipeline = DictationPipeline(app)
@@ -352,7 +360,7 @@ class RecordingController:
                 duration=duration,
                 recorded_rms=recorded_rms,
                 cycle_id=_captured_cycle_id,
-                watchdog=watchdog,
+                watchdog=None,  # RACE-013: no longer using Timer-based watchdog
             )
 
         self._transcription_thread = threading.Thread(
@@ -573,6 +581,13 @@ class RecordingController:
         up to ``_watchdog_max_firings`` times; once the counter exceeds
         the threshold (or ``force=True`` is passed), we unconditionally
         clear the busy flag and reset the tray state.
+
+        RACE-013: re-arming no longer creates a new Timer. The persistent
+        watchdog thread loops on Event.wait(timeout=60). When it fires
+        without a reset, it calls this method. If we decide not to
+        force-recover yet, we simply let the loop continue (the event
+        is still unset, so the next wait(timeout=60) will time out
+        again after 60s).
         """
         app = self._app
         if app._busy_event.is_set():  # not busy
@@ -593,24 +608,9 @@ class RecordingController:
                 "Transcription is still running.\n"
                 "Long recordings or CPU fallback can take extra time.",
             )
-            # Re-arm the watchdog for another 60s window.
-            def _re_fire():
-                with self._watchdog_lock:
-                    self._watchdog_firings += 1
-                    firings = self._watchdog_firings
-                self._force_recover_from_stuck_transcription(
-                    force=firings >= self._watchdog_max_firings
-                )
-
-            next_watchdog = threading.Timer(60.0, _re_fire)
-            next_watchdog.daemon = True
-            # ARCH-017: track the re-armed watchdog too.
-            try:
-                with app._pending_timers_lock:
-                    app._pending_timers.append(next_watchdog)
-            except Exception:
-                log.debug("[WATCHDOG] could not track re-armed timer", exc_info=True)
-            next_watchdog.start()
+            # RACE-013: no need to create a new Timer. The persistent
+            # watchdog thread will time out again on its next
+            # Event.wait(timeout=60) cycle.
             return
 
         if force:
@@ -621,6 +621,8 @@ class RecordingController:
             )
         else:
             log.warning("[RECOVERY] FORCE RECOVER: transcription watchdog fired, resetting state")
+        # RACE-013: stop the persistent watchdog thread on recovery
+        self._stop_watchdog_thread()
         app._busy_event.set()  # busy = False
         app.tray.set_state(AppState.IDLE, "Recovered -- transcription timed out")
         app.tray.notify(
@@ -629,3 +631,71 @@ class RecordingController:
             "Press F2 to try again.",
         )
         app._schedule_timer(5.0, lambda: app.tray.set_state(AppState.IDLE))
+
+    # ── Persistent watchdog thread (RACE-013) ───────────────────────────
+
+    def _start_watchdog_thread(self) -> None:
+        """Start or reset the persistent watchdog thread.
+
+        RACE-013: replaces the old chained threading.Timer pattern. A
+        single daemon thread loops on ``_watchdog_event.wait(timeout=60)``.
+        When transcription completes normally, ``_reset_watchdog()`` sets
+        the event, causing wait() to return early and the loop to reset
+        firings + clear the event for the next cycle. When wait() times
+        out (transcription hung), the watchdog fires the recovery action.
+        """
+        with self._watchdog_lock:
+            self._watchdog_firings = 0
+        # Clear any previous reset signal
+        self._watchdog_event.clear()
+        # If the thread is already running, just reset the counter
+        if self._watchdog_thread is not None and self._watchdog_thread.is_alive():
+            return
+        self._watchdog_stop_event.clear()
+        self._watchdog_thread = threading.Thread(
+            target=self._watchdog_loop,
+            name="TranscriptionWatchdog",
+            daemon=True,
+        )
+        self._watchdog_thread.start()
+
+    def _watchdog_loop(self) -> None:
+        """Persistent watchdog loop — runs on the watchdog daemon thread."""
+        while not self._watchdog_stop_event.is_set():
+            # Wait up to 60s. Returns True if the event was set (reset),
+            # False if it timed out (transcription hung).
+            timed_out = not self._watchdog_event.wait(timeout=60.0)
+            if self._watchdog_stop_event.is_set():
+                return
+            if timed_out:
+                with self._watchdog_lock:
+                    self._watchdog_firings += 1
+                    firings = self._watchdog_firings
+                self._force_recover_from_stuck_transcription(
+                    force=firings >= self._watchdog_max_firings,
+                )
+                # If force-recovery happened, the watchdog thread is
+                # stopped by _stop_watchdog_thread() inside
+                # _force_recover_from_stuck_transcription. Break out.
+                if self._watchdog_stop_event.is_set():
+                    return
+            else:
+                # Event was set (transcription completed or reset).
+                # Reset firings and clear the event for the next cycle.
+                with self._watchdog_lock:
+                    self._watchdog_firings = 0
+                self._watchdog_event.clear()
+
+    def _reset_watchdog(self) -> None:
+        """Signal the watchdog that transcription completed normally.
+
+        Called from the pipeline's finally block. Setting the event
+        causes the watchdog's Event.wait() to return True immediately,
+        which resets the firing counter.
+        """
+        self._watchdog_event.set()
+
+    def _stop_watchdog_thread(self) -> None:
+        """Stop the persistent watchdog thread."""
+        self._watchdog_stop_event.set()
+        self._watchdog_event.set()  # break out of wait()

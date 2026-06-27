@@ -68,7 +68,11 @@ _test_silence_blocks: int = 0
 # ── Public API: monitoring ──────────────────────────────────────────
 
 def is_monitoring() -> bool:
-    """Return True if the continuous level monitor is active."""
+    """Return True if the continuous level monitor is active.
+
+    Returns:
+        True if the level monitor stream is currently running.
+    """
     with _monitor_lock:
         return _monitor_active
 
@@ -77,7 +81,10 @@ def get_level() -> dict:
     """Return the current audio level from the monitor.
 
     Returns:
-        dict with {"level": float (0-1), "peak": float (0-1), "active": bool}.
+        dict with keys:
+            - "level": float (0-1) — current RMS level, scaled.
+            - "peak": float (0-1) — peak level since last call.
+            - "active": bool — whether the monitor stream is running.
     """
     with _monitor_lock:
         return {
@@ -316,7 +323,11 @@ def stop_monitoring() -> dict:
 # ── Public API: test recording ──────────────────────────────────────
 
 def is_test_active() -> bool:
-    """Return True if a microphone test is currently recording."""
+    """Return True if a microphone test is currently recording.
+
+    Returns:
+        True if test mode is active and recording audio.
+    """
     with _monitor_lock:
         return _test_mode
 

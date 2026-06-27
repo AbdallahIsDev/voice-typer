@@ -62,6 +62,10 @@ class AudioProcessorConfig:
     noise_gate_hold_ms: float = 300.0   # keep gate open across syllable gaps + word endings
     rnnoise: bool = False
     post_capture: bool = True
+    # AUDIO-AGC: peak normalization after noise gating.
+    # When enabled, scales audio so peak amplitude reaches target level.
+    normalize_audio: bool = True
+    normalize_target_peak: float = 0.7
 
     @classmethod
     def from_config(cls, config: object) -> "AudioProcessorConfig":
@@ -75,6 +79,8 @@ class AudioProcessorConfig:
             noise_gate_hold_ms=float(getattr(config, "noise_filter_gate_hold_ms", 150.0)),
             rnnoise=bool(getattr(config, "noise_filter_rnnoise", False)),
             post_capture=bool(getattr(config, "noise_filter_post_capture", True)),
+            normalize_audio=bool(getattr(config, "normalize_audio", True)),
+            normalize_target_peak=float(getattr(config, "normalize_target_peak", 0.7)),
         )
 
 
@@ -209,7 +215,14 @@ class AudioProcessor:
         if self._rnnoise is not None:
             chunk = self._apply_rnnoise(chunk)
 
-        # 4. Quality detection (feeds tray warnings via callback)
+        # 4. AUDIO-AGC: peak normalization after noise gating.
+        # Scale audio so peak amplitude reaches the target level (0.7).
+        # Only applies when signal is present (gate is open or chunk is
+        # above noise floor) to avoid amplifying silence/noise.
+        if self._config.normalize_audio:
+            chunk = self._apply_normalization(chunk)
+
+        # 5. Quality detection (feeds tray warnings via callback)
         if self._quality_callback is not None:
             self._run_quality_check(chunk)
 
@@ -361,6 +374,30 @@ class AudioProcessor:
             padded = np.zeros(consumed_input, dtype=np.float32)
             padded[:len(result)] = result
             return padded.reshape(chunk.shape)
+
+    # ── AUDIO-AGC: peak normalization ──────────────────────────────────
+
+    def _apply_normalization(self, chunk: np.ndarray) -> np.ndarray:
+        """AUDIO-AGC: Apply peak normalization after noise gating.
+
+        Scales audio so the peak amplitude reaches the target level.
+        Only normalizes when signal is present (peak > small threshold)
+        to avoid amplifying silence/noise. Clamps to prevent clipping.
+        """
+        if chunk.size == 0:
+            return chunk
+
+        peak = float(np.max(np.abs(chunk)))
+        # Don't normalize near-silence chunks (would amplify noise)
+        if peak < 0.01:
+            return chunk
+
+        target = self._config.normalize_target_peak
+        if peak > 0 and target > 0:
+            scale = min(target / peak, 4.0)  # cap gain at 4x to prevent runaway
+            if abs(scale - 1.0) > 0.01:  # skip if gain is near 1.0
+                chunk = chunk * scale
+        return chunk
 
     def _run_quality_check(self, chunk: np.ndarray) -> None:
         """Compute lightweight quality metrics and fire the callback."""

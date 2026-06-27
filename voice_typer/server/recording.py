@@ -1,6 +1,7 @@
 """Session-based audio recording."""
 
 import collections
+import enum
 import logging
 import math
 import threading
@@ -15,6 +16,47 @@ from voice_typer.server.config import Config
 log = logging.getLogger(__name__)
 
 
+# ─── AUDIO-013: VAD state machine ───────────────────────────────────────
+
+
+class VadState(enum.Enum):
+    """VAD state-machine states with hysteresis transitions.
+
+    SILENCE → SPEECH requires ``_vad_speech_frames`` consecutive loud frames.
+    SPEECH → SILENCE requires ``_vad_silence_frames`` consecutive quiet frames.
+    UNKNOWN is the initial state before enough frames have been observed.
+    """
+    SILENCE = "silence"
+    SPEECH = "speech"
+    UNKNOWN = "unknown"
+
+
+# AUDIO-014: default VAD thresholds (overridden by auto-calibration)
+_DEFAULT_VAD_SPEECH_THRESHOLD_DB = -40.0  # dBFS — above this → speech candidate
+_DEFAULT_VAD_SILENCE_THRESHOLD_DB = -50.0  # dBFS — below this → silence candidate
+_DEFAULT_VAD_CALIBRATION_DURATION = 1.5    # seconds of ambient noise to sample
+_DEFAULT_VAD_SPEECH_FRAMES = 3   # consecutive loud frames to declare SPEECH
+_DEFAULT_VAD_SILENCE_FRAMES = 15  # consecutive quiet frames to declare SILENCE (hangover)
+_DEFAULT_VAD_HANGOVER_FRAMES = 15  # same as _VAD_SILENCE_FRAMES — configurable alias
+
+
+# AUDIO-AGC: default AGC parameters
+_AGC_TARGET_RMS = 0.05       # target RMS level for AGC
+_AGC_ATTACK_ALPHA = 0.01     # slow-moving gain adjustment (~1s time constant)
+_AGC_MIN_GAIN = 0.5         # minimum gain multiplier
+_AGC_MAX_GAIN = 4.0         # maximum gain multiplier
+
+
+# AUDIO-PRE: pre-roll buffer size in seconds
+_PREROLL_SECONDS = 1.0
+
+
+# AUDIO-002: XRUN rolling window parameters
+_XRUN_WINDOW_MAXLEN = 10     # keep last 10 xrun timestamps
+_XRUN_ALERT_THRESHOLD = 5    # alert if N xruns in the window
+_XRUN_ALERT_PERIOD = 10.0    # ...within M seconds
+
+
 class ResampleError(RuntimeError):
     """Raised when audio cannot be resampled to the target sample rate.
 
@@ -24,6 +66,26 @@ class ResampleError(RuntimeError):
     catch this exception and decide how to handle the failure (skip
     the chunk, abort the dictation, or notify the user).
     """
+
+
+def _secure_clear_array(arr: np.ndarray) -> None:
+    """SEC-audit-008: Securely clear a numpy array's contents before deallocation.
+
+    Fills the array with zeros using ``np.fill()`` to prevent forensic
+    recovery of audio data from process memory.  Call this before
+    ``del`` or before the array goes out of scope when the array
+    contains sensitive audio data (voice recordings that may contain
+    PII).
+
+    Parameters
+    ----------
+    arr : np.ndarray
+        Numpy array to zero out in-place.
+    """
+    try:
+        arr.fill(0)
+    except Exception:
+        pass  # best-effort; some array types may not support fill
 
 # PERF-NEW-018: MAX_BUFFER_CHUNKS is now dynamically adjusted in
 # start() based on max_recording_seconds.  The default below is a
@@ -35,6 +97,9 @@ TELEMETRY_LOG_INTERVAL = 1000
 
 _resample_poly = None
 _resample_poly_error: Exception | None = None
+# AUDIO-003: track when the error was cached so we can retry after a timeout
+_resample_poly_error_time: float = 0.0
+_RESAMPLE_RETRY_INTERVAL = 300.0  # Retry every 5 minutes
 _resample_poly_lock = threading.Lock()
 
 
@@ -78,17 +143,25 @@ def _get_resample_poly():
     scipy is missing, instead of the bare ``ImportError``. Callers
     that want to fall back to linear interp can catch this type.
     """
-    global _resample_poly, _resample_poly_error
+    global _resample_poly, _resample_poly_error, _resample_poly_error_time
     if _resample_poly is not None:
         return _resample_poly
     if _resample_poly_error is not None:
-        raise _resample_poly_error
+        # AUDIO-003: retry after timeout instead of memoizing forever
+        if time.monotonic() - _resample_poly_error_time < _RESAMPLE_RETRY_INTERVAL:
+            raise _resample_poly_error
+        # Retry — clear the cached error
+        _resample_poly_error = None
 
     with _resample_poly_lock:
         if _resample_poly is not None:
             return _resample_poly
         if _resample_poly_error is not None:
-            raise _resample_poly_error
+            # AUDIO-003: retry after timeout instead of memoizing forever
+            if time.monotonic() - _resample_poly_error_time < _RESAMPLE_RETRY_INTERVAL:
+                raise _resample_poly_error
+            # Retry — clear the cached error
+            _resample_poly_error = None
         try:
             from scipy.signal import resample_poly
         except ImportError as exc:
@@ -98,6 +171,7 @@ def _get_resample_poly():
                 f"scipy.signal.resample_poly unavailable: {exc}"
             )
             _resample_poly_error = typed
+            _resample_poly_error_time = time.monotonic()
             raise typed from exc
         _resample_poly = resample_poly
         return _resample_poly
@@ -122,7 +196,10 @@ class Recorder:
         # to receive a notification when xrun count exceeds threshold.
         self.on_xrun_threshold: Optional[Callable[[int], None]] = None
         self._xrun_threshold: int = 10  # notify after this many xruns
+        # AUDIO-002: rolling window of xrun timestamps for rate-limited logging
+        self._xrun_timestamps: collections.deque = collections.deque(maxlen=_XRUN_WINDOW_MAXLEN)
         self._recording_event = threading.Event()
+        self._in_callback = threading.Event()  # AUDIO-009: guard flag for in-flight callback
         self._effective_sr: int = config.sample_rate
         self._last_rms: float = 0.0
         self._chunk_count: int = 0
@@ -147,8 +224,80 @@ class Recorder:
         # them instead of recomputing on the same audio array.
         self._last_audio_stats: "tuple[float, float, float] | None" = None
 
+        # AUDIO-013: VAD state machine with hysteresis
+        self._vad_state: VadState = VadState.UNKNOWN
+        self._vad_consecutive_speech_frames: int = 0
+        self._vad_consecutive_silence_frames: int = 0
+        self._vad_speech_threshold_db: float = _DEFAULT_VAD_SPEECH_THRESHOLD_DB
+        self._vad_silence_threshold_db: float = _DEFAULT_VAD_SILENCE_THRESHOLD_DB
+        self._vad_speech_frames: int = _DEFAULT_VAD_SPEECH_FRAMES
+        self._vad_silence_frames: int = _DEFAULT_VAD_SILENCE_FRAMES
+        self._vad_hangover_frames: int = _DEFAULT_VAD_HANGOVER_FRAMES
+        # AUDIO-013: Silero VAD integration — when use_silero_vad is
+        # enabled in config, the recording callback uses Silero VAD
+        # probability instead of RMS dB thresholds for the state machine.
+        self._use_silero_vad: bool = getattr(config, "use_silero_vad", False)
+        self._vad_speech_threshold: float = getattr(config, "vad_speech_threshold", 0.5)
+        self._vad_silence_threshold: float = getattr(config, "vad_silence_threshold", 0.3)
+        self._silero_available: bool = False
+        if self._use_silero_vad:
+            try:
+                from voice_typer.server.vad import is_available as _vad_is_available
+                self._silero_available = _vad_is_available()
+                if not self._silero_available:
+                    log.warning("[RECORDING] use_silero_vad=True but Silero VAD unavailable — falling back to RMS")
+            except Exception:
+                self._silero_available = False
+
+        # AUDIO-014: auto-calibration state
+        self._vad_calibration_duration: float = _DEFAULT_VAD_CALIBRATION_DURATION
+        self._vad_calibration_rms_values: list[float] = []
+        self._vad_calibrated: bool = False
+
+        # AUDIO-AGC: simple automatic gain control
+        self._agc_gain: float = 1.0
+        self._agc_rms_accumulator: float = 0.0
+        self._agc_frame_count: int = 0
+
+        # AUDIO-PRE: pre-roll circular buffer (captures audio before
+        # recording officially starts to reduce cold-start latency).
+        # Configurable via config.pre_roll_buffer_seconds (0 = disabled).
+        preroll_seconds = float(getattr(config, "pre_roll_buffer_seconds", 0.0) or 0)
+        sample_rate = int(getattr(config, "sample_rate", 16000) or 16000)
+        self._preroll_buffer: collections.deque = collections.deque(
+            maxlen=int(preroll_seconds * sample_rate / 512) + 2 if preroll_seconds > 0 else 0
+        )
+        self._preroll_active: bool = preroll_seconds > 0  # only capture when enabled
+
+        # AUDIO-009/AUDIO-015: guard flag for in-flight audio callback
+        self._is_in_audio_callback: threading.Event = threading.Event()
+
+        # AUDIO-CH: actual channel count of the input stream
+        self._actual_channels: int = 1
+
+        # PERF-011: frame-skip under CPU load
+        self._previous_chunk_pending: bool = False
+        self._skipped_frames: int = 0
+
+        # AUDIO-HOT: hot-plug device disconnect handling
+        self._device_disconnected: bool = False
+        self._device_disconnect_retries: int = 0
+        self._max_disconnect_retries: int = 3
+        # AUDIO-HOT: periodic device availability check — every N chunks,
+        # verify the current device is still present in sd.query_devices().
+        self._device_check_interval: int = 500  # check every ~500 chunks (~32s at 16Hz)
+        self._device_check_counter: int = 0
+
+        # AUDIO-MIC: device list cache with timestamp
+        self._device_list_cache: list[dict] | None = None
+        self._device_list_cache_time: float = 0.0
+        self._device_list_cache_ttl: float = 30.0  # seconds
+
         # H12: Silent mic disconnection detection
         self._silence_timer: float = 0.0
+        # AUDIO-013: absolute timestamp for silence start, prevents
+        # timer drift under CPU pressure
+        self._silence_start_time: float | None = None
         self._silence_warning_count: int = 0
         self._silence_next_warning_wait: float = 10.0
         self._recording_start_time: float = 0.0
@@ -180,6 +329,278 @@ class Recorder:
         """RMS level of the most recently captured audio (0.0 if never recorded)."""
         with self._lock:
             return self._last_rms
+
+    # ── AUDIO-CH: mono conversion helper ────────────────────────────────
+
+    @staticmethod
+    def _ensure_mono(audio: np.ndarray) -> np.ndarray:
+        """Convert multi-channel audio to mono by averaging channels.
+
+        AUDIO-CH: If the input device only supports stereo (2 channels),
+        we record with channels=2 and downmix here. This avoids the
+        PortAudio error when requesting channels=1 on a stereo-only device.
+        """
+        if audio.ndim == 1:
+            return audio
+        if audio.ndim == 2 and audio.shape[1] > 1:
+            return np.mean(audio, axis=1, dtype=np.float32)
+        if audio.ndim == 2 and audio.shape[1] == 1:
+            return audio.reshape(-1)
+        return audio.reshape(-1)
+
+    # ── AUDIO-MIC: device list caching ──────────────────────────────────
+
+    def _refresh_device_list(self) -> list[dict]:
+        """Return the device list, refreshing the cache if stale.
+
+        AUDIO-MIC: The mic list was previously loaded once at startup.
+        If a USB/BT device was disconnected or connected mid-session,
+        the stale list would reference non-existent devices. We now
+        cache the device list with a TTL of 30 seconds and re-query
+        PortAudio when the cache expires or when the current device
+        disappears.
+        """
+        now = time.monotonic()
+        if (
+            self._device_list_cache is not None
+            and now - self._device_list_cache_time < self._device_list_cache_ttl
+        ):
+            return self._device_list_cache
+
+        try:
+            devices = []
+            for i, dev in enumerate(sd.query_devices()):
+                if dev.get("max_input_channels", 0) <= 0:
+                    continue
+                devices.append({
+                    "id": str(i),
+                    "index": i,
+                    "name": dev.get("name", ""),
+                    "max_input_channels": dev.get("max_input_channels", 0),
+                })
+            self._device_list_cache = devices
+            self._device_list_cache_time = now
+            return devices
+        except Exception as e:
+            log.debug("[RECORDING] Could not enumerate devices: %s", e)
+            return self._device_list_cache or []
+
+    # ── AUDIO-HOT: hot-plug disconnect handling ─────────────────────────
+
+    def _stream_error_callback(self, err_msg: str) -> None:
+        """AUDIO-HOT: PortAudio stream error callback.
+
+        Called by sounddevice when a PortAudio error occurs (e.g. device
+        disconnection). Immediately stops recording and triggers the
+        silence auto-stop callback so the app can notify the user.
+        """
+        log.error(
+            "[RECORDING] PortAudio stream error: %s — stopping recording",
+            err_msg,
+        )
+        self._device_disconnected = True
+        # Schedule disconnect handling off the audio thread
+        try:
+            threading.Thread(
+                target=self._handle_device_disconnect,
+                name="stream-error-handler",
+                daemon=True,
+            ).start()
+        except Exception:
+            pass
+
+    def _handle_device_disconnect(self) -> None:
+        """Attempt to restart recording with the default device after a disconnect.
+
+        AUDIO-HOT: Called when the audio callback detects a device disconnect
+        (zero-filled indata or PortAudio error). Tries to restart with the
+        system default device up to _max_disconnect_retries times.
+        """
+        self._device_disconnect_retries += 1
+        if self._device_disconnect_retries > self._max_disconnect_retries:
+            log.error(
+                "[RECORDING] Max disconnect retries (%d) reached. Stopping recording.",
+                self._max_disconnect_retries,
+            )
+            if self.on_silence_auto_stop is not None:
+                try:
+                    self.on_silence_auto_stop()
+                except Exception:
+                    pass
+            return
+
+        log.warning(
+            "[RECORDING] Device disconnect detected (attempt %d/%d). "
+            "Attempting restart with default device.",
+            self._device_disconnect_retries, self._max_disconnect_retries,
+        )
+
+        # Stop current stream
+        if self._stream is not None:
+            try:
+                self._stream.stop()
+                self._stream.close()
+            except Exception:
+                pass
+            self._stream = None
+
+        # Try to open with default device
+        try:
+            candidate_sr, _ = self._resolve_effective_sample_rate(None)
+            # AUDIO-CH: query default device for channel count
+            try:
+                default_dev = sd.query_devices(kind="input")
+                channels = min(1, default_dev.get("max_input_channels", 1))
+            except Exception:
+                channels = 1
+
+            stream = sd.InputStream(
+                samplerate=candidate_sr,
+                channels=channels,
+                dtype=np.float32,
+                device=None,  # default device
+                callback=self._current_callback,
+                blocksize=512,
+                # AUDIO-HOT: error callback for device disconnection
+                error_callback=self._stream_error_callback,
+            )
+            stream.start()
+            self._stream = stream
+            with self._lock:
+                self._effective_sr = candidate_sr
+            self._actual_channels = channels
+            self._device_disconnected = False
+            log.info("[RECORDING] Successfully restarted with default device at %d Hz", candidate_sr)
+        except Exception as e:
+            log.error("[RECORDING] Failed to restart with default device: %s", e)
+
+    # ── AUDIO-014: VAD auto-calibration ─────────────────────────────────
+
+    def _vad_auto_calibrate(self, chunk_rms: float, chunk_duration: float) -> None:
+        """Auto-calibrate VAD thresholds based on ambient noise floor.
+
+        AUDIO-014: During the first _vad_calibration_duration seconds of
+        recording, we collect RMS values to determine the ambient noise
+        floor. Then we set speech/silence thresholds relative to it.
+        """
+        if self._vad_calibrated:
+            return
+
+        self._vad_calibration_rms_values.append(chunk_rms)
+
+        elapsed = time.perf_counter() - self._recording_start_time
+        if elapsed < self._vad_calibration_duration:
+            return  # still collecting samples
+
+        if not self._vad_calibration_rms_values:
+            self._vad_calibrated = True
+            return
+
+        # Compute noise floor from collected samples
+        noise_rms = float(np.median(self._vad_calibration_rms_values))
+        # Convert to dBFS (approximately)
+        noise_db = 20.0 * math.log10(noise_rms) if noise_rms > 0 else -90.0
+
+        # Set thresholds relative to noise floor
+        self._vad_silence_threshold_db = noise_db + 6.0   # 6 dB above noise → silence
+        self._vad_speech_threshold_db = noise_db + 18.0    # 18 dB above noise → speech
+        self._vad_calibrated = True
+
+        log.info(
+            "[RECORDING] VAD auto-calibrated: noise_floor=%.1f dBFS, "
+            "silence_threshold=%.1f dBFS, speech_threshold=%.1f dBFS",
+            noise_db, self._vad_silence_threshold_db, self._vad_speech_threshold_db,
+        )
+
+    # ── AUDIO-013: VAD state machine update ─────────────────────────────
+
+    def _vad_update(self, chunk_rms_db: float, vad_prob: float | None = None) -> VadState:
+        """Update the VAD state machine based on the current frame's VAD signal.
+
+        AUDIO-013: Uses hysteresis — transitioning from SILENCE to SPEECH
+        requires N consecutive loud frames, while SPEECH to SILENCE requires
+        M consecutive quiet frames (hangover period). This prevents rapid
+        toggling at the boundary.
+
+        When Silero VAD is enabled and a probability is provided, uses the
+        VAD probability for speech/silence determination instead of RMS dB.
+        Falls back to RMS-based detection if vad_prob is None.
+        """
+        if vad_prob is not None and self._use_silero_vad and self._silero_available:
+            # Silero VAD path — use probability thresholds
+            is_loud = vad_prob >= self._vad_speech_threshold
+            is_quiet = vad_prob < self._vad_silence_threshold
+        else:
+            # RMS dB path — traditional threshold-based detection
+            is_loud = chunk_rms_db >= self._vad_speech_threshold_db
+            is_quiet = chunk_rms_db < self._vad_silence_threshold_db
+
+        if is_loud:
+            self._vad_consecutive_speech_frames += 1
+            self._vad_consecutive_silence_frames = 0
+        elif is_quiet:
+            self._vad_consecutive_silence_frames += 1
+            self._vad_consecutive_speech_frames = 0
+        else:
+            # Between thresholds — don't change counters
+            self._vad_consecutive_silence_frames = 0
+            self._vad_consecutive_speech_frames = 0
+
+        # State transitions with hysteresis
+        old_state = self._vad_state
+        if self._vad_state == VadState.UNKNOWN:
+            if is_loud and self._vad_consecutive_speech_frames >= self._vad_speech_frames:
+                self._vad_state = VadState.SPEECH
+            elif is_quiet and self._vad_consecutive_silence_frames >= self._vad_silence_frames:
+                self._vad_state = VadState.SILENCE
+        elif self._vad_state == VadState.SILENCE:
+            if self._vad_consecutive_speech_frames >= self._vad_speech_frames:
+                self._vad_state = VadState.SPEECH
+        elif self._vad_state == VadState.SPEECH:
+            if self._vad_consecutive_silence_frames >= self._vad_hangover_frames:
+                self._vad_state = VadState.SILENCE
+
+        if self._vad_state != old_state:
+            log.debug(
+                "[RECORDING] VAD: %s → %s (rms_db=%.1f, speech_frames=%d, silence_frames=%d)",
+                old_state.value, self._vad_state.value, chunk_rms_db,
+                self._vad_consecutive_speech_frames, self._vad_consecutive_silence_frames,
+            )
+
+        return self._vad_state
+
+    # ── AUDIO-AGC: simple automatic gain control ────────────────────────
+
+    def _agc_update(self, chunk_rms: float, audio: np.ndarray) -> np.ndarray:
+        """Apply simple AGC: adjust gain slowly if RMS is consistently too low/high.
+
+        AUDIO-AGC: Uses a slow-moving gain multiplier that adjusts over ~1 second.
+        Does NOT use fast compression that would distort speech. The gain adapts
+        gradually — if RMS is below target, gain increases; if above, gain decreases.
+        """
+        if chunk_rms <= 0:
+            return audio
+
+        self._agc_rms_accumulator += chunk_rms
+        self._agc_frame_count += 1
+
+        # Update gain every ~16 frames (~1 second at 16 Hz callback rate)
+        if self._agc_frame_count >= 16:
+            avg_rms = self._agc_rms_accumulator / self._agc_frame_count
+            if avg_rms > 0:
+                ratio = _AGC_TARGET_RMS / avg_rms
+                # Slowly adjust gain towards target
+                target_gain = self._agc_gain * ratio
+                # Clamp to safe range
+                target_gain = max(_AGC_MIN_GAIN, min(_AGC_MAX_GAIN, target_gain))
+                self._agc_gain += (target_gain - self._agc_gain) * _AGC_ATTACK_ALPHA
+            self._agc_rms_accumulator = 0.0
+            self._agc_frame_count = 0
+
+        # Apply gain
+        if abs(self._agc_gain - 1.0) > 0.01:
+            return audio * self._agc_gain
+        return audio
 
     def warm_up_resampler(self) -> None:
         """Import and initialize the high-quality resampler before recording stops."""
@@ -382,12 +803,14 @@ class Recorder:
         self._cached_no_resample_len = -1
         self._cached_no_resample_arr = None
         self._silence_timer = 0.0
+        self._silence_start_time = None
         self._silence_warning_count = 0
         self._silence_next_warning_wait = 10.0
         self._recent_rms_values.clear()
         self._recording_start_time = time.perf_counter()
         # Reset XRUN and clipping counters
         self._xruns = 0
+        self._xrun_timestamps.clear()
         self._clip_count = 0
         self._peak = 0.0
         self._last_clip_log_time = 0.0
@@ -396,6 +819,33 @@ class Recorder:
         self._max_duration_warning_sent = False
         self._silence_warning_sent = False
         self._last_rms = 0.0
+        # AUDIO-013: reset VAD state machine
+        self._vad_state = VadState.UNKNOWN
+        self._vad_consecutive_speech_frames = 0
+        self._vad_consecutive_silence_frames = 0
+        self._vad_speech_threshold_db = _DEFAULT_VAD_SPEECH_THRESHOLD_DB
+        self._vad_silence_threshold_db = _DEFAULT_VAD_SILENCE_THRESHOLD_DB
+        # AUDIO-014: reset auto-calibration
+        self._vad_calibration_rms_values = []
+        self._vad_calibrated = False
+        # AUDIO-AGC: reset gain
+        self._agc_gain = 1.0
+        self._agc_rms_accumulator = 0.0
+        self._agc_frame_count = 0
+        # AUDIO-PRE: clear pre-roll buffer
+        # SEC-audit-008: Zero the preroll buffer contents before clearing
+        for chunk in self._preroll_buffer:
+            if isinstance(chunk, np.ndarray):
+                chunk.fill(0)
+        self._preroll_buffer.clear()
+        # AUDIO-HOT: reset disconnect state
+        self._device_disconnected = False
+        self._device_disconnect_retries = 0
+        # PERF-011: reset frame-skip state
+        self._previous_chunk_pending = False
+        self._skipped_frames = 0
+        # AUDIO-HOT: reset periodic device check counter
+        self._device_check_counter = 0
         # PERF-NEW-021: cache the target sample rate once at start()
         # so the audio callback / snapshot() doesn't re-read
         # self.config.sample_rate on every call.
@@ -444,35 +894,107 @@ class Recorder:
         candidates = self._same_physical_microphone_candidates(device)
 
         def callback(indata, frames, time_info, status):
+            # AUDIO-009/AUDIO-015: guard flag for in-flight callback
+            self._is_in_audio_callback.set()
+            try:
+                _callback_impl(indata, frames, time_info, status)
+            finally:
+                self._is_in_audio_callback.clear()
+
+        def _callback_impl(indata, frames, time_info, status):
             # ARCH-026: PortAudio can deliver a callback before start()
             # finishes setting self._recording_start_time and other
             # per-session state. Bail out early so the silence/max-
             # duration callbacks don't compute against a None timestamp.
             if not self._recording_event.is_set():
+                # AUDIO-PRE: capture pre-roll even when not officially recording
+                if self._preroll_active:
+                    mono_preroll = self._ensure_mono(indata.copy())
+                    self._preroll_buffer.append(mono_preroll)
                 return
+
+            # AUDIO-HOT: detect device disconnect (zero-filled indata
+            # when device is still "open" but USB/BT was unplugged)
+            if np.all(indata == 0) and self._chunk_count > 10:
+                self._device_disconnected = True
+                log.warning("[RECORDING] Zero-filled indata detected — possible device disconnect")
+                # Schedule disconnect handling off the audio thread
+                try:
+                    threading.Thread(
+                        target=self._handle_device_disconnect,
+                        name="device-disconnect-handler",
+                        daemon=True,
+                    ).start()
+                except Exception:
+                    pass
+                return
+
+            # AUDIO-HOT: periodic device availability check — verify
+            # the current device is still present in sd.query_devices().
+            # This catches cases where PortAudio doesn't deliver zeros
+            # but the device is already gone (e.g. USB unplug on some
+            # drivers). Runs every ~500 chunks to avoid per-chunk overhead.
+            self._device_check_counter += 1
+            if self._device_check_counter >= self._device_check_interval:
+                self._device_check_counter = 0
+                try:
+                    current_device = self._resolve_device()
+                    if current_device is not None:
+                        try:
+                            sd.query_devices(current_device)
+                        except Exception:
+                            log.warning("[RECORDING] Current device no longer available in query_devices — disconnect detected")
+                            self._device_disconnected = True
+                            try:
+                                threading.Thread(
+                                    target=self._handle_device_disconnect,
+                                    name="device-disconnect-check",
+                                    daemon=True,
+                                ).start()
+                            except Exception:
+                                pass
+                            return
+                except Exception:
+                    pass
+
             # AUDIO-002: Check PortAudio status flags for XRUNs.
-            # PERF-NEW-008: rate-limit the warning log so a sustained
-            # xrun condition doesn't write 16 disk lines/sec on the
-            # audio thread.  Log the first occurrence immediately, then
-            # at most once every 5 seconds.  The cumulative xrun count
-            # is still incremented on every occurrence so the final
-            # stats are accurate.
+            # Use a rolling window of xrun timestamps to reduce log spam
+            # while still alerting on sustained issues.
             if status:
                 self._xruns += 1
                 now = time.monotonic()
-                last = getattr(self, "_last_xrun_log_ts", 0.0)
-                if now - last >= 5.0 or self._xruns == 1:
+                self._xrun_timestamps.append(now)
+                # AUDIO-002: check rolling window — only log if threshold
+                # exceeded within the alert period
+                window_start = now - _XRUN_ALERT_PERIOD
+                recent_count = sum(1 for t in self._xrun_timestamps if t >= window_start)
+                if recent_count >= _XRUN_ALERT_THRESHOLD or self._xruns == 1:
                     log.warning(
-                        "[RECORDING] PortAudio status flag: %s (xrun_count=%d)",
-                        status, self._xruns,
+                        "[RECORDING] PortAudio status flag: %s (xrun_count=%d, recent=%d/%.0fs)",
+                        status, self._xruns, recent_count, _XRUN_ALERT_PERIOD,
                     )
-                    self._last_xrun_log_ts = now
                 # Item 1: fire threshold callback for tray notification
                 if self._xruns == self._xrun_threshold and self.on_xrun_threshold:
                     try:
                         self.on_xrun_threshold(self._xruns)
                     except Exception:
                         pass
+
+            # PERF-011: frame-skip under CPU load — if the previous
+            # chunk is still being processed, skip this one to prevent
+            # buffer bloat.
+            if self._previous_chunk_pending:
+                self._skipped_frames += 1
+                if self._skipped_frames == 1 or self._skipped_frames % 100 == 0:
+                    log.warning(
+                        "[RECORDING] Skipping frame under CPU load (skipped=%d)",
+                        self._skipped_frames,
+                    )
+                return
+            self._previous_chunk_pending = True
+
+            # AUDIO-CH: convert multi-channel input to mono
+            indata_mono = self._ensure_mono(indata)
 
             # AUDIO-PROC: apply real-time noise filtering BEFORE the
             # buffer append so (a) `filtered` is defined when we use it
@@ -482,23 +1004,18 @@ class Recorder:
             # lock — process_chunk() is non-blocking and operates only
             # on the local `indata` copy.  See recording.py callback
             # ordering in the auto-volume-duck architecture doc §6.4.
-            #
-            # BUGFIX: previously the filter call lived AFTER the lock
-            # block, but the lock block referenced `filtered` — raising
-            # NameError on every audio chunk.  PortAudio swallows
-            # callback exceptions, so the recording silently captured
-            # nothing.  This went undetected because no test exercised
-            # the callback with an AudioProcessor attached.
             if self._audio_processor is not None:
-                filtered = self._audio_processor.process_chunk(indata.copy())
+                filtered = self._audio_processor.process_chunk(indata_mono.copy())
             else:
-                filtered = indata
+                filtered = indata_mono
 
-            # Item 5: minimize lock scope. Only buffer append + counter
-            # need the lock. RMS computation, silence detection,
-            # clipping tracking, and callback invocations run outside
-            # the lock because they operate on the local `filtered`
-            # copy, not on shared mutable state.
+            # RACE-001: minimize lock scope — only buffer append and
+            # counter need atomicity. Callback refs and silence state
+            # are read outside the lock — these are set once at start()
+            # and cleared at stop(), so a torn read just means we miss
+            # one callback or fire one extra, which is acceptable. The
+            # alternative (holding the lock while calling user code)
+            # risks deadlocks.
             with self._lock:
                 # Store FILTERED audio so the transcriber receives
                 # the cleaned signal.
@@ -506,34 +1023,62 @@ class Recorder:
                 self._chunk_count += 1
                 chunk_count = self._chunk_count
                 buffer_len = len(self._buffer)
-                # Capture callback refs + silence state under lock
-                rms_callback = self.on_rms_level
-                silence_warning_cb = self.on_silence_warning
-                silence_auto_stop_cb = self.on_silence_auto_stop
-                max_duration_cb = self.on_max_duration_auto_stop
-                recent_rms = self._recent_rms_values
-                silence_timer = self._silence_timer
-                silence_warning_count = self._silence_warning_count
-                recording_start = self._recording_start_time
+
+            # AUDIO-019: Backpressure detection — if the deque dropped chunks
+            # (maxlen exceeded), increment a counter and warn the user
+            if buffer_len >= self._buffer.maxlen - 1:
+                self._dropped_chunks = getattr(self, '_dropped_chunks', 0) + 1
+                if self._dropped_chunks == 1 or self._dropped_chunks % 100 == 0:
+                    log.warning(
+                        "[RECORDING] Buffer full — oldest audio dropped (total=%d). "
+                        "ASR is slower than real-time.",
+                        self._dropped_chunks,
+                    )
+
+            # Read callback refs outside the lock — these are set once
+            # at start() and cleared at stop(), so a torn read just
+            # means we miss one callback or fire one extra, which is
+            # acceptable. The alternative (holding the lock while
+            # calling user code) risks deadlocks.
+            rms_callback = self.on_rms_level
+            silence_warning_cb = self.on_silence_warning
+            silence_auto_stop_cb = self.on_silence_auto_stop
+            max_duration_cb = self.on_max_duration_auto_stop
+            recent_rms = self._recent_rms_values
+            silence_timer = self._silence_timer
+            silence_warning_count = self._silence_warning_count
+            recording_start = self._recording_start_time
 
             # ── Everything below runs OUTSIDE the lock ──
 
             # RMS / peak computation (operates on FILTERED audio so the
             # waveform bubble and silence detection see what the
             # transcriber will see, not raw mic input).
-            # NEW-PERF-001: combine RMS + peak into a single pass to
-            # avoid two O(n) numpy allocations per callback.
-            # np.abs(filtered) computes the absolute values once,
-            # then we use .max() for peak and np.sqrt(np.mean(abs**2))
-            # for RMS — reusing the abs array instead of squaring.
+            # AUDIO-NP: use np.dot instead of np.mean(indata**2) to
+            # avoid the intermediate squared array allocation.
             if filtered.size:
+                # AUDIO-NP: single-pass RMS using np.dot — avoids
+                # creating the intermediate abs_filtered**2 array.
+                flat = filtered.reshape(-1)
+                chunk_rms = float(np.sqrt(np.dot(flat, flat) / flat.size))
                 abs_filtered = np.abs(filtered)
                 chunk_peak = float(abs_filtered.max())
-                chunk_rms = float(np.sqrt(np.mean(abs_filtered, dtype=np.float64) ** 2))
             else:
                 chunk_peak = 0.0
                 chunk_rms = 0.0
             chunk_duration = len(filtered) / self._effective_sr
+
+            # AUDIO-RMS: store _last_rms in the callback so it's
+            # reachable from UI/IPC during recording
+            with self._lock:
+                self._last_rms = chunk_rms
+
+            # AUDIO-AGC: apply automatic gain control
+            filtered = self._agc_update(chunk_rms, filtered)
+            # Recompute RMS after AGC if gain was applied
+            if abs(self._agc_gain - 1.0) > 0.01 and filtered.size:
+                flat = filtered.reshape(-1)
+                chunk_rms = float(np.sqrt(np.dot(flat, flat) / flat.size))
 
             # AUDIO-CLIP: Track clipping
             if chunk_peak >= 0.99:
@@ -550,26 +1095,37 @@ class Recorder:
 
             recent_rms.append(chunk_rms)
 
+            # AUDIO-014: auto-calibrate VAD thresholds from ambient noise
+            self._vad_auto_calibrate(chunk_rms, chunk_duration)
+
+            # AUDIO-013: compute Silero VAD probability if enabled.
+            # This runs in the audio callback (~1ms for 512 samples on CPU)
+            # and is only used when use_silero_vad=True in config.
+            vad_prob = None
+            if self._use_silero_vad and self._silero_available:
+                try:
+                    from voice_typer.server.vad import compute_vad_prob
+                    vad_prob = compute_vad_prob(filtered, self._effective_sr)
+                except Exception:
+                    vad_prob = None  # fall back to RMS
+
+            # AUDIO-013: VAD state machine with hysteresis
+            # Convert RMS to dBFS for VAD thresholds
+            chunk_rms_db = 20.0 * math.log10(chunk_rms) if chunk_rms > 0 else -90.0
+            vad_state = self._vad_update(chunk_rms_db, vad_prob=vad_prob)
+
+            # Use VAD state machine for silence detection
             # Voice detected by loudness → reset silence timer
-            if chunk_rms > 0.005 or chunk_peak > 0.01:
-                self._silence_timer = 0.0
-                # PERF-NEW-023: do NOT clear recent_rms here — clearing
-                # defeats the silence-tracking logic, which needs to
-                # see the steady-state "no silence" history to detect
-                # a real silence boundary later. The deque has a maxlen
-                # so it self-trims.
+            if vad_state == VadState.SILENCE:
+                if self._silence_start_time is None:
+                    self._silence_start_time = time.perf_counter()
+                self._silence_timer = time.perf_counter() - self._silence_start_time
             else:
-                if len(recent_rms) >= 10:
-                    # PERF-NEW-025: use np.fromiter to avoid the
-                    # intermediate list() materialization. The deque
-                    # iterator is consumed directly by numpy.
-                    rms_std = float(np.std(np.fromiter(recent_rms, dtype=np.float64, count=len(recent_rms))))
-                    if rms_std < 0.001:
-                        self._silence_timer += chunk_duration
-                    else:
-                        self._silence_timer = 0.0
-                else:
-                    self._silence_timer += chunk_duration
+                self._silence_start_time = None
+                self._silence_timer = 0.0
+
+            # PERF-011: clear frame-skip flag after processing
+            self._previous_chunk_pending = False
 
             # Use cached config values (PERF-NEW-006)
             silence_warning_seconds = self._cached_silence_warning
@@ -663,6 +1219,9 @@ class Recorder:
                             self._rms_callback_error_count,
                         )
 
+        # AUDIO-HOT: store callback reference for device restart
+        self._current_callback = callback
+
         last_error = None
         selected_device = None
         effective_sr = self.config.sample_rate
@@ -684,9 +1243,33 @@ class Recorder:
 
             stream = None
             try:
+                # AUDIO-CH: query device's max input channels.
+                # If device only supports stereo, use channels=2
+                # and convert to mono in the callback via _ensure_mono.
+                # If config.recording_channels > 0, use that value
+                # instead of auto-detecting (allows user override).
+                config_channels = int(getattr(self.config, "recording_channels", 1) or 1)
+                if config_channels > 0:
+                    channels = config_channels
+                else:
+                    channels = 1
+                try:
+                    dev_info = sd.query_devices(candidate) if candidate is not None else sd.query_devices(kind="input")
+                    max_ch = dev_info.get("max_input_channels", 1)
+                    if config_channels <= 0:
+                        # 0 = auto-detect: prefer mono, fallback to device default
+                        if max_ch >= 2:
+                            channels = 2  # prefer stereo if available, downmix in callback
+                        elif max_ch == 1:
+                            channels = 1
+                    elif channels > max_ch:
+                        channels = max(1, max_ch)  # don't request more than device supports
+                except Exception:
+                    pass
+
                 stream = sd.InputStream(
                     samplerate=candidate_sr,
-                    channels=1,
+                    channels=channels,
                     dtype=np.float32,
                     device=candidate,
                     callback=callback,
@@ -695,8 +1278,29 @@ class Recorder:
                     # may still deliver a different size on some drivers,
                     # but vad.py now pads/truncates to handle that.
                     blocksize=512,
+                    # AUDIO-HOT: error callback for device disconnection
+                    error_callback=self._stream_error_callback,
                 )
                 stream.start()
+
+                # AUDIO-BT: detect Bluetooth HFP profile (8/16 kHz).
+                # After opening the stream, check if the actual sample
+                # rate differs from requested and is 8000 or 16000.
+                try:
+                    actual_sr = int(stream.samplerate) if hasattr(stream, 'samplerate') else candidate_sr
+                    if actual_sr in (8000, 16000) and actual_sr != candidate_sr:
+                        log.warning(
+                            "[RECORDING] Bluetooth HFP profile detected: actual sample rate "
+                            "%d Hz differs from requested %d Hz. Audio quality will be limited. "
+                            "Consider disabling the hands-free telephony profile in Bluetooth "
+                            "settings for better quality.",
+                            actual_sr, candidate_sr,
+                        )
+                except Exception:
+                    pass
+
+                # AUDIO-CH: store actual channel count for callback
+                self._actual_channels = channels
             except Exception as e:
                 last_error = e
                 log.warning(
@@ -748,14 +1352,26 @@ class Recorder:
 
                 stream = None
                 try:
+                    # AUDIO-CH: also query channels for fallback devices
+                    fb_channels = 1
+                    try:
+                        fb_dev_info = sd.query_devices(candidate)
+                        fb_max_ch = fb_dev_info.get("max_input_channels", 1)
+                        if fb_max_ch >= 2:
+                            fb_channels = 2
+                    except Exception:
+                        pass
+
                     stream = sd.InputStream(
                         samplerate=candidate_sr,
-                        channels=1,
+                        channels=fb_channels,
                         dtype=np.float32,
                         device=candidate,
                         callback=callback,
                         # VAD-001: request 512-sample blocks for Silero VAD
                         blocksize=512,
+                        # AUDIO-HOT: error callback for device disconnection
+                        error_callback=self._stream_error_callback,
                     )
                     stream.start()
                 except Exception as e:
@@ -815,6 +1431,20 @@ class Recorder:
 
         self._recording_event.set()
 
+        # AUDIO-PRE: prepend pre-roll buffer to reduce cold-start latency.
+        # The pre-roll buffer captured audio before recording officially
+        # started, so we insert it at the beginning of the main buffer.
+        if self._preroll_buffer:
+            preroll_chunks = list(self._preroll_buffer)
+            if preroll_chunks:
+                for chunk in reversed(preroll_chunks):
+                    mono_chunk = self._ensure_mono(chunk)
+                    self._buffer.appendleft(mono_chunk.copy())
+                log.info(
+                    "[RECORDING] Prepended %d pre-roll chunks (~%.1fs)",
+                    len(preroll_chunks), len(preroll_chunks) * 512 / self._effective_sr,
+                )
+
         target_sr = self.config.sample_rate
         if effective_sr != target_sr and _resample_poly is None and _resample_poly_error is None:
             # Warm up synchronously to avoid racing with stop()
@@ -828,12 +1458,17 @@ class Recorder:
         stop_started = time.perf_counter()
         self._recording_event.clear()
 
-        stream_started = time.perf_counter()
+        # AUDIO-009/AUDIO-015: wait briefly for any in-flight audio
+        # callback to complete before closing the stream. This prevents
+        # PortAudio from calling the callback during/after stream.stop()
+        # which can cause use-after-free or deadlock.
         if self._stream:
             self._stream.stop()
+            # Wait up to 50ms for the in-flight callback to finish
+            self._is_in_audio_callback.wait(timeout=0.05)
             self._stream.close()
             self._stream = None
-        stream_ms = (time.perf_counter() - stream_started) * 1000
+        stream_ms = (time.perf_counter() - stop_started) * 1000
 
         concat_started = time.perf_counter()
         with self._lock:
@@ -847,6 +1482,11 @@ class Recorder:
                 self._cached_no_resample_arr = None
                 return np.array([], dtype=np.float32)
             audio = np.concatenate(list(self._buffer), axis=0).reshape(-1)
+            # SEC-audit-008: Zero the buffer contents before clearing to prevent
+            # forensic recovery of audio data from process memory
+            for chunk in self._buffer:
+                if isinstance(chunk, np.ndarray):
+                    chunk.fill(0)
             self._buffer.clear()
             # Reset cache on stop
             self._cached_resampled = np.array([], dtype=np.float32)
@@ -861,11 +1501,11 @@ class Recorder:
         effective_sr = self._effective_sr
         duration = len(audio) / effective_sr if len(audio) > 0 else 0
         if len(audio) > 0:
-            # NEW-PERF-001: single-pass RMS + peak
+            # AUDIO-NP: use np.dot for RMS in stop() too
             if audio.size:
-                abs_audio = np.abs(audio)
-                peak = float(abs_audio.max())
-                rms = float(np.sqrt(np.mean(abs_audio, dtype=np.float64) ** 2))
+                flat = audio.reshape(-1)
+                rms = float(np.sqrt(np.dot(flat, flat) / flat.size))
+                peak = float(np.abs(flat).max())
             else:
                 peak = 0.0
                 rms = 0.0
@@ -1151,6 +1791,11 @@ class Recorder:
 
         if not resampled:
             try:
+                # PERF-017: numpy linear interpolation fallback — used when
+                # scipy is unavailable. When scipy IS available, the
+                # resample_poly path above is preferred (higher quality,
+                # anti-aliasing). This fallback produces acceptable results
+                # for speech audio at common sample rates (44.1k→16k, 48k→16k).
                 ratio = target_sr / effective_sr
                 new_len = int(len(audio) * ratio)
                 indices = np.linspace(0, len(audio) - 1, new_len)
@@ -1194,6 +1839,7 @@ class Recorder:
             self._effective_sr = self.config.sample_rate
         self._last_rms = 0.0
         self._silence_timer = 0.0
+        self._silence_start_time = None
         self._silence_warning_count = 0
         self._silence_next_warning_wait = 10.0
         # Reset cache on discard
@@ -1207,4 +1853,9 @@ class Recorder:
             self._stream.close()
             self._stream = None
         with self._lock:
+            # SEC-audit-008: Zero the buffer contents before clearing to prevent
+            # forensic recovery of audio data from process memory
+            for chunk in self._buffer:
+                if isinstance(chunk, np.ndarray):
+                    chunk.fill(0)
             self._buffer.clear()

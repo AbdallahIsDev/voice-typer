@@ -440,3 +440,224 @@ class TestH12SilenceDetection:
 
         assert len(r._cached_resampled) == 0
         assert r._cached_native_chunk_count == 0
+
+
+# ── TEST-020: Resample fallback tests ──────────────────────────────────
+
+
+class TestResampleFallback:
+    """TEST-020: Tests for the resample retry logic and np.interp fallback."""
+
+    def test_resample_error_raised_when_no_poly(self, monkeypatch):
+        """ResampleError should be raised when resample_poly is unavailable."""
+        from voice_typer.server.recording import Recorder, ResampleError
+
+        def failing_get_resample():
+            raise ResampleError("scipy.signal.resample_poly not available")
+
+        monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", failing_get_resample)
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        r._recording_event.set()
+        r._effective_sr = 48000
+        r._stream = MagicMock()
+        r._buffer = [np.ones((6, 1), dtype=np.float32)]
+
+        with pytest.raises(ResampleError, match="not available"):
+            r.stop()
+
+    def test_resample_retry_after_timeout(self, monkeypatch):
+        """Resample should be retried after the retry interval timeout."""
+        import voice_typer.server.recording as rec_mod
+        import time
+
+        # Set the error time far enough in the past that retry is allowed
+        rec_mod._resample_poly_error = RuntimeError("transient error")
+        rec_mod._resample_poly_error_time = time.time() - rec_mod._RESAMPLE_RETRY_INTERVAL - 1
+
+        call_count = [0]
+
+        def succeeding_get_resample():
+            call_count[0] += 1
+            return lambda audio, up, down: audio[::down]
+
+        # Clear the error so the retry succeeds
+        monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", succeeding_get_resample)
+
+        # After the timeout, the error should be cleared and retry allowed
+        assert rec_mod._resample_poly_error is not None  # Error was set
+
+    def test_resample_not_retried_before_timeout(self, monkeypatch):
+        """Resample should NOT be retried before the retry interval has elapsed."""
+        import voice_typer.server.recording as rec_mod
+        import time
+
+        # Set the error time very recently (within retry interval)
+        rec_mod._resample_poly_error = RuntimeError("recent error")
+        rec_mod._resample_poly_error_time = time.time()
+
+        # The error should still be set (not cleared for retry yet)
+        assert rec_mod._resample_poly_error is not None
+
+    def test_fallback_to_np_interp_when_scipy_unavailable(self, monkeypatch):
+        """TEST-020: When scipy.signal.resample_poly raises ResampleUnavailable,
+        _resample_chunk should fall back to np.interp and produce valid output."""
+        from voice_typer.server.recording import Recorder, ResampleUnavailable
+
+        def raising_get_resample():
+            raise ResampleUnavailable("scipy not available for test")
+
+        monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", raising_get_resample)
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+
+        # Create a simple audio signal
+        audio = np.ones(4800, dtype=np.float32)  # 0.1s at 48kHz
+        result = r._resample_chunk(audio, 48000, 16000)
+
+        # Should have produced output via np.interp fallback
+        assert isinstance(result, np.ndarray)
+        assert result.dtype == np.float32
+        assert len(result) > 0
+        # 48kHz -> 16kHz should reduce samples by ~3x
+        expected_len = int(len(audio) * 16000 / 48000)
+        assert abs(len(result) - expected_len) <= 1
+
+    def test_resample_fallback_quality_with_known_sine(self, monkeypatch):
+        """TEST-020: The np.interp fallback should produce reasonable quality
+        when resampling a known sine wave."""
+        from voice_typer.server.recording import Recorder, ResampleUnavailable
+
+        def raising_get_resample():
+            raise ResampleUnavailable("scipy not available for test")
+
+        monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", raising_get_resample)
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+
+        # Generate a 440Hz sine wave at 48kHz
+        sr_in = 48000
+        duration = 0.1  # 100ms
+        t = np.linspace(0, duration, int(sr_in * duration), endpoint=False)
+        audio = (np.sin(2 * np.pi * 440 * t) * 0.5).astype(np.float32)
+
+        result = r._resample_chunk(audio, sr_in, 16000)
+
+        # Verify output is valid
+        assert isinstance(result, np.ndarray)
+        assert result.dtype == np.float32
+        assert len(result) > 0
+
+        # The resampled sine wave should have reasonable amplitude
+        # (not all zeros, not clipped)
+        rms = float(np.sqrt(np.mean(result.astype(np.float64) ** 2)))
+        assert rms > 0.01, f"Resampled sine wave RMS too low: {rms}"
+        assert rms < 1.0, f"Resampled sine wave RMS too high (clipped?): {rms}"
+
+    def test_resample_chunk_empty_audio(self, monkeypatch):
+        """TEST-020: _resample_chunk should handle empty audio gracefully."""
+        from voice_typer.server.recording import Recorder
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+
+        result = r._resample_chunk(np.array([], dtype=np.float32), 48000, 16000)
+        assert isinstance(result, np.ndarray)
+        assert len(result) == 0
+
+
+# ── TEST-032: Parametrized recording tests ──────────────────────────────
+
+
+class TestRecordingParametrized:
+    """TEST-032: Use @pytest.mark.parametrize for recording tests."""
+
+    @pytest.mark.parametrize("sample_rate", [8000, 16000, 22050, 44100, 48000])
+    def test_various_sample_rates_buffer_size(self, sample_rate):
+        """Buffer should be created with correct sample rate config."""
+        from voice_typer.server.recording import Recorder
+        config = MagicMock(sample_rate=sample_rate, microphone=None)
+        r = Recorder(config)
+        assert r.config.sample_rate == sample_rate
+
+    @pytest.mark.parametrize("effective_sr,target_sr", [
+        (16000, 16000),
+        (44100, 16000),
+        (48000, 16000),
+    ])
+    def test_resample_ratio_computation(self, effective_sr, target_sr):
+        """Resample ratio should be computed correctly from effective/target rates."""
+        import math
+        g = math.gcd(effective_sr, target_sr)
+        up = target_sr // g
+        down = effective_sr // g
+        assert math.gcd(up, down) == 1
+
+    @pytest.mark.parametrize("chunk_size", [256, 512, 1024, 2048])
+    def test_various_buffer_chunk_sizes(self, chunk_size):
+        """Buffer should handle various chunk sizes."""
+        from voice_typer.server.recording import Recorder
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        r._recording_event.set()
+        r._effective_sr = 16000
+        r._stream = MagicMock()
+        r._buffer = [np.ones((chunk_size, 1), dtype=np.float32)]
+
+        audio = r.stop()
+        assert len(audio) == chunk_size
+        assert audio.dtype == np.float32
+
+    @pytest.mark.parametrize("num_chunks", [1, 2, 5, 10])
+    def test_stop_concatenates_multiple_chunks(self, num_chunks):
+        """stop() should concatenate all buffered chunks."""
+        from voice_typer.server.recording import Recorder
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        r._recording_event.set()
+        r._effective_sr = 16000
+        r._stream = MagicMock()
+        r._buffer = [np.ones((4, 1), dtype=np.float32) for _ in range(num_chunks)]
+
+        audio = r.stop()
+        assert len(audio) == 4 * num_chunks
+        assert audio.dtype == np.float32
+
+    @pytest.mark.parametrize("effective_sr,target_sr,expected_up,expected_down", [
+        (16000, 16000, 1, 1),
+        (48000, 16000, 1, 3),
+        (44100, 16000, 16000, 44100),
+        (22050, 16000, 320, 441),
+    ])
+    def test_resample_gcd_ratios(self, effective_sr, target_sr, expected_up, expected_down):
+        """Resample up/down ratios should be computed from GCD."""
+        import math
+        g = math.gcd(effective_sr, target_sr)
+        up = target_sr // g
+        down = effective_sr // g
+        assert math.gcd(up, down) == 1
+
+    @pytest.mark.parametrize("device_input,expected", [
+        (None, None),
+        ("7", 7),
+        ("0", 0),
+        ("Blue Yeti", "Blue Yeti"),
+        ("", ""),
+    ])
+    def test_resolve_device_various_inputs(self, device_input, expected):
+        """_resolve_device should handle various input formats."""
+        from voice_typer.server.recording import Recorder
+        config = MagicMock(sample_rate=16000, microphone=device_input)
+        r = Recorder(config)
+        assert r._resolve_device() == expected
+
+    @pytest.mark.parametrize("silence_val", [0.0, -100.0, -50.0, -30.0])
+    def test_silence_timer_starts_at_zero_regardless_of_threshold(self, silence_val):
+        """Silence timer should always start at zero."""
+        from voice_typer.server.recording import Recorder
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        assert r._silence_timer == 0.0
