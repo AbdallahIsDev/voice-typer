@@ -82,8 +82,17 @@ class LLMPolisher:
     def polish(self, text: str, *, preset: Optional[str] = None) -> str:
         """Send text to the LLM for polishing.
 
-        Returns the polished text, or the original text if polishing
-        fails or is disabled.
+        If polishing is disabled, no API key is configured, or the text is
+        too short (< 5 characters), the original text is returned unchanged.
+
+        Args:
+            text: The transcribed text to polish.
+            preset: Optional preset name to override the default. Must be
+                a key in _PRESETS (e.g. "professional", "casual", "concise").
+
+        Returns:
+            The polished text string, or the original text if polishing
+            fails or is disabled.
         """
         if not self.enabled or not self.api_key:
             return text
@@ -109,10 +118,14 @@ class LLMPolisher:
             return text
 
     def test_connection(self) -> tuple[bool, str]:
-        """Test the LLM API connection. Returns (success, message).
+        """Test the LLM API connection.
 
-        RELIABILITY-004: redacts the exception string in the failure
-        message and asserts the configured URL is in the allowlist.
+        Sends a minimal request to verify the API key and endpoint are valid.
+        Secrets are redacted from any error messages before logging.
+
+        Returns:
+            A tuple of (success: bool, message: str). The message describes
+            the result or error, with any API keys redacted.
         """
         if not self.api_key:
             return False, "API key not configured"
