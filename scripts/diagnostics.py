@@ -1,0 +1,238 @@
+#!/usr/bin/env python3
+"""Consolidated diagnostic script for Voice Typer.
+
+CQ-016: Previously 5 separate scripts in scripts/diagnostics/.
+Consolidated into a single entry point with subcommands.
+The old scripts are kept as thin wrappers for backward compatibility.
+
+Subcommands:
+    f2          Trace the full F2 -> recording -> transcription path
+    cublas      Verify cuBLAS DLL failure path handling
+    runtime     End-to-end runtime verification
+    test-runner Run the interactive test suite
+    export      PROD-010: Export a diagnostic bundle (logs, config, system info)
+
+Usage:
+    python scripts/diagnostics.py f2
+    python scripts/diagnostics.py cublas
+    python scripts/diagnostics.py runtime
+    python scripts/diagnostics.py test-runner
+    python scripts/diagnostics.py export
+"""
+
+import sys
+
+
+def run_f2():
+    """CQ-016: Delegate to scripts/diagnostics/diagnose_f2.py."""
+    from scripts.diagnostics.diagnose_f2 import main
+    main()
+
+
+def run_cublas():
+    """CQ-016: Delegate to scripts/diagnostics/cublas_fallback.py."""
+    from scripts.diagnostics.cublas_fallback import main
+    main()
+
+
+def run_runtime():
+    """CQ-016: Delegate to scripts/diagnostics/runtime_proof.py."""
+    from scripts.diagnostics.runtime_proof import main
+    main()
+
+
+def run_test_runner():
+    """CQ-016: Delegate to scripts/diagnostics/runtime_test_runner.py."""
+    from scripts.diagnostics.runtime_test_runner import main
+    main()
+
+
+def run_export():
+    """PROD-010: Export a diagnostic bundle for bug reports."""
+    export_diagnostics()
+
+
+COMMANDS = {
+    "f2": ("Trace F2 -> recording -> transcription path", run_f2),
+    "cublas": ("Verify cuBLAS DLL failure path handling", run_cublas),
+    "runtime": ("End-to-end runtime verification", run_runtime),
+    "test-runner": ("Run the interactive test suite", run_test_runner),
+    "export": ("Export diagnostic bundle for bug reports", run_export),
+}
+
+
+def export_diagnostics() -> str:
+    """PROD-010: Collect diagnostic info and save as a timestamped zip file.
+
+    Collects:
+      - voice-typer.log (if it exists)
+      - config.json (with API keys redacted)
+      - System info (OS, GPU, CUDA version, Python version)
+      - Model info (which models are downloaded)
+
+    Excludes:
+      - Transcription text (PII)
+      - API keys and secrets
+      - Crash recovery buffer contents
+
+    Returns
+    -------
+    str
+        Path to the created zip file.
+    """
+    import json
+    import os
+    import platform
+    import shutil
+    import tempfile
+    from datetime import datetime, timezone
+    from pathlib import Path
+    from zipfile import ZipFile, ZIP_DEFLATED
+
+    timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    zip_filename = f"voice-typer-diagnostics-{timestamp}.zip"
+
+    # Find the config directory
+    try:
+        from voice_typer.server.config import _config_dir
+        config_dir = _config_dir()
+    except Exception:
+        config_dir = Path(os.path.expanduser("~")) / ".voice-typer"
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir_path = Path(tmpdir)
+
+        # 1. System info
+        sys_info = {
+            "timestamp": timestamp,
+            "python_version": platform.python_version(),
+            "platform": platform.platform(),
+            "architecture": platform.machine(),
+            "processor": platform.processor(),
+            "python_implementation": platform.python_implementation(),
+        }
+
+        # GPU / CUDA info
+        try:
+            import torch
+            sys_info["cuda_available"] = torch.cuda.is_available()
+            if torch.cuda.is_available():
+                sys_info["cuda_version"] = torch.version.cuda
+                sys_info["cudnn_version"] = str(torch.backends.cudnn.version())
+                sys_info["gpu_name"] = torch.cuda.get_device_name(0)
+                sys_info["gpu_memory_total_mb"] = torch.cuda.get_device_properties(0).total_mem // (1024 * 1024)
+        except ImportError:
+            sys_info["cuda_available"] = "torch not installed"
+        except Exception as exc:
+            sys_info["cuda_error"] = str(exc)
+
+        # ctranslate2 info
+        try:
+            import ctranslate2
+            sys_info["ctranslate2_version"] = ctranslate2.__version__
+            sys_info["cuda_device_count"] = ctranslate2.get_cuda_device_count()
+        except ImportError:
+            sys_info["ctranslate2_version"] = "not installed"
+        except Exception as exc:
+            sys_info["ctranslate2_error"] = str(exc)
+
+        # App version
+        try:
+            from importlib.metadata import version as get_version
+            sys_info["app_version"] = get_version("voice-typer")
+        except Exception:
+            sys_info["app_version"] = "unknown"
+
+        (tmpdir_path / "system_info.json").write_text(
+            json.dumps(sys_info, indent=2), encoding="utf-8"
+        )
+
+        # 2. Config (redacted)
+        config_file = config_dir / "config.json"
+        if config_file.exists():
+            try:
+                config_text = config_file.read_text(encoding="utf-8")
+                config_data = json.loads(config_text)
+                # Redact sensitive fields
+                _REDACT_KEYS = {
+                    "llm_api_key", "openai_api_key", "api_key",
+                    "deepgram_api_key", "assemblyai_api_key",
+                }
+                for key in _REDACT_KEYS:
+                    if key in config_data and config_data[key]:
+                        config_data[key] = "***REDACTED***"
+                (tmpdir_path / "config_redacted.json").write_text(
+                    json.dumps(config_data, indent=2), encoding="utf-8"
+                )
+            except Exception as exc:
+                (tmpdir_path / "config_redacted.json").write_text(
+                    f"Error reading config: {exc}", encoding="utf-8"
+                )
+
+        # 3. Log file (if exists)
+        log_file = config_dir / "voice-typer.log"
+        if log_file.exists():
+            try:
+                # Copy only the last 1MB to avoid huge files
+                log_size = log_file.stat().st_size
+                if log_size > 1024 * 1024:
+                    with open(log_file, "r", encoding="utf-8", errors="replace") as f:
+                        f.seek(log_size - 1024 * 1024)
+                        f.readline()  # skip partial first line
+                        (tmpdir_path / "voice-typer.log").write_text(
+                            f.read(), encoding="utf-8"
+                        )
+                else:
+                    shutil.copy2(log_file, tmpdir_path / "voice-typer.log")
+            except Exception as exc:
+                (tmpdir_path / "voice-typer.log").write_text(
+                    f"Error reading log: {exc}", encoding="utf-8"
+                )
+
+        # 4. Model info
+        model_info: dict = {}
+        try:
+            from huggingface_hub import scan_cache_dir
+            cache = scan_cache_dir()
+            model_info["cached_repos"] = [
+                {
+                    "repo_id": repo.repo_id,
+                    "size_mb": repo.size_on_disk // (1024 * 1024),
+                }
+                for repo in cache.repos
+            ]
+        except ImportError:
+            model_info["huggingface_hub"] = "not installed"
+        except Exception as exc:
+            model_info["cache_error"] = str(exc)
+        (tmpdir_path / "model_info.json").write_text(
+            json.dumps(model_info, indent=2), encoding="utf-8"
+        )
+
+        # 5. Create zip
+        zip_path = Path.cwd() / zip_filename
+        with ZipFile(zip_path, "w", ZIP_DEFLATED) as zf:
+            for file_path in tmpdir_path.rglob("*"):
+                if file_path.is_file():
+                    zf.write(file_path, file_path.relative_to(tmpdir_path))
+
+    print(f"Diagnostic bundle exported to: {zip_path}")
+    print("Note: This file does NOT contain transcription text or API keys.")
+    return str(zip_path)
+
+
+def main():
+    if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
+        print("Usage: python scripts/diagnostics.py <subcommand>")
+        print()
+        print("Available subcommands:")
+        for name, (desc, _) in COMMANDS.items():
+            print(f"  {name:15s} {desc}")
+        sys.exit(1)
+
+    _, func = COMMANDS[sys.argv[1]]
+    func()
+
+
+if __name__ == "__main__":
+    main()

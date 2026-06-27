@@ -20,6 +20,49 @@ _PROJECT_ROOT = Path(_spec_script).resolve().parent.parent.parent
 _corrections_json = str(_PROJECT_ROOT / "voice_typer" / "corrections.json")
 _icon_path = _PROJECT_ROOT / "scripts" / "build" / "voice-typer.ico"
 
+# PLAT-037: Windows application manifest to set requestedExecutionLevel
+# to asInvoker. This prevents UAC elevation prompts on launch and
+# ensures the app runs with the user's normal privileges.
+_manifest_xml = """\
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity
+    type="win32"
+    name="VoiceTyper"
+    version="1.0.0.0"
+    processorArchitecture="*"/>
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <!-- Windows 10 / 11 -->
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>
+      <!-- Windows 8.1 -->
+      <supportedOS Id="{1f676c76-80e1-4239-95bb-83d0f6d0da78}"/>
+      <!-- Windows 8 -->
+      <supportedOS Id="{4a2f28e3-53b9-4441-ba9c-d69d4a4a6e38}"/>
+      <!-- Windows 7 -->
+      <supportedOS Id="{35138b9a-5d96-4fbd-8e2d-a2440225f93a}"/>
+    </application>
+  </compatibility>
+  <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+  <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
+</assembly>
+"""
+
+# Write manifest to a temp file so PyInstaller can embed it
+import tempfile
+_manifest_file = tempfile.NamedTemporaryFile(
+    mode="w", suffix=".manifest", delete=False, encoding="utf-8"
+)
+_manifest_file.write(_manifest_xml)
+_manifest_file.close()
+
 a = Analysis(
     [str(_PROJECT_ROOT / "voice_typer" / "__main__.py")],
     pathex=[str(_PROJECT_ROOT)],
@@ -154,7 +197,10 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,  # TEST-034: upx=False  # TEST-034: disabled to prevent AV false positives triggers AV false positives. UPX compression
+                # causes many antivirus engines (Windows Defender, Kaspersky, etc.)
+                # to flag the binary as potentially malicious. The ~15% size savings
+                # is not worth the support burden of AV false positives.
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
@@ -164,4 +210,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=str(_icon_path) if _icon_path.exists() else None,
+    # PLAT-037: embed the Windows application manifest with
+    # requestedExecutionLevel=asInvoker to prevent UAC prompts
+    manifest=_manifest_file.name,
 )

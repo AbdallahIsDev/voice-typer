@@ -117,6 +117,10 @@ test = [
     "pytest-asyncio>=0.23",
     "pytest-timeout>=2.3",
     "pytest-cov>=4.1",
+    # TEST-009: hypothesis for property-based testing
+    "hypothesis>=6.0",
+    # TEST-012: pytest-benchmark for performance benchmarks
+    "pytest-benchmark>=4.0",
 ]
 # BUILD-N05: PyInstaller spec file lives at scripts/build/voice-typer.spec
 # but the tool itself wasn't declared. Make it an optional extra so
@@ -153,11 +157,28 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.10",
     "pre-commit>=3.7",
+    # TEST-010: mutmut for mutation testing
+    "mutmut>=2.4",
 ]
 
 [tool.pyrefly]
 python-version = "3.12"
 project-includes = ["voice_typer", "tests"]
+
+# TEST-036: pyrefly is configured but not run in CI by default.
+# To run pyrefly type checking manually:
+#   pyrefly check
+# This will check all files in voice_typer/ and tests/ using the
+# configuration above. Add it to CI once the type coverage is
+# sufficient to justify the build time.
+
+# TEST-010: mutmut configuration for mutation testing.
+# To run mutation testing locally (expensive — don't run in CI):
+#   mutmut run --paths-to-mutate=voice_typer/server/text_cleanup.py,voice_typer/server/config.py
+# See tests/mutmut_config.py for full configuration.
+[tool.mutmut]
+paths_to_mutate = "voice_typer/server/text_cleanup.py,voice_typer/server/config.py,voice_typer/server/tray.py,voice_typer/server/tray_menu.py"
+test_command = "pytest -x -q tests/test_text_cleanup.py tests/test_config.py tests/test_tray.py tests/test_tray_menu.py"
 
 [tool.setuptools.packages.find]
 include = ["voice_typer*"]
@@ -173,7 +194,10 @@ include = ["voice_typer*"]
 # built wheel and installer.
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+# CQ-018: -v --tb=short for readable CI output; previously -q was too terse
+# for diagnosing failures in long test suites.
+# TEST-011: --cov=voice_typer --cov-fail-under=60 for coverage threshold
+addopts = "-v --tb=short --cov=voice_typer --cov-fail-under=60"
 filterwarnings = [
     "ignore::pytest.PytestUnraisableExceptionWarning",
     # NEW-TEST-003: previously ``ignore::ResourceWarning`` was blanket-
@@ -195,9 +219,12 @@ target-version = "py310"
 # E501. 120 matches the existing codebase style (most lines are 100-120 chars);
 # only lines exceeding 120 need wrapping. Do NOT raise this further.
 line-length = 120
+# CQ-018: src paths for ruff to resolve first-party imports correctly
+src = ["voice_typer", "tests"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I"]
+# CQ-018: extended select beyond basic E/F/W/I
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM"]
 # ERR-ERR-006: do not blanket-disable E501. The line-length=120 above governs
 # the limit; lines that exceed 120 are wrapped manually or split with `\`.
 ignore = []
@@ -206,6 +233,9 @@ ignore = []
 python_version = "3.10"  # NEW-CQ-023: match requires-python minimum
 warn_return_any = true
 warn_unused_configs = true
+# CQ-018: disallow untyped defs is off by default — the codebase has many
+# untyped functions. Enable incrementally per-module if desired.
+disallow_untyped_defs = false
 # ERR-ERR-006: do not blanket-disable missing-import checking. Per-module
 # overrides below enumerate the libraries that genuinely lack type stubs.
 ignore_missing_imports = false
@@ -241,6 +271,7 @@ source = ["voice_typer"]
 omit = ["tests/*"]
 
 [tool.coverage.report]
+fail_under = 60  # TEST-011: minimum coverage threshold
 exclude_lines = [
     "pragma: no cover",
     "if TYPE_CHECKING:",

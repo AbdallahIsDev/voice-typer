@@ -40,6 +40,15 @@ jobs:
         # invoked in CI.  Run it on the server tree (E501 line-length check).
         run: python -m ruff check voice_typer/server/ --select E501
 
+      - name: Run pyrefly type check
+        # TEST-036: pyrefly is configured in pyproject.toml but was never
+        # run in CI. Run as a separate step after ruff check so type errors
+        # are visible alongside lint errors.
+        continue-on-error: true
+        run: |
+          pip install pyrefly
+          pyrefly check
+
       - name: Run tests with coverage
         # NEW-CI-001: run pytest with coverage reporting.
         run: |
@@ -183,6 +192,22 @@ jobs:
           echo "Installer output:"
           Get-ChildItem -Path "${{ github.workspace }}" -Filter "*.exe" | Select-Object FullName, Length
 
+      # TEST-037: Compute SHA-256 checksums of all release artifacts.
+      # Upload the checksums file alongside the installer so users can
+      # verify integrity before running the installer.
+      - name: Generate SHA-256 checksums
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $checksums = @()
+          Get-ChildItem -Path "${{ github.workspace }}" -Filter "VoiceTyper-Setup-*.exe" | ForEach-Object {
+            $hash = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash
+            $checksums += "$hash  $($_.Name)"
+            Write-Host "$hash  $($_.Name)"
+          }
+          $checksums | Out-File -FilePath "${{ github.workspace }}/SHA256SUMS.txt" -Encoding utf8
+          Write-Host "Checksums written to SHA256SUMS.txt"
+
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
@@ -206,4 +231,14 @@ jobs:
           # re-running a tagged build silently overwrote the published
           # installer with whatever was last built. Instead, fail loudly
           # so the maintainer can decide whether to delete + re-run.
+          overwrite: false
+
+      # TEST-037: Upload SHA-256 checksums alongside the installer.
+      - name: Upload checksums to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: ${{ github.workspace }}/SHA256SUMS.txt
+          tag: ${{ github.ref_name }}
           overwrite: false

@@ -1,0 +1,23 @@
+# PLAT-036: MANIFEST.in for sdist / PyInstaller data inclusion
+include LICENSE
+include README.md
+include SECURITY.md
+include CHANGELOG.md
+include CONTRIBUTING.md
+include FEATURES.md
+include pyproject.toml
+include requirements.txt
+
+# Server Python modules
+recursive-include voice_typer/server *.py
+recursive-include voice_typer/server/assets *
+
+# Client build output (Electron)
+recursive-include voice_typer/client/build *
+
+# Corrections data
+include voice_typer/server/corrections.json
+
+# Icon assets
+include voice_typer/server/assets/*.png
+include voice_typer/server/assets/*.ico

@@ -1,0 +1,10 @@
+# TEST-010: mutmut configuration file
+# This file tells mutmut where to find the mutation testing config.
+# Run mutation testing with:
+#   mutmut run
+# See pyproject.toml [tool.mutmut] for the actual configuration.
+
+[mutmut]
+# Paths are defined in pyproject.toml [tool.mutmut]
+# This file exists as the config file marker for mutmut discovery.
+runner = "pytest -x -q tests/test_text_cleanup.py tests/test_config.py tests/test_tray.py tests/test_tray_menu.py"
