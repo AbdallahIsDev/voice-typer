@@ -51,6 +51,13 @@ _AGC_MAX_GAIN = 4.0         # maximum gain multiplier
 _PREROLL_SECONDS = 1.0
 
 
+# AUDIO-DEAD: dead-air timeout — auto-stop recording after N seconds
+# of continuous silence. Prevents indefinitely long recordings when the
+# user walks away from the mic. Configurable via config.dead_air_timeout
+# (0 = disabled). Default is 30 seconds of silence after speech was detected.
+_DEFAULT_DEAD_AIR_TIMEOUT = 30.0  # seconds of silence before auto-stop
+
+
 # AUDIO-002: XRUN rolling window parameters
 _XRUN_WINDOW_MAXLEN = 10     # keep last 10 xrun timestamps
 _XRUN_ALERT_THRESHOLD = 5    # alert if N xruns in the window
@@ -287,6 +294,15 @@ class Recorder:
         # verify the current device is still present in sd.query_devices().
         self._device_check_interval: int = 500  # check every ~500 chunks (~32s at 16Hz)
         self._device_check_counter: int = 0
+
+        # AUDIO-DEAD: dead-air timeout — tracks continuous silence duration.
+        # After the user has spoken at least once (speech_detected=True),
+        # if silence persists for dead_air_timeout seconds, auto-stop.
+        self._dead_air_timeout: float = float(
+            getattr(config, "dead_air_timeout", _DEFAULT_DEAD_AIR_TIMEOUT) or 0
+        )
+        self._dead_air_silence_start: float = 0.0  # timestamp when current silence began
+        self._dead_air_speech_detected: bool = False  # has speech been detected this session?
 
         # AUDIO-MIC: device list cache with timestamp
         self._device_list_cache: list[dict] | None = None
@@ -576,6 +592,13 @@ class Recorder:
                 self._vad_consecutive_speech_frames, self._vad_consecutive_silence_frames,
             )
 
+        # AUDIO-DEAD: track dead-air timeout
+        if self._vad_state == VadState.SPEECH:
+            self._dead_air_speech_detected = True
+            self._dead_air_silence_start = 0.0  # reset silence timer
+        elif self._vad_state == VadState.SILENCE and self._dead_air_silence_start == 0.0:
+            self._dead_air_silence_start = time.monotonic()
+
         return self._vad_state
 
     # ── AUDIO-AGC: simple automatic gain control ────────────────────────
@@ -849,6 +872,9 @@ class Recorder:
         self._preroll_buffer.clear()
         # AUDIO-HOT: reset disconnect state
         self._device_disconnected = False
+        # AUDIO-DEAD: reset dead-air tracking
+        self._dead_air_silence_start = 0.0
+        self._dead_air_speech_detected = False
         self._device_disconnect_retries = 0
         # PERF-011: reset frame-skip state
         self._previous_chunk_pending = False
@@ -965,6 +991,31 @@ class Recorder:
                             return
                 except Exception:
                     pass
+
+            # AUDIO-DEAD: check dead-air timeout — if the user has spoken
+            # at least once but silence has persisted for longer than the
+            # configured timeout, auto-stop the recording. This prevents
+            # indefinitely long recordings when the user walks away.
+            if (self._dead_air_timeout > 0
+                    and self._dead_air_speech_detected
+                    and self._dead_air_silence_start > 0.0):
+                silence_duration = time.monotonic() - self._dead_air_silence_start
+                if silence_duration >= self._dead_air_timeout:
+                    log.info(
+                        "[RECORDING] Dead-air timeout reached (%.1fs >= %.1fs) — auto-stopping",
+                        silence_duration, self._dead_air_timeout,
+                    )
+                    # Trigger auto-stop off the audio thread
+                    if self.on_silence_auto_stop is not None:
+                        try:
+                            threading.Thread(
+                                target=self.on_silence_auto_stop,
+                                name="dead-air-timeout",
+                                daemon=True,
+                            ).start()
+                        except Exception:
+                            pass
+                    return
 
             # AUDIO-002: Check PortAudio status flags for XRUNs.
             # Use a rolling window of xrun timestamps to reduce log spam
