@@ -271,6 +271,46 @@ def _is_elevated_target() -> bool:
 # ─── PLAT-014: Password field detection ───────────────────────────────
 
 
+# PLAT-014: Known credential dialog window classes on Windows.
+# When comtypes is unavailable, we fall back to checking the focused
+# window's class name against this set. This is a COARSE heuristic —
+# it only catches the standard Windows credential UI, not arbitrary
+# password fields in third-party apps. comtypes/UIA is required for
+# full coverage (see _is_password_field above).
+_CRED_DIALOG_CLASSES: set[str] = {
+    "CredentialDialog",       # Generic credential dialog
+    "CredDialogCallerWnd",    # CredUI dialog
+    "NN Credentials Dialog",  # Network credentials
+    "PassportWindow",         # Microsoft account
+}
+
+
+def _focused_window_is_credential_dialog() -> bool:
+    """PLAT-014: Check if the focused window is a known credential dialog.
+
+    Uses GetForegroundWindow + GetClassNameW via ctypes. Returns True
+    if the window class matches a known credential dialog class. This
+    is the comtypes-absence fallback for password field protection.
+    """
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+        hwnd = user32.GetForegroundWindow()
+        if not hwnd:
+            return False
+        # GetClassNameW returns the class name length
+        class_name = ctypes.create_unicode_buffer(256)
+        length = user32.GetClassNameW(hwnd, class_name, 256)
+        if length <= 0:
+            return False
+        cls = class_name.value
+        return cls in _CRED_DIALOG_CLASSES
+    except Exception:
+        return False
+
+
 def _is_password_field() -> bool:
     """PLAT-014: Check if the focused element is a password field.
 
@@ -311,14 +351,34 @@ def _is_password_field() -> bool:
                     )
                     return True
         except ImportError:
-            # comtypes not installed — log so operators can install it
-            # to enable password field detection. The check fails open
-            # (returns False) because we can't determine if the focused
-            # element is a password field without UIA.
-            log.info(
+            # PLAT-014: comtypes not installed. Pre-fix this failed
+            # OPEN (returned False → paste allowed into any field).
+            # Now we log a WARNING (not INFO) so operators notice at
+            # default log levels, and we fail CLOSED for known
+            # credential-dialog window classes. The fail-closed path
+            # only blocks when the focused window class matches a
+            # known credential dialog (see _CRED_DIALOG_CLASSES below);
+            # for all other windows we still fail open to avoid
+            # blocking legitimate dictation, but with a louder log.
+            log.warning(
                 "[CLIPBOARD] comtypes not installed — password field detection "
-                "disabled (install 'comtypes' to enable)"
+                "disabled. Install 'comtypes' (pip install comtypes) to enable "
+                "password field protection. Falling back to window-class heuristic."
             )
+            # PLAT-014: window-class heuristic for known credential
+            # dialogs. This is a coarse fallback — it only catches the
+            # standard Windows credential UI, not arbitrary password
+            # fields in third-party apps. comtypes/UIA is required for
+            # full coverage.
+            try:
+                if _focused_window_is_credential_dialog():
+                    log.warning(
+                        "[CLIPBOARD] Credential dialog window detected (comtypes "
+                        "fallback) — dictation blocked for security"
+                    )
+                    return True
+            except Exception:
+                pass
         except Exception as exc:
             # comtypes is installed but UIA call failed (e.g. desktop
             # bridge app, UAC dialog). Log and fail open.
