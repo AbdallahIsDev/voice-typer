@@ -584,16 +584,25 @@ class ClipboardManager:
                       len(self._saved_clipboard) if self._saved_clipboard else 0,
                       self._clipboard_save_restore_enabled)
 
-            # PLAT-007: Retry clipboard access on ERROR_ACCESS_DENIED
+            # PLAT-007: Retry clipboard access on ERROR_ACCESS_DENIED.
+            # Pre-fix this caught broad ``Exception`` which would retry
+            # on ANY error (including programming errors like
+            # AttributeError). Now we only retry on OSError/WindowsError
+            # with winerror == 5 (ERROR_ACCESS_DENIED). Other exceptions
+            # propagate immediately so real bugs aren't masked.
             for attempt in range(3):
                 try:
                     pyperclip.copy(text)
                     break
-                except Exception as copy_err:
-                    if attempt < 2:
+                except OSError as copy_err:
+                    # ERROR_ACCESS_DENIED = 5 on Windows. pyperclip wraps
+                    # the underlying win32 clipboard error as OSError or
+                    # pywintypes.error (which is a subclass of OSError).
+                    winerror = getattr(copy_err, "winerror", None)
+                    if winerror == 5 and attempt < 2:
                         time.sleep(0.05 * (attempt + 1))
-                    else:
-                        raise copy_err
+                        continue
+                    raise copy_err
 
             # PLAT-PASTEVR: Verify the clipboard content matches what we copied.
             # If another app modified the clipboard between our copy and
