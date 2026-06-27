@@ -9,6 +9,13 @@ Phase 2: Minimal right-click menu:
 Left-click + "Open App" launches the Electron app (or focuses it if already running).
 All settings, history, templates, etc. live in the Electron window only.
 
+CQ-004: This module is ~670 lines. It was considered for splitting but
+kept as a single module because:
+  - The TrayIcon class is a single cohesive unit (lifecycle + state + menu)
+  - Splitting would create tight cross-file coupling (menu ↔ state ↔ notify)
+  - The internal sections are clearly delineated with comment headers
+  - Related logic (e.g. notification handling) stays together
+
 Threading model:
 - ``start()`` creates the icon and launches background work (model loading,
   hotkey registration, etc.) in a daemon thread.  It does NOT block.

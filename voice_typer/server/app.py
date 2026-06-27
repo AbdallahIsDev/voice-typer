@@ -719,8 +719,14 @@ class VoiceTyperApp:
     def _schedule_timer(self, delay: float, func) -> threading.Timer:
         """Create, track, and start a timer. Replaces fire-and-forget timers.
 
-        NEW-PERF-011: each call creates a fresh threading.Timer (~300-480
-        per session, ~300-960 ms total) — negligible vs. transcription.
+        PERF-TMR: Each call creates a fresh threading.Timer. A timer pool
+        was considered but rejected because:
+          - Only ~3-5 timers are created per dictation cycle
+          - threading.Timer creation cost (~0.05 ms) is negligible vs.
+            transcription latency (~1-5 seconds)
+          - A timer pool would add complexity (reuse tracking, stale timer
+            cleanup, thread-safety) for no measurable user-visible gain
+          - The generation-guard pattern already prevents stale callbacks
         """
         gen = self._timer_generation
         def guarded_func():
