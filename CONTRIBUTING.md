@@ -80,6 +80,25 @@ Key conventions:
 - Never use `# type: ignore` or `except: pass` to suppress real issues.
 - Document non-obvious decisions with `# NEW-XXX:` comments referencing the issue ID.
 
+### Mock Import Convention
+
+TEST-033: Always import mock objects from `unittest.mock` directly:
+
+```python
+# ✓ Correct
+from unittest.mock import MagicMock, patch
+
+# ✗ Wrong — do NOT use the `mock` module alias
+from unittest import mock
+mock.MagicMock(...)  # wrong
+```
+
+Rationale: `from unittest import mock` introduces an unnecessary indirection.
+Importing the specific classes (`MagicMock`, `patch`, `call`, `PropertyMock`)
+directly from `unittest.mock` is more explicit and avoids the `mock.XXX`
+prefix pattern. The `monkeypatch` fixture from pytest is preferred for
+attribute/item replacement since it auto-cleans up after each test.
+
 ### TypeScript
 
 - **Formatter:** prettier
