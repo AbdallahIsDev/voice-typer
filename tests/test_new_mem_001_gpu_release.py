@@ -12,7 +12,7 @@ The fix adds a shared ``release_gpu_memory()`` helper that calls
 from __future__ import annotations
 
 import sys
-from unittest import mock
+from unittest.mock import MagicMock, patch, call  # TEST-033: unified mock import
 
 import pytest
 
@@ -31,10 +31,10 @@ class TestReleaseGpuMemoryHelper:
 
     def test_cuda_not_available_is_noop(self, monkeypatch):
         """When CUDA is not available, the helper must no-op."""
-        fake_torch = mock.MagicMock()
+        fake_torch = MagicMock()
         fake_torch.cuda.is_available.return_value = False
-        fake_torch.cuda.synchronize = mock.MagicMock()
-        fake_torch.cuda.empty_cache = mock.MagicMock()
+        fake_torch.cuda.synchronize = MagicMock()
+        fake_torch.cuda.empty_cache = MagicMock()
         monkeypatch.setitem(sys.modules, "torch", fake_torch)
 
         release_gpu_memory()
@@ -46,10 +46,10 @@ class TestReleaseGpuMemoryHelper:
 
     def test_calls_empty_cache_when_cuda_available(self, monkeypatch):
         """When CUDA is available, the helper must call empty_cache()."""
-        fake_torch = mock.MagicMock()
+        fake_torch = MagicMock()
         fake_torch.cuda.is_available.return_value = True
-        fake_torch.cuda.synchronize = mock.MagicMock()
-        fake_torch.cuda.empty_cache = mock.MagicMock()
+        fake_torch.cuda.synchronize = MagicMock()
+        fake_torch.cuda.empty_cache = MagicMock()
         monkeypatch.setitem(sys.modules, "torch", fake_torch)
 
         release_gpu_memory()
@@ -62,12 +62,12 @@ class TestReleaseGpuMemoryHelper:
     def test_swallows_runtime_errors(self, monkeypatch):
         """If torch.cuda.synchronize() raises (e.g. CUDA not initialized),
         the helper must not propagate the exception."""
-        fake_torch = mock.MagicMock()
+        fake_torch = MagicMock()
         fake_torch.cuda.is_available.return_value = True
         fake_torch.cuda.synchronize.side_effect = RuntimeError(
             "cuda not initialized"
         )
-        fake_torch.cuda.empty_cache = mock.MagicMock()
+        fake_torch.cuda.empty_cache = MagicMock()
         monkeypatch.setitem(sys.modules, "torch", fake_torch)
 
         # Must not raise.
@@ -159,9 +159,9 @@ class TestReleaseGpuMemoryFunctional:
         eng._processor = None
 
         # Mock the helper to track calls.
-        with mock.patch(
+        with patch(
             "voice_typer.server.parakeet_engine.release_gpu_memory"
-        ) if False else mock.patch(
+        ) if False else patch(
             "voice_typer.server.transcription.release_gpu_memory"
         ) as mock_release:
             eng.unload()
@@ -177,7 +177,7 @@ class TestReleaseGpuMemoryFunctional:
         eng._lock = threading.Lock()
         eng._model = None
 
-        with mock.patch(
+        with patch(
             "voice_typer.server.transcription.release_gpu_memory"
         ) as mock_release:
             eng.unload()

@@ -15,7 +15,7 @@ fires the stop-dictation path.
 from __future__ import annotations
 
 import inspect
-from unittest import mock
+from unittest.mock import MagicMock, patch, call  # TEST-033: unified mock import
 
 import pytest
 
@@ -104,21 +104,21 @@ class TestPttFunctionalFlow:
         backend's ``_on_release_callback`` must point to
         ``app._stop_dictation``.
         """
-        app = mock.MagicMock()
+        app = MagicMock()
         app.config.hotkey = "<f2>"
         app.config.recording_mode = "push_to_talk"
         app.config.esc_cancel_enabled = False
         app.config.repaste_hotkey = ""
-        app.toggle_dictation = mock.MagicMock()
-        app._stop_dictation = mock.MagicMock()
+        app.toggle_dictation = MagicMock()
+        app._stop_dictation = MagicMock()
 
         dispatcher = HotkeyDispatcher(app)
 
         # Mock the backend so we can capture the set_on_release call.
-        fake_backend = mock.MagicMock()
+        fake_backend = MagicMock()
         fake_backend.is_alive.return_value = True
 
-        with mock.patch(
+        with patch(
             "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
             return_value=fake_backend,
         ):
@@ -131,20 +131,20 @@ class TestPttFunctionalFlow:
         """In toggle mode (not push_to_talk), set_on_release must NOT
         be called — the hotkey press toggles recording on/off.
         """
-        app = mock.MagicMock()
+        app = MagicMock()
         app.config.hotkey = "<f2>"
         app.config.recording_mode = "toggle"
         app.config.esc_cancel_enabled = False
         app.config.repaste_hotkey = ""
-        app.toggle_dictation = mock.MagicMock()
-        app._stop_dictation = mock.MagicMock()
+        app.toggle_dictation = MagicMock()
+        app._stop_dictation = MagicMock()
 
         dispatcher = HotkeyDispatcher(app)
 
-        fake_backend = mock.MagicMock()
+        fake_backend = MagicMock()
         fake_backend.is_alive.return_value = True
 
-        with mock.patch(
+        with patch(
             "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
             return_value=fake_backend,
         ):

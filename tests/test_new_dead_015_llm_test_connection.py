@@ -12,7 +12,7 @@ never invoked by any IPC route or UI button.  The fix:
 """
 from __future__ import annotations
 
-from unittest import mock
+from unittest.mock import MagicMock, patch, call  # TEST-033: unified mock import
 
 import pytest
 
@@ -22,7 +22,7 @@ from voice_typer.server.ipc_server import IPCServer
 
 @pytest.fixture
 def server_with_mock_app():
-    app = mock.MagicMock()
+    app = MagicMock()
     return IPCServer(app)
 
 
@@ -41,7 +41,7 @@ class TestServiceTestMethod:
         success=False with a helpful message."""
         srv = server_with_mock_app
         # Mock config with empty key.
-        srv.app.config = mock.MagicMock()
+        srv.app.config = MagicMock()
         srv.app.config.llm_api_key = ""
         srv.app.config.llm_api_url = ""
         srv.app.config.llm_model = ""
@@ -56,17 +56,17 @@ class TestServiceTestMethod:
         LLMPolisher and call its test_connection() method.
         """
         srv = server_with_mock_app
-        srv.app.config = mock.MagicMock()
+        srv.app.config = MagicMock()
         srv.app.config.llm_api_key = "sk-test-key"
         srv.app.config.llm_api_url = "https://api.openai.com/v1"
         srv.app.config.llm_model = "gpt-4"
         srv.app.config.llm_preset = "professional"
 
         # Mock the LLMPolisher constructor + test_connection.
-        fake_polisher = mock.MagicMock()
+        fake_polisher = MagicMock()
         fake_polisher.test_connection.return_value = (True, "Connected (model: gpt-4)")
 
-        with mock.patch(
+        with patch(
             "voice_typer.server.llm_polish.LLMPolisher",
             return_value=fake_polisher,
         ) as mock_ctor:
@@ -90,7 +90,7 @@ class TestIpcRoute:
         ``service.test_llm_connection()`` and return the result.
         """
         srv = server_with_mock_app
-        srv.service.test_llm_connection = mock.MagicMock(
+        srv.service.test_llm_connection = MagicMock(
             return_value={"success": True, "message": "Connected"}
         )
 
@@ -103,7 +103,7 @@ class TestIpcRoute:
     def test_ipc_handles_service_exception(self, server_with_mock_app):
         """When the service raises, the IPC route must return an error."""
         srv = server_with_mock_app
-        srv.service.test_llm_connection = mock.MagicMock(
+        srv.service.test_llm_connection = MagicMock(
             side_effect=RuntimeError("boom")
         )
 

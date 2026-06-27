@@ -13,7 +13,7 @@ The fix only formats the traceback on the 1st occurrence and every
 from __future__ import annotations
 
 import logging
-from unittest import mock
+from unittest.mock import MagicMock, patch  # TEST-033: unified mock import
 
 import numpy as np
 import pytest

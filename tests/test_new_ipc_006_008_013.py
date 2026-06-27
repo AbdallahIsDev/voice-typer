@@ -21,7 +21,7 @@ level so the user can actually see state changes / errors.
 from __future__ import annotations
 
 import logging
-from unittest import mock
+from unittest.mock import MagicMock, patch, call  # TEST-033: unified mock import
 
 import pytest
 
@@ -43,7 +43,7 @@ def clean_registry():
 
 @pytest.fixture
 def server_with_mock_app():
-    app = mock.MagicMock()
+    app = MagicMock()
     return IPCServer(app)
 
 
@@ -204,7 +204,7 @@ class TestAckShapeConsistency:
     def test_error_responses_keep_data(self, server_with_mock_app):
         """Error responses must keep their existing ``data`` field."""
         srv = server_with_mock_app
-        srv.service.toggle_dictation = mock.MagicMock(
+        srv.service.toggle_dictation = MagicMock(
             side_effect=RuntimeError("boom")
         )
 
@@ -272,9 +272,9 @@ class TestGetInstancePushFnTracking:
     def test_start_registers_instance_push_fn(self, server_with_mock_app):
         srv = server_with_mock_app
         # Avoid the real _hook_tray_set_state + _run thread.
-        srv.app.tray = mock.MagicMock()
+        srv.app.tray = MagicMock()
         srv._hook_tray_set_state = lambda: None
-        srv._stdin_thread = mock.MagicMock()
+        srv._stdin_thread = MagicMock()
 
         srv.start()
         try:
@@ -286,9 +286,9 @@ class TestGetInstancePushFnTracking:
 
     def test_stop_clears_instance_push_fn(self, server_with_mock_app):
         srv = server_with_mock_app
-        srv.app.tray = mock.MagicMock()
+        srv.app.tray = MagicMock()
         srv._hook_tray_set_state = lambda: None
-        srv._stdin_thread = mock.MagicMock()
+        srv._stdin_thread = MagicMock()
 
         srv.start()
         srv.stop()

@@ -17,7 +17,7 @@ The fix:
 """
 from __future__ import annotations
 
-from unittest import mock
+from unittest.mock import MagicMock, patch, call  # TEST-033: unified mock import
 
 import numpy as np
 import pytest
@@ -54,7 +54,7 @@ class TestRecorderStoresAudioStats:
             rec._buffer.append(chunk)
             rec._chunk_count = 1
         # Mock the stream so stop() doesn't try to close a real one.
-        rec._stream = mock.MagicMock()
+        rec._stream = MagicMock()
 
         # We can't easily call stop() without a real stream; instead
         # we directly invoke the stats-computation block by calling
@@ -104,12 +104,12 @@ class TestTranscriptionEngineAcceptsAudioStats:
         eng = TranscriptionEngine.__new__(TranscriptionEngine)
         import threading
         eng._lock = threading.Lock()
-        eng._model = mock.MagicMock()
+        eng._model = MagicMock()
         # The mock model's transcribe returns an empty segments list
         # and a mock info object.
-        mock_segment = mock.MagicMock()
+        mock_segment = MagicMock()
         mock_segment.text = "hello"
-        eng._model.transcribe.return_value = ([mock_segment], mock.MagicMock())
+        eng._model.transcribe.return_value = ([mock_segment], MagicMock())
         eng.beam_size = 1
         eng.best_of = 1
         eng.condition_on_previous_text = False
@@ -128,7 +128,7 @@ class TestTranscriptionEngineAcceptsAudioStats:
             sqrt_calls.append(args)
             return original_sqrt(*args, **kwargs)
 
-        with mock.patch("voice_typer.server.transcription.np.sqrt", counting_sqrt):
+        with patch("voice_typer.server.transcription.np.sqrt", counting_sqrt):
             # With audio_stats provided, sqrt should NOT be called for
             # the stats computation (it might still be called by the
             # whisper model, but the stats block is skipped).
@@ -168,7 +168,7 @@ class TestPipelinePassesStatsThrough:
         """
         from voice_typer.server.dictation_pipeline import DictationPipeline
 
-        app = mock.MagicMock()
+        app = MagicMock()
         app.recorder._last_audio_stats = (0.1, 0.5, 50.0)
         pipeline = DictationPipeline(app)
 

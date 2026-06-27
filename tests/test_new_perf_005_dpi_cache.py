@@ -10,7 +10,7 @@ The fix caches the result after the first call.
 from __future__ import annotations
 
 import ctypes
-from unittest import mock
+from unittest.mock import MagicMock, patch, call  # TEST-033: unified mock import
 
 import pytest
 
@@ -31,7 +31,7 @@ def _reset_dpi_cache():
 
 def _install_fake_windll(monkeypatch):
     """Install a fake ``ctypes.windll`` (Linux doesn't have one)."""
-    fake_windll = mock.MagicMock()
+    fake_windll = MagicMock()
     # ctypes.windll is a magic attribute on Windows; on Linux we have
     # to set it manually for the import-time `import ctypes; ctypes.windll`
     # pattern used in tray_icon.py to work.

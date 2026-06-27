@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import inspect
 from pathlib import Path
-from unittest import mock
+from unittest.mock import MagicMock, patch  # TEST-033: unified mock import
 
 import pytest
 

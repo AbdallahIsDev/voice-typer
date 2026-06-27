@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
-from unittest import mock
+from unittest.mock import MagicMock, patch, call  # TEST-033: unified mock import
 
 import pytest
 
@@ -76,7 +76,7 @@ class TestCrashPathUsesExitCrash:
         monkeypatch.setattr(sys, "argv", ["voice-typer"])
 
         # Avoid actually starting the IPC server / app — make start() raise.
-        app_mock = mock.MagicMock()
+        app_mock = MagicMock()
         app_mock.start.side_effect = RuntimeError("simulated crash")
 
         # Stub out heavy pieces of main().
@@ -91,7 +91,7 @@ class TestCrashPathUsesExitCrash:
             lambda silent=False: object(),
         )
         # Stub IPCServer so it doesn't try to bind or spawn threads.
-        fake_server = mock.MagicMock()
+        fake_server = MagicMock()
         monkeypatch.setattr(
             ipc_server, "IPCServer", lambda app: fake_server
         )
@@ -119,7 +119,7 @@ class TestCrashPathUsesExitCrash:
         # existing ordering quirk), so we mock it to a no-op MagicMock.
         # We then assert that app.start() is NEVER called because main()
         # exits before reaching that point.
-        app_mock = mock.MagicMock()
+        app_mock = MagicMock()
         app_mock.start.side_effect = AssertionError(
             "app.start() should not be called when --port is invalid"
         )

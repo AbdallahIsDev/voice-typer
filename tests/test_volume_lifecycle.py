@@ -30,13 +30,13 @@ import time
 import threading
 from pathlib import Path
 from typing import Optional
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, call
 
 import numpy as np
 import pytest
 
 
-# ── Heavy-import mocks (autouse) ────────────────────────────────────────
+# ── Heavy mock imports (autouse) ────────────────────────────────────────
 # These must be in place before VoiceTyperApp is imported, so we apply
 # them at module-import time (matching tests/test_app.py's pattern).
 

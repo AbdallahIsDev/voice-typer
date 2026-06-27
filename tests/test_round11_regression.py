@@ -326,6 +326,10 @@ class TestWatchdogForceRecover:
         ctrl._watchdog_max_firings = 3
         ctrl._transcription_thread = MagicMock()
         ctrl._transcription_thread.is_alive.return_value = True
+        # RACE-013: new watchdog thread attributes
+        ctrl._watchdog_stop_event = MagicMock()
+        ctrl._watchdog_event = MagicMock()
+        ctrl._watchdog_thread = None
 
         app = MagicMock()
         app._busy_event.is_set.return_value = False  # busy == True
@@ -347,20 +351,21 @@ class TestWatchdogForceRecover:
         ctrl._watchdog_max_firings = 3
         ctrl._transcription_thread = MagicMock()
         ctrl._transcription_thread.is_alive.return_value = True
+        # RACE-013: new watchdog thread attributes
+        ctrl._watchdog_stop_event = MagicMock()
+        ctrl._watchdog_event = MagicMock()
+        ctrl._watchdog_thread = None
         app = MagicMock()
         app._busy_event.is_set.return_value = False  # busy == True
         ctrl._app = app
 
-        # Patch the Timer so we don't actually wait 60s in the test.
-        with patch("voice_typer.server.recording_controller.threading.Timer") as MockTimer:
-            mock_timer = MagicMock()
-            MockTimer.return_value = mock_timer
-            ctrl._force_recover_from_stuck_transcription(force=False)
-            # Timer was created (re-arm) and started.
-            MockTimer.assert_called_once()
-            mock_timer.start.assert_called_once()
+        # RACE-013: The watchdog now uses Event.wait instead of Timer.
+        # When not forcing, it should reset the watchdog event to re-arm.
+        ctrl._force_recover_from_stuck_transcription(force=False)
         # busy was NOT cleared.
         app._busy_event.set.assert_not_called()
+        # The watchdog event should be set (re-armed) instead of Timer
+        ctrl._watchdog_event.set.assert_called()
 
 
 # ── ERR-003: Pending model change applies on next start ───────────────

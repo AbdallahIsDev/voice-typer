@@ -726,15 +726,17 @@ class TestFinalizeSkipsTailRetranscribe:
 
 
 class TestWatchdogTimerTracked:
-    """ARCH-017: the watchdog Timer is appended to _pending_timers."""
+    """ARCH-017/RACE-013: the watchdog uses Event.wait instead of Timer."""
 
     def test_watchdog_added_to_pending_timers(self):
-        """Verify RecordingController._watchdog_fire appends to
-        app._pending_timers. We can't easily exercise the full path,
-        but we can verify the source code mentions the tracking."""
+        """Verify RecordingController uses Event-based watchdog (RACE-013).
+
+        The old Timer-based approach was replaced with a persistent
+        watchdog thread using Event.wait(timeout=60) to prevent Timer
+        stacking under CPU pressure. Verify the new attributes exist."""
         from voice_typer.server import recording_controller
         import inspect
         src = inspect.getsource(recording_controller)
-        # The watchdog Timer creation must include _pending_timers tracking.
-        assert "_pending_timers_lock" in src
-        assert "_pending_timers.append" in src
+        # RACE-013: The watchdog now uses _watchdog_event instead of Timer
+        assert "_watchdog_event" in src
+        assert "_watchdog_stop_event" in src

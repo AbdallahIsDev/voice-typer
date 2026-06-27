@@ -23,7 +23,7 @@ import json
 import socket
 import threading
 import time
-from unittest import mock
+from unittest.mock import MagicMock, patch, call  # TEST-033: unified mock import
 
 import pytest
 
@@ -33,7 +33,7 @@ from voice_typer.server.ipc_server import IPCServer, _TCP_WRITE_TIMEOUT_SECONDS
 
 @pytest.fixture
 def server_with_mock_app():
-    app = mock.MagicMock()
+    app = MagicMock()
     return IPCServer(app)
 
 
@@ -58,7 +58,7 @@ class TestSendDoesNotHoldLockDuringWrite:
         class SlowClient:
             def __init__(self):
                 self.write_delay = 0.5
-                self.conn = mock.MagicMock()
+                self.conn = MagicMock()
                 self.conn.settimeout = lambda x: None
 
             def write(self, _text):
@@ -110,8 +110,8 @@ class TestSendDoesNotHoldLockDuringWrite:
         stalled client can't block the worker forever."""
         srv = server_with_mock_app
 
-        fake_conn = mock.MagicMock()
-        fake_conn.settimeout = mock.MagicMock()
+        fake_conn = MagicMock()
+        fake_conn.settimeout = MagicMock()
 
         class FakeClient:
             def __init__(self):
@@ -155,7 +155,7 @@ class TestSendDoesNotHoldLockDuringWrite:
         next reconnect."""
         srv = server_with_mock_app
 
-        fake_conn = mock.MagicMock()
+        fake_conn = MagicMock()
         fake_conn.settimeout = lambda x: None
 
         class FailingClient:
@@ -204,7 +204,7 @@ class TestSendStillDeliversMessages:
 
         class CapturingClient:
             def __init__(self):
-                self.conn = mock.MagicMock()
+                self.conn = MagicMock()
                 self.conn.settimeout = lambda x: None
 
             def write(self, text):
@@ -234,7 +234,7 @@ class TestSendStillDeliversMessages:
 
         class CapturingClient:
             def __init__(self):
-                self.conn = mock.MagicMock()
+                self.conn = MagicMock()
                 self.conn.settimeout = lambda x: None
 
             def write(self, text):

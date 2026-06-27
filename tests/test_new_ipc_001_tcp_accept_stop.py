@@ -23,7 +23,7 @@ from __future__ import annotations
 import socket
 import threading
 import time
-from unittest import mock
+from unittest.mock import MagicMock, patch, call  # TEST-033: unified mock import
 
 import pytest
 
@@ -33,7 +33,7 @@ from voice_typer.server.ipc_server import IPCServer
 @pytest.fixture
 def server_with_mock_app():
     """Construct an IPCServer with a mocked app (no real VoiceTyperApp)."""
-    app = mock.MagicMock()
+    app = MagicMock()
     # Avoid the service.py import side-effects on real VoiceTyperApp.
     # The IPCServer constructor only needs `app` to attach to .service.
     srv = IPCServer(app)
@@ -51,7 +51,7 @@ class TestStopUnblocksAcceptLoop:
 
     def test_stop_closes_listening_socket(self, server_with_mock_app):
         """stop() closes the stored listening socket and clears the ref."""
-        fake_sock = mock.MagicMock()
+        fake_sock = MagicMock()
         server_with_mock_app._tcp_server_socket = fake_sock
         server_with_mock_app.stop()
         fake_sock.close.assert_called_once()
@@ -73,7 +73,7 @@ class TestStopUnblocksAcceptLoop:
         Previously this test would have hung forever because stop()
         couldn't close the listening socket.
         """
-        app = mock.MagicMock()
+        app = MagicMock()
         srv = IPCServer(app)
 
         # Pick a free port by binding a temporary socket first.
@@ -85,7 +85,7 @@ class TestStopUnblocksAcceptLoop:
         # Disable auth so the test doesn't need a token.  The accept
         # loop doesn't care about auth — it just needs to listen and
         # accept; we never actually connect a client.
-        with mock.patch.dict("os.environ", {}, clear=False):
+        with patch.dict("os.environ", {}, clear=False):
             # Make sure VOICE_TYPER_IPC_TOKEN is not set so the loop
             # logs the warning instead of bailing out.
             import os

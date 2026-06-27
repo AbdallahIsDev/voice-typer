@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from unittest import mock
+from unittest.mock import MagicMock, patch, call  # TEST-033: unified mock import
 
 import pytest
 
@@ -50,8 +50,8 @@ class TestQwenAsrCache:
 
         # Mock the import system so "import qwen_asr" succeeds.
         import sys
-        fake_module = mock.MagicMock()
-        with mock.patch.dict(sys.modules, {"qwen_asr": fake_module}):
+        fake_module = MagicMock()
+        with patch.dict(sys.modules, {"qwen_asr": fake_module}):
             result1 = _check_qwen_asr_available()
             result2 = _check_qwen_asr_available()
             result3 = _check_qwen_asr_available()
@@ -67,7 +67,7 @@ class TestQwenAsrCache:
         original = sys.modules.pop("qwen_asr", None)
         try:
             # Also block the import machinery from finding it.
-            with mock.patch.dict(sys.modules, {"qwen_asr": None}):
+            with patch.dict(sys.modules, {"qwen_asr": None}):
                 result1 = _check_qwen_asr_available()
                 result2 = _check_qwen_asr_available()
         finally:
@@ -96,7 +96,7 @@ class TestHfDownloadCache:
             call_count[0] += 1
             return original_exists(self)
 
-        with mock.patch.object(Path, "exists", counting_exists):
+        with patch.object(Path, "exists", counting_exists):
             result1 = _check_hf_model_downloaded(repo_id, config_dir)
             result2 = _check_hf_model_downloaded(repo_id, config_dir)
             result3 = _check_hf_model_downloaded(repo_id, config_dir)
@@ -135,7 +135,7 @@ class TestHfDownloadCache:
             call_count[0] += 1
             return original_exists(self)
 
-        with mock.patch.object(Path, "exists", counting_exists):
+        with patch.object(Path, "exists", counting_exists):
             result2 = _check_hf_model_downloaded(repo_id, config_dir)
 
         assert call_count[0] == 1, (
@@ -201,17 +201,17 @@ class TestBuildModelsSubmenuUsesCache:
         import sys
 
         # Provide a Config-like object so we skip the disk read.
-        config_provider = mock.MagicMock()
+        config_provider = MagicMock()
         config_provider.model_size = "tiny.en"
         config_provider.asr_backend = "whisper"
 
         # Mock ensure_hf_env to no-op.
-        with mock.patch(
+        with patch(
             "voice_typer.server.asr_setup.ensure_hf_env", lambda: None
         ):
             # First call triggers the import check.
-            fake_module = mock.MagicMock()
-            with mock.patch.dict(sys.modules, {"qwen_asr": fake_module}):
+            fake_module = MagicMock()
+            with patch.dict(sys.modules, {"qwen_asr": fake_module}):
                 data1 = tray_models.build_models_submenu_data(
                     lambda: tmp_path,
                     lambda name: None,

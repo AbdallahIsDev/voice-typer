@@ -20,7 +20,7 @@ These tests verify:
 """
 from __future__ import annotations
 
-from unittest import mock
+from unittest.mock import MagicMock, patch, call  # TEST-033: unified mock import
 
 import numpy as np
 import pytest
@@ -189,7 +189,7 @@ class TestResamplePathReturnsView:
 
         # Mock _resample_chunk to return a small array without actually
         # requiring scipy.
-        with mock.patch.object(
+        with patch.object(
             rec, "_resample_chunk", return_value=np.zeros(372, dtype=np.float32)
         ):
             first = rec.snapshot()
