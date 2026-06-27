@@ -338,7 +338,27 @@ def is_autostart_enabled() -> bool:
 # predictably than HKCU Run keys (which are gated by Windows Explorer's
 # startup sequencing). We prefer the Task Scheduler path; HKCU Run key
 # remains as a fallback for the locked-task scenario.
-_APP_AUTOSTART_TASK_NAME = "VoiceTyperAutostart"
+#
+# PLAT-RUN: append the install-path hash to the task name so two
+# installations in different directories register distinct schtasks
+# entries and don't conflict. Pre-fix this was a fixed string
+# "VoiceTyperAutostart" — two installs would overwrite each other's
+# task. The hash matches the mutex name hash in app.py (SHA-256 of
+# sys.executable, first 8 hex chars).
+def _install_hash_suffix() -> str:
+    """PLAT-RUN: Return an 8-char hash suffix for the install path.
+
+    Empty string on non-Windows or if hashing fails (non-fatal).
+    """
+    try:
+        import hashlib
+        import sys
+        return "_" + hashlib.sha256(sys.executable.encode()).hexdigest()[:8]
+    except Exception:
+        return ""
+
+
+_APP_AUTOSTART_TASK_NAME = f"VoiceTyperAutostart{_install_hash_suffix()}"
 
 
 def _enable_autostart_windows() -> bool:
