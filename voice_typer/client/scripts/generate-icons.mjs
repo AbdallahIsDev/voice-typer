@@ -143,6 +143,19 @@ async function main() {
   await sharp(Buffer.from(traySvg)).resize(64, 64).png().toFile(resolve(trayDir, 'tray-mic.png'))
   console.log('Created server/assets/tray-mic-*.png')
 
+  // PLAT-024: Generate a multi-size ICO file for the tray icon so
+  // Windows 11 can use the native ICO format (sharper than PNG under
+  // per-monitor DPI scaling). The ICO contains 16/24/32/48/64 sizes.
+  // tray_icon.py looks for ``tray-mic.png`` (the base icon) and
+  // colorizes it at runtime per AppState; we generate the ICO from
+  // the same base PNG so the runtime conversion path can be skipped
+  // on Windows when the base ICO is present.
+  await generateIco(
+    resolve(trayDir, 'tray-mic.png'),
+    resolve(trayDir, 'tray-mic.ico')
+  )
+  console.log('Created server/assets/tray-mic.ico (PLAT-024)')
+
   // Logo PNGs for Python server (transparent background)
   for (const size of [64, 256]) {
     await sharp(Buffer.from(lightSvg)).resize(size, size).png().toFile(resolve(trayDir, `logo-${size}.png`))
