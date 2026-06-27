@@ -387,6 +387,9 @@ def is_supported() -> bool:
     STARTUP-5: previously Windows-only. Now also returns True on macOS
     and Linux (via prewarm_scheduler_posix). The actual scheduling layer
     differs by platform (Task Scheduler / LaunchAgent / systemd user timer).
+
+    Returns:
+        True if the platform supports scheduled prewarm tasks.
     """
     if sys.platform == "win32":
         return Path(
@@ -403,6 +406,9 @@ def is_prewarm_registered() -> bool:
 
     The Task Scheduler task is preferred; the HKCU Run key is the fallback.
     On POSIX, delegates to prewarm_scheduler_posix.
+
+    Returns:
+        True if a prewarm task is currently registered.
     """
     # STARTUP-5: delegate to POSIX scheduler on macOS/Linux.
     if sys.platform != "win32":
@@ -425,6 +431,9 @@ def register_prewarm_task() -> bool:
 
     STARTUP-5: on macOS/Linux, delegates to prewarm_scheduler_posix which
     registers a LaunchAgent (macOS) or systemd user timer (Linux).
+
+    Returns:
+        True if the task was registered successfully, False otherwise.
     """
     # STARTUP-5: delegate to POSIX scheduler on macOS/Linux.
     if sys.platform != "win32":
@@ -511,6 +520,9 @@ def unregister_prewarm_task() -> bool:
     user-writable, so disabling fast_startup reliably stops the prewarm.
 
     STARTUP-5: on macOS/Linux, delegates to prewarm_scheduler_posix.
+
+    Returns:
+        True if the prewarm task was fully removed or was not present.
     """
     # STARTUP-5: delegate to POSIX scheduler on macOS/Linux.
     if sys.platform != "win32":

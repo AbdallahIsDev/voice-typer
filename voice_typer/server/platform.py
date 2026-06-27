@@ -11,6 +11,38 @@ log = logging.getLogger(__name__)
 SYSTEM = sys.platform  # "win32", "darwin", "linux"
 
 
+# ─── RDP / remote session detection ──────────────────────────────────
+
+
+def is_remote_session() -> bool:
+    """PLAT-RDP: Detect if the app is running in an RDP/remote session.
+
+    On Windows, uses GetSystemMetrics(SM_REMOTESESSION = 0x1000).
+    On Linux, checks $SSH_CLIENT or $SSH_TTY.
+    RDP clipboard may be redirected, so clipboard operations may behave
+    differently (e.g. clipboard sync delays, missing formats).
+
+    Returns True if a remote session is detected.
+    """
+    if SYSTEM == "win32":
+        try:
+            import ctypes
+            # SM_REMOTESESSION = 0x1000
+            result = ctypes.windll.user32.GetSystemMetrics(0x1000)
+            if result:
+                log.info("[PLATFORM] RDP/remote session detected (SM_REMOTESESSION=%d)", result)
+                return True
+        except Exception:
+            pass
+        return False
+    else:
+        # Linux/macOS: check for SSH session
+        if os.environ.get("SSH_CLIENT") or os.environ.get("SSH_TTY"):
+            log.info("[PLATFORM] SSH session detected (SSH_CLIENT/SSH_TTY set)")
+            return True
+        return False
+
+
 # ─── Volume backend factory ────────────────────────────────────────────
 
 
@@ -82,6 +114,7 @@ def list_microphones() -> list[dict]:
             "host_api": str,    # host API name (e.g. "Windows WASAPI")
             "channels": int,    # max input channels
             "default": bool,    # True if system default input device
+            "is_bluetooth": bool,  # AUDIO-BT: True if Bluetooth/HFP device
         }
     Returns empty list on failure.
     """
@@ -101,6 +134,15 @@ def list_microphones() -> list[dict]:
                 host_api = sd.query_hostapis(host_api_idx)["name"]
             except Exception:
                 pass
+            # AUDIO-BT: detect Bluetooth devices by name or sample rate.
+            # Bluetooth HFP (Hands-Free Profile) devices typically have
+            # "Bluetooth", "HFP", or "Hands-Free" in the device name,
+            # and operate at 8 or 16 kHz sample rate.
+            dev_name_lower = dev["name"].lower()
+            is_bluetooth = (
+                any(kw in dev_name_lower for kw in ("bluetooth", "hfp", "hands-free"))
+                or dev.get("default_samplerate", 0) in (8000, 16000)
+            )
             devices.append({
                 "id": str(i),
                 "index": i,
@@ -108,7 +150,16 @@ def list_microphones() -> list[dict]:
                 "host_api": host_api,
                 "channels": dev["max_input_channels"],
                 "default": i == default_index,
+                "is_bluetooth": is_bluetooth,
             })
+            if is_bluetooth:
+                log.warning(
+                    "[PLATFORM] Bluetooth/HFP device detected: %s "
+                    "(sample_rate=%s). Audio quality may be limited. "
+                    "Consider disabling the hands-free telephony profile "
+                    "in Bluetooth settings for better quality.",
+                    dev["name"], dev.get("default_samplerate", "?"),
+                )
         return devices
     except Exception:
         log.debug("Could not enumerate microphones", exc_info=True)
@@ -202,6 +253,32 @@ def _autostart_command() -> str:
     else:
         # macOS / Linux: use the current interpreter.
         args = [sys.executable, str(launcher), "--hidden"]
+
+    # PLAT-VENV: When registering autostart, use the system Python
+    # interpreter path instead of sys.executable if inside a virtualenv.
+    # sys.prefix != sys.base_prefix detects virtualenv/venv.
+    # PyInstaller builds have sys.prefix == sys.base_prefix so this
+    # only affects development setups.
+    python_exe = sys.executable
+    if sys.prefix != sys.base_prefix:
+        # We're inside a virtualenv — try to find the system Python
+        import shutil
+        base_python = "python3" if sys.platform != "win32" else "python.exe"
+        system_python = shutil.which(base_python)
+        if system_python:
+            log.info(
+                "[AUTOSTART] Running inside venv (%s); using system Python: %s",
+                python_exe, system_python,
+            )
+            # Replace the python binary in the args
+            args = [system_python if a == python_exe else a for a in args]
+        else:
+            log.warning(
+                "[AUTOSTART] Running inside venv (%s) and system Python not "
+                "found on PATH. Using venv Python — autostart may break if "
+                "the venv is deleted.",
+                python_exe,
+            )
     return " ".join(_desktop_quote(arg) for arg in args)
 
 
@@ -300,10 +377,20 @@ def _app_autostart_command_and_args() -> tuple[str, str]:
     STARTUP-7: same launcher + --hidden + --delay 30 as the Run-key path,
     but split into Command + Arguments for the Task Scheduler XML so we
     avoid the cmd.exe wrapper (mirrors the prewarm task fix from Round 8).
+
+    PLAT-VENV: Uses system Python if running inside a virtualenv.
     """
     launcher = Path(__file__).resolve().parent / "autostart_launcher.py"
     pythonw = Path(sys.executable).parent / "pythonw.exe"
     python_bin = str(pythonw) if pythonw.exists() else sys.executable
+
+    # PLAT-VENV: detect virtualenv and use system Python instead
+    if sys.prefix != sys.base_prefix:
+        import shutil
+        base_python = "python3" if sys.platform != "win32" else "python.exe"
+        system_python = shutil.which(base_python)
+        if system_python:
+            python_bin = system_python
     args = f'"{launcher}" --hidden --delay 30'
     return python_bin, args
 
@@ -444,12 +531,27 @@ def _is_app_autostart_task_registered() -> bool:
 # ── HKCU Run-key autostart (fallback) ─────────────────────────────────
 
 
+def _run_key_name() -> str:
+    """PLAT-RUN: Return a deterministic registry key name based on install path.
+
+    Uses a hash of sys.executable so different installs (e.g. stable vs
+    dev) don't conflict, and stale entries from removed installs can be
+    cleaned up.
+    """
+    import hashlib
+    install_hash = hashlib.sha256(sys.executable.encode()).hexdigest()[:8]
+    return f"VoiceTyper_{install_hash}"
+
+
 def _register_app_autostart_runkey() -> bool:
     """Register app autostart via HKCU Run key (admin-free fallback)."""
     try:
         import winreg
     except ImportError:
         return False  # not Windows
+    # PLAT-RUN: Use deterministic key name based on install path
+    # to prevent conflicting entries from different installs
+    reg_key_name = _run_key_name()
     try:
         key = winreg.OpenKey(
             winreg.HKEY_CURRENT_USER,
@@ -458,10 +560,35 @@ def _register_app_autostart_runkey() -> bool:
         )
         try:
             cmd = _autostart_command()
-            winreg.SetValueEx(key, "VoiceTyper", 0, winreg.REG_SZ, cmd)
+            winreg.SetValueEx(key, reg_key_name, 0, winreg.REG_SZ, cmd)
         finally:
             winreg.CloseKey(key)
         log.info("[CONFIG] Autostart enabled via HKCU Run key (fallback): %s", cmd)
+
+        # PLAT-RUN: Clean stale entries whose path no longer exists
+        try:
+            run_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                     r"Software\Microsoft\Windows\CurrentVersion\Run",
+                                     0, winreg.KEY_ALL_ACCESS)
+            i = 0
+            while True:
+                try:
+                    name, value, _ = winreg.EnumValue(run_key, i)
+                    if name.startswith("VoiceTyper") and name != reg_key_name:
+                        # Check if the path still exists
+                        if isinstance(value, str):
+                            exe_path = value.strip('"').split('"')[0] if '"' in value else value.split()[0]
+                            if not Path(exe_path).exists():
+                                winreg.DeleteValue(run_key, name)
+                                log.info("[AUTOSTART] Removed stale entry: %s", name)
+                                continue
+                    i += 1
+                except OSError:
+                    break
+            winreg.CloseKey(run_key)
+        except Exception:
+            pass
+
         return True
     except OSError as e:
         log.warning("[CONFIG] HKCU Run key autostart failed: %s", e)
@@ -474,6 +601,8 @@ def _unregister_app_autostart_runkey() -> bool:
         import winreg
     except ImportError:
         return False  # not Windows
+    # PLAT-RUN: use the same deterministic key name
+    reg_key_name = _run_key_name()
     try:
         key = winreg.OpenKey(
             winreg.HKEY_CURRENT_USER,
@@ -481,7 +610,7 @@ def _unregister_app_autostart_runkey() -> bool:
             0, winreg.KEY_SET_VALUE,
         )
         try:
-            winreg.DeleteValue(key, "VoiceTyper")
+            winreg.DeleteValue(key, reg_key_name)
         except FileNotFoundError:
             pass
         finally:
@@ -498,6 +627,8 @@ def _is_app_autostart_runkey_registered() -> bool:
         import winreg
     except ImportError:
         return False  # not Windows
+    # PLAT-RUN: use the same deterministic key name
+    reg_key_name = _run_key_name()
     try:
         key = winreg.OpenKey(
             winreg.HKEY_CURRENT_USER,
@@ -505,7 +636,7 @@ def _is_app_autostart_runkey_registered() -> bool:
             0, winreg.KEY_READ,
         )
         try:
-            val, _ = winreg.QueryValueEx(key, "VoiceTyper")
+            val, _ = winreg.QueryValueEx(key, reg_key_name)
             return bool(val)
         except FileNotFoundError:
             return False
@@ -650,6 +781,13 @@ Hidden=false
 NoDisplay=true
 """
     desktop_path.write_text(desktop_content)
+    # SEC-003: .desktop autostart files are written to a shared XDG
+    # autostart directory (e.g. ~/.config/autostart/).  Restrictive
+    # permissions (0o600) are NOT applied here because:
+    # 1. The autostart directory is per-user and already private.
+    # 2. Desktop environments must be able to read the .desktop file
+    #    to launch the app at login — overly restrictive permissions
+    #    can cause the autostart entry to be silently skipped.
     log.info("[CONFIG] Autostart enabled (Linux): %s", desktop_path)
     return True
 
@@ -859,3 +997,20 @@ def create_launcher_shortcut() -> Optional[Path]:
         log.debug("[STARTUP] Start Menu shortcut skipped: %s", e)
 
     return primary_path
+
+
+def is_windows() -> bool:
+    """CQ-029: Check if running on Windows."""
+    import sys
+    return sys.platform == "win32"
+
+def is_macos() -> bool:
+    """CQ-029: Check if running on macOS."""
+    import sys
+    return sys.platform == "darwin"
+
+def is_linux() -> bool:
+    """CQ-029: Check if running on Linux."""
+    import sys
+    return sys.platform == "linux"
+

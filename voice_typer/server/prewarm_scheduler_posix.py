@@ -99,6 +99,14 @@ def _register_prewarm_macos() -> bool:
         plist_path = _macos_plist_path()
         plist_path.parent.mkdir(parents=True, exist_ok=True)
         plist_path.write_text(_build_macos_plist())
+        # SEC-003: Restrict plist file permissions to owner-only on POSIX.
+        # The LaunchAgent plist contains the Python interpreter path and
+        # arguments; restricting to 0o600 prevents other users from
+        # reading or modifying the launch configuration.
+        try:
+            plist_path.chmod(0o600)
+        except OSError:
+            pass
         # Try to load it immediately so it takes effect this session.
         try:
             subprocess.run(
@@ -219,6 +227,13 @@ def _register_prewarm_linux() -> bool:
         unit_dir.mkdir(parents=True, exist_ok=True)
         _linux_service_path().write_text(_build_linux_service())
         _linux_timer_path().write_text(_build_linux_timer())
+        # SEC-003: systemd user unit files are written to
+        # ~/.config/systemd/user/ which is a per-user directory.
+        # Restrictive permissions (0o600) are NOT applied here because:
+        # 1. The directory is already per-user (not world-readable).
+        # 2. systemd requires the unit files to be readable by the
+        #    user's systemd instance, and overly restrictive permissions
+        #    can cause systemd to silently skip the unit on some distros.
         # Try to enable + start the timer so it takes effect this session.
         for cmd in (
             ["systemctl", "--user", "daemon-reload"],
