@@ -1152,6 +1152,12 @@ class VoiceTyperService:
                                 )
                             except Exception as e:
                                 download_err.append(e)
+                        # RACE-008: daemon=True is acceptable because
+                        # _do_download only writes to the HF cache dir —
+                        # no critical cleanup. The download completes or
+                        # fails naturally; on force-kill the partial
+                        # download is resumed on next start via HF's
+                        # resume_download=True.
                         t = threading.Thread(target=_do_download, daemon=True)
                         t.start()
                         # Poll cache size until download thread exits OR

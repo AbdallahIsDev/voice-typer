@@ -649,6 +649,13 @@ class WindowsNativeHotkey(HotkeyBackend):
         self._kernel32.Sleep.argtypes = [DWORD]
         self._kernel32.Sleep.restype = None
 
+        # RACE-008: daemon=True is acceptable because: (1) the hotkey
+        # thread only calls the user callback (no critical cleanup);
+        # (2) stop() sets _stop_event and joins with timeout, so the
+        # thread exits cooperatively on normal shutdown; (3) on
+        # force-kill, the OS reclaims the thread automatically — no
+        # resource leak (the Win32 hotkey registration is
+        # UnregisterHotKey'd in the finally block).
         self._thread = threading.Thread(target=run, daemon=True, name="WinHotkey")
         self._thread.start()
 
@@ -963,6 +970,11 @@ class WaylandHotkey(HotkeyBackend):
         self._server_socket.listen(5)
         self._server_socket.settimeout(1.0)
 
+        # RACE-008: daemon=True is acceptable because the accept loop
+        # only handles incoming IPC connections (no critical cleanup).
+        # stop() closes the listening socket, which causes accept() to
+        # raise and the thread exits. On force-kill, the OS reclaims
+        # the socket FD automatically.
         self._thread = threading.Thread(target=self._accept_loop, daemon=True)
         self._thread.start()
 

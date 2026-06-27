@@ -315,6 +315,10 @@ class TrayIcon:
             # thread, the Wayland path's thread would be orphaned.
             # Use the canonical name for consistency.
             if self._bg_work_fn:
+                # RACE-008: daemon=True is acceptable because bg_work
+                # only does model preloading/hotkey registration — no
+                # critical cleanup. The tray's stop() method joins with
+                # timeout; on force-kill the OS reclaims the thread.
                 self._bg_thread = threading.Thread(target=self._bg_work_fn, daemon=True)
                 self._bg_thread.start()
             return
@@ -345,12 +349,16 @@ class TrayIcon:
             self._tray_unavailable = True
             # Still start background work so the app boots normally.
             if self._bg_work_fn:
+                # RACE-008: daemon=True — see comment at the canonical
+                # bg_thread spawn site above.
                 self._bg_thread = threading.Thread(target=self._bg_work_fn, daemon=True)
                 self._bg_thread.start()
             return
 
         # Start background work
         if self._bg_work_fn:
+            # RACE-008: daemon=True — see comment at the canonical
+            # bg_thread spawn site above.
             self._bg_thread = threading.Thread(target=self._bg_work_fn, daemon=True)
             self._bg_thread.start()
 

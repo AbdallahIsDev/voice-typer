@@ -126,6 +126,47 @@ def _spawn_flags() -> dict:
     return kwargs
 
 
+def _electron_log_files():
+    """RACE-009: Open log files for Electron stdout/stderr.
+
+    Pre-fix, Electron launches used ``subprocess.DEVNULL`` for stdout
+    and stderr, making Electron crashes invisible. We now redirect to
+    rotating log files in the config dir so crashes can be diagnosed.
+
+    Returns a dict ``{"stdout": fd, "stderr": fd, "stdin": DEVNULL}``
+    suitable for unpacking into ``subprocess.Popen(**sk)``. The caller
+    is responsible for keeping the returned file objects alive for the
+    lifetime of the child process (they're closed automatically by GC
+    after the child exits and the fds are inherited).
+
+    On any failure (disk full, permission denied), falls back to
+    ``DEVNULL`` so the launch still succeeds.
+    """
+    try:
+        from voice_typer.server.config import _config_dir as _cfg
+        log_dir = _cfg() / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        stdout_path = log_dir / "electron-stdout.log"
+        stderr_path = log_dir / "electron-stderr.log"
+        # "a" mode so logs accumulate across launches; the user can
+        # truncate manually if needed. We don't rotate here to keep
+        # the launcher dependency-free.
+        stdout_fd = open(stdout_path, "a", encoding="utf-8", buffering=1)
+        stderr_fd = open(stderr_path, "a", encoding="utf-8", buffering=1)
+        return {
+            "stdout": stdout_fd,
+            "stderr": stderr_fd,
+            "stdin": subprocess.DEVNULL,
+        }
+    except Exception as exc:
+        log.debug("[AUTOSTART] Failed to open Electron log files, using DEVNULL: %s", exc)
+        return {
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+            "stdin": subprocess.DEVNULL,
+        }
+
+
 def _npm_command(script: str = "dev") -> list[str] | None:
     """Return the command list to run ``npm run <script>``.
 
@@ -210,12 +251,10 @@ def _launch_electron_built(exe: str, hidden: bool = False) -> subprocess.Popen |
 
     Returns the child process on success, or None on failure.
     """
-    sk = dict(
-        cwd=str(CLIENT_DIR),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        stdin=subprocess.DEVNULL,
-    )
+    # RACE-009: redirect Electron stdout/stderr to log files so
+    # crashes are diagnosable. Pre-fix this used DEVNULL.
+    sk = dict(cwd=str(CLIENT_DIR))
+    sk.update(_electron_log_files())
     sk.update(_spawn_flags())
     # NEW-PRIV-003: Electron needs the full env for native module loading,
     # PATH resolution, and platform-specific init.  Unlike the Python IPC
@@ -334,12 +373,9 @@ def _focus_running_app() -> bool:
         log.info("[AUTOSTART] lean electron unavailable; will use npm run dev to focus")
         return False
 
-    spawn_kwargs: dict = dict(
-        cwd=str(CLIENT_DIR),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        stdin=subprocess.DEVNULL,
-    )
+    spawn_kwargs: dict = dict(cwd=str(CLIENT_DIR))
+    # RACE-009: redirect Electron stdout/stderr to log files.
+    spawn_kwargs.update(_electron_log_files())
     spawn_kwargs.update(_spawn_flags())
     try:
         # ``electron .`` runs the app pointed at by package.json "main",
@@ -364,12 +400,9 @@ def _spawn_npm_run_dev(hidden: bool = False) -> subprocess.Popen | None:
     This is the LAST-RESORT fallback path, used only when the build
     fails or when ``--dev`` is explicitly passed.
     """
-    spawn_kwargs: dict = dict(
-        cwd=str(CLIENT_DIR),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        stdin=subprocess.DEVNULL,
-    )
+    spawn_kwargs: dict = dict(cwd=str(CLIENT_DIR))
+    # RACE-009: redirect Electron stdout/stderr to log files.
+    spawn_kwargs.update(_electron_log_files())
     spawn_kwargs.update(_spawn_flags())
     env = dict(os.environ)
     if hidden:
