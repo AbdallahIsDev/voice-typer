@@ -7,13 +7,24 @@ logic from the menu/callback logic.
 import sys
 import logging
 from pathlib import Path
-from typing import Dict, Optional, Tuple
-
-from PIL import Image
+from typing import TYPE_CHECKING, Dict, Optional, Tuple
 
 from voice_typer.server.tray_types import AppState
 
+if TYPE_CHECKING:
+    from PIL import Image as PilImage
+
 log = logging.getLogger(__name__)
+
+def _get_pil_image():
+    """Lazy import of PIL.Image to avoid importing heavy dependencies at module load.
+
+    This also allows tests that mock PIL to work correctly — the module-level
+    import would resolve to a mock if a test with mocked PIL imports this
+    module first, breaking real_pil tests.
+    """
+    from PIL import Image
+    return Image
 
 # NEW-MEM-003 / NEW-PERF-005: _icon_cache is intentionally process-global.
 # It caches rendered PIL Images keyed by (AppState, size).  With 6
@@ -22,7 +33,7 @@ log = logging.getLogger(__name__)
 # The icons are needed for the lifetime of the tray (the whole process),
 # so clearing them would just cause re-rendering on every state change
 # — the exact overhead NEW-PERF-005 was designed to eliminate.
-_icon_cache: Dict[Tuple[AppState, int], Image.Image] = {}
+_icon_cache: Dict[Tuple[AppState, int], "PilImage.Image"] = {}
 
 # NEW-PERF-005: DPI never changes within a session — cache the result
 # of _get_dpi_aware_icon_size() after the first call so we don't run
@@ -115,7 +126,7 @@ _ICON_SHAPES = {
 }
 
 
-def _draw_shape(shape: str, size: int, color: tuple) -> Image.Image:
+def _draw_shape(shape: str, size: int, color: tuple):
     """TRAY-032: Draw a shape-only icon as fallback when no PNG is available.
 
     Creates a solid-color shape on a transparent background. Each state
@@ -137,6 +148,7 @@ def _draw_shape(shape: str, size: int, color: tuple) -> Image.Image:
         The rendered shape icon.
     """
     from PIL import ImageDraw
+    Image = _get_pil_image()
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     margin = max(2, size // 8)
@@ -160,7 +172,7 @@ def _draw_shape(shape: str, size: int, color: tuple) -> Image.Image:
     return img
 
 
-def _draw_shape_indicator(img: Image.Image, shape: str, color: tuple) -> Image.Image:
+def _draw_shape_indicator(img, shape: str, color: tuple):
     """TRAY-032: Overlay a small shape indicator in the bottom-right corner.
 
     This adds a visible shape marker to the microphone icon so that
@@ -185,6 +197,7 @@ def _draw_shape_indicator(img: Image.Image, shape: str, color: tuple) -> Image.I
     draw = ImageDraw.Draw(img)
     img_size = img.size
     if not img_size or len(img_size) != 2:
+        log.warning("[TRAY] _draw_shape_indicator: image has invalid size %r — skipping indicator overlay", img_size)
         return img  # Can't draw indicator on image without valid size
     w, h = img_size
     ind_size = max(4, w // 5)  # indicator is ~20% of icon size
@@ -205,7 +218,7 @@ def _draw_shape_indicator(img: Image.Image, shape: str, color: tuple) -> Image.I
     return img
 
 
-def _make_icon(state: AppState, size: int = 0) -> Image.Image:
+def _make_icon(state: AppState, size: int = 0):
     """Generate a colored microphone icon based on state.
 
     Uses pre-rendered white microphone PNG (from logo.svg, rendered by
