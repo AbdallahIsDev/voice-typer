@@ -121,6 +121,8 @@ export interface VoiceTyperConfig {
   max_recording_seconds: number
   max_recording_seconds_gpu: number
   max_recording_seconds_cpu: number
+  // AUDIO-DEAD: dead-air timeout — auto-stop after N seconds of silence following speech. 0 = disabled.
+  dead_air_timeout: number
 
   // Volume ducking
   volume_duck_enabled: boolean

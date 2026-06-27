@@ -643,6 +643,22 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
               <span className="text-sm text-(--text-muted)">sec</span>
             </div>
           </SettingRow>
+
+          {/* AUDIO-DEAD: dead-air timeout — auto-stop after silence follows speech */}
+          <SettingRow label="Dead-Air Timeout" info="Seconds of silence after speech is detected before auto-stopping. 0 = disabled (never auto-stop on silence).">
+            <div className="flex items-center gap-2">
+              <NumberInput
+                min={0}
+                max={600}
+                step={5}
+                value={String(config.dead_air_timeout ?? 30)}
+                onChange={(e) => updateConfigDebounced('dead_air_timeout', Number(e.target.value))}
+                className="w-20 text-center"
+                aria-label="Dead-Air Timeout Seconds"
+              />
+              <span className="text-sm text-(--text-muted)">sec</span>
+            </div>
+          </SettingRow>
         </SettingsSection>
 
         {/* ── SECTION: Post-Processing ──────────────────────────── */}

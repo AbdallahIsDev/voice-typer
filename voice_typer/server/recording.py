@@ -299,7 +299,7 @@ class Recorder:
         # After the user has spoken at least once (speech_detected=True),
         # if silence persists for dead_air_timeout seconds, auto-stop.
         self._dead_air_timeout: float = float(
-            getattr(config, "dead_air_timeout", _DEFAULT_DEAD_AIR_TIMEOUT) or 0
+            config.dead_air_timeout if config.dead_air_timeout is not None else _DEFAULT_DEAD_AIR_TIMEOUT
         )
         self._dead_air_silence_start: float = 0.0  # timestamp when current silence began
         self._dead_air_speech_detected: bool = False  # has speech been detected this session?

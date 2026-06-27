@@ -572,6 +572,12 @@ class Config:
     max_recording_seconds_cpu: int = 600
     max_recording_seconds: int = 0  # 0 = use device-specific default (gpu/cpu)
 
+    # AUDIO-DEAD: dead-air timeout — auto-stop recording after N seconds
+    # of continuous silence following detected speech. Prevents
+    # indefinitely long recordings when the user walks away from the mic.
+    # 0 = disabled (no dead-air auto-stop). Default 30.0 seconds.
+    dead_air_timeout: float = 30.0
+
     # AUDIO-014: configurable VAD/silence thresholds (overridden by
     # auto-calibration at recording start). 0.0 = use built-in defaults.
     silence_rms_threshold: float = 0.0
@@ -1207,6 +1213,8 @@ IPC_CONFIG_ALLOWLIST: dict = {
     "max_recording_seconds_gpu":  (int, _make_int_validator(lo=0, hi=86400)),
     "max_recording_seconds_cpu":  (int, _make_int_validator(lo=0, hi=86400)),
     "max_recording_seconds":      (int, _make_int_validator(lo=0, hi=86400)),
+    # AUDIO-DEAD: dead-air timeout — auto-stop after N seconds of silence following speech
+    "dead_air_timeout":           (float, _make_float_validator(lo=0.0, hi=600.0)),
     # AUDIO-014: configurable VAD/silence thresholds
     "silence_rms_threshold":      (float, _make_float_validator(lo=0.0, hi=1.0)),
     "silence_peak_threshold":     (float, _make_float_validator(lo=0.0, hi=1.0)),

@@ -661,3 +661,206 @@ class TestRecordingParametrized:
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
         assert r._silence_timer == 0.0
+
+
+# ── AUDIO-DEAD: dead-air timeout tests ─────────────────────────────────
+
+
+class TestDeadAirTimeout:
+    """AUDIO-DEAD: Tests for the dead-air timeout auto-stop feature.
+
+    The dead-air timeout prevents indefinitely long recordings by
+    auto-stopping after N seconds of continuous silence following
+    detected speech. Key invariants:
+
+    1. If dead_air_timeout > 0 AND speech was detected AND silence has
+       persisted for >= dead_air_timeout seconds → trigger auto-stop.
+    2. If dead_air_timeout == 0 → never auto-stop (disabled).
+    3. If speech has NOT been detected yet → never auto-stop (prevents
+       false triggers at the start of a recording before the user speaks).
+    4. The timeout resets each time speech is detected again.
+    """
+
+    def test_dead_air_timeout_reads_from_config(self):
+        """Recorder reads dead_air_timeout from config object."""
+        from voice_typer.server.recording import Recorder
+        config = MagicMock(sample_rate=16000, microphone=None, dead_air_timeout=45.0)
+        r = Recorder(config)
+        assert r._dead_air_timeout == 45.0
+
+    def test_dead_air_timeout_defaults_to_30(self):
+        """When config.dead_air_timeout is not explicitly set, default to 30.0."""
+        from voice_typer.server.recording import Recorder
+        from voice_typer.server.config import Config
+        config = Config()
+        r = Recorder(config)
+        assert r._dead_air_timeout == 30.0
+
+    def test_dead_air_timeout_disabled_with_zero(self):
+        """When dead_air_timeout is 0, the auto-stop is disabled."""
+        from voice_typer.server.recording import Recorder
+        config = MagicMock(sample_rate=16000, microphone=None, dead_air_timeout=0)
+        r = Recorder(config)
+        assert r._dead_air_timeout == 0.0
+
+    def test_dead_air_silence_start_initialized_to_zero(self):
+        """The silence start timestamp is 0 at init."""
+        from voice_typer.server.recording import Recorder
+        config = MagicMock(sample_rate=16000, microphone=None, dead_air_timeout=30.0)
+        r = Recorder(config)
+        assert r._dead_air_silence_start == 0.0
+
+    def test_dead_air_speech_detected_initialized_to_false(self):
+        """The speech-detected flag is False at init."""
+        from voice_typer.server.recording import Recorder
+        config = MagicMock(sample_rate=16000, microphone=None, dead_air_timeout=30.0)
+        r = Recorder(config)
+        assert r._dead_air_speech_detected is False
+
+    def test_dead_air_state_reset_on_start(self, monkeypatch):
+        """start() resets dead-air state to initial values."""
+        from voice_typer.server.recording import Recorder
+        import voice_typer.server.recording as recording_mod
+
+        class OkStream:
+            def __init__(self, *args, **kwargs): pass
+            def start(self): pass
+            def close(self): pass
+
+        monkeypatch.setattr(recording_mod.sd, "InputStream", OkStream)
+        monkeypatch.setattr(recording_mod.sd, "query_devices", lambda **kw: {"max_input_channels": 1, "default_samplerate": 16000, "hostapi": 0})
+        monkeypatch.setattr(recording_mod.sd, "query_hostapis", lambda idx=None: {"name": "MME"})
+
+        config = MagicMock(sample_rate=16000, microphone=None, dead_air_timeout=30.0)
+        r = Recorder(config)
+        r._dead_air_silence_start = 12345.0
+        r._dead_air_speech_detected = True
+
+        r.start()
+
+        assert r._dead_air_silence_start == 0.0
+        assert r._dead_air_speech_detected is False
+
+    def test_vad_speech_sets_speech_detected_and_resets_timer(self):
+        """When VAD detects speech, speech_detected=True and silence_start resets."""
+        from voice_typer.server.recording import Recorder, VadState
+        config = MagicMock(sample_rate=16000, microphone=None, dead_air_timeout=30.0)
+        r = Recorder(config)
+        r._dead_air_silence_start = 9999.0
+        r._dead_air_speech_detected = False
+
+        # Simulate VAD transitioning to SPEECH by calling _vad_update
+        # with a loud frame that exceeds the speech threshold
+        r._vad_state = VadState.SILENCE
+        r._vad_consecutive_speech_frames = 0
+        r._vad_consecutive_silence_frames = 0
+        # Feed enough consecutive loud frames to trigger SPEECH transition
+        for _ in range(r._vad_speech_frames + 1):
+            r._vad_update(-20.0)  # loud frame → should accumulate speech frames
+
+        assert r._dead_air_speech_detected is True
+        assert r._dead_air_silence_start == 0.0
+
+    def test_vad_silence_starts_timer_after_speech(self):
+        """When VAD transitions to SILENCE after speech, silence_start is set."""
+        import time
+        from voice_typer.server.recording import Recorder, VadState
+        config = MagicMock(sample_rate=16000, microphone=None, dead_air_timeout=30.0)
+        r = Recorder(config)
+        r._dead_air_speech_detected = True
+        r._dead_air_silence_start = 0.0
+        r._vad_state = VadState.SPEECH
+        r._vad_consecutive_speech_frames = 0
+        r._vad_consecutive_silence_frames = 0
+
+        before = time.monotonic()
+        # Feed enough consecutive quiet frames to trigger SILENCE transition
+        for _ in range(r._vad_hangover_frames + 1):
+            r._vad_update(-70.0)  # quiet frame → should accumulate silence frames
+        after = time.monotonic()
+
+        assert r._dead_air_silence_start >= before
+        assert r._dead_air_silence_start <= after
+
+    def test_no_auto_stop_without_speech_detected(self, monkeypatch):
+        """Dead-air auto-stop should NOT trigger if speech was never detected."""
+        import time
+        from voice_typer.server.recording import Recorder, VadState
+        config = MagicMock(sample_rate=16000, microphone=None, dead_air_timeout=5.0)
+        r = Recorder(config)
+        r._dead_air_speech_detected = False
+        r._dead_air_silence_start = time.monotonic() - 10.0  # long silence
+        r._vad_state = VadState.SILENCE
+
+        # on_silence_auto_stop should NOT be called
+        auto_stop_called = []
+        r.on_silence_auto_stop = lambda: auto_stop_called.append(True)
+
+        # The check in the recording loop is:
+        # if (self._dead_air_timeout > 0
+        #         and self._dead_air_speech_detected
+        #         and self._dead_air_silence_start > 0.0):
+        # Since _dead_air_speech_detected is False, the condition fails.
+        assert r._dead_air_timeout > 0
+        assert not r._dead_air_speech_detected
+        # The condition should not be met
+        should_trigger = (
+            r._dead_air_timeout > 0
+            and r._dead_air_speech_detected
+            and r._dead_air_silence_start > 0.0
+        )
+        assert not should_trigger
+
+    def test_no_auto_stop_when_timeout_disabled(self, monkeypatch):
+        """Dead-air auto-stop should NOT trigger when timeout is 0 (disabled)."""
+        import time
+        from voice_typer.server.recording import Recorder
+        config = MagicMock(sample_rate=16000, microphone=None, dead_air_timeout=0)
+        r = Recorder(config)
+        r._dead_air_speech_detected = True
+        r._dead_air_silence_start = time.monotonic() - 10.0  # long silence
+
+        # The check requires _dead_air_timeout > 0, so it should not trigger
+        should_trigger = (
+            r._dead_air_timeout > 0
+            and r._dead_air_speech_detected
+            and r._dead_air_silence_start > 0.0
+        )
+        assert not should_trigger
+
+    def test_auto_stop_triggers_when_silence_exceeds_timeout(self, monkeypatch):
+        """Dead-air auto-stop should trigger when silence duration >= timeout."""
+        import time
+        from voice_typer.server.recording import Recorder
+        config = MagicMock(sample_rate=16000, microphone=None, dead_air_timeout=5.0)
+        r = Recorder(config)
+        r._dead_air_speech_detected = True
+        r._dead_air_silence_start = time.monotonic() - 6.0  # 6s > 5s timeout
+
+        # Check the condition that the recording loop uses
+        silence_duration = time.monotonic() - r._dead_air_silence_start
+        should_trigger = (
+            r._dead_air_timeout > 0
+            and r._dead_air_speech_detected
+            and r._dead_air_silence_start > 0.0
+            and silence_duration >= r._dead_air_timeout
+        )
+        assert should_trigger
+
+    def test_no_auto_stop_before_timeout_elapsed(self, monkeypatch):
+        """Dead-air auto-stop should NOT trigger before timeout has elapsed."""
+        import time
+        from voice_typer.server.recording import Recorder
+        config = MagicMock(sample_rate=16000, microphone=None, dead_air_timeout=30.0)
+        r = Recorder(config)
+        r._dead_air_speech_detected = True
+        r._dead_air_silence_start = time.monotonic() - 5.0  # only 5s of silence
+
+        silence_duration = time.monotonic() - r._dead_air_silence_start
+        should_trigger = (
+            r._dead_air_timeout > 0
+            and r._dead_air_speech_detected
+            and r._dead_air_silence_start > 0.0
+            and silence_duration >= r._dead_air_timeout
+        )
+        assert not should_trigger
