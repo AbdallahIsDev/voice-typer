@@ -240,32 +240,45 @@ _active_state_lock = __import__("threading").Lock()
 # ARCH-031: cache of compiled regex patterns for phrase corrections.
 # Keyed on the (lowercased) phrase string; value is a compiled regex
 # with re.IGNORECASE.
-# SEC-011: The cache now has LRU eviction with a max size of 5000
+# SEC-011 (revised): The cache now uses collections.OrderedDict with
+# TRUE LRU eviction (move_to_end on cache hit) at a max size of 5000
 # to prevent unbounded memory growth if many distinct phrases are
 # processed over the lifetime of the process.
+#
+# The previous implementation used a plain dict and evicted the
+# oldest INSERTED entry on overflow (next(iter(dict))). That was
+# FIFO eviction, not LRU — a hot phrase inserted early would be
+# evicted even if it was accessed frequently. True LRU requires
+# moving the entry to the end of the insertion order on every cache
+# hit, which OrderedDict.move_to_end does in O(1).
+# See FORENSIC_REVIEW_COMPLETE.md → SEC-011.
+import collections as _collections
 _PHRASE_PATTERN_CACHE_MAXSIZE = 5000
-_phrase_pattern_cache: dict[str, "re.Pattern[str]"] = {}
+_phrase_pattern_cache: "_collections.OrderedDict[str, re.Pattern[str]]" = _collections.OrderedDict()
 
 
 def _get_compiled_phrase_pattern(phrase: str) -> "re.Pattern[str]":
     """Return a compiled, case-insensitive regex for matching ``phrase``.
 
-    Compiled once per phrase and cached. SEC-011: implements LRU
-    eviction when the cache exceeds _PHRASE_PATTERN_CACHE_MAXSIZE
-    entries, preventing unbounded memory growth from a large or
-    frequently-changing corrections file.
+    Compiled once per phrase and cached. SEC-011: implements TRUE LRU
+    eviction (via OrderedDict.move_to_end on cache hit) when the cache
+    exceeds _PHRASE_PATTERN_CACHE_MAXSIZE entries, preventing unbounded
+    memory growth from a large or frequently-changing corrections file.
     """
     cached = _phrase_pattern_cache.get(phrase)
     if cached is not None:
+        # SEC-011: mark as recently used so LRU eviction keeps it.
+        _phrase_pattern_cache.move_to_end(phrase)
         return cached
     compiled = re.compile(re.escape(phrase), re.IGNORECASE)
-    # SEC-011: Evict oldest entries when cache exceeds max size
+    # SEC-011: Evict least-recently-used entry when cache exceeds max size.
+    # OrderedDict.popitem(last=False) removes the oldest entry (the one
+    # at the front of the insertion order, which is the LRU entry
+    # because every cache hit moves the entry to the back).
     if len(_phrase_pattern_cache) >= _PHRASE_PATTERN_CACHE_MAXSIZE:
-        # Remove the first (oldest) entry — dict preserves insertion order in Python 3.7+
         try:
-            oldest_key = next(iter(_phrase_pattern_cache))
-            del _phrase_pattern_cache[oldest_key]
-        except (StopIteration, KeyError):
+            _phrase_pattern_cache.popitem(last=False)
+        except KeyError:
             pass
     _phrase_pattern_cache[phrase] = compiled
     return compiled

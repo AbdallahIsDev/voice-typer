@@ -219,7 +219,8 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
     Computes SHA-256 hashes of all files in ``local_dir`` and compares
     them against the pinned hashes in ``MODEL_HASHES``.  If no hashes
     are pinned for a given file, a basic structural check is performed
-    (file exists and is not empty).
+    (file exists and is not empty) and the computed hash is logged at
+    INFO level so it can be added to the manifest later.
 
     Parameters
     ----------
@@ -231,7 +232,9 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
     Returns
     -------
     bool
-        True if all verifications pass, False otherwise.
+        True if all verifications pass, False otherwise. Returns False
+        on any pinned-hash mismatch (hard fail) so callers can refuse
+        to load a tampered model.
     """
     model_path = Path(local_dir)
     if not model_path.exists():
@@ -264,7 +267,17 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
         )
         return False
 
-    # Verify pinned file hashes if available
+    # SEC-audit-005: Verify pinned file hashes if available.
+    # The manifest entry for a repo can include a "files" dict mapping
+    # relative file paths to expected SHA-256 hex digests. When present,
+    # every pinned file MUST exist and match — a single mismatch fails
+    # the integrity check (hard fail) so callers refuse to load a
+    # tampered or corrupted model.
+    #
+    # When no files are pinned (the manifest only has "revision"), we
+    # compute and log hashes for every file in the model directory at
+    # INFO level. Operators can copy these logged hashes into
+    # model_hashes.json to enable enforcement on the next run.
     pinned_files = manifest.get("files", {})
     if pinned_files:
         for filename, expected_hash in pinned_files.items():
@@ -279,32 +292,43 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
             if not hmac.compare_digest(actual_hash, expected_hash):
                 log.warning(
                     "[SECURITY] Model integrity: hash mismatch for %s in %s "
-                    "(expected %s..., got %s...)",
+                    "(expected %s..., got %s...) — refusing to load tampered model",
                     filename, local_dir,
                     expected_hash[:16], actual_hash[:16],
                 )
                 return False
+        log.info("[SECURITY] Model integrity check passed for %s (%d pinned files verified)",
+                 repo_id, len(pinned_files))
+    else:
+        # No pinned hashes — log computed hashes for future audit.
+        # This is a soft pass; the structural checks above are the
+        # hard gate that prevents loading completely wrong file types.
+        log.info("[SECURITY] No pinned file hashes for %s — logging computed hashes for audit", repo_id)
+        for entry in model_path.rglob("*"):
+            if not entry.is_file():
+                continue
+            try:
+                h = compute_file_sha256(entry)
+                rel = entry.relative_to(model_path).as_posix()
+                log.info("[SECURITY]   %s: sha256=%s", rel, h)
+            except Exception as exc:
+                log.debug("[SECURITY]   failed to hash %s: %s", entry, exc)
 
-    log.info("[SECURITY] Model integrity check passed for %s", repo_id)
     return True
 
 
-def _redact_pii(text: str) -> str:
-    """SEC-009: Redact potential PII from text before logging.
+# SEC-009: The standalone ``_redact_pii`` helper that previously lived
+# here was a DUPLICATE of ``redact_pii`` above (lines 114-140) with
+# slightly different regex patterns and replacement tokens. Having two
+# parallel implementations of the same logic was a maintenance hazard
+# (Q5: parallel systems; Q10: not clean) — see FORENSIC_REVIEW_COMPLETE.md
+# → SEC-009.
+#
+# Additionally, the ``_redact_pii`` regex patterns contained literal
+# backspace characters (``\x08``) where word-boundary ``\b`` was
+# intended — the function would never have matched anything in practice.
+#
+# The single canonical implementation is ``redact_pii(text)`` (above)
+# and the ``PIIRedactionFilter`` class (also above) which uses the same
+# compiled patterns. Use one of those two APIs for any new call site.
 
-    Replaces email addresses, phone numbers, and SSN-like patterns
-    with [REDACTED]. This is a best-effort heuristic — it may miss
-    some PII and may false-positive on non-PII text.
-    """
-    if not text:
-        return text
-    import re as _re
-    # Email addresses
-    text = _re.sub(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', '[REDACTED_EMAIL]', text)
-    # Phone numbers (various formats)
-    text = _re.sub(r'\d{3}[-.]?\d{3}[-.]?\d{4}', '[REDACTED_PHONE]', text)
-    # SSN-like patterns
-    text = _re.sub(r'\d{3}-\d{2}-\d{4}', '[REDACTED_SSN]', text)
-    # Credit card-like patterns
-    text = _re.sub(r'\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}', '[REDACTED_CC]', text)
-    return text

@@ -1,18 +1,27 @@
 {
-    "_comment": "SEC-audit-005: Pinned revision hashes for HuggingFace model downloads. Each entry maps a repo_id to its pinned revision. The 'revision' field should be updated to a specific commit SHA after audit. Using 'main' is a placeholder that still allows the download to proceed but does not protect against supply-chain attacks where a compromised repo pushes a new commit with malicious model files.",
+    "_comment": "SEC-audit-005: Pinned revisions and file-level SHA-256 hashes for HuggingFace model downloads. Each entry maps a repo_id (or local model identifier) to: (1) 'revision' — a HuggingFace commit SHA to pin downloads to (use 'main' only as a placeholder during development; pin to a real SHA in production); (2) 'files' — optional dict mapping relative file paths to expected SHA-256 hex digests. When 'files' is present and non-empty, verify_model_integrity() enforces that every pinned file exists and matches its hash — a single mismatch causes a hard failure (refuses to load the model). When 'files' is absent or empty, verification soft-passes (structural checks only) and computed hashes are logged at INFO level so operators can copy them into this file. The 'qwen' key covers the locally-installed Qwen3-ASR model directory (~/.voice-typer/models/qwen-asr/).",
     "nvidia/parakeet-tdt-0.6b-v3": {
-        "revision": "main"
+        "revision": "main",
+        "files": {}
     },
     "Systran/faster-whisper-tiny.en": {
-        "revision": "main"
+        "revision": "main",
+        "files": {}
     },
     "Systran/faster-whisper-small.en": {
-        "revision": "main"
+        "revision": "main",
+        "files": {}
     },
     "Systran/faster-whisper-medium.en": {
-        "revision": "main"
+        "revision": "main",
+        "files": {}
     },
     "Systran/faster-whisper-large-v3": {
-        "revision": "main"
+        "revision": "main",
+        "files": {}
+    },
+    "qwen": {
+        "revision": "local",
+        "files": {}
     }
 }

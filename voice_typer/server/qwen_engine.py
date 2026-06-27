@@ -103,11 +103,23 @@ class QwenEngine:
                 return False
 
             # SEC-audit-007: SHA-256 manifest verification of model directory
-            # contents before calling from_pretrained().  Compares each
+            # contents before calling from_pretrained(). Compares each
             # file's hash against a known-good manifest if available, or
             # logs hashes for future audit if no manifest exists.
+            #
+            # The return value is now CHECKED: if pinned hashes are
+            # present and any mismatches, load() aborts with False
+            # instead of proceeding to from_pretrained(). Previously the
+            # return value was discarded (bare call), so a tampered
+            # model would still load — only a log warning was emitted.
             try:
-                _verify_qwen_model_hashes(self.model_path)
+                if not _verify_qwen_model_hashes(self.model_path):
+                    log.error(
+                        "[QWEN] Model hash verification FAILED for %s — "
+                        "refusing to load tampered or corrupted model",
+                        self.model_path,
+                    )
+                    return False
             except Exception as exc:
                 log.warning(
                     "[QWEN] Model hash verification warning for %s: %s",
@@ -400,18 +412,20 @@ def _verify_qwen_model_hashes(model_path: str) -> bool:
     pinned_files = manifest.get("files", {})
 
     if not pinned_files:
-        # No pinned hashes — compute and log hashes for audit.
+        # No pinned hashes — compute and log hashes at INFO level for audit.
         # This is a soft pass; the directory validation above is the
         # hard gate that prevents loading unexpected file types.
-        log.info("[QWEN] No pinned hashes for Qwen model — logging computed hashes")
+        # Operators can copy the logged hashes into model_hashes.json
+        # under the "qwen" entry's "files" dict to enable enforcement.
+        log.info("[QWEN] No pinned hashes for Qwen model — logging computed hashes for audit")
         try:
             for entry in path.rglob("*"):
                 if not entry.is_file():
                     continue
                 try:
                     h = compute_file_sha256(entry)
-                    rel = entry.relative_to(path)
-                    log.debug("[QWEN]   %s: sha256=%s", rel, h[:16])
+                    rel = entry.relative_to(path).as_posix()
+                    log.info("[QWEN]   %s: sha256=%s", rel, h)
                 except Exception:
                     pass
         except Exception:
