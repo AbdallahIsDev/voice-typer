@@ -316,3 +316,73 @@ def unregister_prewarm_task() -> bool:
     if is_linux():
         return _unregister_prewarm_linux()
     return False
+
+
+# ─── PLAT-019: systemd user unit for the MAIN app (not just prewarm) ─────
+
+
+def _linux_app_service_path() -> Path:
+    """Path to the main app's systemd user service unit."""
+    return _linux_unit_dir() / "voice-typer.service"
+
+
+def _build_linux_app_service() -> str:
+    """PLAT-019: Build the systemd user service unit for the main app.
+
+    Unlike the prewarm service (Type=oneshot), the main app is a
+    long-running process (Type=simple) with Restart=on-failure so
+    systemd supervises it and restarts after crashes.
+    """
+    import sys as _sys
+    python = _sys.executable
+    # Run the IPC server (the main entry point)
+    return f"""[Unit]
+Description=Voice Typer dictation service
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart={python} -m voice_typer.server.ipc_server
+Restart=on-failure
+RestartSec=5s
+# Lower CPU priority so dictation never starves foreground apps
+CPUWeight=20
+
+[Install]
+WantedBy=default.target
+"""
+
+
+def register_linux_app_service() -> bool:
+    """PLAT-019: Register the main app as a systemd user service.
+
+    Writes the unit file to ~/.config/systemd/user/voice-typer.service
+    and runs `systemctl --user daemon-reload`. Does NOT auto-enable —
+    the user must run `systemctl --user enable voice-typer.service`
+    to switch from .desktop autostart to systemd supervision.
+
+    Returns True on success, False on failure.
+    """
+    if not is_linux():
+        return False
+    try:
+        unit_dir = _linux_unit_dir()
+        unit_dir.mkdir(parents=True, exist_ok=True)
+        service_path = _linux_app_service_path()
+        service_path.write_text(_build_linux_app_service(), encoding="utf-8")
+        import subprocess
+        subprocess.run(
+            ["systemctl", "--user", "daemon-reload"],
+            check=False, capture_output=True, timeout=5,
+        )
+        log.info("[PLAT-019] systemd user unit written to %s", service_path)
+        log.info("[PLAT-019] Enable with: systemctl --user enable voice-typer.service")
+        return True
+    except Exception as exc:
+        log.warning("[PLAT-019] Failed to register systemd user unit: %s", exc)
+        return False
+
+
+def is_linux_app_service_registered() -> bool:
+    """PLAT-019: Check if the main app systemd user unit exists."""
+    return _linux_app_service_path().exists()
