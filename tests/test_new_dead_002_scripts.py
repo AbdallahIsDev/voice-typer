@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts" / "diagnostics"
+SCRIPTS_DIR = Path(__file__).resolve().parent / "manual"
 
 
 class TestRuntimeProofImports:

@@ -1,27 +1,5 @@
-# Diagnostic Scripts
+# Diagnostic Scripts (moved)
 
-These are **ad-hoc interactive scripts**, not automated tests. They are excluded
-from the pytest suite (`tests/`) because they require real hardware (GPU,
-microphone, display) or print diagnostic output instead of making assertions.
+CQ-016: The diagnostic scripts have been moved to `tests/manual/`.
 
-| Script | Purpose |
-|---|---|
-| `diagnose_f2.py` | Traces the full F2 -> recording -> transcription path with mocked hardware |
-| `runtime_proof.py` | End-to-end runtime verification of transcription fallback and stuck-state recovery |
-| `cublas_fallback.py` | Proves the cuBLAS DLL failure path is handled correctly |
-
-Run individually:
-
-```bash
-python scripts/diagnostics/diagnose_f2.py
-python scripts/diagnostics/runtime_proof.py
-python scripts/diagnostics/cublas_fallback.py
-```
-
-All unique test coverage from these scripts is already captured in the
-automated test suite under `tests/` — specifically in
-`test_round8_e2e.py`, `test_round9_e2e.py`, `test_round13_ipc_regression.py`,
-and `test_new_dead_002_scripts.py` (which verifies these scripts parse
-and import correctly).  The diagnostic scripts themselves are kept for
-manual troubleshooting when a developer needs to reproduce a specific
-hardware-dependent failure path interactively.
+See `tests/manual/README.md` for details.
