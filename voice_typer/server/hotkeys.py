@@ -21,6 +21,7 @@ import threading
 import time
 from abc import ABC, abstractmethod
 from typing import Callable, Optional
+from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
 
 log = logging.getLogger("voice_typer")
 
@@ -124,7 +125,7 @@ class PynputHotkey(HotkeyBackend):
             # PLAT-030: On macOS, pynput failure usually means the
             # Accessibility permission is missing. Show a user-friendly
             # guide so the user knows how to fix it.
-            if sys.platform == "darwin":
+            if is_macos():
                 log.warning(
                     "[HOTKEY] macOS: pynput keyboard listener failed. "
                     "This usually means the Accessibility permission is not "
@@ -144,7 +145,7 @@ class PynputHotkey(HotkeyBackend):
                 log.exception("[HOTKEY] Fallback Listener also failed")
 
                 # PLAT-030: also warn for the fallback path on macOS
-                if sys.platform == "darwin":
+                if is_macos():
                     log.warning(
                         "[HOTKEY] macOS: Both GlobalHotKeys and Listener "
                         "failed. Please grant Accessibility permissions:\n"
@@ -501,7 +502,7 @@ def parse_hotkey_to_win32(hotkey_str: str) -> Optional[tuple[int, int]]:
     if vk is None:
         # PLAT-VKMAP: try MapVirtualKey with the current keyboard layout
         # for printable characters that may differ on non-US keyboards.
-        if sys.platform == "win32" and len(key_name) == 1 and key_name.isalpha():
+        if is_windows() and len(key_name) == 1 and key_name.isalpha():
             try:
                 import ctypes
                 user32 = ctypes.windll.user32
@@ -684,7 +685,7 @@ class WindowsNativeHotkey(HotkeyBackend):
         Uses ImmGetContext + ImmGetCompositionStringW or ImmGetOpenStatus
         on Windows. Returns False on non-Windows or on failure.
         """
-        if sys.platform != "win32":
+        if not is_windows():
             return False
         try:
             import ctypes
@@ -898,12 +899,12 @@ def create_hotkey_backend(hotkey_str: str) -> HotkeyBackend:
     - On Linux/Wayland: returns ``WaylandHotkey`` (Unix socket fallback).
     - On Linux/X11: returns ``PynputHotkey``.
     """
-    if sys.platform == "win32":
+    if is_windows():
         log.info("[HOTKEY] Platform is win32 -> using WindowsNativeHotkey")
         return WindowsNativeHotkey(hotkey_str)
 
     # #4 PLAT-WAYLAND: detect Wayland and use Unix socket fallback
-    if sys.platform.startswith("linux"):
+    if is_linux():
         wayland_display = os.environ.get("WAYLAND_DISPLAY", "")
         xdg_session = os.environ.get("XDG_SESSION_TYPE", "")
         if wayland_display or xdg_session == "wayland":
@@ -1122,7 +1123,7 @@ def capture_custom_hotkey(timeout: float = 10.0) -> Optional[tuple[int, int, str
     >>> if vk is not None:
     ...     print(f"Captured: VK=0x{vk:X}, mods=0x{mods:X}, desc={desc}")
     """
-    if sys.platform != "win32":
+    if not is_windows():
         log.warning("[HOTKEY] Custom hotkey capture is only available on Windows")
         return None
 

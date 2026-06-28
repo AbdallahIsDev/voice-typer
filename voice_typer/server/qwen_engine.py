@@ -20,6 +20,7 @@ from typing import Optional
 import numpy as np
 
 from voice_typer.server.hallucination import should_reject_low_audio_hallucination, log_hallucination_rejection
+from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
 
 log = logging.getLogger(__name__)
 
@@ -129,7 +130,7 @@ class QwenEngine:
             # SEC-audit-007: Read config.json with O_NOFOLLOW to prevent symlink attacks
             config_path = Path(self.model_path) / "config.json"
             try:
-                if sys.platform != "win32":
+                if not is_windows():
                     # POSIX: open with O_NOFOLLOW to refuse symlinks
                     fd = os.open(str(config_path), os.O_RDONLY | os.O_NOFOLLOW)
                     try:

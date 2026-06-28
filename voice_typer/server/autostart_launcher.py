@@ -57,6 +57,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
 
 log = logging.getLogger("voice_typer.autostart")
 
@@ -117,7 +118,7 @@ def _client_dir_exists() -> bool:
 def _spawn_flags() -> dict:
     """Platform-specific kwargs for spawning child processes hidden."""
     kwargs: dict = {}
-    if sys.platform == "win32":
+    if is_windows():
         # CREATE_NO_WINDOW (0x08000000) prevents a console from flashing.
         kwargs["creationflags"] = 0x08000000
     else:
@@ -187,7 +188,7 @@ def _npm_command(script: str = "dev") -> list[str] | None:
         return [npm_path, "run", script]
     # Fallback: use shell=True form (legacy behavior) only if npm
     # can't be resolved. This is a last resort for unusual setups.
-    if sys.platform == "win32":
+    if is_windows():
         return None  # signal: use shell=True form
     return ["npm", "run", script]
 
@@ -334,7 +335,7 @@ def _electron_binary() -> str | None:
     (Windows) / ``.../electron`` (POSIX).  Returns None when not found, in
     which case the launcher falls back to ``npm run dev``.
     """
-    if sys.platform == "win32":
+    if is_windows():
         candidate = CLIENT_DIR / "node_modules" / "electron" / "dist" / "electron.exe"
     else:
         candidate = CLIENT_DIR / "node_modules" / "electron" / "dist" / "electron"

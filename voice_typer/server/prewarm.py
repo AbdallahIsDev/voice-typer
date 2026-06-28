@@ -44,6 +44,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
 
 log = logging.getLogger("voice_typer.prewarm")
 
@@ -134,7 +135,7 @@ def _free_ram_mb() -> int | None:
     except ImportError:
         pass
     # Windows fallback via ctypes (no extra dependency).
-    if sys.platform == "win32":
+    if is_windows():
         try:
             import ctypes
             class _MEMORYSTATUSEX(ctypes.Structure):
@@ -173,7 +174,7 @@ def _lower_io_priority() -> None:
     via ionice (Linux only). Best-effort — silently no-ops if the calls
     fail (e.g. insufficient permissions).
     """
-    if sys.platform != "win32":
+    if not is_windows():
         # STARTUP-5: POSIX priority lowering.
         try:
             # Lower CPU priority (POSIX nice). +10 = below normal.
@@ -190,7 +191,7 @@ def _lower_io_priority() -> None:
         # SYS_ioprio_set = 251 on x86_64, 314 on aarch64 (we try both).
         # IOPRIO_WHO_PROCESS=1, IOPRIO_CLASS_IDLE=3,
         # IOPRIO_PRIO_VALUE(class, level) = (class << 13) | level
-        if sys.platform == "linux":
+        if is_linux():
             try:
                 import ctypes
                 libc = ctypes.CDLL("libc.so.6", use_errno=True)

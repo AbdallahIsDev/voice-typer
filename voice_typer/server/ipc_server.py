@@ -22,6 +22,7 @@ import time
 from collections import deque
 
 from voice_typer.server.config import validate_config_update
+from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
 
 log = logging.getLogger("voice_typer.server.ipc_server")
 
@@ -1012,7 +1013,7 @@ class IPCServer:
             # ARCH-005: delegates to service layer
             try:
                 status = self.service.get_volume_backend_status()
-                status["is_windows"] = sys.platform == "win32"
+                status["is_windows"] = is_windows()
                 resp["type"] = "volume_backend_status"
                 resp["data"] = status
             except Exception as e:
@@ -1448,7 +1449,7 @@ class IPCServer:
             try:
                 import sys as _sys
                 granted = True
-                if _sys.platform == "darwin":
+                if is_macos():
                     try:
                         import ctypes
                         # AXIsProcessTrusted() is the official API.

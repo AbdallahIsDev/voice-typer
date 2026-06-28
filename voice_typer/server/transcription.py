@@ -131,6 +131,7 @@ _nvidia_dll_paths_configured = False
 _nvidia_config_lock = threading.Lock()
 
 from voice_typer.server.hallucination import should_reject_low_audio_hallucination, log_hallucination_rejection
+from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
 
 
 def _download_with_retry(
@@ -252,7 +253,7 @@ def _configure_nvidia_dll_paths():
 def _configure_nvidia_dll_paths_locked():
     """Inner implementation, called under _nvidia_config_lock."""
     global _nvidia_dll_paths_configured
-    if _nvidia_dll_paths_configured or sys.platform != "win32":
+    if _nvidia_dll_paths_configured or not is_windows():
         return
 
     roots: list[str] = []

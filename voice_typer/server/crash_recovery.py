@@ -22,6 +22,7 @@ import sys
 import threading
 from pathlib import Path
 from typing import Optional
+from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
 
 log = logging.getLogger(__name__)
 
@@ -91,7 +92,7 @@ class CrashRecovery:
         try:
             from voice_typer.server.config import _secure_atomic_write
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            if sys.platform != "win32":
+            if not is_windows():
                 try:
                     os.chmod(self._path.parent, 0o700)
                 except OSError as e:

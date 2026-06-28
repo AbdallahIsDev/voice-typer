@@ -32,6 +32,7 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Any
+from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
 
 log = logging.getLogger(__name__)
 
@@ -106,7 +107,7 @@ class HistoryDB:
         if not hasattr(self._local, 'conn') or self._local.conn is None:
             # SEC-007: tighten dir permissions before the connection
             # creates files in it.
-            if sys.platform != "win32":
+            if not is_windows():
                 try:
                     self.db_path.parent.mkdir(parents=True, exist_ok=True)
                     os.chmod(self.db_path.parent, 0o700)
@@ -120,7 +121,7 @@ class HistoryDB:
             conn.row_factory = sqlite3.Row
             self._local.conn = conn
             # SEC-007: chmod the DB file (and sidecar files if present).
-            if sys.platform != "win32":
+            if not is_windows():
                 for suffix in ("", "-wal", "-shm"):
                     p = self.db_path.with_suffix(self.db_path.suffix + suffix) if suffix else self.db_path
                     try:

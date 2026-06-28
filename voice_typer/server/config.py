@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable, Optional, Tuple
 from urllib.parse import urlparse
+from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
 
 log = logging.getLogger("voice_typer.server.config")
 
@@ -46,7 +47,7 @@ def _secure_atomic_write(path: Path, content: str) -> None:
     try:
         # Create temp file in same directory for atomic rename
         tmp_path = path.with_suffix(path.suffix + ".tmp")
-        if sys.platform != "win32":
+        if not is_windows():
             # POSIX: use O_NOFOLLOW to prevent symlink attacks on the
             # temp file itself, and O_EXCL to prevent a pre-created
             # temp file from being hijacked.
@@ -120,7 +121,7 @@ def _secure_read_text(path: Path, *, encoding: str = "utf-8") -> str:
     ValueError
         If the inode changed between open and read (TOCTOU detected).
     """
-    if sys.platform != "win32":
+    if not is_windows():
         # POSIX: O_NOFOLLOW refuses to follow symlinks
         fd = os.open(str(path), os.O_RDONLY | os.O_NOFOLLOW)
         try:
@@ -174,9 +175,9 @@ def _legacy_config_dir() -> Path | None:
     Kept for backward compatibility with external scripts that may
     import it.
     """
-    if sys.platform == "win32":
+    if is_windows():
         base = os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")
-    elif sys.platform == "darwin":
+    elif is_macos():
         base = Path.home() / "Library" / "Application Support"
     else:
         base = os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")
@@ -211,7 +212,7 @@ def _validate_systemroot() -> None:
 
     On non-Windows platforms, this is a no-op.
     """
-    if sys.platform != "win32":
+    if not is_windows():
         return
 
     systemroot = os.environ.get("SystemRoot", "")
@@ -308,7 +309,7 @@ def _config_dir() -> Path:
         return legacy
 
     # Platform-specific paths for new installations.
-    if sys.platform == "win32":
+    if is_windows():
         appdata = os.environ.get("APPDATA")
         if appdata:
             appdata_path = Path(appdata) / "voice-typer"
@@ -319,7 +320,7 @@ def _config_dir() -> Path:
                 log.warning("[CONFIG] APPDATA path traversal detected: %s", appdata)
             else:
                 return appdata_path
-    elif sys.platform == "darwin":
+    elif is_macos():
         return Path.home() / "Library" / "Application Support" / "voice-typer"
     else:
         # Linux / FreeBSD: honor XDG_DATA_HOME.
@@ -341,9 +342,9 @@ def _config_dir() -> Path:
 
 def _migrate_from_legacy():
     """One-time migration from old platform-specific location (e.g. %APPDATA%)."""
-    if sys.platform == "win32":
+    if is_windows():
         base = os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")
-    elif sys.platform == "darwin":
+    elif is_macos():
         base = Path.home() / "Library" / "Application Support"
     else:
         base = os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")
@@ -680,7 +681,7 @@ class Config:
         try:
             path = _config_dir()
             path.mkdir(parents=True, exist_ok=True)
-            if sys.platform != "win32":
+            if not is_windows():
                 try:
                     os.chmod(path, 0o700)
                 except OSError as e:

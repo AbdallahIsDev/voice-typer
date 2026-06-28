@@ -33,6 +33,8 @@ from voice_typer.server.platform import (
     is_autostart_enabled,
     list_microphones,
 )
+# CQ-029: use centralized platform helpers instead of raw sys.platform checks
+from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
 from voice_typer.server.recording import Recorder
 from voice_typer.server.settings import SettingsController, SettingsWindow
 from voice_typer.server.streaming import StreamingConfig, StreamingTranscriptionSession
@@ -1030,7 +1032,7 @@ class VoiceTyperApp:
 
         # PLAT-WAYLAND / XPLAT-004: Warn if running on Wayland and
         # suggest wtype/ydotool as fallback for global hotkeys.
-        if sys.platform.startswith("linux") and os.environ.get("XDG_SESSION_TYPE") == "wayland":
+        if is_linux() and os.environ.get("XDG_SESSION_TYPE") == "wayland":
             if not self.config.wayland_warned:
                 log.warning("[STARTUP] Wayland detected -- global hotkeys may not work")
                 # XPLAT-004: check if wtype or ydotool is available as a fallback
@@ -1062,7 +1064,7 @@ class VoiceTyperApp:
         # On macOS, global hotkeys require Accessibility permission.
         # The app can't request it directly, but we can detect it's
         # missing and notify the user.
-        if sys.platform == "darwin":
+        if is_macos():
             try:
                 import subprocess as _sp
                 # PLAT-030: Use AXIsProcessTrusted() via ctypes for the
@@ -1261,7 +1263,7 @@ class VoiceTyperApp:
         is removed so the user is left with only the correct universal
         launcher shortcut.
         """
-        if sys.platform != "win32":
+        if not is_windows():
             return
         desktop = Path.home() / "Desktop"
         lnk_path = desktop / "Voice Typer.lnk"
@@ -1794,7 +1796,7 @@ class VoiceTyperApp:
         self.config.save()
         import subprocess
         try:
-            if sys.platform == "win32":
+            if is_windows():
                 # SEC-audit-011: Use SystemRoot-validated notepad path.
                 # Fall back to hardcoded C:\Windows\System32\notepad.exe
                 # if SystemRoot validation failed.
@@ -1821,7 +1823,7 @@ class VoiceTyperApp:
                             log.warning("[CONFIG] Failed to reload config after editor: %s", exc)
                 else:
                     os.startfile(str(config_file))  # type: ignore[attr-defined]
-            elif sys.platform == "darwin":
+            elif is_macos():
                 subprocess.Popen(["open", str(config_file)])
             else:
                 subprocess.Popen(["xdg-open", str(config_file)])
@@ -2256,7 +2258,7 @@ class VoiceTyperApp:
         console attached, so SetConsoleCtrlHandler is a no-op that
         spews "no console" warnings in the log.
         """
-        if sys.platform != "win32":
+        if not is_windows():
             return
         # ARCH-046: detect pythonw.exe (no console) and skip install.
         exe_name = Path(sys.executable).name.lower()
@@ -2356,7 +2358,7 @@ def _create_restrictive_security_attributes():
     (in which case the default NULL DACL is used — still functional but
     less restrictive).
     """
-    if sys.platform != "win32":
+    if not is_windows():
         return None
     try:
         import ctypes
@@ -2499,7 +2501,7 @@ def _ensure_single_instance(silent=False):
     restart token file must have been modified within the last 30 seconds
     for the bypass to be accepted.
     """
-    if sys.platform != "win32":
+    if not is_windows():
         return None
 
     # Skip mutex check during restart -- old instance releases mutex on quit

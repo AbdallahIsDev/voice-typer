@@ -12,6 +12,7 @@ import logging
 import os
 import subprocess
 import sys
+from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
 
 log = logging.getLogger("voice_typer.server.tray_window")
 
@@ -39,7 +40,7 @@ def bring_electron_to_front() -> bool:
 
     Extracted from TrayIcon._bring_electron_to_front() per #13.
     """
-    if sys.platform != "win32":
+    if not is_windows():
         return False
     try:
         import ctypes

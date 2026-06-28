@@ -41,6 +41,7 @@ from voice_typer.server.tray_menu import build_menu, display_hotkey, wrap_callba
 
 # ARCH-003: types extracted to tray_types.py; icon rendering to tray_icon.py
 from voice_typer.server.tray_types import AppState, TrayController
+from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
 
 # TRAY-008: Localization for tray menu labels.
 # Uses English as default. Wrap hardcoded strings with _() function.
@@ -271,7 +272,7 @@ class TrayIcon:
         """
         import sys
         import os
-        if not sys.platform.startswith("linux"):
+        if not is_linux():
             return False
         if os.environ.get("XDG_SESSION_TYPE") != "wayland":
             return False

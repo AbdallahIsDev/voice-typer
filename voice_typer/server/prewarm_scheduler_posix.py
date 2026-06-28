@@ -26,6 +26,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
 
 log = logging.getLogger("voice_typer.prewarm_scheduler_posix")
 
@@ -287,31 +288,31 @@ def _is_prewarm_registered_linux() -> bool:
 
 def is_supported() -> bool:
     """Return True if POSIX prewarm scheduling is supported here."""
-    return sys.platform in ("darwin", "linux")
+    return is_macos() or is_linux()
 
 
 def is_prewarm_registered() -> bool:
     """Return True if prewarm is registered via the POSIX scheduler."""
-    if sys.platform == "darwin":
+    if is_macos():
         return _is_prewarm_registered_macos()
-    if sys.platform == "linux":
+    if is_linux():
         return _is_prewarm_registered_linux()
     return False
 
 
 def register_prewarm_task() -> bool:
     """Register the prewarm task via the POSIX scheduler. Returns True on success."""
-    if sys.platform == "darwin":
+    if is_macos():
         return _register_prewarm_macos()
-    if sys.platform == "linux":
+    if is_linux():
         return _register_prewarm_linux()
     return False
 
 
 def unregister_prewarm_task() -> bool:
     """Remove the prewarm task from the POSIX scheduler. Returns True on success."""
-    if sys.platform == "darwin":
+    if is_macos():
         return _unregister_prewarm_macos()
-    if sys.platform == "linux":
+    if is_linux():
         return _unregister_prewarm_linux()
     return False

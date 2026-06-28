@@ -29,6 +29,7 @@ import sys
 import time
 
 import pyperclip
+from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
 
 log = logging.getLogger(__name__)
 
@@ -110,7 +111,7 @@ class Win32Clipboard:
         owner : int
             Window handle to pass to OpenClipboard. 0 = current task.
         """
-        if sys.platform != "win32":
+        if not is_windows():
             raise RuntimeError("Win32Clipboard is only available on Windows")
         self._owner = owner
         self._opened = False
@@ -156,7 +157,7 @@ class Win32Clipboard:
 
         Returns 0 on non-Windows or on failure.
         """
-        if sys.platform != "win32":
+        if not is_windows():
             return 0
         try:
             import ctypes
@@ -174,7 +175,7 @@ def _win32_empty_clipboard() -> None:
     Called before pyperclip.copy() on Windows to clear stale clipboard
     formats (e.g. rich text artifacts from a previous copy).
     """
-    if sys.platform != "win32":
+    if not is_windows():
         return
     try:
         with Win32Clipboard() as clip:
@@ -197,7 +198,7 @@ def _is_elevated_target() -> bool:
     Returns False if we can't determine (fail open) or if elevation
     matches.
     """
-    if sys.platform != "win32":
+    if not is_windows():
         return False
     try:
         import ctypes
@@ -292,7 +293,7 @@ def _focused_window_is_credential_dialog() -> bool:
     if the window class matches a known credential dialog class. This
     is the comtypes-absence fallback for password field protection.
     """
-    if sys.platform != "win32":
+    if not is_windows():
         return False
     try:
         import ctypes
@@ -326,7 +327,7 @@ def _is_password_field() -> bool:
     we explicitly log when comtypes is unavailable and the check is
     skipped, so operators can install comtypes to enable the check.
     """
-    if sys.platform != "win32":
+    if not is_windows():
         return False
     try:
         import ctypes
@@ -458,7 +459,7 @@ class ClipboardManager:
         Blocks paste into UAC dialogs, credential prompts, and
         Winlogon windows to prevent credential theft.
         """
-        if sys.platform != "win32":
+        if not is_windows():
             return True
         try:
             import ctypes
@@ -519,7 +520,7 @@ class ClipboardManager:
     @staticmethod
     def _detect_focused_process() -> str | None:
         """Detect the focused process name (Windows only)."""
-        if sys.platform != "win32":
+        if not is_windows():
             return None
         try:
             import ctypes
@@ -749,7 +750,7 @@ class ClipboardManager:
         # text before pasting. This handles the case where another app
         # (clipboard manager, password manager, screenshot tool) overwrote
         # the clipboard between our copy() and the paste keystroke.
-        if sys.platform == "win32" and hasattr(self, '_clipboard_seq') and self._clipboard_seq:
+        if is_windows() and hasattr(self, '_clipboard_seq') and self._clipboard_seq:
             current_seq = self._get_clipboard_sequence_number()
             if current_seq != self._clipboard_seq:
                 log.warning(
@@ -778,7 +779,7 @@ class ClipboardManager:
         # PLAT-RDP: increase paste delay in RDP sessions where clipboard
         # sync is slower
         paste_delay = 0.02
-        if sys.platform == "win32":
+        if is_windows():
             try:
                 from voice_typer.server.platform import is_remote_session
                 if is_remote_session():
@@ -818,13 +819,13 @@ class ClipboardManager:
                 )
 
             if is_terminal:
-                if sys.platform == "darwin":
+                if is_macos():
                     self._safe_key_press(_Key.cmd, "v")
                 else:
                     self._safe_key_press(_Key.shift, _Key.insert)
-            elif sys.platform == "darwin":
+            elif is_macos():
                 self._safe_key_press(_Key.cmd, "v")
-            elif sys.platform == "win32":
+            elif is_windows():
                 self._send_ctrl_v_win32()
             else:
                 self._safe_key_press(_Key.ctrl, "v")

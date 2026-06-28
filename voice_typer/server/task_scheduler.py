@@ -40,6 +40,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
 
 log = logging.getLogger("voice_typer.task_scheduler")
 
@@ -178,7 +179,7 @@ def _register_prewarm_registry(command: str) -> bool:
     (e.g. a locked task left behind by an earlier install).  Returns True
     on success, False otherwise.
     """
-    if sys.platform != "win32":
+    if not is_windows():
         return False
     try:
         import winreg
@@ -204,7 +205,7 @@ def _unregister_prewarm_registry() -> bool:
 
     Returns True on success (including when the value was already absent).
     """
-    if sys.platform != "win32":
+    if not is_windows():
         return False
     try:
         import winreg
@@ -229,7 +230,7 @@ def _unregister_prewarm_registry() -> bool:
 
 def _is_prewarm_registered_registry() -> bool:
     """Return True if the HKCU Run key has the prewarm value."""
-    if sys.platform != "win32":
+    if not is_windows():
         return False
     try:
         import winreg
@@ -391,14 +392,14 @@ def is_supported() -> bool:
     Returns:
         True if the platform supports scheduled prewarm tasks.
     """
-    if sys.platform == "win32":
+    if is_windows():
         return Path(
             os.environ.get("SystemRoot", r"C:\Windows") + r"\System32\schtasks.exe"
         ).exists()
     # STARTUP-5: POSIX platforms use prewarm_scheduler_posix.
     # Bug fix: use exact match instead of startswith("linux") for
     # consistency with prewarm_scheduler_posix.is_supported().
-    return sys.platform in ("darwin", "linux")
+    return is_macos() or is_linux()
 
 
 def is_prewarm_registered() -> bool:
@@ -411,7 +412,7 @@ def is_prewarm_registered() -> bool:
         True if a prewarm task is currently registered.
     """
     # STARTUP-5: delegate to POSIX scheduler on macOS/Linux.
-    if sys.platform != "win32":
+    if not is_windows():
         try:
             from voice_typer.server.prewarm_scheduler_posix import is_prewarm_registered as _posix_is
             return _posix_is()
@@ -436,7 +437,7 @@ def register_prewarm_task() -> bool:
         True if the task was registered successfully, False otherwise.
     """
     # STARTUP-5: delegate to POSIX scheduler on macOS/Linux.
-    if sys.platform != "win32":
+    if not is_windows():
         try:
             from voice_typer.server.prewarm_scheduler_posix import register_prewarm_task as _posix_reg
             return _posix_reg()
@@ -525,7 +526,7 @@ def unregister_prewarm_task() -> bool:
         True if the prewarm task was fully removed or was not present.
     """
     # STARTUP-5: delegate to POSIX scheduler on macOS/Linux.
-    if sys.platform != "win32":
+    if not is_windows():
         try:
             from voice_typer.server.prewarm_scheduler_posix import unregister_prewarm_task as _posix_unreg
             return _posix_unreg()
