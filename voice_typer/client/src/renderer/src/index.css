@@ -50,6 +50,14 @@
 }
 
 :root {
+  /* PLAT-017: UI text scale. Default is 1.0 (text_size=14).
+     App.tsx sets this via document.documentElement.style.setProperty.
+     Consumed by the root font-size below. */
+  --font-scale: 1.0;
+  /* Apply the scale to root font-size. Tailwind's rem-based units
+     inherit from this, so the entire UI scales proportionally. */
+  font-size: calc(100% * var(--font-scale));
+
   --background: oklch(1 0 0);
   --foreground: oklch(0.141 0.005 285.823);
   --card: oklch(1 0 0);

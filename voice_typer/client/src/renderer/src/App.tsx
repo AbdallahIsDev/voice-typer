@@ -150,6 +150,8 @@ export default function App() {
 
   const { call } = usePython()
   const [themeMode, setThemeMode] = useState<VoiceTyperConfig['theme_mode']>('system')
+  // PLAT-017: text size state for UI scaling. Fetched from config on mount.
+  const [textSize, setTextSize] = useState(14)
 
   // ── Theme detection & application ────────────────────────────
 
@@ -181,6 +183,16 @@ export default function App() {
     return () => prefersDark.removeEventListener('change', handler)
   }, [themeMode])
 
+  // PLAT-017: Apply text_size as a CSS custom property so the entire UI
+  // scales proportionally. text_size=14 is the default (scale=1.0).
+  // The --font-scale variable is consumed by index.css to set the
+  // root font-size. This gives users a "Large Text" accessibility
+  // toggle without requiring OS-level DPI changes.
+  useEffect(() => {
+    const scale = textSize / 14
+    document.documentElement.style.setProperty('--font-scale', String(scale))
+  }, [textSize])
+
   // Load theme from config on mount
   // NEW-TS-015: removed the ``if (!isReady) return`` guard — it was
   // dead code (``isReady`` was always ``true`` because the preload
@@ -192,6 +204,8 @@ export default function App() {
       try {
         const cfg = await call<VoiceTyperConfig>('get_config')
         if (cfg?.theme_mode) setThemeMode(cfg.theme_mode)
+        // PLAT-017: load text_size from config for UI scaling
+        if (cfg?.text_size) setTextSize(cfg.text_size)
       } catch { }
     }
     loadTheme()

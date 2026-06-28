@@ -444,6 +444,22 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
           </SettingRow>
           )}
 
+          {/* PLAT-017: Text Size slider for accessibility. Scales the
+              entire UI proportionally via a CSS --font-scale variable. */}
+          <SettingRow label="Text Size" info="Adjust the UI text size for better readability. Default is 14px.">
+            <div className="flex items-center gap-3 w-44">
+              <RangeSlider
+                value={config.text_size ?? 14}
+                onChange={(v) => updateConfig({ text_size: v })}
+                min={10}
+                max={24}
+                step={1}
+                ariaLabel="Text Size"
+                suffix="px"
+              />
+            </div>
+          </SettingRow>
+
           {_filter_settings('Tray Click', 'What happens when you left-click') && (
           <SettingRow label="Tray Click" info="What happens when you left-click the Voice Typer icon in the system tray.">
             <Select
