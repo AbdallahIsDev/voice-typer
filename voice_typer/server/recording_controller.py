@@ -100,6 +100,25 @@ class RecordingController:
         with self._streaming_session_lock:
             self._streaming_session = session_or_none
 
+    def pop_streaming_session(self) -> Optional[StreamingTranscriptionSession]:
+        """ARCH-018: Atomically get AND clear the streaming session.
+
+        Pre-fix, ``_cancel_streaming_session`` did:
+            session = self.get_streaming_session()   # lock acquire/release #1
+            self.set_streaming_session(None)          # lock acquire/release #2
+        This left a TOCTOU window between the two lock acquisitions: a
+        concurrent ``_start_streaming_session_if_enabled`` could install
+        a NEW session that the subsequent ``set_streaming_session(None)``
+        would clobber — cancelling a session that was just freshly started.
+
+        This method does the get-and-clear under a SINGLE lock
+        acquisition, eliminating the race.
+        """
+        with self._streaming_session_lock:
+            session = self._streaming_session
+            self._streaming_session = None
+            return session
+
     # ── Toggle / start / stop / cancel ─────────────────────────────────
 
     def toggle(self) -> None:
@@ -595,9 +614,13 @@ class RecordingController:
             self.set_streaming_session(None)
 
     def _cancel_streaming_session(self) -> None:
-        """Cancel any active hidden streaming session."""
-        session = self.get_streaming_session()
-        self.set_streaming_session(None)
+        """Cancel any active hidden streaming session.
+
+        ARCH-018: uses ``pop_streaming_session()`` (atomic get-and-clear)
+        instead of the pre-fix get-then-set sequence that had a TOCTOU
+        window between the two lock acquisitions.
+        """
+        session = self.pop_streaming_session()
         if session is not None:
             try:
                 session.cancel()
