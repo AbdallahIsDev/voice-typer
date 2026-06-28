@@ -1105,6 +1105,12 @@ class VoiceTyperApp:
             except Exception:
                 log.debug("[STARTUP] macOS accessibility check failed")
 
+            # PLAT-009: Start a periodic accessibility health monitor.
+            # If the user grants permission AFTER startup, the app will
+            # detect it within 60 seconds and clear the warning. If the
+            # user revokes permission mid-session, the app will re-warn.
+            self._start_accessibility_pulse(_has_accessibility)
+
         # 1. Sync autostart config with platform
         log.info("[STARTUP] Step 1: sync autostart")
         self._sync_autostart()
@@ -1374,6 +1380,66 @@ class VoiceTyperApp:
         # RACE-008: daemon=True is acceptable because the poller only
         # reads device state — no critical cleanup. On shutdown,
         # _shutting_down is set and the thread exits within 1 second.
+        t.start()
+
+    def _start_accessibility_pulse(self, initial_state: bool) -> None:
+        """PLAT-009: Periodically re-check macOS Accessibility permission.
+
+        Runs on macOS only. Every 60 seconds, re-invokes
+        ``AXIsProcessTrusted()`` and fires ``tray.notify_safety`` only
+        on state transitions (granted→revoked or revoked→granted) so
+        the user isn't spammed with repeated notifications.
+
+        Pre-fix: accessibility was checked once at startup. If the user
+        granted permission after startup, the app never recovered until
+        restart. With this pulse, the app detects the change within 60s.
+        """
+        import threading
+
+        def _check_accessibility() -> bool:
+            """Return True if Accessibility permission is granted."""
+            try:
+                import ctypes
+                app_services = ctypes.cdll.LoadLibrary(
+                    "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
+                )
+                return bool(app_services.AXIsProcessTrusted())
+            except Exception:
+                return False  # fail safe (assume not granted)
+
+        def _pulse_loop():
+            last_state = initial_state
+            while not self._shutting_down:
+                for _ in range(60):
+                    if self._shutting_down:
+                        return
+                    threading.Event().wait(1.0)
+                if self._shutting_down:
+                    return
+                current = _check_accessibility()
+                if current != last_state:
+                    if current:
+                        log.info("[PLAT-009] macOS Accessibility permission granted")
+                        try:
+                            self.tray.notify("Voice Typer", "Accessibility permission granted. Hotkeys are now active.")
+                        except Exception:
+                            pass
+                    else:
+                        log.warning("[PLAT-009] macOS Accessibility permission revoked")
+                        try:
+                            self.tray.notify_safety(
+                                "Voice Typer — Accessibility Revoked",
+                                "Global hotkeys have been disabled. Open System Settings "
+                                "\u2192 Privacy & Security \u2192 Accessibility to re-grant.",
+                            )
+                        except Exception:
+                            pass
+                    last_state = current
+
+        t = threading.Thread(target=_pulse_loop, daemon=True, name="A11yPulse")
+        # RACE-008: daemon=True is acceptable — the pulse only reads
+        # permission state, no critical cleanup. On shutdown, the thread
+        # exits within 1 second.
         t.start()
 
     def _fallback_to_whisper(self, notify_on_failure: bool = False):
