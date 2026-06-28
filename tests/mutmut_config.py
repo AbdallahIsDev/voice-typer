@@ -32,8 +32,23 @@ MODULES_TO_EXCLUDE = [
 # Timeout for each mutant (seconds)
 TIMEOUT = 10.0
 
-# Test command to run for each mutant
-TEST_COMMAND = "pytest -x -q tests/test_text_cleanup.py tests/test_config.py tests/test_tray.py tests/test_tray_menu.py"
+# Test command to run for each mutant.
+# TEST-010: must cover ALL modules in MODULES_TO_MUTATE. Pre-fix this
+# only ran 4 test files (test_text_cleanup, test_config, test_tray,
+# test_tray_menu) but MODULES_TO_MUTATE has 7 modules — mutants in
+# tray_icon.py, recording.py, and app.py would survive undetected,
+# giving a misleading mutation score. Now all 7 modules have at
+# least one corresponding test file in the command.
+TEST_COMMAND = (
+    "pytest -x -q "
+    "tests/test_text_cleanup.py "
+    "tests/test_config.py "
+    "tests/test_tray.py "
+    "tests/test_tray_menu.py "
+    "tests/test_tray_icon.py "
+    "tests/test_recording.py "
+    "tests/test_app.py"
+)
 
 
 def pre_mutation(context):
