@@ -28,7 +28,7 @@ interface TestReviewPanelProps {
   hasFiltersEnabled: boolean
 }
 
-function QualityScore({ value, max }: { value: number; max: number }) {
+function _QualityScore({ value, max }: { value: number; max: number }) {
   const pct = (value / max) * 100
   const color =
     pct >= 80 ? 'bg-green-500' : pct >= 50 ? 'bg-amber-500' : 'bg-red-500'

@@ -183,7 +183,7 @@ export default function MicrophonePage() {
       }
       call('level_monitor_stop').catch(() => {})
     }
-  }, [call])
+  }, [call, config?.microphone])
 
   usePythonEvent('microphone_test_complete', useCallback((_data: unknown) => {
     if (testRunning && !stoppingRef.current) {

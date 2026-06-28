@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react'
 import { usePython, usePythonEvent } from '@/hooks/usePython'
 import { useSnackbar } from '@/hooks/useSnackbar'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { EmptyState } from '@/components/EmptyState'
 import {
   Download01Icon,
   Delete01Icon,

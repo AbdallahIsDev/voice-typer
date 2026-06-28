@@ -18,7 +18,7 @@ export function LiveQualityFeedback({
   if (!isRecording) return null
 
   const hasVoice = peak > 0.05
-  const volumeGood = level > 0.02 && level < 0.7
+  const _volumeGood = level > 0.02 && level < 0.7
   const volumeLow = level <= 0.02 && level > 0.005
   const volumeVeryLow = level <= 0.005
   const tooLoud = peak > 0.9

@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { usePython, usePythonEvent } from '@/hooks/usePython'
 import { HugeiconsIcon } from '@hugeicons/react'
-import type { IconSvgElement } from '@hugeicons/react'
 import {
   Time02Icon,
   SpeechToTextIcon,
@@ -19,6 +18,7 @@ import { StatsShareImage } from '@/components/StatsShareImage'
 import { useStatsShare, computeShareStats } from '@/hooks/useStatsShare'
 import type { TodayStats, HistoryRecord, Page } from '@/types/ipc'
 import type { VoiceTyperConfig } from '@/types/config'
+
 import { Button } from '@/components/ui/button.tsx'
 import { Spinner } from '@/components/Spinner'
 

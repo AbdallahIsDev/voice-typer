@@ -47,6 +47,8 @@ const ALL_GLOBALS = {
   HTMLInputElement: 'readonly',
   HTMLButtonElement: 'readonly',
   HTMLDivElement: 'readonly',
+  HTMLAudioElement: 'readonly',
+  Audio: 'readonly',
   Node: 'readonly',
   localStorage: 'readonly',
   navigator: 'readonly',

@@ -124,7 +124,7 @@ function useThemeSync() {
 
 // ── Bubble component ───────────────────────────────────────────────
 
-export function Bubble({ className }: { className?: string }) {
+export function Bubble({ className: _className }: { className?: string }) {
   const dotRefs = useRef<(HTMLSpanElement | null)[]>([])
   const [animState, setAnimState] = useState<AnimState>('enter')
   const [draggable, setDraggable] = useState(true)
