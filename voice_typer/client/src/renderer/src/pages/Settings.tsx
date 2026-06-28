@@ -28,7 +28,7 @@ import type { Page } from '@/types/ipc'
 import { Spinner } from '@/components/Spinner'
 import { HotkeyPicker } from '@/components/HotkeyPicker'
 import { SearchField } from '@/components/SearchField'
-import { t } from '@/i18n/i18n'
+import { t, setLocale, getLocale, SUPPORTED_LOCALES, getLocaleLabel } from '@/i18n/i18n'
 
 // Module-level cache — persists across page navigations so settings render
 // instantly on re-visit instead of showing a loading spinner.
@@ -371,6 +371,46 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
             />
           </SettingRow>
           )}
+
+          {/* UX-015: UI Language selector — distinct from the spoken-language
+              selector in Post-Processing. This controls the Electron UI
+              language via the i18n framework. The choice is persisted to
+              localStorage so it survives restarts, and pushed to the
+              Python backend so the tray menu labels also switch language. */}
+          <SettingRow label="UI Language" info="Choose the interface language for Voice Typer.">
+            <Select
+              value={getLocale()}
+              onValueChange={(v) => {
+                setLocale(v as 'en' | 'es')
+                // Persist to localStorage so the choice survives restarts
+                try {
+                  localStorage.setItem('voice-typer-ui-locale', v)
+                } catch {
+                  // localStorage may be unavailable in some contexts
+                }
+                // TRAY-008: push the locale to the Python backend so
+                // the tray menu labels also switch language.
+                try {
+                  window.python?.ipc({ type: 'set_tray_locale', data: v })
+                } catch {
+                  // IPC may not be available during startup
+                }
+                // Force a re-render so all t() calls update
+                window.location.reload()
+              }}
+            >
+              <SelectTrigger className="w-44" aria-label="UI Language">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SUPPORTED_LOCALES.map((locale) => (
+                  <SelectItem key={locale} value={locale}>
+                    <span>{getLocaleLabel(locale)}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </SettingRow>
 
           {_filter_settings('Fast Startup', 'Keep the speech model cached') && (
           <SettingRow
