@@ -280,6 +280,10 @@ def _setup_logging():
     # PLAT-008: validate environment variables before consuming them
     _validate_env_vars()
 
+    # PLAT-021: detect container environments and warn about unavailable features
+    from voice_typer.server.container_detect import warn_if_in_container
+    warn_if_in_container()
+
     # PROD-020: Enterprise users can disable verbose telemetry logging
     if os.environ.get("VOICE_TYPER_QUIET", "").lower() in ("1", "true", "yes"):
         root.setLevel(logging.WARNING)
