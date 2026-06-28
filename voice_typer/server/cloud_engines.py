@@ -369,7 +369,11 @@ class CloudEngine:
             except Exception as exc:
                 safe_msg = redact_secret(str(exc))
                 log.error("[CLOUD] %s request failed: %s", self.provider, safe_msg)
-                raise RuntimeError(f"{self.provider} request failed") from exc
+                # NEW-UX-029: include the underlying error in the user-facing
+                # message so the user can tell if it's a network issue vs an
+                # API error. Pre-fix this was a generic "request failed" with
+                # no hint about the cause.
+                raise RuntimeError(f"{self.provider} request failed: {safe_msg}") from exc
         # Should not reach here, but just in case
         raise RuntimeError(f"{self.provider} request failed after {max_retries} attempts")
 

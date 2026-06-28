@@ -391,7 +391,7 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
                 // TRAY-008: push the locale to the Python backend so
                 // the tray menu labels also switch language.
                 try {
-                  window.python?.ipc({ type: 'set_tray_locale', data: v })
+                  void window.python?.call({ type: 'set_tray_locale', data: { locale: v } })
                 } catch {
                   // IPC may not be available during startup
                 }
