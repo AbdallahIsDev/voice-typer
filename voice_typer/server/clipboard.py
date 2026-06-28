@@ -397,6 +397,48 @@ def _is_password_field() -> bool:
         return False
 
 
+def _is_content_editable() -> bool:
+    """PLAT-CONTENT: Check if the focused element is a contentEditable element.
+
+    On Windows, uses UI Automation (same comtypes infrastructure as
+    ``_is_password_field``) to check if the focused element is an Edit
+    or Document control that supports rich text input. This allows the
+    clipboard module to log when the paste target is a rich editor
+    (Word, LibreOffice, Gmail compose) and potentially paste HTML in
+    a future version.
+
+    Returns True if the focused element is contentEditable, False otherwise.
+    Returns False on non-Windows or when comtypes is unavailable.
+    """
+    if not is_windows():
+        return False
+    try:
+        import comtypes.client
+        UIA = comtypes.client.GetModule("UIAutomationCore.dll")
+        uia = comtypes.CoCreateInstance(
+            UIA.CUIAutomation._reg_clsid_,
+            interface=UIA.IUIAutomation,
+        )
+        focused = uia.GetFocusedElement()
+        if focused is None:
+            return False
+        # UIA_ControlTypePropertyId = 30003
+        control_type = focused.GetCurrentPropertyValue(30003)
+        # UIA_ControlType_Edit = 50004, UIA_ControlType_Document = 50036
+        # These are the control types that typically support contentEditable.
+        if control_type in (50004, 50036):
+            # Check if the element supports the Value pattern (text input)
+            # UIA_IsValuePatternAvailablePropertyId = 30101
+            has_value = focused.GetCurrentPropertyValue(30101)
+            if has_value:
+                return True
+        return False
+    except ImportError:
+        return False
+    except Exception:
+        return False
+
+
 class ClipboardManager:
     """Handles copying text to clipboard and pasting into the focused app."""
 
@@ -506,6 +548,20 @@ class ClipboardManager:
             # PLAT-014: check if the focused element is a password field
             if _is_password_field():
                 return False
+
+            # PLAT-CONTENT: check if the focused element is a
+            # contentEditable element (rich editor like Word, Gmail
+            # compose, etc.). We don't block paste — just log it so
+            # the user knows the paste target supports rich text and
+            # our plain-text paste may lose formatting.
+            try:
+                if _is_content_editable():
+                    log.info(
+                        "[CLIPBOARD] Paste target is a contentEditable element — "
+                        "pasting plain text (rich text formatting may be lost)"
+                    )
+            except Exception:
+                log.debug("[CLIPBOARD] contentEditable check failed", exc_info=True)
 
             return True
         except Exception:
