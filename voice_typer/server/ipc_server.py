@@ -1479,6 +1479,58 @@ class IPCServer:
                 resp["type"] = "error"
                 resp["data"] = {"message": str(e)}
 
+        elif cmd == "set_tray_locale":
+            # TRAY-008: Set the tray menu locale. Called by the Electron
+            # UI when the user changes the UI language in Settings.
+            # The tray menu is rebuilt on the next state change so the
+            # new labels take effect.
+            try:
+                from voice_typer.server.tray import set_tray_locale, get_tray_locale
+                locale = data if isinstance(data, str) else (data or {}).get("locale", "en")
+                set_tray_locale(locale)
+                # Force a tray menu rebuild so the new labels show immediately.
+                try:
+                    self.app.tray.invalidate_menu_cache()
+                except Exception:
+                    pass
+                resp["type"] = "ack"
+                resp["data"] = {"locale": get_tray_locale()}
+            except Exception as e:
+                log.error("[IPC] set_tray_locale failed: %s", e)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
+        elif cmd == "show_electron_notification":
+            # TRAY-035: Push a notification to the Electron UI for
+            # persistent/critical messages that need longer display
+            # than the OS-default ~5s tray notification. The Electron
+            # Notification API supports a `duration` parameter (via
+            # setTimeout auto-close) and can show a toast/banner that
+            # stays until dismissed.
+            try:
+                if not isinstance(data, dict):
+                    resp["type"] = "error"
+                    resp["data"] = {"message": "show_electron_notification requires data: object"}
+                    return resp
+                title = str(data.get("title", "Voice Typer"))
+                message = str(data.get("message", ""))
+                duration_ms = int(data.get("duration_ms", 0))  # 0 = persistent
+                critical = bool(data.get("critical", False))
+                _push_event_now({
+                    "type": "electron_notification",
+                    "data": {
+                        "title": title,
+                        "message": message,
+                        "duration_ms": duration_ms,
+                        "critical": critical,
+                    },
+                })
+                resp["type"] = "ack"
+            except Exception as e:
+                log.error("[IPC] show_electron_notification failed: %s", e)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
         else:
             resp["type"] = "error"
             # ERR-009: include a structured `code` field so clients can

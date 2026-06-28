@@ -42,9 +42,12 @@ from voice_typer.server.tray_menu import build_menu, display_hotkey, wrap_callba
 # ARCH-003: types extracted to tray_types.py; icon rendering to tray_icon.py
 from voice_typer.server.tray_types import AppState, TrayController
 
-# TRAY-008: Minimal localization dict for tray menu labels.
+# TRAY-008: Localization for tray menu labels.
 # Uses English as default. Wrap hardcoded strings with _() function.
-_TRAY_LABELS: dict[str, str] = {
+# To add a new language, extend _TRAY_LABELS_LOCALES with a new locale
+# dict and call set_tray_locale('es') from the IPC layer when the user
+# changes the UI language in Settings.
+_TRAY_LABELS_EN: dict[str, str] = {
     "toggle_dictation": "Toggle Dictation",
     "open_app": "Open App",
     "models": "Models",
@@ -60,16 +63,68 @@ _TRAY_LABELS: dict[str, str] = {
     "version": "version",
 }
 
+# TRAY-008: Spanish translations (proof of concept for tray i18n).
+_TRAY_LABELS_ES: dict[str, str] = {
+    "toggle_dictation": "Alternar Dictado",
+    "open_app": "Abrir Aplicación",
+    "models": "Modelos",
+    "restart": "Reiniciar",
+    "quit": "Salir",
+    "about": "Acerca de",
+    "diagnostics": "Diagnósticos",
+    "show_last_notification": "Mostrar Última Notificación",
+    "recording_active": "Grabación activa",
+    "confirm_quit": "¿Salir mientras graba?",
+    "confirm_quit_message": "Hay una grabación en curso. ¿Está seguro de que quiere salir?",
+    "update_available": "Actualización Disponible",
+    "version": "versión",
+}
+
+# TRAY-008: locale → label dict. Add new locales here.
+_TRAY_LABELS_LOCALES: dict[str, dict[str, str]] = {
+    "en": _TRAY_LABELS_EN,
+    "es": _TRAY_LABELS_ES,
+}
+
+# TRAY-008: current tray locale (defaults to English).
+_tray_locale: str = "en"
+
+
+def set_tray_locale(locale: str) -> None:
+    """TRAY-008: Set the tray menu locale.
+
+    Called by the IPC layer when the user changes the UI language in
+    Settings. Falls back to English if the locale is not supported.
+    After calling this, the tray menu must be rebuilt for the new
+    labels to take effect.
+    """
+    global _tray_locale
+    if locale in _TRAY_LABELS_LOCALES:
+        _tray_locale = locale
+    else:
+        _tray_locale = "en"
+
+
+def get_tray_locale() -> str:
+    """TRAY-008: Return the current tray locale."""
+    return _tray_locale
+
 
 def _(key: str) -> str:
     """TRAY-008: Return the localized tray label for the given key.
 
-    Falls back to the key itself if not found. This mirrors the i18n
-    approach used in the Electron frontend (i18n.ts). To add a new
-    language, extend _TRAY_LABELS with a locale-prefixed dict and
-    look up the current locale here.
+    Looks up the key in the current locale's label dict, falling back
+    to English, then to the key itself. This mirrors the i18n approach
+    used in the Electron frontend (i18n.ts).
     """
-    return _TRAY_LABELS.get(key, key)
+    labels = _TRAY_LABELS_LOCALES.get(_tray_locale, _TRAY_LABELS_EN)
+    if key in labels:
+        return labels[key]
+    # Fall back to English
+    if key in _TRAY_LABELS_EN:
+        return _TRAY_LABELS_EN[key]
+    # Last resort: return the key itself
+    return key
 
 
 log = logging.getLogger(__name__)
