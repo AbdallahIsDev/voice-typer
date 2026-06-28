@@ -49,6 +49,7 @@ from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
 # dict and call set_tray_locale('es') from the IPC layer when the user
 # changes the UI language in Settings.
 _TRAY_LABELS_EN: dict[str, str] = {
+    "app_name": "Voice Typer",
     "toggle_dictation": "Toggle Dictation",
     "open_app": "Open App",
     "models": "Models",
@@ -66,6 +67,7 @@ _TRAY_LABELS_EN: dict[str, str] = {
 
 # TRAY-008: Spanish translations (proof of concept for tray i18n).
 _TRAY_LABELS_ES: dict[str, str] = {
+    "app_name": "Voice Typer",
     "toggle_dictation": "Alternar Dictado",
     "open_app": "Abrir Aplicación",
     "models": "Modelos",
@@ -386,7 +388,15 @@ class TrayIcon:
             self._icon = pystray.Icon(
                 name="voice-typer",
                 icon=_make_icon(AppState.IDLE),
-                title="Voice Typer",
+                # PLAT-010: title serves as both tooltip AND accessible
+                # name for screen readers. pystray does not expose a
+                # separate accessible_name parameter — title is the
+                # canonical way to set the a11y label on all backends
+                # (Windows: NIF_TIP, macOS: accessibilityLabel, Linux:
+                # AppIndicator tooltip). The title is kept non-empty
+                # and localized via _() so screen readers announce the
+                # app name correctly.
+                title=_("app_name"),
                 menu=menu,
             )
         except TypeError as e:
