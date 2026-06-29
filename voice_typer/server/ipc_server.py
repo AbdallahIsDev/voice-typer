@@ -853,6 +853,20 @@ class IPCServer:
                     log.debug("[IPC] tray.invalidate_menu_cache failed", exc_info=True)
                 # ARCH-005: Delegate all side effects to the service layer
                 self.service.apply_config_side_effects(data)
+
+                # Push a config_changed event so the renderer (App.tsx)
+                # can update UI-local state (font-scale, theme, etc.)
+                # immediately instead of waiting for the next mount.
+                # The event carries the validated updates so the
+                # renderer doesn't need an extra get_config round-trip.
+                try:
+                    _push_event_now({
+                        "type": "config_changed",
+                        "data": validated,
+                    })
+                except Exception:
+                    log.debug("[IPC] config_changed push failed", exc_info=True)
+
                 resp["type"] = "ack"
                 # NEW-IPC-015: echo accepted + rejected keys so the
                 # renderer can show the user which fields were applied

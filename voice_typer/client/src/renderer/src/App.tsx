@@ -18,6 +18,7 @@ import AboutPage from '@/pages/About'
 // never imported, never rendered). Now wired in via the first-run check
 // in the connection lifecycle effect below.
 import OnboardingPage from '@/pages/Onboarding'
+import { applyThemeVars, deriveCustomVars, type CustomThemeData } from '@/themes'
 import { cn } from '@/lib/utils'
 import type { RecordingState, Page, WindowBridge } from '@/types/ipc'
 import type { VoiceTyperConfig } from '@/types/config'
@@ -150,6 +151,10 @@ export default function App() {
 
   const { call } = usePython()
   const [themeMode, setThemeMode] = useState<VoiceTyperConfig['theme_mode']>('system')
+  // Theme preset — a built-in colour-scheme layer on top of the current mode.
+  const [themePreset, setThemePreset] = useState<VoiceTyperConfig['theme_preset']>('default')
+  // Custom theme colours — used only when themePreset === 'custom'
+  const [customTheme, setCustomTheme] = useState<CustomThemeData | null>(null)
   // PLAT-017: text size state for UI scaling. Fetched from config on mount.
   const [textSize, setTextSize] = useState(14)
 
@@ -168,6 +173,13 @@ export default function App() {
         isDark = prefersDark.matches
       }
       document.documentElement.classList.toggle('dark', isDark)
+
+      // Apply theme preset CSS variable overrides on top of light/dark.
+      // For custom themes, derive full var set from the 6 core colours.
+      const customVars = themePreset === 'custom' && customTheme
+        ? (isDark ? deriveCustomVars(customTheme.dark, true) : deriveCustomVars(customTheme.light, false))
+        : null
+      applyThemeVars(themePreset, isDark, customVars)
     }
 
     // Apply current theme
@@ -181,7 +193,7 @@ export default function App() {
     }
     prefersDark.addEventListener('change', handler)
     return () => prefersDark.removeEventListener('change', handler)
-  }, [themeMode])
+  }, [themeMode, themePreset, customTheme])
 
   // PLAT-017: Apply text_size as a CSS custom property so the entire UI
   // scales proportionally. text_size=14 is the default (scale=1.0).
@@ -204,6 +216,10 @@ export default function App() {
       try {
         const cfg = await call<VoiceTyperConfig>('get_config')
         if (cfg?.theme_mode) setThemeMode(cfg.theme_mode)
+        // Theme preset
+        if (cfg?.theme_preset) setThemePreset(cfg.theme_preset)
+        // Custom theme colours
+        if (cfg?.custom_theme) setCustomTheme(cfg.custom_theme)
         // PLAT-017: load text_size from config for UI scaling
         if (cfg?.text_size) setTextSize(cfg.text_size)
       } catch { }
@@ -218,8 +234,21 @@ export default function App() {
   useEffect(() => {
     if (!bridge) return
     let cancelled = false
-    bridge.isMaximized().then((v) => { if (!cancelled) setIsMaximized(v) }).catch(() => { })
-    const unsub = bridge.onMaximizedChanged((v) => { if (!cancelled) setIsMaximized(v) })
+    bridge.isMaximized().then((v) => {
+      if (!cancelled) {
+        setIsMaximized(v)
+        // UX-045: toggle a class on the html element so the CSS border-radius
+        // on html is also removed when maximized (mirrors the wrapper div's
+        // !isMaximized && 'rounded-lg' logic).
+        document.documentElement.classList.toggle('is-maximized', v)
+      }
+    }).catch(() => { })
+    const unsub = bridge.onMaximizedChanged((v) => {
+      if (!cancelled) {
+        setIsMaximized(v)
+        document.documentElement.classList.toggle('is-maximized', v)
+      }
+    })
     return () => { cancelled = true; unsub() }
   }, [bridge])
 
@@ -366,7 +395,30 @@ export default function App() {
     if (typeof data?.message === 'string') {
       setLastError(data.message)
     }
-  }, []))  // ── Theme change handler (save to config) ─────────────────────
+  }, []))
+
+  // ── Config changed push (live UI updates) ───────────────────────────
+  // When the Python backend processes a set_config command, it pushes a
+  // config_changed event with the validated fields.  We update local UI
+  // state (text_size, theme_mode, etc.) immediately so the user sees the
+  // change without restarting the app.
+  usePythonEvent('config_changed', useCallback((data) => {
+    if (!data) return
+    if (typeof data.text_size === 'number') {
+      setTextSize(data.text_size)
+    }
+    if (typeof data.theme_mode === 'string') {
+      setThemeMode(data.theme_mode as VoiceTyperConfig['theme_mode'])
+    }
+    if (typeof data.theme_preset === 'string') {
+      setThemePreset(data.theme_preset as VoiceTyperConfig['theme_preset'])
+    }
+    if (data.custom_theme && typeof data.custom_theme === 'object') {
+      setCustomTheme(data.custom_theme as CustomThemeData)
+    }
+  }, []))
+
+  // ── Theme change handler (save to config) ─────────────────────
 
   const handleThemeChange = useCallback(async (mode: VoiceTyperConfig['theme_mode']): Promise<void> => {
     setThemeMode(mode)

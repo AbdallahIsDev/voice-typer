@@ -86,6 +86,15 @@ export interface ModelLoadedEvent {
   device: string
 }
 
+/** Pushed after every successful set_config so the renderer can
+ * update UI-local state (font-scale, theme, etc.) immediately
+ * without needing a full get_config round-trip. */
+export interface ConfigChangedEvent {
+  type: 'config_changed'
+  /** The validated subset of fields that were actually applied. */
+  data: Record<string, unknown>
+}
+
 export type PythonPushEvent =
   | StatusChangeEvent
   | ErrorEvent
@@ -94,6 +103,7 @@ export type PythonPushEvent =
   | RecordingStartedEvent
   | RecordingStoppedEvent
   | ModelLoadedEvent
+  | ConfigChangedEvent
 
 // ── Request messages (sent via window.python.call) ────────────────
 

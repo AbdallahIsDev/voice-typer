@@ -173,6 +173,19 @@
 
   html {
     @apply font-sans;
+    /* UX-045: persistent border-radius on the root html element.
+       The wrapper div in App.tsx applies rounded-lg via React className,
+       but that border-radius can flicker on close/hide because React
+       re-renders remove the class.  Applying border-radius directly to
+       html ensures the rounded window corners persist regardless of
+       React state, preventing the sharp-corner white flash.
+       When maximized, the .is-maximized class removes the radius
+       (mirrors the wrapper div's !isMaximized && 'rounded-lg' logic). */
+    border-radius: var(--radius-lg);
+  }
+
+  html.is-maximized {
+    border-radius: 0;
   }
 
   svg {

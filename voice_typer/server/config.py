@@ -552,6 +552,12 @@ class Config:
 
     # UX-008: Theme mode (system/light/dark)
     theme_mode: str = "system"
+    # Theme preset — a built-in colour scheme applied on top of the
+    # current theme_mode. "default" means no overrides.
+    theme_preset: str = "default"
+    # User-customised theme colours (only used when theme_preset == "custom").
+    # Stored as nested dict: {"light": {var: val, ...}, "dark": {var: val, ...}}
+    custom_theme: dict = None
 
     # UX-036: Accessibility
     high_contrast: bool = False
@@ -866,6 +872,7 @@ class Config:
             "parakeet_model_path",
             "bubble_position", "bubble_behavior",
             "audio_preset",
+            "theme_mode", "theme_preset",
         }
         defaults = cls()
 
@@ -1052,6 +1059,35 @@ def _make_enum_validator(allowed: set) -> ValidatorFn:
     return _validate
 
 
+def _make_custom_theme_validator() -> ValidatorFn:
+    """Validate a custom-theme dict: {light: {var: val, ...}, dark: {var: val, ...}}."""
+    KEY_KEYS = {"--background", "--foreground", "--primary", "--bg-subtle", "--border", "--text-muted"}
+
+    def _validate(v: object) -> Optional[str]:
+        if not isinstance(v, dict):
+            return "must be a dict"
+        for mode in ("light", "dark"):
+            mode_dict = v.get(mode)
+            if not isinstance(mode_dict, dict):
+                return f"field {mode!r} must be a dict"
+            for key in KEY_KEYS:
+                val = mode_dict.get(key)
+                if not isinstance(val, str):
+                    return f"{mode}.{key} must be a string, got {type(val).__name__}"
+                if not val.startswith("#"):
+                    return f"{mode}.{key} must be a hex colour (#rrggbb)"
+                # Basic hex validation: # followed by 6 hex digits, optionally 8 for alpha
+                hex_part = val[1:]
+                if len(hex_part) not in (6, 8):
+                    return f"{mode}.{key} must be 6 or 8 hex digits (got {len(hex_part)})"
+                try:
+                    int(hex_part, 16)
+                except ValueError:
+                    return f"{mode}.{key} is not a valid hex colour"
+        return None
+    return _validate
+
+
 def _make_url_validator(*, allow_empty: bool = False, max_len: int = _MAX_STRING_LEN) -> ValidatorFn:
     """Validate an HTTP(S) URL.
 
@@ -1195,6 +1231,8 @@ IPC_CONFIG_ALLOWLIST: dict = {
     # ── P3 Features / UX ──────────────────────────────────────────────
     "tray_left_click_action": (str, _make_enum_validator({"open_app", "toggle_dictation"})),
     "theme_mode":            (str, _make_enum_validator({"system", "light", "dark"})),
+    "theme_preset":          (str, _make_enum_validator({"default", "amoled", "nord", "dracula", "sepia", "solarized", "custom"})),
+    "custom_theme":          (dict, _make_custom_theme_validator()),
     "high_contrast":         (bool, _bool_validator),
     "text_size":             (int, _make_int_validator(lo=8, hi=72)),
 

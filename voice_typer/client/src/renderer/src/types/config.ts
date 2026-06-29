@@ -104,6 +104,8 @@ export interface VoiceTyperConfig {
 
   // Theme
   theme_mode: 'system' | 'light' | 'dark'
+  theme_preset: 'default' | 'amoled' | 'nord' | 'dracula' | 'sepia' | 'solarized' | 'custom'
+  custom_theme: { light: Record<string, string>; dark: Record<string, string> } | null
 
   // Accessibility
   high_contrast: boolean
@@ -111,9 +113,6 @@ export interface VoiceTyperConfig {
 
   // Wayland
   wayland_warned: boolean
-
-  // Fast startup
-  fast_startup: boolean
 
   // Silence / max recording
   silence_warning_seconds: number
