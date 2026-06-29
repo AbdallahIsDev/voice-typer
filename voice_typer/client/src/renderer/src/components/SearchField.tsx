@@ -24,7 +24,7 @@ export function SearchField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="pl-9 rounded-xl bg-(--bg-subtle)"
+        className="pl-9 rounded-xl bg-(--bg-subtle) border-border"
       />
       {value && (
         <button

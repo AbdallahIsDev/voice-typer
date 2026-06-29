@@ -17,7 +17,6 @@ import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import PageHeading from '@/components/PageHeading'
 import ConfirmDialog from '@/components/ConfirmDialog'
-import { InfoTooltip } from '@/components/InfoTooltip'
 import { cn } from '@/lib/utils'
 import type { VoiceTyperConfig } from '@/types/config'
 import { Spinner } from '@/components/Spinner'
@@ -356,8 +355,6 @@ export default function ModelsPage() {
           <HugeiconsIcon icon={Download01Icon} strokeWidth={2.25} className="h-4 w-4" />
           {allDownloaded ? 'All Downloaded' : 'Download Model'}
         </Button>
-        {/* UX-033: InfoTooltip on Download Model button */}
-        <InfoTooltip text="Download a speech recognition model for offline transcription. Larger models are more accurate but use more disk space." />
       </PageHeading>
 
       <div className="space-y-6">
