@@ -13,9 +13,9 @@ logon and again on idle.  It performs, in order, with **low I/O priority**
 so it never competes with the user's real work:
 
 1.  **Config / RAM guard.**  Bail out immediately if the user has disabled
-    ``fast_startup`` in Settings, or if free RAM is below the budget
-    (default 6 GB) — prewarming on a memory-starved machine would evict
-    the user's working set, which is the opposite of helpful.
+    the RAM guard: if free RAM is below the budget (default 6 GB) —
+    prewarming on a memory-starved machine would evict the user's
+    working set, which is the opposite of helpful.
 2.  **Import warmup.**  ``import torch`` + ``from transformers import
     AutoModelForTDT, AutoProcessor``.  This pages in ~4.5 GB of ``.pyc``,
     ``.dll``, and ``.pyd`` files.  The imported modules are then dropped
@@ -70,61 +70,33 @@ EXIT_IMPORT_FAILED = 40     # torch/transformers missing or broken
 def _setup_logging() -> None:
     """Minimal logging — prewarm runs detached, so log to the app log file.
 
-    PERF-NEW-011: previously this imported the full app.py (which
-    pulls in sounddevice, faster_whisper, pynput, pystray, PIL, etc.)
-    just to call _setup_logging().  That doubled the cold-start cost
-    of the prewarm task.  Now we replicate the logging setup locally
-    without importing app.py at all.
+    Uses the shared :func:`log.setup_logging` so the format is
+    consistent with the main app.  Avoids importing app.py to keep
+    prewarm's cold-start cost minimal.
     """
-    import os
-    from pathlib import Path
-    from datetime import datetime
-
+    from voice_typer.server.log import setup_logging as _setup_logging_shared
+    log_dir = Path.home() / ".voice-typer"
     try:
-        # Mirror app.py's _setup_logging: log to ~/.voice-typer/voice-typer.log
-        log_dir = Path.home() / ".voice-typer"
-        log_dir.mkdir(parents=True, exist_ok=True)
-        log_file = log_dir / "voice-typer.log"
-
-        # Use a rotating file handler so the log doesn't grow unbounded
-        from logging.handlers import RotatingFileHandler
-        handler = RotatingFileHandler(
-            str(log_file), maxBytes=2_000_000, backupCount=3, encoding="utf-8",
-        )
-        handler.setFormatter(logging.Formatter(
-            "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-        ))
-        root = logging.getLogger()
-        root.setLevel(logging.INFO)
-        # Remove any existing handlers to avoid duplicate logs
-        root.handlers.clear()
-        root.addHandler(handler)
+        _setup_logging_shared(log_dir)
     except Exception:
         # Fall back to bare stderr so the script is still usable standalone.
         logging.basicConfig(
             level=logging.INFO,
-            format="%(asctime)s [%(levelname)s] prewarm: %(message)s",
+            format="%(asctime)s [%(levelname)s] %(message)s",
             stream=sys.stderr,
         )
-    logging.getLogger("voice_typer").setLevel(logging.INFO)
 
 
 # ─── Guards ──────────────────────────────────────────────────────────────
 
 def _fast_startup_enabled() -> bool:
-    """Return True if the user's config has fast_startup enabled.
+    """Always return True — fast_startup is always enabled.
 
-    Defaults to True if the config can't be read (fail-open: the task is
-    registered precisely because the feature is on; a missing/corrupt
-    config should not defeat it).
+    The prewarm scheduled task and RAM guard (DEFAULT_MIN_FREE_RAM_MB)
+    handle themselves: if free RAM is below the budget, prewarm skips
+    with EXIT_LOW_RAM. There is no need for a user-facing toggle.
     """
-    try:
-        from voice_typer.server.config import Config
-        cfg = Config.load()
-        return bool(getattr(cfg, "fast_startup", True))
-    except Exception as exc:
-        log.warning("[PREWARM] Could not read config (fail-open=True): %s", exc)
-        return True
+    return True
 
 
 def _free_ram_mb() -> int | None:
@@ -445,7 +417,7 @@ def run(
     log.info("[PREWARM] starting (force=%s, min_ram_mb=%d)", force, min_ram_mb)
 
     if not force and not _fast_startup_enabled():
-        log.info("[PREWARM] fast_startup disabled in config — exiting")
+        log.info("[PREWARM] fast_startup disabled — exiting")
         return EXIT_DISABLED
 
     if not force:

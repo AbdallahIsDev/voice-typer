@@ -294,6 +294,12 @@ class Recorder:
         self._previous_chunk_pending: bool = False
         self._skipped_frames: int = 0
 
+        # HOTKEY-CRASH: generation counter incremented in stop() so stale
+        # device-disconnect handlers (launched from the audio callback) can
+        # detect they're operating on an already-stopped stream and bail out
+        # instead of racing with start()/stop().
+        self._stop_generation: int = 0
+
         # AUDIO-HOT: hot-plug device disconnect handling
         self._device_disconnected: bool = False
         self._device_disconnect_retries: int = 0
@@ -446,13 +452,30 @@ class Recorder:
             except Exception:
                 pass
 
-    def _handle_device_disconnect(self) -> None:
+    def _handle_device_disconnect(self, _captured_generation: int = 0) -> None:
         """Attempt to restart recording with the default device after a disconnect.
 
         AUDIO-HOT: Called when the audio callback detects a device disconnect
         (zero-filled indata or PortAudio error). Tries to restart with the
         system default device up to _max_disconnect_retries times.
+
+        HOTKEY-CRASH: Accepts ``_captured_generation`` — the value of
+        ``self._stop_generation`` when this handler was scheduled. If a
+        deliberate stop/start cycle happened between then and now, the
+        handler bails out immediately to avoid racing with the new stream.
         """
+        # HOTKEY-CRASH: if a stop/start cycle happened since this handler
+        # was scheduled, the stream has already been replaced. Bail out.
+        if _captured_generation != self._stop_generation:
+            log.debug("[RECORDING] Disconnect handler skipped — stop_generation changed (%d != %d)",
+                      _captured_generation, self._stop_generation)
+            return
+        # HOTKEY-CRASH: if recording was deliberately stopped since this
+        # handler was scheduled, don't restart.
+        if not self._recording_event.is_set():
+            log.debug("[RECORDING] Disconnect handler skipped — recording was deliberately stopped")
+            return
+
         self._device_disconnect_retries += 1
         if self._device_disconnect_retries > self._max_disconnect_retries:
             log.error(
@@ -1009,15 +1032,31 @@ class Recorder:
                     self._preroll_buffer.append(mono_preroll)
                 return
 
-            # AUDIO-HOT: detect device disconnect (zero-filled indata
-            # when device is still "open" but USB/BT was unplugged)
+            # HOTKEY-CRASH: detect device disconnect (zero-filled indata
+            # when device is still "open" but USB/BT was unplugged).
+            # Guard against false positives during rapid hotkey toggling:
+            # when stop() clears _recording_event, PortAudio may deliver
+            # zero-filled frames as the stream drains. We must NOT treat
+            # those as device disconnects, because _handle_device_disconnect
+            # would race with the deliberate stop() to close the stream.
             if np.all(indata == 0) and self._chunk_count > 10:
+                # HOTKEY-CRASH: double-check that recording is still active.
+                # The early-return check at the top of this callback passed,
+                # but stop() may have cleared _recording_event between that
+                # check and this point (both run on the same audio thread,
+                # but the Event flag change is visible immediately).
+                if not self._recording_event.is_set():
+                    return  # deliberate stop, not a disconnect
                 self._device_disconnected = True
                 log.warning("[RECORDING] Zero-filled indata detected — possible device disconnect")
                 # Schedule disconnect handling off the audio thread
+                # HOTKEY-CRASH: capture the current stop_generation so the
+                # handler can bail if a stop/start cycle happened in between.
+                _captured_gen = self._stop_generation
                 try:
                     threading.Thread(
                         target=self._handle_device_disconnect,
+                        kwargs={"_captured_generation": _captured_gen},
                         name="device-disconnect-handler",
                         daemon=True,
                     ).start()
@@ -1039,11 +1078,16 @@ class Recorder:
                         try:
                             sd.query_devices(current_device)
                         except Exception:
+                            # HOTKEY-CRASH: double-check recording is still active
+                            if not self._recording_event.is_set():
+                                return
                             log.warning("[RECORDING] Current device no longer available in query_devices — disconnect detected")
                             self._device_disconnected = True
+                            _captured_gen = self._stop_generation
                             try:
                                 threading.Thread(
                                     target=self._handle_device_disconnect,
+                                    kwargs={"_captured_generation": _captured_gen},
                                     name="device-disconnect-check",
                                     daemon=True,
                                 ).start()
@@ -1613,14 +1657,24 @@ class Recorder:
         stop_started = time.perf_counter()
         self._recording_event.clear()
 
+        # HOTKEY-CRASH: increment stop_generation so any stale disconnect
+        # handlers from the audio callback know to bail out.
+        self._stop_generation += 1
+
         # AUDIO-009/AUDIO-015: wait briefly for any in-flight audio
         # callback to complete before closing the stream. This prevents
         # PortAudio from calling the callback during/after stream.stop()
         # which can cause use-after-free or deadlock.
+        #
+        # HOTKEY-CRASH: use a retry loop with backoff (up to ~300ms total)
+        # instead of a single 50ms wait. Under rapid hotkey toggling, the
+        # callback might still be in-flight when we try to close the stream.
         if self._stream:
             self._stream.stop()
-            # Wait up to 50ms for the in-flight callback to finish
-            self._is_in_audio_callback.wait(timeout=0.05)
+            # Wait for the in-flight callback to finish, with retries.
+            for _wait_attempt in range(6):
+                if self._is_in_audio_callback.wait(timeout=0.05):
+                    break  # callback completed
             self._stream.close()
             self._stream = None
         stream_ms = (time.perf_counter() - stop_started) * 1000

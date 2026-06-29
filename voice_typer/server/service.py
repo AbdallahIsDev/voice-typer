@@ -784,13 +784,6 @@ class VoiceTyperService:
         app = self._app
         config = app.config
 
-        # Sync prewarm task if fast_startup changed
-        if "fast_startup" in updates:
-            try:
-                app._sync_prewarm_task()
-            except Exception as e:
-                log.warning("Failed to sync prewarm task: %s", e)
-
         # Sync autostart if autostart setting changed
         if "autostart" in updates:
             try:

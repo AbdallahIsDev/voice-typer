@@ -159,6 +159,31 @@ class ParakeetEngine:
             cls._imports_loaded = False
 
     @staticmethod
+    def _should_force_cpu() -> bool:
+        """Check disk space on system drive — if under 500MB, force CPU.
+
+        CUDA on Windows needs pagefile space to back GPU memory allocations.
+        When the system drive is nearly full, Windows can't grow the pagefile,
+        causing error 1455. This check avoids that error and gives a clean
+        warning instead.
+        """
+        try:
+            import psutil
+            system_drive = os.environ.get("SystemDrive", "C:") + "\\"
+            usage = psutil.disk_usage(system_drive)
+            free_mb = usage.free // (1024 * 1024)
+            if free_mb < 500:
+                log.warning(
+                    "[PARAKEET] Only %d MB free on %s — forcing CPU "
+                    "(CUDA needs pagefile space to allocate GPU memory)",
+                    free_mb, system_drive,
+                )
+                return True
+        except Exception:
+            pass
+        return False
+
+    @staticmethod
     def _is_cached() -> bool:
         """Quick check if model is in HF cache without calling snapshot_download."""
         # NEW-DEAD-027: use config._config_dir() directly instead of
@@ -257,6 +282,8 @@ class ParakeetEngine:
                 if effective_device == "cuda" and not self._torch.cuda.is_available():
                     log.warning("[PARAKEET] CUDA requested but not available, falling back to CPU")
                     effective_device = "cpu"
+                if effective_device == "cuda" and self._should_force_cpu():
+                    effective_device = "cpu"
 
                 # Suppress Transformers' tqdm progress bar
                 from contextlib import redirect_stderr
@@ -268,16 +295,33 @@ class ParakeetEngine:
                         _PARAKERT_MODEL_ID,
                         local_files_only=True,
                     )
-                    self._model = self._AutoModelForTDT.from_pretrained(
-                        _PARAKERT_MODEL_ID,
-                        # NEW-CQ-010: use dtype= which is canonical across
-                        # modern transformers (torch_dtype was a deprecated
-                        # alias removed in recent versions).
-                        dtype=self._torch.float16 if effective_device == "cuda" else self._torch.float32,
-                        device_map=effective_device,
-                        low_cpu_mem_usage=True,
-                        local_files_only=True,
-                    )
+
+                    try:
+                        self._model = self._AutoModelForTDT.from_pretrained(
+                            _PARAKERT_MODEL_ID,
+                            dtype=self._torch.float16 if effective_device == "cuda" else self._torch.float32,
+                            device_map=effective_device,
+                            low_cpu_mem_usage=True,
+                            local_files_only=True,
+                        )
+                    except Exception as cuda_exc:
+                        err_str = str(cuda_exc).lower()
+                        if effective_device == "cuda" and ("1455" in err_str or "paging file" in err_str):
+                            log.warning(
+                                "[PARAKEET] CUDA allocation failed (pagefile), retrying on CPU: %s",
+                                cuda_exc,
+                            )
+                            if progress_callback:
+                                progress_callback("CUDA memory error, retrying on CPU...")
+                            self._model = self._AutoModelForTDT.from_pretrained(
+                                _PARAKERT_MODEL_ID,
+                                dtype=self._torch.float32,
+                                device_map="cpu",
+                                low_cpu_mem_usage=True,
+                                local_files_only=True,
+                            )
+                        else:
+                            raise
 
                 log.info("[PARAKEET] Model loaded successfully")
                 if progress_callback:

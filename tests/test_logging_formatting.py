@@ -28,7 +28,7 @@ for _mod in (
     if _mod not in sys.modules:
         sys.modules[_mod] = MagicMock()
 
-from voice_typer.server.app import _ColorFormatter
+from voice_typer.server.log import _ColorFormatter, _TOPIC_COLOR
 
 
 _LOG_METHODS = {"debug", "info", "warning", "error", "exception", "critical"}
@@ -73,7 +73,7 @@ def test_audio_log_topics_have_color_entries() -> None:
     }
 
     for topic, color_code in expected.items():
-        assert _ColorFormatter._TOPIC_COLOR.get(topic) == color_code
+        assert _TOPIC_COLOR.get(topic) == color_code
 
         record = logging.LogRecord(
             name="voice_typer",

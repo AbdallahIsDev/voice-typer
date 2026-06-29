@@ -24,6 +24,7 @@ def default_config() -> AudioProcessorConfig:
         noise_gate_hold_ms=300.0,
         rnnoise=False,
         post_capture=False,  # OFF by default in tests (noisereduce may be missing)
+        normalize_audio=False,  # OFF in tests so normalization doesn't undo filter effects
     )
 
 

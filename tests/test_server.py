@@ -667,15 +667,16 @@ class TestDispatchSetConfigAllowlist:
 
     # ── Side-effects still fire when allowlisted fields change ────────
 
-    def test_side_effect_prewarm_fires_on_fast_startup_change(self, real_server, real_config):
-        # fast_startup default is True; flip to False
+    def test_fast_startup_is_always_enabled_and_not_mutable(self, real_server, real_config):
+        """fast_startup is no longer in the IPC_CONFIG_ALLOWLIST — sending
+        it via set_config should silently drop it (ack, no side effects)."""
         result = real_server._dispatch({
             "id": 1, "type": "set_config",
             "data": {"fast_startup": False},
         })
-        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
-        real_server.app._sync_prewarm_task.assert_called_once()
-        assert real_config.fast_startup is False
+        assert result["type"] == "ack"  # silently dropped
+        real_server.app._sync_prewarm_task.assert_not_called()
+        assert real_config.fast_startup is True  # default, unchanged
 
     def test_side_effect_autostart_fires_on_autostart_change(self, real_server, real_config):
         result = real_server._dispatch({

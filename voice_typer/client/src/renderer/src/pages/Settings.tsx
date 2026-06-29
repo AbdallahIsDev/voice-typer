@@ -353,9 +353,7 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
         {/* ── SECTION: General ──────────────────────────────────── */}
         {_section_has_visible_items([
           { label: 'Launch at Login', info: 'Automatically start Voice Typer when you log into Windows.' },
-          { label: 'Fast Startup', info: 'Keep the speech model cached between restarts so the app is ready faster. Recommended.' },
           { label: 'Notifications', info: 'Show a desktop notification when transcription completes or an error occurs.' },
-          { label: 'Theme', info: 'Choose between light, dark, or follow your system setting.' },
           { label: 'Tray Click', info: 'What happens when you left-click the Voice Typer icon in the system tray.' },
         ]) && (
         <SettingsSection
@@ -412,19 +410,6 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
             </Select>
           </SettingRow>
 
-          {_filter_settings('Fast Startup', 'Keep the speech model cached') && (
-          <SettingRow
-            label="Fast Startup"
-            info="Keep the speech model cached between restarts so the app is ready faster. Recommended."
-          >
-            <Switch
-              checked={config.fast_startup ?? true}
-              onCheckedChange={(checked) => updateConfig({ fast_startup: checked })}
-              aria-label="Fast Startup"
-            />
-          </SettingRow>
-          )}
-
           {_filter_settings('Notifications', 'Show a desktop notification') && (
           <SettingRow label="Notifications" info="Show a desktop notification when transcription completes or an error occurs.">
             <Switch
@@ -432,15 +417,6 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
               onCheckedChange={(checked) => updateConfig({ show_notifications: checked })}
               aria-label="Notifications"
             />
-          </SettingRow>
-          )}
-
-          {_filter_settings('Theme', 'Choose between light, dark') && (
-          <SettingRow label="Theme" info="Choose between light, dark, or follow your system setting. Use the theme picker in the sidebar for quick access.">
-            <span className="text-sm text-(--text-muted)">
-              {config.theme_mode === 'system' ? 'System' : config.theme_mode === 'dark' ? 'Dark' : 'Light'}
-              {' (change in sidebar)'}
-            </span>
           </SettingRow>
           )}
 

@@ -808,14 +808,6 @@ class IPCServer:
                 # and which were silently dropped (unknown keys).
                 accepted_keys = list(validated.keys())
                 rejected_keys = [k for k in data.keys() if k not in validated]
-                # Side-effect: live-register/unregister the prewarm
-                # scheduled task when fast_startup changes, so the
-                # Settings toggle takes effect without a restart.
-                if (
-                    "fast_startup" in validated
-                    and validated["fast_startup"] != getattr(self.app.config, "fast_startup", None)
-                ):
-                    self.app.config.fast_startup = bool(validated["fast_startup"])
                 # NEW-IPC-016: when model_size or asr_backend changes,
                 # apply it to the active engine so the next dictation
                 # uses the new model without requiring a restart.

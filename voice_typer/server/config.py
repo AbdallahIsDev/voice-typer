@@ -560,12 +560,6 @@ class Config:
     # Wayland hotkey fallback warning
     wayland_warned: bool = False
 
-    # Fast startup: keep torch + transformers + model weights in the OS
-    # file cache by running a low-priority prewarm on login/idle.  Cuts
-    # cold-boot startup from ~45s to a few seconds.  Disable on low-RAM
-    # machines where pinning ~6 GB of file cache is undesirable.
-    fast_startup: bool = True
-
     # Silent mic disconnection (H12)
     silence_warning_seconds: float = 20.0
     silence_auto_stop_seconds: float = 120.0
@@ -849,7 +843,6 @@ class Config:
             "crash_recovery_enabled", "audio_quality_warnings",
             "templates_enabled", "vocabulary_enabled",
             "waveform_bubble", "onboarding_completed", "onboarding_failed", "wayland_warned",
-            "fast_startup",
             "bubble_draggable", "bubble_show_on_startup",
             "volume_duck_enabled", "volume_duck_per_session",
             "volume_duck_smart",
@@ -1204,9 +1197,6 @@ IPC_CONFIG_ALLOWLIST: dict = {
     "theme_mode":            (str, _make_enum_validator({"system", "light", "dark"})),
     "high_contrast":         (bool, _bool_validator),
     "text_size":             (int, _make_int_validator(lo=8, hi=72)),
-
-    # ── Fast startup ──────────────────────────────────────────────────
-    "fast_startup":          (bool, _bool_validator),
 
     # ── Silent mic disconnection (H12) ────────────────────────────────
     "silence_warning_seconds":    (float, _make_float_validator(lo=0.0, hi=600.0)),

@@ -21,30 +21,15 @@ from voice_typer.server import prewarm
 class TestGuards:
     """Config flag and RAM budget guards short-circuit prewarming safely."""
 
-    def test_disabled_config_returns_exit_disabled(self, monkeypatch, tmp_path):
-        """When config.fast_startup is False, run() returns EXIT_DISABLED."""
-        fake_cfg = MagicMock(fast_startup=False)
-        monkeypatch.setattr(
-            "voice_typer.server.config.Config.load",
-            classmethod(lambda cls: fake_cfg),
-        )
-        monkeypatch.setattr(prewarm, "_setup_logging", lambda: None)
-        assert prewarm.run() == prewarm.EXIT_DISABLED
-
-    def test_enabled_config_proceeds_past_flag(self, monkeypatch):
-        """When fast_startup is True, the flag check passes (then other
-        guards/import failures take over — we only assert it isn't the
-        flag that stopped us)."""
-        fake_cfg = MagicMock(fast_startup=True)
-        monkeypatch.setattr(
-            "voice_typer.server.config.Config.load",
-            classmethod(lambda cls: fake_cfg),
-        )
+    def test_fast_startup_always_enabled_bypasses_flag(self, monkeypatch):
+        """fast_startup is always enabled — the flag check always passes.
+        Guards/import failures take over (we only assert it isn't
+        EXIT_DISABLED)."""
         monkeypatch.setattr(prewarm, "_setup_logging", lambda: None)
         # Force a low-RAM skip so we don't do real work.
         monkeypatch.setattr(prewarm, "_free_ram_mb", lambda: 100)
         result = prewarm.run(min_ram_mb=1024)
-        assert result == prewarm.EXIT_LOW_RAM  # flag was NOT the stopper
+        assert result == prewarm.EXIT_LOW_RAM  # flag is always bypassed
 
     def test_low_ram_returns_exit_low_ram(self, monkeypatch):
         """Free RAM below budget → EXIT_LOW_RAM, no prewarming attempted."""
@@ -207,16 +192,11 @@ class TestCli:
         assert args.min_ram_mb == 2048
 
     def test_main_returns_exit_code(self, monkeypatch):
-        """main() returns run()'s exit code (disabled config → EXIT_DISABLED)."""
-        fake_cfg = MagicMock(fast_startup=False)
-        monkeypatch.setattr(
-            "voice_typer.server.config.Config.load",
-            classmethod(lambda cls: fake_cfg),
-        )
+        """main() returns run()'s exit code (low RAM guard)."""
         monkeypatch.setattr(prewarm, "_setup_logging", lambda: None)
-        # main() calls _parse_args() which reads sys.argv — isolate it.
+        monkeypatch.setattr(prewarm, "_free_ram_mb", lambda: 100)
         monkeypatch.setattr(sys, "argv", ["prewarm"])
-        assert prewarm.main() == prewarm.EXIT_DISABLED
+        assert prewarm.main() == prewarm.EXIT_LOW_RAM
 
 
 # ─── STARTUP-4: active-model filter ─────────────────────────────────────

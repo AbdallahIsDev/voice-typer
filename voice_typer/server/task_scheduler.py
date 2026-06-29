@@ -518,7 +518,7 @@ def unregister_prewarm_task() -> bool:
     Returns True if prewarm is fully removed (or was never present).  We
     always clean up both mechanisms: a standard user may not be able to
     delete a locked Task Scheduler task, but the Run key is always
-    user-writable, so disabling fast_startup reliably stops the prewarm.
+    user-writable, so the prewarm is reliably managed.
 
     STARTUP-5: on macOS/Linux, delegates to prewarm_scheduler_posix.
 
@@ -550,8 +550,8 @@ def unregister_prewarm_task() -> bool:
         # A locked task the standard user can't delete.  The Run-key path
         # below still succeeds, and the next logon won't relaunch prewarm
         # from the registry.  The orphaned task is inert: it points at our
-        # prewarm module which honours the fast_startup config flag, so it
-        # will exit early (EXIT_DISABLED) once the setting is off.
+        # The prewarm module skips when free RAM is low (EXIT_LOW_RAM).
+        # The scheduled task is harmless otherwise.
         log.warning(
             "[TASK] Cannot delete locked scheduled task without admin; "
             "the Run-key fallback is removed and prewarm will no-op via config."

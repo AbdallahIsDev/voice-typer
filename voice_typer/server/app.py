@@ -37,6 +37,10 @@ from voice_typer.server.platform import (
 from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
 from voice_typer.server.recording import Recorder
 from voice_typer.server.settings import SettingsController, SettingsWindow
+from voice_typer.server.log import (
+    close_devnull_files as _close_devnull_files,
+    register_devnull_file as _register_devnull_file,
+)
 from voice_typer.server.streaming import StreamingConfig, StreamingTranscriptionSession
 from voice_typer.server.text_cleanup import clean_transcribed_text, configure_corrections
 from voice_typer.server.tray import AppState, TrayIcon
@@ -46,184 +50,15 @@ from voice_typer.server.waveform import WaveformBubble
 
 log = logging.getLogger("voice_typer")
 
-# Module-level list of devnull file objects opened by _setup_logging()
-# for pythonw.exe (where sys.stderr/stdout/stdin are None).
-# Closed explicitly in VoiceTyperApp.quit() for clean shutdown.
-# Item 3: module-level mutable globals replaced with a class instance.
-# Previously _devnull_files and _session_id were module-level lists/strings
-# that tests shared, causing FD leaks and cross-test contamination.
-# Now they're encapsulated in _ProcessState, which is instantiated once
-# per process (module-level singleton) but can be reset in tests.
-class _ProcessState:
-    """Encapsulates process-level mutable state that was previously
-    module-level globals.  Item 3: prevents test cross-contamination."""
-    def __init__(self):
-        self.devnull_files: list = []
-        self.session_id: str = ""
-
-    def reset(self):
-        """Reset state — called by tests to avoid cross-test contamination."""
-        for f in self.devnull_files:
-            try:
-                f.close()
-            except Exception:
-                pass
-        self.devnull_files.clear()
-        self.session_id = ""
 
 
-_process_state = _ProcessState()
-
-# Session ID for structured logging (P5)
 
 
-class _SessionFilter(logging.Filter):
-    """Inject session_id and component into every log record."""
 
-    def filter(self, record):
-        if not hasattr(record, "session_id"):
-            record.session_id = _process_state.session_id
-        if not hasattr(record, "component"):
-            record.component = record.name
-        return True
-
-
-# SEC-009: PII redaction moved to voice_typer.server.security
-from voice_typer.server.security import PIIRedactionFilter as _PIIRedactionFilter
-
-
-class _ColorFormatter(logging.Formatter):
-    """ANSI-colored formatter for stderr. No extra dependencies.
-
-    Design:
-      - timestamp dimmed to recede visually
-      - INFO level label omitted (redundant on ~every line)
-      - WARN/ERR full-line colored with level label
-      - Lines with bracketed prefix (e.g. [PARAKEET]) get topic color
-      - Lines without brackets infer topic from message content
-    """
-
-    _DIM = "38;5;242"  # grey for timestamp
-    _LVL_COLOR = {
-        logging.WARNING: "38;5;214",
-        logging.ERROR: "38;5;196",
-        logging.CRITICAL: "38;5;196;1",
-    }
-    _LVL_SYM = {
-        logging.WARNING: "WARN",
-        logging.ERROR: "ERR",
-        logging.CRITICAL: "FATAL",
-    }
-    _TOPIC_COLOR = {
-        "PARAKEET": "38;5;69",
-        "QWEN": "38;5;69",          # same blue -- ASR engine family
-        "MODEL": "38;5;69",
-        "CUDA-PROBE": "38;5;75",      # lighter blue -- hardware verification
-        "HOTKEY": "38;5;141",
-        "HOTKEY FIRED": "38;5;141",
-        "HOTKEY FALLBACK": "38;5;141",
-        "RECORDING": "38;5;79",
-        "AUDIO_QUALITY": "38;5;215",
-        "DICTATION": "38;5;215",
-        "TRANSCRIBE": "38;5;120",
-        "VOLUME": "38;5;111",
-        "VAD": "38;5;245",
-        "CLIPBOARD": "38;5;120",    # paste pipeline -- same green as TRANSCRIBE
-        "STARTUP": "38;5;103",
-        "STREAMING": "38;5;110",
-        "CLOUD": "38;5;110",        # cloud engines -- same light blue as STREAMING
-        "FOCUS": "38;5;102",
-        "CLEANUP": "38;5;102",
-        "TEMPLATE": "38;5;102",
-        "WIN32": "38;5;102",
-        "SIGNAL": "38;5;102",
-        "HISTORY": "38;5;102",
-        "HISTORY_DB": "38;5;102",
-        "SHUTDOWN": "38;5;95",      # brownish dim -- distinct from infra grey
-        "QUIT": "38;5;95",
-        "RESTART": "38;5;95",
-        "CANCEL": "38;5;215",       # same orange as DICTATION
-        "REPASTE": "38;5;120",      # same green as TRANSCRIBE
-        "CONFIG": "38;5;102",
-        "TRAY": "38;5;102",
-        "LLM_POLISH": "38;5;140",
-        "ASR_REGISTRY": "38;5;141",   # purple-blue — engine bootstrap
-        "ASR_SETUP": "38;5;102",
-        "WAVEFORM": "38;5;102",
-        "ONBOARDING": "38;5;102",
-        "RECOVERY": "38;5;102",
-        "ATEXIT": "38;5;102",
-        "PIPELINE": "38;5;102",
-        "IPC": "38;5;102",
-        "TCP": "38;5;244",
-    }
-    # For unlabeled lines, infer topic from keyword presence.
-    # First match wins -- order matters (list narrower keywords first).
-    _TOPIC_KEYWORDS: dict[str, list[str]] = {
-        "PARAKEET": ["parakeet", "loading model", "model loaded", "loaded successfully"],
-        "STARTUP": ["voice typer starting", "startup", "tray icon created",
-                    "tray event loop", "entering tray", "found microphone"],
-        "HOTKEY": ["hotkey", "register", "unregister", "polling", "getasynckeystate",
-                   "platform is win32", "key-down", "vk=0x"],
-        "DICTATION": ["dictation", "recording started", "recording stopped",
-                      "starting recording", "stopping recording"],
-        "RECORDING": ["microphone", "device query", "native rate", "resampl",
-                      "buffer telemetry", "audio captured", "silence", "chunk"],
-        "TRANSCRIBE": ["transcrib", "transcription thread", "transcription complete",
-                       "transcription failed", "clipboard", "paste"],
-        "SHUTDOWN": ["shutdown", "stopping", "stopped", "exiting", "tray icon stopped",
-                     "unregisterhotkey"],
-        "WIN32": ["console control handler"],
-        "HISTORY": ["history database"],
-    }
-
-    def _infer_topic(self, msg: str) -> str | None:
-        lower = msg.lower()
-        for topic, keywords in self._TOPIC_KEYWORDS.items():
-            for kw in keywords:
-                if kw in lower:
-                    return topic
-        return None
-
-    def format(self, record):
-        ts = self.formatTime(record, "%I:%M:%S")
-        if ts[0] == "0":
-            ts = ts[1:]
-        msg = record.getMessage()
-
-        # Extract bracketed topic prefix (e.g. [PARAKEET])
-        topic = None
-        content = msg
-        if msg.startswith("[") and "]" in msg:
-            close = msg.index("]")
-            topic = msg[1:close]
-            content = msg[close + 1:].lstrip()
-
-        if record.levelno >= logging.WARNING:
-            c = self._LVL_COLOR.get(record.levelno, "0")
-            sym = self._LVL_SYM.get(record.levelno, "????")
-            return f"\033[{c}m{ts}  {sym} {msg}\033[0m"
-
-        # INFO -- dim timestamp, no level label, full line colored by topic
-        prefix = f"\033[{self._DIM}m{ts}\033[0m"
-        tc = None
-        if topic:
-            tc = self._TOPIC_COLOR.get(topic)
-        elif not topic:
-            inferred = self._infer_topic(msg)
-            if inferred:
-                tc = self._TOPIC_COLOR.get(inferred)
-
-        indent = "  "
-        if tc:
-            body = f"\033[{tc}m{msg}\033[0m"
-        else:
-            body = msg
-        return f"{prefix}{indent}{body}"
 
 
 def _setup_logging():
-    """Configure logging to file (not console, since we run as tray app).
+    """Configure logging (delegates to ``log.setup_logging``).
 
     CQ-007: Structure overview:
       1. Redirect stdin/stdout/stderr to devnull under pythonw.exe
@@ -235,47 +70,26 @@ def _setup_logging():
       7. Optional colored stderr StreamHandler
       8. PROD-020: VOICE_TYPER_QUIET env var for reduced verbosity
     """
-
-    # Under pythonw.exe (e.g. Windows autostart), sys.stderr/stdout/stdin
-    # are None.  Redirect them to devnull immediately so any accidental
-    # writes don't crash the process.
-    if sys.stderr is None:
-        sys.stderr = open(os.devnull, "w", encoding="utf-8", errors="replace")
-        _process_state.devnull_files.append(sys.stderr)
-    if sys.stdout is None:
-        sys.stdout = open(os.devnull, "w", encoding="utf-8", errors="replace")
-        _process_state.devnull_files.append(sys.stdout)
-    if sys.stdin is None:
-        sys.stdin = open(os.devnull, "r", encoding="utf-8")
-        _process_state.devnull_files.append(sys.stdin)
+    from voice_typer.server.log import setup_logging as _setup_logging_shared
 
     # One-time migration from legacy platform config dir
     _migrate_from_legacy()
 
-    # Generate session ID for structured logging (P5)
-    _process_state.session_id = uuid.uuid4().hex[:8]
-
     config_dir = _config_dir()
-    config_dir.mkdir(parents=True, exist_ok=True)
 
     # Point huggingface_hub cache under .voice-typer/ instead of ~/.cache/
     os.environ.setdefault("HF_HOME", str(config_dir / "huggingface"))
 
-    log_file = config_dir / "voice-typer.log"
+    debug = os.environ.get("VOICE_TYPER_DEBUG", "").lower() in ("1", "true", "yes")
+    quiet = os.environ.get("VOICE_TYPER_QUIET", "").lower() in ("1", "true", "yes")
+    port_mode = "--port" in sys.argv
 
-    handler = logging.handlers.RotatingFileHandler(
-        log_file, maxBytes=1_000_000, backupCount=2,
+    _setup_logging_shared(
+        config_dir,
+        debug=debug,
+        quiet=quiet,
+        port_mode=port_mode,
     )
-    fmt = "%(asctime)s [%(levelname)s] [%(session_id)s] %(component)s: %(message)s"
-    handler.setFormatter(
-        logging.Formatter(fmt, defaults={"session_id": "", "component": ""})
-    )
-
-    root = logging.getLogger("voice_typer")
-    root.setLevel(logging.DEBUG)
-    root.addHandler(handler)
-    root.addFilter(_SessionFilter())
-    root.addFilter(_PIIRedactionFilter())
 
     # PLAT-008: validate environment variables before consuming them
     _validate_env_vars()
@@ -283,37 +97,6 @@ def _setup_logging():
     # PLAT-021: detect container environments and warn about unavailable features
     from voice_typer.server.container_detect import warn_if_in_container
     warn_if_in_container()
-
-    # PROD-020: Enterprise users can disable verbose telemetry logging
-    if os.environ.get("VOICE_TYPER_QUIET", "").lower() in ("1", "true", "yes"):
-        root.setLevel(logging.WARNING)
-
-    # Fix stderr encoding error handler so Unicode chars (Cyrillic, emoji,
-    # etc.) don't crash logging.  Windows console uses cp1252 by default
-    # which can't encode most non-Latin scripts.
-    if sys.stderr is not None and hasattr(sys.stderr, "reconfigure"):
-        try:
-            sys.stderr.reconfigure(errors="backslashreplace")
-        except OSError:
-            pass
-
-    # Log to stderr with ANSI colors (terminal or --port mode).
-    do_color = sys.stderr.isatty() or ("--port" in sys.argv)
-    if sys.stderr is not None and do_color:
-        stream = logging.StreamHandler()
-        debug_mode = os.environ.get("VOICE_TYPER_DEBUG", "").lower() in ("1", "true", "yes")
-        stream.setLevel(logging.DEBUG if debug_mode else logging.INFO)
-        stream.setFormatter(_ColorFormatter())
-        root.addHandler(stream)
-
-        # LOG-006: configure third-party loggers (transformers, torch)
-        # to use our colored stderr formatter instead of their own
-        # bare-handler output that lacks timestamps and colors.
-        for lib in ("transformers", "torch", "huggingface_hub"):
-            lib_logger = logging.getLogger(lib)
-            lib_logger.setLevel(logging.WARNING)
-            lib_logger.handlers.clear()
-            lib_logger.propagate = True
 
 
 # ─── PLAT-008: Environment variable validation ────────────────────────
@@ -336,7 +119,7 @@ def _validate_env_vars() -> None:
         val = os.environ.get(var)
         if val is not None and not _BOOL_PATTERN.match(val):
             log.warning(
-                "[ENV] Invalid value for %s=%r — expected boolean (1/0/true/false/yes/no). Resetting to empty.",
+                "[ENV] Invalid value for %s=%r -- expected boolean (1/0/true/false/yes/no). Resetting to empty.",
                 var, val,
             )
             os.environ.pop(var, None)
@@ -344,15 +127,14 @@ def _validate_env_vars() -> None:
     restart_val = os.environ.get("VOICE_TYPER_RESTART")
     if restart_val is not None and not _TOKEN_PATTERN.match(restart_val):
         log.warning(
-            "[ENV] Invalid value for VOICE_TYPER_RESTART=%r — expected alphanumeric token. Resetting to empty.",
-            restart_val,
+            "[ENV] Invalid value for VOICE_TYPER_RESTART=<redacted> -- expected alphanumeric token. Resetting to empty.",
         )
         os.environ.pop("VOICE_TYPER_RESTART", None)
 
     config_dir = os.environ.get("VOICE_TYPER_CONFIG_DIR")
     if config_dir is not None and (not _PATH_PATTERN.match(config_dir) or len(config_dir) > 4096):
         log.warning(
-            "[ENV] Invalid value for VOICE_TYPER_CONFIG_DIR=%r — expected valid path. Resetting to empty.",
+            "[ENV] Invalid value for VOICE_TYPER_CONFIG_DIR=%r -- expected valid path. Resetting to empty.",
             config_dir,
         )
         os.environ.pop("VOICE_TYPER_CONFIG_DIR", None)
@@ -360,8 +142,7 @@ def _validate_env_vars() -> None:
     ipc_token = os.environ.get("VOICE_TYPER_IPC_TOKEN")
     if ipc_token is not None and not _TOKEN_PATTERN.match(ipc_token):
         log.warning(
-            "[ENV] Invalid value for VOICE_TYPER_IPC_TOKEN=%r — expected alphanumeric token. Resetting to empty.",
-            ipc_token,
+            "[ENV] Invalid value for VOICE_TYPER_IPC_TOKEN=<redacted> -- expected alphanumeric token. Resetting to empty.",
         )
         os.environ.pop("VOICE_TYPER_IPC_TOKEN", None)
 
@@ -373,7 +154,7 @@ def _validate_env_vars() -> None:
     hf_home = os.environ.get("HF_HOME")
     if hf_home is not None and (not _PATH_PATTERN.match(hf_home) or len(hf_home) > 4096):
         log.warning(
-            "[ENV] Invalid value for HF_HOME=%r — expected valid path. Resetting to empty.",
+            "[ENV] Invalid value for HF_HOME=%r -- expected valid path. Resetting to empty.",
             hf_home,
         )
         os.environ.pop("HF_HOME", None)
@@ -1121,9 +902,11 @@ class VoiceTyperApp:
             log.info("[STARTUP] _shutting_down after autostart sync, aborting")
             return
 
-        # 1b. Sync the OS-level prewarm scheduled task with config.fast_startup.
-        #     Cheap (a single schtasks /Query) and self-healing: if the user
-        #     deleted the task or moved machines, it gets re-registered.
+        # 1b. Sync the OS-level prewarm scheduled task.
+        #     fast_startup is always enabled; the prewarm task is registered
+        #     at startup so the OS file cache is kept warm.  Cheap (a single
+        #     schtasks /Query) and self-healing: if the user deleted the task
+        #     or moved machines, it gets re-registered.
         #
         # PERF-NEW-030: prewarm sync + mic enumeration are independent
         # I/O-bound tasks. Run them in parallel on a ThreadPoolExecutor
@@ -1238,29 +1021,27 @@ class VoiceTyperApp:
             log.warning("[CONFIG] Autostart sync failed: %s", e)
 
     def _sync_prewarm_task(self, shutdown_event=None) -> None:
-        """Ensure the OS prewarm scheduled task matches config.fast_startup.
+        """Ensure the OS prewarm scheduled task is registered.
 
-        Like ``_sync_autostart``, this reconciles the user's setting with
-        the actual platform state.  On non-Windows platforms it is a no-op.
+        fast_startup is always enabled (no user toggle). The prewarm
+        task is registered at startup so the OS file cache is kept
+        warm for fast cold-boot. Falls back gracefully if the platform
+        doesn't support scheduled tasks (non-Windows).
 
         RACE-020: accepts an optional shutdown_event so the task can
         abort early if the app is quitting during startup.
         """
         if not task_scheduler.is_supported():
             return
-        # RACE-020: abort early if shutting down
         if shutdown_event is not None and shutdown_event.is_set():
             return
         try:
             registered = task_scheduler.is_prewarm_registered()
             if shutdown_event is not None and shutdown_event.is_set():
                 return
-            if self.config.fast_startup and not registered:
-                log.info("[CONFIG] fast_startup enabled -- registering prewarm task")
+            if not registered:
+                log.info("[CONFIG] Registering prewarm scheduled task")
                 task_scheduler.register_prewarm_task()
-            elif not self.config.fast_startup and registered:
-                log.info("[CONFIG] fast_startup disabled -- removing prewarm task")
-                task_scheduler.unregister_prewarm_task()
         except Exception as e:
             log.warning("[CONFIG] Prewarm task sync failed: %s", e)
 
@@ -1320,7 +1101,13 @@ class VoiceTyperApp:
             new_ids = {m["id"] for m in mics}
             self._microphones = mics
             self.tray.set_microphones(mics)
-            log.info("[RECORDING] Found %d microphone(s)", len(mics))
+            # Log INFO on first load or when device count changes.
+            # Routine polls where nothing changed log nothing — the
+            # microphones_changed IPC event handles UI updates.
+            if not old_ids:
+                log.info("[RECORDING] Found %d microphone(s)", len(mics))
+            elif len(mics) != len(old_ids):
+                log.info("[RECORDING] Microphone count changed: %d -> %d", len(old_ids), len(mics))
             # AUDIO-MIC: push a device-change IPC event if the device
             # set changed since the last enumeration.
             if old_ids and old_ids != new_ids:
@@ -2249,13 +2036,8 @@ class VoiceTyperApp:
             except Exception:
                 pass
 
-        # Close devnull streams
-        for f in _process_state.devnull_files:
-            try:
-                f.close()
-            except Exception:
-                pass
-        _process_state.devnull_files.clear()
+        # Close devnull streams opened during logging setup
+        _close_devnull_files()
 
         if is_main:
             sys.exit(0)
@@ -2384,7 +2166,7 @@ class VoiceTyperApp:
                 # Windows' 10,000 handle cap after ~250 RDP logout cycles).
                 if getattr(self, "_devnull", None) is None or self._devnull.closed:
                     self._devnull = open(os.devnull, 'w')
-                    _process_state.devnull_files.append(self._devnull)
+                    _register_devnull_file(self._devnull)
                 sys.stdout = self._devnull
                 sys.stderr = self._devnull
                 log.info("[WIN32] Detached from console (FreeConsole)")
@@ -2607,7 +2389,7 @@ def _ensure_single_instance(silent=False):
                                 "Voice Typer: clock jump detected, duplicate launch blocked.",
                                 file=sys.stderr,
                             )
-                        sys.exit(0)
+                        sys.exit(1)
                     if age > 86400.0:  # > 1 day — almost certainly a clock jump
                         log.warning(
                             "[STARTUP] Restart token age is suspiciously large "
@@ -2619,7 +2401,7 @@ def _ensure_single_instance(silent=False):
                                 "Voice Typer: clock jump detected, duplicate launch blocked.",
                                 file=sys.stderr,
                             )
-                        sys.exit(0)
+                        sys.exit(1)
                     if age > 30.0:
                         log.warning(
                             "[STARTUP] Restart token too old (%.1fs > 30s) — "
@@ -2631,13 +2413,13 @@ def _ensure_single_instance(silent=False):
                                 "Voice Typer: restart token expired, duplicate launch blocked.",
                                 file=sys.stderr,
                             )
-                        sys.exit(0)
+                        sys.exit(1)
             except SystemExit:
                 raise  # don't catch sys.exit
             except Exception:
                 # If we can't check the time, deny the bypass (safe default)
                 log.warning("[STARTUP] Cannot verify restart token age — blocking duplicate")
-                sys.exit(0)
+                sys.exit(1)
             # Valid and recent restart token — consume it
             _consume_restart_token()
             return None
@@ -2692,12 +2474,12 @@ def _ensure_single_instance(silent=False):
                     print(msg, file=sys.stderr)
         if mutex:
             ctypes.windll.kernel32.CloseHandle(mutex)
-        sys.exit(0)
+        sys.exit(1)
     elif last_error == ERROR_ACCESS_DENIED:
         # Couldn't even open the mutex; bail safely.
         if not silent and sys.stderr is not None:
             print("Voice Typer: mutex access denied.", file=sys.stderr)
-        sys.exit(0)
+        sys.exit(1)
     return mutex
 
 

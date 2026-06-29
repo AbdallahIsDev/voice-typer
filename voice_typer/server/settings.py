@@ -18,12 +18,21 @@ from typing import Callable, Optional
 # ``if lock: with lock: ...`` branching pattern.
 _nullcontext = contextlib.nullcontext
 
-warnings.warn(
-    "voice_typer.server.settings is deprecated and will be removed. "
-    "Use the Electron settings UI instead.",
-    DeprecationWarning,
-    stacklevel=2,
-)
+
+_DEPRECATION_WARNED: bool = False
+
+
+def _warn_deprecated() -> None:
+    """Emit deprecation warning once per process."""
+    global _DEPRECATION_WARNED
+    if not _DEPRECATION_WARNED:
+        _DEPRECATION_WARNED = True
+        warnings.warn(
+            "voice_typer.server.settings is deprecated and will be removed. "
+            "Use the Electron settings UI instead.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
 
 ALLOWED_MODELS = ("tiny.en", "small.en", "medium.en", "qwen", "parakeet")
 
@@ -100,6 +109,7 @@ class SettingsController:
         on_notifications_changed: Optional[Callable[[bool], None]] = None,
         config_mutation_lock: Optional["object"] = None,
     ):
+        _warn_deprecated()
         self.config = config
         self.on_hotkey_changed = on_hotkey_changed
         self.on_model_changed = on_model_changed
@@ -176,6 +186,7 @@ class SettingsWindow:
         parent=None,
         on_open_config: Optional[Callable[[], None]] = None,
     ):
+        _warn_deprecated()
         import tkinter as tk
         from tkinter import messagebox, ttk
 

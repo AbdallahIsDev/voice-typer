@@ -88,19 +88,10 @@ def _setup_logging() -> None:
     try:
         from voice_typer.server.config import _config_dir as _cfg
         log_dir = _cfg()
-        log_dir.mkdir(parents=True, exist_ok=True)
     except Exception:
         log_dir = _config_dir()
-        log_dir.mkdir(parents=True, exist_ok=True)
-    handler = logging.FileHandler(log_dir / "voice-typer.log", encoding="utf-8")
-    handler.setFormatter(
-        logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-    )
-    root = logging.getLogger("voice_typer")
-    root.setLevel(logging.INFO)
-    # Avoid duplicate handlers if this process is somehow re-entered.
-    if not any(isinstance(h, logging.FileHandler) for h in root.handlers):
-        root.addHandler(handler)
+    from voice_typer.server.log import setup_logging as _setup_logging_shared
+    _setup_logging_shared(log_dir)
 
 
 def _is_port_open(host: str, port: int) -> bool:
