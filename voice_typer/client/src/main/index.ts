@@ -35,9 +35,9 @@ const IPC_PORT = 9876;
 // quit_app / set_config / etc.
 //
 // Generated once per Electron process lifetime using crypto.randomBytes
-// (32 bytes = 256 bits of entropy, base64-encoded for transport).
+// (32 bytes = 256 bits of entropy, hex-encoded for transport).
 import { randomBytes } from "crypto";
-const IPC_TOKEN = randomBytes(32).toString("base64");
+const IPC_TOKEN = randomBytes(32).toString("hex");
 
 // When set (autostart at login), the dashboard window is created hidden.
 // The process + tray + bubble still work; the window appears on demand
@@ -153,6 +153,18 @@ let pythonExitedEarly = false;
 // renderer can reject replayed frames from an unauthenticated TCP
 // attacker (SEC-018). Generated once at app.whenReady() time.
 let sessionNonce: string = "";
+
+// Flag set when a clean restart (exit code 0) is in progress.
+// Prevents the stale TCP reconnect loop from racing with startPython().
+let _restarting = false;
+
+// Monotonic generation counter for TCP retry loops. Incremented every time
+// startPython() is called. Each tryConnect() closure captures the generation
+// at creation time; if the generation has changed by the time a close/error
+// handler fires, the handler knows it belongs to a stale loop and stops.
+// This prevents exponential retry multiplication when a restart re-spawns
+// the backend (the stale loop stops immediately instead of racing).
+let _tcpRetryGeneration = 0;
 
 // Bubble geometry (logical px).
 const BUBBLE_WIDTH = 74;
@@ -402,6 +414,13 @@ function createMainWindow(forceShow = false) {
     frame: false,
     hasShadow: false,
     show: shouldShow,
+    // Set the window background color to match the app theme so the
+    // rounded corners (border-radius on the wrapper div) don't reveal
+    // a white flash when the window is hidden on close.  The renderer
+    // applies its own background via CSS variables, but the area behind
+    // the web content (the corners outside border-radius) shows through
+    // to the Electron window background.
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#1a1b1e' : '#ffffff',
     // skipTaskbar when hidden so an autostarted background instance leaves
     // no taskbar entry until the user actually opens it.
     skipTaskbar: !shouldShow,
@@ -817,18 +836,26 @@ ipcMain.on("bubble:ready", (event) => {
   _bubblePageReady = true;
 });
 
+let _tcpRetryCount = 0;
+
 function tcpConnect(port: number) {
   function tryConnect() {
     const client = new net.Socket();
     tcpSocket = client;
+    // Capture the current retry generation at socket creation time.
+    // If startPython() fires while we're retrying, the generation
+    // increments and our close/error handlers will know to stop.
+    const retryGen = _tcpRetryGeneration;
 
     client.connect(port, "127.0.0.1", () => {
+      _tcpRetryCount = 0;
       // SEC-018: send the auth message as the first line.  The Python
       // IPC server reads this before processing any other commands.
       // If the token doesn't match, the server drops the connection.
       client.write(JSON.stringify({ type: "auth", token: IPC_TOKEN }) + "\n");
       // Python is running and its TCP server accepted us.
       // Create the main window immediately.
+      console.log("[TCP] connected to Python backend (127.0.0.1:" + port + ")");
       createMainWindow();
     });
 
@@ -839,7 +866,7 @@ function tcpConnect(port: number) {
       tcpBuffer += chunk.toString();
       if (tcpBuffer.length > 4 * 1024 * 1024) {
         console.error(
-          "[TCP] tcpBuffer exceeded 4 MB without a newline — dropping connection (possible malformed frame)"
+          "[TCP] tcpBuffer exceeded 4 MB without a newline - dropping connection (possible malformed frame)"
         );
         tcpBuffer = "";
         client.destroy();
@@ -859,15 +886,21 @@ function tcpConnect(port: number) {
     });
 
     client.on("error", (err: NodeJS.ErrnoException) => {
-      if (err.code === "ECONNREFUSED") {
-        // Python not ready yet — retry
-        client.destroy();
-        setTimeout(tryConnect, 500);
-      } else {
+      // If a newer retry generation is active, stop retrying.
+      // This prevents stale TCP loops from multiplying after
+      // startPython() re-spawns the backend.
+      if (retryGen !== _tcpRetryGeneration) return;
+      if (err.code === "ECONNRESET") {
+        console.log("[TCP] connection reset by Python backend");
+      } else if (err.code !== "ECONNREFUSED") {
         console.error("[TCP] error:", err);
-        client.destroy();
-        setTimeout(tryConnect, 2000);
       }
+      // Only destroy the socket here - do NOT schedule retries!
+      // The close handler (below) is the sole retry scheduler.
+      // If BOTH this error handler AND the close handler scheduled
+      // retries, each error would create 2 retries, each creating
+      // 2 more, leading to exponential retry multiplication.
+      client.destroy();
     });
 
     client.on("close", () => {
@@ -877,17 +910,32 @@ function tcpConnect(port: number) {
       // SEC-022: reject all outstanding pendingRequests so the UI
       // doesn't hang forever. Without this, every `await
       // window.electronAPI.python(...)` would leak when the socket
-      // died — the renderer's loading spinners would never resolve.
+      // died - the renderer's loading spinners would never resolve.
       for (const [id, entry] of pendingRequests) {
         pendingRequests.delete(id);
         entry.reject(new Error("Python socket closed"));
       }
-      // If Python exited, don't reconnect — the exit handler below will
-      // quit Electron.  If we kept reconnecting, rapid retries exhaust
-      // TCP buffer space (ENOBUFS on Windows).
-      if (pythonReady && pythonProcess !== null) {
-        console.warn("[TCP] connection lost — will reconnect");
-        setTimeout(tryConnect, 2000);
+      // If a newer retry generation is active, stop retrying.
+      if (retryGen !== _tcpRetryGeneration) return;
+      // Only retry while a Python process is alive.
+      // Do NOT check pythonReady here - that's false until the first
+      // successful connection.  The error handler no longer schedules
+      // retries (to prevent exponential multiplication), so the close
+      // handler must cover the initial startup case too.
+      if (pythonProcess !== null && !_restarting) {
+        _tcpRetryCount++;
+        if (_tcpRetryCount === 1) {
+          console.log("[TCP] waiting for Python backend (127.0.0.1:" + port + ")...");
+        } else {
+          console.log(
+            "[TCP] Python backend not ready yet (127.0.0.1:" +
+              port +
+              ") -- retrying (attempt " +
+              _tcpRetryCount +
+              ")"
+          );
+        }
+        setTimeout(tryConnect, 1000);
       }
     });
   }
@@ -896,6 +944,16 @@ function tcpConnect(port: number) {
 }
 
 function startPython() {
+  // Increment the retry generation to stop any stale TCP retry loops.
+  // Each tryConnect() closure captures this value at creation time;
+  // after incrementing, all existing close/error handlers will see
+  // a mismatch and stop retrying.
+  _tcpRetryGeneration++;
+
+  // Clear the restart flag so the new process's exit handler and TCP
+  // close handler behave normally (not treating non-zero as restart).
+  _restarting = false;
+
   const [exe, args] = pythonArgs();
   // Spawn with inherit stdio — stdout/stderr go to the Electron
   // console (terminal), NOT to pipes.  This eliminates the
@@ -942,10 +1000,10 @@ function startPython() {
           "Close the existing instance first, then try again."
       );
       app.quit();
-    } else {
-      // Python crashed or was killed during normal operation.
-      // Shut down Electron so the user isn't left with a broken UI
-      // that spams TCP reconnect errors (ENOBUFS on Windows).
+    } else if (code !== 0) {
+      // Non-zero exit code = crash. Shut down Electron so the user
+      // isn't left with a broken UI that spams TCP reconnect errors
+      // (ENOBUFS on Windows).
       pythonProcess = null;
       tcpSocket = null;
       for (const [id, entry] of pendingRequests) {
@@ -953,6 +1011,19 @@ function startPython() {
         entry.reject(new Error("Python backend disconnected"));
       }
       app.quit();
+    } else {
+      // Exit code 0 = clean restart.  The restart_app() method in
+      // Python spawned a new backend process and exited cleanly.
+      // Re-spawn from Electron immediately rather than waiting for
+      // the unreliably-spawned child (wrong interpreter, env issues).
+      pythonProcess = null;
+      _restarting = true;
+      // The Python-side restart_app() already tried spawning a child
+      // directly, but that child may fail (wrong interpreter, env
+      // issues, paging file). Re-spawn from Electron immediately so
+      // the correct executable and env vars are used.
+      console.warn("[RESTART] spawning replacement from Electron");
+      setTimeout(() => startPython(), 500);
     }
   });
 }
