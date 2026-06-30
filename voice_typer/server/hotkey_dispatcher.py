@@ -71,6 +71,14 @@ class HotkeyDispatcher:
         try:
             self._hotkey_backend = create_hotkey_backend(hotkey_str)
             log.info("[HOTKEY] Backend created: %s", type(self._hotkey_backend).__name__)
+            # GAP-2/GAP-4: give the backend a reference to the tray so
+            # it can show permission/fallback/recovery notifications.
+            # The _NativeBackendAdapter uses this for its notifications;
+            # other backends ignore it.
+            try:
+                self._hotkey_backend._tray = app.tray  # type: ignore[attr-defined]
+            except (AttributeError, TypeError):
+                pass
             self._hotkey_backend.start(app.toggle_dictation)
             # P1: Push-to-talk mode -- set release callback
             if app.config.recording_mode == "push_to_talk":

@@ -295,6 +295,14 @@ class SubprocessHotkeyBackend(ABC):
         self._fn_down: bool = False
         self._main_key_down: bool = False
         self._match_lock = threading.Lock()
+        # GAP-2/GAP-4: optional callbacks invoked from _handle_line and
+        # _reader_loop. Set by _NativeBackendAdapter (in hotkeys.py) so
+        # the adapter can (a) show a permission notification on ERROR
+        # and (b) swap to a legacy backend when the native binary dies
+        # permanently. Both default to None (no-op) so the callbacks are
+        # opt-in and don't affect tests that don't care about them.
+        self._on_error_callback: Optional[Callable[[str], None]] = None
+        self._on_permanent_failure_callback: Optional[Callable[[], None]] = None
 
     # ── HotkeyBackend interface (compatible with hotkeys.HotkeyBackend) ──
 
@@ -457,6 +465,17 @@ class SubprocessHotkeyBackend(ABC):
                     )
                     log.error("[NATIVE-HOTKEY] %s", self._error_message)
                     self._ready_event.set()  # unblock start() wait
+                    # GAP-4: notify the adapter so it can swap to a
+                    # legacy backend. The callback is invoked on the
+                    # reader thread; adapters must be thread-safe.
+                    if self._on_permanent_failure_callback is not None:
+                        try:
+                            self._on_permanent_failure_callback()
+                        except Exception:
+                            log.exception(
+                                "[NATIVE-HOTKEY] _on_permanent_failure_callback raised in %s backend",
+                                self.platform_name,
+                            )
                     return
                 delay = RESTART_DELAY_BASE_SECONDS * (2 ** (attempts - 1))
                 log.warning(
@@ -472,6 +491,16 @@ class SubprocessHotkeyBackend(ABC):
                     self._failed = True
                     self._error_message = str(exc)
                     self._ready_event.set()
+                    # Also notify the adapter on spawn failure (binary
+                    # disappeared mid-restart, etc.)
+                    if self._on_permanent_failure_callback is not None:
+                        try:
+                            self._on_permanent_failure_callback()
+                        except Exception:
+                            log.exception(
+                                "[NATIVE-HOTKEY] _on_permanent_failure_callback raised in %s backend",
+                                self.platform_name,
+                            )
                     return
                 continue
 
@@ -511,6 +540,17 @@ class SubprocessHotkeyBackend(ABC):
                 self.platform_name, self._error_message,
             )
             self._ready_event.set()  # unblock start() wait
+            # GAP-2: notify the adapter so it can classify the error and
+            # potentially show a permission prompt. The callback is
+            # invoked on the reader thread; adapters must be thread-safe.
+            if self._on_error_callback is not None:
+                try:
+                    self._on_error_callback(self._error_message)
+                except Exception:
+                    log.exception(
+                        "[NATIVE-HOTKEY] _on_error_callback raised in %s backend",
+                        self.platform_name,
+                    )
             return
 
         if line == "FN_DOWN":
