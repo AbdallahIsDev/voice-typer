@@ -73,8 +73,27 @@ linux:
   target:
     - AppImage
     - deb
+    - rpm
   maintainer: voice-typer@example.com
   vendor: Voice Typer
   artifactName: ${productName}-${version}-linux-${arch}.${ext}
 AppImage:
   artifactName: ${productName}-${version}-linux-${arch}.AppImage
+# GAP-3: Linux zero-command setup. The postinst/prerm scripts install
+# the udev rule, add the user to the input group, and configure Caps Lock
+# neutralization. The user only types their sudo password once (prompted
+# by apt/dnf themselves, not by us).
+deb:
+  depends:
+    - libnotify4
+    - libxtst6
+    - python3
+  afterInstall: ../../scripts/linux/postinst
+  afterRemove: ../../scripts/linux/prerm
+rpm:
+  depends:
+    - libnotify
+    - libXtst
+    - python3
+  afterInstall: ../../scripts/linux/postinst.rpm
+  afterRemove: ../../scripts/linux/prerm.rpm

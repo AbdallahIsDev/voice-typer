@@ -9,6 +9,11 @@ on:
   pull_request:
     branches: [main, master]
 
+# GAP-1: prevent two releases from racing on the same tag.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
@@ -36,27 +41,20 @@ jobs:
           pip list
 
       - name: Run ruff linter
-        # NEW-CI-001: ruff is configured in pyproject.toml but was never
-        # invoked in CI.  Run it on the server tree (E501 line-length check).
         run: python -m ruff check voice_typer/server/ --select E501
 
       - name: Run pyrefly type check
-        # TEST-036: pyrefly is configured in pyproject.toml but was never
-        # run in CI. Run as a separate step after ruff check so type errors
-        # are visible alongside lint errors.
         continue-on-error: true
         run: |
           pip install pyrefly
           pyrefly check
 
       - name: Run tests with coverage
-        # NEW-CI-001: run pytest with coverage reporting.
         run: |
           python -m pytest tests/ -v --tb=short -q \
             --cov=voice_typer --cov-report=xml --cov-report=term-missing
 
       - name: Upload coverage to Codecov
-        # NEW-CI-001: upload coverage so it's visible in the PR UI.
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
         uses: codecov/codecov-action@v4
         with:
@@ -64,14 +62,10 @@ jobs:
           fail_ci_if_error: false
 
       - name: Run pip-audit
-        # NEW-CI-001: scan installed dependencies for known CVEs.
-        # Non-blocking (continue-on-error) — we don't want to block
-        # every PR on an upstream CVE, but we want visibility.
         continue-on-error: true
         run: pip-audit --strict
 
-  # NEW-CI-002: version sync check — verify all version strings match
-  # pyproject.toml before building.
+  # NEW-CI-002: version sync check
   version-check:
     runs-on: ubuntu-latest
     steps:
@@ -83,18 +77,10 @@ jobs:
       - name: Check version sync
         run: |
           pip install -e ".[test]"
-          # sync_versions.py exits 0 if all in sync, 1 if not.
-          # In CI we want to FAIL if not in sync.
           python scripts/build/sync_versions.py
-          # Also verify __version__ matches.
           python -c "from voice_typer import __version__; print(__version__)"
 
-  # BUILD-N08: client-build job — type-check the Electron/React/TS
-  # client on every release tag. Without this, TypeScript strict-mode
-  # errors and Vite build failures only surface on the developer's
-  # machine. The job runs on Linux because it doesn't need a display
-  # or native modules — `tsc --noEmit` and `electron-vite build` are
-  # pure Node steps.
+  # BUILD-N08: client-build job
   client-build:
     runs-on: ubuntu-latest
     steps:
@@ -133,12 +119,127 @@ jobs:
           name: voice-typer-client-dist
           path: voice_typer/client/out/
 
-  build:
+  # GAP-1: build-native matrix job. Compiles each native key-listener
+  # binary on its native platform (Swift on macOS, MSVC on Windows, gcc
+  # on Linux). The binaries are uploaded as artifacts so the per-platform
+  # installer jobs (build-windows, build-macos, build-linux) can download
+  # them and bundle them into PyInstaller/electron-builder packages.
+  build-native:
     needs: [test, client-build, version-check]
+    strategy:
+      matrix:
+        include:
+          - os: macos-13
+            platform: macos
+            script: bash scripts/build/compile_native.sh
+            binary: voice_typer/server/native/macos-key-listener
+            artifact_name: macos-key-listener
+          - os: windows-2022
+            platform: windows
+            script: powershell scripts/build/compile_native.ps1
+            binary: voice_typer/server/native/windows-key-listener.exe
+            artifact_name: windows-key-listener
+          - os: ubuntu-22.04
+            platform: linux
+            script: bash scripts/build/compile_native.sh
+            binary: voice_typer/server/native/linux-key-listener
+            artifact_name: linux-key-listener
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compile native binary (${{ matrix.platform }})
+        run: ${{ matrix.script }}
+
+      - name: Verify binary exists
+        shell: bash
+        run: |
+          if [ ! -f "${{ matrix.binary }}" ]; then
+            echo "ERROR: binary not found at ${{ matrix.binary }}"
+            exit 1
+          fi
+          echo "Binary compiled successfully:"
+          ls -la "${{ matrix.binary }}"
+
+      # GAP-1 edge case: smoke test. Each platform has a different
+      # expected behavior in CI (no GUI, no input devices, no
+      # Accessibility). We treat the "expected failure" as success.
+      - name: Smoke test (Linux)
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          # Linux CI has no /dev/input/event* — binary should emit
+          # "ERROR:No keyboard devices found" and exit 1.
+          output=$(./${{ matrix.binary }} '<caps_lock>' 2>&1 || true)
+          echo "$output"
+          if echo "$output" | grep -q "ERROR:"; then
+            echo "Smoke test PASSED (binary ran and emitted expected ERROR)"
+          else
+            echo "ERROR: binary did not emit expected ERROR line"
+            exit 1
+          fi
+
+      - name: Smoke test (macOS)
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          # macOS CI has no Accessibility permission — binary should
+          # emit "ERROR:Accessibility permission required" and exit 1.
+          output=$(./${{ matrix.binary }} '<f2>' 2>&1 &
+          sleep 2
+          kill %1 2>/dev/null || true
+          wait 2>/dev/null || true)
+          echo "$output"
+          if echo "$output" | grep -qE "(ERROR:|READY)"; then
+            echo "Smoke test PASSED (binary ran and emitted ERROR or READY)"
+          else
+            echo "ERROR: binary did not emit ERROR or READY"
+            exit 1
+          fi
+
+      - name: Smoke test (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          # Windows CI: binary runs the WH_KEYBOARD_LL hook. It should
+          # start and keep running (timeout = success, crash = failure).
+          $proc = Start-Process -FilePath ".\${{ matrix.binary }}" -ArgumentList '<caps_lock>' -PassThru -NoNewWindow
+          Start-Sleep -Seconds 2
+          if ($proc.HasExited) {
+            $code = $proc.ExitCode
+            if ($code -eq 0) {
+              Write-Host "Smoke test PASSED (binary exited 0)"
+            } else {
+              Write-Error "Smoke test FAILED (binary crashed with code $code)"
+              exit 1
+            }
+          } else {
+            Write-Host "Smoke test PASSED (binary is running)"
+            Stop-Process -Id $proc.Id -Force
+          }
+
+      # GAP-1: ad-hoc sign the macOS binary so it can be granted Accessibility
+      - name: Codesign (macOS only)
+        if: matrix.platform == 'macos'
+        run: |
+          codesign --force --sign - "${{ matrix.binary }}"
+          echo "Ad-hoc signed: ${{ matrix.binary }}"
+
+      - name: Upload native binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.platform }}
+          path: ${{ matrix.binary }}
+          if-no-files-found: error
+
+  # GAP-1: build-windows (renamed from "build"). Downloads the Windows
+  # native binary from build-native, runs PyInstaller + Inno Setup.
+  build-windows:
+    needs: [test, client-build, version-check, build-native]
     runs-on: windows-latest
     permissions:
       contents: write
-
     steps:
       - uses: actions/checkout@v4
 
@@ -154,22 +255,33 @@ jobs:
           pip install .
           pip list
 
-      # NEW-CI-002: verify installer.iss version matches the git tag
-      # before building.  If they drift, the installer will claim a
-      # different version than the actual release.
+      # GAP-1: download the Windows native binary compiled by build-native
+      - name: Download Windows native binary
+        uses: actions/download-artifact@v4
+        with:
+          name: native-windows
+          path: voice_typer/server/native/
+
+      - name: Verify native binary
+        shell: pwsh
+        run: |
+          $bin = "voice_typer/server/native/windows-key-listener.exe"
+          if (-not (Test-Path $bin)) {
+            Write-Error "Native binary not found: $bin"
+            exit 1
+          }
+          Write-Host "Native binary present: $bin"
+
       - name: Verify version matches git tag
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         run: |
           $tagVersion = $env:GITHUB_REF_NAME -replace '^v', ''
           $installerVersion = (Get-Content scripts/build/installer.iss | Select-String '#define MyAppVersion "([^"]+)"').Matches.Groups[1].Value
-          Write-Host "Git tag version: $tagVersion"
-          Write-Host "Installer version: $installerVersion"
           if ($tagVersion -ne $installerVersion) {
             Write-Error "Version mismatch! Git tag=$tagVersion, installer.iss=$installerVersion"
             exit 1
           }
-          Write-Host "Versions match."
 
       - name: Generate app icon
         run: python scripts/build/generate_icon.py scripts/build/voice-typer.ico
@@ -177,24 +289,14 @@ jobs:
       - name: Build with PyInstaller
         run: |
           pyinstaller scripts/build/voice-typer.spec --noconfirm --distpath dist --workpath build
-          echo "PyInstaller output:"
-          Get-ChildItem -Path dist -Recurse | Select-Object FullName
 
-      # BUILD-N20: pin Inno Setup to a specific Chocolatey version so a
-      # major-version upgrade doesn't silently break the installer
-      # script. ISCC syntax changes between major versions.
       - name: Install Inno Setup (pinned)
         run: choco install innosetup --version=6.2.0 --no-progress -y
 
       - name: Build installer
         run: |
           iscc scripts/build/installer.iss /O"${{ github.workspace }}"
-          echo "Installer output:"
-          Get-ChildItem -Path "${{ github.workspace }}" -Filter "*.exe" | Select-Object FullName, Length
 
-      # TEST-037: Compute SHA-256 checksums of all release artifacts.
-      # Upload the checksums file alongside the installer so users can
-      # verify integrity before running the installer.
       - name: Generate SHA-256 checksums
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
@@ -203,10 +305,8 @@ jobs:
           Get-ChildItem -Path "${{ github.workspace }}" -Filter "VoiceTyper-Setup-*.exe" | ForEach-Object {
             $hash = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash
             $checksums += "$hash  $($_.Name)"
-            Write-Host "$hash  $($_.Name)"
           }
           $checksums | Out-File -FilePath "${{ github.workspace }}/SHA256SUMS.txt" -Encoding utf8
-          Write-Host "Checksums written to SHA256SUMS.txt"
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
@@ -227,13 +327,8 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: ${{ steps.installer.outputs.file }}
           tag: ${{ github.ref_name }}
-          # BUILD-N19: do NOT overwrite an existing release asset —
-          # re-running a tagged build silently overwrote the published
-          # installer with whatever was last built. Instead, fail loudly
-          # so the maintainer can decide whether to delete + re-run.
           overwrite: false
 
-      # TEST-037: Upload SHA-256 checksums alongside the installer.
       - name: Upload checksums to release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: svenstaro/upload-release-action@v2
@@ -241,4 +336,164 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: ${{ github.workspace }}/SHA256SUMS.txt
           tag: ${{ github.ref_name }}
+          overwrite: false
+
+  # GAP-1: build-macos. Downloads the macOS native binary, runs
+  # PyInstaller + electron-builder for .dmg.
+  build-macos:
+    needs: [test, client-build, version-check, build-native]
+    runs-on: macos-13
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install ".[build]"
+          pip install .
+          pip list
+
+      - name: Download macOS native binary
+        uses: actions/download-artifact@v4
+        with:
+          name: native-macos
+          path: voice_typer/server/native/
+
+      - name: Verify native binary
+        run: |
+          bin="voice_typer/server/native/macos-key-listener"
+          if [ ! -f "$bin" ]; then
+            echo "ERROR: native binary not found: $bin"
+            exit 1
+          fi
+          chmod +x "$bin"
+          echo "Native binary present: $bin"
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: voice_typer/client/package-lock.json
+
+      - name: Install client dependencies
+        working-directory: voice_typer/client
+        run: npm ci
+
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller scripts/build/voice-typer.spec --noconfirm --distpath dist --workpath build
+
+      - name: Build macOS .dmg with electron-builder
+        working-directory: voice_typer/client
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MAC_SIGNING_IDENTITY: ${{ secrets.MAC_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npx electron-builder --mac --publish never
+
+      - name: Upload macOS installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoiceTyper-macOS
+          path: voice_typer/client/dist/*.dmg
+
+      - name: Upload to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: voice_typer/client/dist/*.dmg
+          tag: ${{ github.ref_name }}
+          file_glob: true
+          overwrite: false
+
+  # GAP-1: build-linux. Downloads the Linux native binary, runs
+  # PyInstaller + electron-builder for .deb / .rpm / AppImage.
+  build-linux:
+    needs: [test, client-build, version-check, build-native]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install ".[build]"
+          pip install .
+          pip list
+
+      - name: Download Linux native binary
+        uses: actions/download-artifact@v4
+        with:
+          name: native-linux
+          path: voice_typer/server/native/
+
+      - name: Verify native binary
+        run: |
+          bin="voice_typer/server/native/linux-key-listener"
+          if [ ! -f "$bin" ]; then
+            echo "ERROR: native binary not found: $bin"
+            exit 1
+          fi
+          chmod +x "$bin"
+          echo "Native binary present: $bin"
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: voice_typer/client/package-lock.json
+
+      - name: Install client dependencies
+        working-directory: voice_typer/client
+        run: npm ci
+
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller scripts/build/voice-typer.spec --noconfirm --distpath dist --workpath build
+
+      - name: Install Linux build deps (fpm for electron-builder)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev rpm libarchive-tools
+
+      - name: Build Linux packages with electron-builder
+        working-directory: voice_typer/client
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --linux --publish never
+
+      - name: Upload Linux installer artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoiceTyper-Linux
+          path: |
+            voice_typer/client/dist/*.deb
+            voice_typer/client/dist/*.rpm
+            voice_typer/client/dist/*.AppImage
+
+      - name: Upload to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: voice_typer/client/dist/*
+          tag: ${{ github.ref_name }}
+          file_glob: true
           overwrite: false

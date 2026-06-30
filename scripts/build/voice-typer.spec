@@ -44,6 +44,25 @@ for _binary_name in ("macos-key-listener", "windows-key-listener.exe", "linux-ke
     else:
         print(f"[voice-typer.spec] Skipping native binary (not built): {_candidate}")
 
+# GAP-3: Linux permission-setup scripts. These are bundled so the AppImage
+# first-run helper can invoke them via pkexec. The postinst/prerm scripts
+# for .deb/.rpm packages also reference them (installed to
+# /usr/share/voice-typer/scripts/ by electron-builder's `extraFiles`).
+_linux_scripts_dir = _PROJECT_ROOT / "scripts" / "linux"
+_linux_scripts = []
+if _linux_scripts_dir.is_dir():
+    for _script_name in (
+        "install_permissions.py",
+        "uninstall_permissions.py",
+        "99-voice-typer.rules",
+        "00-voice-typer-capslock.conf",
+        "voice-typer.polkit",
+    ):
+        _candidate = _linux_scripts_dir / _script_name
+        if _candidate.exists():
+            _linux_scripts.append((str(_candidate), "scripts/linux"))
+            print(f"[voice-typer.spec] Including Linux script: {_candidate}")
+
 # PLAT-037: Windows application manifest to set requestedExecutionLevel
 # to asInvoker. This prevents UAC elevation prompts on launch and
 # ensures the app runs with the user's normal privileges.
@@ -91,7 +110,7 @@ a = Analysis(
     [str(_PROJECT_ROOT / "voice_typer" / "__main__.py")],
     pathex=[str(_PROJECT_ROOT)],
     binaries=_native_binaries,
-    datas=[(_corrections_json, "voice_typer")],
+    datas=[(_corrections_json, "voice_typer")] + _linux_scripts,
     hiddenimports=[
         "scipy.signal",
         "scipy._lib",
@@ -126,6 +145,8 @@ a = Analysis(
         "voice_typer.server.asr_registry",
         # NATIVE-001: native hotkey backend (lazy-imported by hotkeys.py).
         "voice_typer.server.native_hotkeys",
+        # GAP-2: permission detection + onboarding (lazy-imported by hotkeys.py).
+        "voice_typer.server.permissions",
         "transformers",
         "transformers.models",
         "accelerate",
