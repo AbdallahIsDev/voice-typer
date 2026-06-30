@@ -1,569 +1,654 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { usePython } from '@/hooks/usePython'
-import { useSnackbar, showUndoableToast } from '@/hooks/useSnackbar'
-import { HugeiconsIcon } from '@hugeicons/react'
 import {
-  BookOpen02Icon,
-  Add01Icon,
-  PencilEdit02Icon,
-  Delete01Icon,
-} from '@hugeicons/core-free-icons'
-import { SearchField } from '@/components/SearchField'
-import { EmptyState } from '@/components/EmptyState'
-import { toast } from 'sonner'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+	Add01Icon,
+	BookOpen02Icon,
+	Delete01Icon,
+	PencilEdit02Icon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+import ConfirmDialog from "@/components/ConfirmDialog";
+import { EmptyState } from "@/components/EmptyState";
+import ExportFormatMenu from "@/components/ExportFormatMenu";
+import PageHeading from "@/components/PageHeading";
+import { SearchField } from "@/components/SearchField";
+import { Spinner } from "@/components/Spinner";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import PageHeading from '@/components/PageHeading'
-import ConfirmDialog from '@/components/ConfirmDialog'
-import ExportFormatMenu from '@/components/ExportFormatMenu'
-import { cn } from '@/lib/utils'
-import type { VocabularyData, VocabularyEntry } from '@/types/ipc'
-import { Spinner } from '@/components/Spinner'
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
+import { usePython } from "@/hooks/usePython";
+import { showUndoableToast, useSnackbar } from "@/hooks/useSnackbar";
+import { cn } from "@/lib/utils";
+import type { VocabularyData, VocabularyEntry } from "@/types/ipc";
 
 // ── Backend categories (kept internally for save-back, hidden from UI) ──
 
 const CATEGORIES = [
-  'misspellings',
-  'phrase_corrections',
-  'extra_word_patterns',
-  'technical_terms',
-  'names',
-  'products',
-] as const
+	"misspellings",
+	"phrase_corrections",
+	"extra_word_patterns",
+	"technical_terms",
+	"names",
+	"products",
+] as const;
 
 // NEW-UX-039: human-readable labels + descriptions for each category.
-const CATEGORY_LABELS: Record<string, { label: string; description: string; example: string }> = {
-  misspellings: {
-    label: 'Misspellings',
-    description: 'Single words the ASR gets wrong (spelling).',
-    example: 'recieve \u2192 receive',
-  },
-  phrase_corrections: {
-    label: 'Phrase Corrections',
-    description: 'Multi-word phrases the ASR gets wrong.',
-    example: "i am going to \u2192 I'm going to",
-  },
-  extra_word_patterns: {
-    label: 'Extra Word Patterns',
-    description: 'Words or patterns to remove from output.',
-    example: 'um, uh, like \u2192 (removed)',
-  },
-  technical_terms: {
-    label: 'Technical Terms',
-    description: 'Jargon, acronyms, product names from your field.',
-    example: 'kubernetes \u2192 Kubernetes',
-  },
-  names: {
-    label: 'Names',
-    description: 'People, places, and proper nouns the ASR mishears.',
-    example: 'jon \u2192 John',
-  },
-  products: {
-    label: 'Products',
-    description: 'Brand and product names.',
-    example: 'ipad \u2192 iPad',
-  },
-}
+const CATEGORY_LABELS: Record<
+	string,
+	{ label: string; description: string; example: string }
+> = {
+	misspellings: {
+		label: "Misspellings",
+		description: "Single words the ASR gets wrong (spelling).",
+		example: "recieve \u2192 receive",
+	},
+	phrase_corrections: {
+		label: "Phrase Corrections",
+		description: "Multi-word phrases the ASR gets wrong.",
+		example: "i am going to \u2192 I'm going to",
+	},
+	extra_word_patterns: {
+		label: "Extra Word Patterns",
+		description: "Words or patterns to remove from output.",
+		example: "um, uh, like \u2192 (removed)",
+	},
+	technical_terms: {
+		label: "Technical Terms",
+		description: "Jargon, acronyms, product names from your field.",
+		example: "kubernetes \u2192 Kubernetes",
+	},
+	names: {
+		label: "Names",
+		description: "People, places, and proper nouns the ASR mishears.",
+		example: "jon \u2192 John",
+	},
+	products: {
+		label: "Products",
+		description: "Brand and product names.",
+		example: "ipad \u2192 iPad",
+	},
+};
 
 /** Flatten category-shaped VocabularyData into a flat array. */
 function flattenEntries(data: VocabularyData): VocabularyEntry[] {
-  const items: VocabularyEntry[] = []
-  for (const cat of CATEGORIES) {
-    const catData = (data as Record<string, unknown>)[cat]
-    if (cat === 'misspellings' || cat === 'technical_terms' || cat === 'names' || cat === 'products') {
-      if (typeof catData === 'object' && catData !== null) {
-        for (const [key, val] of Object.entries(catData as Record<string, string>)) {
-          items.push({ category: cat, original: key, correction: String(val) })
-        }
-      }
-    } else if (cat === 'phrase_corrections' || cat === 'extra_word_patterns') {
-      if (Array.isArray(catData)) {
-        for (const entry of catData) {
-          if (Array.isArray(entry) && entry.length >= 2) {
-            items.push({ category: cat, original: entry[0] as string, correction: entry[1] as string })
-          }
-        }
-      }
-    }
-  }
-  return items
+	const items: VocabularyEntry[] = [];
+	for (const cat of CATEGORIES) {
+		const catData = (data as Record<string, unknown>)[cat];
+		if (
+			cat === "misspellings" ||
+			cat === "technical_terms" ||
+			cat === "names" ||
+			cat === "products"
+		) {
+			if (typeof catData === "object" && catData !== null) {
+				for (const [key, val] of Object.entries(
+					catData as Record<string, string>,
+				)) {
+					items.push({ category: cat, original: key, correction: String(val) });
+				}
+			}
+		} else if (cat === "phrase_corrections" || cat === "extra_word_patterns") {
+			if (Array.isArray(catData)) {
+				for (const entry of catData) {
+					if (Array.isArray(entry) && entry.length >= 2) {
+						items.push({
+							category: cat,
+							original: entry[0] as string,
+							correction: entry[1] as string,
+						});
+					}
+				}
+			}
+		}
+	}
+	return items;
 }
 
 /** Auto-detect category: phrases (spaces) go to phrase_corrections, single words to misspellings. */
-function detectCategory(trigger: string): 'misspellings' | 'phrase_corrections' {
-  return trigger.includes(' ') ? 'phrase_corrections' : 'misspellings'
+function detectCategory(
+	trigger: string,
+): "misspellings" | "phrase_corrections" {
+	return trigger.includes(" ") ? "phrase_corrections" : "misspellings";
 }
 
 /** Rebuild category-shaped VocabularyData from a flat array for server save. */
 function rebuildData(entries: VocabularyEntry[]): VocabularyData {
-  const data: VocabularyData = {}
-  for (const cat of CATEGORIES) {
-    const filtered = entries.filter((e) => e.category === cat)
-    if (cat === 'misspellings' || cat === 'technical_terms' || cat === 'names' || cat === 'products') {
-      const dict: Record<string, string> = {}
-      for (const e of filtered) {
-        dict[e.original] = e.correction
-      }
-      data[cat] = dict
-    } else {
-      data[cat] = filtered.map((e) => [e.original, e.correction] as [string, string])
-    }
-  }
-  return data
+	const data: VocabularyData = {};
+	for (const cat of CATEGORIES) {
+		const filtered = entries.filter((e) => e.category === cat);
+		if (
+			cat === "misspellings" ||
+			cat === "technical_terms" ||
+			cat === "names" ||
+			cat === "products"
+		) {
+			const dict: Record<string, string> = {};
+			for (const e of filtered) {
+				dict[e.original] = e.correction;
+			}
+			data[cat] = dict;
+		} else {
+			data[cat] = filtered.map(
+				(e) => [e.original, e.correction] as [string, string],
+			);
+		}
+	}
+	return data;
 }
 
 // ── Component ──────────────────────────────────────────────────────
 
 export default function VocabularyPage() {
-  const { call } = usePython()
-  const { showSnack, Snackbar } = useSnackbar()
-  const [entries, setEntries] = useState<VocabularyEntry[]>([])
+	const { call } = usePython();
+	const { showSnack, Snackbar } = useSnackbar();
+	const [entries, setEntries] = useState<VocabularyEntry[]>([]);
 
-  const [searchQuery, setSearchQuery] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [showDialog, setShowDialog] = useState(false)
-  const [editingEntry, setEditingEntry] = useState<VocabularyEntry | null>(null)
-  const [trigger, setTrigger] = useState('')
-  const [replacement, setReplacement] = useState('')
-  // NEW-UX-039: explicit category selection.
-  const [category, setCategory] = useState<string>('auto')
+	const [searchQuery, setSearchQuery] = useState("");
+	const [loading, setLoading] = useState(true);
+	const [saving, setSaving] = useState(false);
+	const [showDialog, setShowDialog] = useState(false);
+	const [editingEntry, setEditingEntry] = useState<VocabularyEntry | null>(
+		null,
+	);
+	const [trigger, setTrigger] = useState("");
+	const [replacement, setReplacement] = useState("");
+	// NEW-UX-039: explicit category selection.
+	const [category, setCategory] = useState<string>("auto");
 
-  // #7: ConfirmDialog state for entry deletion
-  const [deleteEntryTarget, setDeleteEntryTarget] = useState<VocabularyEntry | null>(null)
-  const dialogRef = useRef<HTMLDivElement>(null)
+	// #7: ConfirmDialog state for entry deletion
+	const [deleteEntryTarget, setDeleteEntryTarget] =
+		useState<VocabularyEntry | null>(null);
+	const dialogRef = useRef<HTMLDivElement>(null);
 
-  const handleDialogKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      setShowDialog(false)
-      return
-    }
-    if (e.key !== 'Tab') return
-    const dialog = dialogRef.current
-    if (!dialog) return
-    const focusable = dialog.querySelectorAll<HTMLElement>(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-    )
-    if (focusable.length === 0) return
-    const first = focusable[0]
-    const last = focusable[focusable.length - 1]
-    if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault()
-      last.focus()
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault()
-      first.focus()
-    }
-  }, [setShowDialog])
+	const handleDialogKeyDown = useCallback((e: React.KeyboardEvent) => {
+		if (e.key === "Escape") {
+			setShowDialog(false);
+			return;
+		}
+		if (e.key !== "Tab") return;
+		const dialog = dialogRef.current;
+		if (!dialog) return;
+		const focusable = dialog.querySelectorAll<HTMLElement>(
+			'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+		);
+		if (focusable.length === 0) return;
+		const first = focusable[0];
+		const last = focusable[focusable.length - 1];
+		if (e.shiftKey && document.activeElement === first) {
+			e.preventDefault();
+			last.focus();
+		} else if (!e.shiftKey && document.activeElement === last) {
+			e.preventDefault();
+			first.focus();
+		}
+	}, []);
 
-  const doExport = useCallback(async (format: 'json' | 'csv') => {
-    try {
-      const data = await call<VocabularyData>('get_vocabulary')
-      // Flatten and strip internal categories before passing to the bridge
-      const flatData = flattenEntries(data ?? {}).map(e => ({
-        original: e.original,
-        correction: e.correction,
-      }))
-      const bridge = window.window_
-      if (!bridge) {
-        toast.error('Export not available — please restart the app')
-        return
-      }
-      const result = await bridge.exportVocabulary({ entries: flatData }, format)
-      if (result.success) {
-        const path = result.path ?? ''
-        const filename = path.split(/[\\/]/).pop() || 'untitled'
-        toast.success(`${filename} saved successfully`)
-      }
-    } catch (err) {
-      console.error('Vocabulary export failed:', err)
-      toast.error('Export failed')
-    }
-  }, [call])
+	const doExport = useCallback(
+		async (format: "json" | "csv") => {
+			try {
+				const data = await call<VocabularyData>("get_vocabulary");
+				// Flatten and strip internal categories before passing to the bridge
+				const flatData = flattenEntries(data ?? {}).map((e) => ({
+					original: e.original,
+					correction: e.correction,
+				}));
+				const bridge = window.window_;
+				if (!bridge) {
+					toast.error("Export not available — please restart the app");
+					return;
+				}
+				const result = await bridge.exportVocabulary(
+					{ entries: flatData },
+					format,
+				);
+				if (result.success) {
+					const path = result.path ?? "";
+					const filename = path.split(/[\\/]/).pop() || "untitled";
+					toast.success(`${filename} saved successfully`);
+				}
+			} catch (err) {
+				console.error("Vocabulary export failed:", err);
+				toast.error("Export failed");
+			}
+		},
+		[call],
+	);
 
-  const loadVocabulary = useCallback(async () => {
-    setLoading(true)
-    try {
-      const data = await call<VocabularyData>('get_vocabulary')
-      setEntries(flattenEntries(data ?? {}))
-    } catch (err) {
-      console.error('Failed to load vocabulary:', err)
-      setEntries([])
-    } finally {
-      setLoading(false)
-    }
-  }, [call])
+	const loadVocabulary = useCallback(async () => {
+		setLoading(true);
+		try {
+			const data = await call<VocabularyData>("get_vocabulary");
+			setEntries(flattenEntries(data ?? {}));
+		} catch (err) {
+			console.error("Failed to load vocabulary:", err);
+			setEntries([]);
+		} finally {
+			setLoading(false);
+		}
+	}, [call]);
 
-  useEffect(() => {
-    loadVocabulary()
-  }, [loadVocabulary])
+	useEffect(() => {
+		loadVocabulary();
+	}, [loadVocabulary]);
 
-  const persistVocabulary = useCallback(async (updated: VocabularyEntry[]) => {
-    const data = rebuildData(updated)
-    setSaving(true)
-    try {
-      await call('save_vocabulary', data as unknown as Record<string, unknown>)
-    } catch (err) {
-      console.error('Failed to save vocabulary:', err)
-      throw err
-    } finally {
-      setSaving(false)
-    }
-  }, [call])
+	const persistVocabulary = useCallback(
+		async (updated: VocabularyEntry[]) => {
+			const data = rebuildData(updated);
+			setSaving(true);
+			try {
+				await call(
+					"save_vocabulary",
+					data as unknown as Record<string, unknown>,
+				);
+			} catch (err) {
+				console.error("Failed to save vocabulary:", err);
+				throw err;
+			} finally {
+				setSaving(false);
+			}
+		},
+		[call],
+	);
 
-  // ── Search ─────────────────────────────────────────────────────────
+	// ── Search ─────────────────────────────────────────────────────────
 
-  const filtered = searchQuery.trim()
-    ? entries.filter((e) =>
-      e.original.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      e.correction.toLowerCase().includes(searchQuery.toLowerCase()),
-    )
-    : entries
+	const filtered = searchQuery.trim()
+		? entries.filter(
+				(e) =>
+					e.original.toLowerCase().includes(searchQuery.toLowerCase()) ||
+					e.correction.toLowerCase().includes(searchQuery.toLowerCase()),
+			)
+		: entries;
 
-  // ── Add / Edit dialog ─────────────────────────────────────────────
+	// ── Add / Edit dialog ─────────────────────────────────────────────
 
-  const openAddDialog = () => {
-    setEditingEntry(null)
-    setTrigger('')
-    setReplacement('')
-    setCategory('auto')
-    setShowDialog(true)
-  }
+	const openAddDialog = () => {
+		setEditingEntry(null);
+		setTrigger("");
+		setReplacement("");
+		setCategory("auto");
+		setShowDialog(true);
+	};
 
-  const openEditDialog = (entry: VocabularyEntry) => {
-    setEditingEntry(entry)
-    setTrigger(entry.original)
-    // NEW-UX-039: pre-select the entry's existing category.
-    setCategory(entry.category || 'auto')
-    setReplacement(entry.correction)
-    setShowDialog(true)
-  }
+	const openEditDialog = (entry: VocabularyEntry) => {
+		setEditingEntry(entry);
+		setTrigger(entry.original);
+		// NEW-UX-039: pre-select the entry's existing category.
+		setCategory(entry.category || "auto");
+		setReplacement(entry.correction);
+		setShowDialog(true);
+	};
 
-  const saveEntry = async () => {
-    const t = trigger.trim()
-    const r = replacement.trim()
-    if (!t || !r) {
-      showSnack('Please fill in both fields', 'warning')
-      return
-    }
-    // NEW-UX-039: use the explicit category if the user picked one.
-    const resolvedCategory = category === 'auto' ? detectCategory(t) : category
-    try {
-      let updated: VocabularyEntry[]
-      if (editingEntry) {
-        updated = entries.map((e) =>
-          e === editingEntry
-            ? { category: resolvedCategory as VocabularyEntry['category'], original: t, correction: r }
-            : e,
-        )
-      } else {
-        updated = [...entries, { category: resolvedCategory as VocabularyEntry['category'], original: t, correction: r }]
-      }
-      await persistVocabulary(updated)
-      setEntries(updated)
-      setShowDialog(false)
-      showSnack(
-        editingEntry ? `Updated: ${t} → ${r}` : `Added: ${t} → ${r}`,
-        'success',
-      )
-    } catch {
-      showSnack('Failed to save entry', 'error')
-    }
-  }
+	const saveEntry = async () => {
+		const t = trigger.trim();
+		const r = replacement.trim();
+		if (!t || !r) {
+			showSnack("Please fill in both fields", "warning");
+			return;
+		}
+		// NEW-UX-039: use the explicit category if the user picked one.
+		const resolvedCategory = category === "auto" ? detectCategory(t) : category;
+		try {
+			let updated: VocabularyEntry[];
+			if (editingEntry) {
+				updated = entries.map((e) =>
+					e === editingEntry
+						? {
+								category: resolvedCategory as VocabularyEntry["category"],
+								original: t,
+								correction: r,
+							}
+						: e,
+				);
+			} else {
+				updated = [
+					...entries,
+					{
+						category: resolvedCategory as VocabularyEntry["category"],
+						original: t,
+						correction: r,
+					},
+				];
+			}
+			await persistVocabulary(updated);
+			setEntries(updated);
+			setShowDialog(false);
+			showSnack(
+				editingEntry ? `Updated: ${t} → ${r}` : `Added: ${t} → ${r}`,
+				"success",
+			);
+		} catch {
+			showSnack("Failed to save entry", "error");
+		}
+	};
 
-  // #7: Request confirmation before deleting an entry.
-  // NEW-UX-004: This path is kept for accessibility users; the
-  // default trash-icon click path now uses instant-delete + Undo
-  // toast via ``instantDeleteEntry`` (below).
-  const _requestDeleteEntry = (entry: VocabularyEntry) => {
-    setDeleteEntryTarget(entry)
-  }
+	// #7: Request confirmation before deleting an entry.
+	// NEW-UX-004: This path is kept for accessibility users; the
+	// default trash-icon click path now uses instant-delete + Undo
+	// toast via ``instantDeleteEntry`` (below).
+	const _requestDeleteEntry = (entry: VocabularyEntry) => {
+		setDeleteEntryTarget(entry);
+	};
 
-  const confirmDeleteEntry = async () => {
-    if (!deleteEntryTarget) return
-    try {
-      const updated = entries.filter((e) => e !== deleteEntryTarget)
-      await persistVocabulary(updated)
-      setEntries(updated)
-      showSnack(`Deleted: ${deleteEntryTarget.original}`, 'warning')
-    } catch {
-      showSnack('Failed to delete entry', 'error')
-    } finally {
-      setDeleteEntryTarget(null)
-    }
-  }
+	const confirmDeleteEntry = async () => {
+		if (!deleteEntryTarget) return;
+		try {
+			const updated = entries.filter((e) => e !== deleteEntryTarget);
+			await persistVocabulary(updated);
+			setEntries(updated);
+			showSnack(`Deleted: ${deleteEntryTarget.original}`, "warning");
+		} catch {
+			showSnack("Failed to delete entry", "error");
+		} finally {
+			setDeleteEntryTarget(null);
+		}
+	};
 
-  // NEW-UX-004: instant-delete + Undo toast.  Triggered by the trash
-  // icon.  Removes the entry immediately and offers a 6-second Undo
-  // window during which the user can restore it.
-  const instantDeleteEntry = useCallback(async (entry: VocabularyEntry) => {
-    try {
-      const updated = entries.filter((e) => e !== entry)
-      await persistVocabulary(updated)
-      setEntries(updated)
-      showUndoableToast(
-        `Deleted: ${entry.original}`,
-        async () => {
-          try {
-            const restored = [...entries]
-            // Re-insert at the original location (best-effort: append
-            // if the reference position is no longer valid).
-            const idx = restored.findIndex((e) => e === entry)
-            if (idx >= 0) {
-              restored.splice(idx, 0, entry)
-            } else {
-              restored.push(entry)
-            }
-            await persistVocabulary(restored)
-            setEntries(restored)
-            toast.success('Entry restored')
-          } catch {
-            toast.error('Failed to restore entry')
-          }
-        },
-        { undoLabel: 'Undo', type: 'warning', timeoutMs: 6000 },
-      )
-    } catch {
-      showSnack('Failed to delete entry', 'error')
-    }
-  }, [entries, persistVocabulary, showSnack])
+	// NEW-UX-004: instant-delete + Undo toast.  Triggered by the trash
+	// icon.  Removes the entry immediately and offers a 6-second Undo
+	// window during which the user can restore it.
+	const instantDeleteEntry = useCallback(
+		async (entry: VocabularyEntry) => {
+			try {
+				const updated = entries.filter((e) => e !== entry);
+				await persistVocabulary(updated);
+				setEntries(updated);
+				showUndoableToast(
+					`Deleted: ${entry.original}`,
+					async () => {
+						try {
+							const restored = [...entries];
+							// Re-insert at the original location (best-effort: append
+							// if the reference position is no longer valid).
+							const idx = restored.indexOf(entry);
+							if (idx >= 0) {
+								restored.splice(idx, 0, entry);
+							} else {
+								restored.push(entry);
+							}
+							await persistVocabulary(restored);
+							setEntries(restored);
+							toast.success("Entry restored");
+						} catch {
+							toast.error("Failed to restore entry");
+						}
+					},
+					{ undoLabel: "Undo", type: "warning", timeoutMs: 6000 },
+				);
+			} catch {
+				showSnack("Failed to delete entry", "error");
+			}
+		},
+		[entries, persistVocabulary, showSnack],
+	);
 
-  // ── Render ────────────────────────────────────────────────────────
+	// ── Render ────────────────────────────────────────────────────────
 
-  if (loading) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Spinner />
-      </div>
-    )
-  }
+	if (loading) {
+		return (
+			<div className="flex h-full items-center justify-center">
+				<Spinner />
+			</div>
+		);
+	}
 
-  return (
-    <>
-      <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
-        <PageHeading
-          title="Custom Vocabulary"
-          description="Add custom words and corrections to improve accuracy"
-        >
-          <div className="flex items-center gap-2">
-            <ExportFormatMenu onExport={doExport} disabled={entries.length === 0} />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={openAddDialog}
-              disabled={saving}
-              className="gap-2"
-            >
-              <HugeiconsIcon icon={Add01Icon} strokeWidth={2} className="h-4 w-4" />
-              Add Word
-            </Button>
+	return (
+		<>
+			<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
+				<PageHeading
+					title="Custom Vocabulary"
+					description="Add custom words and corrections to improve accuracy"
+				>
+					<div className="flex items-center gap-2">
+						<ExportFormatMenu
+							onExport={doExport}
+							disabled={entries.length === 0}
+						/>
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={openAddDialog}
+							disabled={saving}
+							className="gap-2"
+						>
+							<HugeiconsIcon
+								icon={Add01Icon}
+								strokeWidth={2}
+								className="h-4 w-4"
+							/>
+							Add Word
+						</Button>
+					</div>
+				</PageHeading>
 
-          </div>
-        </PageHeading>
+				{/* Search */}
+				<SearchField
+					value={searchQuery}
+					onChange={(value) => setSearchQuery(value)}
+					placeholder="Search vocabulary..."
+				/>
 
-        {/* Search */}
-        <SearchField
-          value={searchQuery}
-          onChange={(value) => setSearchQuery(value)}
-          placeholder="Search vocabulary..."
-        />
+				{/* List */}
+				<div className="mt-4">
+					{entries.length === 0 ? (
+						<EmptyState
+							icon={BookOpen02Icon}
+							title="No vocabulary entries yet"
+							description="Add words or phrases that Voice Typer should correct"
+							actionLabel="Add Your First Word"
+							onAction={openAddDialog}
+						/>
+					) : filtered.length === 0 ? (
+						<EmptyState icon={BookOpen02Icon} title="No results found" />
+					) : (
+						<div className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
+							{filtered.map((entry, idx) => (
+								<div
+									key={`${entry.original}-${entry.category}-${idx}`}
+									className="flex items-start gap-3 px-3.5 py-2.5"
+								>
+									<div className="min-w-0 flex-1">
+										<div className="flex items-center gap-2.5">
+											<span className="text-sm dark:font-normal font-medium text-destructive tracking-wider">
+												{entry.original}
+											</span>
+											<span className="text-sm text-(--text-muted)">→</span>
+											<span className="text-sm font-semibold text-(--text-primary)">
+												{entry.correction}
+											</span>
+										</div>
+									</div>
+									<div className="flex shrink-0 items-center gap-1">
+										<Button
+											variant="ghost"
+											size="icon-xs"
+											onClick={() => openEditDialog(entry)}
+											className="text-(--text-muted) hover:text-accent"
+											title="Edit"
+											aria-label={`Edit: ${entry.original}`}
+										>
+											<HugeiconsIcon
+												icon={PencilEdit02Icon}
+												strokeWidth={2.5}
+												className="h-4 w-4"
+											/>
+										</Button>
+										<Button
+											variant="ghost"
+											size="icon-xs"
+											onClick={() => instantDeleteEntry(entry)}
+											className="text-(--text-muted) hover:text-destructive"
+											title="Delete"
+											aria-label={`Delete: ${entry.original}`}
+										>
+											<HugeiconsIcon
+												icon={Delete01Icon}
+												strokeWidth={2.5}
+												className="h-4 w-4"
+											/>
+										</Button>
+									</div>
+								</div>
+							))}
+						</div>
+					)}
+				</div>
 
-        {/* List */}
-        <div className="mt-4">
-          {entries.length === 0 ? (
-            <EmptyState
-              icon={BookOpen02Icon}
-              title="No vocabulary entries yet"
-              description="Add words or phrases that Voice Typer should correct"
-              actionLabel="Add Your First Word"
-              onAction={openAddDialog}
-            />
-          ) : filtered.length === 0 ? (
-            <EmptyState
-              icon={BookOpen02Icon}
-              title="No results found"
-            />
-          ) : (
-            <div className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
-              {filtered.map((entry, idx) => (
-                <div
-                  key={`${entry.original}-${entry.category}-${idx}`}
-                  className="flex items-start gap-3 px-3.5 py-2.5"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2.5">
-                      <span className="text-sm dark:font-normal font-medium text-destructive tracking-wider">
-                        {entry.original}
-                      </span>
-                      <span className="text-sm text-(--text-muted)">→</span>
-                      <span className="text-sm font-semibold text-(--text-primary)">
-                        {entry.correction}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      onClick={() => openEditDialog(entry)}
-                      className="text-(--text-muted) hover:text-accent"
-                      title="Edit"
-                      aria-label={`Edit: ${entry.original}`}
-                    >
-                      <HugeiconsIcon icon={PencilEdit02Icon} strokeWidth={2.5} className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      onClick={() => instantDeleteEntry(entry)}
-                      className="text-(--text-muted) hover:text-destructive"
-                      title="Delete"
-                      aria-label={`Delete: ${entry.original}`}
-                    >
-                      <HugeiconsIcon icon={Delete01Icon} strokeWidth={2.5} className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+				{/* Count footer */}
+				{entries.length > 0 && !searchQuery.trim() && (
+					<p className="mt-3 text-[10px] text-(--text-muted) text-center opacity-50">
+						{entries.length} entr{entries.length === 1 ? "y" : "ies"}
+					</p>
+				)}
 
-        {/* Count footer */}
-        {entries.length > 0 && !searchQuery.trim() && (
-          <p className="mt-3 text-[10px] text-(--text-muted) text-center opacity-50">
-            {entries.length} entr{entries.length === 1 ? 'y' : 'ies'}
-          </p>
-        )}
+				{/* Snackbar */}
+				<Snackbar />
+			</div>
 
-        {/* Snackbar */}
-        <Snackbar />
-      </div>
+			{/* Add/Edit Dialog */}
+			{showDialog && (
+				<div
+					ref={dialogRef}
+					role="dialog"
+					aria-modal="true"
+					aria-labelledby="vocabulary-dialog-title"
+					className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+					onClick={(e) => {
+						if (e.target === e.currentTarget) setShowDialog(false);
+					}}
+					onKeyDown={handleDialogKeyDown}
+				>
+					<div
+						className={cn(
+							"animate-scale-in w-105 rounded-xl border border-border",
+							"bg-(--bg) p-6",
+						)}
+					>
+						<h2
+							id="vocabulary-dialog-title"
+							className="mb-5 text-lg font-semibold text-(--text-primary)"
+						>
+							{editingEntry ? "Edit Vocabulary Entry" : "Add Vocabulary Entry"}
+						</h2>
 
-      {/* Add/Edit Dialog */}
-      {showDialog && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-          onClick={() => setShowDialog(false)}
-        >
-          <div
-            ref={dialogRef}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="vocabulary-dialog-title"
-            className={cn(
-              'animate-scale-in w-105 rounded-xl border border-border',
-              'bg-(--bg) p-6',
-            )}
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={handleDialogKeyDown}
-          >
-            <h2 id="vocabulary-dialog-title" className="mb-5 text-lg font-semibold text-(--text-primary)">
-              {editingEntry ? 'Edit Vocabulary Entry' : 'Add Vocabulary Entry'}
-            </h2>
+						<div className="space-y-4">
+							<div>
+								<label
+									htmlFor="vocab-trigger"
+									className="mb-1.5 block text-sm font-medium text-(--text-primary)"
+								>
+									What you say
+								</label>
+								<Input
+									id="vocab-trigger"
+									value={trigger}
+									onChange={(e) => setTrigger(e.target.value)}
+									placeholder="treat three, mynameis"
+									className="w-full"
+									autoFocus
+								/>
+								{/* NEW-UX-026: help text explaining what to type. */}
+								<p className="mt-1.5 text-xs text-(--text-muted)">
+									Type the word(s) exactly as the ASR mishears them. Single
+									words \u2192 misspellings; multi-word phrases \u2192 phrase
+									corrections.
+								</p>
+							</div>
 
-            <div className="space-y-4">
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-(--text-primary)">
-                  What you say
-                </label>
-                <Input
-                  value={trigger}
-                  onChange={(e) => setTrigger(e.target.value)}
-                  placeholder="treat three, mynameis"
-                  className="w-full"
-                  autoFocus
-                />
-                {/* NEW-UX-026: help text explaining what to type. */}
-                <p className="mt-1.5 text-xs text-(--text-muted)">
-                  Type the word(s) exactly as the ASR mishears them.
-                  Single words \u2192 misspellings; multi-word phrases \u2192 phrase corrections.
-                </p>
-              </div>
+							<div>
+								<label
+									htmlFor="vocab-replacement"
+									className="mb-1.5 block text-sm font-medium text-(--text-primary)"
+								>
+									What gets typed instead
+								</label>
+								<Input
+									id="vocab-replacement"
+									value={replacement}
+									onChange={(e) => setReplacement(e.target.value)}
+									placeholder="treat this, My Name Is"
+									className="w-full"
+								/>
+								{/* NEW-UX-026: help text for the replacement field. */}
+								<p className="mt-1.5 text-xs text-(--text-muted)">
+									The corrected text that will be pasted. Case matters \u2014
+									what you type here is exactly what gets output.
+								</p>
+							</div>
 
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-(--text-primary)">
-                  What gets typed instead
-                </label>
-                <Input
-                  value={replacement}
-                  onChange={(e) => setReplacement(e.target.value)}
-                  placeholder="treat this, My Name Is"
-                  className="w-full"
-                />
-                {/* NEW-UX-026: help text for the replacement field. */}
-                <p className="mt-1.5 text-xs text-(--text-muted)">
-                  The corrected text that will be pasted. Case matters \u2014
-                  what you type here is exactly what gets output.
-                </p>
-              </div>
+							{/* NEW-UX-039: explicit category picker. */}
+							<div>
+								<span className="mb-1.5 block text-sm font-medium text-(--text-primary)">
+									Category
+								</span>
+								<Select value={category} onValueChange={setCategory}>
+									<SelectTrigger
+										className="w-full"
+										aria-label="Vocabulary category"
+									>
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="auto">
+											<span className="flex flex-col">
+												<span>Auto-detect</span>
+												<span className="text-xs text-(--text-muted)">
+													Single word \u2192 Misspellings, phrase \u2192 Phrase
+													Corrections
+												</span>
+											</span>
+										</SelectItem>
+										{CATEGORIES.map((cat) => (
+											<SelectItem key={cat} value={cat}>
+												<span className="flex flex-col">
+													<span>{CATEGORY_LABELS[cat]?.label ?? cat}</span>
+													<span className="text-xs text-(--text-muted)">
+														{CATEGORY_LABELS[cat]?.example ?? ""}
+													</span>
+												</span>
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+								{category !== "auto" && CATEGORY_LABELS[category] && (
+									<p className="mt-1.5 text-xs text-(--text-muted)">
+										{CATEGORY_LABELS[category].description}
+									</p>
+								)}
+							</div>
+						</div>
 
-              {/* NEW-UX-039: explicit category picker. */}
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-(--text-primary)">
-                  Category
-                </label>
-                <Select value={category} onValueChange={setCategory}>
-                  <SelectTrigger className="w-full" aria-label="Vocabulary category">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="auto">
-                      <span className="flex flex-col">
-                        <span>Auto-detect</span>
-                        <span className="text-xs text-(--text-muted)">
-                          Single word \u2192 Misspellings, phrase \u2192 Phrase Corrections
-                        </span>
-                      </span>
-                    </SelectItem>
-                    {CATEGORIES.map((cat) => (
-                      <SelectItem key={cat} value={cat}>
-                        <span className="flex flex-col">
-                          <span>{CATEGORY_LABELS[cat]?.label ?? cat}</span>
-                          <span className="text-xs text-(--text-muted)">
-                            {CATEGORY_LABELS[cat]?.example ?? ''}
-                          </span>
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {category !== 'auto' && CATEGORY_LABELS[category] && (
-                  <p className="mt-1.5 text-xs text-(--text-muted)">
-                    {CATEGORY_LABELS[category].description}
-                  </p>
-                )}
-              </div>
-            </div>
+						<div className="mt-6 flex justify-end gap-3">
+							<Button variant="ghost" onClick={() => setShowDialog(false)}>
+								Cancel
+							</Button>
+							<Button
+								variant="default"
+								onClick={saveEntry}
+								disabled={!trigger.trim() || !replacement.trim()}
+							>
+								Save
+							</Button>
+						</div>
+					</div>
+				</div>
+			)}
 
-            <div className="mt-6 flex justify-end gap-3">
-              <Button variant="ghost" onClick={() => setShowDialog(false)}>
-                Cancel
-              </Button>
-              <Button variant="default" onClick={saveEntry} disabled={!trigger.trim() || !replacement.trim()}>
-                Save
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* #7: ConfirmDialog for entry deletion */}
-      <ConfirmDialog
-        open={deleteEntryTarget !== null}
-        title="Delete Vocabulary Entry"
-        message={`Are you sure you want to delete "${deleteEntryTarget?.original ?? ''}"? This action cannot be undone.`}
-        confirmLabel="Delete"
-        onConfirm={confirmDeleteEntry}
-        onCancel={() => setDeleteEntryTarget(null)}
-      />
-    </>
-  )
+			{/* #7: ConfirmDialog for entry deletion */}
+			<ConfirmDialog
+				open={deleteEntryTarget !== null}
+				title="Delete Vocabulary Entry"
+				message={`Are you sure you want to delete "${deleteEntryTarget?.original ?? ""}"? This action cannot be undone.`}
+				confirmLabel="Delete"
+				onConfirm={confirmDeleteEntry}
+				onCancel={() => setDeleteEntryTarget(null)}
+			/>
+		</>
+	);
 }
