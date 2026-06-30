@@ -1177,7 +1177,7 @@ class TestHotkeyCallbackChain:
         args = app.tray.set_state.call_args
         assert args[0][0] == AppState.RECORDING
 
-    def test_callback_chain_register_then_fire(self, app):
+    def test_callback_chain_register_then_fire(self, app, monkeypatch):
         """Register hotkey, extract the callback, call it, verify recording starts."""
         captured_mapping = {}
 
@@ -1191,6 +1191,12 @@ class TestHotkeyCallbackChain:
         # pyrefly: ignore [missing-attribute]
         mock_kb.GlobalHotKeys = FakeGlobalHotKeys
 
+        # NATIVE-001: force the legacy pynput backend (skip native binary)
+        # so FakeGlobalHotKeys is actually used. Use monkeypatch.setattr
+        # so the patch is reverted after the test (no state leakage).
+        from voice_typer.server import native_hotkeys
+        monkeypatch.setattr(native_hotkeys, "get_native_binary_path", lambda: None)
+
         app.recorder = MagicMock()
         app.recorder.recording = False
         app.tray = MagicMock()
@@ -1199,8 +1205,11 @@ class TestHotkeyCallbackChain:
         # Register hotkey - this captures the mapping
         app._register_hotkey()
 
-        assert '<f2>' in captured_mapping
-        callback = captured_mapping['<f2>']
+        # The default hotkey is platform-aware (Fn on macOS, Caps Lock on
+        # Windows/Linux, F2 on unknown). Use the actual config value.
+        expected_hotkey = app.config.hotkey
+        assert expected_hotkey in captured_mapping
+        callback = captured_mapping[expected_hotkey]
         assert callback == app.toggle_dictation
 
         # Simulate the hotkey being pressed

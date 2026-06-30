@@ -20,6 +20,30 @@ _PROJECT_ROOT = Path(_spec_script).resolve().parent.parent.parent
 _corrections_json = str(_PROJECT_ROOT / "voice_typer" / "corrections.json")
 _icon_path = _PROJECT_ROOT / "scripts" / "build" / "voice-typer.ico"
 
+# NATIVE-001: native key-listener binaries.
+# These are compiled by scripts/build/compile_native.sh (or .ps1 on Windows)
+# and live at voice_typer/server/native/<binary-name>. The Python backend
+# (voice_typer.server.native_hotkeys.get_native_binary_path) looks for them
+# in three places:
+#   1. VOICE_TYPER_NATIVE_BINARY env var (explicit override)
+#   2. voice_typer/server/native/<binary-name> (dev mode + PyInstaller onedir)
+#   3. Next to sys.executable (PyInstaller onedir)
+#   4. Inside _MEIPASS (PyInstaller onefile)
+#
+# We add them as `binaries` so PyInstaller copies them into the bundle.
+_native_dir = _PROJECT_ROOT / "voice_typer" / "server" / "native"
+_native_binaries = []
+for _binary_name in ("macos-key-listener", "windows-key-listener.exe", "linux-key-listener"):
+    _candidate = _native_dir / _binary_name
+    if _candidate.exists():
+        # PyInstaller's binaries list is (source, dest_dir) tuples.
+        # We put them under voice_typer/server/native/ in the bundle so
+        # the Python code can find them via Path(__file__).parent / "native".
+        _native_binaries.append((str(_candidate), "voice_typer/server/native"))
+        print(f"[voice-typer.spec] Including native binary: {_candidate}")
+    else:
+        print(f"[voice-typer.spec] Skipping native binary (not built): {_candidate}")
+
 # PLAT-037: Windows application manifest to set requestedExecutionLevel
 # to asInvoker. This prevents UAC elevation prompts on launch and
 # ensures the app runs with the user's normal privileges.
@@ -66,7 +90,7 @@ _manifest_file.close()
 a = Analysis(
     [str(_PROJECT_ROOT / "voice_typer" / "__main__.py")],
     pathex=[str(_PROJECT_ROOT)],
-    binaries=[],
+    binaries=_native_binaries,
     datas=[(_corrections_json, "voice_typer")],
     hiddenimports=[
         "scipy.signal",
@@ -100,6 +124,8 @@ a = Analysis(
         "voice_typer.server.qwen_engine",
         "voice_typer.server.cloud_engines",
         "voice_typer.server.asr_registry",
+        # NATIVE-001: native hotkey backend (lazy-imported by hotkeys.py).
+        "voice_typer.server.native_hotkeys",
         "transformers",
         "transformers.models",
         "accelerate",

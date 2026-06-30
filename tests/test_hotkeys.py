@@ -15,35 +15,87 @@ from unittest.mock import MagicMock, patch, PropertyMock
 
 
 class TestCreateHotkeyBackend:
-    """Verify create_hotkey_backend returns the right type."""
+    """Verify create_hotkey_backend returns the right type.
 
-    def test_returns_pynput_hotkey_on_linux(self, monkeypatch):
+    NATIVE-001: with the new architecture, native subprocess backends
+    are preferred when the binary is available. The factory wraps them
+    in _NativeBackendAdapter to satisfy the HotkeyBackend interface.
+    Legacy backends (PynputHotkey, WindowsNativeHotkey, WaylandHotkey)
+    remain as fallbacks when the native binary is missing.
+    """
+
+    def test_returns_pynput_hotkey_on_linux_without_native(self, monkeypatch):
+        """When no native binary is available on Linux, fall back to PynputHotkey."""
         monkeypatch.setattr(sys, "platform", "linux")
+        # Force the native binary lookup to fail
+        from voice_typer.server import native_hotkeys
+        monkeypatch.setattr(native_hotkeys, "get_native_binary_path", lambda: None)
         from voice_typer.server.hotkeys import create_hotkey_backend, PynputHotkey
 
         backend = create_hotkey_backend("<f2>")
         assert isinstance(backend, PynputHotkey)
 
-    def test_returns_pynput_hotkey_on_darwin(self, monkeypatch):
+    def test_returns_pynput_hotkey_on_darwin_without_native(self, monkeypatch):
+        """When no native binary is available on macOS, fall back to PynputHotkey."""
         monkeypatch.setattr(sys, "platform", "darwin")
+        from voice_typer.server import native_hotkeys
+        monkeypatch.setattr(native_hotkeys, "get_native_binary_path", lambda: None)
         from voice_typer.server.hotkeys import create_hotkey_backend, PynputHotkey
 
         backend = create_hotkey_backend("<f2>")
         assert isinstance(backend, PynputHotkey)
 
-    def test_returns_windows_native_on_win32(self, monkeypatch):
+    def test_returns_windows_native_on_win32_without_native(self, monkeypatch):
+        """When no native binary is available on Windows, fall back to WindowsNativeHotkey."""
         monkeypatch.setattr(sys, "platform", "win32")
+        from voice_typer.server import native_hotkeys
+        monkeypatch.setattr(native_hotkeys, "get_native_binary_path", lambda: None)
         from voice_typer.server.hotkeys import create_hotkey_backend, WindowsNativeHotkey
 
         backend = create_hotkey_backend("<f2>")
         assert isinstance(backend, WindowsNativeHotkey)
 
-    def test_backend_has_hotkey_str(self, monkeypatch):
+    def test_returns_native_adapter_when_binary_available(self, monkeypatch):
+        """When the native binary IS available, return a _NativeBackendAdapter."""
         monkeypatch.setattr(sys, "platform", "linux")
+        from voice_typer.server import native_hotkeys
+        # Pretend the binary exists
+        from pathlib import Path
+        monkeypatch.setattr(native_hotkeys, "get_native_binary_path", lambda: Path("/fake/binary"))
+        monkeypatch.setattr(native_hotkeys, "is_native_backend_available", lambda: True)
+        # Patch the backend creation to avoid actually spawning a process
+        from voice_typer.server.native_hotkeys import LinuxEvdevHotkey
+        fake_backend = LinuxEvdevHotkey("<f2>")
+        monkeypatch.setattr(native_hotkeys, "create_native_backend", lambda spec: fake_backend)
+
+        from voice_typer.server.hotkeys import create_hotkey_backend, _NativeBackendAdapter
+
+        backend = create_hotkey_backend("<f2>")
+        assert isinstance(backend, _NativeBackendAdapter)
+
+    def test_backend_has_hotkey_str(self, monkeypatch):
+        """hotkey_str is preserved across all backend types."""
+        monkeypatch.setattr(sys, "platform", "linux")
+        from voice_typer.server import native_hotkeys
+        monkeypatch.setattr(native_hotkeys, "get_native_binary_path", lambda: None)
         from voice_typer.server.hotkeys import create_hotkey_backend
 
         backend = create_hotkey_backend("<f12>")
         assert backend.hotkey_str == "<f12>"
+
+    def test_falls_back_to_legacy_on_native_failure(self, monkeypatch):
+        """If the native backend creation raises, fall back to legacy."""
+        monkeypatch.setattr(sys, "platform", "linux")
+        from voice_typer.server import native_hotkeys
+        monkeypatch.setattr(native_hotkeys, "get_native_binary_path", lambda: None)
+        # Force create_native_backend to raise
+        def _raise(spec):
+            raise RuntimeError("native backend exploded")
+        monkeypatch.setattr(native_hotkeys, "create_native_backend", _raise)
+        from voice_typer.server.hotkeys import create_hotkey_backend, PynputHotkey
+
+        backend = create_hotkey_backend("<f2>")
+        assert isinstance(backend, PynputHotkey)
 
 
 # ─── parse_hotkey_to_vk ─────────────────────────────────────────────────────
@@ -370,7 +422,12 @@ class TestRealLifecycle:
     the lifecycle doesn't crash.
     """
 
-    def test_lifecycle_no_crash(self):
+    def test_lifecycle_no_crash(self, monkeypatch):
+        # NATIVE-001: skip the native backend so we test the legacy path
+        # (pynput). The native backend requires /dev/input on Linux and
+        # may not be available in CI/sandbox environments.
+        from voice_typer.server import native_hotkeys
+        monkeypatch.setattr(native_hotkeys, "get_native_binary_path", lambda: None)
         from voice_typer.server.hotkeys import create_hotkey_backend
 
         backend = create_hotkey_backend("<f2>")

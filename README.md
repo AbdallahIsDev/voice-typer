@@ -34,9 +34,11 @@ No Python, no terminal, no commands needed.
 
 ## Requirements
 
-- Windows 10/11 (primary target; platform.py has stubs for macOS/Linux autostart but the app is not tested on those platforms)
+- **Windows 10/11**, **macOS 11+**, or **Linux** (X11 or Wayland) — Voice Typer is cross-platform
 - A microphone
 - Internet on first run (downloads the Whisper model for the selected model size)
+- **macOS only**: Accessibility permission for the native key listener (see [Troubleshooting](#troubleshooting))
+- **Linux only**: membership in the `input` group so the native key listener can read `/dev/input/event*` (see [Troubleshooting](#troubleshooting))
 
 ## For Developers (from source)
 
@@ -160,9 +162,25 @@ There is no Hotkey / Microphone / Advanced submenu. Hotkey and microphone
 selection live in the Electron app's Settings and Microphone pages,
 respectively.
 
+### Hotkey
+
+The dictation hotkey defaults to a **platform-aware** value chosen for ergonomic, single-key triggering:
+
+| Platform | Default hotkey | Notes |
+|---|---|---|
+| **macOS** | `Fn` (the Globe/Fn key on modern Macs) | Requires Accessibility permission. The Fn key is firmware-routed to a software-visible modifier on macOS only. |
+| **Windows** | `Caps Lock` | Requires OS-level remap to neutralize caps-toggling (see [Troubleshooting](#troubleshooting)). |
+| **Linux** | `Caps Lock` | Requires `setxkbmap -option caps:none` so Caps Lock doesn't also toggle caps state. |
+
+The legacy `<f2>` default from older releases is preserved as a fallback — existing users with `<f2>` in their config keep it untouched, and new installs that can't use the platform default (e.g. binary missing) fall back to `<f2>`.
+
+You can pick any key or combination via the Settings capture dialog (the **Hotkey** field's **Capture** button). The dialog accepts modifier-only releases as single-key hotkeys — press `Alt` alone and release, and the hotkey becomes `<alt>`.
+
+The `Fn` key is only supported on macOS. On Windows and Linux it is firmware-only (intercepted by the keyboard's own controller before the OS sees it), so the Settings UI hides it on those platforms.
+
 ### Custom Hotkeys
 
-Select **Custom** in the Hotkey submenu to open a dialog where you can type any key combination (e.g., `Ctrl+Shift+K`, `Alt+Q`). The app validates the format and applies it immediately.
+Select **Custom** in the Hotkey submenu (or use Settings → Hotkey → Capture) to pick any key combination (e.g., `Ctrl+Shift+K`, `Alt+Q`, or a bare modifier like `Alt`). The app validates the format and applies it immediately.
 
 ### Model Selection
 
@@ -223,7 +241,11 @@ python -c "import sounddevice as sd; [print(i, d['name'], sd.query_hostapis(d['h
 
 Enable or disable from **Settings -> Advanced -> Start on login**.
 
-The app registers itself in `HKCU\...\Run` (uses `pythonw.exe` for background execution, no console window). Hotkey uses Win32 RegisterHotKey with GetAsyncKeyState polling for reliable detection. The package must be installed (`pip install .`) for autostart to work.
+- **Windows**: registers itself in `HKCU\...\Run` using `pythonw.exe` (no console window).
+- **macOS**: installs a `LaunchAgents` plist in `~/Library/LaunchAgents/`.
+- **Linux**: drops a `.desktop` file in `~/.config/autostart/`.
+
+Global hotkey detection on every platform uses the out-of-process native binary (see [Hotkey Architecture](#hotkey-architecture)); the legacy `RegisterHotKey`/`GetAsyncKeyState` polling and `pynput` paths remain as fallbacks when the native binary is absent. The package must be installed (`pip install .`) for autostart to work.
 
 ## Auto-Paste Behavior
 
@@ -261,22 +283,33 @@ Hidden streaming transcription processes audio in overlapping chunks during reco
 - **Word preservation**: Committed words are preserved during streaming. Deduplication structures are pruned but the output accumulator stays intact, preventing word drops across chunk boundaries.
 - **Emergency override**: Set `VOICE_TYPER_STREAMING=0` to disable streaming entirely.
 
+## Hotkey Architecture
+
+Voice Typer detects global hotkeys via an **out-of-process native binary** spawned by the Python backend. The binary speaks a line-delimited stdout wire protocol (`READY`, `KEY_DOWN:<Name>`, `MOD_DOWN:<Name>`, `FN_DOWN` (macOS only), …) that the Python side parses and matches against the registered hotkey. The same binary is reused in record mode for the Settings capture dialog.
+
+- **macOS** — `voice_typer/server/native/macos-key-listener` (Swift) — uses `NSEvent.modifierFlags.function` + a `CGEvent` tap to support the Fn/Globe key.
+- **Windows** — `voice_typer/server/native/windows-key-listener.exe` (C) — uses a `WH_KEYBOARD_LL` low-level hook (event-driven, supports key suppression, lower CPU than polling).
+- **Linux** — `voice_typer/server/native/linux-key-listener` (C) — reads `/dev/input/event*` (evdev), which works on both X11 and Wayland.
+
+This design gives us crash isolation (a hotkey listener crash can't take down the Python backend), per-platform key suppression (so `Caps Lock` doesn't actually toggle caps state on Windows), and access to platform-specific keys (Fn on macOS) that aren't reachable from Python alone.
+
+If the native binary is missing or fails to start, `create_hotkey_backend()` transparently falls back to the legacy in-process backends (`PynputHotkey`, `WindowsNativeHotkey`, `WaylandHotkey`) so the app still works without a rebuild.
+
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/adr/0005-native-hotkey-architecture.md`](docs/adr/0005-native-hotkey-architecture.md) for the full design and rationale.
+
 ## Platform Notes
 
-Voice Typer is **Windows-only**. The platform.py module has stubs for macOS and Linux autostart
-but the app is primarily developed and tested on Windows.
+Voice Typer is **cross-platform** — Windows, macOS, and Linux (X11 and Wayland) are all supported. The hotkey backend, autostart adapter, and clipboard/focus backends are selected per-OS at runtime.
 
-- Tested on Windows 10 and Windows 11 by the maintainer. There is no CI matrix
-  for Win10 vs Win11 yet — contributors on either version are welcome to report
-  issues. Several Win10-specific code paths (notably `taskkill /T /F` and the
-  legacy `wmic` calls) have been removed; the app now uses `psutil` for
-  process introspection on all platforms.
-- Autostart uses `pythonw.exe` for background execution (no console window)
-- Global hotkey uses Win32 RegisterHotKey via ctypes (no admin required) with GetAsyncKeyState polling
-- Focus detection for safe auto-paste (Win32 API)
-- Win32 console control handler keeps the tray app alive when the console is closed
-- GPU acceleration via CUDA if available (NVIDIA wheel DLL paths configured automatically)
-- Composite hotkeys with modifiers supported via both Win32 RegisterHotKey and pynput fallback
+- **Windows 10/11**: tested by the maintainer. There is no CI matrix for Win10 vs Win11 yet — contributors on either version are welcome to report issues. Several Win10-specific code paths (notably `taskkill /T /F` and the legacy `wmic` calls) have been removed; the app now uses `psutil` for process introspection on all platforms.
+- **macOS 11+**: native Swift key listener supports the Fn/Globe key. Requires Accessibility permission (see [Troubleshooting](#troubleshooting)). Autostart uses a `LaunchAgents` plist.
+- **Linux (X11 and Wayland)**: native C key listener reads `/dev/input/event*` (evdev), which works on both X11 and Wayland. Requires the user to be in the `input` group (see [Troubleshooting](#troubleshooting)). Autostart uses a `.desktop` file in `~/.config/autostart/`.
+- Autostart uses `pythonw.exe` for background execution on Windows (no console window).
+- Global hotkey uses the out-of-process native binary on every platform; legacy `RegisterHotKey`/`GetAsyncKeyState` polling (Windows) and `pynput` (macOS/Linux X11) remain as fallbacks.
+- Focus detection for safe auto-paste is Windows-only; on macOS/Linux the text is always copied to the clipboard (auto-paste is skipped).
+- Win32 console control handler keeps the tray app alive when the console is closed (Windows-only).
+- GPU acceleration via CUDA if available (NVIDIA wheel DLL paths configured automatically on Windows).
+- Composite hotkeys with modifiers supported on all platforms via the native binary, and via `RegisterHotKey`/`pynput` fallbacks.
 
 ## Architecture
 
@@ -359,6 +392,57 @@ Uses `RotatingFileHandler` (1MB max, 2 backups) with structured logging (session
 
 ## Troubleshooting
 
+### Hotkey doesn't fire
+
+- **Build the native binary**: the native key listener is a compiled binary, not bundled with the source tree. Build it with:
+  ```bash
+  bash scripts/build/compile_native.sh        # macOS / Linux
+  # or, on Windows:
+  powershell -ExecutionPolicy Bypass -File scripts/build/compile_native.ps1
+  ```
+  The script auto-detects your platform and only builds the binary that matches it. The compiled binary lives in `voice_typer/server/native/`.
+- If the binary is missing, Voice Typer falls back to the legacy in-process backends (`PynputHotkey` / `WindowsNativeHotkey` / `WaylandHotkey`) — this is enough to keep the app usable, but you lose Fn-key support on macOS and Wayland support on Linux.
+- Check the log file for `[HOTKEY]` messages indicating which backend was selected.
+
+### macOS: Accessibility permission
+
+The native key listener needs Accessibility permission to observe keyboard events system-wide:
+
+1. Open **System Settings → Privacy & Security → Accessibility**.
+2. Enable the toggle next to **Voice Typer** (or the terminal you launched it from, if running from source).
+3. If Voice Typer isn't listed, click **+** and add it.
+
+### macOS: Re-grant Accessibility after a macOS update
+
+macOS updates sometimes invalidate the Accessibility grant for previously-trusted apps. If the hotkey stops working immediately after a macOS update, go back to **System Settings → Privacy & Security → Accessibility**, toggle Voice Typer off and back on, or remove it and re-add it.
+
+### Linux: Add yourself to the `input` group
+
+The native key listener reads `/dev/input/event*`, which on most distros is owned by root:`input`. Add yourself to the group, then **log out and back in** (group membership is evaluated at login):
+
+```bash
+sudo usermod -aG input $USER
+```
+
+If you can't log out, you can run the binary as root for testing — but the proper fix is the group add above.
+
+### Linux: Caps Lock remap
+
+The Linux evdev backend is read-only — it can observe keystrokes but can't suppress them. If you use `Caps Lock` as the hotkey (the default on Linux), pressing Caps Lock will **also** toggle the OS caps-lock state. To neutralize that, add the following to `~/.xprofile` (X11) or your compositor's startup script (Wayland):
+
+```bash
+setxkbmap -option caps:none
+```
+
+For more permanent behavior across Wayland compositors, consider `keyd` or `kmonad`.
+
+### Windows: Caps Lock remap
+
+The Windows native binary **does** suppress the Caps Lock keydown event so the OS doesn't toggle caps state — but only when Voice Typer is running. If you want Caps Lock to be neutralized even when Voice Typer isn't running (or you want it remapped to a different key entirely), use one of these:
+
+- **PowerToys Keyboard Manager** (recommended): install PowerToys → Keyboard Manager → Remap a key → remap `Caps Lock` to `Disable`.
+- **Registry Scancode Map**: add a `Scancode Map` binary value under `HKLM\SYSTEM\CurrentControlSet\Control\Keyboard Layout` to globally remap Caps Lock. (Standard caveat: edits to `HKLM` require admin rights and a reboot.)
+
 ### Word drops
 
 - Keep hidden streaming enabled unless diagnosing: it finalizes the tail and falls back to batch transcription if timestamps are unsafe.
@@ -428,20 +512,22 @@ Uses `RotatingFileHandler` (1MB max, 2 backups) with structured logging (session
 
 ### Already running
 
-- Only one Voice Typer instance can run at a time (enforced via Windows named mutex).
+- Only one Voice Typer instance can run at a time (enforced via Windows named mutex on Windows, lockfile on macOS/Linux).
 - If you see "Voice Typer is already running", check the system tray for the existing instance.
 - Use **Restart** from the tray menu to cleanly restart the app.
 
 ## Known Limitations
 
-- Focus detection (for safe auto-paste) only works on Windows
+- Focus detection (for safe auto-paste) only works on Windows; on macOS/Linux the transcription is always copied to the clipboard (auto-paste is skipped, you Ctrl+V manually)
+- Key suppression (so a `Caps Lock` hotkey doesn't toggle caps state) only works on Windows and macOS; on Linux the hotkey press reaches the foreground app and should be neutralized at the OS level via `setxkbmap -option caps:none`
+- The `Fn` key is supported only on macOS; on Windows/Linux it is firmware-only and never reaches the OS
 - First model download requires internet (model sizes vary by backend: Whisper `tiny.en` is ~75 MB, `small.en` ~466 MB, `medium.en` ~1.5 GB; Parakeet TDT v3 is ~2.5 GB; Qwen3-ASR is configured by path)
 - Very long recordings (>10 min) may use significant RAM during transcription
 - The standalone installer bundles Python + dependencies (no Python installation needed)
 
 ## Project Status
 
-Actively maintained. Uses proper type checking via Pyrefly. Standalone Windows installer available for each release.
+Actively maintained. Uses proper type checking via Pyrefly. Cross-platform — standalone Windows installer available for each release, with macOS and Linux running from source.
 
 ## License
 

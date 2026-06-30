@@ -895,12 +895,49 @@ class WindowsNativeHotkey(HotkeyBackend):
 def create_hotkey_backend(hotkey_str: str) -> HotkeyBackend:
     """Create the best hotkey backend for the current platform.
 
-    - On Windows: returns ``WindowsNativeHotkey``.
-    - On Linux/Wayland: returns ``WaylandHotkey`` (Unix socket fallback).
-    - On Linux/X11: returns ``PynputHotkey``.
+    Selection order (per platform):
+    - macOS: ``MacNativeHotkey`` (Swift binary, supports FN key via
+      ``NSEvent.modifierFlags.contains(.function)`` + CGEventTap). Falls
+      back to ``PynputHotkey`` if the native binary is missing.
+    - Windows: ``WindowsHookHotkey`` (C binary using ``WH_KEYBOARD_LL``).
+      Falls back to ``WindowsNativeHotkey`` (GetAsyncKeyState polling)
+      if the native binary is missing, and to ``PynputHotkey`` if Win32
+      is unavailable.
+    - Linux/Wayland: ``LinuxEvdevHotkey`` (C binary using
+      ``/dev/input/event*``). Falls back to ``WaylandHotkey`` (Unix
+      socket) if the native binary is missing.
+    - Linux/X11: ``LinuxEvdevHotkey`` preferred (works on both X11 and
+      Wayland); falls back to ``PynputHotkey`` if missing.
+
+    The native backends are preferred because they support:
+    - The FN key on macOS (firmware-level on Windows/Linux)
+    - Modifier-only hotkeys (e.g. ``<alt>``, ``<caps_lock>``) on all
+      platforms — pynput's GlobalHotKeys does not support these
+    - Key suppression (so the trigger key doesn't reach the foreground
+      app) on macOS and Windows
+    - Lower CPU usage and lower latency than polling
     """
+    # NATIVE-001: try the native subprocess backend first. It supports
+    # FN on macOS, modifier-only hotkeys everywhere, and key suppression
+    # on macOS/Windows. The legacy backends remain as fallbacks.
+    try:
+        from voice_typer.server.native_hotkeys import create_native_backend
+        native = create_native_backend(hotkey_str)
+        if native is not None:
+            # Wrap the native backend so it satisfies the HotkeyBackend
+            # interface expected by HotkeyDispatcher.
+            log.info(
+                "[HOTKEY] Using native %s backend for %r",
+                type(native).__name__, hotkey_str,
+            )
+            return _NativeBackendAdapter(native)
+    except Exception:
+        log.exception(
+            "[HOTKEY] Failed to create native backend; falling back to legacy"
+        )
+
     if is_windows():
-        log.info("[HOTKEY] Platform is win32 -> using WindowsNativeHotkey")
+        log.info("[HOTKEY] Platform is win32 -> using WindowsNativeHotkey (legacy)")
         return WindowsNativeHotkey(hotkey_str)
 
     # #4 PLAT-WAYLAND: detect Wayland and use Unix socket fallback
@@ -908,11 +945,44 @@ def create_hotkey_backend(hotkey_str: str) -> HotkeyBackend:
         wayland_display = os.environ.get("WAYLAND_DISPLAY", "")
         xdg_session = os.environ.get("XDG_SESSION_TYPE", "")
         if wayland_display or xdg_session == "wayland":
-            log.info("[HOTKEY] Wayland detected -> using WaylandHotkey (Unix socket)")
+            log.info("[HOTKEY] Wayland detected -> using WaylandHotkey (Unix socket, legacy)")
             return WaylandHotkey(hotkey_str)
 
-    log.info("[HOTKEY] Platform is %s -> using PynputHotkey", sys.platform)
+    log.info("[HOTKEY] Platform is %s -> using PynputHotkey (legacy)", sys.platform)
     return PynputHotkey(hotkey_str)
+
+
+class _NativeBackendAdapter(HotkeyBackend):
+    """Adapter that wraps a ``SubprocessHotkeyBackend`` to satisfy the
+    ``HotkeyBackend`` interface expected by ``HotkeyDispatcher``.
+
+    The native backends in ``native_hotkeys.py`` don't inherit from
+    ``HotkeyBackend`` (they use a separate base class to avoid an import
+    cycle). This adapter bridges the two.
+    """
+
+    def __init__(self, native_backend):
+        # Don't call super().__init__ because we delegate hotkey_str
+        # to the wrapped backend.
+        self._native = native_backend
+        self.hotkey_str = native_backend.hotkey_str
+        self._on_release_callback: Optional[Callable[[], None]] = None
+
+    def start(self, callback: Callable[[], None]) -> None:
+        self._native.start(callback)
+
+    def set_on_release(self, callback: Optional[Callable[[], None]]) -> None:
+        self._on_release_callback = callback
+        self._native.set_on_release(callback)
+
+    def stop(self) -> None:
+        self._native.stop()
+
+    def is_alive(self) -> bool:
+        return self._native.is_alive()
+
+    def diagnose(self) -> str:
+        return self._native.diagnose()
 
 
 # ─── Wayland hotkey backend (#4 PLAT-WAYLAND) ──────────────────────────────

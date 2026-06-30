@@ -6,13 +6,20 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch
 
-from voice_typer.server.config import Config, _config_dir
+from voice_typer.server.config import Config, _config_dir, _default_hotkey_for_platform
+
+
+# NATIVE-001: the default hotkey is now platform-aware
+# (Fn on macOS, Caps Lock on Windows/Linux, F2 on unknown platforms).
+# Tests that assert the default hotkey use this helper instead of
+# hard-coding "<f2>".
+EXPECTED_DEFAULT_HOTKEY = _default_hotkey_for_platform()
 
 
 class TestConfigDefaults:
     def test_default_values(self):
         c = Config()
-        assert c.hotkey == "<f2>"
+        assert c.hotkey == EXPECTED_DEFAULT_HOTKEY
         assert c.sample_rate == 16000
         assert c.microphone is None
         assert c.model_size == "small.en"
@@ -54,7 +61,7 @@ class TestConfigLoadSave:
     def test_load_returns_defaults_when_no_file(self, tmp_path, monkeypatch):
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         c = Config.load()
-        assert c.hotkey == "<f2>"
+        assert c.hotkey == EXPECTED_DEFAULT_HOTKEY
         assert c.autostart is True
 
     def test_load_reads_existing_file(self, tmp_path, monkeypatch):
@@ -143,7 +150,7 @@ class TestConfigLoadSave:
         config_file.write_text("NOT VALID JSON {{{")
 
         c = Config.load()
-        assert c.hotkey == "<f2>"  # defaults
+        assert c.hotkey == EXPECTED_DEFAULT_HOTKEY  # defaults
 
     def test_load_logs_error_on_corrupt_file(self, tmp_path, monkeypatch, caplog):
         """P1 fix: Config.load() must log errors instead of silently swallowing them."""
@@ -379,7 +386,7 @@ class TestH1NonNumericFieldValidation:
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"hotkey": 42}))
         c = Config.load()
-        assert c.hotkey == "<f2>"  # default
+        assert c.hotkey == EXPECTED_DEFAULT_HOTKEY  # default
 
     def test_str_field_keeps_valid_string(self, tmp_path, monkeypatch):
         """Valid string value for str field should be preserved."""
@@ -631,7 +638,7 @@ class TestConfigParametrized:
         config_file.write_text(corrupt_content)
         c = Config.load()
         # Should return defaults, not crash
-        assert c.hotkey == "<f2>"
+        assert c.hotkey == EXPECTED_DEFAULT_HOTKEY
         assert c.sample_rate == 16000
 
 

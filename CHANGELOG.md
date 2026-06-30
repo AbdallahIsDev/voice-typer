@@ -3,6 +3,31 @@
 All notable changes to Voice Typer are documented here.
 This project follows [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [Unreleased] - 2026-06-30
+
+### Added
+- Cross-platform native hotkey architecture (NATIVE-001)
+  - macOS: native Swift binary supports the Fn key via NSEvent.modifierFlags.function
+  - Windows: native C binary uses WH_KEYBOARD_LL (lower CPU, supports key suppression)
+  - Linux: native C binary uses evdev (/dev/input/event*) — works on both X11 and Wayland
+- Platform-aware default hotkey: Fn (macOS), Caps Lock (Windows/Linux)
+- Settings UI: dropdown trimmed to universally-present keys (Caps Lock, Alt, Ctrl, Shift, Win/Cmd, Fn on macOS)
+- Modifier-only hotkeys (Alt, Ctrl, Shift, Win/Cmd, Fn) now supported as single-key triggers
+- FN key support on macOS (firmware-only on Windows/Linux — rejected at validation)
+
+### Changed
+- create_hotkey_backend() now prefers native backends; falls back to legacy PynputHotkey/WindowsNativeHotkey/WaylandHotkey when native binary is missing
+- Config default hotkey changed from `<f2>` to platform-aware default via _default_hotkey_for_platform()
+- HotkeyPicker now accepts modifier-only releases as single-key hotkeys (e.g. press Alt alone, release → <alt>)
+- PyInstaller spec bundles native binaries from voice_typer/server/native/
+
+### Migration notes
+- Existing users with `<f2>` in their config will keep `<f2>` (no forced migration)
+- New installs get the platform-aware default
+- To build native binaries: `bash scripts/build/compile_native.sh` (or .ps1 on Windows)
+- macOS users granting Accessibility for the first time may need to re-grant after macOS updates
+- Linux users may need `sudo usermod -aG input $USER` then log out and back in
+
 ## User-Facing Changes
 
 Changes that affect end users (new features, bug fixes, UX improvements).

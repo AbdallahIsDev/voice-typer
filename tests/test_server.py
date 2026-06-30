@@ -1564,7 +1564,9 @@ class TestGetDefaultsIpc:
         assert result["id"] == 1
         data = result["data"]
         # Verify a few representative defaults match Config()
-        assert data["hotkey"] == "<f2>"
+        # NATIVE-001: default hotkey is platform-aware
+        from voice_typer.server.config import _default_hotkey_for_platform
+        assert data["hotkey"] == _default_hotkey_for_platform()
         assert data["model_size"] == "small.en"
         assert data["language"] == "en"
         assert data["autostart"] is True
@@ -1586,9 +1588,10 @@ class TestGetDefaultsIpc:
         original_hotkey = mock_app.config.hotkey
         mock_app.config.hotkey = "<f9>"  # non-default value
         result = server._dispatch({"id": 1, "type": "get_defaults"})
-        # The defaults should show <f2>, but the app config should
-        # still be <f9>.
-        assert result["data"]["hotkey"] == "<f2>"
+        # The defaults should show the platform-aware default hotkey,
+        # but the app config should still be <f9>.
+        from voice_typer.server.config import _default_hotkey_for_platform
+        assert result["data"]["hotkey"] == _default_hotkey_for_platform()
         assert mock_app.config.hotkey == "<f9>"
 
 

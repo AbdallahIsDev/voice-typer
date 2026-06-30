@@ -16,6 +16,26 @@ log = logging.getLogger("voice_typer.server.config")
 ALLOWED_USER_MODELS = {"tiny.en", "small.en", "medium.en", "qwen", "parakeet"}
 
 
+def _default_hotkey_for_platform() -> str:
+    """NATIVE-001: Return the platform-appropriate default hotkey.
+
+    - macOS: ``<fn>`` — the Fn/Globe key, observable via
+      ``NSEvent.modifierFlags.function`` once Accessibility is granted.
+      Falls back to ``<f2>`` if running under a non-GUI session.
+    - Windows: ``<caps_lock>`` — universally present, isolated, requires
+      OS-level remap (PowerToys or registry Scancode Map) to neutralize
+      the caps-toggling side effect.
+    - Linux: ``<caps_lock>`` — same rationale; neutralize via
+      ``setxkbmap -option caps:none``.
+    - Other platforms: ``<f2>`` (legacy default).
+    """
+    if is_macos():
+        return "<fn>"
+    if is_windows() or is_linux():
+        return "<caps_lock>"
+    return "<f2>"
+
+
 def _secure_atomic_write(path: Path, content: str) -> None:
     """Write content to ``path`` atomically and securely.
 
@@ -378,7 +398,14 @@ class Config:
     last_load_warnings: list = None  # type: ignore[assignment]
 
     # Hotkey
-    hotkey: str = "<f2>"
+    # NATIVE-001: platform-aware default hotkey.
+    # - macOS: <fn> (Fn/Globe key, observable via NSEvent.modifierFlags.function)
+    # - Windows/Linux: <caps_lock> (universally present, isolated, requires
+    #   OS-level remap to neutralize caps-toggling — see docs)
+    # The old default <f2> is preserved as a fallback when the new default
+    # is unsupported (e.g. macOS without Accessibility permission would
+    # still fall back to <f2> via the legacy pynput backend).
+    hotkey: str = _default_hotkey_for_platform()
 
     # Recording
     sample_rate: int = 16000

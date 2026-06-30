@@ -251,5 +251,7 @@ class TestOnboardingWizardE2E:
 
         # Config retains defaults (wizard was skipped before any set_* call)
         cfg = Config.load()
-        assert cfg.hotkey == "<f2>"  # default
+        # NATIVE-001: default hotkey is platform-aware
+        from voice_typer.server.config import _default_hotkey_for_platform
+        assert cfg.hotkey == _default_hotkey_for_platform()
         assert cfg.model_size == "small.en"  # default
