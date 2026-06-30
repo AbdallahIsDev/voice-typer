@@ -235,15 +235,15 @@ class TestStartDictationDucksVolume:
         app, backend = app_with_fake_ducker
         app.config.volume_duck_enabled = True
         app.config.volume_duck_level = 0.25
-        app.config.volume_duck_fade_ms = 150
+        app.config.volume_duck_fade_ms = 200
         app.config.volume_duck_per_session = False
         app.recorder.recording = False
         app.recorder.start = MagicMock()
 
         app._start_dictation()
 
-        # Duck should have called fade_to(0.25, 150)
-        assert (0.25, 150) in backend.fade_calls
+        # Duck should have called fade_to(0.25, 200)
+        assert (0.25, 200) in backend.fade_calls
         assert app._volume_ducker.is_ducked
 
     def test_start_does_not_duck_when_disabled(self, app_with_fake_ducker):
@@ -270,7 +270,7 @@ class TestStartDictationDucksVolume:
         app.recorder.start = MagicMock(side_effect=lambda: call_order.append("recorder.start"))
         # _duck_volume → backend.fade_to — we hook that to record the order
         original_fade = backend.fade_to
-        def spy_fade(target, duration_ms=150, steps=10):
+        def spy_fade(target, duration_ms=200, steps=10):
             call_order.append("volume.duck")
             return original_fade(target, duration_ms, steps)
         backend.fade_to = spy_fade
@@ -301,7 +301,7 @@ class TestStopDictationRestoresVolume:
         _wait_for_busy_clear(app)
 
         # Restore should have faded back to the saved 0.5
-        assert (0.5, 150) in backend.fade_calls
+        assert (0.5, 200) in backend.fade_calls
         assert not app._volume_ducker.is_ducked
 
     def test_stop_restores_before_transcription_starts(self, app_with_fake_ducker):
@@ -318,7 +318,7 @@ class TestStopDictationRestoresVolume:
 
         events = []
         original_fade = backend.fade_to
-        def spy_fade(target, duration_ms=150, steps=10):
+        def spy_fade(target, duration_ms=200, steps=10):
             events.append("restore")
             return original_fade(target, duration_ms, steps)
         backend.fade_to = spy_fade
@@ -365,7 +365,7 @@ class TestCancelDictationRestoresVolume:
         app._cancel_dictation()
 
         # Volume should be restored to 0.5
-        assert (0.5, 150) in backend.fade_calls
+        assert (0.5, 200) in backend.fade_calls
         assert not app._volume_ducker.is_ducked
 
     def test_cancel_does_not_raise_attribute_error_on_removed_monitor(self, app_with_fake_ducker):
@@ -395,7 +395,7 @@ class TestCancelDictationRestoresVolume:
 
         app._cancel_dictation()
 
-        assert (0.5, 150) in backend.fade_calls
+        assert (0.5, 200) in backend.fade_calls
 
 
 class TestQuitRestoresVolumeInstantly:
@@ -567,8 +567,10 @@ class TestPerSessionDuckGatedOnSupport:
         assert backend.fade_calls  # fell back to master-volume fade
 
     def test_per_session_attempted_when_supported(self, monkeypatch, tmp_config_dir):
-        """When the backend DOES support per-session ducking and the user
-        opted in, duck_other_sessions should be called."""
+        """UX-2: per-session ducking was REMOVED. Even when the backend
+        supports it AND the config says True, the app must NOT attempt
+        per-session ducking — it always uses master-volume ducking
+        cross-platform."""
         from voice_typer.server.app import VoiceTyperApp
         monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
         monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
@@ -595,12 +597,17 @@ class TestPerSessionDuckGatedOnSupport:
         instance.recorder.recording = False
         instance.recorder.start = MagicMock()
         instance.config.volume_duck_enabled = True
+        # UX-2: per_session is set to True in config, but the app must
+        # ignore it and always use master-volume ducking.
         instance.config.volume_duck_per_session = True
 
         instance._start_dictation()
 
-        # Per-session duck should have been attempted
-        assert backend.duck_session_calls == [0.25]
+        # UX-2: per-session duck should NOT be attempted — master fade instead
+        assert backend.duck_session_calls == [], (
+            "per-session ducking was removed (UX-2); master fade should be used"
+        )
+        assert len(backend.fade_calls) > 0, "master fade_to should have been called"
 
 
 class TestDuckCrashRecoveryPersistsOnDuck:

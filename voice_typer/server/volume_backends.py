@@ -222,26 +222,30 @@ class MacVolumeBackend(VolumeBackend):
         return False
 
     def initialize(self) -> bool:
-        try:
-            from CoreAudio import (  # type: ignore[import-not-found]
-                AudioObjectGetPropertyData,
-                kAudioHardwareServiceDeviceProperty_VirtualMasterVolume,
-                kAudioHardwareServiceSystemObject,
-                kAudioObjectPropertyElementMaster,
-                kAudioObjectPropertyScopeOutput,
-            )
-            self._use_coreaudio = True
-            self._ca_get = AudioObjectGetPropertyData
-            self._ca_scope = kAudioObjectPropertyScopeOutput
-            self._ca_element = kAudioObjectPropertyElementMaster
-            self._ca_system = kAudioHardwareServiceSystemObject
-            self._ca_vol_prop = kAudioHardwareServiceDeviceProperty_VirtualMasterVolume
-            log.info("[VOLUME-MAC] CoreAudio backend ready")
-            return True
-        except ImportError:
-            log.info("[VOLUME-MAC] pyobjc not available, using osascript fallback")
-            self._use_coreaudio = False
-            return True  # osascript is always available on macOS
+        # UX-2/BUGFIX: the CoreAudio (pyobjc) path is a STUB — every
+        # _ca_* method returns None/False. Previously, if pyobjc was
+        # installed, _use_coreaudio flipped to True and hijacked the
+        # working osascript path, causing get_state() to return None
+        # and duck() to silently fail ("get_state failed — not ducking").
+        # Fix: always use osascript until CoreAudio is fully implemented.
+        # The import check is kept (commented) to document what would
+        # be needed for a future CoreAudio implementation.
+        #
+        # try:
+        #     from CoreAudio import (
+        #         AudioObjectGetPropertyData,
+        #         kAudioHardwareServiceDeviceProperty_VirtualMasterVolume,
+        #         kAudioHardwareServiceSystemObject,
+        #         kAudioObjectPropertyElementMaster,
+        #         kAudioObjectPropertyScopeOutput,
+        #     )
+        #     self._use_coreaudio = True
+        #     ...
+        # except ImportError:
+        #     pass
+        self._use_coreaudio = False
+        log.info("[VOLUME-MAC] osascript backend ready (CoreAudio path is a stub — using osascript)")
+        return True  # osascript is always available on macOS
 
     def get_state(self) -> Optional[VolumeState]:
         if self._use_coreaudio:

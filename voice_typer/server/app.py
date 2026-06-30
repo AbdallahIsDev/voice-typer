@@ -333,25 +333,31 @@ class VoiceTyperApp:
             log.debug("[VOLUME] crash-restore notification failed", exc_info=True)
 
     def _duck_volume(self) -> None:
-        """Duck system volume at the start of dictation."""
+        """Duck system volume at the start of dictation.
+
+        UX-2: the ducking behavior is now simplified:
+        - Smart Duck is ALWAYS ON (merged into Auto Duck Volume)
+        - Fade duration is a fixed 200ms (not user-configurable)
+        - Poll interval is a fixed 500ms (not user-configurable)
+        - Per-session ducking is removed (always ducks master volume
+          cross-platform)
+        The config fields are kept for backward compat but ignored.
+        """
         if not getattr(self.config, "volume_duck_enabled", True):
             return
         try:
-            # Sync the smart-duck flag + poll interval from config on
-            # every duck() call so a Settings UI toggle takes effect on
-            # the next dictation without requiring an app restart.
-            self._volume_ducker.set_smart_duck_enabled(
-                getattr(self.config, "volume_duck_smart", True)
-            )
+            # UX-2: smart duck is always on when ducking is enabled.
+            self._volume_ducker.set_smart_duck_enabled(True)
+            # UX-2: poll interval is a fixed 500ms (not user-configurable).
             self._volume_ducker.set_smart_duck_poll_interval(
                 getattr(self.config, "volume_duck_smart_poll_interval_ms", 500)
             )
             if self._volume_ducker.initialize():
                 self._volume_ducker.duck(
                     level=getattr(self.config, "volume_duck_level", 0.25),
-                    fade_ms=getattr(self.config, "volume_duck_fade_ms", 150),
-                    per_session=getattr(self.config, "volume_duck_per_session", False)
-                        and self._volume_ducker.supports_per_session,
+                    fade_ms=getattr(self.config, "volume_duck_fade_ms", 200),
+                    # UX-2: per-session removed — always master-volume duck.
+                    per_session=False,
                 )
         except Exception:
             log.debug("[VOLUME] duck failed", exc_info=True)
@@ -366,11 +372,11 @@ class VoiceTyperApp:
             return
         try:
             if fade_ms is None:
-                fade_ms = getattr(self.config, "volume_duck_fade_ms", 150)
+                fade_ms = getattr(self.config, "volume_duck_fade_ms", 200)
             self._volume_ducker.restore(
                 fade_ms=fade_ms,
-                per_session=getattr(self.config, "volume_duck_per_session", False)
-                    and self._volume_ducker.supports_per_session,
+                # UX-2: per-session removed — always master-volume restore.
+                per_session=False,
             )
         except Exception:
             log.debug("[VOLUME] restore failed", exc_info=True)

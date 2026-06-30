@@ -1604,7 +1604,7 @@ export default function SettingsPage({
 						{/* ── Auto Duck Volume ── */}
 						<SettingRow
 							label="Auto Duck Volume"
-							info="Reduce system volume during dictation to prevent speaker bleed into the mic."
+							info="Reduce system volume during dictation to prevent speaker bleed into the mic. Smart Duck is built-in: if no audio is playing, the volume won't change. Cross-platform — works on Windows, macOS, and Linux."
 						>
 							<Switch
 								checked={config.volume_duck_enabled ?? true}
@@ -1626,66 +1626,6 @@ export default function SettingsPage({
 								onChange={(v) => updateConfigDebounced("volume_duck_level", v)}
 								ariaLabel="Duck Level"
 								suffix="%"
-							/>
-						</SettingRow>
-						<SettingRow
-							label="Duck Fade Duration"
-							info="How long to ramp volume up/down when ducking or restoring. 0ms = instant (can cause audio clicks). 150ms is the default."
-						>
-							<RangeSlider
-								value={config.volume_duck_fade_ms ?? 150}
-								min={0}
-								max={1000}
-								step={50}
-								onChange={(v) =>
-									updateConfigDebounced("volume_duck_fade_ms", v)
-								}
-								ariaLabel="Duck Fade Duration"
-								suffix="ms"
-							/>
-						</SettingRow>
-						<SettingRow
-							label="Smart Duck"
-							info="Only duck when audio is actually playing through the speakers. Skips the volume change (and the speaker-icon animation) during silent dictation. A background monitor polls speaker activity every 'Smart Duck Poll Interval' ms and retroactively ducks if audio starts mid-dictation. Cross-platform: Windows uses IAudioMeterInformation peak detection; macOS uses an audio-app heuristic; Linux uses pactl/wpctl or /proc/asound."
-						>
-							<Switch
-								checked={config.volume_duck_smart ?? true}
-								onCheckedChange={(checked) =>
-									updateConfig({ volume_duck_smart: checked })
-								}
-								aria-label="Smart Duck"
-							/>
-						</SettingRow>
-						<SettingRow
-							label="Smart Duck Poll Interval"
-							info="How often (in milliseconds) to check if audio has started playing during a smart-duck skip. Lower = catches audio faster but uses more CPU. Higher = less CPU but slower to duck when audio starts. 500ms is a good default."
-						>
-							<RangeSlider
-								value={config.volume_duck_smart_poll_interval_ms ?? 500}
-								min={50}
-								max={2000}
-								step={50}
-								onChange={(v) =>
-									updateConfigDebounced("volume_duck_smart_poll_interval_ms", v)
-								}
-								ariaLabel="Smart Duck Poll Interval"
-								suffix="ms"
-							/>
-						</SettingRow>
-						<SettingRow
-							label="Per-Session Duck (Windows)"
-							info="Duck only other apps' audio, keeping system alerts audible. Windows only — disabled on macOS/Linux because they have no clean per-app volume API."
-						>
-							<Switch
-								checked={config.volume_duck_per_session ?? false}
-								disabled={
-									!volumeBackend?.is_windows ||
-									!volumeBackend?.supports_per_session
-								}
-								onCheckedChange={(checked) =>
-									updateConfig({ volume_duck_per_session: checked })
-								}
-								aria-label="Per-Session Duck"
 							/>
 						</SettingRow>
 

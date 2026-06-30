@@ -638,26 +638,30 @@ class Config:
     # ─── Volume ducking (v1.1.0) ────────────────────────────────────
     # Reduces system volume during dictation to prevent speaker output
     # from bleeding into the microphone.
+    #
+    # UX-2: the Settings UI was simplified to just two controls:
+    #   1. Auto Duck Volume (on/off)
+    #   2. Duck Level (0–50%)
+    # The remaining fields are internal (not exposed in the UI) and have
+    # sensible defaults. They're kept in the config for backward compat
+    # (existing user configs with custom values still load) and for
+    # power users who edit config.json directly.
     volume_duck_enabled: bool = True
     volume_duck_level: float = 0.25  # 0.0–1.0 perceptual-linear
-    volume_duck_per_session: bool = False  # Windows only — duck other apps, keep alerts
-    volume_duck_fade_ms: int = 150  # 0–1000, 0 = instant
-    # Smart duck: skip the volume change when no application is currently
-    # playing audio through the speakers.  Avoids a pointless speaker-icon
-    # animation during silent dictation.  Default ON.  Set to False to
-    # always duck (the pre-smart-duck behaviour).  Cross-platform:
-    # Windows uses IAudioMeterInformation.GetPeakValue(); macOS uses
-    # osascript + known audio-app heuristic; Linux uses pactl/wpctl or
-    # /proc/asound.  See VolumeDucker.duck() and
-    # VolumeBackend.is_speaker_active().
-    volume_duck_smart: bool = True
-    # Smart-duck background monitor polling interval (milliseconds).
-    # When smart-duck skips the initial duck (no audio playing), a
-    # background thread polls is_speaker_active() at this interval and
-    # retroactively ducks if audio starts mid-dictation.  500ms is the
-    # default — fast enough to catch audio within half a second, slow
-    # enough to not spam the backend (macOS osascript is 200-500ms per
-    # call).  Range 50–5000ms.  See VolumeDucker._smart_duck_monitor_loop.
+    # UX-2: per-session ducking removed — now always ducks all audio
+    # (master volume) cross-platform. The field is kept for backward
+    # compat but ignored at runtime (per_session is always False).
+    volume_duck_per_session: bool = False  # DEPRECATED — always False at runtime
+    # UX-2: fade duration is now a fixed 200ms default (was 150ms).
+    # Not exposed in the UI. Power users can override in config.json.
+    volume_duck_fade_ms: int = 200  # 0–1000, 0 = instant
+    # UX-2: smart duck is now ALWAYS ON when volume_duck_enabled is True.
+    # Not exposed as a separate toggle — merged into Auto Duck Volume.
+    # The field is kept for backward compat but ignored at runtime
+    # (smart_duck is always True when ducking is enabled).
+    volume_duck_smart: bool = True  # DEPRECATED — always True at runtime
+    # UX-2: smart-duck poll interval is now a fixed 500ms default.
+    # Not exposed in the UI. Power users can override in config.json.
     volume_duck_smart_poll_interval_ms: int = 500
 
     # ─── Audio enhancement preset (UX redesign) ─────────────────────
