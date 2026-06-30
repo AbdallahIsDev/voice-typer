@@ -404,6 +404,25 @@ Uses `RotatingFileHandler` (1MB max, 2 backups) with structured logging (session
 - If the binary is missing, Voice Typer falls back to the legacy in-process backends (`PynputHotkey` / `WindowsNativeHotkey` / `WaylandHotkey`) — this is enough to keep the app usable, but you lose Fn-key support on macOS and Wayland support on Linux.
 - Check the log file for `[HOTKEY]` messages indicating which backend was selected.
 
+### Hotkey doesn't work on macOS
+
+- Voice Typer needs Accessibility permission to read the keyboard.
+- On first launch, it should show a notification with a link to System Settings.
+- If you missed it: System Settings → Privacy & Security → Accessibility → add Voice Typer.
+- After macOS updates, you may need to re-grant Accessibility.
+
+### Hotkey doesn't work on Linux
+
+- If you installed via `.deb` or `.rpm`: log out and log back in after install (the `input` group change needs a new login session).
+- If you're using the AppImage: on first launch, Voice Typer will prompt for your password to install keyboard permissions.
+- To check: `groups` should include `input`. If not, run `sudo usermod -aG input $USER` and log out/back in.
+
+### Hotkey stopped working after a while
+
+- This can happen if antivirus software (Windows) or macOS code-signing changes kill the native key-listener binary.
+- Voice Typer should automatically fall back to compatibility mode and show a notification.
+- To restore full mode: restart Voice Typer.
+
 ### macOS: Accessibility permission
 
 The native key listener needs Accessibility permission to observe keyboard events system-wide:

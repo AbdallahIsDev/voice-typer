@@ -59,36 +59,55 @@ with `<f2>` in their config keep it untouched.
   re-grant by toggling Voice Typer off and back on in the Accessibility list.
 - The compiled binary is ad-hoc code-signed by `scripts/build/compile_native.sh`
   so it can be trusted for Accessibility without a Developer ID.
+- **Zero-command onboarding (ADR 0006, Gap 2)**: when the native binary detects
+  a missing Accessibility grant, Voice Typer automatically shows a tray
+  notification and deep-links to System Settings → Privacy & Security →
+  Accessibility via the `x-apple.systempreferences:` scheme. A 60s retry timer
+  polls for the grant and auto-restarts the native backend the moment the user
+  toggles Voice Typer on in the Accessibility list — no app restart required.
 
 ### Windows
 - **No special permission** for the `WH_KEYBOARD_LL` hook (it is an
   out-of-process hook that does not require admin rights or a DLL injection).
+  Zero-command out of the box — no onboarding prompt needed.
 - Recommended but optional: OS-level Caps Lock remap (PowerToys Keyboard Manager
   or a registry Scancode Map) so Caps Lock stays neutralized even when Voice
   Typer isn't running.
 
 ### Linux
-- **`input` group membership** so the binary can open `/dev/input/event*`:
-  ```bash
-  sudo usermod -aG input $USER
-  ```
-  Log out and back in for the change to take effect.
-- **Caps Lock neutralization** (if you use the default hotkey): add
-  `setxkbmap -option caps:none` to `~/.xprofile` (X11) or your compositor's
-  startup script (Wayland). The native binary cannot suppress the keydown on
-  Linux (evdev is read-only).
+- **Zero-command setup (ADR 0006, Gap 3)**: `.deb` and `.rpm` packages ship
+  `postinst` / `postinst.rpm` scripts that automatically:
+  - install the udev rule `99-voice-typer.rules` (grants the `input` group
+    read access to `/dev/input/event*`) and reload udev,
+  - add the installing user to the `input` group via `usermod -aG input`,
+  - detect the session type (X11 / GNOME / KDE / Sway / Wayland-other /
+    headless) and configure Caps Lock neutralization for that compositor
+    (`setxkbmap -option caps:none` on X11, XKB config drop-in on libinput
+    compositors),
+  - write a manifest at `/var/lib/voice-typer/permissions-manifest.json` so
+    `prerm` / `prerm.rpm` can cleanly uninstall every change.
+- **AppImage users** get a `pkexec` GUI prompt (backed by the
+  `voice-typer.polkit` policy) on first launch. The OS asks for the user's
+  sudo password once; Voice Typer itself never prompts for or stores a
+  password.
+- After installing a `.deb`/`.rpm`, log out and log back in once so the new
+  `input` group membership takes effect — there is no other manual step.
+- The compiled binary is the native `linux-key-listener` (evdev), which works
+  on both X11 and Wayland because evdev sits below the display server.
 
 ## Known limitations
 
 ### macOS
 - **Accessibility permission**: global hotkeys require Accessibility permission
-  (System Settings → Privacy & Security → Accessibility). The app does not
-  detect or prompt for this — users must grant it manually.
-  Tracked as **XPLAT-002**. Resolved at the binary level by **NATIVE-001**:
-  the Swift binary emits `ERROR:Accessibility permission not granted` and the
-  Python backend surfaces a Settings UI prompt with the grant instructions.
+  (System Settings → Privacy & Security → Accessibility). As of **ADR 0006
+  (Gap 2)**, the app detects the missing grant, shows a tray notification with
+  an "Open Settings" deep-link, and auto-restarts the native backend via a
+  60s retry timer once the user toggles Voice Typer on in the Accessibility
+  list. Tracked as **XPLAT-002**, resolved at the binary level by
+  **NATIVE-001** and at the UX level by **ADR 0006**.
 - **macOS updates**: macOS updates sometimes invalidate the Accessibility grant
-  for previously-trusted apps. Users may need to re-grant after an update.
+  for previously-trusted apps. Users may need to re-grant after an update
+  (the onboarding notification will re-fire automatically on the next launch).
 
 ### Linux (Wayland)
 - **Key suppression**: evdev is read-only, so the native binary cannot stop the

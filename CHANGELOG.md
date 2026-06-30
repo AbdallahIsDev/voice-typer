@@ -5,6 +5,51 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
 
 ## [Unreleased] - 2026-06-30
 
+### Added — Zero-Command Hotkey Architecture (ADR 0006)
+
+- **Gap 1: Cross-platform CI build pipeline** — GitHub Actions `build.yml` now
+  compiles all 3 native binaries (Swift on macOS, C on Windows, C on Linux)
+  on their native platforms and bundles them into per-platform installers
+  (.exe / .dmg / .deb / .rpm / .AppImage).
+  
+- **Gap 2: macOS Accessibility onboarding** — When the native binary detects
+  missing Accessibility permission, Voice Typer shows a tray notification and
+  deep-links to System Settings → Privacy & Security → Accessibility. A 60s
+  retry timer auto-restarts the native backend once permission is granted.
+
+- **Gap 3: Linux zero-command setup** — `.deb`/`.rpm` packages now include
+  postinst scripts that automatically install the udev rule, add the user to
+  the `input` group, and configure Caps Lock neutralization. AppImage users
+  get a `pkexec` GUI prompt on first launch. The user only types their sudo
+  password once (prompted by the OS, not by Voice Typer).
+
+- **Gap 4: Runtime fallback chain** — If the native binary dies permanently
+  (antivirus, OOM killer, code-signing expiry), Voice Typer transparently
+  swaps to the legacy backend (pynput/polling) with the same hotkey. A 5-min
+  retry timer auto-recovers the native backend when it comes back.
+
+### New files
+- `voice_typer/server/permissions.py` — OS permission detection + onboarding
+- `scripts/linux/install_permissions.py` — Linux udev/group/Caps Lock installer
+- `scripts/linux/uninstall_permissions.py` — Linux uninstaller
+- `scripts/linux/99-voice-typer.rules` — udev rule
+- `scripts/linux/00-voice-typer-capslock.conf` — XKB Caps Lock config
+- `scripts/linux/postinst` / `prerm` — Debian package scripts
+- `scripts/linux/postinst.rpm` / `prerm.rpm` — RPM package scripts
+- `scripts/linux/voice-typer.polkit` — polkit policy for pkexec
+- `tests/test_runtime_fallback.py` — 28 tests for Gap 4
+- `tests/test_permissions.py` — 31 tests for Gap 2 + Gap 3
+
+### Modified files
+- `voice_typer/server/native_hotkeys.py` — added _on_error_callback, _on_permanent_failure_callback
+- `voice_typer/server/hotkeys.py` — rewrote _NativeBackendAdapter as 4-state machine
+- `voice_typer/server/hotkey_dispatcher.py` — wires tray reference to adapter
+- `voice_typer/client/electron-builder.yml` — added rpm target + afterInstall/afterRemove hooks
+- `scripts/build/voice-typer.spec` — bundles Linux scripts + permissions module
+- `.github/workflows/build.yml` — added build-native matrix + build-macos + build-linux jobs
+
+## [Unreleased] - 2026-06-30
+
 ### Added
 - Cross-platform native hotkey architecture (NATIVE-001)
   - macOS: native Swift binary supports the Fn key via NSEvent.modifierFlags.function

@@ -3,7 +3,7 @@
 **Document version**: 1.0
 **Date**: 2026-06-30
 **Scope**: Closes four identified gaps in the native hotkey architecture
-**Status**: Design complete, ready for implementation
+**Status**: Implemented — all 4 gaps closed
 
 ---
 
@@ -1041,3 +1041,11 @@ All four gaps are "done" when:
 ---
 
 End of design document.
+
+## Implementation Log
+
+- **Date**: 2026-06-30
+- **Status**: All 4 gaps implemented and tested
+- **Tests added**: 59 new tests (28 runtime fallback + 31 permissions), all passing
+- **Regressions**: 0 (35 pre-existing failures unchanged)
+- **Files created/modified**: see worklog at /home/z/my-project/worklog.md
