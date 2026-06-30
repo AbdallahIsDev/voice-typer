@@ -1,0 +1,53 @@
+#!/bin/bash
+# Voice Typer — Debian postinst script
+#
+# Runs as root during `apt install voice-typer`. Performs the zero-command
+# Linux keyboard permission setup:
+#   1. Installs the udev rule (grants input group read access to /dev/input/event*)
+#   2. Adds the installing user to the input group
+#   3. Configures Caps Lock neutralization (X11 / GNOME / KDE / Sway)
+#   4. Writes a manifest at /var/lib/voice-typer/permissions-manifest.json
+#
+# The user only types their sudo password once (prompted by apt itself).
+# After install, the user must log out and log back in for the input group
+# change to take effect (Linux kernel limitation).
+
+set -e
+
+case "$1" in
+    configure)
+        # Find the install_permissions.py script. It's installed to
+        # /usr/share/voice-typer/scripts/ by the .deb package.
+        INSTALL_SCRIPT="/usr/share/voice-typer/scripts/install_permissions.py"
+        if [ ! -f "$INSTALL_SCRIPT" ]; then
+            # Fall back to the source-tree location (dev mode)
+            INSTALL_SCRIPT="$(dirname "$0")/../share/voice-typer/scripts/install_permissions.py"
+        fi
+        if [ ! -f "$INSTALL_SCRIPT" ]; then
+            echo "[voice-typer] WARNING: install_permissions.py not found — skipping keyboard permission setup"
+            echo "[voice-typer] The hotkey may not work. Install the package via apt to get the setup script."
+            exit 0
+        fi
+
+        echo "[voice-typer] Setting up keyboard permissions..."
+        python3 "$INSTALL_SCRIPT" || {
+            echo "[voice-typer] WARNING: keyboard permission setup failed (non-fatal)"
+            echo "[voice-typer] The hotkey may not work until permissions are granted."
+        }
+
+        echo ""
+        echo "Voice Typer setup complete."
+        echo "IMPORTANT: You must log out and log back in for the 'input' group"
+        echo "change to take effect. After that, Voice Typer will work automatically."
+        echo ""
+    ;;
+    abort-upgrade|abort-remove|abort-deconfigure)
+    ;;
+esac
+
+# Trigger desktop database update if we installed any .desktop files
+if [ -x /usr/bin/update-desktop-database ]; then
+    update-desktop-database -q /usr/share/applications 2>/dev/null || true
+fi
+
+exit 0

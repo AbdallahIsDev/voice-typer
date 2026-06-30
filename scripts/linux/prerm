@@ -1,0 +1,22 @@
+#!/bin/bash
+# Voice Typer — Debian prerm script
+#
+# Runs as root during `apt remove voice-typer`. Removes the udev rule and
+# XKB config installed by postinst. Does NOT remove the user from the
+# input group (other apps may rely on it — see uninstall_permissions.py).
+
+set -e
+
+case "$1" in
+    remove|deconfigure)
+        UNINSTALL_SCRIPT="/usr/share/voice-typer/scripts/uninstall_permissions.py"
+        if [ -f "$UNINSTALL_SCRIPT" ]; then
+            echo "[voice-typer] Removing keyboard permissions..."
+            python3 "$UNINSTALL_SCRIPT" || true
+        fi
+    ;;
+    upgrade|failed-upgrade)
+    ;;
+esac
+
+exit 0

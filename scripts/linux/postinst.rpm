@@ -1,0 +1,26 @@
+#!/bin/bash
+# Voice Typer — RPM %post script
+#
+# Functionally identical to the Debian postinst. Runs as root during
+# `dnf install voice-typer`.
+
+set -e
+
+INSTALL_SCRIPT="/usr/share/voice-typer/scripts/install_permissions.py"
+if [ ! -f "$INSTALL_SCRIPT" ]; then
+    echo "[voice-typer] WARNING: install_permissions.py not found — skipping keyboard permission setup"
+    exit 0
+fi
+
+echo "[voice-typer] Setting up keyboard permissions..."
+python3 "$INSTALL_SCRIPT" || {
+    echo "[voice-typer] WARNING: keyboard permission setup failed (non-fatal)"
+}
+
+echo ""
+echo "Voice Typer setup complete."
+echo "IMPORTANT: You must log out and log back in for the 'input' group"
+echo "change to take effect."
+echo ""
+
+exit 0
