@@ -18,6 +18,14 @@
 			"recommended": true
 		}
 	},
+	"css": {
+		"parser": {
+			"tailwindDirectives": true
+		},
+		"formatter": {
+			"enabled": false
+		}
+	},
 	"javascript": {
 		"formatter": {
 			"quoteStyle": "double"

@@ -175,7 +175,7 @@
 
   html,
   body {
-    background: transparent !important;
+    background: transparent;
     margin: 0;
     padding: 0;
     overflow: hidden;
@@ -203,7 +203,7 @@
   }
 
   svg {
-    overflow: visible !important;
+    overflow: visible;
   }
 
   button[data-slot="button"] {
@@ -431,10 +431,10 @@
   *,
   *::before,
   *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+    transition-duration: 0.01ms;
+    scroll-behavior: auto;
   }
 }
 
@@ -446,8 +446,8 @@
 
   /* Ensure all interactive elements have visible focus rings. */
   *:focus-visible {
-    outline: 2px solid CanvasText !important;
-    outline-offset: 2px !important;
+    outline: 2px solid CanvasText;
+    outline-offset: 2px;
   }
 
   /* Ensure borders are visible in high-contrast mode. */
@@ -456,7 +456,7 @@
   .border-b,
   .border-l,
   .border-r {
-    border-color: CanvasText !important;
+    border-color: CanvasText;
   }
 }
 
@@ -481,11 +481,11 @@
 
   /* Ensure borders are clearly visible */
   .border {
-    border-color: oklch(0.3 0 0) !important;
+    border-color: oklch(0.3 0 0);
   }
 
   .dark .border {
-    border-color: oklch(0.7 0 0) !important;
+    border-color: oklch(0.7 0 0);
   }
 
   /* Ensure interactive elements have strong contrast */
@@ -500,13 +500,13 @@
   a:focus-visible,
   select:focus-visible,
   input:focus-visible {
-    outline: 2px solid oklch(0.4 0 0) !important;
+    outline: 2px solid oklch(0.4 0 0);
   }
 
   .dark button:focus-visible,
   .dark a:focus-visible,
   .dark select:focus-visible,
   .dark input:focus-visible {
-    outline: 2px solid oklch(0.8 0 0) !important;
+    outline: 2px solid oklch(0.8 0 0);
   }
 }

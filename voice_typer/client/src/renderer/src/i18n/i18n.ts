@@ -9,98 +9,101 @@
 // The t() function returns the translated string for a dot-separated key.
 // If the key is not found, it falls back to English, then returns the key itself.
 
-import en from './translations/en.json'
-import es from './translations/es.json'
+import en from "./translations/en.json";
+import es from "./translations/es.json";
 
-type TranslationDict = Record<string, unknown>
+type TranslationDict = Record<string, unknown>;
 
-const SUPPORTED_LOCALES = ['en', 'es'] as const
-export type Locale = (typeof SUPPORTED_LOCALES)[number]
+const SUPPORTED_LOCALES = ["en", "es"] as const;
+export type Locale = (typeof SUPPORTED_LOCALES)[number];
 
 // UX-015: export the list of supported locales for the UI language selector.
-export { SUPPORTED_LOCALES }
+export { SUPPORTED_LOCALES };
 
 // Human-readable labels for each locale (used in the Settings dropdown).
 const LOCALE_LABELS: Record<Locale, string> = {
-  en: 'English',
-  es: 'Español',
-}
+	en: "English",
+	es: "Español",
+};
 
 /**
  * Get the human-readable label for a locale.
  */
 export function getLocaleLabel(locale: Locale): string {
-  return LOCALE_LABELS[locale] ?? locale
+	return LOCALE_LABELS[locale] ?? locale;
 }
 
 // Current locale — defaults to 'en'. Can be changed via setLocale().
 // UX-015: restore from localStorage on module load so the user's
 // language choice survives app restarts.
-let _currentLocale: Locale = 'en'
+let _currentLocale: Locale = "en";
 try {
-  if (typeof localStorage !== 'undefined') {
-    const saved = localStorage.getItem('voice-typer-ui-locale')
-    if (saved && (SUPPORTED_LOCALES as readonly string[]).includes(saved)) {
-      _currentLocale = saved as Locale
-    }
-  }
+	if (typeof localStorage !== "undefined") {
+		const saved = localStorage.getItem("voice-typer-ui-locale");
+		if (saved && (SUPPORTED_LOCALES as readonly string[]).includes(saved)) {
+			_currentLocale = saved as Locale;
+		}
+	}
 } catch {
-  // localStorage may be unavailable in some contexts (SSR, sandboxed)
+	// localStorage may be unavailable in some contexts (SSR, sandboxed)
 }
 
 // Translation map: locale -> flat key-value pairs
-const _translations: Map<Locale, Map<string, string>> = new Map()
+const _translations: Map<Locale, Map<string, string>> = new Map();
 
 /**
  * Flatten a nested JSON object into dot-separated keys.
  * e.g. { "app": { "name": "Voice Typer" } } → { "app.name": "Voice Typer" }
  */
-function flatten(obj: TranslationDict, prefix = ''): Map<string, string> {
-  const result = new Map<string, string>()
-  for (const [key, value] of Object.entries(obj)) {
-    const fullKey = prefix ? `${prefix}.${key}` : key
-    if (typeof value === 'object' && value !== null) {
-      const nested = flatten(value as TranslationDict, fullKey)
-      for (const [k, v] of nested) {
-        result.set(k, v)
-      }
-    } else if (typeof value === 'string') {
-      result.set(fullKey, value)
-    }
-  }
-  return result
+function flatten(obj: TranslationDict, prefix = ""): Map<string, string> {
+	const result = new Map<string, string>();
+	for (const [key, value] of Object.entries(obj)) {
+		const fullKey = prefix ? `${prefix}.${key}` : key;
+		if (typeof value === "object" && value !== null) {
+			const nested = flatten(value as TranslationDict, fullKey);
+			for (const [k, v] of nested) {
+				result.set(k, v);
+			}
+		} else if (typeof value === "string") {
+			result.set(fullKey, value);
+		}
+	}
+	return result;
 }
 
 // Register English translations
-_translations.set('en', flatten(en as TranslationDict))
+_translations.set("en", flatten(en as TranslationDict));
 
 // Register Spanish translations (UX-015: proof of concept for i18n)
-_translations.set('es', flatten(es as TranslationDict))
+_translations.set("es", flatten(es as TranslationDict));
 
 /**
  * Register translations for a locale.
  */
-export function registerTranslations(locale: Locale, data: TranslationDict): void {
-  _translations.set(locale, flatten(data))
+export function registerTranslations(
+	locale: Locale,
+	data: TranslationDict,
+): void {
+	_translations.set(locale, flatten(data));
 }
 
 /**
  * Get the current locale.
  */
 export function getLocale(): Locale {
-  return _currentLocale
+	return _currentLocale;
 }
 
 /**
  * Set the current locale.
  */
 export function setLocale(locale: Locale): void {
-  if (!SUPPORTED_LOCALES.includes(locale)) {
-    console.warn(`[i18n] Unsupported locale: ${locale}. Falling back to 'en'.`)
-    _currentLocale = 'en'
-    return
-  }
-  _currentLocale = locale
+	if (!SUPPORTED_LOCALES.includes(locale)) {
+		console.warn(`[i18n] Unsupported locale: ${locale}. Falling back to 'en'.`);
+		_currentLocale = "en";
+		return;
+	}
+	_currentLocale = locale;
 }
 
 /**
@@ -111,16 +114,16 @@ export function setLocale(locale: Locale): void {
  * @returns The translated string
  */
 export function t(key: string): string {
-  // Try current locale first
-  const currentMap = _translations.get(_currentLocale)
-  if (currentMap?.has(key)) {
-    return currentMap.get(key)!
-  }
-  // Fall back to English
-  const enMap = _translations.get('en')
-  if (enMap?.has(key)) {
-    return enMap.get(key)!
-  }
-  // Last resort: return the key itself
-  return key
+	// Try current locale first
+	const currentMap = _translations.get(_currentLocale);
+	if (currentMap?.has(key)) {
+		return currentMap.get(key) ?? key;
+	}
+	// Fall back to English
+	const enMap = _translations.get("en");
+	if (enMap?.has(key)) {
+		return enMap.get(key) ?? key;
+	}
+	// Last resort: return the key itself
+	return key;
 }

@@ -1,341 +1,423 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { usePython, usePythonEvent } from '@/hooks/usePython'
-import { HugeiconsIcon } from '@hugeicons/react'
-import { HistoryIcon } from '@hugeicons/core-free-icons'
-import { StarIcon, ArrowDown01Icon, Delete01Icon } from '@hugeicons/core-free-icons'
-import { toast } from 'sonner'
-import { showUndoableToast } from '@/hooks/useSnackbar'
-import { Button } from '@/components/ui/button'
-import PageHeading from '@/components/PageHeading'
-import ActivityList from '@/components/ActivityList'
-import ConfirmDialog from '@/components/ConfirmDialog'
-import ExportFormatMenu from '@/components/ExportFormatMenu'
-import { SearchField } from '@/components/SearchField'
-import { EmptyState } from '@/components/EmptyState'
-import type { HistoryRecord, TodayStats, WindowBridge } from '@/types/ipc'
-import { Spinner } from '@/components/Spinner'
+import {
+	ArrowDown01Icon,
+	Delete01Icon,
+	HistoryIcon,
+	StarIcon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+import ActivityList from "@/components/ActivityList";
+import ConfirmDialog from "@/components/ConfirmDialog";
+import { EmptyState } from "@/components/EmptyState";
+import ExportFormatMenu from "@/components/ExportFormatMenu";
+import PageHeading from "@/components/PageHeading";
+import { SearchField } from "@/components/SearchField";
+import { Spinner } from "@/components/Spinner";
+import { Button } from "@/components/ui/button";
+import { usePython, usePythonEvent } from "@/hooks/usePython";
+import { showUndoableToast } from "@/hooks/useSnackbar";
+import type { HistoryRecord, TodayStats, WindowBridge } from "@/types/ipc";
 
 // Module-level cache — persists across page navigations so the records list
 // and stats render instantly on re-visit instead of showing a spinner.
-let _cachedRecords: HistoryRecord[] = []
-let _cachedStats: TodayStats | null = null
+let _cachedRecords: HistoryRecord[] = [];
+let _cachedStats: TodayStats | null = null;
 
-const PAGE_SIZE = 50
+const PAGE_SIZE = 50;
 
 export default function HistoryPage() {
-  const { call } = usePython()
-  const [records, setRecords] = useState<HistoryRecord[]>(_cachedRecords)
-  const [stats, setStats] = useState<TodayStats | null>(_cachedStats)
-  const [loading, setLoading] = useState(true)
-  const [loadingMore, setLoadingMore] = useState(false)
-  const [hasMore, setHasMore] = useState(true)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [favoritesOnly, setFavoritesOnly] = useState(false)
-  // Refs so load() and the event handler always read current filter values
-  // without being recreated on every state change (which would break the
-  // mount-only useEffect and cause duplicate subscriptions).
-  const searchQueryRef = useRef(searchQuery)
-  const favoritesOnlyRef = useRef(favoritesOnly)
-  searchQueryRef.current = searchQuery
-  favoritesOnlyRef.current = favoritesOnly
-  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [showClearConfirm, setShowClearConfirm] = useState(false)
-  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+	const { call } = usePython();
+	const [records, setRecords] = useState<HistoryRecord[]>(_cachedRecords);
+	const [stats, setStats] = useState<TodayStats | null>(_cachedStats);
+	const [loading, setLoading] = useState(true);
+	const [loadingMore, setLoadingMore] = useState(false);
+	const [hasMore, setHasMore] = useState(true);
+	const [searchQuery, setSearchQuery] = useState("");
+	const [favoritesOnly, setFavoritesOnly] = useState(false);
+	// Refs so load() and the event handler always read current filter values
+	// without being recreated on every state change (which would break the
+	// mount-only useEffect and cause duplicate subscriptions).
+	const searchQueryRef = useRef(searchQuery);
+	const favoritesOnlyRef = useRef(favoritesOnly);
+	searchQueryRef.current = searchQuery;
+	favoritesOnlyRef.current = favoritesOnly;
+	const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const [showClearConfirm, setShowClearConfirm] = useState(false);
+	const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const load = useCallback(async (query?: string, favs?: boolean) => {
-    setLoading(true)
-    try {
-      const isFav = favs ?? favoritesOnlyRef.current
-      const q = query ?? searchQueryRef.current
+	const load = useCallback(
+		async (query?: string, favs?: boolean) => {
+			setLoading(true);
+			try {
+				const isFav = favs ?? favoritesOnlyRef.current;
+				const q = query ?? searchQueryRef.current;
 
-      let recs: HistoryRecord[]
-      if (q.trim()) {
-        recs = await call<HistoryRecord[]>('search_history', { query: q.trim(), limit: PAGE_SIZE, offset: 0 })
-      } else if (isFav) {
-        recs = await call<HistoryRecord[]>('get_favorites', { limit: PAGE_SIZE, offset: 0 })
-      } else {
-        recs = await call<HistoryRecord[]>('get_history', { limit: PAGE_SIZE, offset: 0 })
-      }
-      // Only cache the all-records view — search/filter results are transient
-      // and shouldn't pollute the cache that initializes the page on re-visit.
-      if (!q.trim() && !isFav) {
-        _cachedRecords = recs
-      }
-      setHasMore(recs.length >= PAGE_SIZE)
-      setRecords(recs)
+				let recs: HistoryRecord[];
+				if (q.trim()) {
+					recs = await call<HistoryRecord[]>("search_history", {
+						query: q.trim(),
+						limit: PAGE_SIZE,
+						offset: 0,
+					});
+				} else if (isFav) {
+					recs = await call<HistoryRecord[]>("get_favorites", {
+						limit: PAGE_SIZE,
+						offset: 0,
+					});
+				} else {
+					recs = await call<HistoryRecord[]>("get_history", {
+						limit: PAGE_SIZE,
+						offset: 0,
+					});
+				}
+				// Only cache the all-records view — search/filter results are transient
+				// and shouldn't pollute the cache that initializes the page on re-visit.
+				if (!q.trim() && !isFav) {
+					_cachedRecords = recs;
+				}
+				setHasMore(recs.length >= PAGE_SIZE);
+				setRecords(recs);
 
-      const todayStats = await call<TodayStats>('get_today_stats')
-      _cachedStats = todayStats
-      setStats(todayStats)
-    } catch (err) {
-      console.error('Failed to load history:', err)
-    } finally {
-      setLoading(false)
-    }
-  }, [call])
+				const todayStats = await call<TodayStats>("get_today_stats");
+				_cachedStats = todayStats;
+				setStats(todayStats);
+			} catch (err) {
+				console.error("Failed to load history:", err);
+			} finally {
+				setLoading(false);
+			}
+		},
+		[call],
+	);
 
-  const loadMore = useCallback(async () => {
-    setLoadingMore(true)
-    try {
-      const isFav = favoritesOnlyRef.current
-      const q = searchQueryRef.current
-      const offset = records.length
+	const loadMore = useCallback(async () => {
+		setLoadingMore(true);
+		try {
+			const isFav = favoritesOnlyRef.current;
+			const q = searchQueryRef.current;
+			const offset = records.length;
 
-      let newRecs: HistoryRecord[]
-      if (q.trim()) {
-        newRecs = await call<HistoryRecord[]>('search_history', { query: q.trim(), limit: PAGE_SIZE, offset })
-      } else if (isFav) {
-        newRecs = await call<HistoryRecord[]>('get_favorites', { limit: PAGE_SIZE, offset })
-      } else {
-        newRecs = await call<HistoryRecord[]>('get_history', { limit: PAGE_SIZE, offset })
-      }
-      setHasMore(newRecs.length >= PAGE_SIZE)
-      if (newRecs.length > 0) {
-        setRecords(prev => [...prev, ...newRecs])
-      }
-    } catch (err) {
-      console.error('Failed to load more history:', err)
-    } finally {
-      setLoadingMore(false)
-    }
-  }, [call, records.length])
+			let newRecs: HistoryRecord[];
+			if (q.trim()) {
+				newRecs = await call<HistoryRecord[]>("search_history", {
+					query: q.trim(),
+					limit: PAGE_SIZE,
+					offset,
+				});
+			} else if (isFav) {
+				newRecs = await call<HistoryRecord[]>("get_favorites", {
+					limit: PAGE_SIZE,
+					offset,
+				});
+			} else {
+				newRecs = await call<HistoryRecord[]>("get_history", {
+					limit: PAGE_SIZE,
+					offset,
+				});
+			}
+			setHasMore(newRecs.length >= PAGE_SIZE);
+			if (newRecs.length > 0) {
+				setRecords((prev) => [...prev, ...newRecs]);
+			}
+		} catch (err) {
+			console.error("Failed to load more history:", err);
+		} finally {
+			setLoadingMore(false);
+		}
+	}, [call, records.length]);
 
-  // ── Proactive background refresh after new transcriptions ────────
-  //
-  // When a transcription_final event arrives (from any page), refresh the
-  // cached stats and records so the next visit to History shows fresh data
-  // instead of stale cache.  If the user is *already* on the History page
-  // and not mid-search, also update the visible UI.
-  usePythonEvent('transcription_final', useCallback(() => {
-    if (refreshTimer.current) clearTimeout(refreshTimer.current)
-    refreshTimer.current = setTimeout(async () => {
-      try {
-        const [newStats, newRecs] = await Promise.all([
-          call<TodayStats>('get_today_stats'),
-          call<HistoryRecord[]>('get_history', { limit: PAGE_SIZE, offset: 0 }),
-        ])
-        _cachedStats = newStats
-        _cachedRecords = newRecs
-        setStats(newStats)
-        // Only replace visible records when no search/filter is active
-        if (!searchQueryRef.current && !favoritesOnlyRef.current) {
-          setHasMore(newRecs.length >= PAGE_SIZE)
-          setRecords(newRecs)
-        }
-      } catch {
-        // Silently ignore — the next manual load will pick up fresh data
-      }
-    }, 500)
-  }, [call]))
+	// ── Proactive background refresh after new transcriptions ────────
+	//
+	// When a transcription_final event arrives (from any page), refresh the
+	// cached stats and records so the next visit to History shows fresh data
+	// instead of stale cache.  If the user is *already* on the History page
+	// and not mid-search, also update the visible UI.
+	usePythonEvent(
+		"transcription_final",
+		useCallback(() => {
+			if (refreshTimer.current) clearTimeout(refreshTimer.current);
+			refreshTimer.current = setTimeout(async () => {
+				try {
+					const [newStats, newRecs] = await Promise.all([
+						call<TodayStats>("get_today_stats"),
+						call<HistoryRecord[]>("get_history", {
+							limit: PAGE_SIZE,
+							offset: 0,
+						}),
+					]);
+					_cachedStats = newStats;
+					_cachedRecords = newRecs;
+					setStats(newStats);
+					// Only replace visible records when no search/filter is active
+					if (!searchQueryRef.current && !favoritesOnlyRef.current) {
+						setHasMore(newRecs.length >= PAGE_SIZE);
+						setRecords(newRecs);
+					}
+				} catch {
+					// Silently ignore — the next manual load will pick up fresh data
+				}
+			}, 500);
+		}, [call]),
+	);
 
-  // Clean up pending refresh timer on unmount
-  useEffect(() => {
-    return () => {
-      if (refreshTimer.current) clearTimeout(refreshTimer.current)
-    }
-  }, [])
+	// Clean up pending refresh timer on unmount
+	useEffect(() => {
+		return () => {
+			if (refreshTimer.current) clearTimeout(refreshTimer.current);
+		};
+	}, []);
 
-  useEffect(() => { load() }, [load])
+	useEffect(() => {
+		load();
+	}, [load]);
 
-  const handleSearch = useCallback((value: string) => {
-    setSearchQuery(value)
-    if (searchTimer.current) clearTimeout(searchTimer.current)
-    searchTimer.current = setTimeout(() => {
-      load(value, favoritesOnly)
-    }, 200)
-  }, [load, favoritesOnly])
+	const handleSearch = useCallback(
+		(value: string) => {
+			setSearchQuery(value);
+			if (searchTimer.current) clearTimeout(searchTimer.current);
+			searchTimer.current = setTimeout(() => {
+				load(value, favoritesOnly);
+			}, 200);
+		},
+		[load, favoritesOnly],
+	);
 
-  const toggleFavorites = useCallback(() => {
-    const next = !favoritesOnly
-    setFavoritesOnly(next)
-    load(searchQuery, next)
-  }, [favoritesOnly, load, searchQuery])
+	const toggleFavorites = useCallback(() => {
+		const next = !favoritesOnly;
+		setFavoritesOnly(next);
+		load(searchQuery, next);
+	}, [favoritesOnly, load, searchQuery]);
 
-  const handleDelete = useCallback(async (id: number) => {
-    // NEW-UX-004: capture the record before delete so we can offer Undo.
-    const deleted = records.find(r => r.id === id)
-    try {
-      await call('delete_history', { id })
-      setRecords(prev => prev.filter(r => r.id !== id))
-      // NEW-UX-004: show an undoable toast.  When the user clicks
-      // Undo, we re-add the record via the `restore_history` IPC
-      // command (added to the backend below).  This matches the
-      // macOS Mail / iOS Photos "delete now, undo for 6 seconds"
-      // pattern.
-      if (deleted) {
-        showUndoableToast(
-          'Entry deleted',
-          async () => {
-            try {
-              await call('restore_history', { record: deleted })
-              // Reload to reflect the restored entry.
-              load()
-              toast.success('Entry restored')
-            } catch {
-              toast.error('Failed to restore entry')
-            }
-          },
-          { undoLabel: 'Undo', type: 'warning', timeoutMs: 6000 },
-        )
-      }
-    } catch {
-      toast.error('Failed to delete item')
-    }
-  }, [call, records, load])
+	const handleDelete = useCallback(
+		async (id: number) => {
+			// NEW-UX-004: capture the record before delete so we can offer Undo.
+			const deleted = records.find((r) => r.id === id);
+			try {
+				await call("delete_history", { id });
+				setRecords((prev) => prev.filter((r) => r.id !== id));
+				// NEW-UX-004: show an undoable toast.  When the user clicks
+				// Undo, we re-add the record via the `restore_history` IPC
+				// command (added to the backend below).  This matches the
+				// macOS Mail / iOS Photos "delete now, undo for 6 seconds"
+				// pattern.
+				if (deleted) {
+					showUndoableToast(
+						"Entry deleted",
+						async () => {
+							try {
+								await call("restore_history", { record: deleted });
+								// Reload to reflect the restored entry.
+								load();
+								toast.success("Entry restored");
+							} catch {
+								toast.error("Failed to restore entry");
+							}
+						},
+						{ undoLabel: "Undo", type: "warning", timeoutMs: 6000 },
+					);
+				}
+			} catch {
+				toast.error("Failed to delete item");
+			}
+		},
+		[call, records, load],
+	);
 
-  const handleToggleFavorite = useCallback(async (id: number) => {
-    try {
-      const res = await call<{ favorite: number }>('toggle_favorite', { id })
-      setRecords(prev => prev.map(r => r.id === id ? { ...r, favorite: res.favorite } : r))
-    } catch {
-      toast.error('Failed to toggle favorite')
-    }
-  }, [call])
+	const handleToggleFavorite = useCallback(
+		async (id: number) => {
+			try {
+				const res = await call<{ favorite: number }>("toggle_favorite", { id });
+				setRecords((prev) =>
+					prev.map((r) => (r.id === id ? { ...r, favorite: res.favorite } : r)),
+				);
+			} catch {
+				toast.error("Failed to toggle favorite");
+			}
+		},
+		[call],
+	);
 
-  const handleClearAll = useCallback(async () => {
-    // Nothing to clear — don't call backend, don't show dialog
-    if (records.length === 0) return
+	const handleClearAll = useCallback(async () => {
+		// Nothing to clear — don't call backend, don't show dialog
+		if (records.length === 0) return;
 
-    // #7: Show ConfirmDialog instead of the old two-click pattern
-    setShowClearConfirm(true)
-  }, [records.length])
+		// #7: Show ConfirmDialog instead of the old two-click pattern
+		setShowClearConfirm(true);
+	}, [records.length]);
 
-  const confirmClearAll = useCallback(async () => {
-    try {
-      await call('clear_history')
-      const emptyStats = { count: 0, chars: 0, word_count: 0, duration: 0 }
-      _cachedStats = emptyStats
-      _cachedRecords = []
-      setRecords([])
-      setStats(emptyStats)
-      setHasMore(false)
-      toast.success('History cleared')
-    } catch {
-      toast.error('Failed to clear history')
-    } finally {
-      setShowClearConfirm(false)
-    }
-  }, [call])
+	const confirmClearAll = useCallback(async () => {
+		try {
+			await call("clear_history");
+			const emptyStats = { count: 0, chars: 0, word_count: 0, duration: 0 };
+			_cachedStats = emptyStats;
+			_cachedRecords = [];
+			setRecords([]);
+			setStats(emptyStats);
+			setHasMore(false);
+			toast.success("History cleared");
+		} catch {
+			toast.error("Failed to clear history");
+		} finally {
+			setShowClearConfirm(false);
+		}
+	}, [call]);
 
-  const doExport = useCallback(async (format: 'json' | 'csv') => {
-    if (records.length === 0) {
-      toast.error('Nothing to export — history is empty')
-      return
-    }
-    try {
-      const all = await call<HistoryRecord[]>('get_history', { limit: 10000 })
-      const result = await (window.window_ as WindowBridge).exportHistory(all as unknown as Record<string, unknown>[], format)
-      if (result.success) {
-        // ERR-ERR-005 (fix): null-safe path handling instead of `!` assertions
-        const path = result.path ?? ''
-        const filename = path.split(/[\\/]/).pop() || 'untitled'
-        toast.success(`${filename} saved successfully`)
-      }
-    } catch (err) {
-      console.error('History export failed:', err)
-      toast.error('Export failed')
-    }
-  }, [call, records.length])
+	const doExport = useCallback(
+		async (format: "json" | "csv") => {
+			if (records.length === 0) {
+				toast.error("Nothing to export — history is empty");
+				return;
+			}
+			try {
+				const all = await call<HistoryRecord[]>("get_history", {
+					limit: 10000,
+				});
+				const result = await (window.window_ as WindowBridge).exportHistory(
+					all as unknown as Record<string, unknown>[],
+					format,
+				);
+				if (result.success) {
+					// ERR-ERR-005 (fix): null-safe path handling instead of `!` assertions
+					const path = result.path ?? "";
+					const filename = path.split(/[\\/]/).pop() || "untitled";
+					toast.success(`${filename} saved successfully`);
+				}
+			} catch (err) {
+				console.error("History export failed:", err);
+				toast.error("Export failed");
+			}
+		},
+		[call, records.length],
+	);
 
-  return (
-    <>
-      <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
-        <PageHeading
-          title="History"
-          description={stats ? `${stats.count} transcription${stats.count !== 1 ? 's' : ''} today${stats.chars > 0 ? ` (${stats.chars.toLocaleString()} chars)` : ''}` : '0 transcriptions today'}
-        />
+	return (
+		<>
+			<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
+				<PageHeading
+					title="History"
+					description={
+						stats
+							? `${stats.count} transcription${stats.count !== 1 ? "s" : ""} today${stats.chars > 0 ? ` (${stats.chars.toLocaleString()} chars)` : ""}`
+							: "0 transcriptions today"
+					}
+				/>
 
-        {/* Search */}
-        <div className="mt-4">
-          <SearchField
-            value={searchQuery}
-            onChange={handleSearch}
-            placeholder="Search history..."
-          />
-        </div>
+				{/* Search */}
+				<div className="mt-4">
+					<SearchField
+						value={searchQuery}
+						onChange={handleSearch}
+						placeholder="Search history..."
+					/>
+				</div>
 
-        {/* Action buttons */}
-        <div className="flex items-center gap-2 mt-3">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={toggleFavorites}
-            aria-label={favoritesOnly ? 'Show all history' : 'Show favorites only'}
-            className={`gap-2 ${favoritesOnly
-                ? 'bg-amber-400/15 text-amber-400 border-amber-400/30 hover:bg-amber-400/20'
-                : 'text-(--text-muted) hover:text-(--text-primary)'
-              }`}
-          >
-            <HugeiconsIcon icon={StarIcon} strokeWidth={2} className={`h-4 w-4 ${favoritesOnly ? 'text-amber-400' : ''}`} />
-            Favorites
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleClearAll}
-            aria-label="Clear all history"
-            className="gap-2 text-(--text-muted) hover:text-red-400"
-          >
-            <HugeiconsIcon icon={Delete01Icon} strokeWidth={2} className="h-4 w-4" />
-            Clear All
-          </Button>
-          <div className="ml-auto">
-            <ExportFormatMenu onExport={doExport} disabled={records.length === 0} />
-          </div>
-        </div>
+				{/* Action buttons */}
+				<div className="flex items-center gap-2 mt-3">
+					<Button
+						variant="outline"
+						size="sm"
+						onClick={toggleFavorites}
+						aria-label={
+							favoritesOnly ? "Show all history" : "Show favorites only"
+						}
+						className={`gap-2 ${
+							favoritesOnly
+								? "bg-amber-400/15 text-amber-400 border-amber-400/30 hover:bg-amber-400/20"
+								: "text-(--text-muted) hover:text-(--text-primary)"
+						}`}
+					>
+						<HugeiconsIcon
+							icon={StarIcon}
+							strokeWidth={2}
+							className={`h-4 w-4 ${favoritesOnly ? "text-amber-400" : ""}`}
+						/>
+						Favorites
+					</Button>
+					<Button
+						variant="outline"
+						size="sm"
+						onClick={handleClearAll}
+						aria-label="Clear all history"
+						className="gap-2 text-(--text-muted) hover:text-red-400"
+					>
+						<HugeiconsIcon
+							icon={Delete01Icon}
+							strokeWidth={2}
+							className="h-4 w-4"
+						/>
+						Clear All
+					</Button>
+					<div className="ml-auto">
+						<ExportFormatMenu
+							onExport={doExport}
+							disabled={records.length === 0}
+						/>
+					</div>
+				</div>
 
-        {loading && records.length === 0 ? (
-          <div className="flex min-h-full items-center justify-center py-20">
-            <Spinner />
-          </div>
-        ) : records.length === 0 ? (
-          <EmptyState
-            icon={HistoryIcon}
-            title={searchQuery ? 'No results found' : favoritesOnly ? 'No favorites yet' : 'No transcriptions yet'}
-          />
-        ) : (
-          <>
-            <ActivityList
-              items={records}
-              lineClamp={3}
-              onDelete={handleDelete}
-              onToggleFavorite={handleToggleFavorite}
-            />
+				{loading && records.length === 0 ? (
+					<div className="flex min-h-full items-center justify-center py-20">
+						<Spinner />
+					</div>
+				) : records.length === 0 ? (
+					<EmptyState
+						icon={HistoryIcon}
+						title={
+							searchQuery
+								? "No results found"
+								: favoritesOnly
+									? "No favorites yet"
+									: "No transcriptions yet"
+						}
+					/>
+				) : (
+					<>
+						<ActivityList
+							items={records}
+							lineClamp={3}
+							onDelete={handleDelete}
+							onToggleFavorite={handleToggleFavorite}
+						/>
 
-            {hasMore && (
-              <Button
-                variant="outline"
-                size="default"
-                onClick={loadMore}
-                disabled={loadingMore}
-                className="mt-4 w-full gap-2 text-xs rounded-xl border border-dashed border-border/30"
-              >
-                {loadingMore ? (
-                  <>
-                    <Spinner className="border-current" />
-                    Loading...
-                  </>
-                ) : (
-                  <>
-                    <HugeiconsIcon icon={ArrowDown01Icon} strokeWidth={2} className="h-4 w-4" />
-                    Load More
-                  </>
-                )}
-              </Button>
-            )}
-          </>
-        )}
-      </div>
+						{hasMore && (
+							<Button
+								variant="outline"
+								size="default"
+								onClick={loadMore}
+								disabled={loadingMore}
+								className="mt-4 w-full gap-2 text-xs rounded-xl border border-dashed border-border/30"
+							>
+								{loadingMore ? (
+									<>
+										<Spinner className="border-current" />
+										Loading...
+									</>
+								) : (
+									<>
+										<HugeiconsIcon
+											icon={ArrowDown01Icon}
+											strokeWidth={2}
+											className="h-4 w-4"
+										/>
+										Load More
+									</>
+								)}
+							</Button>
+						)}
+					</>
+				)}
+			</div>
 
-      {/* #7: ConfirmDialog for Clear All */}
-      <ConfirmDialog
-        open={showClearConfirm}
-        title="Clear All History"
-        message="Are you sure you want to clear all transcription history? Favorites will also be deleted. This action cannot be undone."
-        confirmLabel="Clear All"
-        onConfirm={confirmClearAll}
-        onCancel={() => setShowClearConfirm(false)}
-      />
-    </>
-  )
+			{/* #7: ConfirmDialog for Clear All */}
+			<ConfirmDialog
+				open={showClearConfirm}
+				title="Clear All History"
+				message="Are you sure you want to clear all transcription history? Favorites will also be deleted. This action cannot be undone."
+				confirmLabel="Clear All"
+				onConfirm={confirmClearAll}
+				onCancel={() => setShowClearConfirm(false)}
+			/>
+		</>
+	);
 }

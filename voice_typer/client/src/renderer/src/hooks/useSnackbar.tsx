@@ -21,14 +21,14 @@
 // for the Snackbar component.  Vite resolves .ts before .tsx in
 // extension priority, so a coexisting .ts file would shadow this one.
 
-import { useCallback } from 'react'
-import { toast } from 'sonner'
+import { useCallback } from "react";
+import { toast } from "sonner";
 
-export type SnackbarType = 'success' | 'error' | 'warning' | 'info'
+export type SnackbarType = "success" | "error" | "warning" | "info";
 
 export interface SnackbarState {
-  message: string
-  type: SnackbarType
+	message: string;
+	type: SnackbarType;
 }
 
 /**
@@ -41,47 +41,47 @@ export interface SnackbarState {
  *   default is 4000ms; we keep the legacy 3000ms default for parity.
  */
 export function useSnackbar(timeoutMs = 3000) {
-  const showSnack = useCallback(
-    (message: string, type: SnackbarType = 'success') => {
-      // NEW-UX-003: delegate to sonner so there is exactly ONE toast
-      // system in the renderer.  Each ``type`` maps to the matching
-      // sonner method so the icon and color come from the global
-      // Toaster configuration in ``components/ui/sonner.tsx``.
-      const opts = { duration: timeoutMs }
-      switch (type) {
-        case 'success':
-          toast.success(message, opts)
-          break
-        case 'error':
-          toast.error(message, opts)
-          break
-        case 'warning':
-          toast.warning(message, opts)
-          break
-        case 'info':
-          toast.info(message, opts)
-          break
-      }
-    },
-    [timeoutMs],
-  )
+	const showSnack = useCallback(
+		(message: string, type: SnackbarType = "success") => {
+			// NEW-UX-003: delegate to sonner so there is exactly ONE toast
+			// system in the renderer.  Each ``type`` maps to the matching
+			// sonner method so the icon and color come from the global
+			// Toaster configuration in ``components/ui/sonner.tsx``.
+			const opts = { duration: timeoutMs };
+			switch (type) {
+				case "success":
+					toast.success(message, opts);
+					break;
+				case "error":
+					toast.error(message, opts);
+					break;
+				case "warning":
+					toast.warning(message, opts);
+					break;
+				case "info":
+					toast.info(message, opts);
+					break;
+			}
+		},
+		[timeoutMs],
+	);
 
-  const clearSnack = useCallback(() => {
-    // Dismiss all toasts — sonner doesn't expose per-toast dismissal
-    // from this side of the wrapper without an id, so we dismiss all.
-    // This matches the previous "clear current snackbar" semantics
-    // closely enough for the legacy call sites that use it.
-    toast.dismiss()
-  }, [])
+	const clearSnack = useCallback(() => {
+		// Dismiss all toasts — sonner doesn't expose per-toast dismissal
+		// from this side of the wrapper without an id, so we dismiss all.
+		// This matches the previous "clear current snackbar" semantics
+		// closely enough for the legacy call sites that use it.
+		toast.dismiss();
+	}, []);
 
-  /**
-   * No-op renderer.  Sonner renders toasts via its own portal, so we
-   * don't need an inline component.  Kept for backwards compatibility
-   * with pages that render ``<Snackbar />`` in their JSX.
-   */
-  const Snackbar = useCallback(() => null, [])
+	/**
+	 * No-op renderer.  Sonner renders toasts via its own portal, so we
+	 * don't need an inline component.  Kept for backwards compatibility
+	 * with pages that render ``<Snackbar />`` in their JSX.
+	 */
+	const Snackbar = useCallback(() => null, []);
 
-  return { snackbar: null, showSnack, clearSnack, Snackbar }
+	return { snackbar: null, showSnack, clearSnack, Snackbar };
 }
 
 /**
@@ -97,34 +97,34 @@ export function useSnackbar(timeoutMs = 3000) {
  *   plain toast so the user has time to click Undo).
  */
 export function showUndoableToast(
-  message: string,
-  onUndo: () => void,
-  options: {
-    undoLabel?: string
-    type?: SnackbarType
-    timeoutMs?: number
-  } = {},
+	message: string,
+	onUndo: () => void,
+	options: {
+		undoLabel?: string;
+		type?: SnackbarType;
+		timeoutMs?: number;
+	} = {},
 ): void {
-  const { undoLabel = 'Undo', type = 'warning', timeoutMs = 6000 } = options
-  const opts = {
-    duration: timeoutMs,
-    action: {
-      label: undoLabel,
-      onClick: onUndo,
-    },
-  }
-  switch (type) {
-    case 'success':
-      toast.success(message, opts)
-      break
-    case 'error':
-      toast.error(message, opts)
-      break
-    case 'warning':
-      toast.warning(message, opts)
-      break
-    case 'info':
-      toast.info(message, opts)
-      break
-  }
+	const { undoLabel = "Undo", type = "warning", timeoutMs = 6000 } = options;
+	const opts = {
+		duration: timeoutMs,
+		action: {
+			label: undoLabel,
+			onClick: onUndo,
+		},
+	};
+	switch (type) {
+		case "success":
+			toast.success(message, opts);
+			break;
+		case "error":
+			toast.error(message, opts);
+			break;
+		case "warning":
+			toast.warning(message, opts);
+			break;
+		case "info":
+			toast.info(message, opts);
+			break;
+	}
 }
