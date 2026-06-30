@@ -71,13 +71,13 @@ class TestUx015I18nSpanishTranslation:
         i18n_path = Path(__file__).resolve().parent.parent / "voice_typer" / \
             "client" / "src" / "renderer" / "src" / "i18n" / "i18n.ts"
         src = i18n_path.read_text(encoding="utf-8")
-        assert "import es from './translations/es.json'" in src, (
+        assert 'import es from "./translations/es.json"' in src, (
             "UX-015: i18n.ts must import Spanish translations"
         )
-        assert "'en', 'es'" in src or "'en','es'" in src, (
+        assert '"en", "es"' in src or '"en","es"' in src, (
             "UX-015: SUPPORTED_LOCALES must include 'es'"
         )
-        assert "_translations.set('es'" in src, (
+        assert '_translations.set("es"' in src, (
             "UX-015: i18n.ts must register Spanish translations"
         )
 

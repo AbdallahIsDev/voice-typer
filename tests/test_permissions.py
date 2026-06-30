@@ -341,6 +341,15 @@ class TestLinuxPkexecHelper:
 
 # ─── install_permissions.py (Linux) ────────────────────────────────────────
 
+# Resolve the scripts/linux/ directory relative to this test file so the
+# tests work on any machine (not just the original developer's).
+# tests/test_permissions.py → repo root → scripts/linux/
+_SCRIPTS_LINUX_DIR = (
+    __import__("pathlib").Path(__file__).resolve().parent.parent / "scripts" / "linux"
+)
+_INSTALL_SCRIPT = _SCRIPTS_LINUX_DIR / "install_permissions.py"
+_UNINSTALL_SCRIPT = _SCRIPTS_LINUX_DIR / "uninstall_permissions.py"
+
 
 class TestInstallPermissionsScript:
     """Smoke tests for the install_permissions.py script."""
@@ -348,9 +357,10 @@ class TestInstallPermissionsScript:
     def test_script_refuses_non_root(self):
         """When run as non-root, exit code 1."""
         import subprocess
+        if not _INSTALL_SCRIPT.is_file():
+            pytest.skip("install_permissions.py not found (not a Linux build)")
         result = subprocess.run(
-            [sys.executable,
-             "/home/z/my-project/voice-typer-zero-cmd/voice-typer/scripts/linux/install_permissions.py"],
+            [sys.executable, str(_INSTALL_SCRIPT)],
             capture_output=True, text=True, timeout=5,
         )
         assert result.returncode == 1
@@ -359,9 +369,10 @@ class TestInstallPermissionsScript:
     def test_uninstall_script_refuses_non_root(self):
         """When run as non-root, exit code 1."""
         import subprocess
+        if not _UNINSTALL_SCRIPT.is_file():
+            pytest.skip("uninstall_permissions.py not found (not a Linux build)")
         result = subprocess.run(
-            [sys.executable,
-             "/home/z/my-project/voice-typer-zero-cmd/voice-typer/scripts/linux/uninstall_permissions.py"],
+            [sys.executable, str(_UNINSTALL_SCRIPT)],
             capture_output=True, text=True, timeout=5,
         )
         assert result.returncode == 1
@@ -370,5 +381,7 @@ class TestInstallPermissionsScript:
     def test_script_compiles(self):
         """Verify install_permissions.py is valid Python."""
         import ast
-        with open("/home/z/my-project/voice-typer-zero-cmd/voice-typer/scripts/linux/install_permissions.py") as f:
+        if not _INSTALL_SCRIPT.is_file():
+            pytest.skip("install_permissions.py not found (not a Linux build)")
+        with open(_INSTALL_SCRIPT) as f:
             ast.parse(f.read())
