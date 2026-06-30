@@ -1,19 +1,19 @@
 {
-  "compilerOptions": {
-    "composite": true,
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "allowSyntheticDefaultImports": true,
-    "esModuleInterop": true,
-    "outDir": "./out",
-    "strict": true,
-    "target": "ESNext",
-    "skipLibCheck": true
-  },
-  "include": [
-    "electron.vite.config.ts",
-    "vite.config.ts",
-    "src/main/**/*",
-    "src/preload/**/*"
-  ]
+	"compilerOptions": {
+		"composite": true,
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"allowSyntheticDefaultImports": true,
+		"esModuleInterop": true,
+		"outDir": "./out",
+		"strict": true,
+		"target": "ESNext",
+		"skipLibCheck": true
+	},
+	"include": [
+		"electron.vite.config.ts",
+		"vite.config.ts",
+		"src/main/**/*",
+		"src/preload/**/*"
+	]
 }

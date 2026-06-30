@@ -519,7 +519,7 @@ export default function SettingsPage({
 				dark: { ...DEFAULT_CUSTOM_DARK },
 			});
 		}
-	}, [config.custom_theme]); // only on first load when config becomes available
+	}, [config?.custom_theme]); // only on first load when config becomes available
 
 	// Apply a custom color change immediately for preview, then debounce save
 	const handleCustomColorChange = useCallback(
