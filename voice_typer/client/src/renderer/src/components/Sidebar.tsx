@@ -99,7 +99,7 @@ export function Sidebar({ currentPage, onNavigate, themeMode, onThemeChange, col
                 )}
                 onClick={() => onNavigate(item.id)}
               >
-              <HugeiconsIcon icon={item.icon} strokeWidth={1.625} className="h-4.5 w-4.5 shrink-0" />
+              <HugeiconsIcon icon={item.icon} strokeWidth={2} className="h-4 w-4 shrink-0" />
                 <span
                   className={cn(
                     'overflow-hidden whitespace-nowrap text-sm font-medium dark:font-normal',

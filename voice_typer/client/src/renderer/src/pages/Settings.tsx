@@ -1565,7 +1565,7 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
               aria-label="Open log folder"
               title="Open the folder containing the Python backend's log files"
             >
-              <HugeiconsIcon icon={File02Icon} strokeWidth={1.625} className="h-4 w-4" />
+              <HugeiconsIcon icon={File02Icon} strokeWidth={2} className="h-4 w-4" />
               Open Log Folder
             </Button>
             <Button
@@ -1575,7 +1575,7 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
               aria-label="Open Diagnostics"
               title="Open the About page with version, backend status, and config info"
             >
-              <HugeiconsIcon icon={InformationCircleIcon} strokeWidth={1.625} className="h-4 w-4" />
+              <HugeiconsIcon icon={InformationCircleIcon} strokeWidth={2} className="h-4 w-4" />
               Diagnostics
             </Button>
             <Button
@@ -1585,7 +1585,7 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
               aria-label="Open documentation"
               title="Open the project README in your browser"
             >
-              <HugeiconsIcon icon={Book02Icon} strokeWidth={1.625} className="h-4 w-4" />
+              <HugeiconsIcon icon={Book02Icon} strokeWidth={2} className="h-4 w-4" />
               Help & FAQ
             </Button>
             <Button
@@ -1595,7 +1595,7 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
               aria-label="Report a bug"
               title="Open the GitHub issue tracker"
             >
-              <HugeiconsIcon icon={Bug02Icon} strokeWidth={1.625} className="h-4 w-4" />
+              <HugeiconsIcon icon={Bug02Icon} strokeWidth={2} className="h-4 w-4" />
               Report a Bug
             </Button>
             <Button
@@ -1605,7 +1605,7 @@ export default function SettingsPage({ onThemeChange, onNavigate }: SettingsPage
               aria-label="Reset to Defaults"
               title="Reset all settings to their default values (cannot be undone)"
             >
-              <HugeiconsIcon icon={RefreshIcon} strokeWidth={1.625} className="h-4 w-4" />
+              <HugeiconsIcon icon={RefreshIcon} strokeWidth={2} className="h-4 w-4" />
               Reset to Defaults
             </Button>
           </div>

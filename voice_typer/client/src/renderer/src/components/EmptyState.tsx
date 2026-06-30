@@ -32,7 +32,7 @@ export function EmptyState({
     <div className="flex flex-col items-center justify-center gap-4 py-16">
       <HugeiconsIcon
         icon={_icon}
-        strokeWidth={1.625}
+        strokeWidth={2}
         className="h-10 w-10 text-(--text-muted) opacity-30"
       />
       <p className="text-sm text-(--text-muted)">{title}</p>
@@ -42,7 +42,7 @@ export function EmptyState({
       {children}
       {actionLabel && onAction && (
         <Button variant="default" className="mt-2 gap-2" onClick={onAction}>
-          <HugeiconsIcon icon={displayIcon} strokeWidth={1.625} className="h-4 w-4" />
+          <HugeiconsIcon icon={displayIcon} strokeWidth={2} className="h-4 w-4" />
           {actionLabel}
         </Button>
       )}

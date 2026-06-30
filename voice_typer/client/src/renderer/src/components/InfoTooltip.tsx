@@ -28,11 +28,11 @@ export function InfoTooltip({ text }: InfoTooltipProps) {
               xmlns="http://www.w3.org/2000/svg"
               aria-hidden
             >
-              <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.2" />
+              <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.5" />
               <path
                 d="M6.4 6C6.4 4.8 7.2 4.4 8 4.4C8.8 4.4 9.6 4.8 9.6 6C9.6 7.2 8.8 7.6 8.4 8C8.2 8.4 8 8.8 8 9.2"
                 stroke="currentColor"
-                strokeWidth="1.2"
+                strokeWidth="1.5"
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />

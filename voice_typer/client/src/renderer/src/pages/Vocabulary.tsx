@@ -361,7 +361,7 @@ export default function VocabularyPage() {
               disabled={saving}
               className="gap-2"
             >
-              <HugeiconsIcon icon={Add01Icon} strokeWidth={1.625} className="h-4 w-4" />
+              <HugeiconsIcon icon={Add01Icon} strokeWidth={2} className="h-4 w-4" />
               Add Word
             </Button>
 
@@ -399,7 +399,7 @@ export default function VocabularyPage() {
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2.5">
-                      <span className="text-sm font-medium text-destructive/70">
+                      <span className="text-sm dark:font-normal font-medium text-destructive tracking-wider">
                         {entry.original}
                       </span>
                       <span className="text-sm text-(--text-muted)">→</span>
@@ -417,7 +417,7 @@ export default function VocabularyPage() {
                       title="Edit"
                       aria-label={`Edit: ${entry.original}`}
                     >
-                      <HugeiconsIcon icon={PencilEdit02Icon} strokeWidth={1.625} className="h-4 w-4" />
+                      <HugeiconsIcon icon={PencilEdit02Icon} strokeWidth={2.5} className="h-4 w-4" />
                     </Button>
                     <Button
                       variant="ghost"
@@ -427,7 +427,7 @@ export default function VocabularyPage() {
                       title="Delete"
                       aria-label={`Delete: ${entry.original}`}
                     >
-                      <HugeiconsIcon icon={Delete01Icon} strokeWidth={1.625} className="h-4 w-4" />
+                      <HugeiconsIcon icon={Delete01Icon} strokeWidth={2.5} className="h-4 w-4" />
                     </Button>
                   </div>
                 </div>

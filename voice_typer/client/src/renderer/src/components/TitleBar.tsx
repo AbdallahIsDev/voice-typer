@@ -127,7 +127,7 @@ export function TitleBar({ onToggleSidebar, onGoBack, onGoForward, canGoBack, ca
           'focus:outline-none',
         )}
       >
-        <HugeiconsIcon icon={PanelLeftIcon} strokeWidth={1.5} className="h-4 w-4" />
+        <HugeiconsIcon icon={PanelLeftIcon} strokeWidth={2} className="h-4 w-4" />
       </button>
 
       {/* Back/Forward navigation */}

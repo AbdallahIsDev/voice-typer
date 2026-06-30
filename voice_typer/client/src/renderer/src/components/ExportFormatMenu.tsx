@@ -47,7 +47,7 @@ export default function ExportFormatMenu({ onExport, disabled }: ExportFormatMen
         aria-haspopup="menu"
         aria-expanded={show}
       >
-        <HugeiconsIcon icon={Download01Icon} strokeWidth={1.625} className="h-4 w-4" />
+        <HugeiconsIcon icon={Download01Icon} strokeWidth={2} className="h-4 w-4" />
         Export
       </Button>
       {show && (

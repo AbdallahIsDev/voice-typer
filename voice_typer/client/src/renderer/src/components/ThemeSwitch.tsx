@@ -45,7 +45,7 @@ export function ThemeSwitch({ themeMode, onThemeChange, collapsed = false }: The
       title={`${current.label} mode — click to switch`}
       aria-label={`Current theme: ${current.label}. Click to switch.`}
     >
-      <HugeiconsIcon icon={current.icon} strokeWidth={1.625} className="h-3.5 w-3.5 shrink-0" />
+      <HugeiconsIcon icon={current.icon} strokeWidth={2} className="h-4 w-4 shrink-0" />
       <span
         className={cn(
           'overflow-hidden whitespace-nowrap text-sm font-medium dark:font-normal',

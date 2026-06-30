@@ -419,7 +419,7 @@ export default function TemplatesPage() {
             aria-label="Add new template"
             className="gap-2"
           >
-            <HugeiconsIcon icon={Add01Icon} strokeWidth={2.25} className="h-4 w-4" />
+            <HugeiconsIcon icon={Add01Icon} strokeWidth={2} className="h-4 w-4" />
             Add Template
           </Button>
         </PageHeading>

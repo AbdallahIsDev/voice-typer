@@ -397,7 +397,7 @@ export default function Home({ recordingState, lastError, onNavigate }: HomeProp
                 disabled={!cfg || stats.count === 0}
                 className="gap-2"
               >
-                <HugeiconsIcon icon={Share08Icon} strokeWidth={2.25} className="h-4 w-4" />
+                <HugeiconsIcon icon={Share08Icon} strokeWidth={2} className="h-4 w-4" />
                 Share Stats
               </Button>
             </div>

@@ -81,7 +81,7 @@ export function AudioPresetSelector({
         <span className="flex items-center gap-2 font-medium tracking-wide">
           <HugeiconsIcon
             icon={FilterIcon}
-            strokeWidth={2.25}
+            strokeWidth={2}
             className="h-4 w-4 text-(--text-muted)"
           />
           Audio Enhancement

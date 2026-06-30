@@ -22,7 +22,7 @@ export function MicrophoneListItem({
     <div className="flex items-center gap-3 px-3.5 py-2.5">
       <HugeiconsIcon
         icon={Mic02Icon}
-        strokeWidth={1.625}
+        strokeWidth={2}
         className="h-4 w-4 shrink-0 text-(--text-muted)"
       />
       <div className="flex flex-col flex-1 min-w-0 gap-1">
