@@ -1677,25 +1677,27 @@ export default function SettingsPage({
 										aria-label="High-Pass Filter"
 									/>
 								</SettingRow>
-								<SettingRow
-									label="High-Pass Cutoff"
-									info="Frequencies below this are attenuated. 80Hz removes HVAC rumble. 100–150Hz also removes traffic."
-								>
-									<RangeSlider
-										value={config.noise_filter_highpass_cutoff_hz ?? 80}
-										min={20}
-										max={500}
-										step={10}
-										onChange={(v) =>
-											updateConfigDebounced(
-												"noise_filter_highpass_cutoff_hz",
-												v,
-											)
-										}
-										ariaLabel="High-Pass Cutoff"
-										suffix="Hz"
-									/>
-								</SettingRow>
+								{(config.noise_filter_highpass ?? true) && (
+									<SettingRow
+										label="High-Pass Cutoff"
+										info="Frequencies below this are attenuated. 80Hz removes HVAC rumble. 100–150Hz also removes traffic."
+									>
+										<RangeSlider
+											value={config.noise_filter_highpass_cutoff_hz ?? 80}
+											min={20}
+											max={500}
+											step={10}
+											onChange={(v) =>
+												updateConfigDebounced(
+													"noise_filter_highpass_cutoff_hz",
+													v,
+												)
+											}
+											ariaLabel="High-Pass Cutoff"
+											suffix="Hz"
+										/>
+									</SettingRow>
+								)}
 								<SettingRow
 									label="Noise Suppression"
 									info="Neural network denoiser. RNNoise (default, lightweight). DeepFilterNet (premium, better quality, requires torch). Speex (lightest CPU)."
@@ -1737,44 +1739,52 @@ export default function SettingsPage({
 										aria-label="Noise Gate"
 									/>
 								</SettingRow>
-								<SettingRow
-									label="Gate Open Threshold"
-									info="Level above which the gate opens (passes audio). -26dB is a good default for speech."
-								>
-									<RangeSlider
-										value={config.noise_filter_gate_open_threshold_db ?? -26}
-										min={-96}
-										max={0}
-										step={1}
-										onChange={(v) =>
-											updateConfigDebounced(
-												"noise_filter_gate_open_threshold_db",
-												v,
-											)
-										}
-										ariaLabel="Gate Open Threshold"
-										suffix="dB"
-									/>
-								</SettingRow>
-								<SettingRow
-									label="Gate Close Threshold"
-									info="Level below which the gate closes (attenuates audio). Should be 5-10dB below open threshold."
-								>
-									<RangeSlider
-										value={config.noise_filter_gate_close_threshold_db ?? -32}
-										min={-96}
-										max={0}
-										step={1}
-										onChange={(v) =>
-											updateConfigDebounced(
-												"noise_filter_gate_close_threshold_db",
-												v,
-											)
-										}
-										ariaLabel="Gate Close Threshold"
-										suffix="dB"
-									/>
-								</SettingRow>
+								{(config.noise_filter_gate ?? true) && (
+									<>
+										<SettingRow
+											label="Gate Open Threshold"
+											info="Level above which the gate opens (passes audio). -26dB is a good default for speech."
+										>
+											<RangeSlider
+												value={
+													config.noise_filter_gate_open_threshold_db ?? -26
+												}
+												min={-96}
+												max={0}
+												step={1}
+												onChange={(v) =>
+													updateConfigDebounced(
+														"noise_filter_gate_open_threshold_db",
+														v,
+													)
+												}
+												ariaLabel="Gate Open Threshold"
+												suffix="dB"
+											/>
+										</SettingRow>
+										<SettingRow
+											label="Gate Close Threshold"
+											info="Level below which the gate closes (attenuates audio). Should be 5-10dB below open threshold."
+										>
+											<RangeSlider
+												value={
+													config.noise_filter_gate_close_threshold_db ?? -32
+												}
+												min={-96}
+												max={0}
+												step={1}
+												onChange={(v) =>
+													updateConfigDebounced(
+														"noise_filter_gate_close_threshold_db",
+														v,
+													)
+												}
+												ariaLabel="Gate Close Threshold"
+												suffix="dB"
+											/>
+										</SettingRow>
+									</>
+								)}
 								<SettingRow
 									label="Equalizer"
 									info="3-band EQ: boost mid (speech intelligibility), cut low (rumble), slight high (presence). OBS-style crossover."
@@ -1787,54 +1797,58 @@ export default function SettingsPage({
 										aria-label="Equalizer"
 									/>
 								</SettingRow>
-								<SettingRow
-									label="EQ — Low (bass)"
-									info="Boost/cut below 800Hz. -3dB removes rumble and proximity effect."
-								>
-									<RangeSlider
-										value={config.noise_filter_eq_low_db ?? -3}
-										min={-20}
-										max={20}
-										step={1}
-										onChange={(v) =>
-											updateConfigDebounced("noise_filter_eq_low_db", v)
-										}
-										ariaLabel="EQ Low"
-										suffix="dB"
-									/>
-								</SettingRow>
-								<SettingRow
-									label="EQ — Mid (speech)"
-									info="Boost/cut 800Hz–5kHz (speech intelligibility band). +3dB improves consonant clarity."
-								>
-									<RangeSlider
-										value={config.noise_filter_eq_mid_db ?? 3}
-										min={-20}
-										max={20}
-										step={1}
-										onChange={(v) =>
-											updateConfigDebounced("noise_filter_eq_mid_db", v)
-										}
-										ariaLabel="EQ Mid"
-										suffix="dB"
-									/>
-								</SettingRow>
-								<SettingRow
-									label="EQ — High (treble)"
-									info="Boost/cut above 5kHz. +2dB adds presence and brightness."
-								>
-									<RangeSlider
-										value={config.noise_filter_eq_high_db ?? 2}
-										min={-20}
-										max={20}
-										step={1}
-										onChange={(v) =>
-											updateConfigDebounced("noise_filter_eq_high_db", v)
-										}
-										ariaLabel="EQ High"
-										suffix="dB"
-									/>
-								</SettingRow>
+								{(config.noise_filter_eq ?? true) && (
+									<>
+										<SettingRow
+											label="EQ — Low (bass)"
+											info="Boost/cut below 800Hz. -3dB removes rumble and proximity effect."
+										>
+											<RangeSlider
+												value={config.noise_filter_eq_low_db ?? -3}
+												min={-20}
+												max={20}
+												step={1}
+												onChange={(v) =>
+													updateConfigDebounced("noise_filter_eq_low_db", v)
+												}
+												ariaLabel="EQ Low"
+												suffix="dB"
+											/>
+										</SettingRow>
+										<SettingRow
+											label="EQ — Mid (speech)"
+											info="Boost/cut 800Hz–5kHz (speech intelligibility band). +3dB improves consonant clarity."
+										>
+											<RangeSlider
+												value={config.noise_filter_eq_mid_db ?? 3}
+												min={-20}
+												max={20}
+												step={1}
+												onChange={(v) =>
+													updateConfigDebounced("noise_filter_eq_mid_db", v)
+												}
+												ariaLabel="EQ Mid"
+												suffix="dB"
+											/>
+										</SettingRow>
+										<SettingRow
+											label="EQ — High (treble)"
+											info="Boost/cut above 5kHz. +2dB adds presence and brightness."
+										>
+											<RangeSlider
+												value={config.noise_filter_eq_high_db ?? 2}
+												min={-20}
+												max={20}
+												step={1}
+												onChange={(v) =>
+													updateConfigDebounced("noise_filter_eq_high_db", v)
+												}
+												ariaLabel="EQ High"
+												suffix="dB"
+											/>
+										</SettingRow>
+									</>
+								)}
 								<SettingRow
 									label="Compressor"
 									info="Evens out loud/quiet speech for consistent ASR accuracy. OBS-style peak envelope with threshold/ratio/attack/release."
@@ -1847,41 +1861,50 @@ export default function SettingsPage({
 										aria-label="Compressor"
 									/>
 								</SettingRow>
-								<SettingRow
-									label="Compressor Threshold"
-									info="Level above which compression starts. -18dB is a good default for speech."
-								>
-									<RangeSlider
-										value={config.noise_filter_compressor_threshold_db ?? -18}
-										min={-60}
-										max={0}
-										step={1}
-										onChange={(v) =>
-											updateConfigDebounced(
-												"noise_filter_compressor_threshold_db",
-												v,
-											)
-										}
-										ariaLabel="Compressor Threshold"
-										suffix="dB"
-									/>
-								</SettingRow>
-								<SettingRow
-									label="Compressor Ratio"
-									info="How hard to compress. 3:1 is gentle. 10:1 is aggressive (limiter-like)."
-								>
-									<RangeSlider
-										value={config.noise_filter_compressor_ratio ?? 3}
-										min={1}
-										max={32}
-										step={0.5}
-										onChange={(v) =>
-											updateConfigDebounced("noise_filter_compressor_ratio", v)
-										}
-										ariaLabel="Compressor Ratio"
-										suffix=":1"
-									/>
-								</SettingRow>
+								{(config.noise_filter_compressor ?? true) && (
+									<>
+										<SettingRow
+											label="Compressor Threshold"
+											info="Level above which compression starts. -18dB is a good default for speech."
+										>
+											<RangeSlider
+												value={
+													config.noise_filter_compressor_threshold_db ?? -18
+												}
+												min={-60}
+												max={0}
+												step={1}
+												onChange={(v) =>
+													updateConfigDebounced(
+														"noise_filter_compressor_threshold_db",
+														v,
+													)
+												}
+												ariaLabel="Compressor Threshold"
+												suffix="dB"
+											/>
+										</SettingRow>
+										<SettingRow
+											label="Compressor Ratio"
+											info="How hard to compress. 3:1 is gentle. 10:1 is aggressive (limiter-like)."
+										>
+											<RangeSlider
+												value={config.noise_filter_compressor_ratio ?? 3}
+												min={1}
+												max={32}
+												step={0.5}
+												onChange={(v) =>
+													updateConfigDebounced(
+														"noise_filter_compressor_ratio",
+														v,
+													)
+												}
+												ariaLabel="Compressor Ratio"
+												suffix=":1"
+											/>
+										</SettingRow>
+									</>
+								)}
 								<SettingRow
 									label="Limiter"
 									info="Brick-wall ceiling to prevent clipping. Catches transient clicks/pops before they reach ASR."
@@ -1894,25 +1917,27 @@ export default function SettingsPage({
 										aria-label="Limiter"
 									/>
 								</SettingRow>
-								<SettingRow
-									label="Limiter Ceiling"
-									info="Absolute maximum output level. -6dB prevents clipping while allowing headroom."
-								>
-									<RangeSlider
-										value={config.noise_filter_limiter_ceiling_db ?? -6}
-										min={-60}
-										max={0}
-										step={1}
-										onChange={(v) =>
-											updateConfigDebounced(
-												"noise_filter_limiter_ceiling_db",
-												v,
-											)
-										}
-										ariaLabel="Limiter Ceiling"
-										suffix="dB"
-									/>
-								</SettingRow>
+								{(config.noise_filter_limiter ?? true) && (
+									<SettingRow
+										label="Limiter Ceiling"
+										info="Absolute maximum output level. -6dB prevents clipping while allowing headroom."
+									>
+										<RangeSlider
+											value={config.noise_filter_limiter_ceiling_db ?? -6}
+											min={-60}
+											max={0}
+											step={1}
+											onChange={(v) =>
+												updateConfigDebounced(
+													"noise_filter_limiter_ceiling_db",
+													v,
+												)
+											}
+											ariaLabel="Limiter Ceiling"
+											suffix="dB"
+										/>
+									</SettingRow>
+								)}
 								<SettingRow
 									label="Notch Filter (hum)"
 									info="Remove 50/60Hz electrical mains hum. Off by default — only enable if you hear a persistent low buzz."

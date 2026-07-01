@@ -206,19 +206,21 @@ export function AudioPresetSelector({
 								onChange={(v) => onConfigChange({ noise_filter_highpass: v })}
 								ariaLabel="High-Pass Filter"
 							/>
-							<SliderRow
-								label="High-Pass Cutoff"
-								description="Frequencies below this are attenuated."
-								value={config.noise_filter_highpass_cutoff_hz ?? 80}
-								min={20}
-								max={500}
-								step={10}
-								suffix="Hz"
-								onChange={(v) =>
-									onConfigChange({ noise_filter_highpass_cutoff_hz: v })
-								}
-								ariaLabel="High-Pass Cutoff"
-							/>
+							{(config.noise_filter_highpass ?? true) && (
+								<SliderRow
+									label="High-Pass Cutoff"
+									description="Frequencies below this are attenuated."
+									value={config.noise_filter_highpass_cutoff_hz ?? 80}
+									min={20}
+									max={500}
+									step={10}
+									suffix="Hz"
+									onChange={(v) =>
+										onConfigChange({ noise_filter_highpass_cutoff_hz: v })
+									}
+									ariaLabel="High-Pass Cutoff"
+								/>
+							)}
 
 							{/* Noise suppression method */}
 							<div className="flex items-center justify-between px-4 py-2 pl-10">
@@ -261,36 +263,40 @@ export function AudioPresetSelector({
 								onChange={(v) => onConfigChange({ noise_filter_gate: v })}
 								ariaLabel="Noise Gate"
 							/>
-							<SliderRow
-								label="Gate Open Threshold"
-								description="Level above which the gate opens."
-								value={config.noise_filter_gate_open_threshold_db ?? -26}
-								min={-96}
-								max={0}
-								step={1}
-								suffix="dB"
-								onChange={(v) =>
-									onConfigChange({
-										noise_filter_gate_open_threshold_db: v,
-									})
-								}
-								ariaLabel="Gate Open Threshold"
-							/>
-							<SliderRow
-								label="Gate Close Threshold"
-								description="Level below which the gate closes."
-								value={config.noise_filter_gate_close_threshold_db ?? -32}
-								min={-96}
-								max={0}
-								step={1}
-								suffix="dB"
-								onChange={(v) =>
-									onConfigChange({
-										noise_filter_gate_close_threshold_db: v,
-									})
-								}
-								ariaLabel="Gate Close Threshold"
-							/>
+							{(config.noise_filter_gate ?? true) && (
+								<>
+									<SliderRow
+										label="Gate Open Threshold"
+										description="Level above which the gate opens."
+										value={config.noise_filter_gate_open_threshold_db ?? -26}
+										min={-96}
+										max={0}
+										step={1}
+										suffix="dB"
+										onChange={(v) =>
+											onConfigChange({
+												noise_filter_gate_open_threshold_db: v,
+											})
+										}
+										ariaLabel="Gate Open Threshold"
+									/>
+									<SliderRow
+										label="Gate Close Threshold"
+										description="Level below which the gate closes."
+										value={config.noise_filter_gate_close_threshold_db ?? -32}
+										min={-96}
+										max={0}
+										step={1}
+										suffix="dB"
+										onChange={(v) =>
+											onConfigChange({
+												noise_filter_gate_close_threshold_db: v,
+											})
+										}
+										ariaLabel="Gate Close Threshold"
+									/>
+								</>
+							)}
 
 							<ToggleRow
 								label="Equalizer"
@@ -299,39 +305,49 @@ export function AudioPresetSelector({
 								onChange={(v) => onConfigChange({ noise_filter_eq: v })}
 								ariaLabel="Equalizer"
 							/>
-							<SliderRow
-								label="EQ — Low (bass)"
-								description="Boost/cut below 800Hz."
-								value={config.noise_filter_eq_low_db ?? -3}
-								min={-20}
-								max={20}
-								step={1}
-								suffix="dB"
-								onChange={(v) => onConfigChange({ noise_filter_eq_low_db: v })}
-								ariaLabel="EQ Low"
-							/>
-							<SliderRow
-								label="EQ — Mid (speech)"
-								description="Boost/cut 800Hz–5kHz."
-								value={config.noise_filter_eq_mid_db ?? 3}
-								min={-20}
-								max={20}
-								step={1}
-								suffix="dB"
-								onChange={(v) => onConfigChange({ noise_filter_eq_mid_db: v })}
-								ariaLabel="EQ Mid"
-							/>
-							<SliderRow
-								label="EQ — High (treble)"
-								description="Boost/cut above 5kHz."
-								value={config.noise_filter_eq_high_db ?? 2}
-								min={-20}
-								max={20}
-								step={1}
-								suffix="dB"
-								onChange={(v) => onConfigChange({ noise_filter_eq_high_db: v })}
-								ariaLabel="EQ High"
-							/>
+							{(config.noise_filter_eq ?? true) && (
+								<>
+									<SliderRow
+										label="EQ — Low (bass)"
+										description="Boost/cut below 800Hz."
+										value={config.noise_filter_eq_low_db ?? -3}
+										min={-20}
+										max={20}
+										step={1}
+										suffix="dB"
+										onChange={(v) =>
+											onConfigChange({ noise_filter_eq_low_db: v })
+										}
+										ariaLabel="EQ Low"
+									/>
+									<SliderRow
+										label="EQ — Mid (speech)"
+										description="Boost/cut 800Hz–5kHz."
+										value={config.noise_filter_eq_mid_db ?? 3}
+										min={-20}
+										max={20}
+										step={1}
+										suffix="dB"
+										onChange={(v) =>
+											onConfigChange({ noise_filter_eq_mid_db: v })
+										}
+										ariaLabel="EQ Mid"
+									/>
+									<SliderRow
+										label="EQ — High (treble)"
+										description="Boost/cut above 5kHz."
+										value={config.noise_filter_eq_high_db ?? 2}
+										min={-20}
+										max={20}
+										step={1}
+										suffix="dB"
+										onChange={(v) =>
+											onConfigChange({ noise_filter_eq_high_db: v })
+										}
+										ariaLabel="EQ High"
+									/>
+								</>
+							)}
 
 							<ToggleRow
 								label="Compressor"
@@ -340,36 +356,40 @@ export function AudioPresetSelector({
 								onChange={(v) => onConfigChange({ noise_filter_compressor: v })}
 								ariaLabel="Compressor"
 							/>
-							<SliderRow
-								label="Compressor Threshold"
-								description="Level above which compression starts."
-								value={config.noise_filter_compressor_threshold_db ?? -18}
-								min={-60}
-								max={0}
-								step={1}
-								suffix="dB"
-								onChange={(v) =>
-									onConfigChange({
-										noise_filter_compressor_threshold_db: v,
-									})
-								}
-								ariaLabel="Compressor Threshold"
-							/>
-							<SliderRow
-								label="Compressor Ratio"
-								description="How hard to compress. 3:1 gentle, 10:1 aggressive."
-								value={config.noise_filter_compressor_ratio ?? 3}
-								min={1}
-								max={32}
-								step={0.5}
-								suffix=":1"
-								onChange={(v) =>
-									onConfigChange({
-										noise_filter_compressor_ratio: v,
-									})
-								}
-								ariaLabel="Compressor Ratio"
-							/>
+							{(config.noise_filter_compressor ?? true) && (
+								<>
+									<SliderRow
+										label="Compressor Threshold"
+										description="Level above which compression starts."
+										value={config.noise_filter_compressor_threshold_db ?? -18}
+										min={-60}
+										max={0}
+										step={1}
+										suffix="dB"
+										onChange={(v) =>
+											onConfigChange({
+												noise_filter_compressor_threshold_db: v,
+											})
+										}
+										ariaLabel="Compressor Threshold"
+									/>
+									<SliderRow
+										label="Compressor Ratio"
+										description="How hard to compress. 3:1 gentle, 10:1 aggressive."
+										value={config.noise_filter_compressor_ratio ?? 3}
+										min={1}
+										max={32}
+										step={0.5}
+										suffix=":1"
+										onChange={(v) =>
+											onConfigChange({
+												noise_filter_compressor_ratio: v,
+											})
+										}
+										ariaLabel="Compressor Ratio"
+									/>
+								</>
+							)}
 
 							<ToggleRow
 								label="Limiter"
@@ -378,21 +398,23 @@ export function AudioPresetSelector({
 								onChange={(v) => onConfigChange({ noise_filter_limiter: v })}
 								ariaLabel="Limiter"
 							/>
-							<SliderRow
-								label="Limiter Ceiling"
-								description="Absolute maximum output level."
-								value={config.noise_filter_limiter_ceiling_db ?? -6}
-								min={-60}
-								max={0}
-								step={1}
-								suffix="dB"
-								onChange={(v) =>
-									onConfigChange({
-										noise_filter_limiter_ceiling_db: v,
-									})
-								}
-								ariaLabel="Limiter Ceiling"
-							/>
+							{(config.noise_filter_limiter ?? true) && (
+								<SliderRow
+									label="Limiter Ceiling"
+									description="Absolute maximum output level."
+									value={config.noise_filter_limiter_ceiling_db ?? -6}
+									min={-60}
+									max={0}
+									step={1}
+									suffix="dB"
+									onChange={(v) =>
+										onConfigChange({
+											noise_filter_limiter_ceiling_db: v,
+										})
+									}
+									ariaLabel="Limiter Ceiling"
+								/>
+							)}
 
 							<ToggleRow
 								label="Notch Filter (hum)"
