@@ -331,6 +331,19 @@ _MOD_ALTGR = 0x0010
 _MOD_NOREPEAT = 0x4000
 _GWLP_USERDATA = -21
 
+# FIX-HOTKEY-ARCHITECTURE: VK codes for the modifier keys themselves,
+# used by the modifier-only polling loop (e.g. when the hotkey is just
+# ``<alt>`` with no main key). VK_CAPITAL is the Caps Lock key, used
+# for toggle suppression in the legacy polling backend.
+_VK_SHIFT = 0x10
+_VK_CONTROL = 0x11
+_VK_MENU = 0x12      # VK_MENU covers both LAlt (0xA4) and RAlt (0xA5)
+_VK_LWIN = 0x5B
+_VK_RWIN = 0x5C
+_VK_CAPITAL = 0x14   # Caps Lock — also in _VK_MAP["caps_lock"]
+_VK_RMENU = 0xA5     # Right Alt / AltGr
+_KEYEVENTF_KEYUP = 0x0002
+
 # Common virtual-key code mappings for function keys and printable keys.
 #
 # PLAT-VKMAP: VK codes are mapped from US keyboard layout. Non-US keyboards
@@ -447,7 +460,7 @@ def parse_hotkey_to_vk(hotkey_str: str) -> Optional[int]:
     return parsed[0]
 
 
-def parse_hotkey_to_win32(hotkey_str: str) -> Optional[tuple[int, int]]:
+def parse_hotkey_to_win32(hotkey_str: str) -> Optional[tuple[Optional[int], int]]:
     """Convert a hotkey string to ``(virtual_key, RegisterHotKey modifiers)``.
 
     NEW-CQ-022: previously this returned the LAST non-modifier key found
@@ -458,6 +471,14 @@ def parse_hotkey_to_win32(hotkey_str: str) -> Optional[tuple[int, int]]:
     This matches user expectation: ``<f2>`` is the hotkey, ``ctrl`` is
     the modifier; writing ``f2+ctrl`` vs ``ctrl+f2`` should produce the
     same result.
+
+    FIX-HOTKEY-ARCHITECTURE: for modifier-only specs (e.g. ``<alt>``,
+    ``<ctrl>+<shift>``) where no main key is present, this now returns
+    ``(None, modifiers)`` instead of ``None``. Callers can detect the
+    modifier-only case by checking ``vk is None and modifiers != 0``.
+    ``parse_hotkey_to_vk`` still returns ``None`` for these specs (it
+    returns ``parsed[0]`` which is ``None``), preserving the existing
+    contract for callers that only care about the VK code.
     """
     _init_vk_map()
     modifiers = 0
@@ -496,6 +517,14 @@ def parse_hotkey_to_win32(hotkey_str: str) -> Optional[tuple[int, int]]:
             )
 
     if key_name is None:
+        # FIX-HOTKEY-ARCHITECTURE: modifier-only spec (e.g. <alt>,
+        # <ctrl>+<shift>). Return (None, modifiers) so callers can
+        # detect the modifier-only case and use a polling loop that
+        # detects modifier press/release without requiring a main key.
+        # If there are also no modifiers, the spec is genuinely invalid
+        # (e.g. empty string, "<>"), so return None.
+        if modifiers:
+            return (None, modifiers)
         return None
 
     vk = _VK_MAP.get(key_name)
@@ -525,6 +554,20 @@ class WindowsNativeHotkey(HotkeyBackend):
     Uses GetAsyncKeyState polling in a daemon thread for reliable
     hotkey detection.  RegisterHotKey is still called so that other
     applications cannot register the same hotkey.
+
+    FIX-HOTKEY-ARCHITECTURE:
+    - Modifier-only hotkeys (``<alt>``, ``<ctrl>``, ``<shift>``,
+      ``<win>``) are now supported via a dedicated polling loop that
+      detects modifier press/release WITHOUT requiring a non-modifier
+      main key. Previously these specs were rejected at start() time
+      with ``ValueError("Cannot parse...")``.
+    - When the hotkey is Caps Lock (``<caps_lock>``), the polling loop
+      suppresses the OS-level caps-state toggle by sending a synthetic
+      Caps Lock keypress via ``keybd_event`` immediately after the
+      physical press is detected. This mirrors the suppression the
+      native ``windows-key-listener.exe`` binary performs via its
+      ``WH_KEYBOARD_LL`` hook (see ``should_suppress_keydown`` in
+      ``native/windows-key-listener.c``).
     """
 
     def __init__(self, hotkey_str: str):
@@ -540,6 +583,15 @@ class WindowsNativeHotkey(HotkeyBackend):
         self._vk: Optional[int] = None
         self._modifiers = 0
         self._using_polling = False  # True if falling back to GetAsyncKeyState
+        # FIX-HOTKEY-ARCHITECTURE: True when the hotkey is a modifier-only
+        # spec (e.g. ``<alt>``). The polling loop uses a different code
+        # path for these — see ``_run_modifier_only_polling_loop``.
+        self._is_modifier_only: bool = False
+        # FIX-HOTKEY-ARCHITECTURE: brief flag set while we're sending a
+        # synthetic Caps Lock keypress to undo the OS-level toggle.
+        # The polling loop skips processing while this is set so the
+        # synthetic events don't re-trigger the callback.
+        self._caps_lock_suppressing: bool = False
 
     def start(self, callback: Callable[[], None]) -> None:
         import ctypes
@@ -551,6 +603,17 @@ class WindowsNativeHotkey(HotkeyBackend):
                 f"Cannot parse hotkey {self.hotkey_str!r} to a VK code"
             )
         self._vk, self._modifiers = parsed
+
+        # FIX-HOTKEY-ARCHITECTURE: detect modifier-only specs (e.g.
+        # ``<alt>``). For these, ``vk`` is None but ``modifiers`` is
+        # non-zero. RegisterHotKey can't be used (no main VK to
+        # register), so we skip it and rely on the polling loop's
+        # modifier-only detection path.
+        self._is_modifier_only = (self._vk is None and self._modifiers != 0)
+        if self._vk is None and not self._is_modifier_only:
+            raise ValueError(
+                f"Cannot parse hotkey {self.hotkey_str!r} to a VK code"
+            )
 
         self._user32 = ctypes.windll.user32  # type: ignore[attr-defined]
         self._kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
@@ -590,31 +653,45 @@ class WindowsNativeHotkey(HotkeyBackend):
         def run():
             """Hotkey thread: registers hotkey, runs polling loop."""
             try:
-                # Register the hotkey.  Pass NULL (0) as hWnd.
-                # RegisterHotKey(NULL, ...) binds the hotkey to the calling
-                # thread so WM_HOTKEY is posted to the thread message queue.
-                # pyrefly: ignore [missing-attribute]
-                result = self._user32.RegisterHotKey(
-                    0, self._hotkey_id, _MOD_NOREPEAT | self._modifiers, self._vk
-                )
-                if not result:
-                    # pyrefly: ignore [missing-attribute]
-                    err = self._kernel32.GetLastError()
-                    self._last_error = err
-                    log.warning(
-                        "RegisterHotKey failed for VK=0x%X, GetLastError=%d (0x%X) "
-                        "— polling fallback still works",
-                        self._vk,
-                        err, err,
+                # FIX-HOTKEY-ARCHITECTURE: skip RegisterHotKey for
+                # modifier-only hotkeys (``<alt>``, ``<ctrl>``, etc.).
+                # RegisterHotKey requires a main VK code and won't
+                # accept a bare modifier — calling it with vk=0 fails
+                # with ERROR_INVALID_PARAMETER (87). The polling loop's
+                # modifier-only detection path handles these specs
+                # directly via GetAsyncKeyState on the modifier VK.
+                if self._is_modifier_only:
+                    log.info(
+                        "[HOTKEY] Modifier-only hotkey (mods=0x%X) — skipping "
+                        "RegisterHotKey, using polling-only detection",
+                        self._modifiers,
                     )
                 else:
-                    self._registered = True
-                    log.info(
-                        "[HOTKEY] RegisterHotKey succeeded: hotkey=%s vk=0x%X id=%d",
-                        self.hotkey_str,
-                        self._vk,
-                        self._hotkey_id,
+                    # Register the hotkey.  Pass NULL (0) as hWnd.
+                    # RegisterHotKey(NULL, ...) binds the hotkey to the calling
+                    # thread so WM_HOTKEY is posted to the thread message queue.
+                    # pyrefly: ignore [missing-attribute]
+                    result = self._user32.RegisterHotKey(
+                        0, self._hotkey_id, _MOD_NOREPEAT | self._modifiers, self._vk
                     )
+                    if not result:
+                        # pyrefly: ignore [missing-attribute]
+                        err = self._kernel32.GetLastError()
+                        self._last_error = err
+                        log.warning(
+                            "RegisterHotKey failed for VK=0x%X, GetLastError=%d (0x%X) "
+                            "— polling fallback still works",
+                            self._vk,
+                            err, err,
+                        )
+                    else:
+                        self._registered = True
+                        log.info(
+                            "[HOTKEY] RegisterHotKey succeeded: hotkey=%s vk=0x%X id=%d",
+                            self.hotkey_str,
+                            self._vk,
+                            self._hotkey_id,
+                        )
 
                 self._success = True
                 self._ready_event.set()
@@ -649,6 +726,21 @@ class WindowsNativeHotkey(HotkeyBackend):
         # Set Sleep argtypes
         self._kernel32.Sleep.argtypes = [DWORD]
         self._kernel32.Sleep.restype = None
+
+        # FIX-HOTKEY-ARCHITECTURE: set argtypes for keybd_event and
+        # GetKeyState, used by _suppress_caps_lock_toggle() to undo the
+        # OS-level caps-lock toggle when the hotkey is <caps_lock>.
+        # VOID keybd_event(BYTE bVk, BYTE bScan, DWORD dwFlags, ULONG_PTR dwExtraInfo)
+        # ULONG_PTR isn't exposed by ctypes.wintypes on non-Windows; use
+        # WPARAM (which is pointer-sized on both 32- and 64-bit Windows)
+        # as a portable stand-in.
+        self._user32.keybd_event.argtypes = [
+            ctypes.wintypes.BYTE, ctypes.wintypes.BYTE, DWORD, WPARAM,
+        ]
+        self._user32.keybd_event.restype = None
+        # SHORT GetKeyState(int nVirtKey) — returns toggle/pressed state
+        self._user32.GetKeyState.argtypes = [INT]
+        self._user32.GetKeyState.restype = ctypes.c_short
 
         # RACE-008: daemon=True is acceptable because: (1) the hotkey
         # thread only calls the user callback (no critical cleanup);
@@ -731,7 +823,22 @@ class WindowsNativeHotkey(HotkeyBackend):
         latency on hotkey detection. The new 1ms polling reduces this to
         ~1ms while still being CPU-efficient (the thread spends ~99.9% of
         its time sleeping in the kernel).
+
+        FIX-HOTKEY-ARCHITECTURE: dispatches to
+        ``_run_modifier_only_polling_loop`` for modifier-only hotkeys
+        (e.g. ``<alt>``) — those need a different detection logic that
+        fires on the modifier press itself, not on a subsequent
+        non-modifier keypress. Also suppresses the OS-level caps-lock
+        toggle when the hotkey is ``<caps_lock>`` (see
+        ``_suppress_caps_lock_toggle``).
         """
+        # FIX-HOTKEY-ARCHITECTURE: modifier-only hotkeys (e.g. <alt>)
+        # use a separate polling loop that fires on the modifier press
+        # itself, not on a subsequent non-modifier keypress.
+        if self._is_modifier_only:
+            self._run_modifier_only_polling_loop(callback)
+            return
+
         vk = self._vk
         was_pressed = False
         log.info("[HOTKEY] Polling loop started for VK=0x%X modifiers=0x%X", vk, self._modifiers)
@@ -749,6 +856,9 @@ class WindowsNativeHotkey(HotkeyBackend):
             _pump_messages = win32gui.PumpWaitingMessages
         except ImportError:
             pass
+        # FIX-HOTKEY-ARCHITECTURE: detect Caps Lock hotkeys so we can
+        # suppress the OS-level toggle. VK_CAPITAL = 0x14.
+        is_caps_lock_hotkey = (vk == _VK_CAPITAL)
         while not self._stop_event.is_set():
             # PLAT-020: suppress hotkey triggers during IME composition
             if self._is_ime_composing():
@@ -759,6 +869,20 @@ class WindowsNativeHotkey(HotkeyBackend):
                     except Exception:
                         pass
                 self._kernel32.Sleep(50)
+                continue
+
+            # FIX-HOTKEY-ARCHITECTURE: if we're sending a synthetic
+            # Caps Lock keypress to undo the OS toggle, skip processing
+            # so the synthetic events don't re-trigger the callback or
+            # prematurely fire on_release. The suppression flag is
+            # cleared by _suppress_caps_lock_toggle() itself.
+            if self._caps_lock_suppressing:
+                if _pump_messages is not None:
+                    try:
+                        _pump_messages()
+                    except Exception:
+                        pass
+                self._kernel32.Sleep(1)
                 continue
 
             # pyrefly: ignore [missing-attribute]
@@ -777,6 +901,15 @@ class WindowsNativeHotkey(HotkeyBackend):
                         "[HOTKEY] Callback raised in polling loop; "
                         "hotkey still armed for next press"
                     )
+                # FIX-HOTKEY-ARCHITECTURE: suppress the OS-level
+                # caps-lock toggle when the hotkey is <caps_lock>.
+                # The OS toggles caps state as part of processing the
+                # keyDown; we undo the toggle by sending a synthetic
+                # Caps Lock keypress via keybd_event. This mirrors the
+                # suppression the native windows-key-listener.exe
+                # binary performs via WH_KEYBOARD_LL.
+                if is_caps_lock_hotkey:
+                    self._suppress_caps_lock_toggle()
             # NEW-CQ-029: detect key-up transition for PTT mode.
             # Fire on_release when the key transitions from pressed
             # to not-pressed.
@@ -802,6 +935,200 @@ class WindowsNativeHotkey(HotkeyBackend):
             # while still yielding CPU to other threads.
             # pyrefly: ignore [missing-attribute]
             self._kernel32.Sleep(1)
+
+    def _run_modifier_only_polling_loop(self, callback):
+        """Polling loop for modifier-only hotkeys (e.g. ``<alt>``).
+
+        FIX-HOTKEY-ARCHITECTURE: detects press/release of a single
+        modifier key WITHOUT any other modifiers held. The previous
+        polling loop required a non-modifier "main key" to be pressed,
+        which made modifier-only hotkeys (like just Alt) non-functional
+        — selecting Alt in the dropdown did nothing because there was no
+        main key for GetAsyncKeyState to detect.
+
+        Detection logic:
+        1. Detect when ONLY the configured modifier is pressed (no other
+           modifiers held) → fire the press callback.
+        2. Detect when the modifier itself is released → fire the
+           on_release callback (used by push-to-talk mode).
+        3. If another modifier is pressed while our modifier is held,
+           do NOT fire on_release (the modifier itself hasn't been
+           released). The press callback also won't re-fire until the
+           modifier is released and pressed again.
+        """
+        # Map the configured _MOD_* flags to the VK codes we need to poll.
+        # VK_MENU (0x12) covers both LAlt (0xA4) and RAlt (0xA5).
+        # VK_CONTROL (0x11) covers both LCtrl (0xA2) and RCtrl (0xA3).
+        # VK_SHIFT (0x10) covers both LShift (0xA0) and RShift (0xA1).
+        # VK_LWIN (0x5B) and VK_RWIN (0x5C) must both be polled.
+        modifier_vks: list[int] = []
+        if self._modifiers & _MOD_ALT:
+            modifier_vks.append(_VK_MENU)
+        if self._modifiers & _MOD_CONTROL:
+            modifier_vks.append(_VK_CONTROL)
+        if self._modifiers & _MOD_SHIFT:
+            modifier_vks.append(_VK_SHIFT)
+        if self._modifiers & _MOD_WIN:
+            modifier_vks.append(_VK_LWIN)
+            modifier_vks.append(_VK_RWIN)
+
+        log.info(
+            "[HOTKEY] Modifier-only polling loop started (mods=0x%X, vks=%s)",
+            self._modifiers, [f"0x{v:02X}" for v in modifier_vks],
+        )
+
+        # was_held: True if the configured modifier is currently held
+        #           (any iteration since the last release).
+        # callback_fired: True if we've already fired the press callback
+        #                 for the current press cycle. Prevents
+        #                 re-firing if other modifiers are pressed and
+        #                 released while our modifier stays held.
+        was_held = False
+        callback_fired = False
+
+        while not self._stop_event.is_set():
+            # PLAT-020: suppress hotkey triggers during IME composition
+            if self._is_ime_composing():
+                was_held = False
+                callback_fired = False
+                self._kernel32.Sleep(50)
+                continue
+
+            is_held = any(self._key_pressed(vk) for vk in modifier_vks)
+            other_held = self._other_modifiers_pressed()
+
+            # Transition: not held → held (start of a new press cycle)
+            if is_held and not was_held:
+                was_held = True
+                callback_fired = False
+
+            # Fire the press callback ONLY when our modifier is held
+            # AND no other modifiers are held AND we haven't already
+            # fired for this cycle.
+            if is_held and not other_held and not callback_fired:
+                log.info(
+                    "[HOTKEY FIRED] Modifier-only press detected (mods=0x%X)",
+                    self._modifiers,
+                )
+                try:
+                    callback()
+                except Exception:
+                    log.exception(
+                        "[HOTKEY] Callback raised in modifier-only polling loop; "
+                        "hotkey still armed for next press"
+                    )
+                callback_fired = True
+
+            # Transition: held → not held (modifier itself released)
+            # Fire on_release here regardless of whether other modifiers
+            # are currently held — the user has let go of the hotkey.
+            if not is_held and was_held:
+                if self._on_release_callback is not None:
+                    log.info(
+                        "[HOTKEY] Modifier released (PTT on_release, mods=0x%X)",
+                        self._modifiers,
+                    )
+                    try:
+                        self._on_release_callback()
+                    except Exception:
+                        log.exception(
+                            "[HOTKEY] on_release raised in modifier-only polling loop"
+                        )
+                was_held = False
+                callback_fired = False
+
+            # PERF-012: 1ms sleep gives near-instant hotkey response
+            # while still yielding CPU to other threads.
+            # pyrefly: ignore [missing-attribute]
+            self._kernel32.Sleep(1)
+
+    def _other_modifiers_pressed(self) -> bool:
+        """Return True if any modifier OTHER than the configured one is held.
+
+        FIX-HOTKEY-ARCHITECTURE: used by the modifier-only polling loop
+        to ensure the user is pressing ONLY the configured modifier (e.g.
+        just Alt, not Alt+Ctrl). If another modifier is held, the press
+        callback is suppressed — the user's intent is probably a
+        multi-key combo, not the bare modifier.
+        """
+        if not self._user32:
+            return False
+        # Iterate over all modifier VKs, skipping any that correspond to
+        # the configured modifier. _MOD_WIN maps to two VKs (LWin+RWin);
+        # both are skipped when Win is the configured modifier.
+        all_mods = [
+            (_VK_CONTROL, _MOD_CONTROL),
+            (_VK_SHIFT, _MOD_SHIFT),
+            (_VK_MENU, _MOD_ALT),
+            (_VK_LWIN, _MOD_WIN),
+            (_VK_RWIN, _MOD_WIN),
+        ]
+        for vk, mod_flag in all_mods:
+            if mod_flag & self._modifiers:
+                continue  # This VK belongs to the configured modifier
+            if self._key_pressed(vk):
+                return True
+        # Also detect AltGr (Right Alt + Ctrl simulated by Windows).
+        # If AltGr is pressed and our configured modifier is NOT Alt,
+        # treat it as "another modifier held" — it's a real key press
+        # that the user likely didn't intend as the hotkey.
+        if not (self._modifiers & _MOD_ALT) and self._is_altgr_pressed():
+            return True
+        return False
+
+    def _suppress_caps_lock_toggle(self) -> None:
+        """Undo the OS-level caps-lock toggle when the hotkey is Caps Lock.
+
+        FIX-HOTKEY-ARCHITECTURE: Windows toggles the caps-lock state as
+        part of processing the VK_CAPITAL keyDown, before the foreground
+        app sees it. The native ``windows-key-listener.exe`` binary
+        suppresses this via its ``WH_KEYBOARD_LL`` hook (see
+        ``should_suppress_keydown`` in
+        ``voice_typer/server/native/windows-key-listener.c``). The
+        legacy polling backend can't install a low-level hook from
+        Python without significant complexity, so we use a different
+        approach: read the current toggle state via ``GetKeyState`` and,
+        if the key is now toggled ON, send a synthetic Caps Lock
+        keypress via ``keybd_event`` to toggle it back OFF.
+
+        The ``_caps_lock_suppressing`` flag is set while the synthetic
+        keypress is in flight so the polling loop skips processing —
+        otherwise the synthetic events would re-trigger the callback
+        or prematurely fire on_release.
+        """
+        if not self._user32 or not self._kernel32:
+            return
+        try:
+            self._caps_lock_suppressing = True
+            try:
+                # GetKeyState returns a short where bit 0 (0x1) is the
+                # toggle state. If 1, Caps Lock was just toggled ON by
+                # the physical press — undo it with a synthetic press.
+                # pyrefly: ignore [missing-attribute]
+                toggle_state = self._user32.GetKeyState(_VK_CAPITAL) & 0x1
+                if toggle_state:
+                    # Synthetic keydown + keyup toggles the state back.
+                    # pyrefly: ignore [missing-attribute]
+                    self._user32.keybd_event(_VK_CAPITAL, 0x45, 0, 0)
+                    self._user32.keybd_event(
+                        _VK_CAPITAL, 0x45, _KEYEVENTF_KEYUP, 0
+                    )
+                    log.debug(
+                        "[HOTKEY] Suppressed Caps Lock toggle (toggled back off)"
+                    )
+            finally:
+                # Brief sleep to let the OS process the synthetic events
+                # before clearing the flag. Without this, the next
+                # iteration of the polling loop might see the synthetic
+                # keyup and prematurely fire on_release. 5ms is enough
+                # for the OS to dispatch the events but short enough
+                # that the user doesn't notice a delay.
+                # pyrefly: ignore [missing-attribute]
+                self._kernel32.Sleep(5)
+                self._caps_lock_suppressing = False
+        except Exception:
+            log.exception("[HOTKEY] Failed to suppress Caps Lock toggle")
+            self._caps_lock_suppressing = False
 
     def _modifiers_pressed(self) -> bool:
         # PLAT-ALTGR: Detect AltGr (Right Alt + Ctrl simulated by Windows).
@@ -877,10 +1204,17 @@ class WindowsNativeHotkey(HotkeyBackend):
         if self._thread is None:
             return "WindowsNativeHotkey: no thread started"
         mode = "polling" if self._using_polling else "message-loop"
+        # FIX-HOTKEY-ARCHITECTURE: handle modifier-only hotkeys where
+        # ``self._vk`` is None (e.g. <alt>, <ctrl>). The previous format
+        # string would crash with ``TypeError`` on ``None:X``.
+        if self._vk is not None:
+            vk_str = f"0x{self._vk:X} ({self._vk})"
+        else:
+            vk_str = "(modifier-only, no main VK)"
         return (
             "WindowsNativeHotkey\n"
             f"Hotkey: {self.hotkey_str}\n"
-            f"VK: 0x{self._vk:X} ({self._vk})\n"
+            f"VK: {vk_str}\n"
             f"Modifiers: 0x{self._modifiers:X}\n"
             f"Mode: {mode}\n"
             f"Thread name: {self._thread.name}\n"
@@ -916,6 +1250,19 @@ def create_hotkey_backend(hotkey_str: str) -> HotkeyBackend:
     - Key suppression (so the trigger key doesn't reach the foreground
       app) on macOS and Windows
     - Lower CPU usage and lower latency than polling
+
+    FIX-HOTKEY-ARCHITECTURE: when the native binary is NOT built (e.g.
+    running from a source checkout without invoking
+    ``scripts/build/compile_native.{sh,ps1}``, or on a platform where
+    the binary isn't bundled), the factory falls back to the legacy
+    backends. On Windows this means ``WindowsNativeHotkey`` uses
+    ``GetAsyncKeyState`` polling at 1kHz. This is expected behavior —
+    NOT a bug. The polling backend now also supports modifier-only
+    hotkeys (``<alt>``, ``<ctrl>``, ``<shift>``, ``<win>``) via
+    ``_run_modifier_only_polling_loop``, and suppresses the Caps Lock
+    toggle for ``<caps_lock>`` via ``_suppress_caps_lock_toggle``.
+    Users who want the full feature set (lower CPU, sub-ms latency,
+    native key suppression) should build the native binary.
     """
     # NATIVE-001: try the native subprocess backend first. It supports
     # FN on macOS, modifier-only hotkeys everywhere, and key suppression
@@ -937,7 +1284,13 @@ def create_hotkey_backend(hotkey_str: str) -> HotkeyBackend:
         )
 
     if is_windows():
-        log.info("[HOTKEY] Platform is win32 -> using WindowsNativeHotkey (legacy)")
+        # FIX-HOTKEY-ARCHITECTURE: this is the polling fallback. It's
+        # expected when the native windows-key-listener.exe binary isn't
+        # built. See the class docstring for the feature differences.
+        log.info(
+            "[HOTKEY] Platform is win32 -> using WindowsNativeHotkey (legacy "
+            "polling, native binary not built or unavailable)"
+        )
         return WindowsNativeHotkey(hotkey_str)
 
     # #4 PLAT-WAYLAND: detect Wayland and use Unix socket fallback

@@ -363,9 +363,27 @@ class TestWindowsNativeHotkey:
     def test_start_raises_for_invalid_vk(self):
         from voice_typer.server.hotkeys import WindowsNativeHotkey
 
-        backend = WindowsNativeHotkey("<ctrl>")
+        # FIX-HOTKEY-ARCHITECTURE: <ctrl> is now a valid modifier-only
+        # hotkey, so use a genuinely unparseable spec to exercise the
+        # ValueError path.
+        backend = WindowsNativeHotkey("<not_a_real_key>")
         with pytest.raises(ValueError, match="Cannot parse"):
             backend.start(MagicMock())
+
+    def test_modifier_only_hotkey_no_longer_raises_value_error(self):
+        """FIX-HOTKEY-ARCHITECTURE: <alt>, <ctrl>, <shift>, <win> are
+        now valid modifier-only hotkeys — they no longer raise
+        ValueError at parse time. We can't call start() here without a
+        full Win32 mock (see test_hotkeys_win32.py for that), but we
+        can verify parse_hotkey_to_win32 now accepts these specs.
+        """
+        from voice_typer.server.hotkeys import parse_hotkey_to_win32
+
+        # Was previously None — now returns (None, modifiers).
+        assert parse_hotkey_to_win32("<alt>") == (None, 0x0001)
+        assert parse_hotkey_to_win32("<ctrl>") == (None, 0x0002)
+        assert parse_hotkey_to_win32("<shift>") == (None, 0x0004)
+        assert parse_hotkey_to_win32("<win>") == (None, 0x0008)
 
     def test_is_alive_before_start(self):
         from voice_typer.server.hotkeys import WindowsNativeHotkey

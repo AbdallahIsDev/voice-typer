@@ -478,15 +478,22 @@ class TestBinaryDiscovery:
 
 
 class TestConfigDefaults:
-    """Verify platform-aware default hotkey."""
+    """Verify platform-aware default hotkey.
 
-    def test_default_is_fn_on_macos(self, monkeypatch):
+    FIX-HOTKEY-ARCHITECTURE: the default is now ``<caps_lock>`` on ALL
+    platforms (including macOS). Previously macOS defaulted to ``<fn>``
+    and unknown platforms to ``<f2>``; both are no longer used as
+    defaults because Caps Lock is universally present and the Fn key
+    is firmware-only on Windows/Linux laptops.
+    """
+
+    def test_default_is_caps_lock_on_macos(self, monkeypatch):
         monkeypatch.setattr(sys, "platform", "darwin")
         from voice_typer.server import config
         monkeypatch.setattr(config, "is_macos", lambda: True)
         monkeypatch.setattr(config, "is_windows", lambda: False)
         monkeypatch.setattr(config, "is_linux", lambda: False)
-        assert config._default_hotkey_for_platform() == "<fn>"
+        assert config._default_hotkey_for_platform() == "<caps_lock>"
 
     def test_default_is_caps_lock_on_windows(self, monkeypatch):
         from voice_typer.server import config
@@ -502,9 +509,9 @@ class TestConfigDefaults:
         monkeypatch.setattr(config, "is_linux", lambda: True)
         assert config._default_hotkey_for_platform() == "<caps_lock>"
 
-    def test_default_is_f2_on_unknown_platform(self, monkeypatch):
+    def test_default_is_caps_lock_on_unknown_platform(self, monkeypatch):
         from voice_typer.server import config
         monkeypatch.setattr(config, "is_macos", lambda: False)
         monkeypatch.setattr(config, "is_windows", lambda: False)
         monkeypatch.setattr(config, "is_linux", lambda: False)
-        assert config._default_hotkey_for_platform() == "<f2>"
+        assert config._default_hotkey_for_platform() == "<caps_lock>"

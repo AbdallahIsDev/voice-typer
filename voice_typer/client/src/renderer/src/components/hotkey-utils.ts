@@ -123,7 +123,11 @@ export const MODIFIER_CODE_TO_PYNPUT: Record<string, string> = {
  * - Win/Cmd (every keyboard; modifier-only release detection)
  * - Fn (macOS only — firmware-only on Windows/Linux)
  *
- * F1–F12 are still available via the custom capture button for users
+ * FIX-HOTKEY-ARCHITECTURE: F1–F12 entries were removed from the
+ * dropdown entirely. They're not universally present on laptop
+ * keyboards (which require an Fn+F-key combo) and the native hotkey
+ * architecture treats Caps Lock as the recommended default. Function
+ * keys are still available via the custom capture button for users
  * who have a keyboard with dedicated function keys.
  */
 export const SINGLE_KEY_PRESETS: { value: string; label: string }[] = [
@@ -135,12 +139,6 @@ export const SINGLE_KEY_PRESETS: { value: string; label: string }[] = [
 	...(IS_MAC ? [{ value: "fn", label: "Fn / Globe 🌐 (macOS only)" }] : []),
 	...(IS_WIN ? [{ value: "win", label: "Win" }] : []),
 	...(IS_MAC ? [{ value: "cmd", label: "Cmd" }] : []),
-	// Function keys — kept as options but marked as "may require Fn on laptops"
-	{ value: "f2", label: "F2 (may require Fn on laptops)" },
-	{ value: "f4", label: "F4" },
-	{ value: "f6", label: "F6" },
-	{ value: "f8", label: "F8" },
-	{ value: "f10", label: "F10" },
 ];
 
 /**

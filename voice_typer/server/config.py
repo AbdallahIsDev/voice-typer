@@ -19,21 +19,27 @@ ALLOWED_USER_MODELS = {"tiny.en", "small.en", "medium.en", "qwen", "parakeet"}
 def _default_hotkey_for_platform() -> str:
     """NATIVE-001: Return the platform-appropriate default hotkey.
 
-    - macOS: ``<fn>`` — the Fn/Globe key, observable via
-      ``NSEvent.modifierFlags.function`` once Accessibility is granted.
-      Falls back to ``<f2>`` if running under a non-GUI session.
-    - Windows: ``<caps_lock>`` — universally present, isolated, requires
-      OS-level remap (PowerToys or registry Scancode Map) to neutralize
-      the caps-toggling side effect.
-    - Linux: ``<caps_lock>`` — same rationale; neutralize via
-      ``setxkbmap -option caps:none``.
-    - Other platforms: ``<f2>`` (legacy default).
+    FIX-HOTKEY-ARCHITECTURE: Caps Lock is now the default on ALL
+    platforms (including macOS). It is universally present, isolated
+    (rarely used in shortcuts), and easy to remap. The previous
+    platform-specific defaults (``<fn>`` on macOS, ``<f2>`` on unknown
+    platforms) caused inconsistency and the Fn key is firmware-only on
+    most Windows/Linux laptops, making it a poor cross-platform default.
+
+    Platform notes:
+    - Windows: the native binary (``windows-key-listener.exe``)
+      suppresses the caps-lock toggle via ``WH_KEYBOARD_LL``. The
+      legacy ``WindowsNativeHotkey`` polling backend also suppresses
+      the toggle programmatically via ``keybd_event``.
+    - Linux: neutralize the toggle via
+      ``setxkbmap -option caps:none`` (documented in onboarding).
+    - macOS: Caps Lock works once Accessibility is granted. The Fn /
+      Globe key remains available as an alternative in the dropdown.
+    - Other platforms: ``<caps_lock>`` (legacy ``<f2>`` is no longer
+      used as a default — the function keys are not universally
+      present on laptop keyboards without an Fn combo).
     """
-    if is_macos():
-        return "<fn>"
-    if is_windows() or is_linux():
-        return "<caps_lock>"
-    return "<f2>"
+    return "<caps_lock>"
 
 
 def _secure_atomic_write(path: Path, content: str) -> None:
@@ -430,13 +436,11 @@ class Config:
     last_load_warnings: list = None  # type: ignore[assignment]
 
     # Hotkey
-    # NATIVE-001: platform-aware default hotkey.
-    # - macOS: <fn> (Fn/Globe key, observable via NSEvent.modifierFlags.function)
-    # - Windows/Linux: <caps_lock> (universally present, isolated, requires
-    #   OS-level remap to neutralize caps-toggling — see docs)
-    # The old default <f2> is preserved as a fallback when the new default
-    # is unsupported (e.g. macOS without Accessibility permission would
-    # still fall back to <f2> via the legacy pynput backend).
+    # NATIVE-001 / FIX-HOTKEY-ARCHITECTURE: default hotkey is now
+    # ``<caps_lock>`` on ALL platforms (was previously <fn> on macOS
+    # and <f2> on unknown platforms). Caps Lock is universally present,
+    # isolated, and easy to remap. See ``_default_hotkey_for_platform``
+    # for platform-specific suppression notes.
     hotkey: str = _default_hotkey_for_platform()
 
     # Recording

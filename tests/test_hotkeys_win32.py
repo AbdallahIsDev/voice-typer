@@ -231,3 +231,137 @@ class TestMockVerification:
         backend.stop()
 
         mock_user32.UnregisterHotKey.assert_called()
+
+
+# ─── FIX-HOTKEY-ARCHITECTURE: modifier-only hotkeys ─────────────────────────
+
+
+class TestModifierOnlyHotkeys:
+    """FIX-HOTKEY-ARCHITECTURE: <alt>, <ctrl>, <shift>, <win> alone
+    (no main key) should be accepted by the polling backend and use
+    ``_run_modifier_only_polling_loop`` instead of raising ValueError.
+    """
+
+    def test_alt_only_hotkey_starts_without_error(self, mock_win32):
+        """<alt> no longer raises ValueError at start() time."""
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
+
+        backend = WindowsNativeHotkey("<alt>")
+        try:
+            backend.start(MagicMock())
+            assert backend._is_modifier_only is True
+            assert backend._vk is None
+            assert backend._modifiers & 0x0001  # _MOD_ALT
+            assert backend._using_polling is True
+        finally:
+            backend.stop()
+
+    def test_modifier_only_hotkey_skips_register_hotkey(self, mock_win32):
+        """RegisterHotKey must NOT be called for modifier-only hotkeys
+        (it would fail with ERROR_INVALID_PARAMETER since there's no
+        main VK to register)."""
+        mock_user32, _ = mock_win32
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
+
+        backend = WindowsNativeHotkey("<ctrl>")
+        try:
+            backend.start(MagicMock())
+            mock_user32.RegisterHotKey.assert_not_called()
+            assert backend._registered is False
+        finally:
+            backend.stop()
+
+    def test_modifier_only_hotkey_diagnose_does_not_crash(self, mock_win32):
+        """diagnose() must not crash on modifier-only hotkeys where
+        ``self._vk`` is None (previously the f-string ``0x{None:X}``
+        would raise TypeError)."""
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
+
+        backend = WindowsNativeHotkey("<shift>")
+        try:
+            backend.start(MagicMock())
+            info = backend.diagnose()
+            assert "modifier-only" in info.lower()
+            assert "<shift>" in info
+        finally:
+            backend.stop()
+
+    def test_modifier_only_polling_loop_detects_press(self, mock_win32):
+        """When the configured modifier is pressed (and no other
+        modifiers are held), the press callback must fire exactly once."""
+        mock_user32, _ = mock_win32
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
+
+        backend = WindowsNativeHotkey("<alt>")
+        # Default mock returns 0 for GetAsyncKeyState — set up so VK_MENU
+        # (0x12, Alt) is reported as pressed.
+        def fake_get_async_key_state(vk):
+            return 0x8000 if vk == 0x12 else 0
+        mock_user32.GetAsyncKeyState.side_effect = fake_get_async_key_state
+
+        callback = MagicMock()
+        try:
+            backend.start(callback)
+            # The polling loop fires within a few ms.
+            import time as _time
+            _time.sleep(0.05)
+            assert callback.call_count >= 1
+        finally:
+            backend.stop()
+
+    def test_modifier_only_polling_loop_suppresses_when_other_held(
+        self, mock_win32,
+    ):
+        """If another modifier is held alongside the configured one,
+        the press callback must NOT fire (user intent is a combo)."""
+        mock_user32, _ = mock_win32
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
+
+        backend = WindowsNativeHotkey("<alt>")
+        # Both Alt (0x12) and Ctrl (0x11) reported as pressed.
+        def fake_get_async_key_state(vk):
+            return 0x8000 if vk in (0x11, 0x12) else 0
+        mock_user32.GetAsyncKeyState.side_effect = fake_get_async_key_state
+
+        callback = MagicMock()
+        try:
+            backend.start(callback)
+            import time as _time
+            _time.sleep(0.05)
+            callback.assert_not_called()
+        finally:
+            backend.stop()
+
+
+# ─── FIX-HOTKEY-ARCHITECTURE: Caps Lock toggle suppression ─────────────────
+
+
+class TestCapsLockSuppression:
+    """FIX-HOTKEY-ARCHITECTURE: when the hotkey is <caps_lock>, the
+    polling backend should suppress the OS-level caps-state toggle by
+    sending a synthetic Caps Lock keypress via keybd_event.
+    """
+
+    def test_caps_lock_hotkey_calls_keybd_event_on_press(self, mock_win32):
+        """When Caps Lock (VK=0x14) is pressed, _suppress_caps_lock_toggle
+        should call keybd_event to undo the OS-level toggle."""
+        mock_user32, _ = mock_win32
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
+
+        backend = WindowsNativeHotkey("<caps_lock>")
+        # Caps Lock reported as pressed; GetKeyState returns 1 (toggled on).
+        def fake_get_async_key_state(vk):
+            return 0x8000 if vk == 0x14 else 0
+        mock_user32.GetAsyncKeyState.side_effect = fake_get_async_key_state
+        mock_user32.GetKeyState.return_value = 1  # toggle bit set
+
+        callback = MagicMock()
+        try:
+            backend.start(callback)
+            import time as _time
+            _time.sleep(0.05)
+            # keybd_event should have been called for the synthetic
+            # keydown + keyup (2 calls per suppression cycle).
+            assert mock_user32.keybd_event.call_count >= 2
+        finally:
+            backend.stop()
