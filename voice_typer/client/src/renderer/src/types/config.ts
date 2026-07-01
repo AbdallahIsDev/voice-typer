@@ -146,17 +146,45 @@ export interface VoiceTyperConfig {
 	volume_duck_smart: boolean;
 	volume_duck_smart_poll_interval_ms: number;
 
-	// Audio enhancement preset
-	audio_preset: "none" | "recommended" | "noisy_room" | "studio" | "custom";
+	// ADR 0007: Audio enhancement preset
+	audio_preset:
+		| "auto"
+		| "studio"
+		| "noisy_room"
+		| "off"
+		| "custom"
+		| "none"
+		| "recommended";
 
-	// Noise filtering
-	noise_filter_enabled: boolean;
+	// ADR 0007: Noise filtering (filter chain)
+	noise_filter_enabled: boolean; // DEPRECATED
 	noise_filter_highpass: boolean;
 	noise_filter_highpass_cutoff_hz: number;
 	noise_filter_gate: boolean;
-	noise_filter_gate_threshold: number;
-	noise_filter_rnnoise: boolean;
-	noise_filter_post_capture: boolean;
+	noise_filter_gate_threshold: number; // DEPRECATED
+	noise_filter_gate_hold_ms: number;
+	noise_filter_gate_open_threshold_db: number;
+	noise_filter_gate_close_threshold_db: number;
+	noise_filter_gate_attack_ms: number;
+	noise_filter_gate_release_ms: number;
+	noise_filter_rnnoise: boolean; // DEPRECATED
+	noise_filter_post_capture: boolean; // DEPRECATED
+	noise_suppression_method: "rnnoise" | "deepfilternet" | "speex" | "none";
+	noise_filter_eq: boolean;
+	noise_filter_eq_low_db: number;
+	noise_filter_eq_mid_db: number;
+	noise_filter_eq_high_db: number;
+	noise_filter_compressor: boolean;
+	noise_filter_compressor_threshold_db: number;
+	noise_filter_compressor_ratio: number;
+	noise_filter_compressor_attack_ms: number;
+	noise_filter_compressor_release_ms: number;
+	noise_filter_compressor_output_gain_db: number;
+	noise_filter_limiter: boolean;
+	noise_filter_limiter_ceiling_db: number;
+	noise_filter_limiter_release_ms: number;
+	noise_filter_notch: boolean;
+	noise_filter_notch_frequency_hz: number;
 
 	// NEW-PRIV-005/006/009: privacy consent flags.  All default to
 	// false in the Python Config dataclass; the renderer must show a
