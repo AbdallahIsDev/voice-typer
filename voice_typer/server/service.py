@@ -16,52 +16,32 @@ log = logging.getLogger(__name__)
 
 
 def _apply_audio_preset(preset: str) -> dict:
-    """Map an audio enhancement preset name to individual filter settings.
+    """ADR 0007: Map an audio preset name to individual filter settings.
 
-    Presets:
-        "none"        — all filters OFF
-        "recommended" — noise filter on + RNNoise
-        "noisy_room"  — noise filter + RNNoise + noise gate + highpass
-        "studio"      — highpass only
+    Delegates to :mod:`voice_typer.server.audio_presets` (single source
+    of truth). Presets:
+        "auto"        — all filters ON, RNNoise (best for 90% of users)
+        "studio"      — minimal processing (quiet room, good mic)
+        "noisy_room"  — aggressive, DeepFilterNet
+        "off"         — all filters OFF
         "custom"      — no automatic changes (user controls each toggle)
+
+    Legacy preset names "recommended" and "none" are accepted for
+    backward compat (mapped to "auto" and "off" respectively).
 
     Returns:
         dict of noise_filter_* settings to apply.
     """
-    presets = {
-        "none": {
-            "noise_filter_enabled": False,
-            "noise_filter_highpass": False,
-            "noise_filter_gate": False,
-            "noise_filter_rnnoise": False,
-            "noise_filter_post_capture": False,
-        },
-        "recommended": {
-            "noise_filter_enabled": True,
-            "noise_filter_highpass": False,
-            "noise_filter_gate": False,
-            "noise_filter_rnnoise": True,
-            "noise_filter_post_capture": False,
-        },
-        "noisy_room": {
-            "noise_filter_enabled": True,
-            "noise_filter_highpass": True,
-            "noise_filter_gate": True,
-            "noise_filter_rnnoise": True,
-            "noise_filter_post_capture": False,
-        },
-        "studio": {
-            "noise_filter_enabled": True,
-            "noise_filter_highpass": True,
-            "noise_filter_gate": False,
-            "noise_filter_rnnoise": False,
-            "noise_filter_post_capture": False,
-        },
-        "custom": {
-            # No automatic changes — user controls each toggle manually
-        },
-    }
-    return presets.get(preset, presets["recommended"])
+    from voice_typer.server.audio_presets import (
+        get_preset_filters,
+        PRESET_AUTO,
+        PRESET_OFF,
+    )
+
+    # Map legacy preset names
+    legacy_map = {"recommended": PRESET_AUTO, "none": PRESET_OFF}
+    normalized = legacy_map.get(preset, preset)
+    return get_preset_filters(normalized)
 
 
 class VoiceTyperService:
@@ -898,14 +878,46 @@ class VoiceTyperService:
             except Exception as e:
                 log.warning("Failed to apply audio preset: %s", e)
 
-        # Sync the live level bar's audio processor when any noise filter
-        # setting changes, so the level bar reflects filters immediately.
-        noise_filter_keys = {
+        # ADR 0007 §6.1: Rebuild the dictation AudioProcessor's filter
+        # chain when any noise_filter_* / audio_preset / noise_suppression_method
+        # config field changes. This fixes the bug where Settings UI
+        # changes didn't take effect in dictation until app restart.
+        # All filter-chain-related config keys (old + new per ADR 0007 §5).
+        filter_chain_keys = {
+            # Preset
+            "audio_preset",
+            # Individual filter toggles
             "noise_filter_enabled", "noise_filter_highpass",
             "noise_filter_gate", "noise_filter_rnnoise",
             "noise_filter_post_capture",
+            "noise_filter_eq", "noise_filter_compressor",
+            "noise_filter_limiter", "noise_filter_notch",
+            # Noise suppressor backend
+            "noise_suppression_method",
+            # Filter parameters
+            "noise_filter_highpass_cutoff_hz",
+            "noise_filter_gate_hold_ms",
+            "noise_filter_gate_open_threshold_db",
+            "noise_filter_gate_close_threshold_db",
+            "noise_filter_gate_attack_ms",
+            "noise_filter_gate_release_ms",
+            "noise_filter_eq_low_db", "noise_filter_eq_mid_db", "noise_filter_eq_high_db",
+            "noise_filter_compressor_threshold_db", "noise_filter_compressor_ratio",
+            "noise_filter_compressor_attack_ms", "noise_filter_compressor_release_ms",
+            "noise_filter_compressor_output_gain_db",
+            "noise_filter_limiter_ceiling_db", "noise_filter_limiter_release_ms",
+            "noise_filter_notch_frequency_hz",
         }
-        if noise_filter_keys & set(updates.keys()):
+        if filter_chain_keys & set(updates.keys()):
+            # ADR 0007: rebuild the dictation processor (the main fix).
+            try:
+                if hasattr(app, "_rebuild_audio_processor"):
+                    app._rebuild_audio_processor()
+            except Exception as e:
+                log.warning("Failed to rebuild dictation audio processor: %s", e)
+
+            # Also sync the live level bar + mic test processors so
+            # they reflect the new filters immediately.
             try:
                 from voice_typer.server.level_monitor import (
                     update_level_processor,
@@ -915,13 +927,10 @@ class VoiceTyperService:
                     "noise_filter_enabled": getattr(config, "noise_filter_enabled", True),
                     "noise_filter_highpass": getattr(config, "noise_filter_highpass", True),
                     "noise_filter_gate": getattr(config, "noise_filter_gate", True),
-                    "noise_filter_rnnoise": getattr(config, "noise_filter_rnnoise", False),
+                    "noise_filter_rnnoise": getattr(config, "noise_filter_rnnoise", True),
                     "noise_filter_post_capture": getattr(config, "noise_filter_post_capture", True),
                 }
                 update_level_processor(filters_dict)
-                # Also update the active test recording's filters in
-                # real-time so the captured audio reflects the latest
-                # settings instead of only the ones at test start.
                 update_test_filters(filters_dict)
             except Exception as e:
                 log.warning("Failed to sync level bar processor: %s", e)

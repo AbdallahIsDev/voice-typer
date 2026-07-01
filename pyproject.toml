@@ -93,6 +93,11 @@ dependencies = [
     # explicit dep here so a fresh ``pip install voice-typer`` on
     # macOS gets a working tray out of the box.
     "pyobjc-framework-Cocoa>=9.0; sys_platform == 'darwin'",
+    # ADR 0007: RNNoise is now a default dependency (was optional).
+    # BSD-licensed, ~2MB, <1ms per frame. Required for the NoiseSuppressor
+    # filter in the audio filter chain.
+    # Excluded on macOS ARM64 (no prebuilt wheel — see deepfilternet extra).
+    "rnnoise-webrtc>=1.0; platform_machine != 'arm64' or sys_platform != 'darwin'",
 ]
 
 [project.urls]
@@ -146,11 +151,11 @@ macos = ["pyobjc-core>=9.0", "pyobjc-framework-CoreAudio>=9.0"]
 # qwen_engine.py — the module can be imported without this package,
 # but the QwenEngine.load() will raise ImportError if not installed.
 qwen = ["qwen-asr>=0.1"]
-# Noise filtering (optional — high-pass + gate use scipy which is already a dep)
-noise-filter = [
-    "noisereduce>=3.0",
-    # rnnoise-webrtc provides prebuilt wheels for win/mac/linux
-    "rnnoise-webrtc>=1.0; platform_machine != 'arm64' or sys_platform != 'darwin'",
+# ADR 0007: Noise filtering — RNNoise is now a default dep (above).
+# noisereduce is removed (post-capture denoise deleted per ADR 0007 §3.8).
+# DeepFilterNet is offered as a premium alternative to RNNoise (requires torch).
+deepfilternet = [
+    "deepfilternet>=0.5",
 ]
 # BUILD-N14/dev: dev tooling for local contributors.
 dev = [
@@ -255,7 +260,10 @@ module = [
     "accelerate",
     "qwen_asr.*",
     "rnnoise",
-    "noisereduce",
+    # ADR 0007: noisereduce removed (post-capture denoise deleted).
+    # DeepFilterNet is optional (deepfilternet extra).
+    "df",
+    "df.enhance",
     "pycaw.*",
     "comtypes.*",
     "CoreAudio.*",

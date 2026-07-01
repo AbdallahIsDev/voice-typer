@@ -6,7 +6,7 @@ import os
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple
 from urllib.parse import urlparse
 from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
 
@@ -379,11 +379,43 @@ def _migrate_from_legacy():
     log.info("[CONFIG] Migrated data from %s to %s", legacy, target)
 
 
-_CURRENT_SCHEMA_VERSION = 1
+_CURRENT_SCHEMA_VERSION = 2
 
-# NEW-DEAD-018: _MIGRATIONS is currently empty. Infrastructure kept
-# for future schema version migrations.
-_MIGRATIONS = {}
+# NEW-DEAD-018: _MIGRATIONS infrastructure for schema version migrations.
+# ADR 0007: v2 migrates old audio preset names and deprecated fields.
+_MIGRATIONS: dict[int, Any] = {}
+
+
+def _migrate_to_v2(data: dict) -> dict:
+    """Migrate config from schema v1 to v2 (ADR 0007 — filter chain).
+
+    Changes:
+    - Rename audio_preset "recommended" → "auto", "none" → "off"
+    - If noise_filter_enabled was False, set audio_preset="off"
+    - If noise_filter_rnnoise was True and no method set, set method="rnnoise"
+    - Old noise_filter_gate_threshold (linear) is left in place; the new
+      gate uses open/close dB thresholds with OBS-style defaults.
+    - normalize_audio / normalize_target_peak left in place (ignored at runtime).
+    """
+    # Rename old preset names
+    preset = data.get("audio_preset", "auto")
+    if preset == "recommended":
+        data["audio_preset"] = "auto"
+    elif preset == "none":
+        data["audio_preset"] = "off"
+
+    # If noise_filter_enabled was False, switch to "off" preset
+    if data.get("noise_filter_enabled") is False and "audio_preset" not in data:
+        data["audio_preset"] = "off"
+
+    # If RNNoise was explicitly enabled, ensure method is set
+    if data.get("noise_filter_rnnoise") is True and "noise_suppression_method" not in data:
+        data["noise_suppression_method"] = "rnnoise"
+
+    return data
+
+
+_MIGRATIONS[2] = _migrate_to_v2
 
 
 @dataclass
@@ -608,14 +640,15 @@ class Config:
 
     # AUDIO-014: configurable VAD/silence thresholds (overridden by
     # auto-calibration at recording start). 0.0 = use built-in defaults.
-    silence_rms_threshold: float = 0.0
-    silence_peak_threshold: float = 0.0
+    # NOTE: these are kept for backward compat but are no longer read
+    # by the recording callback (dead code per ADR 0007 §4.3).
+    silence_rms_threshold: float = 0.0  # DEPRECATED — dead code
+    silence_peak_threshold: float = 0.0  # DEPRECATED — dead code
 
     # AUDIO-013: VAD configuration for the recording callback.
-    # When use_silero_vad is True, the recording callback uses Silero
-    # VAD probability instead of RMS thresholds for the state machine.
+    # ADR 0007 §4.1: use_silero_vad defaults to True (torch is installed).
     # Falls back to RMS if Silero is unavailable.
-    use_silero_vad: bool = False  # opt-in — adds ~1ms latency per chunk
+    use_silero_vad: bool = True  # ADR 0007: was False, now True (torch available)
     vad_speech_threshold: float = 0.5   # Silero VAD prob > this → speech candidate
     vad_silence_threshold: float = 0.3  # Silero VAD prob < this → silence candidate
 
@@ -630,10 +663,11 @@ class Config:
     # when the user presses the hotkey, reducing cold-start latency.
     pre_roll_buffer_seconds: float = 0.0
 
-    # AUDIO-AGC: peak normalization after noise gating. When enabled,
-    # audio is scaled so the peak amplitude reaches the target level.
-    normalize_audio: bool = True
-    normalize_target_peak: float = 0.7  # target peak amplitude after normalization
+    # ADR 0007 §5.2: normalize_audio and normalize_target_peak REMOVED.
+    # Replaced by the Compressor filter in the audio filter chain.
+    # Fields kept for backward compat (migration ignores them).
+    normalize_audio: bool = True  # DEPRECATED — replaced by Compressor
+    normalize_target_peak: float = 0.7  # DEPRECATED — replaced by Compressor
 
     # ─── Volume ducking (v1.1.0) ────────────────────────────────────
     # Reduces system volume during dictation to prevent speaker output
@@ -664,26 +698,68 @@ class Config:
     # Not exposed in the UI. Power users can override in config.json.
     volume_duck_smart_poll_interval_ms: int = 500
 
-    # ─── Audio enhancement preset (UX redesign) ─────────────────────
-    # Preset name that maps to a combination of noise filter toggles:
-    #   "none"        — all filters OFF
-    #   "recommended" — noise_filter_enabled + rnnoise
-    #   "noisy_room"  — noise_filter_enabled + rnnoise + noise_gate + highpass
-    #   "studio"      — highpass only
-    #   "custom"      — user manually controls each toggle
-    audio_preset: str = "recommended"
+    # ─── Audio enhancement preset (ADR 0007) ─────────────────────────
+    # Preset name that controls the entire filter chain:
+    #   "auto"        — all filters ON, RNNoise (best for 90% of users)
+    #   "studio"      — minimal processing (quiet room, good mic)
+    #   "noisy_room"  — aggressive, DeepFilterNet
+    #   "off"         — all filters OFF
+    #   "custom"      — user controls each filter individually
+    # The preset is applied at startup (Config.load) and on explicit
+    # set_config. See voice_typer/server/audio_presets.py for the
+    # single source of truth.
+    audio_preset: str = "auto"
 
-    # ─── Noise filtering (v1.1.0) ───────────────────────────────────
-    # Cleans the microphone signal: removes fan noise, keyboard clicks,
-    # HVAC rumble, and residual speaker bleed.
-    noise_filter_enabled: bool = True
+    # ─── Noise filtering (ADR 0007 — filter chain) ───────────────────
+    # Each filter has an enable flag + parameters. The filter chain
+    # (voice_typer/server/audio_filters/) is built from these fields
+    # by audio_chain_builder.build_chain(). Chain order:
+    #   HighPass → NoiseSuppressor → NoiseGate → Equalizer → Compressor → Limiter
+    #
+    # Legacy fields (noise_filter_enabled, noise_filter_rnnoise,
+    # noise_filter_post_capture, noise_filter_gate_threshold) are kept
+    # for backward compat but migrated/ignored per ADR 0007 §5.
+    noise_filter_enabled: bool = True  # DEPRECATED — use audio_preset != "off"
     noise_filter_highpass: bool = True
     noise_filter_highpass_cutoff_hz: float = 80.0  # 20–500
     noise_filter_gate: bool = True
-    noise_filter_gate_threshold: float = 0.003  # 0.0–0.1, ~-50dBFS (lowered from 0.015)
-    noise_filter_gate_hold_ms: float = 150.0  # 0–1000 ms, keep gate open across syllable gaps
-    noise_filter_rnnoise: bool = False  # opt-in (CPU cost), neural denoise
-    noise_filter_post_capture: bool = True  # noisereduce on stop()
+    noise_filter_gate_threshold: float = 0.003  # DEPRECATED — use open/close thresholds
+    noise_filter_gate_hold_ms: float = 200.0  # ADR 0007: was 150, now 200 (matches OBS)
+    noise_filter_rnnoise: bool = True  # ADR 0007: was False, now True (RNNoise is default dep)
+    noise_filter_post_capture: bool = True  # DEPRECATED — post-capture removed per ADR 0007
+
+    # ADR 0007 §5.1: New filter chain fields
+    # Noise suppressor backend selection
+    noise_suppression_method: str = "rnnoise"  # "rnnoise" | "deepfilternet" | "speex" | "none"
+
+    # NoiseGate (OBS-style, replaces single threshold)
+    noise_filter_gate_open_threshold_db: float = -26.0
+    noise_filter_gate_close_threshold_db: float = -32.0
+    noise_filter_gate_attack_ms: float = 25.0
+    noise_filter_gate_release_ms: float = 150.0
+
+    # Equalizer (3-band)
+    noise_filter_eq: bool = True
+    noise_filter_eq_low_db: float = -3.0
+    noise_filter_eq_mid_db: float = 3.0
+    noise_filter_eq_high_db: float = 2.0
+
+    # Compressor (replaces normalize_audio + _agc_update)
+    noise_filter_compressor: bool = True
+    noise_filter_compressor_threshold_db: float = -18.0
+    noise_filter_compressor_ratio: float = 3.0
+    noise_filter_compressor_attack_ms: float = 6.0
+    noise_filter_compressor_release_ms: float = 60.0
+    noise_filter_compressor_output_gain_db: float = 0.0
+
+    # Limiter (brick-wall)
+    noise_filter_limiter: bool = True
+    noise_filter_limiter_ceiling_db: float = -6.0
+    noise_filter_limiter_release_ms: float = 60.0
+
+    # Notch filter (50/60Hz hum) — optional, default OFF
+    noise_filter_notch: bool = False
+    noise_filter_notch_frequency_hz: float = 0.0  # 0 = auto-detect (60Hz Americas default)
 
     # ─── Telemetry (PROD-001) ──────────────────────────────────────
     # Opt-in crash reporting. When True, crash reports are written
@@ -891,6 +967,9 @@ class Config:
             "noise_filter_enabled", "noise_filter_highpass",
             "noise_filter_gate", "noise_filter_rnnoise",
             "noise_filter_post_capture",
+            # ADR 0007: new filter chain bool fields
+            "noise_filter_eq", "noise_filter_compressor",
+            "noise_filter_limiter", "noise_filter_notch",
         }
         str_fields = {
             "hotkey", "language", "device", "asr_backend",
@@ -903,6 +982,7 @@ class Config:
             "parakeet_model_path",
             "bubble_position", "bubble_behavior",
             "audio_preset",
+            "noise_suppression_method",
             "theme_mode", "theme_preset",
         }
         defaults = cls()
@@ -1301,18 +1381,42 @@ IPC_CONFIG_ALLOWLIST: dict = {
     "volume_duck_smart":            (bool, _bool_validator),
     "volume_duck_smart_poll_interval_ms": (int, _make_int_validator(lo=50, hi=5000)),
 
-    # ── Audio enhancement preset ──────────────────────────────────────
-    "audio_preset":                    (str, _make_enum_validator({"none", "recommended", "noisy_room", "studio", "custom"})),
+    # ── Audio enhancement preset (ADR 0007) ───────────────────────────
+    "audio_preset": (str, _make_enum_validator({
+        "auto", "studio", "noisy_room", "off", "custom", "none", "recommended",
+    })),
 
-    # ── Noise filtering (v1.1.0) ──────────────────────────────────────
-    "noise_filter_enabled":             (bool, _bool_validator),
+    # ── Noise filtering (ADR 0007 — filter chain) ────────────────────
+    "noise_filter_enabled":             (bool, _bool_validator),  # DEPRECATED
     "noise_filter_highpass":            (bool, _bool_validator),
     "noise_filter_highpass_cutoff_hz":  (float, _make_float_validator(lo=20.0, hi=500.0)),
     "noise_filter_gate":                (bool, _bool_validator),
-    "noise_filter_gate_threshold":      (float, _make_float_validator(lo=0.0, hi=0.1)),
+    "noise_filter_gate_threshold":      (float, _make_float_validator(lo=0.0, hi=0.1)),  # DEPRECATED
     "noise_filter_gate_hold_ms":        (float, _make_float_validator(lo=0.0, hi=1000.0)),
-    "noise_filter_rnnoise":             (bool, _bool_validator),
-    "noise_filter_post_capture":        (bool, _bool_validator),
+    "noise_filter_rnnoise":             (bool, _bool_validator),  # DEPRECATED
+    "noise_filter_post_capture":        (bool, _bool_validator),  # DEPRECATED
+
+    # ADR 0007 §5.1: New filter chain fields
+    "noise_suppression_method":         (str, _make_enum_validator({"rnnoise", "deepfilternet", "speex", "none"})),
+    "noise_filter_gate_open_threshold_db":  (float, _make_float_validator(lo=-96.0, hi=0.0)),
+    "noise_filter_gate_close_threshold_db": (float, _make_float_validator(lo=-96.0, hi=0.0)),
+    "noise_filter_gate_attack_ms":      (float, _make_float_validator(lo=0.0, hi=10000.0)),
+    "noise_filter_gate_release_ms":     (float, _make_float_validator(lo=0.0, hi=10000.0)),
+    "noise_filter_eq":                  (bool, _bool_validator),
+    "noise_filter_eq_low_db":           (float, _make_float_validator(lo=-20.0, hi=20.0)),
+    "noise_filter_eq_mid_db":           (float, _make_float_validator(lo=-20.0, hi=20.0)),
+    "noise_filter_eq_high_db":          (float, _make_float_validator(lo=-20.0, hi=20.0)),
+    "noise_filter_compressor":          (bool, _bool_validator),
+    "noise_filter_compressor_threshold_db":  (float, _make_float_validator(lo=-60.0, hi=0.0)),
+    "noise_filter_compressor_ratio":    (float, _make_float_validator(lo=1.0, hi=32.0)),
+    "noise_filter_compressor_attack_ms":  (float, _make_float_validator(lo=1.0, hi=500.0)),
+    "noise_filter_compressor_release_ms": (float, _make_float_validator(lo=1.0, hi=1000.0)),
+    "noise_filter_compressor_output_gain_db": (float, _make_float_validator(lo=-32.0, hi=32.0)),
+    "noise_filter_limiter":             (bool, _bool_validator),
+    "noise_filter_limiter_ceiling_db":  (float, _make_float_validator(lo=-60.0, hi=0.0)),
+    "noise_filter_limiter_release_ms":  (float, _make_float_validator(lo=1.0, hi=1000.0)),
+    "noise_filter_notch":               (bool, _bool_validator),
+    "noise_filter_notch_frequency_hz":  (float, _make_float_validator(lo=0.0, hi=500.0)),
 }
 
 

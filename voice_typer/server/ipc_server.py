@@ -1027,6 +1027,37 @@ class IPCServer:
                 resp["type"] = "error"
                 resp["data"] = {"message": str(e)}
 
+        elif cmd == "get_audio_status":
+            # ADR 0007: returns the current audio filter chain status
+            # (filter names, degraded flags, VAD backend, sample rate).
+            try:
+                app = self.service._app
+                processor = getattr(app, "_audio_processor", None)
+                if processor is not None:
+                    resp["type"] = "audio_status"
+                    resp["data"] = {
+                        "filter_chain": processor.filter_names,
+                        "degraded": processor.is_degraded,
+                        "degraded_reasons": processor.degraded_reasons,
+                        "latency_ms": processor.total_latency_ms,
+                        "vad_backend": "silero" if getattr(app.config, "use_silero_vad", True) else "rms",
+                        "sample_rate": getattr(app.config, "sample_rate", 16000),
+                    }
+                else:
+                    resp["type"] = "audio_status"
+                    resp["data"] = {
+                        "filter_chain": [],
+                        "degraded": False,
+                        "degraded_reasons": [],
+                        "latency_ms": 0.0,
+                        "vad_backend": "rms",
+                        "sample_rate": 16000,
+                    }
+            except Exception as e:
+                log.error("[IPC] get_audio_status failed: %s", e, exc_info=True)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+
         elif cmd == "get_model_status":
             # Item 10/11: check which models are actually on disk.
             # Returns a dict mapping model name → {downloaded: bool, deps_ok: bool}.

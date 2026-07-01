@@ -17,7 +17,7 @@ from typing import Optional
 import numpy as np
 
 from voice_typer.server import task_scheduler
-from voice_typer.server.audio_processor import AudioProcessor, AudioProcessorConfig
+from voice_typer.server.audio_processor import AudioProcessor
 from voice_typer.server.audio_quality import AudioQualityAnalyzer
 from voice_typer.server.clipboard import ClipboardManager
 from voice_typer.server.config import Config, _config_dir, _migrate_from_legacy
@@ -173,12 +173,11 @@ class VoiceTyperApp:
             self.config.microphone or "default", self.config.sample_rate,
         )
 
-        # Audio processor: real-time noise filtering (high-pass, gate,
-        # optional RNNoise) + post-capture spectral gating.  Constructed
-        # from the noise_filter_* config fields.  If disabled or if
-        # filter libraries are missing, the processor is a passthrough.
+        # ADR 0007: Audio processor wraps a FilterChain built from config.
+        # Rebuilt on every config change via _rebuild_audio_processor()
+        # so Settings UI changes take effect immediately in dictation.
         self._audio_processor = AudioProcessor(
-            AudioProcessorConfig.from_config(self.config),
+            self.config,
             sample_rate=self.config.sample_rate,
         )
 
@@ -1298,6 +1297,24 @@ class VoiceTyperApp:
         except Exception:
             # Quality analysis must NEVER break the audio callback.
             log.debug("[AUDIO_QUALITY] per-chunk update failed", exc_info=True)
+
+    def _rebuild_audio_processor(self) -> None:
+        """ADR 0007 §6.1: Rebuild the audio filter chain from current config.
+
+        Called by ``service.apply_config_side_effects`` when any
+        ``noise_filter_*`` or ``audio_preset`` or
+        ``noise_suppression_method`` config field changes. Atomically
+        swaps the filter chain so the next ``process_chunk()`` call
+        uses the new filters — no restart required.
+        """
+        try:
+            self._audio_processor.rebuild_from_config(self.config)
+            log.info(
+                "[APP] Audio processor rebuilt: %s",
+                self._audio_processor.filter_names,
+            )
+        except Exception:
+            log.exception("[APP] Failed to rebuild audio processor")
 
     def _finalize_audio_quality_report(self, audio: np.ndarray) -> None:
         """Run final audio-quality analysis and surface warnings.

@@ -40,11 +40,10 @@ _DEFAULT_VAD_SILENCE_FRAMES = 15  # consecutive quiet frames to declare SILENCE 
 _DEFAULT_VAD_HANGOVER_FRAMES = 15  # same as _VAD_SILENCE_FRAMES — configurable alias
 
 
-# AUDIO-AGC: default AGC parameters
-_AGC_TARGET_RMS = 0.05       # target RMS level for AGC
-_AGC_ATTACK_ALPHA = 0.01     # slow-moving gain adjustment (~1s time constant)
-_AGC_MIN_GAIN = 0.5         # minimum gain multiplier
-_AGC_MAX_GAIN = 4.0         # maximum gain multiplier
+# ADR 0007 §3.5: AGC constants deleted. The _agc_update method (C1) was
+# removed and replaced by the Compressor filter in the audio filter chain.
+# The constants _AGC_TARGET_RMS, _AGC_ATTACK_ALPHA, _AGC_MIN_GAIN,
+# _AGC_MAX_GAIN are no longer needed.
 
 
 # AUDIO-PRE (revised): The dead ``_PREROLL_SECONDS = 1.0`` constant
@@ -269,10 +268,8 @@ class Recorder:
         self._vad_calibration_rms_values: list[float] = []
         self._vad_calibrated: bool = False
 
-        # AUDIO-AGC: simple automatic gain control
-        self._agc_gain: float = 1.0
-        self._agc_rms_accumulator: float = 0.0
-        self._agc_frame_count: int = 0
+        # ADR 0007 §3.5: AGC instance variables deleted (replaced by
+        # Compressor filter in the audio filter chain).
 
         # AUDIO-PRE: pre-roll circular buffer (captures audio before
         # recording officially starts to reduce cold-start latency).
@@ -657,38 +654,10 @@ class Recorder:
 
         return self._vad_state
 
-    # ── AUDIO-AGC: simple automatic gain control ────────────────────────
-
-    def _agc_update(self, chunk_rms: float, audio: np.ndarray) -> np.ndarray:
-        """Apply simple AGC: adjust gain slowly if RMS is consistently too low/high.
-
-        AUDIO-AGC: Uses a slow-moving gain multiplier that adjusts over ~1 second.
-        Does NOT use fast compression that would distort speech. The gain adapts
-        gradually — if RMS is below target, gain increases; if above, gain decreases.
-        """
-        if chunk_rms <= 0:
-            return audio
-
-        self._agc_rms_accumulator += chunk_rms
-        self._agc_frame_count += 1
-
-        # Update gain every ~16 frames (~1 second at 16 Hz callback rate)
-        if self._agc_frame_count >= 16:
-            avg_rms = self._agc_rms_accumulator / self._agc_frame_count
-            if avg_rms > 0:
-                ratio = _AGC_TARGET_RMS / avg_rms
-                # Slowly adjust gain towards target
-                target_gain = self._agc_gain * ratio
-                # Clamp to safe range
-                target_gain = max(_AGC_MIN_GAIN, min(_AGC_MAX_GAIN, target_gain))
-                self._agc_gain += (target_gain - self._agc_gain) * _AGC_ATTACK_ALPHA
-            self._agc_rms_accumulator = 0.0
-            self._agc_frame_count = 0
-
-        # Apply gain
-        if abs(self._agc_gain - 1.0) > 0.01:
-            return audio * self._agc_gain
-        return audio
+    # ── ADR 0007 §3.5: _agc_update method deleted ─────────────────────
+    # The old per-chunk AGC (C1) has been removed. It duplicated the
+    # Compressor filter in the new audio filter chain. The Compressor
+    # now handles dynamic range compression with proper attack/release.
 
     def warm_up_resampler(self) -> None:
         """Import and initialize the high-quality resampler before recording stops."""
@@ -944,10 +913,7 @@ class Recorder:
         # AUDIO-014: reset auto-calibration
         self._vad_calibration_rms_values = []
         self._vad_calibrated = False
-        # AUDIO-AGC: reset gain
-        self._agc_gain = 1.0
-        self._agc_rms_accumulator = 0.0
-        self._agc_frame_count = 0
+        # ADR 0007 §3.5: AGC reset deleted (method removed).
         # AUDIO-PRE: clear pre-roll buffer
         # SEC-audit-008: Zero the preroll buffer contents before clearing
         for chunk in self._preroll_buffer:
@@ -1243,19 +1209,11 @@ class Recorder:
                 chunk_rms = 0.0
             chunk_duration = len(filtered) / self._effective_sr
 
-            # AUDIO-AGC: apply automatic gain control BEFORE storing
-            # _last_rms so the value exposed to UI/IPC matches the
-            # value VAD uses internally. Pre-fix, _last_rms stored the
-            # pre-AGC RMS while VAD consumed the post-AGC recomputed
-            # value, causing the UI level meter to disagree with the
-            # VAD speech/silence decision.
-            # AUDIO-RMS: store _last_rms in the callback so it's
-            # reachable from UI/IPC during recording.
-            filtered = self._agc_update(chunk_rms, filtered)
-            # Recompute RMS after AGC if gain was applied
-            if abs(self._agc_gain - 1.0) > 0.01 and filtered.size:
-                flat = filtered.reshape(-1)
-                chunk_rms = float(np.sqrt(np.dot(flat, flat) / flat.size))
+            # ADR 0007 §3.5: the old per-chunk AGC (_agc_update, C1)
+            # has been removed. It duplicated the Compressor filter in
+            # the new audio filter chain. The Compressor now handles
+            # dynamic range compression with proper attack/release.
+            # _last_rms stores the post-filter RMS for UI/IPC.
 
             with self._lock:
                 self._last_rms = chunk_rms
@@ -1751,10 +1709,12 @@ class Recorder:
         # safe to block).  Runs AFTER resampling so noisereduce
         # operates on the final 16 kHz audio.  ~200 ms for 30 s audio.
         post_capture_ms = 0.0
-        if self._audio_processor is not None and len(audio) > 0:
-            post_capture_started = time.perf_counter()
-            audio = self._audio_processor.process_full_audio(audio)
-            post_capture_ms = (time.perf_counter() - post_capture_started) * 1000
+        # ADR 0007 §3.8: post-capture noisereduce removed. The real-time
+        # NoiseSuppressor filter in the chain handles denoising. The
+        # old process_full_audio() call is removed because:
+        # 1. It only ran in stop(), so the streaming path missed it.
+        # 2. The "first 0.5s is silence" assumption was fragile.
+        # 3. noisereduce is no longer a dependency.
 
         total_ms = (time.perf_counter() - stop_started) * 1000
         log.info(
