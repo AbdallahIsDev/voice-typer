@@ -250,7 +250,12 @@ class Recorder:
         # AUDIO-013: Silero VAD integration — when use_silero_vad is
         # enabled in config, the recording callback uses Silero VAD
         # probability instead of RMS dB thresholds for the state machine.
-        self._use_silero_vad: bool = getattr(config, "use_silero_vad", False)
+        # impl-vad-fix: ADR 0007 §4.1 changed the config.py default to
+        # True. The getattr fallback here must match, otherwise removing
+        # the attribute from a Config dataclass instance (e.g. in tests
+        # or partial configs) silently disables VAD even though the
+        # documented default is True.
+        self._use_silero_vad: bool = getattr(config, "use_silero_vad", True)
         self._vad_speech_threshold: float = getattr(config, "vad_speech_threshold", 0.5)
         self._vad_silence_threshold: float = getattr(config, "vad_silence_threshold", 0.3)
         self._silero_available: bool = False
@@ -1005,7 +1010,7 @@ class Recorder:
             # zero-filled frames as the stream drains. We must NOT treat
             # those as device disconnects, because _handle_device_disconnect
             # would race with the deliberate stop() to close the stream.
-            if np.all(indata == 0) and self._chunk_count > 10:
+            if not indata.any() and self._chunk_count > 10:
                 # HOTKEY-CRASH: double-check that recording is still active.
                 # The early-return check at the top of this callback passed,
                 # but stop() may have cleared _recording_event between that
@@ -1149,7 +1154,9 @@ class Recorder:
             # risks deadlocks.
             with self._lock:
                 # Store FILTERED audio so the transcriber receives
-                # the cleaned signal.
+                # the cleaned signal. The .copy() is needed because
+                # the filter chain may return the same array (passthrough
+                # mode), and the buffer must own its data.
                 self._buffer.append(filtered.copy())
                 self._chunk_count += 1
                 chunk_count = self._chunk_count
@@ -1262,7 +1269,34 @@ class Recorder:
             if self._use_silero_vad and self._silero_available:
                 try:
                     from voice_typer.server.vad import compute_vad_prob
-                    vad_prob = compute_vad_prob(filtered, self._effective_sr)
+                    # impl-vad-fix: Silero VAD only accepts {8000, 16000} Hz.
+                    # The mic's native rate (self._effective_sr) may be 44100
+                    # or 48000, which previously raised:
+                    #   ValueError: Supported sampling rates: [8000, 16000]
+                    # Resample to 16000 using the same scipy resample_poly
+                    # path as _resample_audio_impl (gcd up/down pattern).
+                    if self._effective_sr not in (8000, 16000):
+                        try:
+                            resample_poly = _get_resample_poly()
+                            gcd = math.gcd(self._effective_sr, 16000)
+                            up = 16000 // gcd
+                            down = self._effective_sr // gcd
+                            vad_audio = resample_poly(
+                                filtered.ravel(), up, down
+                            ).astype(np.float32)
+                            vad_sr = 16000
+                        except Exception:
+                            # scipy unavailable or resample failed — fall
+                            # back to RMS rather than crashing the audio
+                            # callback. compute_vad_prob will likely still
+                            # raise on the unsupported rate, but it is
+                            # caught by the outer except below.
+                            vad_audio = filtered
+                            vad_sr = self._effective_sr
+                    else:
+                        vad_audio = filtered
+                        vad_sr = self._effective_sr
+                    vad_prob = compute_vad_prob(vad_audio, vad_sr)
                 except Exception:
                     vad_prob = None  # fall back to RMS
 

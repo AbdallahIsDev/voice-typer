@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from collections import deque
 from typing import Optional
 
 import numpy as np
@@ -48,9 +47,7 @@ class NoiseSuppressor(AudioFilter):
         self._degraded: bool = False
         self._degraded_reason: str = ""
 
-        # Frame buffering (like OBS noise-suppress-filter.c)
-        self._input_buffer: deque = deque()
-        self._output_buffer: deque = deque()
+        # Frame buffering: carry holds partial frames between process() calls.
         self._carry: np.ndarray = np.array([], dtype=np.float32)
 
         self._init_backend()
@@ -233,8 +230,6 @@ class NoiseSuppressor(AudioFilter):
 
     def reset(self) -> None:
         self._carry = np.array([], dtype=np.float32)
-        self._input_buffer.clear()
-        self._output_buffer.clear()
 
     @property
     def latency_ms(self) -> float:

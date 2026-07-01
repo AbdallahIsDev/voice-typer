@@ -1636,7 +1636,11 @@ export default function SettingsPage({
 						>
 							<Select
 								value={config.audio_preset ?? "auto"}
-								onValueChange={(v) => updateConfig({ audio_preset: v as VoiceTyperConfig["audio_preset"] })}
+								onValueChange={(v) =>
+									updateConfig({
+										audio_preset: v as VoiceTyperConfig["audio_preset"],
+									})
+								}
 							>
 								<SelectTrigger
 									className="w-48"
@@ -1698,9 +1702,12 @@ export default function SettingsPage({
 								>
 									<Select
 										value={config.noise_suppression_method ?? "rnnoise"}
-onValueChange={(v) =>
-    updateConfig({ noise_suppression_method: v as VoiceTyperConfig["noise_suppression_method"] })
-}
+										onValueChange={(v) =>
+											updateConfig({
+												noise_suppression_method:
+													v as VoiceTyperConfig["noise_suppression_method"],
+											})
+										}
 									>
 										<SelectTrigger
 											className="w-40"

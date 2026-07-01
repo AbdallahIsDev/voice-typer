@@ -9,7 +9,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	type AudioPreset,
 	AudioPresetSelector,
-	type NoiseFilterState,
 } from "@/components/AudioPresetSelector";
 import { LevelBar } from "@/components/LevelBar";
 import { LiveQualityFeedback } from "@/components/LiveQualityFeedback";
@@ -28,37 +27,96 @@ import type { MicrophoneDevice, VoiceTyperConfig } from "@/types/config";
 let _cachedMicrophones: MicrophoneDevice[] = [];
 let _cachedConfig: VoiceTyperConfig | null = null;
 
-const PRESET_TO_FILTERS: Record<AudioPreset, Partial<NoiseFilterState>> = {
-	none: {
-		noise_filter_enabled: false,
-		noise_filter_highpass: false,
-		noise_filter_gate: false,
-		noise_filter_rnnoise: false,
-		noise_filter_post_capture: false,
-	},
-	recommended: {
+// ADR 0007: Preset → filter mapping is owned by the backend
+// (voice_typer/server/audio_presets.py). The Microphone page just sends
+// the selected preset name to set_config; the backend applies the
+// individual filter toggles. No client-side PRESET_TO_FILTERS table.
+
+/**
+ * Build the noise-filter dict sent to microphone_test_start so the
+ * backend's level_monitor.stop_test_recording can run the captured
+ * audio through the same chain the user has configured.
+ */
+function buildTestFilters(
+	config: VoiceTyperConfig | null,
+): Record<string, unknown> {
+	if (!config || config.audio_preset === "off") {
+		return { noise_filter_enabled: false };
+	}
+	return {
 		noise_filter_enabled: true,
-		noise_filter_highpass: false,
-		noise_filter_gate: false,
-		noise_filter_rnnoise: true,
-		noise_filter_post_capture: false,
-	},
-	noisy_room: {
-		noise_filter_enabled: true,
-		noise_filter_highpass: true,
-		noise_filter_gate: true,
-		noise_filter_rnnoise: true,
-		noise_filter_post_capture: false,
-	},
-	studio: {
-		noise_filter_enabled: true,
-		noise_filter_highpass: true,
-		noise_filter_gate: false,
-		noise_filter_rnnoise: false,
-		noise_filter_post_capture: false,
-	},
-	custom: {},
-};
+		noise_filter_highpass: config.noise_filter_highpass ?? true,
+		noise_filter_highpass_cutoff_hz:
+			config.noise_filter_highpass_cutoff_hz ?? 80,
+		noise_suppression_method: config.noise_suppression_method ?? "rnnoise",
+		noise_filter_gate: config.noise_filter_gate ?? true,
+		noise_filter_gate_open_threshold_db:
+			config.noise_filter_gate_open_threshold_db ?? -26,
+		noise_filter_gate_close_threshold_db:
+			config.noise_filter_gate_close_threshold_db ?? -32,
+		noise_filter_gate_attack_ms: config.noise_filter_gate_attack_ms ?? 25,
+		noise_filter_gate_hold_ms: config.noise_filter_gate_hold_ms ?? 200,
+		noise_filter_gate_release_ms: config.noise_filter_gate_release_ms ?? 150,
+		noise_filter_eq: config.noise_filter_eq ?? true,
+		noise_filter_eq_low_db: config.noise_filter_eq_low_db ?? -3,
+		noise_filter_eq_mid_db: config.noise_filter_eq_mid_db ?? 3,
+		noise_filter_eq_high_db: config.noise_filter_eq_high_db ?? 2,
+		noise_filter_compressor: config.noise_filter_compressor ?? true,
+		noise_filter_compressor_threshold_db:
+			config.noise_filter_compressor_threshold_db ?? -18,
+		noise_filter_compressor_ratio: config.noise_filter_compressor_ratio ?? 3,
+		noise_filter_compressor_attack_ms:
+			config.noise_filter_compressor_attack_ms ?? 6,
+		noise_filter_compressor_release_ms:
+			config.noise_filter_compressor_release_ms ?? 60,
+		noise_filter_compressor_output_gain_db:
+			config.noise_filter_compressor_output_gain_db ?? 0,
+		noise_filter_limiter: config.noise_filter_limiter ?? true,
+		noise_filter_limiter_ceiling_db:
+			config.noise_filter_limiter_ceiling_db ?? -6,
+		noise_filter_limiter_release_ms:
+			config.noise_filter_limiter_release_ms ?? 60,
+		noise_filter_notch: config.noise_filter_notch ?? false,
+		noise_filter_notch_frequency_hz:
+			config.noise_filter_notch_frequency_hz ?? 0,
+	};
+}
+
+/**
+ * Compute a stable string key from the audio-related config fields so
+ * the page can detect "filters changed since last test" and prompt the
+ * user to re-run the test.
+ */
+function computeAudioKey(config: VoiceTyperConfig | null): string {
+	if (!config) return "";
+	return JSON.stringify({
+		preset: config.audio_preset,
+		hp: config.noise_filter_highpass,
+		hp_cut: config.noise_filter_highpass_cutoff_hz,
+		method: config.noise_suppression_method,
+		gate: config.noise_filter_gate,
+		gate_open: config.noise_filter_gate_open_threshold_db,
+		gate_close: config.noise_filter_gate_close_threshold_db,
+		gate_attack: config.noise_filter_gate_attack_ms,
+		gate_hold: config.noise_filter_gate_hold_ms,
+		gate_release: config.noise_filter_gate_release_ms,
+		eq: config.noise_filter_eq,
+		eq_low: config.noise_filter_eq_low_db,
+		eq_mid: config.noise_filter_eq_mid_db,
+		eq_high: config.noise_filter_eq_high_db,
+		comp: config.noise_filter_compressor,
+		comp_thr: config.noise_filter_compressor_threshold_db,
+		comp_ratio: config.noise_filter_compressor_ratio,
+		comp_attack: config.noise_filter_compressor_attack_ms,
+		comp_release: config.noise_filter_compressor_release_ms,
+		comp_out: config.noise_filter_compressor_output_gain_db,
+		lim: config.noise_filter_limiter,
+		lim_ceil: config.noise_filter_limiter_ceiling_db,
+		lim_rel: config.noise_filter_limiter_release_ms,
+		notch: config.noise_filter_notch,
+		notch_freq: config.noise_filter_notch_frequency_hz,
+	});
+}
 
 interface TestResultQuality {
 	volume_level: "good" | "low" | "very_low";
@@ -101,20 +159,9 @@ export default function MicrophonePage() {
 	const [peak, setPeak] = useState(0);
 	const [micMonitoring, setMicMonitoring] = useState(false);
 
-	// Preset + filter state
-	const [audioPreset, setAudioPreset] = useState<AudioPreset>(() => {
-		return (_cachedConfig?.audio_preset as AudioPreset) ?? "recommended";
-	});
-	const [filters, setFilters] = useState<NoiseFilterState>(() => {
-		const cfg = _cachedConfig;
-		return {
-			noise_filter_enabled: cfg?.noise_filter_enabled ?? true,
-			noise_filter_highpass: cfg?.noise_filter_highpass ?? true,
-			noise_filter_gate: cfg?.noise_filter_gate ?? true,
-			noise_filter_rnnoise: cfg?.noise_filter_rnnoise ?? false,
-			noise_filter_post_capture: cfg?.noise_filter_post_capture ?? true,
-		};
-	});
+	// ADR 0007: Audio preset + filter state lives in `config` directly.
+	// No local duplicate — the AudioPresetSelector reads from / writes
+	// to `config` via updateConfig().
 	const [showAdvanced, setShowAdvanced] = useState(false);
 
 	// Tracks whether filters have changed since last test (invalidation)
@@ -130,11 +177,18 @@ export default function MicrophonePage() {
 	const stopTestRef = useRef<() => Promise<void>>(async () => {});
 	const stoppingRef = useRef(false);
 
-	const computeFilterKey = useCallback(
-		(p: AudioPreset, f: NoiseFilterState): string => {
-			return `${p}|${JSON.stringify(f)}`;
+	/** Optimistic config update: writes through to backend + local cache. */
+	const updateConfig = useCallback(
+		(updates: Partial<VoiceTyperConfig>) => {
+			setConfig((prev) => {
+				if (!prev) return prev;
+				const next = { ...prev, ...updates };
+				_cachedConfig = next;
+				return next;
+			});
+			call("set_config", updates).catch(() => {});
 		},
-		[],
+		[call],
 	);
 
 	const loadData = useCallback(async () => {
@@ -148,15 +202,6 @@ export default function MicrophonePage() {
 			_cachedConfig = cfg;
 			setMicrophones(_cachedMicrophones);
 			setConfig(cfg);
-			const preset = (cfg?.audio_preset as AudioPreset) ?? "recommended";
-			setAudioPreset(preset);
-			setFilters({
-				noise_filter_enabled: cfg?.noise_filter_enabled ?? true,
-				noise_filter_highpass: cfg?.noise_filter_highpass ?? true,
-				noise_filter_gate: cfg?.noise_filter_gate ?? true,
-				noise_filter_rnnoise: cfg?.noise_filter_rnnoise ?? false,
-				noise_filter_post_capture: cfg?.noise_filter_post_capture ?? true,
-			});
 		} catch (err) {
 			console.error("Failed to load microphone data:", err);
 		} finally {
@@ -248,9 +293,8 @@ export default function MicrophonePage() {
 		.sort((a, b) => (a.default ? -1 : b.default ? 1 : 0));
 
 	const filtersChangedSinceTest =
-		filtersSinceLastTest &&
-		filtersSinceLastTest !== computeFilterKey(audioPreset, filters);
-	const hasFiltersEnabled = filters.noise_filter_enabled;
+		filtersSinceLastTest && filtersSinceLastTest !== computeAudioKey(config);
+	const hasFiltersEnabled = (config?.audio_preset ?? "auto") !== "off";
 
 	// ── Handlers ──────────────────────────────────────────────────
 
@@ -299,31 +343,21 @@ export default function MicrophonePage() {
 	};
 
 	const handlePresetChange = useCallback(
-		async (preset: AudioPreset) => {
-			setAudioPreset(preset);
-			const presetFilters = PRESET_TO_FILTERS[preset];
-			if (Object.keys(presetFilters).length > 0) {
-				setFilters((prev) => ({ ...prev, ...presetFilters }));
-			}
-			try {
-				await call("set_config", { audio_preset: preset });
-				// Also apply individual filter toggles for presets that set them
-				if (Object.keys(presetFilters).length > 0) {
-					await call("set_config", presetFilters);
-				}
-			} catch {
-				/* ignore */
-			}
+		(preset: AudioPreset) => {
+			// ADR 0007: just set audio_preset; the backend
+			// applies the preset → filter mapping from
+			// voice_typer/server/audio_presets.py (single
+			// source of truth).
+			updateConfig({ audio_preset: preset });
 		},
-		[call],
+		[updateConfig],
 	);
 
-	const handleFilterChange = useCallback(
-		(key: keyof NoiseFilterState, value: boolean) => {
-			setFilters((prev) => ({ ...prev, [key]: value }));
-			call("set_config", { [key]: value }).catch(() => {});
+	const handleConfigChange = useCallback(
+		(updates: Partial<VoiceTyperConfig>) => {
+			updateConfig(updates);
 		},
-		[call],
+		[updateConfig],
 	);
 
 	const startTest = async () => {
@@ -340,7 +374,7 @@ export default function MicrophonePage() {
 		const micId = config?.microphone ?? null;
 
 		// Record the current filter state for invalidation tracking
-		setFiltersSinceLastTest(computeFilterKey(audioPreset, filters));
+		setFiltersSinceLastTest(computeAudioKey(config));
 
 		try {
 			const result = await call<{
@@ -351,15 +385,7 @@ export default function MicrophonePage() {
 			}>("microphone_test_start", {
 				mic_id: micId,
 				duration: 10,
-				filters: filters.noise_filter_enabled
-					? {
-							noise_filter_enabled: true,
-							noise_filter_highpass: filters.noise_filter_highpass,
-							noise_filter_gate: filters.noise_filter_gate,
-							noise_filter_rnnoise: filters.noise_filter_rnnoise,
-							noise_filter_post_capture: filters.noise_filter_post_capture,
-						}
-					: { noise_filter_enabled: false },
+				filters: buildTestFilters(config),
 			});
 
 			if (!result?.success) {
@@ -654,14 +680,16 @@ export default function MicrophonePage() {
 
 					{/* Audio Enhancement / Preset selector */}
 					<div className="mt-3">
-						<AudioPresetSelector
-							preset={audioPreset}
-							filters={filters}
-							showAdvanced={showAdvanced}
-							onPresetChange={handlePresetChange}
-							onToggleAdvanced={() => setShowAdvanced((v) => !v)}
-							onFilterChange={handleFilterChange}
-						/>
+						{config && (
+							<AudioPresetSelector
+								preset={(config.audio_preset as AudioPreset) ?? "auto"}
+								config={config}
+								showAdvanced={showAdvanced}
+								onPresetChange={handlePresetChange}
+								onToggleAdvanced={() => setShowAdvanced((v) => !v)}
+								onConfigChange={handleConfigChange}
+							/>
+						)}
 					</div>
 				</div>
 

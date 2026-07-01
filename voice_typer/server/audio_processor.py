@@ -111,11 +111,16 @@ class AudioProcessor:
         return result if result is not None else chunk
 
     def _run_quality_check(self, chunk: np.ndarray) -> None:
-        """Compute lightweight quality metrics and fire the callback."""
+        """Compute lightweight quality metrics and fire the callback.
+
+        Uses allocation-free reductions: np.max/min for peak (no np.abs
+        allocation) and np.dot for RMS (no np.square allocation).
+        """
         if chunk.size == 0:
             return
-        peak = float(np.max(np.abs(chunk)))
-        rms = float(np.sqrt(np.mean(np.square(chunk, dtype=np.float64))))
+        flat = chunk.ravel()
+        peak = max(float(flat.max()), -float(flat.min()))
+        rms = float(np.sqrt(np.dot(flat, flat) / flat.size))
         try:
             if self._quality_callback is not None:
                 self._quality_callback(rms, peak)

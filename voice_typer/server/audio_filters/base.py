@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import threading
 from abc import ABC, abstractmethod
 from typing import Optional
 
@@ -103,7 +104,7 @@ class FilterChain:
 
     def __init__(self, filters: Optional[list[AudioFilter]] = None) -> None:
         self._filters: list[AudioFilter] = list(filters) if filters else []
-        self._lock = __import__("threading").Lock()
+        self._lock = threading.Lock()
 
     def process(self, audio: np.ndarray, sample_rate: int) -> Optional[np.ndarray]:
         """Run audio through all filters in order."""

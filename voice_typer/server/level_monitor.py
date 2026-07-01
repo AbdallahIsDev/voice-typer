@@ -25,6 +25,7 @@ import io
 import logging
 import threading
 import time
+import types
 
 from typing import Optional
 
@@ -114,27 +115,20 @@ def update_level_processor(config_dict: dict) -> None:
         return
 
     try:
-        from voice_typer.server.audio_processor import (
-            AudioProcessor,
-            AudioProcessorConfig,
-        )
-        ap_config = AudioProcessorConfig(
-            enabled=True,
-            highpass=config_dict.get("noise_filter_highpass", True),
-            highpass_cutoff_hz=float(
-                config_dict.get("noise_filter_highpass_cutoff_hz", 80.0)
-            ),
-            noise_gate=config_dict.get("noise_filter_gate", True),
-            noise_gate_threshold=float(
-                config_dict.get("noise_filter_gate_threshold", 0.015)
-            ),
-            rnnoise=config_dict.get("noise_filter_rnnoise", False),
-            post_capture=False,  # not used for live level
-        )
+        # ADR 0007: AudioProcessor takes a config-like object (anything
+        # with ``noise_filter_*`` attributes). The dict already has the
+        # right keys; ``types.SimpleNamespace`` exposes them as attrs.
+        # ``build_chain()`` reads each field via ``getattr(..., default)``
+        # so missing keys fall back to ADR 0007 defaults.
+        from voice_typer.server.audio_processor import AudioProcessor
+
+        ap_config = types.SimpleNamespace(**config_dict)
         _level_processor = AudioProcessor(ap_config, sample_rate=_monitor_sample_rate)
         log.info(
-            "[LEVEL-MON] Level processor updated: highpass=%s, gate=%s, rnnoise=%s",
-            ap_config.highpass, ap_config.noise_gate, ap_config.rnnoise,
+            "[LEVEL-MON] Level processor updated: highpass=%s, gate=%s, method=%s",
+            config_dict.get("noise_filter_highpass", True),
+            config_dict.get("noise_filter_gate", True),
+            config_dict.get("noise_suppression_method", "rnnoise"),
         )
     except Exception as exc:
         log.warning("[LEVEL-MON] Failed to create level processor: %s", exc)
@@ -583,23 +577,13 @@ def stop_test_recording() -> dict:
     # ── Apply audio enhancement filters ─────────────────────────────
     if filters and filters.get("noise_filter_enabled", True):
         try:
-            from voice_typer.server.audio_processor import (
-                AudioProcessor,
-                AudioProcessorConfig,
-            )
-            ap_config = AudioProcessorConfig(
-                enabled=filters.get("noise_filter_enabled", True),
-                highpass=filters.get("noise_filter_highpass", True),
-                highpass_cutoff_hz=float(
-                    filters.get("noise_filter_highpass_cutoff_hz", 80.0)
-                ),
-                noise_gate=filters.get("noise_filter_gate", True),
-                noise_gate_threshold=float(
-                    filters.get("noise_filter_gate_threshold", 0.003)
-                ),
-                rnnoise=filters.get("noise_filter_rnnoise", False),
-                post_capture=filters.get("noise_filter_post_capture", True),
-            )
+            # ADR 0007: AudioProcessor takes a config-like object directly.
+            # ``process_full_audio()`` was removed (post-capture denoise
+            # deleted per ADR 0007 §3.8); only ``process_chunk()`` remains,
+            # which is what we already call per-block below.
+            from voice_typer.server.audio_processor import AudioProcessor
+
+            ap_config = types.SimpleNamespace(**filters)
             processor = AudioProcessor(ap_config, sample_rate=sr)
 
             block_size = 1024
@@ -609,16 +593,12 @@ def stop_test_recording() -> dict:
                 processed_parts.append(processor.process_chunk(block))
             processed = np.concatenate(processed_parts)
 
-            processed = processor.process_full_audio(processed)
-
             if len(processed) > 0:
                 log.info(
-                    "[LEVEL-MON] Applied real-time chain + post_capture=%s: "
-                    "highpass=%s, gate=%s, rnnoise=%s",
-                    ap_config.post_capture,
-                    ap_config.highpass,
-                    ap_config.noise_gate,
-                    ap_config.rnnoise,
+                    "[LEVEL-MON] Applied filter chain: highpass=%s, gate=%s, method=%s",
+                    filters.get("noise_filter_highpass", True),
+                    filters.get("noise_filter_gate", True),
+                    filters.get("noise_suppression_method", "rnnoise"),
                 )
                 audio = processed
         except Exception as exc:
