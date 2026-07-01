@@ -8,6 +8,7 @@ import { TitleBar } from "@/components/TitleBar";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
+import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 // NEW-UX-009: About/Diagnostics page.
 import AboutPage from "@/pages/About";
@@ -169,7 +170,7 @@ export default function App() {
 
 	const [recordingState, setRecordingState] = useState<RecordingState>("idle");
 	const [connectionStatus, setConnectionStatus] = useState<
-		"connected" | "disconnected" | "connecting"
+		"connected" | "disconnected" | "connecting" | "restarting"
 	>("connecting");
 	const [lastError, setLastError] = useState<string | null>(null);
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -453,6 +454,31 @@ export default function App() {
 		}, []),
 	);
 
+	// ── Restart recovery (Issue 1) ───────────────────────────────────
+	// The main process emits synthetic "reconnecting" / "reconnected"
+	// events around a Python restart (exit code 0).  Without these,
+	// connectionStatus gets stuck on "disconnected" because the TCP
+	// close handler rejects every pending request and nothing else
+	// notifies the renderer when TCP silently comes back.
+	//
+	// Flow: Python exits cleanly → main emits "reconnecting" → renderer
+	// flips to "restarting" (calm message, no false "downloading model"
+	// hint).  Main re-spawns Python → TCP reconnects → main emits
+	// "reconnected" → renderer probes get_config and flips to
+	// "connected" (or back to "disconnected" if the probe fails).
+	usePythonEvent(
+		"reconnecting",
+		useCallback(() => setConnectionStatus("restarting"), []),
+	);
+	usePythonEvent(
+		"reconnected",
+		useCallback(() => {
+			call("get_config")
+				.then(() => setConnectionStatus("connected"))
+				.catch(() => setConnectionStatus("disconnected"));
+		}, [call]),
+	);
+
 	// ── Config changed push (live UI updates) ───────────────────────────
 	// When the Python backend processes a set_config command, it pushes a
 	// config_changed event with the validated fields.  We update local UI
@@ -615,6 +641,24 @@ export default function App() {
 											the speech model (~466 MB for small.en). Subsequent
 											launches are much faster. You can close this window \u2014
 											dictation will work from the system tray once ready.
+										</p>
+									</div>
+								</div>
+							) : connectionStatus === "restarting" ? (
+								// Issue 1E: dedicated restart UI.  Deliberately does NOT
+								// reuse the "connecting" branch because that one advertises
+								// a 30\u201360 s model download that doesn't apply here — the
+								// model is already cached, only the Python process is being
+								// re-spawned.  Showing the download hint here made users
+								// think the restart was hung on a 466 MB re-download.
+								<div className="flex h-full flex-col items-center justify-center gap-4 px-8 text-center">
+									<Spinner />
+									<div className="space-y-2">
+										<p className="text-sm font-medium text-(--text-primary)">
+											{t("app.restartingBackend")}
+										</p>
+										<p className="text-xs text-(--text-muted) max-w-md">
+											{t("app.restartingHint")}
 										</p>
 									</div>
 								</div>

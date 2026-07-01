@@ -169,6 +169,16 @@ let sessionNonce: string = "";
 // Prevents the stale TCP reconnect loop from racing with startPython().
 let _restarting = false;
 
+// Tracks whether the renderer has ever seen a successful TCP connection.
+// Used to distinguish the FIRST connect (initial launch — no event needed,
+// the renderer's connecting→connected transition handles it) from a
+// RE-connect (after a restart — we emit a synthetic "reconnected" event
+// so the renderer's connectionStatus doesn't get stuck on "disconnected").
+// Issue 1B: without this, the TCP layer reconnects fine after a restart
+// but the renderer never learns about it and stays on the "Lost connection"
+// screen with a misleading "Retry Connection" button.
+let _hadConnectedBefore = false;
+
 // Monotonic generation counter for TCP retry loops. Incremented every time
 // startPython() is called. Each tryConnect() closure captures the generation
 // at creation time; if the generation has changed by the time a close/error
@@ -967,6 +977,24 @@ function tcpConnect(port: number) {
 			// Create the main window immediately.
 			console.log(`[TCP] connected to Python backend (127.0.0.1:${port})`);
 			createMainWindow();
+			// Issue 1B: on every connect AFTER the first one, notify the
+			// renderer that the TCP channel is back up.  This handles the
+			// restart-recovery flow: the pythonProcess exit handler emits
+			// "reconnecting" → the renderer flips to "restarting" → the
+			// new Python re-spawns → this TCP callback fires → we emit
+			// "reconnected" → the renderer probes get_config and flips to
+			// "connected".  Without this synthetic event the renderer's
+			// connectionStatus gets stuck on "disconnected" because the
+			// close handler already rejected every pending request and
+			// nothing else in the main process pokes the renderer when
+			// TCP silently comes back.
+			if (_hadConnectedBefore && mainWindow && !mainWindow.isDestroyed()) {
+				mainWindow.webContents.send("python-event", {
+					type: "reconnected",
+					_session_nonce: sessionNonce,
+				});
+			}
+			_hadConnectedBefore = true;
 		});
 
 		client.on("data", (chunk: Buffer) => {
@@ -1130,6 +1158,18 @@ function startPython() {
 			// the unreliably-spawned child (wrong interpreter, env issues).
 			pythonProcess = null;
 			_restarting = true;
+			// Issue 1A: tell the renderer we're mid-restart so it can swap
+			// the misleading "Lost connection" + "Retry Connection" UI for
+			// a calm "Restarting…" message (and so it ignores the brief
+			// TCP drop as expected rather than treating it as a fault).
+			// The matching "reconnected" event is emitted from tcpConnect()
+			// once the new Python's TCP server accepts us.
+			if (mainWindow && !mainWindow.isDestroyed()) {
+				mainWindow.webContents.send("python-event", {
+					type: "reconnecting",
+					_session_nonce: sessionNonce,
+				});
+			}
 			// The Python-side restart_app() already tried spawning a child
 			// directly, but that child may fail (wrong interpreter, env
 			// issues, paging file). Re-spawn from Electron immediately so
