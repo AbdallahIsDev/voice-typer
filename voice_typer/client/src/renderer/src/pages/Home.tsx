@@ -2,6 +2,7 @@ import { Mic02Icon, Share08Icon, StopIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ActivityList from "@/components/ActivityList";
+import { Spinner } from "@/components/Spinner";
 import StatCards from "@/components/StatCards";
 import { StatsShareImage } from "@/components/StatsShareImage";
 import { Button } from "@/components/ui/button";
@@ -18,7 +19,83 @@ import type {
 
 // Module-level cache — persists across page navigations so the recent activity
 // section renders instantly on re-visit instead of appearing from nowhere.
+//
+// FIX: homepage flash.  We now also persist both the recent records and
+// today's stats to localStorage so the cache survives app restarts.  On
+// mount, we read from localStorage (or the in-memory cache if already
+// populated this session) and render the cached data immediately.  The
+// backend fetch happens in the background and only updates state if the
+// fresh data differs — eliminating the visible empty-then-populated flash.
 let _cachedRecent: HistoryRecord[] = [];
+let _cachedStats: TodayStats | null = null;
+
+const RECENT_CACHE_KEY = "vt_home_recent_cache";
+const STATS_CACHE_KEY = "vt_home_stats_cache";
+
+/**
+ * Load the cached recent records, preferring the in-memory cache then
+ * localStorage.  Populates the in-memory cache as a side effect so
+ * subsequent calls are cheap.
+ */
+function loadCachedRecent(): HistoryRecord[] {
+	if (_cachedRecent.length > 0) return _cachedRecent;
+	try {
+		const raw = localStorage.getItem(RECENT_CACHE_KEY);
+		if (raw) {
+			const parsed = JSON.parse(raw);
+			if (Array.isArray(parsed)) {
+				_cachedRecent = parsed as HistoryRecord[];
+			}
+		}
+	} catch {
+		// localStorage may be unavailable (private mode, SSR) — non-fatal.
+	}
+	return _cachedRecent;
+}
+
+/**
+ * Load the cached today stats, preferring the in-memory cache then
+ * localStorage.  Populates the in-memory cache as a side effect.
+ */
+function loadCachedStats(): TodayStats | null {
+	if (_cachedStats !== null) return _cachedStats;
+	try {
+		const raw = localStorage.getItem(STATS_CACHE_KEY);
+		if (raw) {
+			const parsed = JSON.parse(raw);
+			if (
+				parsed &&
+				typeof parsed === "object" &&
+				typeof (parsed as { count?: unknown }).count === "number"
+			) {
+				_cachedStats = parsed as TodayStats;
+			}
+		}
+	} catch {
+		// localStorage may be unavailable — non-fatal.
+	}
+	return _cachedStats;
+}
+
+/** Persist recent records to the in-memory cache and localStorage. */
+function persistRecent(recent: HistoryRecord[]): void {
+	_cachedRecent = recent;
+	try {
+		localStorage.setItem(RECENT_CACHE_KEY, JSON.stringify(recent));
+	} catch {
+		// Quota exceeded or localStorage unavailable — non-fatal.
+	}
+}
+
+/** Persist today stats to the in-memory cache and localStorage. */
+function persistStats(stats: TodayStats): void {
+	_cachedStats = stats;
+	try {
+		localStorage.setItem(STATS_CACHE_KEY, JSON.stringify(stats));
+	} catch {
+		// Quota exceeded or localStorage unavailable — non-fatal.
+	}
+}
 
 interface HomeProps {
 	recordingState: RecordingState;
@@ -147,8 +224,16 @@ export default function Home({
 
 	const [hotkey, setHotkey] = useState("F2");
 	const [lastText, setLastText] = useState("");
-	const [stats, setStats] = useState<TodayStats | null>(null);
-	const [recent, setRecent] = useState<HistoryRecord[]>(_cachedRecent);
+	// FIX: initialize stats + recent from cache so the homepage renders
+	// instantly with the last-known data instead of flashing empty.
+	const [stats, setStats] = useState<TodayStats | null>(loadCachedStats);
+	const [recent, setRecent] = useState<HistoryRecord[]>(loadCachedRecent);
+	// Only show a loading spinner when we have NO cached data to render.
+	// If the cache is populated, the page renders instantly and the
+	// background fetch silently updates state if the fresh data differs.
+	const [initialLoading, setInitialLoading] = useState(
+		() => loadCachedStats() === null && loadCachedRecent().length === 0,
+	);
 	const [toggling, setToggling] = useState(false);
 	const [cfg, setCfg] = useState<VoiceTyperConfig | null>(null);
 	const { imageRef, shareAsImage } = useStatsShare();
@@ -170,14 +255,19 @@ export default function Home({
 			try {
 				const s = await call<TodayStats>("get_today_stats");
 				if (cancelled) return;
-				setStats(s);
+				if (s) {
+					persistStats(s);
+					setStats(s);
+				}
 			} catch {}
 			try {
 				const h = await call<HistoryRecord[]>("get_history", { limit: 4 });
 				if (cancelled) return;
-				_cachedRecent = h ?? [];
-				setRecent(_cachedRecent);
+				const recs = h ?? [];
+				persistRecent(recs);
+				setRecent(recs);
 			} catch {}
+			if (!cancelled) setInitialLoading(false);
 		};
 		load();
 		return () => {
@@ -281,10 +371,13 @@ export default function Home({
 					call<TodayStats>("get_today_stats"),
 				]);
 				if (newRecent) {
-					_cachedRecent = newRecent;
+					persistRecent(newRecent);
 					setRecent(newRecent);
 				}
-				if (newStats) setStats(newStats);
+				if (newStats) {
+					persistStats(newStats);
+					setStats(newStats);
+				}
 			} catch {
 				// Silently ignore — next manual load picks up fresh data
 			}
@@ -440,6 +533,21 @@ export default function Home({
 				</div>
 			)}
 
+			{/* FIX: when there's no cached stats AND we're still loading the
+                            initial data, show a small spinner that preserves the layout
+                            height.  This avoids the "page is empty" flash on first visit
+                            (subsequent visits render cached data instantly).  Once the
+                            fetch resolves, initialLoading flips to false and this falls
+                            back to the natural empty state. */}
+			{!stats && initialLoading && (
+				<div
+					className="mt-4 w-full flex items-center justify-center py-6"
+					aria-label="Loading today's stats"
+				>
+					<Spinner />
+				</div>
+			)}
+
 			{/* ── Hidden share image capture target ──────────────── */}
 			<div ref={imageRef} style={{ position: "fixed", left: -9999, top: 0 }}>
 				{stats && cfg && (
@@ -447,13 +555,24 @@ export default function Home({
 				)}
 			</div>
 
-			<ActivityList
-				items={recent}
-				lineClamp={2}
-				title="Recent Activity"
-				showViewAll
-				onViewAll={() => onNavigate?.("history")}
-			/>
+			{recent.length > 0 ? (
+				<ActivityList
+					items={recent}
+					lineClamp={2}
+					title="Recent Activity"
+					showViewAll
+					onViewAll={() => onNavigate?.("history")}
+				/>
+			) : (
+				initialLoading && (
+					<div
+						className="mt-4 w-full flex items-center justify-center py-6"
+						aria-label="Loading recent activity"
+					>
+						<Spinner />
+					</div>
+				)
+			)}
 		</div>
 	);
 }
