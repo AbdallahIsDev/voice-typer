@@ -105,9 +105,21 @@ export const MODIFIER_CODE_TO_PYNPUT: Record<string, string> = {
 };
 
 /**
- * Single-key presets — only keys that exist on virtually every keyboard.
+ * Single-key presets — only keys that are safe to use alone as a
+ * dictation trigger.
  *
- * Removed (not universally present):
+ * FIX-HOTKEY-AND-NOTIFICATION: the dropdown was reduced to only the
+ * keys that are safe to use as a bare modifier/single-key trigger.
+ * Removed:
+ * - Win (Windows only): pressing the Win key alone opens the Start
+ *   menu — not a usable dictation key.
+ * - Shift: users hold Shift for capitalization while typing, so a
+ *   bare-Shift trigger would fire constantly while the user is just
+ *   typing uppercase letters. Not a usable dictation key.
+ * - Cmd (macOS): same problem as Win on Windows — Cmd alone is a
+ *   system-reserved gesture (Spotlight on newer macOS, etc.).
+ *
+ * Removed (not universally present, kept here only as documentation):
  * - PrintScreen (Apple keyboards don't have it; some 60% boards lack it)
  * - ScrollLock (most laptops and all Apple keyboards lack it)
  * - Pause (most laptops and all Apple keyboards lack it)
@@ -115,12 +127,12 @@ export const MODIFIER_CODE_TO_PYNPUT: Record<string, string> = {
  * - Home / PageUp / PageDown (60% keyboards lack these)
  * - F1..F12 (60% keyboards require Fn+F-key combos; not single-press)
  *
- * Kept (universally present):
- * - Caps Lock (every full-size and laptop keyboard; requires OS remap)
+ * Kept (safe single-key options):
+ * - Caps Lock (every full-size and laptop keyboard; OS-level toggle
+ *   suppression is handled by the hotkey backend so it doesn't
+ *   accidentally enable caps lock mode)
  * - Alt (every keyboard; modifier-only release detection)
  * - Ctrl (every keyboard; modifier-only release detection)
- * - Shift (every keyboard; modifier-only release detection)
- * - Win/Cmd (every keyboard; modifier-only release detection)
  * - Fn (macOS only — firmware-only on Windows/Linux)
  *
  * FIX-HOTKEY-ARCHITECTURE: F1–F12 entries were removed from the
@@ -131,14 +143,16 @@ export const MODIFIER_CODE_TO_PYNPUT: Record<string, string> = {
  * who have a keyboard with dedicated function keys.
  */
 export const SINGLE_KEY_PRESETS: { value: string; label: string }[] = [
-	// Universally present single-key options
-	{ value: "caps_lock", label: "Caps Lock (recommended — requires OS remap)" },
+	// Safe single-key options only.
+	// Caps Lock: label is intentionally bare — no "recommended"
+	// or "requires OS remap" qualifier. The hotkey backend
+	// transparently handles the OS-level toggle suppression.
+	{ value: "caps_lock", label: "Caps Lock" },
 	{ value: "alt", label: "Alt" },
 	{ value: "ctrl", label: "Ctrl" },
-	{ value: "shift", label: "Shift" },
+	// Fn is firmware-only on Windows/Linux (apps can't see it), so
+	// only offer it on macOS where the native backend can hook it.
 	...(IS_MAC ? [{ value: "fn", label: "Fn / Globe 🌐 (macOS only)" }] : []),
-	...(IS_WIN ? [{ value: "win", label: "Win" }] : []),
-	...(IS_MAC ? [{ value: "cmd", label: "Cmd" }] : []),
 ];
 
 /**
