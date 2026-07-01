@@ -1099,7 +1099,7 @@ export default function SettingsPage({
 						info="Where the bubble appears on screen — top or bottom center."
 					>
 						<Select
-							value={config.bubble_position ?? "top"}
+							value={config.bubble_position ?? "bottom"}
 							onValueChange={(v) => {
 								updateConfig({ bubble_position: v as "top" | "bottom" });
 								// Notify the main process immediately so the bubble repositions.
@@ -1257,7 +1257,7 @@ export default function SettingsPage({
 						info="Play a short audio cue when recording starts and stops. Useful for accessibility and confirmation."
 					>
 						<Switch
-							checked={config.sound_feedback_enabled ?? false}
+							checked={config.sound_feedback_enabled ?? true}
 							onCheckedChange={(checked) => {
 								updateConfig({ sound_feedback_enabled: checked });
 								// NEW-UX-029: mirror to localStorage so Home.tsx's
@@ -1619,7 +1619,7 @@ export default function SettingsPage({
 							info="How quiet to make system audio. 25% = whisper-quiet, 50% = slight dip."
 						>
 							<RangeSlider
-								value={config.volume_duck_level ?? 0.25}
+								value={config.volume_duck_level ?? 0.2}
 								min={0}
 								max={0.5}
 								step={0.05}

@@ -570,8 +570,9 @@ class Config:
     # NEW-UX-029: play a short audio cue when recording starts/stops.
     # Many users (especially blind users) prefer an auditory signal
     # instead of (or in addition to) the visual indicator.  Default
-    # OFF — opt-in to avoid surprising users with sound.
-    sound_feedback_enabled: bool = False
+    # ON — most users benefit from the audible start/stop cue; those
+    # who prefer silence can disable it in Settings → Behavior.
+    sound_feedback_enabled: bool = True
 
     # Crash recovery
     crash_recovery_enabled: bool = True
@@ -584,8 +585,10 @@ class Config:
     # Waveform visualization bubble
     waveform_bubble: bool = False
 
-    # Bubble screen position (top / bottom)
-    bubble_position: str = "top"
+    # Bubble screen position (top / bottom).  Default "bottom" — the
+    # recording bubble sits at bottom-center, out of the way of most
+    # app title bars and camera notches.
+    bubble_position: str = "bottom"
 
     # Bubble behavior: show on record, or always visible
     bubble_behavior: str = "show_on_record"  # "show_on_record" or "always_visible"
@@ -685,7 +688,7 @@ class Config:
     # (existing user configs with custom values still load) and for
     # power users who edit config.json directly.
     volume_duck_enabled: bool = True
-    volume_duck_level: float = 0.25  # 0.0–1.0 perceptual-linear
+    volume_duck_level: float = 0.20  # 0.0–1.0 perceptual-linear (20% duck)
     # UX-2: per-session ducking removed — now always ducks all audio
     # (master volume) cross-platform. The field is kept for backward
     # compat but ignored at runtime (per_session is always False).

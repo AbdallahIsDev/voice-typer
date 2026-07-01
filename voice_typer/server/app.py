@@ -353,7 +353,7 @@ class VoiceTyperApp:
             )
             if self._volume_ducker.initialize():
                 self._volume_ducker.duck(
-                    level=getattr(self.config, "volume_duck_level", 0.25),
+                    level=getattr(self.config, "volume_duck_level", 0.20),
                     fade_ms=getattr(self.config, "volume_duck_fade_ms", 200),
                     # UX-2: per-session removed — always master-volume duck.
                     per_session=False,

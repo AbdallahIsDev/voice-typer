@@ -91,8 +91,11 @@ function playSoundCue(kind: "start" | "stop") {
 		// The actual source of truth is the Python config, but we cache
 		// it in localStorage from the Settings page so the audio cue
 		// plays immediately without waiting for an IPC round-trip.
-		// If the cache is missing, default to OFF (matches config default).
-		const enabled = localStorage.getItem("vt_sound_feedback_enabled") === "1";
+		// If the cache is missing (e.g. fresh install before the user
+		// has visited Settings), default to ON — matches the Python
+		// Config default (sound_feedback_enabled = True).
+		const raw = localStorage.getItem("vt_sound_feedback_enabled");
+		const enabled = raw === null ? true : raw === "1";
 		if (!enabled) return;
 	} catch {
 		return; // localStorage unavailable — skip cue.
