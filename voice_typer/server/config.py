@@ -577,10 +577,18 @@ class Config:
     # Crash recovery
     crash_recovery_enabled: bool = True
 
-    # T020: AudioQualityAnalyzer removed — dead code archived to archive/
-    # The following fields are kept for backward compatibility with existing
-    # config files but have no behavioral effect.
-    audio_quality_warnings: bool = True
+    # T020: AudioQualityAnalyzer removed — dead code archived to archive/.
+    # FIX-HOTKEY-AND-NOTIFICATION: the user-facing tray notification that
+    # reported "Low volume / High noise" after each dictation was deemed
+    # annoying. The default is now False, AND the app-side code path that
+    # shows the notification is short-circuited (see
+    # ``_finalize_audio_quality_report`` in app.py — early return at the
+    # top so no tray notification is EVER shown, even if a user manually
+    # flips this flag to True in their config file). The quality analysis
+    # may still run for internal logging, but NEVER surfaces a tray
+    # notification. The field is kept for backward compatibility with
+    # existing config files.
+    audio_quality_warnings: bool = False
 
     # Waveform visualization bubble
     waveform_bubble: bool = False

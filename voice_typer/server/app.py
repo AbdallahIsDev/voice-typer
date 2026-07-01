@@ -1320,25 +1320,33 @@ class VoiceTyperApp:
         """Run final audio-quality analysis and surface warnings.
 
         Called from :meth:`_stop_dictation` after ``recorder.stop()``
-        returns the (already filtered + resampled) audio.  Produces an
-        :class:`AudioQualityReport` and, if user-facing warnings are
-        enabled in config, notifies via the tray.
+        returns the (already filtered + resampled) audio.
 
-        This is the "revived" path for the previously-dead
-        ``audio_quality.py`` module — see architecture doc §6.4 and
-        §13 ("AudioQualityAnalyzer → Revived").
+        FIX-HOTKEY-AND-NOTIFICATION: the tray notification that used to
+        fire here ("Low volume (RMS=...). Increase mic gain or move
+        closer. | High noise (ratio=...). Try a quieter environment")
+        was deemed annoying by users. We now short-circuit at the top of
+        this method so NO tray notification is ever shown — even if a
+        user manually sets ``audio_quality_warnings = True`` in their
+        config file. The internal ``AudioQualityAnalyzer`` may still
+        run for logging purposes (below), but it MUST NOT surface any
+        user-facing notification.
         """
-        if not getattr(self.config, "audio_quality_warnings", True):
+        # Hard short-circuit: NEVER show a tray notification. The
+        # ``audio_quality_warnings`` config field is honored here only
+        # as a kill-switch (when False, we skip the analysis entirely
+        # for efficiency); when True we still run the analysis for
+        # internal logging but DO NOT call ``self.tray.notify``.
+        if not getattr(self.config, "audio_quality_warnings", False):
             return
+        # Even when the flag is True, we deliberately do NOT call
+        # ``self.tray.notify``. Run the analysis for internal logging
+        # only, then bail out.
         try:
             report = self._audio_quality.analyze_full_audio(audio)
             if report.has_issues:
                 summary = report.get_summary()
                 log.info("[AUDIO_QUALITY] Issues detected: %s", summary)
-                try:
-                    self.tray.notify("Voice Typer", summary)
-                except Exception:
-                    log.debug("[AUDIO_QUALITY] tray notify failed", exc_info=True)
             # Reset for the next session.
             self._audio_quality.reset()
         except Exception:
