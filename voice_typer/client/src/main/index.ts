@@ -331,8 +331,16 @@ function handleMessage(msg: Record<string, unknown>) {
 			//      the calm "Restarting…" status BEFORE the TCP
 			//      channel actually drops (preventing a brief flash
 			//      of the misleading "Lost connection" UI).
-			console.warn("[RESTART] received restart_ack from Python");
+			// fix-restart-race-v2: set _restarting FIRST, before any
+			// other work (including the console.warn log line) so
+			// that if the TCP 'close' event fires on the very next
+			// Node.js event-loop turn (because Python already exited
+			// and the kernel delivered the FIN right after the data),
+			// the close handler sees _restarting === true and treats
+			// the disconnect as expected rather than logging
+			// "waiting for Python backend..." / "Python socket closed".
 			_restarting = true;
+			console.warn("[RESTART] received restart_ack from Python");
 			for (const [id, entry] of pendingRequests) {
 				pendingRequests.delete(id);
 				entry.reject(new Error("Python backend is restarting"));
@@ -1070,6 +1078,20 @@ function tcpConnect(port: number) {
 			// This prevents stale TCP loops from multiplying after
 			// startPython() re-spawns the backend.
 			if (retryGen !== _tcpRetryGeneration) return;
+			// fix-restart-race-v2: when a clean restart is in flight,
+			// Python's sys.exit(0) closes the TCP socket from its end.
+			// Node.js surfaces this either as an ECONNRESET error or as
+			// a 'close' event (depending on whether there were unread
+			// bytes in the kernel buffer).  Neither is a real error —
+			// the renderer has already been told we're "Restarting…"
+			// and the pythonProcess exit handler will spawn the
+			// replacement.  Suppress the noisy error log so users
+			// don't see a spurious "[TCP] error: ..." line mid-restart.
+			if (_restarting) {
+				console.warn("[TCP] socket error during restart (suppressed)");
+				client.destroy();
+				return;
+			}
 			if (err.code === "ECONNRESET") {
 				console.log("[TCP] connection reset by Python backend");
 			} else if (err.code !== "ECONNREFUSED") {
@@ -1108,12 +1130,26 @@ function tcpConnect(port: number) {
 			}
 			// If a newer retry generation is active, stop retrying.
 			if (retryGen !== _tcpRetryGeneration) return;
+			// fix-restart-race-v2: if a clean restart is in flight,
+			// Python intentionally exited and the pythonProcess exit
+			// handler is responsible for spawning the replacement (it
+			// will call startPython() → tcpConnect() on its own
+			// schedule).  Logging "waiting for Python backend..." and
+			// scheduling our own 1-second tryConnect here would race
+			// with that flow: our retry could land on the new Python's
+			// listen socket before its IPC server finished wiring up,
+			// producing the false "connected → immediately dropped"
+			// bounce that prompted this fix.  Just bail.
+			if (_restarting) {
+				console.warn("[TCP] connection closed during restart");
+				return;
+			}
 			// Only retry while a Python process is alive.
 			// Do NOT check pythonReady here - that's false until the first
 			// successful connection.  The error handler no longer schedules
 			// retries (to prevent exponential multiplication), so the close
 			// handler must cover the initial startup case too.
-			if (pythonProcess !== null && !_restarting) {
+			if (pythonProcess !== null) {
 				_tcpRetryCount++;
 				if (_tcpRetryCount === 1) {
 					console.log(

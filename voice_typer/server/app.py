@@ -1847,6 +1847,22 @@ class VoiceTyperApp:
         except Exception as e:
             log.warning("[RESTART] failed to push restart_ack: %s", e)
 
+        # fix-restart-race-v2: brief pause so Electron's Node.js event
+        # loop has time to receive the restart_ack line off the TCP
+        # socket, parse it, and set _restarting = true BEFORE this
+        # process calls sys.exit(0) and the OS closes the socket.
+        # Without this sleep the close event can race ahead of the
+        # data event in Electron's socket, producing the misleading
+        # "[TCP] waiting for Python backend..." log line and the
+        # false "Python socket closed" error in pending requests.
+        # _push_event_now uses sendall() (synchronous write to the
+        # kernel buffer), but the bytes still have to traverse the
+        # loopback TCP stack and be delivered to Electron's socket
+        # handle before our process exits.  300ms is well within the
+        # atexit cleanup budget and long enough to cover the
+        # loopback delivery + Node.js event loop turn.
+        time.sleep(0.3)
+
         # 2. Stop all three hotkey backends so the new instance can
         #    re-register them without "hotkey busy" errors.
         #    RELIABILITY-003: previously only _hotkey_backend was stopped.
