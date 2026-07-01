@@ -1786,8 +1786,27 @@ class VoiceTyperApp:
     def restart_app(self) -> None:
         """TrayController protocol: restart the app.
 
-        Launches a fresh VoiceTyper subprocess and exits the current
-        instance via the clean ``sys.exit(0)`` path.
+        Sends a ``restart_ack`` event to Electron over the active TCP
+        channel, then exits the current instance via the clean
+        ``sys.exit(0)`` path.  Electron detects the exit (code 0) and
+        spawns the replacement Python process — see
+        ``client/src/main/index.ts`` ``pythonProcess.on("exit")``.
+
+        FIX-restart-tcp: previously this method spawned a replacement
+        via ``subprocess.Popen`` AND Electron's exit handler ALSO
+        spawned a replacement.  The two new processes raced for port
+        9876: one bound successfully, the other crashed with
+        ``EADDRINUSE``.  Electron's TCP connection bounced between
+        them, producing the cascading ``Error: Timeout`` cascade and
+        the false "downloading model" screen in the renderer.  Python
+        no longer spawns a replacement; only Electron does.
+
+        The ``restart_ack`` event lets Electron pre-emptively reject
+        all pending IPC requests with a "Python backend is restarting"
+        error (instead of letting them sit in the queue until the
+        5-second ``sendToPython`` timeout fires), and flip the
+        renderer to the "Restarting…" status before the TCP channel
+        actually drops.
 
         RELIABILITY-001: was ``os._exit(0)`` which skipped atexit
         handlers + ``__del__``, leaking the Win32 mutex, PortAudio
@@ -1799,62 +1818,26 @@ class VoiceTyperApp:
         """
         log.info("[RESTART] Restarting Voice Typer...")
         self._shutting_down = True
-        import subprocess
-        import time
 
-        # Restore volume BEFORE launching the new process to avoid
-        # ping-pong (new process ducks before old process restores).
+        # Restore volume BEFORE exiting so the user's audio isn't left
+        # ducked while Electron spawns the replacement (which can take
+        # a few seconds for the Python interpreter + torch import).
         # Use fade_ms=0 for instant restore on the restart path.
         self._restore_volume(fade_ms=0)
 
-        time.sleep(0.5)
-
-        # 1. Launch the new instance
-        # NEW-PRIV-003: allowlist env vars to prevent API key leakage.
-        _SAFE = {
-            "PATH", "PYTHONPATH", "PYTHONHOME", "SYSTEMROOT",
-            "APPDATA", "LOCALAPPDATA", "USERPROFILE", "TEMP", "TMP",
-            "HOME", "LANG", "LC_ALL", "LC_CTYPE",
-            "VOICE_TYPER_CONFIG_DIR", "VOICE_TYPER_DEBUG",
-            "VOICE_TYPER_QUIET", "VOICE_TYPER_NO_TRAY",
-            "VOICE_TYPER_IPC_TOKEN", "HF_HOME",
-            "HF_HUB_DISABLE_SYMLINKS_WARNING", "HF_HUB_DISABLE_XET",
-            "HF_HUB_DISABLE_UNVERIFIED_ACCESS_WARNING",
-            "CUDA_VISIBLE_DEVICES", "DISPLAY", "WAYLAND_DISPLAY",
-            "XDG_RUNTIME_DIR",
-        }
-        env = {k: v for k, v in os.environ.items() if k in _SAFE}
-        token = _generate_restart_token()
-        env["VOICE_TYPER_RESTART"] = token
-        # PLAT-VENV: Use base Python for restart if running in a venv.
-        # sys.prefix != sys.base_prefix detects virtualenv/venv.
-        # PyInstaller builds have sys.prefix == sys.base_prefix so this
-        # is a no-op for bundled builds.
-        restart_python = sys.executable
-        if sys.prefix != sys.base_prefix:
-            import shutil
-            base_python = shutil.which("python") or shutil.which("python3")
-            if base_python:
-                restart_python = base_python
-                log.info(
-                    "[RESTART] Running inside venv (%s); using system Python for restart: %s",
-                    sys.prefix, restart_python,
-                )
-        # Spawn same module Electron spawns, forwarding --port.
-        restart_args = [restart_python, "-m", "voice_typer.server.ipc_server"]
+        # 1. Notify Electron over TCP so it can:
+        #    - mark _restarting = true (prevents stale TCP retry loops)
+        #    - reject all pending IPC requests with a "restarting"
+        #      error instead of letting them time out 5s later
+        #    - flip the renderer to the calm "Restarting…" status
+        #      before the TCP channel actually drops
+        #  Electron will spawn the replacement when it sees our exit
+        #  code 0; we do NOT spawn one ourselves (fix-restart-tcp).
+        from voice_typer.server.ipc_server import _push_event_now
         try:
-            if "--port" in sys.argv:
-                _pidx = sys.argv.index("--port")
-                if _pidx + 1 < len(sys.argv):
-                    restart_args += ["--port", sys.argv[_pidx + 1]]
-        except (ValueError, IndexError):
-            pass
-        subprocess.Popen(
-            restart_args,
-            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            env=env,
-            start_new_session=True,
-        )
+            _push_event_now({"type": "restart_ack"})
+        except Exception as e:
+            log.warning("[RESTART] failed to push restart_ack: %s", e)
 
         # 2. Stop all three hotkey backends so the new instance can
         #    re-register them without "hotkey busy" errors.
@@ -1896,7 +1879,8 @@ class VoiceTyperApp:
         #    tray.stop() was called in step 3).  Python atexit handlers
         #    and __del__ methods run, releasing the Win32 mutex,
         #    PortAudio handles, and any other resources held by C
-        #    extensions.
+        #    extensions.  Electron's exit handler observes code 0 and
+        #    spawns the replacement Python process.
         log.info("[RESTART] Exiting old process via sys.exit(0)")
         sys.exit(0)
 

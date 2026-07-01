@@ -429,11 +429,17 @@ class TestQuitRestoresVolumeInstantly:
             f"quit() must restore with fade_ms=0; got {backend.fade_calls}"
 
 
-class TestRestartRestoresBeforeLaunching:
-    """§7.6: restart_app() must restore volume BEFORE launching the new
-    subprocess to avoid volume ping-pong."""
+class TestRestartRestoresBeforeExiting:
+    """§7.6 + fix-restart-tcp: restart_app() must restore volume BEFORE
+    exiting so the user's audio isn't left ducked while Electron spawns
+    the replacement Python process (which can take a few seconds for
+    the Python interpreter + torch import).  Previously this asserted
+    that restore happened before ``subprocess.Popen`` — but
+    fix-restart-tcp removed the Popen call entirely (Electron is now
+    the sole spawner), so the assertion now checks that restore
+    happens before ``sys.exit(0)``."""
 
-    def test_restart_restores_before_subprocess_launch(self, app_with_fake_ducker):
+    def test_restart_restores_before_exit(self, app_with_fake_ducker):
         app, backend = app_with_fake_ducker
         app.config.volume_duck_enabled = True
         app._volume_ducker.duck(0.25)
@@ -446,11 +452,11 @@ class TestRestartRestoresBeforeLaunching:
             return original_fade(target, duration_ms, steps)
         backend.fade_to = spy_fade
 
-        # restart_app() imports subprocess locally; patch the global
-        # subprocess.Popen so the local import resolves to our mock.
+        # fix-restart-tcp: restart_app() no longer calls subprocess.Popen.
+        # Stub _push_event_now so the TCP push doesn't blow up in the
+        # test environment (no IPC server wired up).
         import voice_typer.server.app as app_mod
-        with patch("subprocess.Popen") as mock_popen:
-            mock_popen.side_effect = lambda *a, **kw: events.append("subprocess.Popen")
+        with patch("voice_typer.server.ipc_server._push_event_now"):
             # Also stub the rest of restart_app() that would block or kill
             app._cancel_pending_timers = MagicMock()
             app._hotkey_backend = MagicMock()
@@ -459,17 +465,22 @@ class TestRestartRestoresBeforeLaunching:
             app._crash_recovery = MagicMock()
             app.tray = MagicMock()
             app._transcription_thread = None
-            with patch.object(app_mod.time, "sleep"):
+            # Spy on sys.exit to record that exit happened AFTER restore.
+            real_sys_exit = app_mod.sys.exit
+            def spy_exit(code=0):
+                events.append("sys.exit")
+                raise SystemExit(code)
+            with patch.object(app_mod.sys, "exit", spy_exit):
                 try:
                     app.restart_app()
                 except SystemExit:
                     pass
 
-        # Restore must happen BEFORE subprocess.Popen
+        # Restore must happen BEFORE sys.exit
         assert "restore" in events, "restart_app() should have called restore"
-        assert "subprocess.Popen" in events
-        assert events.index("restore") < events.index("subprocess.Popen"), \
-            f"restore must precede subprocess.Popen; got {events}"
+        assert "sys.exit" in events, "restart_app() should have called sys.exit"
+        assert events.index("restore") < events.index("sys.exit"), \
+            f"restore must precede sys.exit; got {events}"
         # And restore must use fade_ms=0 (instant — no ping-pong window)
         assert (0.5, 0) in backend.fade_calls
 

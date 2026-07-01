@@ -1654,6 +1654,34 @@ class IPCServer:
             return
 
         if tcp_client is not None:
+            # QUIT-CLEAN-001: if the app is shutting down, skip the TCP
+            # write entirely.  Electron closes its end of the socket as
+            # soon as it receives the ``quit_app`` event; any subsequent
+            # push from the Python cleanup path (waveform bubble worker,
+            # state-changed hooks, hotkey-backend teardown) would hit a
+            # half-closed socket and raise ``[WinError 10053]`` /
+            # ``ConnectionResetError``.  The error itself was already
+            # logged at DEBUG, but suppressing the write in the first
+            # place keeps the log (and any DEBUG-enabled user terminal)
+            # quiet during shutdown.  We still mark the client as dead
+            # so a subsequent (theoretical) reconnect can succeed.
+            #
+            # ``is True`` (rather than a truthiness check) is intentional:
+            # the real ``VoiceTyperApp`` sets ``_shutting_down = True``
+            # literally, and MagicMock-based test fixtures expose
+            # ``_shutting_down`` as a child mock (which is truthy but
+            # not ``is True``).  Using ``is True`` keeps the test path
+            # exercising the write logic instead of the shutdown short-
+            # circuit.
+            if getattr(self.app, "_shutting_down", False) is True:
+                with self._lock:
+                    if self._tcp_client is tcp_client:
+                        try:
+                            self._tcp_client.close()
+                        except Exception:
+                            pass
+                        self._tcp_client = None
+                return
             # NEW-CONC-003: set a write timeout so a stalled renderer
             # can't block the worker thread indefinitely.  2 seconds is
             # generous for a localhost TCP write — under normal load the

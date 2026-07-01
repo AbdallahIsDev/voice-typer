@@ -314,6 +314,35 @@ function handleMessage(msg: Record<string, unknown>) {
 			// Tray "Quit": Python is about to force-exit.  Close Electron too
 			// so the user isn't left with a window that has no backend.
 			app.quit();
+		} else if (msg.type === "restart_ack") {
+			// fix-restart-tcp: Python's restart_app() pushes this event
+			// BEFORE calling sys.exit(0).  It's an early signal that a
+			// clean restart is in flight, so we can:
+			//   1. Set _restarting = true (prevents the stale TCP retry
+			//      loop from racing with the upcoming startPython()).
+			//   2. Reject ALL pending IPC requests immediately with a
+			//      "restarting" error — instead of letting each one
+			//      sit in pendingRequests until either the TCP close
+			//      handler rejects them ("Python socket closed") OR
+			//      the 5-second sendToPython timeout fires ("Timeout").
+			//      The latter is the source of the cascading
+			//      "Error: Timeout" errors that polluted the logs.
+			//   3. Emit "reconnecting" to the renderer so it flips to
+			//      the calm "Restarting…" status BEFORE the TCP
+			//      channel actually drops (preventing a brief flash
+			//      of the misleading "Lost connection" UI).
+			console.warn("[RESTART] received restart_ack from Python");
+			_restarting = true;
+			for (const [id, entry] of pendingRequests) {
+				pendingRequests.delete(id);
+				entry.reject(new Error("Python backend is restarting"));
+			}
+			if (mainWindow && !mainWindow.isDestroyed()) {
+				mainWindow.webContents.send("python-event", {
+					type: "reconnecting",
+					_session_nonce: sessionNonce,
+				});
+			}
 		}
 		// SEC-029: tag each python-event with a per-session nonce so the
 		// renderer can detect replayed frames from an unauthenticated TCP
@@ -336,6 +365,19 @@ function handleMessage(msg: Record<string, unknown>) {
 
 function sendToPython(msg: Record<string, unknown>): Promise<unknown> {
 	return new Promise((resolve, reject) => {
+		// fix-restart-tcp: if a restart is in flight, reject immediately
+		// with a "restarting" error.  Without this guard, IPC calls made
+		// BETWEEN the restart_ack event (Python is about to exit) and the
+		// new Python's TCP server accepting connections would be written
+		// to a dying/already-closed socket, sit in pendingRequests until
+		// the 5s timeout, and produce the cascading "Error: Timeout"
+		// cascade.  Rejecting up-front keeps the error message meaningful
+		// ("restarting" vs the generic "Timeout") and lets the renderer
+		// treat it as a known transient condition rather than a fault.
+		if (_restarting) {
+			reject(new Error("Python backend is restarting"));
+			return;
+		}
 		if (!tcpSocket) {
 			reject(new Error("Python backend is not connected"));
 			return;
@@ -1049,9 +1091,20 @@ function tcpConnect(port: number) {
 			// doesn't hang forever. Without this, every `await
 			// window.electronAPI.python(...)` would leak when the socket
 			// died - the renderer's loading spinners would never resolve.
+			//
+			// fix-restart-tcp: when a restart is in flight, use a more
+			// specific "restarting" error message so the renderer can
+			// distinguish a known restart transient from an unexpected
+			// disconnect.  (By the time we get here, the restart_ack
+			// handler should already have drained pendingRequests —
+			// but this loop covers the race where TCP closes before
+			// restart_ack is processed, e.g. a Python crash mid-restart.)
+			const closeErr = _restarting
+				? new Error("Python backend is restarting")
+				: new Error("Python socket closed");
 			for (const [id, entry] of pendingRequests) {
 				pendingRequests.delete(id);
-				entry.reject(new Error("Python socket closed"));
+				entry.reject(closeErr);
 			}
 			// If a newer retry generation is active, stop retrying.
 			if (retryGen !== _tcpRetryGeneration) return;
@@ -1152,28 +1205,41 @@ function startPython() {
 			}
 			app.quit();
 		} else {
-			// Exit code 0 = clean restart.  The restart_app() method in
-			// Python spawned a new backend process and exited cleanly.
-			// Re-spawn from Electron immediately rather than waiting for
-			// the unreliably-spawned child (wrong interpreter, env issues).
+			// Exit code 0 = clean restart.  Python's restart_app() sent
+			// a restart_ack event (handled in handleMessage above) and
+			// then exited cleanly via sys.exit(0).  fix-restart-tcp:
+			// Python no longer spawns its own replacement — Electron
+			// is the sole spawner, which eliminates the double-spawn
+			// race where two Python processes fought for port 9876
+			// (one bound, one crashed with EADDRINUSE, TCP bounced
+			// between them, cascading timeouts in the renderer).
 			pythonProcess = null;
+			// _restarting may already be true if restart_ack was
+			// received before the exit event; setting it here is a
+			// belt-and-suspenders guard for the case where
+			// restart_ack was lost (e.g. TCP write raced with exit).
 			_restarting = true;
 			// Issue 1A: tell the renderer we're mid-restart so it can swap
 			// the misleading "Lost connection" + "Retry Connection" UI for
 			// a calm "Restarting…" message (and so it ignores the brief
 			// TCP drop as expected rather than treating it as a fault).
 			// The matching "reconnected" event is emitted from tcpConnect()
-			// once the new Python's TCP server accepts us.
+			// once the new Python's TCP server accepts us.  (If restart_ack
+			// already emitted "reconnecting", this is a harmless duplicate —
+			// the renderer just re-sets the same "restarting" status.)
 			if (mainWindow && !mainWindow.isDestroyed()) {
 				mainWindow.webContents.send("python-event", {
 					type: "reconnecting",
 					_session_nonce: sessionNonce,
 				});
 			}
-			// The Python-side restart_app() already tried spawning a child
-			// directly, but that child may fail (wrong interpreter, env
-			// issues, paging file). Re-spawn from Electron immediately so
-			// the correct executable and env vars are used.
+			// Spawn the replacement from Electron.  fix-restart-tcp:
+			// Python no longer spawns a child itself, so this is the
+			// ONLY spawn — no race for port 9876.  The 500ms delay
+			// gives the old Python's atexit handlers + OS handle
+			// cleanup (including the Win32 single-instance mutex)
+			// time to complete before the new Python tries to
+			// acquire them.
 			console.warn("[RESTART] spawning replacement from Electron");
 			setTimeout(() => startPython(), 500);
 		}

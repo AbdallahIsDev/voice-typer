@@ -489,54 +489,77 @@ class TestSettingsWindowIntegration:
         old_backend.stop.assert_called_once()
         app.hotkeys.register.assert_called_once()
 
-    def test_restart_app_forwards_port_argument(self, app, monkeypatch):
-        """restart_app() must forward --port to the new process so the
-        restarted backend listens on the same TCP port Electron is
-        connected to.  Without this, push events (including waveform
-        bubble show/hide/level) never reach Electron after a restart."""
+    def test_restart_app_does_not_spawn_subprocess(self, app, monkeypatch):
+        """fix-restart-tcp: restart_app() must NOT spawn a replacement
+        subprocess.  Electron's exit handler is the sole spawner; if
+        Python also spawns one, the two new processes race for port
+        9876 (one binds, one crashes with EADDRINUSE), TCP bounces
+        between them, and the renderer sees cascading "Error: Timeout"
+        plus a false "downloading model" screen.
+
+        This test replaces the old test_restart_app_forwards_port_argument
+        and test_restart_app_without_port_uses_stdin_mode, which both
+        asserted on the subprocess args that are no longer produced.
+        """
         import subprocess as _sp
-        captured = {}
-        def fake_popen(args, **kw):
-            captured["args"] = args
-            captured["env"] = kw.get("env", {})
-            return MagicMock()
-        monkeypatch.setattr(_sp, "Popen", fake_popen)
+        popen_calls = []
+        monkeypatch.setattr(_sp, "Popen", lambda *a, **kw: popen_calls.append((a, kw)))
         monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
-        # Simulate having been started with --port 9876 (Electron mode)
         monkeypatch.setattr(sys, "argv", ["voice_typer", "--port", "9876"])
-
-        try:
-            app.restart_app()
-        except SystemExit:
-            pass  # os._exit is mocked, but just in case
-
-        args = captured.get("args", [])
-        assert "--port" in args, f"restart must forward --port, got: {args}"
-        port_idx = args.index("--port")
-        assert port_idx + 1 < len(args), "missing port value"
-        assert args[port_idx + 1] == "9876", f"wrong port: {args[port_idx + 1]}"
-        assert "voice_typer.server.ipc_server" in args
-
-    def test_restart_app_without_port_uses_stdin_mode(self, app, monkeypatch):
-        """If started without --port (standalone mode), restart should
-        also not add --port (preserves stdin/stdout mode)."""
-        import subprocess as _sp
-        captured = {}
-        def fake_popen(args, **kw):
-            captured["args"] = args
-            return MagicMock()
-        monkeypatch.setattr(_sp, "Popen", fake_popen)
-        monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
-        # No --port in argv
-        monkeypatch.setattr(sys, "argv", ["voice_typer"])
+        monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
+        app._hotkey_backend = MagicMock()
+        app._esc_backend = MagicMock()
+        app._repaste_backend = MagicMock()
+        app._cancel_pending_timers = MagicMock()
+        app.tray = MagicMock()
+        # Stub _push_event_now so restart_app's TCP push doesn't blow up
+        # in the test environment (no IPC server wired up).
+        import voice_typer.server.app as app_mod
+        monkeypatch.setattr(
+            "voice_typer.server.ipc_server._push_event_now",
+            lambda msg: None,
+        )
 
         try:
             app.restart_app()
         except SystemExit:
             pass
 
-        args = captured.get("args", [])
-        assert "--port" not in args, f"should not add --port, got: {args}"
+        assert popen_calls == [], (
+            f"restart_app must NOT spawn a subprocess (Electron is the sole "
+            f"spawner); got Popen calls: {popen_calls}"
+        )
+
+    def test_restart_app_pushes_restart_ack_event(self, app, monkeypatch):
+        """fix-restart-tcp: restart_app() must push a ``restart_ack``
+        event over the TCP channel BEFORE exiting.  Electron listens
+        for this event to pre-emptively reject pending IPC requests
+        with a "restarting" error (instead of letting them time out
+        5s later) and to flip the renderer to the "Restarting…"
+        status before the TCP channel actually drops."""
+        monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+        monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
+        monkeypatch.setattr(sys, "argv", ["voice_typer"])
+        app._hotkey_backend = MagicMock()
+        app._esc_backend = MagicMock()
+        app._repaste_backend = MagicMock()
+        app._cancel_pending_timers = MagicMock()
+        app.tray = MagicMock()
+        pushed = []
+        monkeypatch.setattr(
+            "voice_typer.server.ipc_server._push_event_now",
+            lambda msg: pushed.append(msg),
+        )
+
+        try:
+            app.restart_app()
+        except SystemExit:
+            pass
+
+        assert pushed, "restart_app must push at least one event"
+        assert any(m.get("type") == "restart_ack" for m in pushed), (
+            f"restart_app must push a restart_ack event; got: {pushed}"
+        )
 
     def test_model_change_uses_config_device(self, app, monkeypatch):
         """_change_model should use self.config.device, not hardcoded cuda."""
