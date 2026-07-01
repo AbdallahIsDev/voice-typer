@@ -1,6 +1,7 @@
 import {
 	Book02Icon,
 	Bug02Icon,
+	CheckmarkCircle01Icon,
 	File02Icon,
 	InformationCircleIcon,
 	RefreshIcon,
@@ -1964,11 +1965,123 @@ export default function SettingsPage({
             consent they've previously granted.  Initial grant
             happens contextually (HuggingFace banner on Models page,
             per-provider toggles on Models page) — this section is
-            primarily for review/revocation. */}
+            primarily for review/revocation.
+
+            PRIV-AGREE-ALL (fix-quit-and-privacy): an "Agree to All"
+            affordance at the top lets the user enable every consent
+            flag at once without clicking six toggles.  Defaults stay
+            False (privacy-by-default); the button is purely a UX
+            convenience, not an implicit grant.  Individual toggles
+            below remain for granular control / revocation. */}
 				<SettingsSection
 					title="Privacy & Consent"
-					description="Review and revoke consent for data processing."
+					description="Grant or revoke consent for data processing. All consents default to off — enable them individually below or use 'Agree to All' for convenience."
 				>
+					{/* PRIV-AGREE-ALL: header banner + Agree to All button.
+                    Explains what "agreeing" means in plain language so
+                    the user can make an informed decision before
+                    clicking.  The banner sits inside the same
+                    bordered container as the toggles (visually grouped
+                    with them) but uses a slightly different background
+                    to distinguish it from per-flag rows. */}
+					<div className="px-3.5 py-3.5 space-y-3 bg-(--bg-subtle)/60">
+						<div className="flex items-start gap-2">
+							<HugeiconsIcon
+								icon={InformationCircleIcon}
+								strokeWidth={2}
+								className="h-4 w-4 mt-0.5 shrink-0 text-(--text-muted)"
+							/>
+							<div className="text-sm text-(--text-muted) space-y-1.5 min-w-0">
+								<p>
+									Voice Typer processes voice, text, and metadata locally by
+									default. The features below require sending specific data to
+									third parties — click
+									<strong> Agree to All </strong> to enable every consent at
+									once, or toggle individual features.
+								</p>
+								<ul className="list-disc pl-4 space-y-0.5 text-xs">
+									<li>
+										<strong>HuggingFace</strong>: downloads Whisper model
+										weights (reveals your IP to a US third party; audio never
+										leaves your machine).
+									</li>
+									<li>
+										<strong>Cloud ASR</strong> (OpenAI / Groq / Deepgram): sends
+										audio recordings for transcription when that provider is the
+										active backend.
+									</li>
+									<li>
+										<strong>LLM polish</strong>: sends transcribed
+										<em> text </em>(not audio) to an OpenAI-compatible LLM API
+										for refinement.
+									</li>
+									<li>
+										<strong>Voice biometric</strong>: acknowledges that local
+										voice recordings may be considered biometric data under BIPA
+										/ GDPR Art. 9.
+									</li>
+								</ul>
+								<p className="text-xs">
+									You can revoke any consent at any time by toggling it off
+									below. Cloud features will refuse to run until the relevant
+									consent is re-granted.
+								</p>
+							</div>
+						</div>
+						<div className="flex items-center justify-between gap-3">
+							<div className="text-xs text-(--text-muted)">
+								{(() => {
+									if (!config) return "";
+									const granted = [
+										config.huggingface_consent,
+										config.voice_biometric_consent,
+										config.cloud_openai_consent,
+										config.cloud_groq_consent,
+										config.cloud_deepgram_consent,
+										config.llm_polish_consent,
+									].filter(Boolean).length;
+									return `${granted} of 6 consents granted`;
+								})()}
+							</div>
+							<Button
+								variant="default"
+								size="sm"
+								className="gap-1.5"
+								onClick={() => {
+									updateConfig({
+										huggingface_consent: true,
+										voice_biometric_consent: true,
+										cloud_openai_consent: true,
+										cloud_groq_consent: true,
+										cloud_deepgram_consent: true,
+										llm_polish_consent: true,
+									});
+								}}
+								disabled={
+									config
+										? Boolean(
+												config.huggingface_consent &&
+													config.voice_biometric_consent &&
+													config.cloud_openai_consent &&
+													config.cloud_groq_consent &&
+													config.cloud_deepgram_consent &&
+													config.llm_polish_consent,
+											)
+										: false
+								}
+								aria-label="Agree to all privacy consents"
+								title="Enable all six consent flags below. You can revoke individual consents afterward."
+							>
+								<HugeiconsIcon
+									icon={CheckmarkCircle01Icon}
+									strokeWidth={2}
+									className="h-4 w-4"
+								/>
+								Agree to All
+							</Button>
+						</div>
+					</div>
+
 					{/* HuggingFace consent */}
 					<SettingRow
 						label="HuggingFace model downloads"
