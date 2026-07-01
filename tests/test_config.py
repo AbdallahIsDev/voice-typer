@@ -6,7 +6,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch
 
-from voice_typer.server.config import Config, _config_dir, _default_hotkey_for_platform
+from voice_typer.server.config import Config, _CURRENT_SCHEMA_VERSION, _config_dir, _default_hotkey_for_platform
 
 
 # NATIVE-001: the default hotkey is now platform-aware
@@ -443,27 +443,27 @@ class TestM3ConfigSchemaVersion:
     """M3: No config schema versioning."""
 
     def test_config_has_schema_version_field(self):
-        from voice_typer.server.config import Config
+        from voice_typer.server.config import Config, _CURRENT_SCHEMA_VERSION
         c = Config()
         assert hasattr(c, "schema_version")
-        assert c.schema_version == 1
+        assert c.schema_version == _CURRENT_SCHEMA_VERSION
 
     def test_config_save_load_preserves_schema_version(self, tmp_path, monkeypatch):
-        from voice_typer.server.config import Config
+        from voice_typer.server.config import Config, _CURRENT_SCHEMA_VERSION
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         c = Config()
         c.save()
         loaded = Config.load()
-        assert loaded.schema_version == 1
+        assert loaded.schema_version == _CURRENT_SCHEMA_VERSION
 
     def test_config_migration_from_version_0(self, tmp_path, monkeypatch):
-        from voice_typer.server.config import Config
+        from voice_typer.server.config import Config, _CURRENT_SCHEMA_VERSION
         import json
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"hotkey": "<f3>", "model_size": "small.en"}))
         loaded = Config.load()
-        assert loaded.schema_version == 1
+        assert loaded.schema_version == _CURRENT_SCHEMA_VERSION
         assert loaded.hotkey == "<f3>"
 
 
@@ -471,7 +471,7 @@ class TestM4SaveErrorHandling:
     """M4: save() has no error handling."""
 
     def test_save_returns_false_on_permission_error(self, tmp_path, monkeypatch):
-        from voice_typer.server.config import Config
+        from voice_typer.server.config import Config, _CURRENT_SCHEMA_VERSION
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         c = Config()
         import json
@@ -485,7 +485,7 @@ class TestM4SaveErrorHandling:
         assert result is False
 
     def test_save_returns_true_on_success(self, tmp_path, monkeypatch):
-        from voice_typer.server.config import Config
+        from voice_typer.server.config import Config, _CURRENT_SCHEMA_VERSION
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         c = Config()
         result = c.save()
@@ -505,7 +505,7 @@ class TestSec007ConfigFilePermissions:
     @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
     def test_save_creates_config_file_with_0600_permissions(self, tmp_path, monkeypatch):
         import os, stat
-        from voice_typer.server.config import Config
+        from voice_typer.server.config import Config, _CURRENT_SCHEMA_VERSION
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         cfg = Config()
         cfg.cloud_api_key = "sk-test-secret"
@@ -518,7 +518,7 @@ class TestSec007ConfigFilePermissions:
     @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
     def test_save_creates_config_dir_with_0700_permissions(self, tmp_path, monkeypatch):
         import os, stat
-        from voice_typer.server.config import Config
+        from voice_typer.server.config import Config, _CURRENT_SCHEMA_VERSION
         # Use a subdir that doesn't exist yet so save() creates it
         config_dir = tmp_path / "nested" / ".voice-typer"
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: config_dir)
@@ -533,7 +533,7 @@ class TestSec007ConfigFilePermissions:
         """A second save() must keep the 0o600 permissions, not drift
         back to default umask."""
         import os, stat
-        from voice_typer.server.config import Config
+        from voice_typer.server.config import Config, _CURRENT_SCHEMA_VERSION
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         cfg = Config()
         cfg.cloud_api_key = "first"

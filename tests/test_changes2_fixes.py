@@ -848,53 +848,46 @@ class TestAudio019DequeEviction:
         assert "word1" not in committed
 
 
-# ─── AUDIO-AGC — _last_rms stored post-AGC ───────────────────────────────
+# ─── ADR 0007: AGC removed, replaced by Compressor filter ──────────────
 
 
 class TestAudioAgcLastRmsPostAgc:
-    """AUDIO-AGC.
+    """ADR 0007 §3.5: The old per-chunk AGC (_agc_update, C1) has been
+    removed and replaced by the Compressor filter in the audio filter
+    chain. These tests now verify that:
 
-    Pre-fix: ``_last_rms`` was stored BEFORE AGC was applied, while
-    VAD used the post-AGC recomputed value. UI/IPC consumers saw a
-    different RMS level than what VAD used internally. Fix: move
-    ``_last_rms = chunk_rms`` to AFTER the AGC recompute.
+    1. The _agc_update method and its constants are gone from recording.py.
+    2. _last_rms is still set (post-filter, for UI/IPC).
+    3. No AGC-related dead code remains.
     """
 
     def test_last_rms_assignment_after_agc_recompute(self):
+        """ADR 0007: AGC recompute block is gone. _last_rms is still set."""
         from voice_typer.server import recording as rec_mod
 
-        # The audio callback is a nested function inside start();
-        # inspect the entire start() method source.
         src = inspect.getsource(rec_mod.Recorder.start)
-        # Find positions of the AGC recompute and the _last_rms assignment
+        # The old AGC recompute block should NOT exist anymore
         agc_recompute_idx = src.find("if abs(self._agc_gain - 1.0) > 0.01")
         last_rms_idx = src.find("self._last_rms = chunk_rms")
-        assert agc_recompute_idx >= 0, "AGC recompute block not found"
-        assert last_rms_idx >= 0, "_last_rms assignment not found"
-        # _last_rms must come AFTER the AGC recompute block
-        assert last_rms_idx > agc_recompute_idx, (
-            "AUDIO-AGC regression: ``self._last_rms = chunk_rms`` is set "
-            "BEFORE the AGC recompute — UI/IPC will see pre-AGC values "
-            "while VAD uses post-AGC. Move the assignment to AFTER the "
-            "AGC recompute block."
+        assert agc_recompute_idx == -1, (
+            "ADR 0007: AGC recompute block should be deleted — "
+            "the Compressor filter in the audio chain handles this now."
         )
+        assert last_rms_idx >= 0, "_last_rms assignment must still exist for UI/IPC"
 
     def test_agc_applied_before_last_rms_storage(self):
-        """The AGC update call (``self._agc_update``) must come before
-        the ``_last_rms`` assignment.
-        """
+        """ADR 0007: _agc_update call is gone. _last_rms is still set."""
         from voice_typer.server import recording as rec_mod
 
         src = inspect.getsource(rec_mod.Recorder.start)
+        # The old _agc_update call should NOT exist anymore
         agc_update_idx = src.find("self._agc_update(chunk_rms, filtered)")
         last_rms_idx = src.find("self._last_rms = chunk_rms")
-        assert agc_update_idx >= 0
-        assert last_rms_idx >= 0
-        assert last_rms_idx > agc_update_idx, (
-            "AUDIO-AGC: ``self._agc_update`` must be called BEFORE "
-            "``self._last_rms = chunk_rms`` so the stored RMS reflects "
-            "post-AGC audio."
+        assert agc_update_idx == -1, (
+            "ADR 0007: _agc_update call should be deleted — "
+            "the Compressor filter in the audio chain handles gain control now."
         )
+        assert last_rms_idx >= 0, "_last_rms assignment must still exist for UI/IPC"
 
 
 if __name__ == "__main__":
