@@ -1890,11 +1890,16 @@ def main() -> None:
     log.info("[IPC] entering app.start() (tray event loop)")
     try:
         app.start()  # blocks (tray event loop)
-        log.info("[IPC] app.start() returned normally, process exiting")
+        # QUIT-CLEAN-001: keep shutdown quiet.  Only ``[QUIT] Quitting
+        # Voice Typer...`` (from app.quit_app) and ``[SHUTDOWN]
+        # Shutdown complete, exiting`` (from app.quit) should be at
+        # INFO during a normal quit; everything else is internal
+        # bookkeeping that the user doesn't need to see.
+        log.debug("[IPC] app.start() returned normally, process exiting")
     except SystemExit as _se:
         # sys.exit() or os._exit() called from within pystray or runtime.
         # Catch it so we can log the cause, then re-raise.
-        log.info("[IPC] app.start() exited via sys.exit(%s)", _se.code)
+        log.debug("[IPC] app.start() exited via sys.exit(%s)", _se.code)
         raise
     except Exception:
         # ERR-ERR-002 (fix): was `except BaseException` which also caught
@@ -1904,9 +1909,9 @@ def main() -> None:
         # NEW-CLI-003: use the standardized exit code instead of raw 1.
         sys.exit(EXIT_CRASH)
     else:
-        log.info("[IPC] main() exiting normally")
+        log.debug("[IPC] main() exiting normally")
     finally:
-        log.info("[IPC] main() reached finally")
+        log.debug("[IPC] main() reached finally")
     # Keep mutex alive by referencing it until exit
     _ = _single_instance_mutex
 

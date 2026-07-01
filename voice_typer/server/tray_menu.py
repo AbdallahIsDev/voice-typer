@@ -69,7 +69,15 @@ def wrap_callback(fn: Callable[[], None]) -> Callable:
         try:
             fn()
         except SystemExit as _se:
-            log.info(
+            # QUIT-CLEAN-001: this is the expected exit path for
+            # ``quit_app`` and ``restart_app`` — ``tray.stop()`` was
+            # already called inside the callback, so the pystray loop
+            # is winding down.  Log at DEBUG so the user only sees
+            # ``[QUIT] Quitting Voice Typer...`` and ``[SHUTDOWN]
+            # Shutdown complete, exiting`` during a normal quit; the
+            # ``SystemExit(...) suppressing`` line is internal
+            # bookkeeping that previously polluted INFO-level output.
+            log.debug(
                 "[TRAY] callback %r raised SystemExit(%s); suppressing "
                 "(tray.stop() already called, pystray loop will exit cleanly)",
                 getattr(fn, "__name__", "<lambda>"), _se.code,
