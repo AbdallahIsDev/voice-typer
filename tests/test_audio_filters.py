@@ -380,7 +380,7 @@ class TestNoiseSuppressor:
         assert ns._method == "none"
 
     def test_rnnoise_degrades_gracefully_if_missing(self):
-        """If rnnoise-webrtc isn't installed, should fall back to none."""
+        """If pyrnnoise isn't installed, should fall back to none."""
         ns = NoiseSuppressor(method="rnnoise", sample_rate=16000)
         # Either rnnoise is installed (not degraded) or it fell back (degraded)
         if ns._method == "none":

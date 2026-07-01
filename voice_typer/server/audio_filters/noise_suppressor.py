@@ -21,7 +21,7 @@ class NoiseSuppressor(AudioFilter):
     """Neural noise suppression with multiple backends.
 
     Backends (runtime-switchable):
-    - ``"rnnoise"`` — ``rnnoise-webrtc`` package, 480-sample frames at 48kHz.
+    - ``"rnnoise"`` — ``pyrnnoise`` package, 480-sample frames at 48kHz.
       BSD-licensed, ~1ms per frame. Default.
     - ``"deepfilternet"`` — ``deepfilternet`` package (requires torch).
       Higher quality, 2-3x CPU. Premium option.
@@ -75,13 +75,13 @@ class NoiseSuppressor(AudioFilter):
 
     def _init_rnnoise(self) -> None:
         try:
-            import rnnoise  # type: ignore[import-not-found]
-            self._backend = rnnoise.RNNoise()
+            from pyrnnoise import RNNoise  # type: ignore[import-not-found]
+            self._backend = RNNoise(sample_rate=_RNNOISE_SAMPLE_RATE)
             log.info("[NOISE-SUPPRESS] RNNoise backend ready")
         except ImportError:
             log.warning(
-                "[NOISE-SUPPRESS] rnnoise-webrtc not installed — "
-                "falling back to none. Install with: pip install rnnoise-webrtc"
+                "[NOISE-SUPPRESS] pyrnnoise not installed — "
+                "falling back to none. Install with: pip install pyrnnoise"
             )
             self._degraded = True
             self._degraded_reason = "rnnoise library not installed"
@@ -186,14 +186,21 @@ class NoiseSuppressor(AudioFilter):
             self._carry = combined
             return None  # signal caller to skip this chunk
 
+        # Set channel info once for pyrnnoise (mono).
+        self._backend.channels = 1  # type: ignore[union-attr]
+
         output_frames = []
         for i in range(n_full):
             start = i * _RNNOISE_FRAME_SIZE
-            frame = combined[start:start + _RNNOISE_FRAME_SIZE].astype(np.float32)
+            frame = combined[start:start + _RNNOISE_FRAME_SIZE]
             try:
-                # RNNoise expects float32 in [-1, 1]
-                cleaned = self._backend.filter_frame(frame)  # type: ignore[union-attr]
-                output_frames.append(np.asarray(cleaned, dtype=np.float32))
+                # pyrnnoise uses int16 internally; convert from float32.
+                frame_i16 = (frame * 32767).astype(np.int16)
+                # pyrnnoise expects [num_channels, 480]; returns (speech_prob, cleaned) as int16
+                _, cleaned_i16 = self._backend.denoise_frame(  # type: ignore[union-attr]
+                    frame_i16[np.newaxis, :]
+                )
+                output_frames.append(cleaned_i16[0].astype(np.float32) / 32767)
             except Exception as exc:
                 log.debug("[NOISE-SUPPRESS] RNNoise frame failed: %s", exc)
                 output_frames.append(frame)

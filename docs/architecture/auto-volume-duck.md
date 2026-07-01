@@ -906,7 +906,7 @@ Raw chunk (from PortAudio)
           ▼
 ┌─────────────────────┐
 │  RNNoise (optional) │  ◀── Neural denoiser (C library, ~1ms/10ms frame).
-│  (rnnoise-webrtc)   │      Best quality, removes broadband noise. Default
+│  (pyrnnoise)        │      Best quality, removes broadband noise. Default
 └─────────┬───────────┘      OFF (CPU cost). Toggle in settings.
           ▼
     filtered chunk → buffer
@@ -976,7 +976,7 @@ class AudioProcessor:
 
         if self._config.rnnoise:
             try:
-                import rnnoise  # rnnoise-webrtc
+                import rnnoise  # pyrnnoise
                 self._rnnoise = rnnoise.RNNoise()
                 self._rnnoise_frame_size = 480  # 30ms at 16kHz
                 log.info("[AUDIO-PROC] RNNoise loaded")
@@ -1686,7 +1686,7 @@ macos = ["pyobjc-core", "pyobjc-framework-CoreAudio"]
 [project.optional-dependencies]
 noise-filter = [
     "noisereduce>=3.0",          # post-capture spectral gating
-    "rnnoise-webrtc>=1.0",       # optional real-time neural denoise (prebuilt wheels)
+    "pyrnnoise>=1.0",       # optional real-time neural denoise (prebuilt wheels)
 ]
 # scipy already a dependency (used by recording.py for resampling)
 ```

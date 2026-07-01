@@ -15,7 +15,7 @@ The current noise filtering system has **7 mechanisms** across 4 files, with 3 c
 
 1. **Live config changes don't reach dictation.** `app._audio_processor` is built once at startup and never rebuilt. Settings UI changes take effect in the level bar and mic test, but NOT in actual dictation until app restart.
 2. **The "Recommended" preset is broken.** Config defaults (`highpass=True, gate=True, rnnoise=False, post_capture=True`) don't match the preset (`highpass=False, gate=False, rnnoise=True, post_capture=False`). Since RNNoise silently no-ops (library not installed), clicking "Recommended" yields zero filtering.
-3. **Two filter layers silently no-op.** `rnnoise-webrtc` and `noisereduce` are optional deps not in the default install. Config flags default ON but libraries are missing → filters do nothing, no warning.
+3. **Two filter layers silently no-op.** `pyrnnoise` and `noisereduce` are optional deps not in the default install. Config flags default ON but libraries are missing → filters do nothing, no warning.
 4. **Duplicate AGCs.** Layer B4 (`AudioProcessor._apply_normalization`, per-chunk peak, 4× cap) and Layer C1 (`Recorder._agc_update`, slow RMS, ~1s) run in series, uncoordinated. B4 is undocumented, not in UI, can pump on transients.
 5. **Inconsistent defaults.** Three different values for the noise-gate threshold (`0.003` in config, `0.015` in UI tooltip, `0.015` in `level_monitor` fallback). Two different values for gate hold (`300ms` in dataclass, `150ms` in config).
 6. **Dead config fields.** `silence_rms_threshold`, `silence_peak_threshold` — declared, validated, never read.
@@ -109,7 +109,7 @@ All filters operate on `float32` numpy arrays, mono, sample-rate-agnostic (passe
 ### 3.2 NoiseSuppressor (multi-backend)
 
 - **Backends** (runtime-switchable via `noise_suppression_method`):
-  - `"rnnoise"` — `rnnoise-webrtc` package, 480-sample frames, default model. **Default dependency** (not optional).
+  - `"rnnoise"` — `pyrnnoise` package, 480-sample frames, default model. **Default dependency** (not optional).
   - `"deepfilternet"` — `deepfilternet` package (requires torch, already installed). Higher quality, 2-3× CPU. Offered as premium option.
   - `"speex"` — `speexdsp` preprocessor. Lightest CPU. Fallback for low-end devices.
   - `"none"` — passthrough.
@@ -323,7 +323,7 @@ The `audio_preset="auto"` preset (the new default) exactly matches the new confi
 
 **File**: `pyproject.toml`
 
-Move `rnnoise-webrtc` from the `[noise-filter]` optional extra to the main `[dependencies]` list. Remove the `[noise-filter]` extra entirely (noisereduce is deleted, RNNoise is now required).
+Move `pyrnnoise` from the `[noise-filter]` optional extra to the main `[dependencies]` list. Remove the `[noise-filter]` extra entirely (noisereduce is deleted, RNNoise is now required).
 
 Add `deepfilternet` to a new `[deepfilternet]` optional extra (requires torch, which is already a dep):
 ```toml
@@ -448,8 +448,8 @@ Notch Filter (hum):       [OFF] ▼
 | `voice_typer/client/src/renderer/src/components/AudioPresetSelector.tsx` | Update preset list to 5 (Auto/Studio/Noisy Room/Off/Custom). Fetch preset definitions from backend (single source of truth). |
 | `voice_typer/client/src/renderer/src/types/config.ts` | Add new fields, remove deleted fields. |
 | `voice_typer/client/src/renderer/src/i18n/translations/en.json` | Add translation keys for all new UI strings. |
-| `pyproject.toml` | Move `rnnoise-webrtc` to main deps. Remove `[noise-filter]` extra. Add `[deepfilternet]` extra. Remove `noisereduce`. |
-| `scripts/build/voice-typer.spec` | Add `rnnoise-webrtc` to hiddenimports (was optional, now required). |
+| `pyproject.toml` | Move `pyrnnoise` to main deps. Remove `[noise-filter]` extra. Add `[deepfilternet]` extra. Remove `noisereduce`. |
+| `scripts/build/voice-typer.spec` | Add `pyrnnoise` to hiddenimports (was optional, now required). |
 
 ### 8.3 Deleted code
 
@@ -516,7 +516,7 @@ Notch Filter (hum):       [OFF] ▼
 ### 9.7 Cross-platform
 
 - **All filters are pure Python + numpy/scipy**: no platform-specific code. Same behavior on Windows, macOS, Linux.
-- **RNNoise**: `rnnoise-webrtc` ships pre-built wheels for Windows/macOS/Linux x64. On Linux ARM64 (Raspberry Pi), may need compilation — documented in README. If unavailable, falls back to `"none"`.
+- **RNNoise**: `pyrnnoise` ships pre-built wheels for Windows/macOS/Linux x64. On Linux ARM64 (Raspberry Pi), may need compilation — documented in README. If unavailable, falls back to `"none"`.
 - **DeepFilterNet**: requires torch (already a dep). Works on all platforms torch supports. On ARM64, may be slow — documented.
 - **Speex**: `speexdsp` Python package ships wheels for major platforms. If unavailable, falls back.
 - **No native C code**: all filters are Python. No compilation step needed. No platform-specific binaries.
