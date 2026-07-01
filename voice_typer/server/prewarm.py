@@ -8,8 +8,9 @@ and ``from_pretrained()`` calls hit RAM instead of the spindle, and
 startup drops from ~45 s to a few seconds.
 
 This module provides a standalone entry point — ``python -m
-voice_typer.server.prewarm`` — that Task Scheduler runs shortly after
-logon and again on idle.  It performs, in order, with **low I/O priority**
+voice_typer.server.prewarm`` — that the platform scheduler runs shortly
+after logon / at boot (Windows LogonTrigger, macOS RunAtLoad, Linux
+OnBootSec).  It performs, in order, with **low I/O priority**
 so it never competes with the user's real work:
 
 1.  **Config / RAM guard.**  Bail out immediately if the user has disabled

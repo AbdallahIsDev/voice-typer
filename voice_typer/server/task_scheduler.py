@@ -6,8 +6,6 @@ registers a Windows Scheduled Task that fires it:
 
 - **At logon**, after a 45 s delay (lets login settle, avoids contention
   with all the other startup programs fighting for disk).
-- **On idle**, when the system has been idle for 15 min (re-warms the
-  cache if a heavy-RAM session evicted it).
 
 The task runs with **below-normal priority**, hidden, no network, and
 only when on AC power (laptops).  It calls::
@@ -23,8 +21,8 @@ overwrite or delete it), we fall back to the per-user ``HKCU\\...\\Run``
 registry key — the same mechanism the app's autostart uses.  It runs
 ``pythonw.exe -m voice_typer.server.prewarm --delay 45`` at every logon:
 no console window, no admin rights, and the in-process delay replaces the
-Task Scheduler logon-trigger delay.  The registry path loses the idle
-re-warm trigger, but logon warmup (the part that matters) keeps working.
+Task Scheduler logon-trigger delay.  The registry path keeps logon
+warmup (the part that matters) working.
 
 Non-Windows platforms get no-op stubs: registration returns False and
 ``is_prewarm_registered`` returns False, so the Settings toggle simply has
@@ -74,10 +72,6 @@ _LOGON_DELAY = "PT0S"  # ISO 8601 duration: 0 seconds (fire at logon)
 # Coded as a CLI flag so platform.py can pass it without depending on
 # this module's internals.
 _APP_AUTOSTART_DELAY_SECONDS = 30
-
-# Re-warm after this much idle time, so a heavy-RAM session that evicted
-# the cache gets another chance before the user dictates again.
-_IDLE_DELAY = "PT15M"  # 15 minutes
 
 
 # ─── Python interpreter resolution ──────────────────────────────────────
@@ -329,12 +323,12 @@ def _build_task_xml(python_exe: str, arguments: str | None = None) -> str:
     ET.SubElement(settings, "StopIfGoingOnBatteries").text = "false"
     ET.SubElement(settings, "MultipleInstancesPolicy").text = "IgnoreNew"
 
-    # Idle settings — require 15 min idle, stop when no longer idle.
-    idle_settings = ET.SubElement(settings, "IdleSettings")
-    ET.SubElement(idle_settings, "Duration").text = "PT30M"
-    ET.SubElement(idle_settings, "WaitTimeout").text = _IDLE_DELAY
-    ET.SubElement(idle_settings, "StopOnIdleEnd").text = "true"
-    ET.SubElement(idle_settings, "RestartOnIdle").text = "false"
+    # PREWARM-001: the <IdleSettings> block that previously lived here was
+    # vestigial — once the <IdleTrigger> was removed (it caused prewarm to
+    # fire 5+ times per session), these settings had no effect on
+    # scheduling.  They were left behind in the earlier cleanup, which was
+    # misleading (the XML still advertised an idle behavior the task no
+    # longer had).  Prewarm is logon/boot-only on all platforms now.
 
     # ── Actions ──────────────────────────────────────────────────────
     # STARTUP-1: <Command> is pythonw.exe directly (NO cmd.exe wrapper).

@@ -222,12 +222,23 @@ class TestStartup5PrewarmPosix:
         assert "Nice=10" in service
 
     def test_posix_scheduler_linux_timer_builder(self):
-        """_build_linux_timer produces a valid systemd timer unit."""
+        """_build_linux_timer produces a valid systemd timer unit.
+
+        PREWARM-001 (Issue 2): Linux is now boot-only — OnUnitActiveSec
+        was removed so prewarm fires exactly once at boot, matching the
+        Windows LogonTrigger-only design.  The previous 4h re-fire caused
+        prewarm to run 5+ times per session; after the first run the OS
+        file cache is already warm, so subsequent runs were pure wasted
+        I/O (and under memory pressure actively harmful).
+        """
         from voice_typer.server import prewarm_scheduler_posix
         timer = prewarm_scheduler_posix._build_linux_timer()
         assert "[Timer]" in timer
         assert "OnBootSec=10s" in timer
-        assert "OnUnitActiveSec=4h" in timer
+        assert "OnUnitActiveSec" not in timer, (
+            "PREWARM-001 regression: OnUnitActiveSec is back, prewarm will "
+            "fire repeatedly instead of once at boot"
+        )
         assert "voice-typer-prewarm.service" in timer
 
     def test_task_scheduler_is_supported_returns_true_on_posix(self, monkeypatch):

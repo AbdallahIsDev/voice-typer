@@ -189,6 +189,11 @@ class TestTaskXml:
         After the first run the OS file cache is already warm; subsequent
         runs are pure wasted I/O. Prewarm should run exactly once per
         login/boot.
+
+        Issue 2: the vestigial <IdleSettings> block (left behind when
+        the IdleTrigger was removed) was also deleted — it had no
+        scheduling effect but kept advertising an idle behavior the
+        task no longer had.
         """
         # STARTUP-1: _build_task_xml now takes the pythonw path directly
         xml = task_scheduler._build_task_xml('C:\\path\\pythonw.exe')
@@ -196,6 +201,13 @@ class TestTaskXml:
         assert "IdleTrigger" not in xml, (
             "PREWARM-001 regression: IdleTrigger is back, prewarm will "
             "run 5+ times per session again"
+        )
+        # Issue 2: IdleSettings block was vestigial (no effect once
+        # IdleTrigger was gone) and misleading — assert it stays gone.
+        assert "IdleSettings" not in xml, (
+            "Issue 2 regression: <IdleSettings> is back — it is vestigial "
+            "(no IdleTrigger) and misleads readers into thinking the task "
+            "still has an idle behaviour"
         )
         # STARTUP-2: logon delay is now PT0S (was PT45S) so prewarm fires
         # at logon+0 — beats the app's cold imports.

@@ -204,16 +204,17 @@ Nice=10
 def _build_linux_timer() -> str:
     """Build the systemd user timer unit for prewarm.
 
-    OnBootSec fires 10 s after the system boots; OnUnitActiveSec re-runs
-    every 4 hours while the user is idle (equivalent to the Windows
-    IdleTrigger).
+    OnBootSec fires once 10 s after the system boots.  Linux prewarm is
+    boot-only, matching the Windows LogonTrigger-only design (PREWARM-001)
+    — after the first run the OS file cache is already warm, so periodic
+    re-runs would be pure wasted I/O (and under memory pressure actively
+    harmful, re-reading ~6 GB of files the OS had just evicted).
     """
     return """[Unit]
-Description=Run Voice Typer cache prewarm at boot + periodically
+Description=Run Voice Typer cache prewarm at boot
 
 [Timer]
 OnBootSec=10s
-OnUnitActiveSec=4h
 Unit=voice-typer-prewarm.service
 
 [Install]
