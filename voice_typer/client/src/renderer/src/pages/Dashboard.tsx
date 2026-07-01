@@ -304,7 +304,10 @@ export default function DashboardPage({
 						variant="outline"
 						size="sm"
 						onClick={() => shareAsImage("voice-typer-stats")}
-						className="gap-2"
+						// FIX: muted text/icon by default, white on hover —
+						// matches the muted style used by outline buttons
+						// elsewhere (History action row, Templates add, etc.).
+						className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
 					>
 						<HugeiconsIcon
 							icon={Share08Icon}

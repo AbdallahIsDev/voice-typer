@@ -415,7 +415,11 @@ export default function VocabularyPage() {
 							size="sm"
 							onClick={openAddDialog}
 							disabled={saving}
-							className="gap-2"
+							// FIX: muted text/icon by default, white on hover —
+							// matches the sibling Export button (also fixed in
+							// ExportFormatMenu) and the outline-button style
+							// used across other pages.
+							className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
 						>
 							<HugeiconsIcon
 								icon={Add01Icon}

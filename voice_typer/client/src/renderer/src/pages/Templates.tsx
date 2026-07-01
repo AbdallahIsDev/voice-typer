@@ -436,7 +436,10 @@ export default function TemplatesPage() {
 						size="sm"
 						onClick={openAddDialog}
 						aria-label="Add new template"
-						className="gap-2"
+						// FIX: muted text/icon by default, white on hover —
+						// matches the muted style used by outline buttons
+						// elsewhere (History action row, Vocabulary add, etc.).
+						className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
 					>
 						<HugeiconsIcon
 							icon={Add01Icon}

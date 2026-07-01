@@ -489,7 +489,10 @@ export default function ModelsPage() {
 					title={
 						allDownloaded ? "All models already downloaded" : "Download a model"
 					}
-					className="gap-2"
+					// FIX: muted text/icon by default, white on hover —
+					// matches the outline-button style used across other
+					// page headings (Templates add, Vocabulary add, etc.).
+					className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
 					aria-label={
 						allDownloaded ? "All models downloaded" : "Download model"
 					}

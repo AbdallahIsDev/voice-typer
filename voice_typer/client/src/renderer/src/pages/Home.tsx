@@ -518,7 +518,7 @@ export default function Home({
 								size="sm"
 								onClick={shareStats}
 								disabled={!cfg || stats.count === 0}
-								className="gap-2"
+								className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
 							>
 								<HugeiconsIcon
 									icon={Share08Icon}
