@@ -508,15 +508,27 @@ export default function App() {
 	);
 
 	// ── Theme change handler (save to config) ─────────────────────
-
+	// PERF: debounce the backend write so rapid theme toggling (e.g.
+	// user clicking through light → dark → system quickly) doesn't
+	// fire 3 separate set_config IPC calls. The local UI updates
+	// immediately (setThemeMode); the backend save is deferred 300ms
+	// and only the LAST selected mode is persisted.
+	const themeSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const handleThemeChange = useCallback(
 		async (mode: VoiceTyperConfig["theme_mode"]): Promise<void> => {
 			setThemeMode(mode);
-			try {
-				await call("set_config", { theme_mode: mode });
-			} catch {
-				// Theme is local-only if backend unavailable
+			// Cancel any pending save and schedule a new one.
+			if (themeSaveTimerRef.current) {
+				clearTimeout(themeSaveTimerRef.current);
 			}
+			themeSaveTimerRef.current = setTimeout(async () => {
+				themeSaveTimerRef.current = null;
+				try {
+					await call("set_config", { theme_mode: mode });
+				} catch {
+					// Theme is local-only if backend unavailable
+				}
+			}, 300);
 		},
 		[call],
 	);

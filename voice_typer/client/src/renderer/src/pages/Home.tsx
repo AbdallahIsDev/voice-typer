@@ -33,6 +33,18 @@ const RECENT_CACHE_KEY = "vt_home_recent_cache";
 const STATS_CACHE_KEY = "vt_home_stats_cache";
 
 /**
+ * Normalize a hotkey string for display. Server stores as `<f2>` (lowercase);
+ * display should be `F2` (uppercase). Moved to module scope so both the
+ * initial-load useEffect and the status_change reload handler can use it
+ * without duplicating the closure (which caused a TS2304 error because
+ * the reload handler referenced `normalizeHotkey` scoped to the other
+ * useEffect's body).
+ */
+function normalizeHotkey(raw: string): string {
+	return raw.replace(/[<>]/g, "").toUpperCase();
+}
+
+/**
  * Load the cached recent records, preferring the in-memory cache then
  * localStorage.  Populates the in-memory cache as a side effect so
  * subsequent calls are cheap.
@@ -240,9 +252,8 @@ export default function Home({
 
 	// NEW-TS-008: normalize hotkey to uppercase for display. Server
 	// stores as `<f2>` (lowercase); display should be `F2` (uppercase).
+	// normalizeHotkey is now a module-level function (see above).
 	useEffect(() => {
-		const normalizeHotkey = (raw: string): string =>
-			raw.replace(/[<>]/g, "").toUpperCase();
 		let cancelled = false;
 		const load = async () => {
 			try {
