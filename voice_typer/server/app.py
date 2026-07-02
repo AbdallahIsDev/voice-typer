@@ -16,6 +16,8 @@ from typing import Optional
 
 import numpy as np
 
+# Re-exported for monkeypatch.setattr("voice_typer.server.app.X", ...) in tests
+# and for runtime lookups from voice_typer.server.startup_tasks.  # ruff: noqa: F401
 from voice_typer.server import task_scheduler
 from voice_typer.server.audio_processor import AudioProcessor
 from voice_typer.server.audio_quality import AudioQualityAnalyzer
@@ -26,6 +28,9 @@ from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
 # Re-exported for monkeypatch.setattr("voice_typer.server.app.X", ...) in tests.  # ruff: noqa: F401
 from voice_typer.server.hotkeys import HotkeyBackend, create_hotkey_backend
 from voice_typer.server.history_db import HistoryDB
+# create_launcher_shortcut + list_microphones are re-exported here (and consumed
+# from voice_typer.server.startup_tasks) so tests that monkeypatch
+# voice_typer.server.app.list_microphones / create_launcher_shortcut keep working.  # ruff: noqa: F401
 from voice_typer.server.server_platform import (
     create_launcher_shortcut,
     disable_autostart,
@@ -1013,226 +1018,47 @@ class VoiceTyperApp:
         self.models.load_background()
 
     def _sync_autostart(self) -> None:
-        """Ensure config.autostart matches the actual platform autostart state."""
-        try:
-            actual = is_autostart_enabled()
-            if self.config.autostart and not actual:
-                log.info("[CONFIG] Config says autostart=true but it is disabled -- enabling")
-                enable_autostart()
-            elif not self.config.autostart and actual:
-                log.info("[CONFIG] Config says autostart=false but it is enabled -- disabling")
-                disable_autostart()
-        except Exception as e:
-            log.warning("[CONFIG] Autostart sync failed: %s", e)
+        """Delegate to startup_tasks.sync_autostart (extracted for testability)."""
+        from voice_typer.server.startup_tasks import sync_autostart
+
+        sync_autostart(self)
 
     def _sync_prewarm_task(self, shutdown_event=None) -> None:
-        """Ensure the OS prewarm scheduled task is registered.
+        """Delegate to startup_tasks.sync_prewarm_task (extracted for testability)."""
+        from voice_typer.server.startup_tasks import sync_prewarm_task
 
-        fast_startup is always enabled (no user toggle). The prewarm
-        task is registered at startup so the OS file cache is kept
-        warm for fast cold-boot. Falls back gracefully if the platform
-        doesn't support scheduled tasks (non-Windows).
-
-        RACE-020: accepts an optional shutdown_event so the task can
-        abort early if the app is quitting during startup.
-        """
-        if not task_scheduler.is_supported():
-            return
-        if shutdown_event is not None and shutdown_event.is_set():
-            return
-        try:
-            registered = task_scheduler.is_prewarm_registered()
-            if shutdown_event is not None and shutdown_event.is_set():
-                return
-            if not registered:
-                log.info("[CONFIG] Registering prewarm scheduled task")
-                task_scheduler.register_prewarm_task()
-        except Exception as e:
-            log.warning("[CONFIG] Prewarm task sync failed: %s", e)
+        sync_prewarm_task(self, shutdown_event)
 
     def _ensure_desktop_shortcut(self) -> None:
-        """Create the Desktop + Start Menu shortcuts on first run.
+        """Delegate to startup_tasks.ensure_desktop_shortcut (extracted for testability)."""
+        from voice_typer.server.startup_tasks import ensure_desktop_shortcut
 
-        Also migrates away the legacy backend-only ``Voice Typer.bat`` that
-        pointed at ``pythonw -m voice_typer`` (which started the backend
-        with no Electron, so the bubble overlay never worked).  That .bat
-        is removed so the user is left with only the correct universal
-        launcher shortcut.
-        """
-        if not is_windows():
-            return
-        desktop = Path.home() / "Desktop"
-        lnk_path = desktop / "Voice Typer.lnk"
-        legacy_bat = desktop / "Voice Typer.bat"
-
-        # 1. Migrate: remove the legacy backend-only .bat so the broken
-        #    "no bubble" shortcut stops shadowing the correct one.
-        try:
-            if legacy_bat.exists() and "-m voice_typer" in legacy_bat.read_text(
-                encoding="utf-8", errors="replace"
-            ):
-                legacy_bat.unlink()
-                log.info("[STARTUP] Removed legacy backend-only shortcut: %s", legacy_bat)
-        except OSError:
-            pass
-
-        # 2. Ensure the universal-launcher shortcut exists (always recreate
-        #    so old .lnk files pointing at the legacy -m voice_typer backend
-        #    get upgraded to the universal launcher).
-        try:
-            result = create_launcher_shortcut()
-            if result:
-                log.info("[STARTUP] Desktop shortcut synced: %s", result)
-        except Exception as e:
-            log.debug("[STARTUP] Desktop shortcut creation skipped: %s", e)
+        ensure_desktop_shortcut(self)
 
     def _load_microphones(self, shutdown_event=None) -> None:
-        """Enumerate microphones and update the tray menu.
+        """Delegate to startup_tasks.load_microphones (extracted for testability).
 
-        RACE-020: accepts an optional shutdown_event so the task can
-        abort early if the app is quitting during startup.
+        The extracted function compares old_ids vs new_ids (the cached
+        device-id set vs the freshly enumerated one) and pushes a
+        ``microphones_changed`` IPC event when the device set changes,
+        so the Electron renderer can refresh its microphone dropdown
+        without a manual "Refresh" click.
         """
-        # RACE-020: abort early if shutting down
-        if shutdown_event is not None and shutdown_event.is_set():
-            return
-        try:
-            mics = list_microphones()
-            # AUDIO-MIC: detect device changes by comparing the new
-            # list against the cached one. If the set of device IDs
-            # changed (USB mic plugged/unplugged), notify the UI via
-            # IPC push event so the Electron renderer can refresh its
-            # microphone dropdown without a manual "Refresh" click.
-            old_ids = {m["id"] for m in self._microphones} if self._microphones else set()
-            new_ids = {m["id"] for m in mics}
-            self._microphones = mics
-            self.tray.set_microphones(mics)
-            # Log INFO on first load or when device count changes.
-            # Routine polls where nothing changed log nothing — the
-            # microphones_changed IPC event handles UI updates.
-            if not old_ids:
-                log.info("[RECORDING] Found %d microphone(s)", len(mics))
-            elif len(mics) != len(old_ids):
-                log.info("[RECORDING] Microphone count changed: %d -> %d", len(old_ids), len(mics))
-            # AUDIO-MIC: push a device-change IPC event if the device
-            # set changed since the last enumeration.
-            if old_ids and old_ids != new_ids:
-                added = new_ids - old_ids
-                removed = old_ids - new_ids
-                log.info(
-                    "[AUDIO-MIC] Device set changed: +%d added, -%d removed",
-                    len(added), len(removed),
-                )
-                try:
-                    from voice_typer.server.ipc_server import _push_event_now
-                    _push_event_now({
-                        "type": "microphones_changed",
-                        "data": {"count": len(mics)},
-                    })
-                except Exception:
-                    pass
-        except Exception as e:
-            log.warning("[RECORDING] Could not enumerate microphones: %s", e)
+        from voice_typer.server.startup_tasks import load_microphones
+
+        load_microphones(self, shutdown_event)
 
     def _start_device_change_poller(self) -> None:
-        """AUDIO-MIC: Start a background thread that periodically polls
-        for audio device changes (every 30 seconds).
+        """Delegate to startup_tasks.start_device_change_poller (extracted for testability)."""
+        from voice_typer.server.startup_tasks import start_device_change_poller
 
-        Cross-platform fallback for the lack of WM_DEVICECHANGE (Windows),
-        CoreAudio notifications (macOS), and PipeWire signals (Linux).
-        When a device set change is detected, ``_load_microphones`` is
-        called, which pushes a ``microphones_changed`` IPC event so the
-        Electron UI can refresh its microphone dropdown.
-
-        The poller is a daemon thread that exits when ``_shutting_down``
-        is set. The 30-second interval is a trade-off between
-        responsiveness (user plugs in a USB mic and waits for it to
-        appear) and CPU cost (one ``sd.query_devices()`` call per
-        poll, ~1-5 ms).
-        """
-        import threading
-
-        def _poll_loop():
-            while not self._shutting_down:
-                # Sleep in 1-second increments so we can exit quickly
-                # when _shutting_down is set.
-                for _ in range(30):
-                    if self._shutting_down:
-                        return
-                    threading.Event().wait(1.0)
-                if self._shutting_down:
-                    return
-                try:
-                    # Re-enumerate; _load_microphones will detect
-                    # changes and push the IPC event.
-                    self._load_microphones()
-                except Exception:
-                    log.debug("[AUDIO-MIC] Device-change poll failed", exc_info=True)
-
-        t = threading.Thread(target=_poll_loop, daemon=True, name="AudioDevicePoller")
-        # RACE-008: daemon=True is acceptable because the poller only
-        # reads device state — no critical cleanup. On shutdown,
-        # _shutting_down is set and the thread exits within 1 second.
-        t.start()
+        start_device_change_poller(self)
 
     def _start_accessibility_pulse(self, initial_state: bool) -> None:
-        """PLAT-009: Periodically re-check macOS Accessibility permission.
+        """Delegate to startup_tasks.start_accessibility_pulse (extracted for testability)."""
+        from voice_typer.server.startup_tasks import start_accessibility_pulse
 
-        Runs on macOS only. Every 60 seconds, re-invokes
-        ``AXIsProcessTrusted()`` and fires ``tray.notify_safety`` only
-        on state transitions (granted→revoked or revoked→granted) so
-        the user isn't spammed with repeated notifications.
-
-        Pre-fix: accessibility was checked once at startup. If the user
-        granted permission after startup, the app never recovered until
-        restart. With this pulse, the app detects the change within 60s.
-        """
-        import threading
-
-        def _check_accessibility() -> bool:
-            """Return True if Accessibility permission is granted."""
-            try:
-                import ctypes
-                app_services = ctypes.cdll.LoadLibrary(
-                    "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
-                )
-                return bool(app_services.AXIsProcessTrusted())
-            except Exception:
-                return False  # fail safe (assume not granted)
-
-        def _pulse_loop():
-            last_state = initial_state
-            while not self._shutting_down:
-                for _ in range(60):
-                    if self._shutting_down:
-                        return
-                    threading.Event().wait(1.0)
-                if self._shutting_down:
-                    return
-                current = _check_accessibility()
-                if current != last_state:
-                    if current:
-                        log.info("[PLAT-009] macOS Accessibility permission granted")
-                        try:
-                            self.tray.notify("Voice Typer", "Accessibility permission granted. Hotkeys are now active.")
-                        except Exception:
-                            pass
-                    else:
-                        log.warning("[PLAT-009] macOS Accessibility permission revoked")
-                        try:
-                            self.tray.notify_safety(
-                                "Voice Typer — Accessibility Revoked",
-                                "Global hotkeys have been disabled. Open System Settings "
-                                "\u2192 Privacy & Security \u2192 Accessibility to re-grant.",
-                            )
-                        except Exception:
-                            pass
-                    last_state = current
-
-        t = threading.Thread(target=_pulse_loop, daemon=True, name="A11yPulse")
-        # RACE-008: daemon=True is acceptable — the pulse only reads
-        # permission state, no critical cleanup. On shutdown, the thread
-        # exits within 1 second.
-        t.start()
+        start_accessibility_pulse(self, initial_state)
 
     def _fallback_to_whisper(self, notify_on_failure: bool = False):
         """#2 (Round 9): delegate to ModelManager.fallback_to_whisper()."""
