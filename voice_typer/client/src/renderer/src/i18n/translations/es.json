@@ -1,8 +1,8 @@
 {
 	"app": {
 		"name": "Voice Typer",
-		"startingBackend": "Iniciando backend de Python\u2026",
-		"firstLaunchHint": "El primer inicio puede tardar 30\u201360 segundos mientras descargamos el modelo de reconocimiento de voz (~466 MB para small.en). Los inicios posteriores son mucho más rápidos. Puede cerrar esta ventana \u2014 el dictado funcionará desde la bandeja del sistema una vez que esté listo.",
+		"startingBackend": "Iniciando backend de Python…",
+		"firstLaunchHint": "El primer inicio puede tardar 30–60 segundos mientras descargamos el modelo de reconocimiento de voz (~466 MB para small.en). Los inicios posteriores son mucho más rápidos. Puede cerrar esta ventana — el dictado funcionará desde la bandeja del sistema una vez que esté listo.",
 		"lostConnection": "Se perdió la conexión con el backend de Python",
 		"retryConnection": "Reintentar conexión"
 	},
@@ -33,7 +33,7 @@
 	},
 	"settings": {
 		"title": "Configuración",
-		"searchPlaceholder": "Buscar configuración\u2026",
+		"searchPlaceholder": "Buscar configuración…",
 		"general": "General",
 		"language": "Idioma",
 		"languageDescription": "Idioma de reconocimiento de voz",
@@ -111,5 +111,18 @@
 		"skipToMain": "Saltar al contenido principal",
 		"keyboardShortcuts": "Atajos de teclado",
 		"closeDialog": "Presione Esc o haga clic fuera para cerrar."
+	},
+	"help": {
+		"title": "Atajos de Teclado",
+		"dictation": "Iniciar / detener dictado",
+		"cancel": "Cancelar grabación, o cerrar este cuadro",
+		"repaste": "Re-pegar última transcripción",
+		"toggleSidebar": "Alternar barra lateral",
+		"navigate": "Navegar entre controles",
+		"toggle": "Alternar interruptores / presionar botones",
+		"activate": "Activar control enfocado",
+		"openHelp": "Abrir esta ayuda",
+		"navBack": "Navegar atrás / adelante",
+		"closeHint": "Presiona {key} o haz clic fuera para cerrar."
 	}
 }

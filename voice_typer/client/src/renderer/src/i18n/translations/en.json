@@ -1,11 +1,11 @@
 {
 	"app": {
 		"name": "Voice Typer",
-		"startingBackend": "Starting Python backend\u2026",
-		"firstLaunchHint": "First launch can take 30\u201360 seconds while we download the speech model (~466 MB for small.en). Subsequent launches are much faster. You can close this window \u2014 dictation will work from the system tray once ready.",
+		"startingBackend": "Starting Python backend…",
+		"firstLaunchHint": "First launch can take 30–60 seconds while we download the speech model (~466 MB for small.en). Subsequent launches are much faster. You can close this window — dictation will work from the system tray once ready.",
 		"lostConnection": "Lost connection to Python backend",
 		"retryConnection": "Retry Connection",
-		"restartingBackend": "Restarting Voice Typer backend\u2026",
+		"restartingBackend": "Restarting Voice Typer backend…",
 		"restartingHint": "This usually takes a few seconds. Dictation will resume from the system tray once ready."
 	},
 	"nav": {
@@ -35,7 +35,7 @@
 	},
 	"settings": {
 		"title": "Settings",
-		"searchPlaceholder": "Search settings\u2026",
+		"searchPlaceholder": "Search settings…",
 		"general": "General",
 		"language": "Language",
 		"languageDescription": "Speech recognition language",
@@ -113,5 +113,18 @@
 		"skipToMain": "Skip to main content",
 		"keyboardShortcuts": "Keyboard Shortcuts",
 		"closeDialog": "Press Esc or click outside to close."
+	},
+	"help": {
+		"title": "Keyboard Shortcuts",
+		"dictation": "Start / stop dictation",
+		"cancel": "Cancel recording, or close this dialog",
+		"repaste": "Re-paste last transcription",
+		"toggleSidebar": "Toggle sidebar",
+		"navigate": "Navigate between controls",
+		"toggle": "Toggle switches / press buttons",
+		"activate": "Activate focused control",
+		"openHelp": "Open this help overlay",
+		"navBack": "Navigate back / forward",
+		"closeHint": "Press {key} or click outside to close."
 	}
 }

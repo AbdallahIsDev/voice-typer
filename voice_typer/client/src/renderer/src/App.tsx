@@ -309,30 +309,30 @@ export default function App() {
 								id="help-overlay-title"
 								className="mb-4 text-lg font-semibold text-(--text-primary)"
 							>
-								Keyboard Shortcuts
+								{t("help.title")}
 							</h2>
 							<div className="space-y-2 text-sm">
 								{[
 									{
 										keys: "Caps Lock (or your hotkey)",
-										desc: "Start / stop dictation",
+										desc: t("help.dictation"),
 									},
 									{
 										keys: "Esc",
-										desc: "Cancel recording, or close this dialog",
+										desc: t("help.cancel"),
 									},
-									{ keys: "Ctrl+Alt+V", desc: "Re-paste last transcription" },
-									{ keys: "Ctrl+B", desc: "Toggle sidebar" },
+									{ keys: "Ctrl+Alt+V", desc: t("help.repaste") },
+									{ keys: "Ctrl+B", desc: t("help.toggleSidebar") },
 									{
 										keys: "Tab / Shift+Tab",
-										desc: "Navigate between controls",
+										desc: t("help.navigate"),
 									},
-									{ keys: "Space", desc: "Toggle switches / press buttons" },
-									{ keys: "Enter", desc: "Activate focused control" },
-									{ keys: "?", desc: "Open this help overlay" },
+									{ keys: "Space", desc: t("help.toggle") },
+									{ keys: "Enter", desc: t("help.activate") },
+									{ keys: "?", desc: t("help.openHelp") },
 									{
 										keys: "Alt+Left / Alt+Right",
-										desc: "Navigate back / forward",
+										desc: t("help.navBack"),
 									},
 								].map((shortcut) => (
 									<div
@@ -347,9 +347,7 @@ export default function App() {
 								))}
 							</div>
 							<p className="mt-4 text-xs text-(--text-muted)">
-								Press{" "}
-								<kbd className="rounded border border-border px-1">Esc</kbd> or
-								click outside to close.
+								{t("help.closeHint", { key: "Esc" })}
 							</p>
 						</div>
 					</div>

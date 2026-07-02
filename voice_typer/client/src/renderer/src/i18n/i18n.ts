@@ -110,20 +110,35 @@ export function setLocale(locale: Locale): void {
  * Translate a key to the current locale's string.
  * Falls back to English, then to the raw key if not found.
  *
+ * Supports optional `{placeholder}` interpolation: if `params` is provided,
+ * each `{key}` in the translated string is replaced with the corresponding
+ * value from `params`.
+ *
  * @param key - Dot-separated translation key (e.g., "app.name")
+ * @param params - Optional interpolation params (e.g., `{ key: "Esc" }`)
  * @returns The translated string
  */
-export function t(key: string): string {
+export function t(key: string, params?: Record<string, string>): string {
+	let result: string;
 	// Try current locale first
 	const currentMap = _translations.get(_currentLocale);
 	if (currentMap?.has(key)) {
-		return currentMap.get(key) ?? key;
+		result = currentMap.get(key) ?? key;
+	} else {
+		// Fall back to English
+		const enMap = _translations.get("en");
+		if (enMap?.has(key)) {
+			result = enMap.get(key) ?? key;
+		} else {
+			// Last resort: return the key itself
+			result = key;
+		}
 	}
-	// Fall back to English
-	const enMap = _translations.get("en");
-	if (enMap?.has(key)) {
-		return enMap.get(key) ?? key;
+	// Interpolate {placeholder} values
+	if (params) {
+		for (const [k, v] of Object.entries(params)) {
+			result = result.replace(new RegExp(`\\{${k}\\}`, "g"), v);
+		}
 	}
-	// Last resort: return the key itself
-	return key;
+	return result;
 }
