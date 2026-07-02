@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+# Husky pre-commit hook: runs lint-staged on staged files.
+# lint-staged runs biome check --write on .ts/.tsx/.js/.jsx/.json/.css files
+# and ruff check+format on .py files, only on files that are staged for commit.
+# This catches import errors, type mismatches, and formatting issues before
+# they reach the remote.
+npx lint-staged

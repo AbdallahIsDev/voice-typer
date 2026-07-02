@@ -1,0 +1,9 @@
+{
+	"*.ts": ["biome check --write"],
+	"*.tsx": ["biome check --write"],
+	"*.js": ["biome check --write"],
+	"*.jsx": ["biome check --write"],
+	"*.json": ["biome check --write"],
+	"*.css": ["biome check --write"],
+	"*.py": ["ruff check --fix", "ruff format"]
+}
