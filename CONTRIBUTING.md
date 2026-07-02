@@ -1,143 +1,598 @@
 # Contributing to Voice Typer
 
-Thank you for your interest in contributing! This document covers the basics.
+Thank you for your interest in improving Voice Typer — a premium offline
+background voice-to-text utility that lives in your system tray. This
+document is the canonical reference for getting a development
+environment running, understanding the project layout, and shipping
+changes that pass CI and respect the security model.
 
-## Development Setup
+> **TL;DR** — `pip install -e ".[test,dev]"`, `cd voice_typer/client && npm install`,
+> `pre-commit install`, then `pytest tests/ -v` and `npm run test`.
 
-### Prerequisites
+---
 
-- **Python 3.10+** (3.12 recommended)
-- **Node.js 20+** (for the Electron frontend)
-- **Windows 10/11** (primary target; macOS/Linux have partial support)
-- A microphone for testing dictation
+## 1. Prerequisites
 
-### Getting Started
+Voice Typer is a cross-platform desktop app with a Python backend and an
+Electron + React frontend. Both halves must be present to develop
+locally.
 
-1. **Clone the repo:**
-   ```bash
-   git clone https://github.com/AbdallahIsDev/voice-typer.git
-   cd voice-typer
-   ```
+### Common
 
-2. **Set up Python environment:**
-   ```bash
-   python -m venv .venv
-   # Windows:
-   .venv\Scripts\activate
-   # Linux/macOS:
-   source .venv/bin/activate
+- **Python 3.10 or newer** (3.12 recommended; 3.13/3.14 are also
+  supported per `[tool.uv].supported-python-versions`). Install from
+  [python.org](https://python.org) or your OS package manager.
+- **Node.js 20 or newer** (matches the `"engines": {"node": ">=20"}`
+  constraint in `voice_typer/client/package.json`). The recommended way
+  is via [nvm](https://github.com/nvm-sh/nvm) or
+  [fnm](https://github.com/Schniz/fnm) so you can match CI exactly.
+- **Git** with LFS not required (we keep binary fixtures under 500 KB —
+  see the `check-added-large-files` pre-commit hook).
+- **A working microphone** for end-to-end dictation tests. Headless
+  unit tests mock audio capture via the `mock_heavy_imports` autouse
+  fixture (see `tests/conftest.py`).
 
-   pip install -e ".[test]"
-   ```
+### OS-specific notes
 
-3. **Set up Electron frontend:**
-   ```bash
-   cd voice_typer/client
-   npm install
-   ```
+| OS | Required system packages / toolchain |
+|----|---------------------------------------|
+| **Windows 10/11** | "Desktop development with C++" workload from Visual Studio Build Tools (for compiling `pynput` keyboard hooks and the optional `windows-key-listener.c` native helper). Run `pip install -e ".[windows]"` to pull `pycaw`, `comtypes`, and `pywin32` for volume ducking and shortcut creation. |
+| **macOS 11+** | Xcode Command Line Tools (`xcode-select --install`). The `pyobjc-core`, `pyobjc-framework-CoreAudio`, and `pyobjc-framework-Cocoa` deps (declared with `sys_platform == 'darwin'` markers) require a working Clang. Grant **Accessibility** permission to the terminal (or the built app) the first time you press the hotkey — the native key listener needs it. |
+| **Linux (X11 or Wayland)** | `libxdo-dev` and `libxtst-dev` (Debian/Ubuntu: `sudo apt install libxdo-dev libxtst-dev`; Fedora: `sudo dnf install xdo-devel libXtst-devel`). Add your user to the `input` group so the native key listener can read `/dev/input/event*`: `sudo usermod -aG input $USER` then log out/in. See `scripts/linux/99-voice-typer.rules` and `scripts/linux/install_permissions.py` for the packaged udev/polkit story. |
 
-4. **Run the app in dev mode:**
-   ```bash
-   # Terminal 1: Python backend
-   python -m voice_typer.server.ipc_server
+> **GPU users (optional):** if you want CUDA-accelerated transcription,
+> install the matching `torch` wheel *before* `pip install -e .` using
+> the `--index-url https://download.pytorch.org/whl/cu118` (or `cu121`)
+> flag. CPU-only installs work fine — `faster-whisper` and the optional
+> `qwen-asr` extra both fall back to CPU automatically.
 
-   # Terminal 2: Electron frontend
-   cd voice_typer/client
-   npm run dev
-   ```
+---
 
-## Running Tests
-
-### Python Tests
+## 2. Development Setup
 
 ```bash
-pytest tests/ -v
+# 1. Clone
+git clone https://github.com/AbdallahIsDev/voice-typer.git
+cd voice-typer
+
+# 2. Create a dedicated venv (matches the path the launcher expects
+#    in production — see ~/.voice-typer/venv in docs/home-directory.md)
+python -m venv ~/.voice-typer/venv
+
+# 3. Activate it
+#    Windows (PowerShell):
+~/.voice-typer/venv/Scripts/Activate.ps1
+#    Windows (cmd):
+~/.voice-typer/venv/Scripts/activate.bat
+#    macOS / Linux:
+source ~/.voice-typer/venv/bin/activate
+
+# 4. Install Python deps (editable + test + dev extras).
+#    Option A — extras syntax (preferred):
+pip install -e ".[test,dev]"
+#    Option B — pin to the locked set used by CI:
+pip install -r requirements.txt
+pip install -r requirements-lock.txt   # reproducible exact versions
+
+# 5. Install the Electron + React frontend
+cd voice_typer/client
+npm install
+
+# 6. Run the app in dev mode (two terminals, or use `npm run dev`
+#    which spawns the Python subprocess automatically)
+#    Terminal 1 — Python backend (optional; `npm run dev` starts it
+#    automatically, but running it standalone is useful for debugging):
+python -m voice_typer.server.ipc_server
+#    Terminal 2 — Electron + Vite HMR:
+npm run dev
 ```
 
-Currently 1334+ tests pass. Tests cover IPC dispatch, config validation, ASR
-engines, hotkey backends, recording, streaming, and end-to-end regression suites.
+### Optional extras
 
-### Frontend Tests
+```bash
+pip install -e ".[qwen]"       # experimental Qwen3-ASR-0.6B backend
+pip install -e ".[deepfilternet]"  # premium DeepFilterNet noise filter
+pip install -e ".[build]"      # PyInstaller for producing the .exe/.app
+```
+
+### Pre-commit hooks
+
+```bash
+pre-commit install        # runs ruff, mypy, biome, and basic checks
+pre-commit install --hook-type commit-msg   # if you wire commit-msg checks
+pre-commit run --all-files   # run the whole suite manually
+```
+
+---
+
+## 3. Project Structure
+
+```
+voice-typer/
+├── voice_typer/
+│   ├── server/                       # Python backend (the "real" app)
+│   │   ├── ipc_server.py             # TCP JSON-lines server, SEC-018 token auth
+│   │   ├── app.py                    # VoiceTyperApp — orchestrator
+│   │   ├── config.py                 # SEC-002 allowlist, SEC-003 redaction
+│   │   ├── security.py               # token / URL / file-perm helpers
+│   │   ├── tray.py / tray_menu.py    # pystray tray icon + menu
+│   │   ├── recording.py              # PortAudio capture → deque
+│   │   ├── transcription.py          # ASR dispatch (whisper/qwen/parakeet)
+│   │   ├── text_cleanup.py           # dedup, misspellings, capitalization
+│   │   ├── vocabulary.py             # user corrections (single source)
+│   │   ├── templates.py              # text templates / snippets
+│   │   ├── history_db.py             # SQLite WAL, SEC-007 0o600 perms
+│   │   ├── crash_recovery.py         # RELIABILITY-005 async flush
+│   │   ├── cloud_engines.py          # RELIABILITY-004 URL allowlist
+│   │   ├── llm_polish.py             # PRIVACY-001 consent gate
+│   │   ├── audio_filters/            # ADR 0007 — RNNoise, gate, EQ, …
+│   │   ├── native/                   # C/Swift key listeners per OS
+│   │   └── ...
+│   │
+│   └── client/                       # Electron + React frontend
+│       ├── src/
+│       │   ├── main/index.ts         # Electron main process — spawns Python
+│       │   ├── preload/index.ts      # SEC-014 contextIsolation bridge
+│       │   ├── preload/bubble.ts     # SEC-016 bubble-scoped bridge
+│       │   └── renderer/src/
+│       │       ├── App.tsx           # React root, routing
+│       │       ├── pages/            # Home, Settings, History, Models, …
+│       │       ├── components/       # Sidebar, StatCards, ThemeSwitch, …
+│       │       ├── hooks/            # usePython, useSnackbar, useStatsShare
+│       │       └── types/            # ipc.ts, config.ts, stats.ts
+│       ├── package.json              # scripts: dev, build, test, typecheck
+│       ├── biome.json                # formatter: tabs + double quotes
+│       ├── eslint.config.mjs
+│       └── electron-builder.yml
+│
+├── tests/                            # pytest suite (1300+ tests)
+│   ├── conftest.py                   # mock_heavy_imports autouse fixture
+│   ├── fixtures/                     # WAV files for audio tests
+│   ├── manual/                       # scripts you run by hand (cublas, etc.)
+│   ├── mutmut_config.py              # mutation testing config
+│   └── test_*.py                     # one test module per feature/round
+│
+├── docs/
+│   ├── ARCHITECTURE.md               # the big picture (READ THIS)
+│   ├── API.md                        # IPC message reference
+│   ├── PLATFORM_STATUS.md            # per-OS support matrix
+│   ├── home-directory.md             # ~/.voice-typer/ layout
+│   └── adr/                          # Architecture Decision Records
+│       ├── 0001-adr-process.md
+│       ├── 0002-electron-python-architecture.md
+│       ├── 0002-ipc-protocol.md
+│       ├── 0004-clipboard-security.md
+│       ├── 0005-native-hotkey-architecture.md
+│       ├── 0007-audio-filter-chain-architecture.md
+│       └── ...
+│
+├── scripts/
+│   ├── build/                        # PyInstaller spec, icon generators
+│   └── linux/                        # udev rules, polkit, postinst
+│
+├── bench/                            # startup + transcription benchmarks
+├── pyproject.toml                    # project metadata, ruff, mypy, pytest
+├── requirements.txt                  # pip-installable deps (mirror of pyproject)
+├── requirements-lock.txt             # pinned exact versions
+├── .pre-commit-config.yaml           # ruff + mypy + biome + sanity hooks
+├── README.md
+├── CONTRIBUTING.md                   # ← you are here
+└── SECURITY.md
+```
+
+---
+
+## 4. Development Workflow
+
+### 4.1 Python tests
+
+```bash
+# Full suite — verbose, with coverage gate at 60% (see pyproject.toml)
+pytest tests/ -v
+
+# Single test file / single test
+pytest tests/test_ipc_server.py -v
+pytest tests/test_config.py::test_set_config_allowlist -v
+
+# Markers (see tests/conftest.py for the full list)
+pytest -m real_pynput      # tests that need the real pynput.keyboard listener
+pytest -m real_pil         # tests that need the real PIL.ImageDraw
+
+# Coverage report (HTML)
+pytest --cov=voice_typer --cov-report=html
+open htmlcov/index.html
+```
+
+The `addopts` in `pyproject.toml` already include `-v --tb=short --cov=voice_typer --cov-fail-under=60`, so a bare `pytest` is enough for CI-equivalent output.
+
+### 4.2 Frontend tests
 
 ```bash
 cd voice_typer/client
-npm test        # vitest
-npm run lint    # eslint
-npm run typecheck  # tsc --noEmit
+
+npm run test           # vitest run (one-shot, CI-friendly)
+npm run test:watch     # vitest in watch mode during development
+
+# Lint + format + typecheck (run all three before pushing)
+npx biome check        # formatter (tabs + double quotes) + linter
+npm run lint           # eslint with --max-warnings=0
+npm run typecheck      # tsc --noEmit × 3 configs (root, web, node)
+npm run build          # electron-vite build (full production bundle)
 ```
 
-## Code Style
+### 4.3 Pre-commit
 
-### Python
-
-- **Formatter:** ruff (line-length = 120)
-- **Type checker:** pyrefly / mypy (Python 3.12 target)
-- **Test framework:** pytest
-
-Key conventions:
-- Every fix should include a regression test.
-- Use `log.exception()` for error paths, not bare `print()`.
-- Never use `# type: ignore` or `except: pass` to suppress real issues.
-- Document non-obvious decisions with `# NEW-XXX:` comments referencing the issue ID.
-
-### Mock Import Convention
-
-TEST-033: Always import mock objects from `unittest.mock` directly:
-
-```python
-# ✓ Correct
-from unittest.mock import MagicMock, patch
-
-# ✗ Wrong — do NOT use the `mock` module alias
-from unittest import mock
-mock.MagicMock(...)  # wrong
+```bash
+pre-commit install                 # wire the hooks into .git/hooks/pre-commit
+pre-commit run --all-files         # run every hook against the whole tree
+pre-commit run ruff --all-files    # run a single hook
 ```
 
-Rationale: `from unittest import mock` introduces an unnecessary indirection.
-Importing the specific classes (`MagicMock`, `patch`, `call`, `PropertyMock`)
-directly from `unittest.mock` is more explicit and avoids the `mock.XXX`
-prefix pattern. The `monkeypatch` fixture from pytest is preferred for
-attribute/item replacement since it auto-cleans up after each test.
+Hooks (see `.pre-commit-config.yaml`): `ruff` (lint + format), `mypy`
+(server-only, with `--ignore-missing-imports` and `--no-strict-optional`
+to keep the dev loop fast), `pre-commit-hooks` (trailing whitespace,
+end-of-file fixer, YAML/JSON validation, merge-conflict markers,
+large-file cap at 500 KB, LF line endings), plus two local hooks that
+shell out to `npx biome check` and `npm run typecheck` for the client.
 
-### TypeScript
+### 4.4 Benchmarks
 
-- **Formatter:** prettier
-- **Linter:** eslint (max-warnings=0)
-- **Type checker:** tsc --noEmit
+```bash
+python bench/bench_startup.py        # cold-start time of the tray icon
+python bench/bench_transcription.py  # transcribe a fixed WAV and report WPS
+```
 
-Key conventions:
-- Use the shared `useSnackbar` hook, not inline `useState` + `setTimeout`.
-- Validate IPC responses at runtime before casting (see `asRecordingState`).
-- Prefer the shared `usePython()` hook for all Python backend calls.
+### 4.5 Mutation testing (expensive — do not run in CI)
 
-## Submitting Changes
+```bash
+mutmut run --paths-to-mutate=voice_typer/server/text_cleanup.py,voice_typer/server/config.py
+mutmut results
+mutmut show <mutant-id>
+```
 
-1. **Fork** the repo and create a feature branch.
-2. **Write tests** for your changes.
-3. **Run the full test suite** — all tests must pass.
-4. **Run lint + typecheck** — zero warnings.
-5. **Open a Pull Request** with a clear description of what changed and why.
+See `tests/mutmut_config.py` and `[tool.mutmut]` in `pyproject.toml`.
 
-## Reporting Bugs
+---
 
-Use [GitHub Issues](https://github.com/AbdallahIsDev/voice-typer/issues) and
-include:
-- Voice Typer version (`python -m voice_typer --version`)
-- OS and Python version
-- Steps to reproduce
-- Expected vs. actual behavior
-- Log file (if applicable) — see the About/Diagnostics page in the app
+## 5. Architecture Overview
 
-## Architecture
+Voice Typer is a **two-process desktop app**. The Electron **main
+process** (`voice_typer/client/src/main/index.ts`) is the entry point:
+it generates a 32-byte `IPC_TOKEN` via `crypto.randomBytes`, spawns the
+Python backend as a child process with that token injected through the
+`VOICE_TYPER_IPC_TOKEN` environment variable, then opens the main React
+window and a small always-on-top "bubble" window for live waveform
+feedback. The Python process (`voice_typer/server/ipc_server.py`) binds
+to **`127.0.0.1:9876`** and speaks JSON-lines over TCP. The very first
+frame Electron sends is `{"type":"auth","token":...}` — the connection
+is dropped unless the token matches (SEC-018). All subsequent IPC is
+untrusted-by-default: each inbound message is size-capped at 1 MB
+(SEC-009), rate-limited at 200 burst / 60 sustained messages per second
+(RELIABILITY-006), and dispatched through a per-method allowlist
+(`set_config` enforces SEC-002's 53-field allowlist with type/range/
+enum/URL validation; `get_config` redacts API keys via SEC-003).
 
-See `FEATURES.md` and `docs/ARCHITECTURE.md` for the full architecture overview.
-The key design decisions:
+The Python **backend** is a long-running tray app. `VoiceTyperApp`
+(in `app.py`) wires together: a **pystray** tray icon (with a minimal
+menu — most configuration lives in the Electron UI), three hotkey
+backends (Win32, macOS CGEvent, Linux `/dev/input` — see ADR 0005), a
+PortAudio recorder that captures 16 kHz mono into a bounded `deque`,
+and a transcription pipeline. The pipeline dispatches to one of three
+**ASR engines**: `faster-whisper` (default, CUDA-first with CPU
+fallback), `qwen_engine.QwenEngine` (experimental Qwen3-ASR-0.6B), or
+`parakeet_engine.ParakeetEngine` (NVIDIA Parakeet). ARCH-013 unified
+the latter two through a generic `_init_asr_engine` dispatcher. After
+ASR, text flows through `text_cleanup` (dedup, misspellings,
+self-corrections, capitalization — skipped per ARCH-009 if the
+VocabularyManager is enabled to avoid double-application), the
+VocabularyManager, TemplateManager, optional LLM polish (gated by
+PRIVACY-001 consent), auto-punctuation, then is copied to the clipboard
+and pasted into the focused field. History entries land in a SQLite
+WAL database (SEC-007: `0o600` perms on POSIX) and crash-recovery
+state is flushed through a daemon thread (RELIABILITY-005).
 
-- **TCP IPC bridge** between Electron (frontend) and Python (backend)
-- **CUDA-first** ASR with automatic CPU fallback
-- **Multiple ASR backends:** faster-whisper, Qwen3, Parakeet, cloud (OpenAI/Groq/Deepgram)
-- **Offline-first:** all processing happens locally after the first model download
+The **React renderer** never talks to Python directly — it goes through
+the **preload bridge**. Electron's `webPreferences` are locked down
+per SEC-014 (`contextIsolation: true`, `sandbox: true`,
+`webSecurity: true`, `nodeIntegration: false`), so the renderer sees
+only the small typed surface that `src/preload/index.ts` exposes via
+`contextBridge.exposeInMainWorld`. The bubble window has its own
+preload (`src/preload/bubble.ts`) with an even smaller surface; every
+IPC handler that the bubble can invoke is guarded by
+`assertFromBubble(event)` (SEC-016) so a compromised renderer cannot
+replay bubble-scoped messages back through the main window. Broadcasts
+from Python to Electron are filtered to `mainWindow` only (SEC-017).
+The renderer itself is a standard Vite + React 19 + Tailwind 4 app
+with shadcn/ui components; all backend interaction goes through the
+shared `usePython()` hook (`src/renderer/src/hooks/usePython.ts`),
+which handles reconnects, request/response correlation, and event
+subscription. See `docs/ARCHITECTURE.md` for the full diagram and
+`docs/adr/` for the rationale behind each major decision.
+
+---
+
+## 6. Coding Standards
+
+### 6.1 Python
+
+- **Type hints are mandatory** on all new public functions. The
+  codebase has many untyped legacy functions (`disallow_untyped_defs`
+  is `false` in `pyproject.toml`), but new code must be typed. Run
+  `mypy voice_typer/server/` locally; the pre-commit hook already
+  scopes mypy to `^voice_typer/server/` with
+  `--ignore-missing-imports --no-strict-optional` for speed.
+- **Use `log.exception(...)`** for error paths, not bare `print()` or
+  `logging.error(...)` without a traceback. The exception is
+  automatically attached. See `voice_typer/server/log.py` for the
+  shared logger setup.
+- **Never use `# type: ignore`** to silence a real type error — fix
+  the type or add a per-module override in `pyproject.toml` (the list
+  under `[[tool.mypy.overrides]]` enumerates every library that
+  genuinely lacks stubs).
+- **Never use `except: pass`** to swallow exceptions. At minimum log
+  them; usually re-raise.
+- **Inline-tag comments** document non-obvious decisions and link back
+  to the issue/ADR that introduced them. The convention is
+  `# TAG-NNN: <one-line rationale>`. Examples:
+  ```python
+  # SEC-018: token must be 32 bytes of crypto.random — do NOT shorten
+  token = secrets.token_bytes(32)
+  # RACE-016: acquire the lock BEFORE checking the flag, otherwise
+  # we race with the stop-dictation path and can record a half-frame.
+  with self._rec_lock:
+      if self._recording:
+          return
+  ```
+  Common prefixes: `SEC-*` (security), `RACE-*` (concurrency),
+  `PERF-*` (performance), `RELIABILITY-*` (resilience),
+  `ARCH-*` (architecture), `UX-*` (UX), `TEST-*` (test infra),
+  `BUILD-*` (build/packaging), `ADR NNNN` (references a decision
+  record under `docs/adr/`).
+- **Formatter:** ruff (line-length 120, target `py310`). Run
+  `ruff check --fix` and `ruff format` before committing; the
+  pre-commit hook does this automatically.
+- **Mocking convention (TEST-033):** import mock objects directly —
+  `from unittest.mock import MagicMock, patch` — never
+  `from unittest import mock` followed by `mock.MagicMock(...)`.
+  Prefer `pytest`'s `monkeypatch` fixture for attribute/item
+  replacement (auto-cleaned); use `unittest.mock.patch` only when you
+  need to assert call counts.
+
+### 6.2 TypeScript / React
+
+- **Formatter:** Biome (`voice_typer/client/biome.json`) —
+  `indentStyle: "tab"`, `quoteStyle: "double"`. Run
+  `npx biome check --write` to auto-fix. The pre-commit hook runs
+  `npx biome check` (no `--write`) and fails if files are dirty.
+- **Linter:** ESLint with `--max-warnings=0`. The config lives at
+  `voice_typer/client/eslint.config.mjs` (flat config, ESLint 9).
+- **Type checker:** `tsc --noEmit` across three configs (`tsconfig.json`,
+  `tsconfig.web.json`, `tsconfig.node.json`). `npm run typecheck` runs
+  all three; use `npm run typecheck:web` to scope to the renderer only.
+- **Path aliases:** `#ui/*` → `./src/renderer/src/components/ui/*`,
+  `#utils` → `./src/renderer/src/lib/utils.ts` (declared in
+  `package.json#imports` and mirrored in the tsconfigs). Prefer these
+  over relative paths that climb above two levels.
+- **React 19 + shadcn/ui** — components live under
+  `src/renderer/src/components/` (with `ui/` for shadcn primitives).
+  Pages live under `src/renderer/src/pages/`. Hooks live under
+  `src/renderer/src/hooks/`.
+- **IPC discipline:** all backend calls go through `usePython()`.
+  Validate every IPC response at runtime before casting — see
+  `asRecordingState` in `types/ipc.ts`. Never `JSON.parse` an
+  untrusted string from the backend without a schema check.
+- **Inline-tag comments** apply the same way as Python — e.g.
+  `// SEC-016: this handler is bubble-scoped, do not expose to main`.
+
+### 6.3 Security — non-negotiable
+
+The `SEC-*` tags in the codebase are load-bearing controls documented
+in `docs/ARCHITECTURE.md` § "Security boundaries". **Never bypass a
+SEC-* control** without an ADR and an explicit code review. In
+particular:
+
+- Do not weaken the IPC token check (SEC-018) or remove the
+  loopback-only bind.
+- Do not add fields to `set_config` outside the SEC-002 allowlist
+  without type/range/enum/URL validation.
+- Do not log API keys, tokens, or transcription text — `SEC-003` and
+  `RELIABILITY-004` redact them; new logging must follow the same
+  pattern.
+- Do not disable `contextIsolation`, `sandbox`, or `webSecurity` in
+  Electron `webPreferences` (SEC-014), even for debugging. Use
+  `!app.isPackaged` guards (SEC-013) to scope DevTools instead.
+- Do not remove `assertFromBubble(event)` from bubble IPC handlers
+  (SEC-016), even if it looks redundant.
+
+If you believe a control is wrong, open an issue tagged `security` and
+write a draft ADR (`docs/adr/0000-template.md`) before changing code.
+
+---
+
+## 7. Testing Guidelines
+
+### 7.1 Python — pytest
+
+- **Framework:** pytest with `pytest-asyncio`, `pytest-mock`,
+  `pytest-timeout`, `pytest-cov`, `hypothesis`, and `pytest-benchmark`
+  (declared in `[project.optional-dependencies].test`).
+- **Headless by default:** the autouse `mock_heavy_imports` fixture in
+  `tests/conftest.py` mocks `sounddevice`, `faster_whisper`, `pynput`,
+  `pystray`, `PIL`, and `pyperclip` so the suite runs on any CI
+  runner without a display or microphone.
+- **Opt-out markers** (registered in `pytest_configure`):
+  - `@pytest.mark.real_pynput` — use the real `pynput.keyboard`
+    listener (for tests that exercise the actual key dispatch path).
+  - `@pytest.mark.real_pil` — use the real `PIL.ImageDraw` (for tests
+    that render the tray icon bitmap).
+- **Coverage threshold:** 60 %, enforced by `--cov-fail-under=60` in
+  `pyproject.toml`. If your change drops coverage below 60 %, add
+  tests or mark unreachable branches with `# pragma: no cover`.
+- **Property-based testing:** use `hypothesis` for parsers and pure
+  functions — see `tests/test_text_cleanup_hypothesis.py` and
+  `tests/test_property_based.py` for patterns.
+- **Benchmarks:** `pytest-benchmark` is available; put slow benchmarks
+  in `tests/test_benchmarks.py` (CI runs them but does not fail on
+  regression — that's a manual decision).
+- **Mutation testing:** `mutmut` is configured (see `[tool.mutmut]`
+  in `pyproject.toml`) for `text_cleanup.py`, `config.py`, `tray.py`,
+  and `tray_menu.py`. Run it locally before merging changes to those
+  modules — `mutmut run` then `mutmut results`.
+- **WAV fixtures:** `tests/fixtures/` ships `silence.wav`,
+  `tone.wav`, `noise.wav`, and `test_440hz_1s_16k.wav` with a
+  `metadata.json`. Regenerate via `tests/fixtures/generate_fixture.py`
+  if you change the format expectations.
+- **Every fix ships with a regression test.** The test file naming
+  convention is `test_<feature>.py` or `test_round<N>_<theme>.py` for
+  batch review rounds.
+
+### 7.2 Frontend — vitest + Testing Library
+
+- **Framework:** vitest 2.x with jsdom, `@testing-library/react` 16,
+  and `@testing-library/jest-dom` (set up in
+  `voice_typer/client/src/renderer/src/test-setup.ts`).
+- **Run:** `npm run test` (one-shot) or `npm run test:watch`.
+- **Co-located tests:** test files sit next to the code under
+  `__tests__/` directories — see
+  `src/renderer/src/components/__tests__/ThemeSwitch.test.tsx`,
+  `Sidebar.test.tsx`, `ErrorBoundary.test.tsx`, and
+  `src/renderer/src/pages/__tests__/Home.test.tsx`.
+- **Mocking `@hugeicons/react`:** the project uses `@hugeicons/react`
+  for icons, which has no good test stub — mock it as a `<span
+  data-testid="hugeicon" data-name={icon?.name}>` and stub
+  `@hugeicons/core-free-icons` exports as `{ name }` tagged objects.
+  See the existing `__tests__` files for the exact pattern.
+- **Mocking `usePython`:** use `vi.hoisted` + `vi.mock("@/hooks/usePython",
+  ...)` to control the IPC layer. Use `vi.resetModules()` in
+  `beforeEach` and dynamic `import("@/pages/Home")` if the module
+  under test has module-level caches (the Home page's `_cachedStats` /
+  `_cachedRecent` are examples).
+- **Accessibility contracts are tests, not afterthoughts:** assert
+  `aria-label`, `aria-current`, `role="alert"`, etc. See
+  `src/renderer/src/a11y/accessibility.test.tsx` for the global a11y
+  suite.
+- **Coverage:** vitest is configured in `vitest.config.ts`; aim for
+  ≥ 60 % to match the Python gate.
+
+### 7.3 Manual tests
+
+`tests/manual/` contains scripts that need real hardware or a real
+model — `cublas_fallback.py`, `runtime_proof.py`, `diagnose_f2.py`.
+Run them by hand when investigating GPU or hotkey issues; they are
+not part of the CI suite.
+
+---
+
+## 8. Submitting Changes
+
+### 8.1 Branch & commit hygiene
+
+1. **Fork** the repo (if you don't have push access) and create a
+   feature branch off `main`:
+   ```bash
+   git checkout -b feat/my-feature
+   # or: fix/sec-018-token-leak, docs/adr-0008-foo, test/recording-edge-cases
+   ```
+2. **Write tests first** (or alongside) — every bug fix gets a
+   regression test, every new feature gets coverage.
+3. **Run the full local suite** before pushing:
+   ```bash
+   pytest tests/ -v
+   cd voice_typer/client && npm run test && npm run lint && npm run typecheck && npm run build
+   pre-commit run --all-files
+   ```
+4. **Commit messages** follow Conventional Commits with a tag prefix
+   when relevant:
+   ```
+   feat(asr): add parakeet engine fallback (ARCH-013)
+
+   - adds _init_asr_engine dispatcher
+   - falls back to whisper on CUDA OOM
+   - tested in tests/test_qwen_engine.py
+
+   SEC-018, ADR-0002
+   ```
+   - Reference the relevant `SEC-*`, `ADR-*`, `ARCH-*`, `PERF-*`,
+     `RELIABILITY-*`, or `UX-*` tag in the body so reviewers can
+     trace the change back to its rationale.
+   - Breaking changes start with `feat!:` or `fix!:` and include a
+     `BREAKING CHANGE:` footer.
+5. **Push** and open a PR against `main`.
+
+### 8.2 Pull Request template
+
+When opening a PR, include the following (the repo has a
+`.github/pull_request_template.md` — fill it in):
+
+```markdown
+## Summary
+<one-paragraph description of what changed and why>
+
+## Type of change
+- [ ] Bug fix (non-breaking)
+- [ ] New feature (non-breaking)
+- [ ] Refactor / chore
+- [ ] Docs / ADR
+- [ ] Breaking change (please describe impact below)
+
+## Related tags / issues
+- SEC-XXX / ADR-NNNN / ARCH-XXX / PERF-XXX / RELIABILITY-XXX / UX-XXX
+- Closes #<issue-number>
+
+## Security impact
+<if this touches any SEC-* control, explain why the change is safe
+or attaches a new ADR. Otherwise write "None — no SEC-* controls
+affected.">
+
+## Testing
+- [ ] `pytest tests/ -v` passes locally
+- [ ] `cd voice_typer/client && npm run test` passes
+- [ ] `npm run lint && npm run typecheck` clean
+- [ ] `pre-commit run --all-files` clean
+- [ ] New tests added / updated
+- [ ] Coverage not reduced
+
+## Screenshots / recordings
+<for UI changes — before/after>
+
+## Checklist
+- [ ] Code is formatted (ruff + biome)
+- [ ] Type hints / types are complete
+- [ ] Inline-tag comments added where non-obvious
+- [ ] CHANGELOG.md updated (if user-facing)
+- [ ] Docs (README / FEATURES / ARCHITECTURE / ADR) updated if needed
+```
+
+### 8.3 Review criteria
+
+A maintainer will merge your PR once:
+
+- All CI checks pass (pytest, vitest, biome, eslint, tsc, ruff, mypy,
+  pre-commit).
+- Coverage does not drop below 60 %.
+- No `SEC-*` control is bypassed without an ADR.
+- The commit history is clean (squash or rebase as needed — maintainers
+  will prompt you).
+- The CHANGELOG is updated for user-visible changes.
+
+### 8.4 Reporting bugs
+
+Use [GitHub Issues](https://github.com/abdarkahIsDev/voice-typer/issues)
+and include:
+
+- Voice Typer version (`python -m voice_typer --version` or the
+  About page in the app).
+- OS and Python version (`python --version`).
+- Steps to reproduce.
+- Expected vs. actual behavior.
+- Log file — see the **About → Diagnostics** page in the app, or
+  `$HOME/.voice-typer/voice-typer.log` on disk.
+
+---
 
 ## Questions?
 
-Open an issue with the `question` label.
+Open an issue with the `question` label, or start a discussion in the
+`#voice-typer` channel on the project's Discord (link in README.md).
+For security-sensitive reports, see `SECURITY.md` — do not open a
+public issue for vulnerabilities.

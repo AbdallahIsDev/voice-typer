@@ -1,40 +1,48 @@
-# BUILD-N14: pre-commit hooks for Python + TS linting.
-# Install with: `pip install pre-commit && pre-commit install`
-# This runs ruff (lint + format), mypy (type check), prettier (TS/CSS/MD),
-# and basic checks (large files, trailing whitespace, merge conflict
-# markers) on every commit. Skips on commit if no changes in scope.
+# Pre-commit hooks for Voice Typer
+# Install: pip install pre-commit && pre-commit install
+# Run manually: pre-commit run --all-files
+
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.9
+    rev: v0.8.0
     hooks:
       - id: ruff
-        args: [--fix, --exit-non-zero-on-fix]
+        args: [--check, --fix]
       - id: ruff-format
+        args: [--check]
 
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.11.2
+    rev: v1.13.0
     hooks:
       - id: mypy
+        files: ^voice_typer/server/
+        args: [--ignore-missing-imports, --no-strict-optional]
         additional_dependencies: []
-        args: [--ignore-missing-imports]
-        pass_filenames: false
-        entry: bash -c 'mypy voice_typer || true'
-
-  - repo: https://github.com/pre-commit/mirrors-prettier
-    rev: v4.0.0-alpha.8
-    hooks:
-      - id: prettier
-        files: ^voice_typer/client/.*\.(ts|tsx|css|md|json)$
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-merge-conflict
       - id: check-added-large-files
         args: [--maxkb=500]
-      - id: check-merge-conflict
-      - id: check-toml
-      - id: check-yaml
-      - id: end-of-file-fixer
-      - id: trailing-whitespace
       - id: mixed-line-ending
         args: [--fix=lf]
+
+  - repo: local
+    hooks:
+      - id: biome-check
+        name: Biome check (client)
+        entry: bash -c 'cd voice_typer/client && npx biome check'
+        language: system
+        files: ^voice_typer/client/src/.*\.(ts|tsx|js|jsx)$
+        pass_filenames: false
+      - id: client-typecheck
+        name: TypeScript typecheck (client)
+        entry: bash -c 'cd voice_typer/client && npm run typecheck'
+        language: system
+        files: ^voice_typer/client/src/.*\.(ts|tsx)$
+        pass_filenames: false
