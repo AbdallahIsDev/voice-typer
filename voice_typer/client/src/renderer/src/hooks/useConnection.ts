@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
 import { usePythonEvent } from "@/hooks/usePython";
+import { type ConnectionStatus, useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { Page, RecordingState } from "@/types/ipc";
 
@@ -23,12 +24,6 @@ function asRecordingState(value: unknown): RecordingState | null {
 	return RECORDING_STATES.has(value) ? (value as RecordingState) : null;
 }
 
-type ConnectionStatus =
-	| "connected"
-	| "disconnected"
-	| "connecting"
-	| "restarting";
-
 interface UseConnectionArgs {
 	/** Python bridge `call` function (from usePython). */
 	call: <T = unknown>(
@@ -47,6 +42,12 @@ interface UseConnectionArgs {
  * TCP recovery (reconnecting/reconnected events).  Also exposes a
  * retry callback for the "Lost connection" UI.
  *
+ * BACKLOG-004: State is now backed by the Zustand appStore so any
+ * component can subscribe to connectionStatus / recordingState /
+ * lastError without prop drilling through App.tsx. The hook retains
+ * the lifecycle effects (connection probe, health check, event
+ * subscriptions) and returns the same interface for backward compat.
+ *
  * @param args.call         Python bridge call fn.
  * @param args.currentPage  Current page (for onboarding first-run auto-route).
  * @param args.navigate     Navigation fn (for onboarding first-run auto-route).
@@ -56,17 +57,18 @@ export function useConnection({
 	currentPage,
 	navigate,
 }: UseConnectionArgs) {
-	const [recordingState, setRecordingState] = useState<RecordingState>("idle");
-	const [connectionStatus, setConnectionStatus] =
-		useState<ConnectionStatus>("connecting");
-	const [lastError, setLastError] = useState<string | null>(null);
+	// ── Store-backed state ────────────────────────────────────────
+	const setConnectionStatus = useAppStore((s) => s.setConnectionStatus);
+	const setRecordingState = useAppStore((s) => s.setRecordingState);
+	const setLastError = useAppStore((s) => s.setLastError);
+	const setConfig = useAppStore((s) => s.setConfig);
+	const connectionStatus = useAppStore((s) => s.connectionStatus);
+	const recordingState = useAppStore((s) => s.recordingState);
+	const lastError = useAppStore((s) => s.lastError);
 
 	// ── Connection lifecycle ──────────────────────────────────────
 
 	useEffect(() => {
-		// NEW-TS-015: removed the ``if (!isReady) return`` guard — it was
-		// dead code (``isReady`` was always ``true``).
-
 		let retries = 0;
 		const maxRetries = 5;
 		let timer: ReturnType<typeof setTimeout>;
@@ -78,16 +80,14 @@ export function useConnection({
 				const cfg = await call<VoiceTyperConfig>("get_config");
 				if (!cancelled) {
 					setConnectionStatus("connected");
+					// Cache the config snapshot in the store so other
+					// components (e.g. Settings sections) can read it
+					// without an extra IPC round-trip.
+					setConfig(cfg);
 					// Sync current state from backend (status_change events sent before
 					// the React app mounted are lost — this ensures we catch up)
 					call<{ status: string }>("get_status")
 						.then((s) => {
-							// NEW-TS-012: removed the ``as RecordingState`` cast.
-							// Casting an unvalidated string to a string-literal union
-							// type hides bugs — if the backend ever emits a value
-							// outside the union, the cast silently produces an invalid
-							// RecordingState that the rest of the type system trusts.
-							// We now validate at runtime and discard unknown values.
 							if (!cancelled && s?.status) {
 								const validated = asRecordingState(s.status);
 								if (validated) setRecordingState(validated);
@@ -116,12 +116,8 @@ export function useConnection({
 					}
 
 					// #8: Onboarding wizard — detect first run and route the user
-					// to the wizard. Previously this 275-line component was dead
-					// code. The backend's `onboarding_is_first_run` IPC route
+					// to the wizard. The backend's `onboarding_is_first_run` IPC route
 					// checks config.onboarding_completed (and the marker file).
-					// We only auto-route on the very first successful connection
-					// (when currentPage is still the default 'home'); once the
-					// user navigates away we don't force them back.
 					if (currentPage === "home" && !cancelled) {
 						try {
 							const fr = await call<{ is_first_run: boolean }>(
@@ -151,7 +147,14 @@ export function useConnection({
 			cancelled = true;
 			clearTimeout(timer);
 		};
-	}, [call, currentPage, navigate]);
+	}, [
+		call,
+		currentPage,
+		navigate,
+		setConnectionStatus,
+		setRecordingState,
+		setConfig,
+	]);
 
 	// Periodic health check while connected
 	useEffect(() => {
@@ -171,52 +174,45 @@ export function useConnection({
 			cancelled = true;
 			clearInterval(interval);
 		};
-	}, [connectionStatus, call]);
+	}, [connectionStatus, call, setConnectionStatus]);
 
 	// ── App-level event subscriptions ─────────────────────────────
 
 	usePythonEvent(
 		"status_change",
-		useCallback((data) => {
-			// NEW-TS-012: validate at runtime instead of casting to RecordingState.
-			if (data?.status) {
-				const validated = asRecordingState(data.status);
-				if (validated) {
-					setRecordingState(validated);
-					setLastError(null);
+		useCallback(
+			(data) => {
+				if (data?.status) {
+					const validated = asRecordingState(data.status);
+					if (validated) {
+						setRecordingState(validated);
+						setLastError(null);
+					}
 				}
-			}
-		}, []),
+			},
+			[setRecordingState, setLastError],
+		),
 	);
 
 	usePythonEvent(
 		"error",
-		useCallback((data) => {
-			if (typeof data?.message === "string") {
-				setLastError(data.message);
-			}
-		}, []),
+		useCallback(
+			(data) => {
+				if (typeof data?.message === "string") {
+					setLastError(data.message);
+				}
+			},
+			[setLastError],
+		),
 	);
 
-	// ── Transient TCP recovery ───────────────────────────────────────
-	// The main process emits a synthetic "reconnected" event when the
-	// TCP channel comes back after a transient drop (sleep/resume,
-	// network blip).  Without this, connectionStatus gets stuck on
-	// "disconnected" because the TCP close handler rejects every
-	// pending request and nothing else in the main process pokes the
-	// renderer when TCP silently comes back.
-	//
-	// NOTE: the full app restart (tray "Restart" menu item) no longer
-	// needs renderer-side recovery — the entire Electron process is
-	// relaunched, so the renderer boots fresh.  This handler only
-	// covers transient TCP drops that don't merit a full process
-	// restart.  The "reconnecting" event is kept for backward
-	// compatibility (a future main-process change could emit it
-	// before a transient drop), but the current main process doesn't
-	// send it — it only sends "reconnected" on a successful reconnect.
+	// ── Transient TCP recovery ───────────────────────────────────
 	usePythonEvent(
 		"reconnecting",
-		useCallback(() => setConnectionStatus("restarting"), []),
+		useCallback(
+			() => setConnectionStatus("restarting" as ConnectionStatus),
+			[setConnectionStatus],
+		),
 	);
 	usePythonEvent(
 		"reconnected",
@@ -224,7 +220,7 @@ export function useConnection({
 			call("get_config")
 				.then(() => setConnectionStatus("connected"))
 				.catch(() => setConnectionStatus("disconnected"));
-		}, [call]),
+		}, [call, setConnectionStatus]),
 	);
 
 	// ── Reconnection handler (called by children on fatal errors) ─
@@ -237,7 +233,7 @@ export function useConnection({
 		} catch {
 			setConnectionStatus("disconnected");
 		}
-	}, [call]);
+	}, [call, setConnectionStatus]);
 
 	return {
 		recordingState,

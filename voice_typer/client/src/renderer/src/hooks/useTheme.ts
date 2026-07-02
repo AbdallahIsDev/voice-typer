@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePythonEvent } from "@/hooks/usePython";
+import { useAppStore } from "@/stores/appStore";
 import {
 	applyThemeVars,
 	type CustomThemeData,
@@ -21,6 +22,7 @@ export function useTheme(
 		data?: Record<string, unknown>,
 	) => Promise<T>,
 ) {
+	const mergeConfig = useAppStore((s) => s.mergeConfig);
 	const [themeMode, setThemeMode] =
 		useState<VoiceTyperConfig["theme_mode"]>("system");
 	// Theme preset — a built-in colour-scheme layer on top of the current mode.
@@ -111,24 +113,30 @@ export function useTheme(
 	// When the Python backend processes a set_config command, it pushes a
 	// config_changed event with the validated fields.  We update local UI
 	// state (text_size, theme_mode, etc.) immediately so the user sees the
-	// change without restarting the app.
+	// change without restarting the app.  We also merge the updates into
+	// the appStore's config snapshot so other components see the change.
 	usePythonEvent(
 		"config_changed",
-		useCallback((data) => {
-			if (!data) return;
-			if (typeof data.text_size === "number") {
-				setTextSize(data.text_size);
-			}
-			if (typeof data.theme_mode === "string") {
-				setThemeMode(data.theme_mode as VoiceTyperConfig["theme_mode"]);
-			}
-			if (typeof data.theme_preset === "string") {
-				setThemePreset(data.theme_preset as VoiceTyperConfig["theme_preset"]);
-			}
-			if (data.custom_theme && typeof data.custom_theme === "object") {
-				setCustomTheme(data.custom_theme as CustomThemeData);
-			}
-		}, []),
+		useCallback(
+			(data) => {
+				if (!data) return;
+				// Merge into the store's config cache
+				mergeConfig(data);
+				if (typeof data.text_size === "number") {
+					setTextSize(data.text_size);
+				}
+				if (typeof data.theme_mode === "string") {
+					setThemeMode(data.theme_mode as VoiceTyperConfig["theme_mode"]);
+				}
+				if (typeof data.theme_preset === "string") {
+					setThemePreset(data.theme_preset as VoiceTyperConfig["theme_preset"]);
+				}
+				if (data.custom_theme && typeof data.custom_theme === "object") {
+					setCustomTheme(data.custom_theme as CustomThemeData);
+				}
+			},
+			[mergeConfig],
+		),
 	);
 
 	// ── Theme change handler (save to config) ─────────────────────
