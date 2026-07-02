@@ -296,7 +296,7 @@ class TestStartup7AppAutostartTaskScheduler:
         """The app autostart XML uses pythonw.exe directly (no cmd.exe wrapper)."""
         # Force Windows mode for the XML builder
         with patch("sys.platform", "win32"):
-            from voice_typer.server import platform as platform_mod
+            from voice_typer.server import server_platform as platform_mod
             # PLAT-VENV: _build_app_autostart_task_xml calls
             # _app_autostart_command_and_args which calls shutil.which.
             # On Linux, shutil.which with win32 platform check fails.
@@ -315,7 +315,7 @@ class TestStartup7AppAutostartTaskScheduler:
 
     def test_enable_autostart_windows_prefers_task_scheduler(self, monkeypatch):
         """_enable_autostart_windows tries Task Scheduler first."""
-        from voice_typer.server import platform as platform_mod
+        from voice_typer.server import server_platform as platform_mod
         monkeypatch.setattr(platform_mod.sys, "platform", "win32")
         task_calls = []
         runkey_calls = []
@@ -329,7 +329,7 @@ class TestStartup7AppAutostartTaskScheduler:
 
     def test_enable_autostart_windows_falls_back_to_runkey(self, monkeypatch):
         """_enable_autostart_windows falls back to Run key if Task Scheduler fails."""
-        from voice_typer.server import platform as platform_mod
+        from voice_typer.server import server_platform as platform_mod
         monkeypatch.setattr(platform_mod.sys, "platform", "win32")
         monkeypatch.setattr(platform_mod, "_register_app_autostart_task", lambda: False)
         monkeypatch.setattr(platform_mod, "_unregister_app_autostart_runkey", lambda: True)
@@ -340,7 +340,7 @@ class TestStartup7AppAutostartTaskScheduler:
 
     def test_disable_autostart_windows_removes_both(self, monkeypatch):
         """_disable_autostart_windows removes from both Task Scheduler and Run key."""
-        from voice_typer.server import platform as platform_mod
+        from voice_typer.server import server_platform as platform_mod
         task_removed = []
         runkey_removed = []
         monkeypatch.setattr(platform_mod, "_unregister_app_autostart_task", lambda: task_removed.append(1) or True)
@@ -351,7 +351,7 @@ class TestStartup7AppAutostartTaskScheduler:
 
     def test_is_autostart_windows_checks_both(self, monkeypatch):
         """_is_autostart_windows returns True if EITHER mechanism is registered."""
-        from voice_typer.server import platform as platform_mod
+        from voice_typer.server import server_platform as platform_mod
         # Only Task Scheduler
         monkeypatch.setattr(platform_mod, "_is_app_autostart_task_registered", lambda: True)
         monkeypatch.setattr(platform_mod, "_is_app_autostart_runkey_registered", lambda: False)

@@ -136,7 +136,7 @@ class VolumeDucker:
             return self._backend is not None
 
         if self._backend is None:
-            from voice_typer.server.platform import get_volume_backend
+            from voice_typer.server.server_platform import get_volume_backend
 
             self._backend = get_volume_backend()
 

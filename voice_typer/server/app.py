@@ -26,7 +26,7 @@ from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
 # Re-exported for monkeypatch.setattr("voice_typer.server.app.X", ...) in tests.  # ruff: noqa: F401
 from voice_typer.server.hotkeys import HotkeyBackend, create_hotkey_backend
 from voice_typer.server.history_db import HistoryDB
-from voice_typer.server.platform import (
+from voice_typer.server.server_platform import (
     create_launcher_shortcut,
     disable_autostart,
     enable_autostart,

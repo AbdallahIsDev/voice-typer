@@ -190,7 +190,7 @@ class TestBug4NoRedundantPlatformCheck:
 
     def test_register_app_autostart_task_no_redundant_check(self):
         """_register_app_autostart_task must not check sys.platform directly."""
-        from voice_typer.server import platform
+        from voice_typer.server import server_platform as platform
         src = inspect.getsource(platform._register_app_autostart_task)
         # The function should NOT have 'if sys.platform != "win32"' at the top
         lines = src.split('\n')
@@ -207,7 +207,7 @@ class TestBug4NoRedundantPlatformCheck:
 
     def test_unregister_app_autostart_task_no_redundant_check(self):
         """_unregister_app_autostart_task must not check sys.platform directly."""
-        from voice_typer.server import platform
+        from voice_typer.server import server_platform as platform
         src = inspect.getsource(platform._unregister_app_autostart_task)
         lines = src.split('\n')
         body_start = False
@@ -222,7 +222,7 @@ class TestBug4NoRedundantPlatformCheck:
 
     def test_is_app_autostart_task_registered_no_redundant_check(self):
         """_is_app_autostart_task_registered must not check sys.platform directly."""
-        from voice_typer.server import platform
+        from voice_typer.server import server_platform as platform
         src = inspect.getsource(platform._is_app_autostart_task_registered)
         lines = src.split('\n')
         body_start = False
@@ -238,7 +238,7 @@ class TestBug4NoRedundantPlatformCheck:
     def test_register_app_autostart_task_works_via_is_supported(self, monkeypatch):
         """_register_app_autostart_task must rely on task_scheduler.is_supported()
         for platform detection, not its own sys.platform check."""
-        from voice_typer.server import platform as platform_mod
+        from voice_typer.server import server_platform as platform_mod
         from voice_typer.server import task_scheduler
         # On this non-Windows host, is_supported() returns True for POSIX
         # prewarm. But _register_app_autostart_task uses task_scheduler.is_supported()

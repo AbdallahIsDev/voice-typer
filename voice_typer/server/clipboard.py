@@ -837,7 +837,7 @@ class ClipboardManager:
         paste_delay = 0.02
         if is_windows():
             try:
-                from voice_typer.server.platform import is_remote_session
+                from voice_typer.server.server_platform import is_remote_session
                 if is_remote_session():
                     paste_delay = 0.10
                     log.info("[CLIPBOARD] RDP session detected — increasing paste delay to %dms", int(paste_delay * 1000))

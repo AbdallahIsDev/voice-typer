@@ -208,7 +208,7 @@ class VoiceTyperService:
         after plugging in a new USB/BT device. Updates the cached list
         and the tray menu.
         """
-        from voice_typer.server.platform import list_microphones
+        from voice_typer.server.server_platform import list_microphones
         try:
             mics = list_microphones()
             self._app._microphones = mics

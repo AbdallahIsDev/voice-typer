@@ -29,39 +29,39 @@ class TestNewXplat007DesktopQuoting:
     """NEW-XPLAT-007: _desktop_quote follows the freedesktop spec."""
 
     def test_no_reserved_chars_returns_unquoted(self):
-        from voice_typer.server.platform import _desktop_quote
+        from voice_typer.server.server_platform import _desktop_quote
         assert _desktop_quote("python3") == "python3"
         assert _desktop_quote("/usr/bin/python3") == "/usr/bin/python3"
         assert _desktop_quote("--hidden") == "--hidden"
 
     def test_space_triggers_quoting(self):
-        from voice_typer.server.platform import _desktop_quote
+        from voice_typer.server.server_platform import _desktop_quote
         assert _desktop_quote("/path with spaces/app") == '"/path with spaces/app"'
 
     def test_backslash_escaped(self):
-        from voice_typer.server.platform import _desktop_quote
+        from voice_typer.server.server_platform import _desktop_quote
         # Windows path with backslashes
         result = _desktop_quote("C:\\Users\\John\\app")
         assert result == '"C:\\\\Users\\\\John\\\\app"'
 
     def test_double_quote_escaped(self):
-        from voice_typer.server.platform import _desktop_quote
+        from voice_typer.server.server_platform import _desktop_quote
         result = _desktop_quote('John "Bob"')
         assert result == '"John \\"Bob\\""'
 
     def test_dollar_escaped(self):
-        from voice_typer.server.platform import _desktop_quote
+        from voice_typer.server.server_platform import _desktop_quote
         result = _desktop_quote("$HOME/app")
         assert result == '"\\$HOME/app"'
 
     def test_backtick_escaped(self):
-        from voice_typer.server.platform import _desktop_quote
+        from voice_typer.server.server_platform import _desktop_quote
         result = _desktop_quote("path with `backtick`")
         assert result == '"path with \\`backtick\\`"'
 
     def test_autostart_command_is_quoted(self):
         """The full autostart command should be valid for the .desktop Exec field."""
-        from voice_typer.server.platform import _autostart_command
+        from voice_typer.server.server_platform import _autostart_command
         cmd = _autostart_command()
         # The launcher path is always present.
         assert "autostart_launcher.py" in cmd
@@ -80,7 +80,7 @@ class TestNewXplat005006MacOSPlist:
     def test_plist_uses_absolute_working_directory(self):
         """NEW-XPLAT-006: WorkingDirectory must be an absolute path,
         not the literal ``~``."""
-        from voice_typer.server import platform
+        from voice_typer.server import server_platform as platform
         # Read the source of _enable_autostart_macos to verify it
         # doesn't emit the literal `~` as WorkingDirectory.
         import inspect
@@ -96,7 +96,7 @@ class TestNewXplat005006MacOSPlist:
 
     def test_launchctl_load_has_timeout(self):
         """NEW-XPLAT-005: launchctl load subprocess.run call has a timeout."""
-        from voice_typer.server import platform
+        from voice_typer.server import server_platform as platform
         import inspect
         src = inspect.getsource(platform._enable_autostart_macos)
         # The fix adds timeout=5.0 to the subprocess.run call.

@@ -5,8 +5,8 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from voice_typer.server import platform as platform_mod
-from voice_typer.server.platform import (
+from voice_typer.server import server_platform as platform_mod
+from voice_typer.server.server_platform import (
     _autostart_command,
     _generate_icon_ico,
     create_launcher_shortcut,
@@ -151,9 +151,9 @@ class TestFindMicrophoneByName:
             {"id": "1", "index": 1, "name": "WO Mic", "host_api": "MME", "channels": 1, "default": False},
             {"id": "2", "index": 2, "name": "Blue Yeti", "host_api": "MME", "channels": 2, "default": False},
         ]
-        monkeypatch.setattr("voice_typer.server.platform.list_microphones", lambda: fake_mics)
+        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: fake_mics)
 
-        from voice_typer.server.platform import find_microphone_by_name
+        from voice_typer.server.server_platform import find_microphone_by_name
         result = find_microphone_by_name("wo mic")
         assert result is not None
         assert result["name"] == "WO Mic"
@@ -161,18 +161,18 @@ class TestFindMicrophoneByName:
 
     def test_returns_none_for_no_match(self, monkeypatch):
         monkeypatch.setattr(
-            "voice_typer.server.platform.list_microphones",
+            "voice_typer.server.server_platform.list_microphones",
             lambda: [{"id": "0", "index": 0, "name": "Built-in", "host_api": "", "channels": 2, "default": True}],
         )
-        from voice_typer.server.platform import find_microphone_by_name
+        from voice_typer.server.server_platform import find_microphone_by_name
         assert find_microphone_by_name("nonexistent mic") is None
 
     def test_case_insensitive(self, monkeypatch):
         monkeypatch.setattr(
-            "voice_typer.server.platform.list_microphones",
+            "voice_typer.server.server_platform.list_microphones",
             lambda: [{"id": "0", "index": 0, "name": "Blue Yeti", "host_api": "MME", "channels": 2, "default": False}],
         )
-        from voice_typer.server.platform import find_microphone_by_name
+        from voice_typer.server.server_platform import find_microphone_by_name
         assert find_microphone_by_name("BLUE YETI") is not None
 
 
@@ -182,19 +182,19 @@ class TestFindMicrophoneById:
             {"id": "3", "index": 3, "name": "WO Mic", "host_api": "WASAPI", "channels": 1, "default": False},
             {"id": "7", "index": 7, "name": "WO Mic", "host_api": "MME", "channels": 1, "default": False},
         ]
-        monkeypatch.setattr("voice_typer.server.platform.list_microphones", lambda: fake_mics)
+        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: fake_mics)
 
-        from voice_typer.server.platform import find_microphone_by_id
+        from voice_typer.server.server_platform import find_microphone_by_id
         result = find_microphone_by_id("7")
         assert result is not None
         assert result["index"] == 7
         assert result["host_api"] == "MME"
 
     def test_returns_none_for_bad_id(self, monkeypatch):
-        monkeypatch.setattr("voice_typer.server.platform.list_microphones", lambda: [
+        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [
             {"id": "0", "index": 0, "name": "Mic", "host_api": "", "channels": 1, "default": True}
         ])
-        from voice_typer.server.platform import find_microphone_by_id
+        from voice_typer.server.server_platform import find_microphone_by_id
         assert find_microphone_by_id("99") is None
 
 
@@ -205,9 +205,9 @@ class TestDuplicateMicrophoneDisambiguation:
             {"id": "3", "index": 3, "name": "WO Mic", "host_api": "Windows WASAPI", "channels": 1, "default": False},
             {"id": "7", "index": 7, "name": "WO Mic", "host_api": "MME", "channels": 1, "default": False},
         ]
-        monkeypatch.setattr("voice_typer.server.platform.list_microphones", lambda: fake_mics)
+        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: fake_mics)
 
-        from voice_typer.server.platform import find_microphone_by_id
+        from voice_typer.server.server_platform import find_microphone_by_id
         mic1 = find_microphone_by_id("3")
         mic2 = find_microphone_by_id("7")
         assert mic1 is not None and mic2 is not None
@@ -224,7 +224,7 @@ class TestCreateLauncherShortcut:
         pythonw.touch()
         monkeypatch.setattr(sys, "executable", str(tmp_path / "python.exe"))
 
-        import voice_typer.server.platform as mod
+        import voice_typer.server.server_platform as mod
         monkeypatch.setattr(mod, "SYSTEM", "win32")
 
         desktop = tmp_path / "Desktop"
@@ -258,7 +258,7 @@ class TestCreateLauncherShortcut:
         pythonw.touch()
         monkeypatch.setattr(sys, "executable", str(tmp_path / "python.exe"))
 
-        import voice_typer.server.platform as mod
+        import voice_typer.server.server_platform as mod
         monkeypatch.setattr(mod, "SYSTEM", "win32")
 
         desktop = tmp_path / "Desktop"
@@ -280,7 +280,7 @@ class TestCreateLauncherShortcut:
         assert result.name == "Voice Typer.lnk"
 
     def test_returns_none_on_non_windows(self, monkeypatch):
-        import voice_typer.server.platform as mod
+        import voice_typer.server.server_platform as mod
         monkeypatch.setattr(mod, "SYSTEM", "linux")
         assert create_launcher_shortcut() is None
 
@@ -288,7 +288,7 @@ class TestCreateLauncherShortcut:
     def test_returns_none_when_pythonw_missing(self, tmp_path, monkeypatch):
         """If pythonw.exe doesn't exist next to the interpreter, returns None."""
         monkeypatch.setattr(sys, "executable", str(tmp_path / "python.exe"))
-        import voice_typer.server.platform as mod
+        import voice_typer.server.server_platform as mod
         monkeypatch.setattr(mod, "SYSTEM", "win32")
         assert create_launcher_shortcut() is None
 
@@ -314,7 +314,7 @@ class TestUniversalLauncherPath:
 
     def test_points_at_autostart_launcher(self):
         """The universal launcher path must reference autostart_launcher.py."""
-        from voice_typer.server.platform import _universal_launcher_path
+        from voice_typer.server.server_platform import _universal_launcher_path
         p = _universal_launcher_path()
         assert p.name == "autostart_launcher.py"
         assert p.exists()
@@ -327,7 +327,7 @@ class TestStartMenuProgramsDir:
     """_start_menu_programs_dir() returns the Windows Start Menu Programs path."""
 
     def test_returns_path_under_appdata(self, monkeypatch):
-        from voice_typer.server.platform import _start_menu_programs_dir
+        from voice_typer.server.server_platform import _start_menu_programs_dir
         monkeypatch.setenv("APPDATA", "/fake/appdata")
         p = _start_menu_programs_dir()
         assert "Programs" in str(p)
@@ -361,7 +361,7 @@ class TestShortcutTarget:
         """The shortcut's arguments must point at autostart_launcher.py
         (not pythonw -m voice_typer, which starts backend-only without
         Electron, causing the bubble overlay to never appear)."""
-        from voice_typer.server.platform import _universal_launcher_path
+        from voice_typer.server.server_platform import _universal_launcher_path
         launcher = _universal_launcher_path()
         # The launcher path should be autostart_launcher.py
         assert launcher.name == "autostart_launcher.py"

@@ -83,5 +83,5 @@ class TestUACFocusCrossPlatform:
 
     def test_secure_desktop_string_in_platform(self):
         """The platform module should handle secure desktop detection."""
-        from voice_typer.server.platform import SYSTEM
+        from voice_typer.server.server_platform import SYSTEM
         assert SYSTEM in ("win32", "darwin", "linux")

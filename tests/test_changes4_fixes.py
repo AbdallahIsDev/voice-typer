@@ -241,7 +241,7 @@ class TestPlatRunAutostartTaskHashed:
     """
 
     def test_autostart_task_name_includes_hash_suffix(self):
-        from voice_typer.server import platform
+        from voice_typer.server import server_platform as platform
 
         src = inspect.getsource(platform)
         assert "_install_hash_suffix" in src, (
@@ -257,7 +257,7 @@ class TestPlatRunAutostartTaskHashed:
         """The hash suffix must start with '_' so the task name reads
         'VoiceTyperAutostart_a1b2c3d4'.
         """
-        from voice_typer.server.platform import _install_hash_suffix
+        from voice_typer.server.server_platform import _install_hash_suffix
 
         suffix = _install_hash_suffix()
         # Must start with '_' (or be empty on failure)
@@ -271,7 +271,7 @@ class TestPlatRunAutostartTaskHashed:
 
     def test_two_different_executables_get_different_hashes(self):
         """Two different install paths must produce different hash suffixes."""
-        from voice_typer.server.platform import _install_hash_suffix
+        from voice_typer.server.server_platform import _install_hash_suffix
 
         with patch("sys.executable", "/path/to/install1/voice-typer.exe"):
             hash1 = _install_hash_suffix()

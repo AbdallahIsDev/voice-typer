@@ -394,14 +394,14 @@ class TestRDPSession:
     def test_returns_false_when_no_ssh_env(self, monkeypatch):
         monkeypatch.delenv("SSH_CLIENT", raising=False)
         monkeypatch.delenv("SSH_TTY", raising=False)
-        from voice_typer.server.platform import is_remote_session
+        from voice_typer.server.server_platform import is_remote_session
         if sys.platform == "win32":
             pytest.skip("Windows uses GetSystemMetrics")
         assert is_remote_session() is False
 
     def test_detects_ssh_session(self, monkeypatch):
         monkeypatch.setenv("SSH_CLIENT", "10.0.0.1 12345 22")
-        from voice_typer.server.platform import is_remote_session
+        from voice_typer.server.server_platform import is_remote_session
         if sys.platform == "win32":
             pytest.skip("Windows uses GetSystemMetrics")
         assert is_remote_session() is True
@@ -415,7 +415,7 @@ class TestVenvDetection:
 
     def test_autostart_command_in_venv_uses_sys_executable(self):
         """The autostart command should work even in a venv."""
-        from voice_typer.server.platform import _autostart_command
+        from voice_typer.server.server_platform import _autostart_command
         cmd = _autostart_command()
         assert "autostart_launcher.py" in cmd
 
@@ -427,16 +427,16 @@ class TestMutexPathHash:
     """PLAT-RUN: Mutex name includes installation path hash."""
 
     def test_run_key_name_includes_hash(self):
-        from voice_typer.server.platform import _run_key_name
+        from voice_typer.server.server_platform import _run_key_name
         name = _run_key_name()
         assert name.startswith("VoiceTyper_")
         assert len(name) > len("VoiceTyper_")
 
     def test_different_executables_produce_different_hashes(self, monkeypatch):
-        from voice_typer.server.platform import _run_key_name
-        monkeypatch.setattr("voice_typer.server.platform.sys.executable", "/path/a/python.exe")
+        from voice_typer.server.server_platform import _run_key_name
+        monkeypatch.setattr("voice_typer.server.server_platform.sys.executable", "/path/a/python.exe")
         name_a = _run_key_name()
-        monkeypatch.setattr("voice_typer.server.platform.sys.executable", "/path/b/python.exe")
+        monkeypatch.setattr("voice_typer.server.server_platform.sys.executable", "/path/b/python.exe")
         name_b = _run_key_name()
         assert name_a != name_b
 

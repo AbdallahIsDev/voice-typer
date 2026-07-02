@@ -404,7 +404,7 @@ class TestBackendFailure:
         ducker = VolumeDucker(backend=None)
         # initialize will try platform.get_volume_backend() which may return
         # a real backend on this platform.  To test the None path, we mock.
-        import voice_typer.server.platform as plat
+        import voice_typer.server.server_platform as plat
         original = plat.get_volume_backend
         plat.get_volume_backend = lambda: None  # type: ignore[assignment]
         try:
