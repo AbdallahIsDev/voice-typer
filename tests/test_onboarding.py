@@ -119,7 +119,8 @@ class TestOnboardingSelections:
         assert ctrl.selected_hotkey == "<f4>"
 
     def test_hotkey_presets(self, ctrl):
-        assert len(ctrl.HOTKEY_PRESETS) == 11  # F2-F12
+        assert len(ctrl.HOTKEY_PRESETS) == 12  # Caps Lock + F2-F12
+        assert ctrl.HOTKEY_PRESETS[0] == "<caps_lock>"  # first = recommended default
 
     def test_set_model(self, ctrl):
         ctrl.set_model("tiny.en")

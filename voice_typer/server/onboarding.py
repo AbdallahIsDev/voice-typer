@@ -32,7 +32,8 @@ class OnboardingController:
 
         # Collected settings
         self.selected_microphone: Optional[str] = None
-        self.selected_hotkey: str = "<f2>"
+        # NATIVE-001: default hotkey is Caps Lock on all platforms
+        self.selected_hotkey: str = "<caps_lock>"
         self.selected_model: str = "small.en"
         # NEW-DEAD-033: removed the ``on_step_change`` and ``on_complete``
         # callbacks — they were declared but never set by any caller.
@@ -144,6 +145,12 @@ class OnboardingController:
     # ─── Hotkey selection ────────────────────────────────────────────
 
     HOTKEY_PRESETS = [
+        # Caps Lock is the recommended default — universally present,
+        # isolated (rarely used in shortcuts), toggle suppressed by
+        # the hotkey backend so it doesn't accidentally enable caps.
+        "<caps_lock>",
+        # F-keys remain available as alternatives for users with
+        # full-size keyboards or those who prefer function keys.
         "<f2>", "<f3>", "<f4>", "<f5>", "<f6>",
         "<f7>", "<f8>", "<f9>", "<f10>", "<f11>", "<f12>",
     ]
