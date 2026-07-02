@@ -77,32 +77,28 @@ class TestNewUx041StatePreservation:
     so the user returns to where they left off after closing/reopening."""
 
     def test_app_has_nav_state_persistence(self):
-        app = _read("App.tsx")
-        assert "STORAGE_KEY_NAV" in app
-        assert "saveNavState" in app
-        assert "loadNavState" in app
+        nav = _read("hooks/useNavigation.ts")
+        assert "STORAGE_KEY_NAV" in nav
+        assert "saveNavState" in nav
+        assert "loadNavState" in nav
 
     def test_navigate_saves_state(self):
         """The navigate function must call saveNavState after updating
         the current page."""
-        app = _read("App.tsx")
-        # navigate must call saveNavState
-        assert "saveNavState(page, navHistory.current, navIndex.current)" in app
+        nav = _read("hooks/useNavigation.ts")
+        assert "saveNavState(page, navHistory.current, navIndex.current)" in nav
 
     def test_goBack_saves_state(self):
-        app = _read("App.tsx")
-        # goBack must also save state
-        # Count occurrences of saveNavState — should be at least 3
-        # (navigate, goBack, goForward)
-        count = app.count("saveNavState(page, navHistory.current, navIndex.current)")
+        nav = _read("hooks/useNavigation.ts")
+        count = nav.count("saveNavState(page, navHistory.current, navIndex.current)")
         assert count >= 3, (
             f"Expected saveNavState in navigate, goBack, goForward; got {count}"
         )
 
     def test_initial_state_loaded_from_localStorage(self):
-        app = _read("App.tsx")
-        assert "loadNavState()" in app
-        assert "initialNav" in app
+        nav = _read("hooks/useNavigation.ts")
+        assert "loadNavState()" in nav
+        assert "initialNav" in nav
 
 
 # ── NEW-UX-043: "?" help overlay ─────────────────────────────────────
@@ -120,7 +116,7 @@ class TestNewUx043HelpOverlay:
     def test_app_has_question_mark_keydown_handler(self):
         """The "?" key must trigger the help overlay."""
         app = _read("App.tsx")
-        assert "e.key === '?'" in app
+        assert 'e.key === "?"' in app
 
     def test_help_overlay_lists_shortcuts(self):
         """The overlay must list the keyboard shortcuts."""
