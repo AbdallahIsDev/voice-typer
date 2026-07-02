@@ -19,9 +19,7 @@ import { Switch } from "@/components/ui/switch";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { cn } from "@/lib/utils";
-import type { VoiceTyperConfig } from "@/types/config";
-
-// Module-level cache — persists across page navigations so the models view
+import type { VoiceTyperConfig } from "@/types/config";// Module-level cache — persists across page navigations so the models view
 // renders instantly on re-visit instead of showing a loading spinner.
 let _cachedConfig: VoiceTyperConfig | null = null;
 
@@ -116,7 +114,7 @@ export default function ModelsPage() {
 	const { showSnack, Snackbar } = useSnackbar();
 	const [config, setConfig] = useState<VoiceTyperConfig | null>(_cachedConfig);
 	const [models, setModels] = useState<ModelInfo[]>(INITIAL_MODELS);
-	const [, setLoading] = useState(true);
+	const [initialLoading, setInitialLoading] = useState(true);
 	const [downloadProgress, setDownloadProgress] = useState(0);
 	const [downloadStatus, setDownloadStatus] = useState("");
 	const [isDownloading, setIsDownloading] = useState(false);
@@ -133,7 +131,7 @@ export default function ModelsPage() {
 	const [testResults, setTestResults] = useState<Record<string, string>>({});
 
 	const loadConfig = useCallback(async () => {
-		setLoading(true);
+		setInitialLoading(true);
 		try {
 			const cfg = await call<VoiceTyperConfig>("get_config");
 			_cachedConfig = cfg;
@@ -195,7 +193,7 @@ export default function ModelsPage() {
 		} catch (err) {
 			console.error("Failed to load config:", err);
 		} finally {
-			setLoading(false);
+			setInitialLoading(false);
 		}
 	}, [call]);
 
@@ -218,6 +216,15 @@ export default function ModelsPage() {
 			}
 		}, []),
 	);
+
+	// Reset download state when the component unmounts or user navigates away
+	useEffect(() => {
+		return () => {
+			setIsDownloading(false);
+			setDownloadProgress(0);
+			setDownloadStatus("");
+		};
+	}, []);
 
 	// Reset progress when a download starts / finishes
 	const resetProgress = useCallback(() => {
@@ -319,6 +326,9 @@ export default function ModelsPage() {
 		// NEW-UX-005: actually call the backend to delete the model files
 		// from disk, not just remove from the UI list.  Previously this
 		// was a no-op that left 1.5 GB of files on disk.
+		// FIX: mark downloaded=false instead of filtering the card out —
+		// the model should still appear in the list so the user can
+		// re-download it.
 		try {
 			const result = await call<{ success: boolean; message: string }>(
 				"delete_model",
@@ -326,7 +336,11 @@ export default function ModelsPage() {
 			);
 			if (result?.success) {
 				setModels((prev) =>
-					prev.filter((m) => m.name !== deleteModelTarget.name),
+					prev.map((m) =>
+						m.name === deleteModelTarget.name
+							? { ...m, downloaded: false }
+							: m,
+					),
 				);
 				showSnack(`Deleted: ${deleteModelTarget.name}`, "warning");
 			} else {
@@ -411,10 +425,6 @@ export default function ModelsPage() {
 	};
 
 	const testConnection = async (provider: string) => {
-		// DEAD-021-025: previously this faked success for any key > 10
-		// chars.  We now show an honest "not implemented" message.
-		// The backend's cloud_engines.test_connection() exists but is
-		// not yet exposed via IPC (tracked as future work).
 		const key = apiKeys[provider] ?? "";
 		if (!key) {
 			setTestResults((prev) => ({
@@ -423,10 +433,68 @@ export default function ModelsPage() {
 			}));
 			return;
 		}
-		setTestResults((prev) => ({
-			...prev,
-			[provider]: "Connection test not yet implemented — key saved.",
-		}));
+		// Save the key first, then try a lightweight test.
+		try {
+			await saveApiKey(provider);
+			// OpenAI has a lightweight models list endpoint we can use
+			// to verify the key without transcribing audio.
+			if (provider === "openai") {
+				const resp = await fetch("https://api.openai.com/v1/models", {
+					headers: { Authorization: `Bearer ${key}` },
+				});
+				if (resp.ok) {
+					setTestResults((prev) => ({
+						...prev,
+						[provider]: "Connection successful — API key is valid.",
+					}));
+				} else {
+					setTestResults((prev) => ({
+						...prev,
+						[provider]: `Connection failed: ${resp.status} ${resp.statusText}`,
+					}));
+				}
+			} else if (provider === "groq") {
+				const resp = await fetch("https://api.groq.com/openai/v1/models", {
+					headers: { Authorization: `Bearer ${key}` },
+				});
+				if (resp.ok) {
+					setTestResults((prev) => ({
+						...prev,
+						[provider]: "Connection successful — API key is valid.",
+					}));
+				} else {
+					setTestResults((prev) => ({
+						...prev,
+						[provider]: `Connection failed: ${resp.status} ${resp.statusText}`,
+					}));
+				}
+			} else if (provider === "deepgram") {
+				const resp = await fetch("https://api.deepgram.com/v1/projects", {
+					headers: { Authorization: `Token ${key}` },
+				});
+				if (resp.ok) {
+					setTestResults((prev) => ({
+						...prev,
+						[provider]: "Connection successful — API key is valid.",
+					}));
+				} else {
+					setTestResults((prev) => ({
+						...prev,
+						[provider]: `Connection failed: ${resp.status} ${resp.statusText}`,
+					}));
+				}
+			} else {
+				setTestResults((prev) => ({
+					...prev,
+					[provider]: "API key saved — test endpoint not available for this provider.",
+				}));
+			}
+		} catch (err) {
+			setTestResults((prev) => ({
+				...prev,
+				[provider]: `Connection test failed: ${err}`,
+			}));
+		}
 	};
 
 	const runBenchmark = async () => {
@@ -482,19 +550,26 @@ export default function ModelsPage() {
 				<Button
 					variant="outline"
 					size="sm"
-					onClick={() =>
-						downloadModel(models.find((m) => !m.downloaded) ?? models[0])
-					}
+					onClick={async () => {
+						// Download all non-downloaded models sequentially
+						const toDownload = models.filter(
+							(m) => !m.downloaded && !m.alwaysAvailable,
+						);
+						if (toDownload.length === 0) return;
+						for (const m of toDownload) {
+							await downloadModel(m);
+						}
+					}}
 					disabled={isDownloading || allDownloaded}
 					title={
-						allDownloaded ? "All models already downloaded" : "Download a model"
+						allDownloaded ? "All models already downloaded" : "Download all models"
 					}
 					// FIX: muted text/icon by default, white on hover —
 					// matches the outline-button style used across other
 					// page headings (Templates add, Vocabulary add, etc.).
 					className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
 					aria-label={
-						allDownloaded ? "All models downloaded" : "Download model"
+						allDownloaded ? "All models downloaded" : "Download all models"
 					}
 				>
 					<HugeiconsIcon
@@ -502,7 +577,11 @@ export default function ModelsPage() {
 						strokeWidth={2}
 						className="h-4 w-4"
 					/>
-					{allDownloaded ? "All Downloaded" : "Download Model"}
+					{isDownloading
+						? "Downloading..."
+						: allDownloaded
+							? "All Downloaded"
+							: "Download All"}
 				</Button>
 			</PageHeading>
 
@@ -660,21 +739,23 @@ export default function ModelsPage() {
 											{model.isActive ? "Active" : "Use"}
 										</Button>
 									)}
-									<Button
-										variant="ghost"
-										size="icon-xs"
-										onClick={() => requestDeleteModel(model)}
-										disabled={model.isActive}
-										className="text-(--text-muted) hover:text-destructive"
-										aria-label={`Delete ${model.name}`}
-										title={`Delete ${model.name}`}
-									>
-										<HugeiconsIcon
-											icon={Delete01Icon}
-											strokeWidth={2.5}
-											className="h-4 w-4"
-										/>
-									</Button>
+									{!model.alwaysAvailable && (
+										<Button
+											variant="ghost"
+											size="icon-xs"
+											onClick={() => requestDeleteModel(model)}
+											disabled={model.isActive}
+											className="text-(--text-muted) hover:text-destructive"
+											aria-label={`Delete ${model.name}`}
+											title={`Delete ${model.name}`}
+										>
+											<HugeiconsIcon
+												icon={Delete01Icon}
+												strokeWidth={2.5}
+												className="h-4 w-4"
+											/>
+										</Button>
+									)}
 								</div>
 							</div>
 						);
@@ -767,9 +848,7 @@ export default function ModelsPage() {
 											{testResults[provider.key]}
 										</span>
 									)}
-								</div>
-
-								{/* NEW-PRIV-006: per-provider consent toggle.  The
+								</div>									{/* NEW-PRIV-006: per-provider consent toggle.  The
                     backend CloudEngine refuses to transcribe without
                     this — without this UI, a user who pastes a key
                     would hit ConsentRequiredError at dictation time
