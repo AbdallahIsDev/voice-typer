@@ -1794,27 +1794,37 @@ class VoiceTyperApp:
     def restart_app(self) -> None:
         """TrayController protocol: restart the app.
 
-        Sends a ``restart_ack`` event to Electron over the active TCP
-        channel, then exits the current instance via the clean
-        ``sys.exit(0)`` path.  Electron detects the exit (code 0) and
-        spawns the replacement Python process — see
-        ``client/src/main/index.ts`` ``pythonProcess.on("exit")``.
+        Sends a ``relaunch_electron`` event to Electron over the active
+        TCP channel, then exits the current instance via the clean
+        ``sys.exit(0)`` path.  Electron's handler calls
+        ``app.relaunch()`` + ``app.exit(0)``, which spawns a fresh
+        Electron process (which in turn spawns a fresh Python backend).
+        If the ``relaunch_electron`` event is lost (TCP race),
+        Electron's ``pythonProcess.on("exit")`` handler sees exit code
+        0 and triggers the same relaunch as a fallback — see
+        ``client/src/main/index.ts``.
 
-        FIX-restart-tcp: previously this method spawned a replacement
-        via ``subprocess.Popen`` AND Electron's exit handler ALSO
-        spawned a replacement.  The two new processes raced for port
-        9876: one bound successfully, the other crashed with
-        ``EADDRINUSE``.  Electron's TCP connection bounced between
-        them, producing the cascading ``Error: Timeout`` cascade and
-        the false "downloading model" screen in the renderer.  Python
-        no longer spawns a replacement; only Electron does.
+        This replaces the old ``restart_ack`` design which tried to
+        keep Electron alive while swapping only the Python backend.
+        That design had multiple race conditions:
 
-        The ``restart_ack`` event lets Electron pre-emptively reject
-        all pending IPC requests with a "Python backend is restarting"
-        error (instead of letting them sit in the queue until the
-        5-second ``sendToPython`` timeout fires), and flip the
-        renderer to the "Restarting…" status before the TCP channel
-        actually drops.
+          1. The TCP 'close' event could fire before the 'data' event
+             delivering ``restart_ack`` was processed, causing spurious
+             "Python socket closed" errors.
+          2. ``tcpConnect()`` set ``tcpSocket = client`` BEFORE the
+             socket connected, so IPC calls during the reconnection
+             window were written to the unconnected socket, buffered,
+             and sent BEFORE the auth handshake — causing auth failures
+             and cascading "Error: Timeout" errors.
+          3. The ``_restarting`` flag was cleared too early (in
+             ``startPython``, before the new process was up), leaving a
+             window where ``sendToPython`` wrote to a stale/dying socket.
+
+        The full-relaunch approach eliminates all of these: the entire
+        OS process is replaced, so there's no state to coordinate. The
+        user's explicit request was "close the entire process, the
+        entire backend, and the entire Electron application; everything
+        should be closed and opened again."
 
         RELIABILITY-001: was ``os._exit(0)`` which skipped atexit
         handlers + ``__del__``, leaking the Win32 mutex, PortAudio
@@ -1828,39 +1838,54 @@ class VoiceTyperApp:
         self._shutting_down = True
 
         # Restore volume BEFORE exiting so the user's audio isn't left
-        # ducked while Electron spawns the replacement (which can take
+        # ducked while the new Electron process starts (which can take
         # a few seconds for the Python interpreter + torch import).
         # Use fade_ms=0 for instant restore on the restart path.
         self._restore_volume(fade_ms=0)
 
-        # 1. Notify Electron over TCP so it can:
-        #    - mark _restarting = true (prevents stale TCP retry loops)
-        #    - reject all pending IPC requests with a "restarting"
-        #      error instead of letting them time out 5s later
-        #    - flip the renderer to the calm "Restarting…" status
-        #      before the TCP channel actually drops
-        #  Electron will spawn the replacement when it sees our exit
-        #  code 0; we do NOT spawn one ourselves (fix-restart-tcp).
+        # 1. Notify Electron over TCP to relaunch the entire application.
+        #    Electron's handler calls app.relaunch() + app.exit(0),
+        #    which spawns a fresh Electron process (which in turn
+        #    spawns a fresh Python backend).  This is the user's
+        #    explicit request from the tray "Restart" menu item:
+        #    "close the entire process, the entire backend, and the
+        #    entire Electron application; everything should be closed
+        #    and opened again."
+        #
+        #    This replaces the old "restart_ack" design which tried to
+        #    keep Electron alive while swapping only the Python backend.
+        #    That design had multiple race conditions (TCP close racing
+        #    with restart_ack delivery, tcpSocket set before connect
+        #    causing auth failures, _restarting flag cleared too early)
+        #    that produced cascading "Error: Timeout" and "Python
+        #    socket closed" errors.  The full-relaunch approach
+        #    eliminates all of them: the entire OS process is replaced.
+        #
+        #    The "relaunch_electron" event is sent BEFORE the TCP
+        #    socket closes so Electron has a chance to call
+        #    app.relaunch() before this process exits.  If the event
+        #    is lost (TCP race), Electron's pythonProcess exit handler
+        #    sees exit code 0 and triggers the same relaunch as a
+        #    fallback — so the restart is robust either way.
         from voice_typer.server.ipc_server import _push_event_now
         try:
-            _push_event_now({"type": "restart_ack"})
+            _push_event_now({"type": "relaunch_electron"})
         except Exception as e:
-            log.warning("[RESTART] failed to push restart_ack: %s", e)
+            log.warning("[RESTART] failed to push relaunch_electron: %s", e)
 
-        # fix-restart-race-v2: brief pause so Electron's Node.js event
-        # loop has time to receive the restart_ack line off the TCP
-        # socket, parse it, and set _restarting = true BEFORE this
-        # process calls sys.exit(0) and the OS closes the socket.
-        # Without this sleep the close event can race ahead of the
-        # data event in Electron's socket, producing the misleading
-        # "[TCP] waiting for Python backend..." log line and the
-        # false "Python socket closed" error in pending requests.
-        # _push_event_now uses sendall() (synchronous write to the
-        # kernel buffer), but the bytes still have to traverse the
-        # loopback TCP stack and be delivered to Electron's socket
-        # handle before our process exits.  300ms is well within the
-        # atexit cleanup budget and long enough to cover the
-        # loopback delivery + Node.js event loop turn.
+        # Brief pause so Electron's Node.js event loop has time to
+        # receive the relaunch_electron line off the TCP socket, parse
+        # it, and call app.relaunch() + app.exit(0) BEFORE this process
+        # calls sys.exit(0) and the OS closes the socket.  Without this
+        # sleep the close event can race ahead of the data event in
+        # Electron's socket.  _push_event_now uses sendall()
+        # (synchronous write to the kernel buffer), but the bytes still
+        # have to traverse the loopback TCP stack and be delivered to
+        # Electron's socket handle before our process exits.  300ms is
+        # well within the atexit cleanup budget and long enough to
+        # cover the loopback delivery + Node.js event loop turn.  If
+        # the event is lost anyway, Electron's exit-code-0 fallback
+        # (in pythonProcess.on('exit')) triggers the same relaunch.
         time.sleep(0.3)
 
         # 2. Stop all three hotkey backends so the new instance can
@@ -1904,7 +1929,8 @@ class VoiceTyperApp:
         #    and __del__ methods run, releasing the Win32 mutex,
         #    PortAudio handles, and any other resources held by C
         #    extensions.  Electron's exit handler observes code 0 and
-        #    spawns the replacement Python process.
+        #    relaunches the entire application (if the relaunch_electron
+        #    event didn't already trigger it).
         log.info("[RESTART] Exiting old process via sys.exit(0)")
         sys.exit(0)
 

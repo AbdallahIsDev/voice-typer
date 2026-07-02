@@ -454,18 +454,22 @@ export default function App() {
 		}, []),
 	);
 
-	// ── Restart recovery (Issue 1) ───────────────────────────────────
-	// The main process emits synthetic "reconnecting" / "reconnected"
-	// events around a Python restart (exit code 0).  Without these,
-	// connectionStatus gets stuck on "disconnected" because the TCP
-	// close handler rejects every pending request and nothing else
-	// notifies the renderer when TCP silently comes back.
+	// ── Transient TCP recovery ───────────────────────────────────────
+	// The main process emits a synthetic "reconnected" event when the
+	// TCP channel comes back after a transient drop (sleep/resume,
+	// network blip).  Without this, connectionStatus gets stuck on
+	// "disconnected" because the TCP close handler rejects every
+	// pending request and nothing else in the main process pokes the
+	// renderer when TCP silently comes back.
 	//
-	// Flow: Python exits cleanly → main emits "reconnecting" → renderer
-	// flips to "restarting" (calm message, no false "downloading model"
-	// hint).  Main re-spawns Python → TCP reconnects → main emits
-	// "reconnected" → renderer probes get_config and flips to
-	// "connected" (or back to "disconnected" if the probe fails).
+	// NOTE: the full app restart (tray "Restart" menu item) no longer
+	// needs renderer-side recovery — the entire Electron process is
+	// relaunched, so the renderer boots fresh.  This handler only
+	// covers transient TCP drops that don't warrant a full process
+	// restart.  The "reconnecting" event is kept for backward
+	// compatibility (a future main-process change could emit it
+	// before a transient drop), but the current main process doesn't
+	// send it — it only sends "reconnected" on a successful reconnect.
 	usePythonEvent(
 		"reconnecting",
 		useCallback(() => setConnectionStatus("restarting"), []),

@@ -531,12 +531,18 @@ class TestSettingsWindowIntegration:
         )
 
     def test_restart_app_pushes_restart_ack_event(self, app, monkeypatch):
-        """fix-restart-tcp: restart_app() must push a ``restart_ack``
+        """fix-restart-tcp: restart_app() must push a ``relaunch_electron``
         event over the TCP channel BEFORE exiting.  Electron listens
-        for this event to pre-emptively reject pending IPC requests
-        with a "restarting" error (instead of letting them time out
-        5s later) and to flip the renderer to the "Restarting…"
-        status before the TCP channel actually drops."""
+        for this event to call app.relaunch() + app.exit(0), which
+        spawns a fresh Electron process (and in turn a fresh Python
+        backend).  This replaces the old ``restart_ack`` design which
+        tried to keep Electron alive while swapping only the Python
+        backend — that design had multiple race conditions (TCP close
+        racing with restart_ack delivery, tcpSocket set before connect
+        causing auth failures, _restarting flag cleared too early)
+        that produced cascading "Error: Timeout" and "Python socket
+        closed" errors.  The full-relaunch approach eliminates all of
+        them: the entire OS process is replaced."""
         monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
         monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
         monkeypatch.setattr(sys, "argv", ["voice_typer"])
@@ -557,8 +563,8 @@ class TestSettingsWindowIntegration:
             pass
 
         assert pushed, "restart_app must push at least one event"
-        assert any(m.get("type") == "restart_ack" for m in pushed), (
-            f"restart_app must push a restart_ack event; got: {pushed}"
+        assert any(m.get("type") == "relaunch_electron" for m in pushed), (
+            f"restart_app must push a relaunch_electron event; got: {pushed}"
         )
 
     def test_model_change_uses_config_device(self, app, monkeypatch):
