@@ -15,7 +15,7 @@
 // localStorage draft helpers) live here because no other section uses
 // them.
 
-import { memo, useCallback, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { RangeSlider } from "@/components/RangeSlider";
 import { SettingRow } from "@/components/SettingRow";
 import { SettingsSection } from "@/components/SettingsSection";
@@ -208,10 +208,18 @@ function _srgbGamma(c: number): number {
  * Falls back to DOM reading for ``'default'`` and ``'custom'`` presets
  * (which have no defined vars in the THEMES array).
  */
-const _themeColorCache = new Map<
-	string,
-	{ light: Record<string, string>; dark: Record<string, string> }
->();
+// PERF: module-level cache for getCurrentThemeColors results, keyed by
+// preset ID.  The DOM-reading path (for 'default' and 'custom' presets)
+// does 2× getComputedStyle calls + N cssColorToHex conversions per call,
+// which is expensive.  Since the preset's colors don't change between
+// renders (they only change when the user picks a different preset or
+// edits a custom color), we cache the result and invalidate it when
+// the custom draft changes.
+//
+// The cache is defined in a separate file (themeColorCache.ts) to avoid
+// the react-refresh/only-export-components lint warning that would occur
+// if we exported both the cache and the component from the same file.
+import { _themeColorCache } from "./themeColorCache";
 
 function getCurrentThemeColors(currentPresetId: string): {
 	light: Record<string, string>;
@@ -326,6 +334,17 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 			});
 		}
 	}
+
+	// PERF: clear the color cache on unmount so stale entries don't
+	// persist across page navigations. The cache is module-level (shared
+	// across all instances), so this ensures the next time the user
+	// visits Settings, colors are re-read from the DOM/THEMES array
+	// rather than using potentially stale cached values.
+	useEffect(() => {
+		return () => {
+			_themeColorCache.clear();
+		};
+	}, []);
 
 	const _handleThemeChange = (mode: string) => {
 		const m = mode as VoiceTyperConfig["theme_mode"];
