@@ -208,10 +208,18 @@ function _srgbGamma(c: number): number {
  * Falls back to DOM reading for ``'default'`` and ``'custom'`` presets
  * (which have no defined vars in the THEMES array).
  */
+const _themeColorCache = new Map<
+	string,
+	{ light: Record<string, string>; dark: Record<string, string> }
+>();
+
 function getCurrentThemeColors(currentPresetId: string): {
 	light: Record<string, string>;
 	dark: Record<string, string>;
 } {
+	const cached = _themeColorCache.get(currentPresetId);
+	if (cached) return cached;
+
 	const keys = CUSTOM_COLOR_KEYS.map((k) => k.var);
 
 	// Built-in preset with defined vars — read from THEMES array directly
@@ -228,7 +236,9 @@ function getCurrentThemeColors(currentPresetId: string): {
 				light[key] = cssColorToHex(theme.light[key] ?? "");
 				dark[key] = cssColorToHex(theme.dark[key] ?? "");
 			}
-			return { light, dark };
+			const result = { light, dark };
+			_themeColorCache.set(currentPresetId, result);
+			return result;
 		}
 	}
 
@@ -251,7 +261,9 @@ function getCurrentThemeColors(currentPresetId: string): {
 	}
 
 	root.classList.toggle("dark", hadDark);
-	return { light, dark };
+	const result = { light, dark };
+	_themeColorCache.set(currentPresetId, result);
+	return result;
 }
 
 const _THEME_OPTIONS = [
@@ -335,6 +347,9 @@ export function ThemeSettingsSection({
 				const modeVars = isDark ? updated.dark : updated.light;
 				const derived = deriveCustomVars(modeVars, isDark);
 				applyThemeVars("custom", isDark, derived);
+
+				_themeColorCache.delete("custom");
+				_themeColorCache.delete("default");
 
 				// Persist to localStorage immediately (before the backend
 				// save completes) so the draft survives a crash or disconnect.
