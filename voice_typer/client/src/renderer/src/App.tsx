@@ -574,6 +574,7 @@ export default function App() {
 			case "settings":
 				return (
 					<SettingsPage
+						themeMode={themeMode}
 						onThemeChange={handleThemeChange}
 						onNavigate={navigate}
 					/>

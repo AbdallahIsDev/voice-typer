@@ -1357,7 +1357,7 @@ IPC_CONFIG_ALLOWLIST: dict = {
     # ── P3 Features / UX ──────────────────────────────────────────────
     "tray_left_click_action": (str, _make_enum_validator({"open_app", "toggle_dictation"})),
     "theme_mode":            (str, _make_enum_validator({"system", "light", "dark"})),
-    "theme_preset":          (str, _make_enum_validator({"default", "amoled", "nord", "dracula", "sepia", "solarized", "custom"})),
+    "theme_preset":          (str, _make_enum_validator({"default", "amoled", "nord", "dracula", "sepia", "solarized", "monokai", "ayu", "github", "catppuccin", "tokyo-night", "custom"})),
     "custom_theme":          (dict, _make_custom_theme_validator()),
     "high_contrast":         (bool, _bool_validator),
     "text_size":             (int, _make_int_validator(lo=8, hi=72)),

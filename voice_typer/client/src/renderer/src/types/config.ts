@@ -116,6 +116,11 @@ export interface VoiceTyperConfig {
 		| "dracula"
 		| "sepia"
 		| "solarized"
+		| "monokai"
+		| "ayu"
+		| "github"
+		| "catppuccin"
+		| "tokyo-night"
 		| "custom";
 	custom_theme: {
 		light: Record<string, string>;
