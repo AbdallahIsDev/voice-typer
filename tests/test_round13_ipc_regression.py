@@ -153,8 +153,13 @@ class TestAllowlistCorrectness:
             / "voice_typer" / "server" / "ipc_server.py"
         )
         src = ipc_path.read_text(encoding="utf-8")
-        # Extract all cmd == "..." patterns.
-        server_cmds = set(re.findall(r'cmd == "([a-z_]+)"', src))
+        # Extract command names from both the old if/elif pattern AND
+        # the new command registry pattern (REFACTOR: _dispatch was
+        # converted from a 54-branch if/elif chain to a dict-based
+        # _COMMAND_REGISTRY; the regex must match both forms).
+        old_cmds = set(re.findall(r'cmd == "([a-z_]+)"', src))
+        new_cmds = set(re.findall(r'"([a-z_]+)": "_handle_', src))
+        server_cmds = old_cmds | new_cmds
         # Every allowlist entry must be a server command.
         orphans = allowlist_entries - server_cmds
         assert not orphans, (

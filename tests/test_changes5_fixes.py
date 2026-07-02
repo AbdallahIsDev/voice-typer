@@ -206,12 +206,15 @@ class TestTray008LocaleSwitching:
     def test_ipc_set_tray_locale_handler_exists(self):
         from voice_typer.server import ipc_server
 
-        src = inspect.getsource(ipc_server.IPCServer._dispatch)
-        assert 'cmd == "set_tray_locale"' in src, (
-            "TRAY-008: IPC _dispatch must handle 'set_tray_locale' command"
+        # REFACTOR: _dispatch was converted to a command registry.
+        assert "set_tray_locale" in ipc_server.IPCServer._COMMAND_REGISTRY, (
+            "TRAY-008: IPC _COMMAND_REGISTRY must include 'set_tray_locale'"
         )
-        assert "set_tray_locale" in src
-        assert "invalidate_menu_cache" in src, (
+        handler_src = inspect.getsource(
+            ipc_server.IPCServer._handle_set_tray_locale
+        )
+        assert "set_tray_locale" in handler_src
+        assert "invalidate_menu_cache" in handler_src, (
             "TRAY-008: IPC handler must rebuild the tray menu after locale change"
         )
 
@@ -280,15 +283,18 @@ class TestTray035ElectronNotificationIpc:
     def test_ipc_handler_exists(self):
         from voice_typer.server import ipc_server
 
-        src = inspect.getsource(ipc_server.IPCServer._dispatch)
-        assert 'cmd == "show_electron_notification"' in src, (
-            "TRAY-035: IPC _dispatch must handle 'show_electron_notification' command"
+        # REFACTOR: _dispatch was converted to a command registry.
+        assert "show_electron_notification" in ipc_server.IPCServer._COMMAND_REGISTRY, (
+            "TRAY-035: IPC _COMMAND_REGISTRY must include 'show_electron_notification'"
         )
 
     def test_handler_pushes_electron_notification_event(self):
         from voice_typer.server import ipc_server
 
-        src = inspect.getsource(ipc_server.IPCServer._dispatch)
+        # REFACTOR: check the handler method source instead of _dispatch.
+        src = inspect.getsource(
+            ipc_server.IPCServer._handle_show_electron_notification
+        )
         assert "electron_notification" in src, (
             "TRAY-035: handler must push an 'electron_notification' event"
         )

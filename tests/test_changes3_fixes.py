@@ -378,9 +378,12 @@ class TestPlat030AccessibilityIpc:
     def test_check_accessibility_ipc_handler_exists(self):
         from voice_typer.server import ipc_server
 
-        src = inspect.getsource(ipc_server.IPCServer._dispatch)
-        assert 'cmd == "check_accessibility"' in src, (
-            "PLAT-030: IPC _dispatch must handle 'check_accessibility' command."
+        # REFACTOR: _dispatch was converted to a command registry.
+        assert "check_accessibility" in ipc_server.IPCServer._COMMAND_REGISTRY, (
+            "PLAT-030: IPC _COMMAND_REGISTRY must include 'check_accessibility'."
+        )
+        src = inspect.getsource(
+            ipc_server.IPCServer._handle_check_accessibility
         )
         assert "accessibility_status" in src, (
             "PLAT-030: handler must return 'accessibility_status' response type."

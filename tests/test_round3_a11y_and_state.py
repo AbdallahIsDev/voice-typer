@@ -49,7 +49,12 @@ class TestNewPriv011CancelableDownload:
         ipc_py = (REPO_ROOT / "voice_typer" / "server" / "ipc_server.py").read_text(
             encoding="utf-8"
         )
-        assert 'cmd == "cancel_model_download"' in ipc_py
+        # REFACTOR: _dispatch was converted to a command registry.
+        # Accept either the old if/elif pattern or the new registry entry.
+        assert (
+            'cmd == "cancel_model_download"' in ipc_py
+            or '"cancel_model_download": "_handle_cancel_model_download"' in ipc_py
+        ), "IPC server must handle cancel_model_download"
 
     def test_main_allowlist_includes_cancel_model_download(self):
         main_ts = (CLIENT_SRC / "main" / "index.ts").read_text(encoding="utf-8")
