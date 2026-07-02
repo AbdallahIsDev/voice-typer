@@ -42,7 +42,7 @@
 		"prebuild": "node scripts/generate-icons.mjs",
 		"doctor": "react-doctor",
 		"doctor:ci": "react-doctor --scope changed --base main",
-		"prepare": "cd .. && husky voice_typer/client/.husky",
+		"prepare": "cd ../.. && husky",
 		"lint-staged": "lint-staged"
 	},
 	"devDependencies": {

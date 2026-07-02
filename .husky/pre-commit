@@ -1,7 +1,14 @@
 #!/usr/bin/env sh
 # Husky pre-commit hook: runs lint-staged on staged files.
+#
 # lint-staged runs biome check --write on .ts/.tsx/.js/.jsx/.json/.css files
 # and ruff check+format on .py files, only on files that are staged for commit.
 # This catches import errors, type mismatches, and formatting issues before
 # they reach the remote.
-npx lint-staged
+#
+# The pre-commit hook lives at the git repo root (.husky/pre-commit) so
+# Husky 9 can find it. lint-staged and biome are installed in
+# voice_typer/client/node_modules, so we cd there before running.
+
+# Run lint-staged from the client directory where node_modules lives.
+cd voice_typer/client && npx lint-staged
