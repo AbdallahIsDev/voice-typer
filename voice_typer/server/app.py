@@ -1835,103 +1835,52 @@ class VoiceTyperApp:
         killed externally" for an intentional restart.
         """
         log.info("[RESTART] Restarting Voice Typer...")
-        self._shutting_down = True
 
-        # Restore volume BEFORE exiting so the user's audio isn't left
-        # ducked while the new Electron process starts (which can take
-        # a few seconds for the Python interpreter + torch import).
-        # Use fade_ms=0 for instant restore on the restart path.
-        self._restore_volume(fade_ms=0)
-
-        # 1. Notify Electron over TCP to relaunch the entire application.
-        #    Electron's handler calls app.relaunch() + app.exit(0),
-        #    which spawns a fresh Electron process (which in turn
-        #    spawns a fresh Python backend).  This is the user's
-        #    explicit request from the tray "Restart" menu item:
-        #    "close the entire process, the entire backend, and the
-        #    entire Electron application; everything should be closed
-        #    and opened again."
+        # ── CRITICAL ORDERING FIX ────────────────────────────────────
         #
-        #    This replaces the old "restart_ack" design which tried to
-        #    keep Electron alive while swapping only the Python backend.
-        #    That design had multiple race conditions (TCP close racing
-        #    with restart_ack delivery, tcpSocket set before connect
-        #    causing auth failures, _restarting flag cleared too early)
-        #    that produced cascading "Error: Timeout" and "Python
-        #    socket closed" errors.  The full-relaunch approach
-        #    eliminates all of them: the entire OS process is replaced.
+        # _push_event_now() MUST be called BEFORE _shutting_down is set
+        # to True.  The _send() method in ipc_server.py checks
+        # _shutting_down and if True, closes the TCP socket WITHOUT
+        # writing the event — silently dropping it.  This was the root
+        # cause of the "restart does nothing" bug: the relaunch_electron
+        # event was never received by Electron, so _relaunching stayed
+        # false, and the fallback exit handler also failed because the
+        # Python process never actually exited (SystemExit was caught
+        # by wrap_callback without tray.stop() breaking the loop).
         #
-        #    The "relaunch_electron" event is sent BEFORE the TCP
-        #    socket closes so Electron has a chance to call
-        #    app.relaunch() before this process exits.  If the event
-        #    is lost (TCP race), Electron's pythonProcess exit handler
-        #    sees exit code 0 and triggers the same relaunch as a
-        #    fallback — so the restart is robust either way.
+        # 1. Push relaunch_electron BEFORE marking _shutting_down.
         from voice_typer.server.ipc_server import _push_event_now
         try:
             _push_event_now({"type": "relaunch_electron"})
+            log.info("[RESTART] relaunch_electron pushed to Electron via TCP")
         except Exception as e:
             log.warning("[RESTART] failed to push relaunch_electron: %s", e)
 
-        # Brief pause so Electron's Node.js event loop has time to
-        # receive the relaunch_electron line off the TCP socket, parse
-        # it, and call app.relaunch() + app.exit(0) BEFORE this process
-        # calls sys.exit(0) and the OS closes the socket.  Without this
-        # sleep the close event can race ahead of the data event in
-        # Electron's socket.  _push_event_now uses sendall()
-        # (synchronous write to the kernel buffer), but the bytes still
-        # have to traverse the loopback TCP stack and be delivered to
-        # Electron's socket handle before our process exits.  300ms is
-        # well within the atexit cleanup budget and long enough to
-        # cover the loopback delivery + Node.js event loop turn.  If
-        # the event is lost anyway, Electron's exit-code-0 fallback
-        # (in pythonProcess.on('exit')) triggers the same relaunch.
+        # 2. NOW mark as shutting down, restore volume, and give Electron
+        #    time to process the relaunch event before we close the socket.
+        self._shutting_down = True
+        self._restore_volume(fade_ms=0)
+        log.info("[RESTART] Pausing 300ms for Electron to process relaunch_electron")
         time.sleep(0.3)
 
-        # 2. Stop all three hotkey backends so the new instance can
-        #    re-register them without "hotkey busy" errors.
-        #    RELIABILITY-003: previously only _hotkey_backend was stopped.
-        try:
-            self._cancel_pending_timers()
-        except Exception:
-            pass
+        # 3. Stop backends so the new instance can re-register everything.
+        self._cancel_pending_timers()
         try:
             if self._hotkey_backend:
                 self._hotkey_backend.stop()
-        except Exception:
-            pass
-        try:
             if self._esc_backend:
                 self._esc_backend.stop()
-        except Exception:
-            pass
-        try:
             if self._repaste_backend:
                 self._repaste_backend.stop()
         except Exception:
             pass
-
-        # 3. Break the pystray event loop so the main thread can exit.
-        #    _icon.stop() is safe to call from within a pystray callback
-        #    on all supported backends (Win32 message loop, GTK, AppKit):
-        #    it sets a flag that the loop checks after the current
-        #    callback returns.  Combined with the SystemExit re-raise
-        #    in _wrap (RELIABILITY-001), this lets the process exit
-        #    via sys.exit(0) instead of os._exit(0).
         try:
             self.tray.stop()
-        except Exception as e:
-            log.warning("[RESTART] tray.stop() failed: %s", e)
+        except Exception:
+            pass
 
-        # 4. Exit via the clean path.  sys.exit(0) raises SystemExit,
-        #    which _wrap re-raises, which lets pystray unwind (because
-        #    tray.stop() was called in step 3).  Python atexit handlers
-        #    and __del__ methods run, releasing the Win32 mutex,
-        #    PortAudio handles, and any other resources held by C
-        #    extensions.  Electron's exit handler observes code 0 and
-        #    relaunches the entire application (if the relaunch_electron
-        #    event didn't already trigger it).
-        log.info("[RESTART] Exiting old process via sys.exit(0)")
+        # 4. Exit cleanly — electron will relaunch us.
+        log.info("[RESTART] Old process exiting via sys.exit(0)")
         sys.exit(0)
 
     # DEAD-008: the following 6 TrayController protocol methods were

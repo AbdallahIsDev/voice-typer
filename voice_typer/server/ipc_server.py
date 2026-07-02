@@ -1655,16 +1655,17 @@ class IPCServer:
 
         if tcp_client is not None:
             # QUIT-CLEAN-001: if the app is shutting down, skip the TCP
-            # write entirely.  Electron closes its end of the socket as
-            # soon as it receives the ``quit_app`` event; any subsequent
-            # push from the Python cleanup path (waveform bubble worker,
-            # state-changed hooks, hotkey-backend teardown) would hit a
-            # half-closed socket and raise ``[WinError 10053]`` /
-            # ``ConnectionResetError``.  The error itself was already
-            # logged at DEBUG, but suppressing the write in the first
-            # place keeps the log (and any DEBUG-enabled user terminal)
-            # quiet during shutdown.  We still mark the client as dead
-            # so a subsequent (theoretical) reconnect can succeed.
+            # write for non-critical events.  Electron closes its end of
+            # the socket as soon as it receives the ``quit_app`` event;
+            # any subsequent push from the cleanup path (waveform bubble
+            # worker, state-changed hooks, hotkey-backend teardown) would
+            # hit a half-closed socket and raise ``[WinError 10053]```.
+            #
+            # CRITICAL-CRITICAL: the ``relaunch_electron`` event is the
+            # EXCEPTION.  This event MUST be delivered even during
+            # shutdown because it's the signal from restart_app() that
+            # tells Electron to call app.relaunch() + app.exit(0) before
+            # the Python process exits.  Without it, the restart hangs.
             #
             # ``is True`` (rather than a truthiness check) is intentional:
             # the real ``VoiceTyperApp`` sets ``_shutting_down = True``
@@ -1673,7 +1674,10 @@ class IPCServer:
             # not ``is True``).  Using ``is True`` keeps the test path
             # exercising the write logic instead of the shutdown short-
             # circuit.
-            if getattr(self.app, "_shutting_down", False) is True:
+            _is_shutting_down = getattr(self.app, "_shutting_down", False) is True
+            msg_type = msg.get("type", "")
+            # Allow critical shutdown events through; suppress others.
+            if _is_shutting_down and msg_type not in ("relaunch_electron", "quit_app"):
                 with self._lock:
                     if self._tcp_client is tcp_client:
                         try:

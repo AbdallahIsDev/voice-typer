@@ -188,6 +188,12 @@ let _hadConnectedBefore = false;
 // the process.
 let _relaunching = false;
 
+// Flag set alongside _relaunching to track that a restart was triggered.
+// Unlike _relaunching (which is reset to false in dev mode), this flag
+// persists until the new TCP connection is established, so we can log
+// "restart cycle complete" when the new backend connects.
+let _restartTriggered = false;
+
 // Bubble geometry (logical px).
 const BUBBLE_WIDTH = 74;
 const BUBBLE_HEIGHT = 27;
@@ -322,31 +328,10 @@ function handleMessage(msg: Record<string, unknown>) {
 			// relaunching the entire Electron process (which in
 			// turn spawns a fresh Python backend).
 			//
-			// This replaces the old "Python-only restart" design
-			// (which sent "restart_ack" and tried to keep Electron
-			// alive while swapping the Python backend).  The old
-			// design had several race conditions:
-			//   1. The TCP 'close' event could fire before the
-			//      'data' event delivering restart_ack was
-			//      processed, causing spurious "Python socket
-			//      closed" errors.
-			//   2. tcpConnect() set tcpSocket = client BEFORE the
-			//      socket connected, so IPC calls during the
-			//      reconnection window were written to the
-			//      unconnected socket, buffered, and sent BEFORE
-			//      the auth handshake — causing auth failures and
-			//      cascading "Error: Timeout" errors.
-			//   3. The _restarting flag was cleared too early
-			//      (in startPython, before the new process was up),
-			//      leaving a window where sendToPython wrote to
-			//      a stale/dying socket.
-			//
-			// The full-relaunch approach eliminates all of these:
-			// the entire OS process is replaced, so there's no
-			// state to coordinate.  The new Electron process
-			// starts fresh, spawns a new Python backend, and the
-			// renderer boots clean.
-			console.warn("[RESTART] received relaunch_electron from Python");
+			// RESTART-DEBUG: log the exact state when this event arrives
+			// so we can trace the full restart flow in the terminal.
+			const _relaunchDbg = _relaunching ? "already relaunching" : "triggering relaunch";
+			console.warn(`[RESTART] received relaunch_electron from Python (${_relaunchDbg})`);
 			relaunchApp();
 		}
 		// SEC-029: tag each python-event with a per-session nonce so the
@@ -1048,6 +1033,10 @@ function tcpConnect(port: number) {
 			// Python is running and its TCP server accepted us.
 			// Create the main window immediately.
 			console.warn(`[TCP] connected to Python backend (127.0.0.1:${port})`);
+			if (_restartTriggered) {
+				_restartTriggered = false;
+				console.warn("[RESTART] New Python backend connected -- restart cycle complete");
+			}
 			createMainWindow();
 			// On every connect AFTER the first one, notify the renderer
 			// that the TCP channel is back up.  This handles transient
@@ -1301,48 +1290,78 @@ function startPython() {
  */
 function relaunchApp(): void {
 	// Idempotency guard: if a relaunch is already in flight, do nothing.
-	if (_relaunching) return;
+	if (_relaunching) {
+		console.warn("[RESTART] relaunchApp() called but already relaunching — no-op");
+		return;
+	}
 	_relaunching = true;
+	_restartTriggered = true;
 	app.isQuitting = true;
 
-	console.warn("[RESTART] relaunching Electron application");
+	// ── Dev mode: keep Electron alive, just restart Python ──────────
+	// Production: app.relaunch() + app.exit(0) fully replaces the OS process.
+	if (!app.isPackaged) {
+		console.warn("[RESTART] Dev mode: restarting Python backend (Electron stays alive)");
 
-	// Force-kill any lingering Python process.  In the normal restart
-	// flow, Python has already called sys.exit(0) and is gone by the
-	// time we get here — but if the user triggered a restart via a
-	// future code path that doesn't exit Python first, we don't want
-	// to leave an orphaned backend holding the Win32 single-instance
-	// mutex and port 9876.
-	try {
-		if (pythonProcess && !pythonProcess.killed) {
-			pythonProcess.kill();
+		// Kill old Python (remove exit listener first to prevent race)
+		try {
+			if (pythonProcess) {
+				pythonProcess.removeAllListeners("exit");
+				if (!pythonProcess.killed) pythonProcess.kill("SIGTERM");
+			}
+		} catch { /* best-effort */ }
+		pythonProcess = null;
+
+		// Clean up TCP + state
+		try { if (tcpSocket) tcpSocket.destroy(); } catch {}
+		tcpSocket = null;
+		_tcpAuthed = false;
+		pythonReady = false;
+		pythonExitedEarly = false;
+		_hadConnectedBefore = false;
+		_tcpRetryCount = 0;
+		_tcpRetryGeneration++;
+
+		// Reject pending IPC, reload renderer, spawn fresh Python
+		for (const [id, entry] of pendingRequests) {
+			pendingRequests.delete(id);
+			entry.reject(new Error("Application is restarting"));
 		}
-	} catch (e) {
-		console.warn("[RESTART] failed to kill Python process:", e);
+		try {
+			if (mainWindow && !mainWindow.isDestroyed()) {
+				if (process.env.ELECTRON_RENDERER_URL) {
+					mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
+				} else {
+					mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
+				}
+			}
+		} catch {}
+
+		startPython();
+		_relaunching = false;
+		console.warn("[RESTART] Dev mode restart complete -- waiting for new backend");
+		return;
 	}
+
+	console.warn("[RESTART] Production mode: relaunching entire Electron application");
+
+	// Kill old Python (remove exit listener first to prevent race)
+	try {
+		if (pythonProcess) {
+			pythonProcess.removeAllListeners("exit");
+			if (!pythonProcess.killed) pythonProcess.kill();
+		}
+	} catch {}
 	pythonProcess = null;
-	try {
-		if (tcpSocket) {
-			tcpSocket.destroy();
-		}
-	} catch {
-		/* best-effort */
-	}
+	try { if (tcpSocket) tcpSocket.destroy(); } catch {}
 	tcpSocket = null;
 	_tcpAuthed = false;
 
-	// Reject any pending IPC requests immediately so the renderer's
-	// loading spinners don't dangle until the process exits.
+	// Reject pending IPC and spawn a brand new OS process
 	for (const [id, entry] of pendingRequests) {
 		pendingRequests.delete(id);
 		entry.reject(new Error("Application is restarting"));
 	}
-
-	// Ask the OS to start a new Electron process with the same args,
-	// then exit this one.  app.exit(0) does NOT fire before-quit (so
-	// stopPython's 3s kill timer doesn't delay the exit), and it does
-	// NOT fire will-quit.  The new process starts immediately after
-	// this process exits.
 	app.relaunch({ args: process.argv.slice(1) });
 	app.exit(0);
 }
