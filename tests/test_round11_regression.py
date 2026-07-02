@@ -523,7 +523,7 @@ class TestQwenFallback:
 
         call_count = {"n": 0}
 
-        def fake_transcribe(audio):
+        def fake_transcribe(audio, audio_stats=None):
             call_count["n"] += 1
             if call_count["n"] == 1:
                 raise RuntimeError("CUDA error: out of memory")

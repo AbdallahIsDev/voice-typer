@@ -392,8 +392,13 @@ class TestMacOSAccessibilityCheck:
         from voice_typer.server import app as app_module
         # _do_startup is the method that runs the check.
         src = inspect.getsource(app_module.VoiceTyperApp._do_startup)
-        assert "darwin" in src and "accessibility" in src.lower(), (
-            "macOS accessibility permission check must be in _do_startup"
+        # The macOS check may be gated by either the literal platform
+        # string "darwin" (e.g. ``sys.platform == "darwin"``) or by the
+        # ``is_macos()`` helper from platform_utils.  Both are valid.
+        has_macos_guard = "darwin" in src or "is_macos()" in src
+        assert has_macos_guard and "accessibility" in src.lower(), (
+            "macOS accessibility permission check must be in _do_startup "
+            "(gated by 'darwin' or is_macos(), and referencing 'accessibility')"
         )
 
     def test_accessibility_check_notifies_on_missing(self):

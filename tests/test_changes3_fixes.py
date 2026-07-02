@@ -557,12 +557,20 @@ class TestAudio008DeviceDisconnect:
         rec.on_silence_auto_stop = lambda: None
         rec.on_max_duration_auto_stop = lambda: None
 
-        # The callback checks `np.all(indata == 0) and self._chunk_count > 10`
+        # The callback checks for zero-filled indata (via either
+        # `np.all(indata == 0)` or the equivalent `not indata.any()`)
         # and sets _device_disconnected = True. We verify the source
         # contains this logic.
         src = inspect.getsource(recording.Recorder.start)
         assert "_device_disconnected" in src
-        assert "np.all(indata == 0)" in src or "np.all(indata==0)" in src
+        assert (
+            "np.all(indata == 0)" in src
+            or "np.all(indata==0)" in src
+            or "not indata.any()" in src
+        ), (
+            "Recorder.start must check for zero-filled indata to detect "
+            "device disconnect (via np.all(indata == 0) or not indata.any())"
+        )
 
 
 # ─── AUDIO-010 — backpressure detection tests ────────────────────────────
