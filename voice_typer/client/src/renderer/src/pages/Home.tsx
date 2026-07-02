@@ -540,12 +540,12 @@ export default function Home({
                             fetch resolves, initialLoading flips to false and this falls
                             back to the natural empty state. */}
 			{!stats && initialLoading && (
-				<div
+				<section
 					className="mt-4 w-full flex items-center justify-center py-6"
 					aria-label="Loading today's stats"
 				>
 					<Spinner />
-				</div>
+				</section>
 			)}
 
 			{/* ── Hidden share image capture target ──────────────── */}
@@ -565,12 +565,12 @@ export default function Home({
 				/>
 			) : (
 				initialLoading && (
-					<div
+					<section
 						className="mt-4 w-full flex items-center justify-center py-6"
 						aria-label="Loading recent activity"
 					>
 						<Spinner />
-					</div>
+					</section>
 				)
 			)}
 		</div>
