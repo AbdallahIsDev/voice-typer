@@ -20,6 +20,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { SettingsSkeleton } from "./SettingsSkeleton";
 
 import type { SettingsSectionSharedProps } from "./types";
 
@@ -40,7 +41,7 @@ export function HotkeySettingsSection({
 	updateConfig,
 	updateConfigDebounced,
 }: SettingsSectionSharedProps) {
-	if (!config) return null;
+	if (!config) return <SettingsSkeleton rows={3} />;
 
 	return (
 		<>

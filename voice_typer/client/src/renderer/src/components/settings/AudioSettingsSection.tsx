@@ -23,6 +23,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { usePython } from "@/hooks/usePython";
 import type { VoiceTyperConfig } from "@/types/config";
+import { SettingsSkeleton } from "./SettingsSkeleton";
 
 import type { SettingsSectionSharedProps } from "./types";
 
@@ -65,7 +66,7 @@ export function AudioSettingsSection({
 		loadVolumeBackend();
 	}, [loadVolumeBackend]);
 
-	if (!config) return null;
+	if (!config) return <SettingsSkeleton rows={3} />;
 
 	return (
 		<SettingsSection

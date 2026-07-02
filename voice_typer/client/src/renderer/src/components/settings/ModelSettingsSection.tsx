@@ -21,6 +21,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { SettingsSkeleton } from "./SettingsSkeleton";
 
 import type { SettingsSectionSharedProps } from "./types";
 
@@ -78,7 +79,7 @@ export function ModelSettingsSection({
 	// LLM API key visibility toggle (show/hide the password-style input).
 	const [llmKeyVisible, setLlmKeyVisible] = useState(false);
 
-	if (!config) return null;
+	if (!config) return <SettingsSkeleton rows={3} />;
 
 	return (
 		<>

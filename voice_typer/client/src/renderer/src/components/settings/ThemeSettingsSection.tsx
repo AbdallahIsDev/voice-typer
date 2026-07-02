@@ -15,7 +15,7 @@
 // localStorage draft helpers) live here because no other section uses
 // them.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { RangeSlider } from "@/components/RangeSlider";
 import { SettingRow } from "@/components/SettingRow";
 import { SettingsSection } from "@/components/SettingsSection";
@@ -37,6 +37,7 @@ import {
 	THEMES,
 } from "@/themes";
 import type { VoiceTyperConfig } from "@/types/config";
+import { SettingsSkeleton } from "./SettingsSkeleton";
 
 import type { SettingsSectionSharedProps } from "./types";
 
@@ -295,25 +296,24 @@ export function ThemeSettingsSection({
 		"light",
 	);
 	const [customDraft, setCustomDraft] = useState<CustomThemeData | null>(null);
+	const customThemeInitRef = useRef(false);
 
-	// Initialise customDraft from config when it loads.
-	// Prefer the localStorage draft over the config value — the draft
-	// is more recent (it includes any unsaved color picker changes
-	// from a previous session where the backend save failed).
-	useEffect(() => {
+	// One-time init during render (not in effect) — avoids extra render
+	// with stale null. Prefers localStorage draft over config value.
+	if (config && !customThemeInitRef.current) {
+		customThemeInitRef.current = true;
 		const draft = _loadDraftFromLS();
 		if (draft) {
 			setCustomDraft(draft);
-		} else if (config?.custom_theme) {
+		} else if (config.custom_theme) {
 			setCustomDraft(config.custom_theme);
 		} else {
-			// Seed with defaults so the color picker always has values
 			setCustomDraft({
 				light: { ...DEFAULT_CUSTOM_LIGHT },
 				dark: { ...DEFAULT_CUSTOM_DARK },
 			});
 		}
-	}, [config?.custom_theme]); // only on first load when config becomes available
+	}
 
 	const _handleThemeChange = (mode: string) => {
 		const m = mode as VoiceTyperConfig["theme_mode"];
@@ -360,7 +360,7 @@ export function ThemeSettingsSection({
 		applyThemeVars(savedPresetRef.current, isDark);
 	}, []);
 
-	if (!config) return null;
+	if (!config) return <SettingsSkeleton rows={3} />;
 
 	// UX-028: section-level visibility check — if no row matches the
 	// search filter, hide the entire section.

@@ -1,0 +1,38 @@
+/**
+ * Skeleton loading placeholder for settings sections.
+ *
+ * BACKLOG-008: Settings sections previously returned `null` when config
+ * was null (still loading from backend). This caused a visual flash where
+ * the section content popped in. The skeleton provides a visible loading
+ * state that matches the section's layout.
+ */
+
+interface SettingsSkeletonProps {
+	/** Number of skeleton rows to render. Default 3. */
+	rows?: number;
+	/** Additional class names. */
+	className?: string;
+}
+
+export function SettingsSkeleton({
+	rows = 3,
+	className = "",
+}: SettingsSkeletonProps) {
+	return (
+		<output className={`space-y-3 ${className}`} aria-label="Loading settings">
+			{Array.from({ length: rows }, (_, i) => (
+				<div
+					// biome-ignore lint/suspicious/noArrayIndexKey: skeleton rows are static and identical; index is the only stable key
+					key={`row-${rows}-${i}`}
+					className="flex items-center justify-between gap-4 px-3.5 py-2.5"
+				>
+					<div className="flex items-center gap-2">
+						<div className="h-4 w-24 animate-pulse rounded bg-(--bg-card)" />
+						<div className="h-4 w-4 animate-pulse rounded bg-(--bg-card)" />
+					</div>
+					<div className="h-6 w-12 animate-pulse rounded bg-(--bg-card)" />
+				</div>
+			))}
+		</output>
+	);
+}

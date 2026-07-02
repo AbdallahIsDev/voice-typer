@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
+import { SettingsSkeleton } from "./SettingsSkeleton";
 
 import type { SettingsSectionSharedProps } from "./types";
 
@@ -32,7 +33,7 @@ export function PrivacySettingsSection({
 	const { call } = usePython();
 	const { showSnack } = useSnackbar();
 
-	if (!config) return null;
+	if (!config) return <SettingsSkeleton rows={3} />;
 
 	return (
 		<>

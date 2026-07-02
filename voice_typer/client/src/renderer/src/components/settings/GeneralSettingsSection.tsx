@@ -25,6 +25,7 @@ import {
 	setLocale,
 	t,
 } from "@/i18n/i18n";
+import { SettingsSkeleton } from "./SettingsSkeleton";
 
 import type { SettingsSectionSharedProps } from "./types";
 
@@ -48,7 +49,7 @@ export function GeneralSettingsSection({
 	updateConfig,
 	isVisible,
 }: SettingsSectionSharedProps) {
-	if (!config) return null;
+	if (!config) return <SettingsSkeleton rows={3} />;
 
 	// UX-028: section-level visibility check for the General section.
 	const generalItems = [
