@@ -203,10 +203,15 @@ class TestNewUx005DeleteModelBackend:
 
     def test_ipc_has_delete_model_route(self):
         from voice_typer.server.ipc_server import IPCServer
-        # Verify the dispatch handles delete_model.
-        import inspect
-        source = inspect.getsource(IPCServer._dispatch)
-        assert "delete_model" in source, "IPC dispatch must handle delete_model"
+        # REFACTOR: _dispatch was converted to a command registry.
+        # The handler is now _handle_delete_model, registered in
+        # _COMMAND_REGISTRY. Check both the registry and the handler.
+        assert "delete_model" in IPCServer._COMMAND_REGISTRY, (
+            "IPC _COMMAND_REGISTRY must include delete_model"
+        )
+        assert hasattr(IPCServer, "_handle_delete_model"), (
+            "IPC must have _handle_delete_model handler method"
+        )
 
     def test_renderer_allowlist_has_delete_model(self):
         main_ts = (

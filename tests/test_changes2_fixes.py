@@ -400,7 +400,9 @@ class TestRace011ConfigMutationLock:
     def test_ipc_set_config_uses_lock(self):
         from voice_typer.server import ipc_server
 
-        src = inspect.getsource(ipc_server.IPCServer._dispatch)
+        # REFACTOR: _dispatch was converted to a command registry.
+        # The set_config logic is now in _handle_set_config.
+        src = inspect.getsource(ipc_server.IPCServer._handle_set_config)
         assert "_config_mutation_lock" in src, (
             "IPC set_config handler must acquire _config_mutation_lock "
             "before mutating Config attributes."
