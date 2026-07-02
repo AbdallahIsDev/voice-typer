@@ -330,8 +330,12 @@ function handleMessage(msg: Record<string, unknown>) {
 			//
 			// RESTART-DEBUG: log the exact state when this event arrives
 			// so we can trace the full restart flow in the terminal.
-			const _relaunchDbg = _relaunching ? "already relaunching" : "triggering relaunch";
-			console.warn(`[RESTART] received relaunch_electron from Python (${_relaunchDbg})`);
+			const _relaunchDbg = _relaunching
+				? "already relaunching"
+				: "triggering relaunch";
+			console.warn(
+				`[RESTART] received relaunch_electron from Python (${_relaunchDbg})`,
+			);
 			relaunchApp();
 		}
 		// SEC-029: tag each python-event with a per-session nonce so the
@@ -1035,7 +1039,9 @@ function tcpConnect(port: number) {
 			console.warn(`[TCP] connected to Python backend (127.0.0.1:${port})`);
 			if (_restartTriggered) {
 				_restartTriggered = false;
-				console.warn("[RESTART] New Python backend connected -- restart cycle complete");
+				console.warn(
+					"[RESTART] New Python backend connected -- restart cycle complete",
+				);
 			}
 			createMainWindow();
 			// On every connect AFTER the first one, notify the renderer
@@ -1291,7 +1297,9 @@ function startPython() {
 function relaunchApp(): void {
 	// Idempotency guard: if a relaunch is already in flight, do nothing.
 	if (_relaunching) {
-		console.warn("[RESTART] relaunchApp() called but already relaunching — no-op");
+		console.warn(
+			"[RESTART] relaunchApp() called but already relaunching — no-op",
+		);
 		return;
 	}
 	_relaunching = true;
@@ -1301,7 +1309,9 @@ function relaunchApp(): void {
 	// ── Dev mode: keep Electron alive, just restart Python ──────────
 	// Production: app.relaunch() + app.exit(0) fully replaces the OS process.
 	if (!app.isPackaged) {
-		console.warn("[RESTART] Dev mode: restarting Python backend (Electron stays alive)");
+		console.warn(
+			"[RESTART] Dev mode: restarting Python backend (Electron stays alive)",
+		);
 
 		// Kill old Python (remove exit listener first to prevent race)
 		try {
@@ -1309,11 +1319,15 @@ function relaunchApp(): void {
 				pythonProcess.removeAllListeners("exit");
 				if (!pythonProcess.killed) pythonProcess.kill("SIGTERM");
 			}
-		} catch { /* best-effort */ }
+		} catch {
+			/* best-effort */
+		}
 		pythonProcess = null;
 
 		// Clean up TCP + state
-		try { if (tcpSocket) tcpSocket.destroy(); } catch {}
+		try {
+			if (tcpSocket) tcpSocket.destroy();
+		} catch {}
 		tcpSocket = null;
 		_tcpAuthed = false;
 		pythonReady = false;
@@ -1339,11 +1353,15 @@ function relaunchApp(): void {
 
 		startPython();
 		_relaunching = false;
-		console.warn("[RESTART] Dev mode restart complete -- waiting for new backend");
+		console.warn(
+			"[RESTART] Dev mode restart complete -- waiting for new backend",
+		);
 		return;
 	}
 
-	console.warn("[RESTART] Production mode: relaunching entire Electron application");
+	console.warn(
+		"[RESTART] Production mode: relaunching entire Electron application",
+	);
 
 	// Kill old Python (remove exit listener first to prevent race)
 	try {
@@ -1353,7 +1371,9 @@ function relaunchApp(): void {
 		}
 	} catch {}
 	pythonProcess = null;
-	try { if (tcpSocket) tcpSocket.destroy(); } catch {}
+	try {
+		if (tcpSocket) tcpSocket.destroy();
+	} catch {}
 	tcpSocket = null;
 	_tcpAuthed = false;
 

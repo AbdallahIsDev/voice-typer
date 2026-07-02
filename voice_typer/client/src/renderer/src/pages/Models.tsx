@@ -19,7 +19,8 @@ import { Switch } from "@/components/ui/switch";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { cn } from "@/lib/utils";
-import type { VoiceTyperConfig } from "@/types/config";// Module-level cache — persists across page navigations so the models view
+import type { VoiceTyperConfig } from "@/types/config"; // Module-level cache — persists across page navigations so the models view
+
 // renders instantly on re-visit instead of showing a loading spinner.
 let _cachedConfig: VoiceTyperConfig | null = null;
 
@@ -114,7 +115,7 @@ export default function ModelsPage() {
 	const { showSnack, Snackbar } = useSnackbar();
 	const [config, setConfig] = useState<VoiceTyperConfig | null>(_cachedConfig);
 	const [models, setModels] = useState<ModelInfo[]>(INITIAL_MODELS);
-	const [initialLoading, setInitialLoading] = useState(true);
+	const [_initialLoading, setInitialLoading] = useState(true);
 	const [downloadProgress, setDownloadProgress] = useState(0);
 	const [downloadStatus, setDownloadStatus] = useState("");
 	const [isDownloading, setIsDownloading] = useState(false);
@@ -337,9 +338,7 @@ export default function ModelsPage() {
 			if (result?.success) {
 				setModels((prev) =>
 					prev.map((m) =>
-						m.name === deleteModelTarget.name
-							? { ...m, downloaded: false }
-							: m,
+						m.name === deleteModelTarget.name ? { ...m, downloaded: false } : m,
 					),
 				);
 				showSnack(`Deleted: ${deleteModelTarget.name}`, "warning");
@@ -486,7 +485,8 @@ export default function ModelsPage() {
 			} else {
 				setTestResults((prev) => ({
 					...prev,
-					[provider]: "API key saved — test endpoint not available for this provider.",
+					[provider]:
+						"API key saved — test endpoint not available for this provider.",
 				}));
 			}
 		} catch (err) {
@@ -562,7 +562,9 @@ export default function ModelsPage() {
 					}}
 					disabled={isDownloading || allDownloaded}
 					title={
-						allDownloaded ? "All models already downloaded" : "Download all models"
+						allDownloaded
+							? "All models already downloaded"
+							: "Download all models"
 					}
 					// FIX: muted text/icon by default, white on hover —
 					// matches the outline-button style used across other
@@ -787,7 +789,6 @@ export default function ModelsPage() {
 										{provider.label} Settings
 									</h3>
 								</div>
-
 								<div className="mb-4">
 									<label
 										htmlFor="api-key-input"
@@ -809,7 +810,6 @@ export default function ModelsPage() {
 										className="w-full max-w-md"
 									/>
 								</div>
-
 								<div className="flex items-center gap-3">
 									<Button
 										variant="default"
@@ -848,7 +848,8 @@ export default function ModelsPage() {
 											{testResults[provider.key]}
 										</span>
 									)}
-								</div>									{/* NEW-PRIV-006: per-provider consent toggle.  The
+								</div>{" "}
+								{/* NEW-PRIV-006: per-provider consent toggle.  The
                     backend CloudEngine refuses to transcribe without
                     this — without this UI, a user who pastes a key
                     would hit ConsentRequiredError at dictation time
