@@ -51,7 +51,11 @@ export class ErrorBoundary extends Component<
 			}
 
 			return (
-				<div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-(--bg-subtle) p-8 text-center">
+				<div
+					className="flex min-h-screen flex-col items-center justify-center gap-4 bg-(--bg-subtle) p-8 text-center"
+					role="alert"
+					aria-live="assertive"
+				>
 					<div className="space-y-2">
 						<h1 className="text-2xl font-bold text-(--text-primary)">
 							Something went wrong

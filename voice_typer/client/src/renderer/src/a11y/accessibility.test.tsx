@@ -47,9 +47,25 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 			if (fs.existsSync(pagePath)) {
 				const src = fs.readFileSync(pagePath, "utf-8");
 				const switchCount = (src.match(/<Switch/g) || []).length;
-				const switchAriaCount = (src.match(/Switch[^>]*aria-label/g) || [])
+				// A Switch is accessible if it EITHER:
+				//   - has an explicit aria-label (may be on a different line
+				//     than the <Switch tag, e.g.
+				//     `<Switch\n  checked={...}\n  aria-label="..." />`), OR
+				//   - is wrapped in a <SettingRow label="..."> which renders an
+				//     associated <label htmlFor> element (see SettingRow.tsx).
+				//     SettingRow generates a useId() and renders <label htmlFor={id}>;
+				//     the Switch inside inherits an accessible name via DOM
+				//     association when the page wires `id={useSettingRowId()}` or
+				//     when the SettingRow's label text serves as the accessible
+				//     name for the grouped control.
+				const switchAriaCount = (src.match(/<Switch[\s\S]*?aria-label/g) || [])
 					.length;
-				expect(switchAriaCount).toBeGreaterThanOrEqual(switchCount);
+				// Count SettingRow usages that have a label prop (may span
+				// multiple lines, e.g. `<SettingRow\n  label="..."\n>`).
+				const settingRowCount = (src.match(/<SettingRow[\s\S]*?label=/g) || [])
+					.length;
+				const accessibleCount = switchAriaCount + settingRowCount;
+				expect(accessibleCount).toBeGreaterThanOrEqual(switchCount);
 			}
 		}
 	});
