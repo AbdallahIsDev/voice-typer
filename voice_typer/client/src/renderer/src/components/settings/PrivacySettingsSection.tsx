@@ -16,6 +16,7 @@ import {
 	InformationCircleIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { memo } from "react";
 import { SettingRow } from "@/components/SettingRow";
 import { SettingsSection } from "@/components/SettingsSection";
 import { Button } from "@/components/ui/button";
@@ -26,7 +27,7 @@ import { SettingsSkeleton } from "./SettingsSkeleton";
 
 import type { SettingsSectionSharedProps } from "./types";
 
-export function PrivacySettingsSection({
+export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 	config,
 	updateConfig,
 }: SettingsSectionSharedProps) {
@@ -58,32 +59,32 @@ export function PrivacySettingsSection({
 
 			{/* ── SECTION: Privacy & Consent ─────────────────────────── */}
 			{/* NEW-PRIV-005/006/009: centralized consent management.
-				All four consent flags live in the Python Config and are
-				enforced by the backend (HuggingFace download refusal,
-				CloudEngine ConsentRequiredError, etc.).  This section
-				gives the user a single place to view and revoke any
-				consent they've previously granted.  Initial grant
-				happens contextually (HuggingFace banner on Models page,
-				per-provider toggles on Models page) — this section is
-				primarily for review/revocation.
+                                All four consent flags live in the Python Config and are
+                                enforced by the backend (HuggingFace download refusal,
+                                CloudEngine ConsentRequiredError, etc.).  This section
+                                gives the user a single place to view and revoke any
+                                consent they've previously granted.  Initial grant
+                                happens contextually (HuggingFace banner on Models page,
+                                per-provider toggles on Models page) — this section is
+                                primarily for review/revocation.
 
-				PRIV-AGREE-ALL (fix-quit-and-privacy): an "Agree to All"
-				affordance at the top lets the user enable every consent
-				flag at once without clicking six toggles.  Defaults stay
-				False (privacy-by-default); the button is purely a UX
-				convenience, not an implicit grant.  Individual toggles
-				below remain for granular control / revocation. */}
+                                PRIV-AGREE-ALL (fix-quit-and-privacy): an "Agree to All"
+                                affordance at the top lets the user enable every consent
+                                flag at once without clicking six toggles.  Defaults stay
+                                False (privacy-by-default); the button is purely a UX
+                                convenience, not an implicit grant.  Individual toggles
+                                below remain for granular control / revocation. */}
 			<SettingsSection
 				title="Privacy & Consent"
 				description="Grant or revoke consent for data processing. All consents default to off — enable them individually below or use 'Agree to All' for convenience."
 			>
 				{/* PRIV-AGREE-ALL: header banner + Agree to All button.
-					Explains what "agreeing" means in plain language so
-					the user can make an informed decision before
-					clicking.  The banner sits inside the same
-					bordered container as the toggles (visually grouped
-					with them) but uses a slightly different background
-					to distinguish it from per-flag rows. */}
+                                        Explains what "agreeing" means in plain language so
+                                        the user can make an informed decision before
+                                        clicking.  The banner sits inside the same
+                                        bordered container as the toggles (visually grouped
+                                        with them) but uses a slightly different background
+                                        to distinguish it from per-flag rows. */}
 				<div className="px-3.5 py-3.5 space-y-3 bg-(--bg-subtle)/60">
 					<div className="flex items-start gap-2">
 						<HugeiconsIcon
@@ -263,11 +264,11 @@ export function PrivacySettingsSection({
 				</SettingRow>
 
 				{/* NEW-PRIV-007: GDPR right-to-export (Art. 15/20).
-					Previously only history + vocabulary were exportable.
-					Templates and config are also user data and must be
-					exportable on request.  The handlers live in
-					main/index.ts (templates:export, config:export) and
-					are exposed via the preload bridge. */}
+                                        Previously only history + vocabulary were exportable.
+                                        Templates and config are also user data and must be
+                                        exportable on request.  The handlers live in
+                                        main/index.ts (templates:export, config:export) and
+                                        are exposed via the preload bridge. */}
 				<SettingRow
 					label="Export all data (GDPR Art. 15/20)"
 					info="Download your templates and full configuration as JSON files. API keys are redacted in the config export."
@@ -340,4 +341,4 @@ export function PrivacySettingsSection({
 			</SettingsSection>
 		</>
 	);
-}
+});

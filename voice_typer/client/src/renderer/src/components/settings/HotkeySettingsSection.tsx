@@ -8,6 +8,7 @@
 // implementation; both sections are always rendered (no search-filter
 // hide-when-empty wrapper, matching the original).
 
+import { memo } from "react";
 import { HotkeyPicker } from "@/components/HotkeyPicker";
 import { SettingRow } from "@/components/SettingRow";
 import { SettingsSection } from "@/components/SettingsSection";
@@ -36,7 +37,7 @@ const RECORDING_MODE_OPTIONS = [
 	{ value: "push_to_talk", label: "Push-to-Talk" },
 ] as const;
 
-export function HotkeySettingsSection({
+export const HotkeySettingsSection = memo(function HotkeySettingsSection({
 	config,
 	updateConfig,
 	updateConfigDebounced,
@@ -143,8 +144,8 @@ export function HotkeySettingsSection({
 				</SettingRow>
 
 				{/* NEW-UX-029: Audio cue on record start/stop for accessibility
-					and confirmation.  Especially useful for blind users who
-					can't see the visual indicator change. */}
+                                        and confirmation.  Especially useful for blind users who
+                                        can't see the visual indicator change. */}
 				<SettingRow
 					label="Sound Feedback"
 					info="Play a short audio cue when recording starts and stops. Useful for accessibility and confirmation."
@@ -255,4 +256,4 @@ export function HotkeySettingsSection({
 			</SettingsSection>
 		</>
 	);
-}
+});

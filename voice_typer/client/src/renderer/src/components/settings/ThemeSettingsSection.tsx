@@ -15,7 +15,7 @@
 // localStorage draft helpers) live here because no other section uses
 // them.
 
-import { useCallback, useRef, useState } from "react";
+import { memo, useCallback, useRef, useState } from "react";
 import { RangeSlider } from "@/components/RangeSlider";
 import { SettingRow } from "@/components/SettingRow";
 import { SettingsSection } from "@/components/SettingsSection";
@@ -279,7 +279,7 @@ interface ThemeSettingsSectionProps extends SettingsSectionSharedProps {
 	onThemeChange?: (mode: VoiceTyperConfig["theme_mode"]) => void;
 }
 
-export function ThemeSettingsSection({
+export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 	config,
 	updateConfig,
 	updateConfigDebounced,
@@ -687,4 +687,4 @@ export function ThemeSettingsSection({
 			</SettingRow>
 		</SettingsSection>
 	);
-}
+});

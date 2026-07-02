@@ -8,6 +8,7 @@
 // search-filter visibility via the `isVisible` prop and the section-
 // level "hide if no items match" check for the General section.
 
+import { memo } from "react";
 import { SettingRow } from "@/components/SettingRow";
 import { SettingsSection } from "@/components/SettingsSection";
 import {
@@ -44,7 +45,7 @@ const BUBBLE_BEHAVIOR_OPTIONS = [
 	{ value: "always_visible", label: "Always Visible" },
 ] as const;
 
-export function GeneralSettingsSection({
+export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 	config,
 	updateConfig,
 	isVisible,
@@ -275,4 +276,4 @@ export function GeneralSettingsSection({
 			</SettingsSection>
 		</>
 	);
-}
+});

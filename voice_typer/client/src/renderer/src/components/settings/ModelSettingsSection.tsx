@@ -8,7 +8,7 @@
 // previous monolithic implementation; both sections are always rendered
 // (no search-filter hide-when-empty wrapper, matching the original).
 
-import { useState } from "react";
+import { memo, useState } from "react";
 import { SettingRow } from "@/components/SettingRow";
 import { SettingsSection } from "@/components/SettingsSection";
 import { Button } from "@/components/ui/button";
@@ -71,7 +71,7 @@ const LLM_PRESET_OPTIONS = [
 	{ value: "code", label: "Code" },
 ] as const;
 
-export function ModelSettingsSection({
+export const ModelSettingsSection = memo(function ModelSettingsSection({
 	config,
 	updateConfig,
 	updateConfigDebounced,
@@ -283,4 +283,4 @@ export function ModelSettingsSection({
 			</SettingsSection>
 		</>
 	);
-}
+});

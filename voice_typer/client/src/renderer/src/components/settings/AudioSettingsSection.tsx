@@ -9,7 +9,7 @@
 // status fetch (now done via this section's own `usePython` call so the
 // parent doesn't need to know about it).
 
-import { useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import { RangeSlider } from "@/components/RangeSlider";
 import { SettingRow } from "@/components/SettingRow";
 import { SettingsSection } from "@/components/SettingsSection";
@@ -27,7 +27,7 @@ import { SettingsSkeleton } from "./SettingsSkeleton";
 
 import type { SettingsSectionSharedProps } from "./types";
 
-export function AudioSettingsSection({
+export const AudioSettingsSection = memo(function AudioSettingsSection({
 	config,
 	updateConfig,
 	updateConfigDebounced,
@@ -423,4 +423,4 @@ export function AudioSettingsSection({
 			</div>
 		</SettingsSection>
 	);
-}
+});
