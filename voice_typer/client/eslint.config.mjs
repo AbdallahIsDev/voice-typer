@@ -54,6 +54,7 @@ const ALL_GLOBALS = {
 	navigator: "readonly",
 	requestAnimationFrame: "readonly",
 	cancelAnimationFrame: "readonly",
+	getComputedStyle: "readonly",
 	// NEW-UX-029: Web Audio API globals for the sound feedback cue.
 	AudioContext: "readonly",
 	webkitAudioContext: "readonly",
