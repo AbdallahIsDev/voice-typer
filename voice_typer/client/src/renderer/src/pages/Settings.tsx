@@ -54,6 +54,16 @@ export default function SettingsPage({
 	// UX-028: search/filter state for settings
 	const [settingsFilter, setSettingsFilter] = useState("");
 
+	// PERF: configRef mirrors `config` in a ref so updateConfig and
+	// updateConfigDebounced can read the latest config WITHOUT having
+	// `config` in their useCallback deps.  This keeps the callback
+	// references stable across config changes, which is critical for
+	// React.memo'd section components — without it, every config change
+	// creates new callback references and forces ALL sections to
+	// re-render even if their specific props didn't change.
+	const configRef = useRef<VoiceTyperConfig | null>(config);
+	configRef.current = config;
+
 	// NEW-TS-004: use the shared useSnackbar hook.  The hook manages the
 	// timer ref and clears it on unmount, fixing the leak risk of the
 	// previous inline setTimeout (which wasn't cleared if the page
@@ -82,10 +92,14 @@ export default function SettingsPage({
 
 	const updateConfig = useCallback(
 		async (updates: Partial<VoiceTyperConfig>) => {
-			if (!config) return;
+			// PERF: read from configRef.current (not `config` from closure)
+			// so this callback's reference is stable across config changes.
+			// This is critical for React.memo'd section components.
+			const currentConfig = configRef.current;
+			if (!currentConfig) return;
 			setSaving(true);
 			try {
-				const newConfig = { ...config, ...updates };
+				const newConfig = { ...currentConfig, ...updates };
 				_cachedConfig = newConfig;
 				setConfig(newConfig);
 				await call("set_config", updates);
@@ -119,7 +133,10 @@ export default function SettingsPage({
 				setSaving(false);
 			}
 		},
-		[config, call, loadConfig, showSnack],
+		// PERF: config is read from configRef.current, not from closure,
+		// so it's not in the deps. This keeps the callback reference
+		// stable across config changes.
+		[call, loadConfig, showSnack],
 	);
 
 	// UX-007: debounced update for text inputs that fire on every keystroke.
@@ -130,9 +147,12 @@ export default function SettingsPage({
 	);
 	const updateConfigDebounced = useCallback(
 		(key: keyof VoiceTyperConfig, value: unknown, delayMs = 500) => {
+			// PERF: read from configRef.current (not `config` from closure)
+			// so this callback's reference is stable across config changes.
+			const currentConfig = configRef.current;
 			// Update local state immediately for responsive UI
-			if (config) {
-				const newConfig = { ...config, [key]: value };
+			if (currentConfig) {
+				const newConfig = { ...currentConfig, [key]: value };
 				_cachedConfig = newConfig;
 				setConfig(newConfig);
 			}
@@ -146,7 +166,9 @@ export default function SettingsPage({
 				delete debouncedTimers.current[key as string];
 			}, delayMs);
 		},
-		[config, updateConfig],
+		// PERF: config is read from configRef.current, not from closure.
+		// updateConfig is already stable (uses configRef too).
+		[updateConfig],
 	);
 
 	// Cleanup pending debounced timers on unmount.  We intentionally read
@@ -234,6 +256,30 @@ export default function SettingsPage({
 		[onThemeChange],
 	);
 
+	// UX-028: filter settings sections by label/description. Passed to each
+	// section component as the `isVisible` prop so the sections can do their
+	// own per-row visibility checks (and section-level hide-when-empty
+	// checks) without duplicating the filter logic.
+	// PERF: wrapped in useCallback with [settingsFilter] deps so the
+	// reference is stable between renders UNLESS the filter text changes.
+	// This is critical for React.memo'd section components — without it,
+	// every parent render creates a new function reference and forces ALL
+	// sections to re-render even when only the filter changed.
+	// NOTE: must be called before any early return to satisfy
+	// react-hooks/rules-of-hooks.
+	const _filter_settings = useCallback(
+		(label: string, info?: string): boolean => {
+			if (!settingsFilter.trim()) return true;
+			const q = settingsFilter.toLowerCase();
+			return (
+				label.toLowerCase().includes(q) ||
+				info?.toLowerCase().includes(q) ||
+				false
+			);
+		},
+		[settingsFilter],
+	);
+
 	if (!config) {
 		return (
 			<div className="flex h-full items-center justify-center">
@@ -244,20 +290,6 @@ export default function SettingsPage({
 			</div>
 		);
 	}
-
-	// UX-028: filter settings sections by label/description. Passed to each
-	// section component as the `isVisible` prop so the sections can do their
-	// own per-row visibility checks (and section-level hide-when-empty
-	// checks) without duplicating the filter logic.
-	const _filter_settings = (label: string, info?: string): boolean => {
-		if (!settingsFilter.trim()) return true;
-		const q = settingsFilter.toLowerCase();
-		return (
-			label.toLowerCase().includes(q) ||
-			info?.toLowerCase().includes(q) ||
-			false
-		);
-	};
 
 	return (
 		<div className="min-h-full">
