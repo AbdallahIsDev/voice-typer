@@ -126,6 +126,23 @@ class DictationPipeline:
             # Step 7: LLM polish
             text = self._apply_llm_polish(text)
 
+            # Step 7b: AI enhancement (P4)
+            #
+            # Rule-based grammar / punctuation / capitalization. Runs
+            # AFTER LLM polish so cloud-polished text gets the same
+            # deterministic cleanup as raw transcription. Master
+            # toggle (``ai_enhancement_enabled``) defaults OFF — see
+            # ``voice_typer/server/ai_enhancement.py``.
+            text = self._apply_ai_enhancement(text)
+
+            # Step 7c: Vocabulary automation analysis (P5)
+            #
+            # Confidence-score-based vocabulary suggestions. Runs
+            # AFTER enhancement so the analyzed text matches what the
+            # user actually sees pasted. Master toggle
+            # (``vocabulary_automation_enabled``) defaults OFF.
+            self._analyze_vocabulary(text)
+
             # Step 8: Store in history + crash recovery
             self._store_result(text)
 
@@ -366,6 +383,114 @@ class DictationPipeline:
                 )
                 self._app._llm_consent_warned = True
         return text
+
+    def _apply_ai_enhancement(self, text: str) -> str:
+        """Step 7b: Apply rule-based AI enhancement (P4).
+
+        Delegates to ``voice_typer.server.ai_enhancement.enhance_transcription``,
+        which reads the four ``ai_enhancement_*`` / ``auto_*`` /
+        ``fix_grammar_basics`` flags off the config. The master
+        toggle (``ai_enhancement_enabled``) defaults OFF — when off,
+        ``enhance_transcription`` returns the text unchanged.
+
+        ERR-014-style hardening: failures here are logged at WARNING
+        level but do NOT abort the pipeline. The original text is
+        returned so the dictation completes and the user sees their
+        (un-enhanced) transcription rather than an error.
+        """
+        try:
+            from voice_typer.server.ai_enhancement import enhance_transcription
+            return enhance_transcription(text, self._app.config)
+        except Exception:
+            log.warning("[AI_ENHANCE] Enhancement failed", exc_info=True)
+            return text
+
+    def _analyze_vocabulary(self, text: str) -> None:
+        """Step 7c: Analyze transcription for vocabulary suggestions (P5).
+
+        Delegates to the app's ``VocabularyAutomation`` instance. The
+        master toggle (``vocabulary_automation_enabled``) defaults
+        OFF — when off, this method is a no-op.
+
+        Suggestions above ``vocabulary_auto_apply_threshold`` are
+        auto-applied (added to the user's vocabulary); the rest are
+        queued for the user to review via the IPC handlers in
+        ``vocabulary_automation_handlers.py``.
+
+        ERR-014-style hardening: failures here are logged at WARNING
+        level but do NOT abort the pipeline. The transcription is
+        already complete; vocabulary suggestions are a side-channel
+        for future improvements.
+        """
+        if not getattr(self._app.config, "vocabulary_automation_enabled", False):
+            return
+        try:
+            automation = getattr(self._app, "_vocabulary_automation", None)
+            if automation is None:
+                # Lazy-init on first use. The VocabularyAutomation
+                # constructor needs the existing VocabularyManager
+                # (so it can read the user's current vocabulary and
+                # apply suggestions to it) and the config (for the
+                # thresholds).
+                from voice_typer.server.vocabulary_automation import VocabularyAutomation
+                vm = self._app._vocabulary_manager
+                if vm is None:
+                    from voice_typer.server.vocabulary import VocabularyManager
+                    vm = VocabularyManager()
+                    self._app._vocabulary_manager = vm
+                automation = VocabularyAutomation(vm, self._app.config)
+                self._app._vocabulary_automation = automation
+
+            # Faster-whisper exposes segment-level avg_logprob, not
+            # per-word confidence. We pass an empty segment list and
+            # a sentinel confidence; the analyzer degrades gracefully
+            # (treats the whole text as one segment with the given
+            # confidence). When the transcription engine exposes
+            # richer segment data in the future, we can plumb it
+            # through here without changing the analyzer's API.
+            segments = getattr(self, "_segments", None) or []
+            confidence = getattr(self, "_confidence", 0.9)
+            suggestions = automation.analyze_transcription(
+                text, segments, confidence,
+            )
+            if not suggestions:
+                return
+
+            # Auto-apply high-confidence suggestions.
+            auto_threshold = getattr(
+                self._app.config, "vocabulary_auto_apply_threshold", 0.95,
+            )
+            applied = automation.auto_apply_high_confidence_suggestions(auto_threshold)
+            if applied > 0:
+                log.info("[VOCAB_AUTO] Auto-applied %d high-confidence suggestion(s)", applied)
+
+            # Push any remaining (pending) suggestions to the frontend.
+            pending = automation.get_pending_suggestions()
+            if pending:
+                try:
+                    from voice_typer.server.ipc_server import _push_event_now
+                    _push_event_now({
+                        "type": "vocabulary_suggestion",
+                        "data": {
+                            "suggestions": [
+                                {
+                                    "original": s.original,
+                                    "corrected": s.corrected,
+                                    "confidence": s.confidence,
+                                    "context": s.context,
+                                    "timestamp": s.timestamp,
+                                }
+                                for s in pending
+                            ],
+                        },
+                    })
+                except Exception:
+                    log.debug(
+                        "[VOCAB_AUTO] could not push vocabulary_suggestion event",
+                        exc_info=True,
+                    )
+        except Exception:
+            log.warning("[VOCAB_AUTO] Analysis failed", exc_info=True)
 
     def _store_result(self, text: str) -> None:
         """Step 8: Store in history DB and crash recovery.
