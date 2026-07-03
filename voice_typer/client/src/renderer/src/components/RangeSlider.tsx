@@ -11,6 +11,8 @@ interface RangeSliderProps {
 	suffix: string;
 	/** Optional wrapper className */
 	className?: string;
+	/** Disable the slider (greyed out, no interaction) */
+	disabled?: boolean;
 }
 
 export function RangeSlider({
@@ -22,6 +24,7 @@ export function RangeSlider({
 	ariaLabel,
 	suffix,
 	className,
+	disabled = false,
 }: RangeSliderProps) {
 	return (
 		<div className={cn("flex items-center gap-2", className)}>
@@ -34,6 +37,7 @@ export function RangeSlider({
 				onChange={(e) => onChange(Number(e.target.value))}
 				className="w-24"
 				aria-label={ariaLabel}
+				disabled={disabled}
 			/>
 			<span className="text-sm text-(--text-muted) w-14 tabular-nums">
 				{value}
