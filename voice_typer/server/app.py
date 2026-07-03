@@ -40,6 +40,7 @@ from voice_typer.server.server_platform import (
 )
 # CQ-029: use centralized platform helpers instead of raw sys.platform checks
 from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
+from voice_typer.server.branding import APP_NAME
 from voice_typer.server.recording import Recorder
 from voice_typer.server.settings import SettingsController, SettingsWindow
 from voice_typer.server.log import (
@@ -340,7 +341,7 @@ class VoiceTyperApp:
         """
         try:
             self.tray.notify(
-                "Voice Typer",
+                APP_NAME,
                 f"System volume was restored after a crash "
                 f"(to {int(state.linear * 100)}%).",
             )
@@ -677,7 +678,7 @@ class VoiceTyperApp:
                         # NEW-UX-018: critical — bypass show_notifications toggle.
                         try:
                             self.tray.notify_safety(
-                                "Voice Typer",
+                                APP_NAME,
                                 "Onboarding setup kept failing. The app will "
                                 "start with default settings. Open Settings to "
                                 "configure manually.",
@@ -687,7 +688,7 @@ class VoiceTyperApp:
                     elif self.config.show_notifications:
                         try:
                             self.tray.notify(
-                                "Voice Typer",
+                                APP_NAME,
                                 "Onboarding setup failed; will retry on next start.",
                             )
                         except Exception:
@@ -721,7 +722,7 @@ class VoiceTyperApp:
                     log.info("[STARTUP] Found %d unpasted transcriptions from previous session", len(unpasted))
                     # NEW-UX-018: critical — bypass toggle (recovered user data).
                     self.tray.notify_safety(
-                        "Voice Typer",
+                        APP_NAME,
                         f"Recovered {len(unpasted)} transcription(s) from last session. Open History to view.",
                     )
             except Exception:
@@ -1123,7 +1124,7 @@ class VoiceTyperApp:
             self._restore_volume()
             self.tray.set_state(AppState.ERROR, "Stop failed")
             # NEW-UX-018: critical — bypass toggle (dictation failed).
-            self.tray.notify_safety("Voice Typer", f"Could not stop recording.\n{e}")
+            self.tray.notify_safety(APP_NAME, f"Could not stop recording.\n{e}")
             self._busy_event.set()  # busy = False
             self._schedule_timer(3.0, lambda: self.tray.set_state(AppState.IDLE))
             return
@@ -1254,7 +1255,7 @@ class VoiceTyperApp:
         We now split them so the user knows which step failed.
         """
         if not self._last_transcription:
-            self.tray.notify("Voice Typer", "No previous transcription to re-paste.")
+            self.tray.notify(APP_NAME, "No previous transcription to re-paste.")
             return
 
         # Step 1: copy to clipboard
@@ -1263,7 +1264,7 @@ class VoiceTyperApp:
         except Exception as e:
             log.warning("[REPASTE] Clipboard copy failed: %s", e)
             self.tray.notify(
-                "Voice Typer",
+                APP_NAME,
                 "Could not copy the transcription to the clipboard. "
                 "Another app may be holding the clipboard lock.",
             )
@@ -1276,11 +1277,11 @@ class VoiceTyperApp:
                 "[REPASTE] Repasted last transcription (%d chars)",
                 len(self._last_transcription),
             )
-            self.tray.notify("Voice Typer", "Last transcription re-pasted")
+            self.tray.notify(APP_NAME, "Last transcription re-pasted")
         except Exception as e:
             log.warning("[REPASTE] Paste keystroke failed: %s", e)
             self.tray.notify(
-                "Voice Typer",
+                APP_NAME,
                 "Copied to clipboard, but the paste keystroke failed. "
                 "Press Ctrl+V manually to paste.",
             )
@@ -1293,7 +1294,7 @@ class VoiceTyperApp:
         keyboard controller (pynput on all platforms).
         """
         if not self._last_transcription:
-            self.tray.notify("Voice Typer", "Nothing to undo.")
+            self.tray.notify(APP_NAME, "Nothing to undo.")
             return
         text = self._last_transcription
         char_count = len(text)
@@ -1314,13 +1315,13 @@ class VoiceTyperApp:
                 kb.press('\x08')  # Backspace
                 kb.release('\x08')
             self._last_transcription = ""
-            self.tray.notify("Voice Typer", f"Undid last transcription ({char_count} chars)")
+            self.tray.notify(APP_NAME, f"Undid last transcription ({char_count} chars)")
         except ImportError:
             log.warning("[UNDO] pynput not available for undo")
-            self.tray.notify("Voice Typer", "Undo not available (pynput missing)")
+            self.tray.notify(APP_NAME, "Undo not available (pynput missing)")
         except Exception as e:
             log.warning("[UNDO] Failed: %s", e)
-            self.tray.notify("Voice Typer", f"Undo failed: {e}")
+            self.tray.notify(APP_NAME, f"Undo failed: {e}")
 
     def _on_xrun_threshold(self, count: int) -> None:
         """#2 (Round 9): delegate to RecordingController.on_xrun_threshold()."""
@@ -1345,7 +1346,7 @@ class VoiceTyperApp:
             log.info("[CONFIG] Autostart set to %s", enabled)
         except Exception as e:
             log.exception("[CONFIG] Failed to set autostart")
-            self.tray.notify("Voice Typer", f"Could not change autostart setting.\n{e}")
+            self.tray.notify(APP_NAME, f"Could not change autostart setting.\n{e}")
 
     def _set_notifications(self, enabled: bool):
         """Set notification behavior from the settings window."""
@@ -1362,12 +1363,12 @@ class VoiceTyperApp:
 
         if self.recorder.recording:
             log.info("[CONFIG] Microphone changed to %s; applying after active recording", label)
-            self.tray.notify("Voice Typer", f"Microphone next recording: {label}")
+            self.tray.notify(APP_NAME, f"Microphone next recording: {label}")
             return
 
         self.recorder = Recorder(self.config, audio_processor=self._audio_processor)  # re-create with new mic
         log.info("[CONFIG] Microphone changed to: %s", label)
-        self.tray.notify("Voice Typer", f"Microphone: {label}")
+        self.tray.notify(APP_NAME, f"Microphone: {label}")
 
     def show_settings(self):
         """Open the native settings window."""
@@ -1458,7 +1459,7 @@ class VoiceTyperApp:
                 subprocess.Popen(["xdg-open", str(config_file)])
         except Exception as e:
             log.warning("[CONFIG] Could not open editor: %s", e)
-            self.tray.notify("Voice Typer", f"Config file:\n{config_file}")
+            self.tray.notify(APP_NAME, f"Config file:\n{config_file}")
 
     def _restart_hotkey(self, hotkey: str):
         """#2 (Round 9): delegate to HotkeyDispatcher.restart()."""
@@ -2388,7 +2389,7 @@ def _ensure_single_instance(silent=False):
             msg = "Voice Typer is already running. Only one instance is allowed."
             try:
                 ctypes.windll.user32.MessageBoxW(
-                    0, msg, "Voice Typer",
+                    0, msg, APP_NAME,
                     0x00000030 | 0x00000000,  # MB_ICONWARNING | MB_OK
                 )
             except Exception:

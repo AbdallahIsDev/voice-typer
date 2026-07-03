@@ -56,6 +56,7 @@ from voice_typer.server.tray_menu import build_menu, display_hotkey, wrap_callba
 # ARCH-003: types extracted to tray_types.py; icon rendering to tray_icon.py
 from voice_typer.server.tray_types import AppState, TrayController
 from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
+from voice_typer.server.branding import APP_NAME
 
 # TRAY-008: Localization for tray menu labels.
 # Uses English as default. Wrap hardcoded strings with _() function.
@@ -63,7 +64,7 @@ from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
 # dict and call set_tray_locale('es') from the IPC layer when the user
 # changes the UI language in Settings.
 _TRAY_LABELS_EN: dict[str, str] = {
-    "app_name": "Voice Typer",
+    "app_name": APP_NAME,
     "toggle_dictation": "Toggle Dictation",
     "open_app": "Open App",
     "models": "Models",
@@ -81,7 +82,7 @@ _TRAY_LABELS_EN: dict[str, str] = {
 
 # TRAY-008: Spanish translations (proof of concept for tray i18n).
 _TRAY_LABELS_ES: dict[str, str] = {
-    "app_name": "Voice Typer",
+    "app_name": APP_NAME,
     "toggle_dictation": "Alternar Dictado",
     "open_app": "Abrir Aplicación",
     "models": "Modelos",
@@ -501,7 +502,7 @@ class TrayIcon:
             # the icon handle on the next call.
             if hasattr(self._icon, '_icon_handle'):
                 self._icon._icon_handle = None
-        title = "Voice Typer"
+        title = APP_NAME
         if message:
             title += f" — {message}"
         elif state != AppState.IDLE:
@@ -671,8 +672,8 @@ class TrayIcon:
             root = tk.Tk()
             root.withdraw()
             messagebox.showinfo(
-                f"About Voice Typer",
-                f"Voice Typer {version}\n\nA background voice-to-text utility.\nhttps://github.com/AbdallahIsDev/voice-typer",
+                f"About {APP_NAME}",
+                f"{APP_NAME} {version}\n\nA background voice-to-text utility.\nhttps://github.com/AbdallahIsDev/voice-typer",
             )
             root.destroy()
         except Exception as e:
@@ -710,7 +711,7 @@ class TrayIcon:
         if self._last_notification_title or self._last_notification_message:
             self._do_notify(self._last_notification_title, self._last_notification_message)
         else:
-            self._do_notify("Voice Typer", "No recent notifications")
+            self._do_notify(APP_NAME, "No recent notifications")
 
     # ─── TRAY-015: Periodic update check ────────────────────────────────
 
@@ -756,7 +757,7 @@ class TrayIcon:
             if latest_tag != current:
                 self.notify(
                     _("update_available"),
-                    f"Voice Typer {latest_tag} is available (you have {current})",
+                    f"{APP_NAME} {latest_tag} is available (you have {current})",
                 )
         except Exception as e:
             log.debug("[TRAY] Update check failed: %s", e)

@@ -11,6 +11,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import type { IconSvgElement } from "@hugeicons/react";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { APP_NAME } from "@/branding";
 import { Logo } from "@/components/Logo";
 import { ThemeSwitch } from "@/components/ThemeSwitch";
 import { Button } from "@/components/ui/button";
@@ -68,7 +69,7 @@ export function Sidebar({
 					"transition-[padding] duration-200 ease-out",
 					collapsed ? "px-3 py-4" : "px-5 py-4",
 				)}
-				title={collapsed ? "Voice Typer" : undefined}
+				title={collapsed ? APP_NAME : undefined}
 			>
 				<Logo size={24} className="shrink-0" />
 				<span
