@@ -18,9 +18,9 @@ with ``ModuleNotFoundError: No module named 'voice_typer.app'``.
 
 The transcription fallback path it documents is now covered by the
 pytest suite in ``tests/test_transcription.py::TestFallbackChain`` and
-``tests/test_round9_e2e.py``. This file is kept for historical context
-but is no longer runnable; the matching logic was ported to the
-pytest tests above.
+``tests/test_e2e_regression.py`` (renamed from ``test_round9_e2e.py``).
+This file is kept for historical context but is no longer runnable; the
+matching logic was ported to the pytest tests above.
 
 TASK-013: ``run()`` is exposed so ``tests/test_manual_slow.py`` can wrap
 this script as a ``@pytest.mark.slow`` test that verifies the deprecation

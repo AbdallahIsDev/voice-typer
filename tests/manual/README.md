@@ -26,11 +26,13 @@ python tests/manual/cublas_fallback.py
 
 All unique test coverage from these scripts is already captured in the
 automated test suite under `tests/` — specifically in
-`test_round8_e2e.py`, `test_round9_e2e.py`, `test_round13_ipc_regression.py`,
-and `test_new_dead_002_scripts.py` (which verifies these scripts parse
-and import correctly). The diagnostic scripts themselves are kept for
-manual troubleshooting when a developer needs to reproduce a specific
-hardware-dependent failure path interactively.
+`test_e2e_smoke.py` (renamed from `test_round8_e2e.py`),
+`test_e2e_regression.py` (renamed from `test_round9_e2e.py`),
+`test_round13_ipc_regression.py`, and `test_new_dead_002_scripts.py`
+(which verifies these scripts parse and import correctly). The diagnostic
+scripts themselves are kept for manual troubleshooting when a developer
+needs to reproduce a specific hardware-dependent failure path
+interactively.
 
 ## Why they were moved
 
