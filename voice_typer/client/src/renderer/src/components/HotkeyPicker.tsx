@@ -173,12 +173,9 @@ export function HotkeyPicker({
 		setRecording(true);
 		setError(null);
 		modifierHeldRef.current.clear();
-		if (timeoutRef.current) clearTimeout(timeoutRef.current);
-		timeoutRef.current = setTimeout(() => {
-			setRecording(false);
-			modifierHeldRef.current.clear();
-			setError("Recording timed out \u2014 try again");
-		}, 5000);
+		// HOTKEY-FIX-003: No capture timeout — stay in capture mode
+		// indefinitely. Exit only when: user clicks outside, clicks
+		// the capture button again, or presses Esc.
 	}, []);
 
 	const cancelRecording = useCallback(() => {
