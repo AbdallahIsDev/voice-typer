@@ -8,15 +8,140 @@ ARCH-001: ``pip_install`` and ``download_weights`` were removed from
 this module.  See ``archive/asr_setup_dead_code.py`` for the verbatim
 bodies in case they're needed for the future UX-005 on-demand
 dependency install feature.
+
+NEW-PAUSE-001: pause/resume flag for in-progress model downloads.
+``set_download_paused(True)`` causes the polling loop in
+:meth:`voice_typer.server.service.VoiceTyperService.download_model`
+to freeze its progress reporting (and effectively stop user-visible
+progress) until ``set_download_paused(False)`` is called.  The flag
+is checked "between chunks" — i.e. once per 1-second poll iteration
+in the service's polling loop.  The flag is module-level so the IPC
+handler can set it from any thread.
+
+Lifecycle:
+  - :func:`reset_download_pause_state` — call at start of download
+    (creates a fresh ``threading.Event``).
+  - :func:`set_download_paused` — set/clear the pause flag.
+  - :func:`is_download_paused` — check the flag (called by polling loop).
+  - :func:`wait_while_paused` — block while paused (called by polling loop).
+  - :func:`clear_download_pause_state` — call at end of download
+    (sets the Event back to ``None`` so subsequent pause calls return
+    ``False``).
 """
 
 import logging
 import os
+import threading
 import time
 from pathlib import Path
 from typing import Optional, Callable
 
 log = logging.getLogger(__name__)
+
+
+# ── NEW-PAUSE-001: pause/resume flag ────────────────────────────────
+#
+# A single module-level ``threading.Event`` controls the pause state
+# for ALL in-progress downloads.  We support only one concurrent
+# download at a time (the existing ``_download_cancel_event`` in
+# VoiceTyperService has the same constraint), so a single flag is
+# sufficient.
+#
+# Semantics:
+# - ``_download_pause_event`` is created lazily by
+#   ``reset_download_pause_state()`` at the start of a download.
+# - ``set_download_paused(True)``  -> ``_download_pause_event.set()``
+# - ``set_download_paused(False)`` -> ``_download_pause_event.clear()``
+# - ``is_download_paused()``       -> ``_download_pause_event.is_set()``
+# - When no download is in progress, ``_download_pause_event`` is
+#   ``None`` and ``is_download_paused()`` returns ``False``.
+_download_pause_event: Optional[threading.Event] = None
+_download_pause_lock = threading.Lock()
+
+
+def reset_download_pause_state() -> None:
+    """Initialize the pause flag at the start of a download.
+
+    Called by :meth:`VoiceTyperService.download_model` when a new
+    download begins (so a stale ``paused=True`` from a previous
+    download doesn't carry over).  Creates a fresh ``threading.Event``
+    in the cleared (not-paused) state.  Safe to call from any thread.
+    """
+    global _download_pause_event
+    with _download_pause_lock:
+        _download_pause_event = threading.Event()
+        # Starts cleared (not paused).
+
+
+def clear_download_pause_state() -> None:
+    """Clear the pause flag at the end of a download.
+
+    Sets ``_download_pause_event`` back to ``None`` so subsequent
+    calls to :func:`set_download_paused` return ``False`` (no active
+    download to pause).  Called from every cleanup path in
+    :meth:`VoiceTyperService.download_model` (success, failure, cancel).
+    """
+    global _download_pause_event
+    with _download_pause_lock:
+        _download_pause_event = None
+
+
+def set_download_paused(paused: bool) -> bool:
+    """Set or clear the pause flag.
+
+    Returns ``True`` if the flag was successfully updated, ``False``
+    if no download is currently in progress (in which case there's
+    nothing to pause).  The renderer treats ``False`` as "no-op" —
+    e.g. pressing Pause when nothing is downloading just dismisses
+    the button.
+    """
+    global _download_pause_event
+    with _download_pause_lock:
+        if _download_pause_event is None:
+            log.debug("[PAUSE] set_download_paused(%s) called with no active download", paused)
+            return False
+        if paused:
+            _download_pause_event.set()
+            log.info("[PAUSE] Model download pause requested")
+        else:
+            _download_pause_event.clear()
+            log.info("[PAUSE] Model download resume requested")
+    return True
+
+
+def is_download_paused() -> bool:
+    """Return ``True`` if the current download is paused.
+
+    Returns ``False`` when no download is in progress (so callers
+    can use this as a simple ``if is_download_paused(): ...`` guard
+    without checking for ``None`` first).
+    """
+    with _download_pause_lock:
+        if _download_pause_event is None:
+            return False
+        return _download_pause_event.is_set()
+
+
+def wait_while_paused(timeout_s: float = 1.0) -> bool:
+    """Block while the download is paused.
+
+    Used by the service polling loop between progress updates.  Returns
+    ``True`` if the pause flag was cleared within ``timeout_s`` seconds,
+    ``False`` if it's still paused after the timeout (in which case the
+    caller should loop and call again, or check cancellation).
+
+    Safe to call when no download is in progress — returns immediately.
+    """
+    with _download_pause_lock:
+        ev = _download_pause_event
+    if ev is None:
+        return True
+    # If not paused, return immediately.
+    if not ev.is_set():
+        return True
+    # Wait for the pause to be cleared (or timeout).
+    return ev.wait(timeout=timeout_s)
+
 
 # SEC-audit-005: Allowlist of file patterns permitted in model downloads.
 # Prevents supply-chain attacks where a compromised HF repo could include

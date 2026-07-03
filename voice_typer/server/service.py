@@ -1064,6 +1064,35 @@ class VoiceTyperService:
             return {"cancelled": True}
         return {"cancelled": False}
 
+    def pause_model_download(self) -> dict:
+        """Pause an in-progress model download.
+
+        NEW-PAUSE-001: delegates to :func:`asr_setup.set_download_paused`,
+        which sets a module-level flag that the download polling loop
+        checks between iterations.  While paused, the polling loop
+        stops pushing progress updates (and the renderer shows a
+        "paused" indicator).  The underlying HuggingFace transfer
+        continues in the background; if the user wants to stop the
+        network transfer entirely they should use Cancel.
+        """
+        from voice_typer.server.asr_setup import set_download_paused
+        paused = set_download_paused(True)
+        if paused:
+            log.info("[SERVICE] Model download pause requested")
+        return {"paused": paused}
+
+    def resume_model_download(self) -> dict:
+        """Resume a paused model download.
+
+        NEW-PAUSE-001: clears the module-level pause flag set by
+        :meth:`pause_model_download`.  The polling loop picks up where
+        it left off on the next iteration.
+        """
+        from voice_typer.server.asr_setup import set_download_paused
+        set_download_paused(False)
+        log.info("[SERVICE] Model download resume requested")
+        return {"resumed": True}
+
     def download_model(self, model_name: str) -> dict:
         """Download a model weight file via HuggingFace.
 
@@ -1073,21 +1102,58 @@ class VoiceTyperService:
         can update its progress bar and status text in real time, and
         fires a tray notification on completion / failure.
         Returns a result dict with success status.
+
+        NEW-MODEL-001: now supports the turbo + distilled variants via
+        :mod:`voice_typer.server.model_registry`.  The repo_id is
+        resolved from the registry instead of being hard-coded.
+
+        NEW-PAUSE-001: the polling loop checks
+        :func:`asr_setup.is_download_paused` between iterations.  When
+        paused, progress updates freeze and a ``paused: True`` event is
+        pushed once per transition.  Resume clears the flag and pushes
+        a ``resumed: True`` event.
         """
         import os
         # UX-005: helper to push progress events to the renderer.
         from voice_typer.server.ipc_server import _push_event_now
 
-        def _push_progress(progress: int, status: str) -> None:
-            """progress is 0-100; status is a human-readable string."""
-            _push_event_now({
-                "type": "download_progress",
-                "data": {
-                    "model": model_name,
-                    "progress": max(0, min(100, int(progress))),
-                    "status": status,
-                },
-            })
+        def _push_progress(
+            progress: int,
+            status: str,
+            *,
+            downloaded_bytes: int | None = None,
+            total_bytes: int | None = None,
+            speed_bytes_per_sec: float | None = None,
+            eta_seconds: float | None = None,
+            paused: bool | None = None,
+            resumed: bool | None = None,
+        ) -> None:
+            """Push a download_progress event with rich metadata.
+
+            ``progress`` (0-100) and ``status`` (human-readable) are
+            always present (backward compat with UX-005 tests).  The
+            remaining fields are optional and only included when
+            meaningful (e.g. during active transfer, not for "cached"
+            or "cancelled" events).
+            """
+            data: dict = {
+                "model": model_name,
+                "progress": max(0, min(100, int(progress))),
+                "status": status,
+            }
+            if downloaded_bytes is not None:
+                data["downloaded_bytes"] = int(downloaded_bytes)
+            if total_bytes is not None:
+                data["total_bytes"] = int(total_bytes)
+            if speed_bytes_per_sec is not None:
+                data["speed_bytes_per_sec"] = float(speed_bytes_per_sec)
+            if eta_seconds is not None:
+                data["eta_seconds"] = float(eta_seconds)
+            if paused is not None:
+                data["paused"] = bool(paused)
+            if resumed is not None:
+                data["resumed"] = bool(resumed)
+            _push_event_now({"type": "download_progress", "data": data})
 
         def _notify(title: str, message: str) -> None:
             try:
@@ -1096,7 +1162,28 @@ class VoiceTyperService:
                 log.debug("[SERVICE] tray notify failed", exc_info=True)
 
         try:
-            if model_name in ("tiny.en", "small.en", "medium.en", "large-v3"):
+            # NEW-MODEL-001: consult the model registry so we support
+            # turbo + distilled variants without hard-coding name-to-repo
+            # mappings.  Falls back to the legacy hard-coded tuple for
+            # any registry drift.
+            from voice_typer.server.model_registry import get_model_metadata
+            model_meta = get_model_metadata(model_name)
+            is_whisper_family = (
+                model_meta is not None
+                and model_meta.backend in ("whisper", "distil-whisper")
+            )
+            if is_whisper_family:
+                # NEW-PAUSE-001: reset the pause flag at the start of
+                # every fresh download so a stale ``paused=True`` from
+                # a previous download doesn't carry over.
+                from voice_typer.server.asr_setup import (
+                    reset_download_pause_state,
+                    clear_download_pause_state,
+                    is_download_paused,
+                    wait_while_paused,
+                )
+                reset_download_pause_state()
+
                 _push_progress(0, f"Starting download for {model_name}...")
                 # UX-005: pre-download via snapshot_download so we can
                 # poll the HF cache file size for progress reporting.
@@ -1107,7 +1194,11 @@ class VoiceTyperService:
                 try:
                     from huggingface_hub import snapshot_download
                     from voice_typer.server.config import _config_dir
-                    repo_id = f"Systran/faster-whisper-{model_name}"
+                    # NEW-MODEL-001: use the registry's repo_id so
+                    # distilled variants (Systran/faster-distil-whisper-*)
+                    # resolve correctly.
+                    assert model_meta is not None  # narrowed by is_whisper_family
+                    repo_id = model_meta.repo_id
                     cache_dir = _config_dir() / "huggingface" / "hub"
 
                     # SEC-audit-005: Allowlist of file patterns permitted in downloads
@@ -1132,10 +1223,24 @@ class VoiceTyperService:
                         )
                         _push_progress(100, f"{model_name} already cached")
                     except Exception:
-                        _push_progress(10, f"Downloading {model_name} from HuggingFace...")
+                        # NEW-MODEL-001: pull target size from the
+                        # registry instead of the hard-coded size_targets
+                        # table.  Falls back to 500 MB if missing.
+                        target_mb = (
+                            model_meta.download_size_mb
+                            if model_meta.download_size_mb
+                            else 500
+                        )
+                        target_bytes = target_mb * 1024 * 1024
+                        _push_progress(
+                            10,
+                            f"Downloading {model_name} from HuggingFace...",
+                            total_bytes=target_bytes,
+                        )
                         # Start the download in a thread so we can poll
                         # the cache directory size while it runs.
                         import threading
+                        import time
                         # NEW-PRIV-011: create a cancellation event for
                         # this download.
                         self._download_cancel_event = threading.Event()
@@ -1163,15 +1268,15 @@ class VoiceTyperService:
                         t = threading.Thread(target=_do_download, daemon=True)
                         t.start()
                         # Poll cache size until download thread exits OR
-                        # the user cancels.
-                        # Approximate total sizes (MB) for progress estimation.
-                        size_targets = {
-                            "tiny.en": 75, "small.en": 466,
-                            "medium.en": 1500, "large-v3": 3000,
-                        }
-                        target_mb = size_targets.get(model_name, 500)
-                        import time
+                        # the user cancels OR the user pauses.
                         cancelled = False
+                        # NEW-PAUSE-001: track pause/resume transitions
+                        # so we only push the event once per state
+                        # change (not once per 1-second poll iteration).
+                        last_paused_state = False
+                        # NEW-PAUSE-001: track timing for speed / ETA.
+                        last_progress_time = time.monotonic()
+                        last_total_bytes_seen = 0
                         while t.is_alive():
                             # NEW-PRIV-011: check for cancellation.
                             if self._download_cancel_event.is_set():
@@ -1182,23 +1287,82 @@ class VoiceTyperService:
                                 )
                                 _push_progress(0, "Download cancelled")
                                 break
+                            # NEW-PAUSE-001: check for pause.  When
+                            # paused, block for up to 1s (replacing the
+                            # normal ``t.join(timeout=1.0)``), then
+                            # continue the loop.  We push a single
+                            # ``paused: True`` event on transition and a
+                            # single ``resumed: True`` event when the
+                            # pause clears.
+                            currently_paused = is_download_paused()
+                            if currently_paused != last_paused_state:
+                                # State transition — push the event.
+                                transition_pct = max(0, min(95, int(
+                                    10 + (last_total_bytes_seen
+                                          / max(1, target_bytes))
+                                    * 85
+                                )))
+                                if currently_paused:
+                                    _push_progress(
+                                        transition_pct,
+                                        f"Download of {model_name} paused",
+                                        downloaded_bytes=last_total_bytes_seen,
+                                        total_bytes=target_bytes,
+                                        paused=True,
+                                    )
+                                else:
+                                    _push_progress(
+                                        transition_pct,
+                                        f"Download of {model_name} resumed",
+                                        downloaded_bytes=last_total_bytes_seen,
+                                        total_bytes=target_bytes,
+                                        resumed=True,
+                                    )
+                                last_paused_state = currently_paused
+                            if currently_paused:
+                                # Wait for resume (or cancel), then loop.
+                                wait_while_paused(timeout_s=1.0)
+                                continue
                             t.join(timeout=1.0)
                             try:
                                 if cache_dir.exists():
-                                    total = sum(
+                                    total_bytes_seen = sum(
                                         f.stat().st_size
                                         for f in cache_dir.rglob("*")
                                         if f.is_file()
-                                    ) // (1024 * 1024)
-                                    pct = min(95, int(10 + (total / target_mb) * 85))
+                                    )
+                                    total_mb_seen = total_bytes_seen // (1024 * 1024)
+                                    pct = min(95, int(10 + (total_mb_seen / target_mb) * 85))
+                                    # NEW-PAUSE-001: compute speed & ETA.
+                                    now = time.monotonic()
+                                    elapsed = now - last_progress_time
+                                    delta_bytes = total_bytes_seen - last_total_bytes_seen
+                                    speed_bps: float | None = None
+                                    eta_s: float | None = None
+                                    if elapsed > 0 and delta_bytes >= 0:
+                                        speed_bps = delta_bytes / elapsed
+                                        if speed_bps > 0:
+                                            eta_s = max(
+                                                0.0,
+                                                (target_bytes - total_bytes_seen) / speed_bps,
+                                            )
+                                    last_progress_time = now
+                                    last_total_bytes_seen = total_bytes_seen
                                     _push_progress(
                                         pct,
-                                        f"Downloading {model_name}: {total} MB / ~{target_mb} MB",
+                                        f"Downloading {model_name}: {total_mb_seen} MB / ~{target_mb} MB",
+                                        downloaded_bytes=total_bytes_seen,
+                                        total_bytes=target_bytes,
+                                        speed_bytes_per_sec=speed_bps,
+                                        eta_seconds=eta_s,
                                     )
                             except Exception:
                                 pass
                         # NEW-PRIV-011: if cancelled, return early.
                         self._download_cancel_event = None
+                        # NEW-PAUSE-001: also clear the pause flag so
+                        # a subsequent download starts unpaused.
+                        clear_download_pause_state()
                         if cancelled:
                             return {
                                 "success": False,
@@ -1243,6 +1407,9 @@ class VoiceTyperService:
                     )
                 # NEW-PRIV-011: clear cancel event on successful completion.
                 self._download_cancel_event = None
+                # NEW-PAUSE-001: clear the pause flag so subsequent
+                # pause calls return False (no active download).
+                clear_download_pause_state()
                 _notify("Voice Typer", f"Model '{model_name}' downloaded successfully")
                 return {"success": True, "model": model_name}
             elif model_name == "qwen":
@@ -1279,6 +1446,12 @@ class VoiceTyperService:
             log.error("download_model failed for %s: %s", model_name, exc)
             # NEW-PRIV-011: clear cancel event on failure too.
             self._download_cancel_event = None
+            # NEW-PAUSE-001: clear the pause flag on failure too.
+            try:
+                from voice_typer.server.asr_setup import clear_download_pause_state
+                clear_download_pause_state()
+            except Exception:
+                log.debug("[SERVICE] could not clear pause flag on failure", exc_info=True)
             _push_progress(0, f"Download failed: {exc}")
             _notify("Voice Typer", f"Failed to download {model_name}: {exc}")
             return {"success": False, "error": str(exc)}
