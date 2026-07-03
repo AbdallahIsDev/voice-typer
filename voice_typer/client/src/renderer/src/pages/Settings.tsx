@@ -386,16 +386,28 @@ export default function SettingsPage({
 		);
 	}
 
-	// UX-028: filter settings sections by label/description. Passed to each
-	// section component as the `isVisible` prop so the sections can do their
-	// own per-row visibility checks (and section-level hide-when-empty
-	// checks) without duplicating the filter logic.
-	const _filter_settings = (label: string, info?: string): boolean => {
+	// UX-028: filter settings sections by label/description/section-title.
+	// Passed to each section component as the `isVisible` prop so the
+	// sections can do their own per-row visibility checks (and section-level
+	// hide-when-empty checks) without duplicating the filter logic.
+	//
+	// FIX (Task ID 6 / Settings Search): the previous implementation only
+	// matched the row's label/info, so searching for a section name like
+	// "overlay" or "appearance" returned no results. We now ALSO match the
+	// section title (passed by each section component as the third
+	// argument — derived dynamically from the same literal that feeds the
+	// ``<SettingsSection title="…">`` prop, never hardcoded here).
+	const _filter_settings = (
+		label: string,
+		info?: string,
+		sectionTitle?: string,
+	): boolean => {
 		if (!settingsFilter.trim()) return true;
 		const q = settingsFilter.toLowerCase();
 		return (
 			label.toLowerCase().includes(q) ||
 			info?.toLowerCase().includes(q) ||
+			sectionTitle?.toLowerCase().includes(q) ||
 			false
 		);
 	};
@@ -483,95 +495,110 @@ export default function SettingsPage({
                                                 - Help / FAQ link
                                                 - Report a Bug link
                                         And clarify the "View Logs" label. */}
-				<SettingsSection
-					title="Troubleshooting"
-					description="Diagnostic tools, help, and support."
-				>
-					<div className="px-3.5 py-3.5 flex flex-wrap gap-3">
-						<Button
-							variant="outline"
-							className="gap-2"
-							onClick={viewLogs}
-							aria-label="Open log folder"
-							title="Open the folder containing the Python backend's log files"
-						>
-							<HugeiconsIcon
-								icon={File02Icon}
-								strokeWidth={2}
-								className="h-4 w-4"
-							/>
-							Open Log Folder
-						</Button>
-						<Button
-							variant="outline"
-							className="gap-2"
-							onClick={() => onNavigate?.("about")}
-							aria-label="Open Diagnostics"
-							title="Open the About page with version, backend status, and config info"
-						>
-							<HugeiconsIcon
-								icon={InformationCircleIcon}
-								strokeWidth={2}
-								className="h-4 w-4"
-							/>
-							Diagnostics
-						</Button>
-						<Button
-							variant="outline"
-							className="gap-2"
-							onClick={() =>
-								window.open(
-									"https://github.com/AbdallahIsDev/voice-typer/blob/main/README.md",
-									"_blank",
-									"noopener,noreferrer",
-								)
-							}
-							aria-label="Open documentation"
-							title="Open the project README in your browser"
-						>
-							<HugeiconsIcon
-								icon={Book02Icon}
-								strokeWidth={2}
-								className="h-4 w-4"
-							/>
-							Help & FAQ
-						</Button>
-						<Button
-							variant="outline"
-							className="gap-2"
-							onClick={() =>
-								window.open(
-									"https://github.com/AbdallahIsDev/voice-typer/issues",
-									"_blank",
-									"noopener,noreferrer",
-								)
-							}
-							aria-label="Report a bug"
-							title="Open the GitHub issue tracker"
-						>
-							<HugeiconsIcon
-								icon={Bug02Icon}
-								strokeWidth={2}
-								className="h-4 w-4"
-							/>
-							Report a Bug
-						</Button>
-						<Button
-							variant="destructive"
-							className="gap-2"
-							onClick={() => setShowResetDialog(true)}
-							aria-label="Reset to Defaults"
-							title="Reset all settings to their default values (cannot be undone)"
-						>
-							<HugeiconsIcon
-								icon={RefreshIcon}
-								strokeWidth={2}
-								className="h-4 w-4"
-							/>
-							Reset to Defaults
-						</Button>
-					</div>
-				</SettingsSection>
+				{(_filter_settings(
+					"Troubleshooting",
+					"Diagnostic tools, help, and support.",
+					"Troubleshooting",
+				) ||
+					[
+						"Open Log Folder",
+						"Diagnostics",
+						"Help & FAQ",
+						"Report a Bug",
+						"Reset to Defaults",
+					].some((label) =>
+						_filter_settings(label, undefined, "Troubleshooting"),
+					)) && (
+					<SettingsSection
+						title="Troubleshooting"
+						description="Diagnostic tools, help, and support."
+					>
+						<div className="px-3.5 py-3.5 flex flex-wrap gap-3">
+							<Button
+								variant="outline"
+								className="gap-2"
+								onClick={viewLogs}
+								aria-label="Open log folder"
+								title="Open the folder containing the Python backend's log files"
+							>
+								<HugeiconsIcon
+									icon={File02Icon}
+									strokeWidth={2}
+									className="h-4 w-4"
+								/>
+								Open Log Folder
+							</Button>
+							<Button
+								variant="outline"
+								className="gap-2"
+								onClick={() => onNavigate?.("about")}
+								aria-label="Open Diagnostics"
+								title="Open the About page with version, backend status, and config info"
+							>
+								<HugeiconsIcon
+									icon={InformationCircleIcon}
+									strokeWidth={2}
+									className="h-4 w-4"
+								/>
+								Diagnostics
+							</Button>
+							<Button
+								variant="outline"
+								className="gap-2"
+								onClick={() =>
+									window.open(
+										"https://github.com/AbdallahIsDev/voice-typer/blob/main/README.md",
+										"_blank",
+										"noopener,noreferrer",
+									)
+								}
+								aria-label="Open documentation"
+								title="Open the project README in your browser"
+							>
+								<HugeiconsIcon
+									icon={Book02Icon}
+									strokeWidth={2}
+									className="h-4 w-4"
+								/>
+								Help & FAQ
+							</Button>
+							<Button
+								variant="outline"
+								className="gap-2"
+								onClick={() =>
+									window.open(
+										"https://github.com/AbdallahIsDev/voice-typer/issues",
+										"_blank",
+										"noopener,noreferrer",
+									)
+								}
+								aria-label="Report a bug"
+								title="Open the GitHub issue tracker"
+							>
+								<HugeiconsIcon
+									icon={Bug02Icon}
+									strokeWidth={2}
+									className="h-4 w-4"
+								/>
+								Report a Bug
+							</Button>
+							<Button
+								variant="destructive"
+								className="gap-2"
+								onClick={() => setShowResetDialog(true)}
+								aria-label="Reset to Defaults"
+								title="Reset all settings to their default values (cannot be undone)"
+							>
+								<HugeiconsIcon
+									icon={RefreshIcon}
+									strokeWidth={2}
+									className="h-4 w-4"
+								/>
+								Reset to Defaults
+							</Button>
+						</div>
+					</SettingsSection>
+				)}
 
 				{/* BUGFIX: replaced the fixed bottom-right banner with a subtle
                                         header subtitle that's barely visible — shows "Auto-save" in

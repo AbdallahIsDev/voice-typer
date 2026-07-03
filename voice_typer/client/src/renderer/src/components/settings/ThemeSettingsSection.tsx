@@ -15,7 +15,7 @@
 // localStorage draft helpers) live here because no other section uses
 // them.
 
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RangeSlider } from "@/components/RangeSlider";
 import { SettingRow } from "@/components/SettingRow";
 import { SettingsSection } from "@/components/SettingsSection";
@@ -274,6 +274,54 @@ function getCurrentThemeColors(currentPresetId: string): {
 	return result;
 }
 
+/**
+ * Compute the { background, foreground } pair used for the rounded-rectangle
+ * "E" preview shown next to each theme in the dropdown and in the trigger.
+ *
+ * For built-in presets (other than default) the values come straight
+ * from the theme's light / dark var maps (selected by the user's
+ * current mode).  For default (which has empty var maps) we fall back
+ * to the same colours the stylesheet defines in :root / .dark.
+ *
+ * Task ID 7 / Part C1: replaced the old circular swatch with a larger
+ * rounded rectangle showing the letter "E" in the theme's text colour —
+ * this gives a more honest preview of what the theme looks like (you see
+ * both the background and the text colour at once).
+ */
+function getThemePreviewColors(
+	themeId: string,
+	isDark: boolean,
+	customDraft: CustomThemeData | null,
+): { bg: string; fg: string } {
+	// Custom theme — use the actual custom colours (Task ID 7 / Part C2:
+	// previously this fell through to the static swatch placeholder
+	// "oklch(0.6 0.15 280)" which bore no resemblance to the user's
+	// chosen colours).
+	if (themeId === "custom" && customDraft) {
+		const vars = isDark ? customDraft.dark : customDraft.light;
+		return {
+			bg: vars["--background"] ?? (isDark ? "#1a1b1e" : "#ffffff"),
+			fg: vars["--foreground"] ?? (isDark ? "#ededed" : "#0a0a0a"),
+		};
+	}
+	if (themeId === "default") {
+		// default preset is a no-op — the colours come from index.css.
+		return {
+			bg: isDark ? "oklch(18.674% 0 271.152)" : "oklch(1 0 0)",
+			fg: isDark ? "oklch(0.985 0 0)" : "oklch(0.141 0.005 285.823)",
+		};
+	}
+	const theme = THEMES.find((t) => t.id === themeId);
+	if (!theme) {
+		return { bg: "#ffffff", fg: "#000000" };
+	}
+	const vars = isDark ? theme.dark : theme.light;
+	return {
+		bg: vars["--background"] ?? (isDark ? "#1a1b1e" : "#ffffff"),
+		fg: vars["--foreground"] ?? (isDark ? "#ededed" : "#0a0a0a"),
+	};
+}
+
 const _THEME_OPTIONS = [
 	{ value: "system", label: "System Default" },
 	{ value: "light", label: "Light" },
@@ -300,6 +348,15 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 	// hover without clicking.
 	const savedPresetRef = useRef(config?.theme_preset ?? "default");
 	if (config) savedPresetRef.current = config.theme_preset ?? "default";
+	// Task ID 7 / Part C3: track whether the user has actually moved the
+	// mouse inside the dropdown content.  Radix Select mounts the content
+	// portal directly under the cursor when the dropdown opens, which can
+	// fire a spurious `onMouseEnter` on the first item — applying that
+	// item's theme as a "hover preview" even though the user hasn't
+	// interacted.  We only honour `onMouseEnter` after the first real
+	// `onMouseMove` inside the content, so opening + closing the dropdown
+	// without moving the mouse leaves the applied theme untouched.
+	const userHoveredRef = useRef(false);
 	// Track the last non-custom preset so we can revert when the
 	// custom-theme toggle is turned off.
 	const lastNonCustomRef = useRef(
@@ -312,11 +369,41 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 	}
 
 	// ── Custom theme editor state ───────────────────────────────────
+	// Task ID 7 / Part C4: initial tab matches the user's current dark/light
+	// mode so the editor opens on the tab the user is most likely to edit
+	// (was always "light" — Dark Mode users had to switch tabs manually).
 	const [customEditorMode, setCustomEditorMode] = useState<"light" | "dark">(
-		"light",
+		() =>
+			typeof document !== "undefined" &&
+			document.documentElement.classList.contains("dark")
+				? "dark"
+				: "light",
 	);
 	const [customDraft, setCustomDraft] = useState<CustomThemeData | null>(null);
 	const customThemeInitRef = useRef(false);
+
+	// Part C6: ``customDraftIsDefault`` is true when the draft matches the
+	// built-in DEFAULT_CUSTOM_LIGHT / DEFAULT_CUSTOM_DARK maps.  The Reset
+	// button is disabled in that state — re-enabled the moment the user
+	// edits any colour.  Compared by JSON.stringify on the 6 core vars
+	// (DEFAULT_CUSTOM_* only contain those 6 keys, so this is exact).
+	const customDraftIsDefault = useMemo(() => {
+		if (!customDraft) return false;
+		const lightKeys = Object.keys(customDraft.light).sort();
+		const darkKeys = Object.keys(customDraft.dark).sort();
+		const defaultKeys = Object.keys(DEFAULT_CUSTOM_LIGHT).sort();
+		if (
+			lightKeys.length !== defaultKeys.length ||
+			darkKeys.length !== defaultKeys.length
+		) {
+			return false;
+		}
+		for (const k of defaultKeys) {
+			if (customDraft.light[k] !== DEFAULT_CUSTOM_LIGHT[k]) return false;
+			if (customDraft.dark[k] !== DEFAULT_CUSTOM_DARK[k]) return false;
+		}
+		return true;
+	}, [customDraft]);
 
 	// One-time init during render (not in effect) — avoids extra render
 	// with stale null. Prefers localStorage draft over config value.
@@ -396,6 +483,14 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 
 	if (!config) return <SettingsSkeleton rows={3} />;
 
+	// FIX (Task ID 6 / Settings Search): capture the section title in a
+	// local constant so the SAME value feeds both the
+	// ``<SettingsSection title="…">`` prop AND the ``isVisible(...)``
+	// predicate's new third argument. This lets the search match the
+	// section heading (e.g. typing "appearance" surfaces every row in
+	// this section even if the row's own label/info don't contain it).
+	const sectionTitle = "Appearance";
+
 	// UX-028: section-level visibility check — if no row matches the
 	// search filter, hide the entire section.
 	const sectionItems = [
@@ -416,19 +511,22 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 			info: "Adjust the UI text size for better readability.",
 		},
 	];
-	if (!sectionItems.some((item) => isVisible(item.label, item.info))) {
+	if (
+		!sectionItems.some((item) => isVisible(item.label, item.info, sectionTitle))
+	) {
 		return null;
 	}
 
 	return (
 		<SettingsSection
-			title="Appearance"
+			title={sectionTitle}
 			description="Color scheme, theme preset, and text sizing."
 		>
 			{/* ── Color Scheme (light / dark / system) ───────────── */}
 			{isVisible(
 				"Color Scheme",
 				"Switch between light, dark, or follow your system setting.",
+				sectionTitle,
 			) && (
 				<SettingRow
 					label="Color Scheme"
@@ -459,6 +557,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 			{isVisible(
 				"Theme Preset",
 				"A built-in color scheme applied on top of your chosen mode.",
+				sectionTitle,
 			) && (
 				<SettingRow
 					label="Theme Preset"
@@ -472,21 +571,40 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 							updateConfig({ theme_preset: preset });
 						}}
 						onOpenChange={(open) => {
-							if (!open) revertToSavedPreset();
+							if (open) {
+								// Reset the hover flag so the next open starts fresh —
+								// the spurious onMouseEnter from Radix mounting the
+								// portal under the cursor is ignored until the user
+								// actually moves the mouse.
+								userHoveredRef.current = false;
+							} else {
+								revertToSavedPreset();
+							}
 						}}
 					>
 						<SelectTrigger className="w-44" aria-label="Theme Preset">
 							{(() => {
+								const currentId = config.theme_preset ?? "default";
 								const current =
-									THEMES.find(
-										(t) => t.id === (config.theme_preset ?? "default"),
-									) ?? THEMES[0];
+									THEMES.find((t) => t.id === currentId) ?? THEMES[0];
+								// Part C1/C2: rounded-rectangle "E" preview.  For the
+								// custom theme, use the actual custom colours from the
+								// in-memory draft instead of the static placeholder swatch.
+								const isDark =
+									document.documentElement.classList.contains("dark");
+								const { bg, fg } = getThemePreviewColors(
+									currentId,
+									isDark,
+									customDraft,
+								);
 								return (
 									<span className="flex items-center gap-2">
 										<span
-											className="inline-block h-3.5 w-3.5 shrink-0 rounded-full"
-											style={{ backgroundColor: current.swatch }}
-										/>
+											className="inline-flex h-5 w-7 shrink-0 items-center justify-center rounded-md border border-border text-xs font-semibold"
+											style={{ backgroundColor: bg, color: fg }}
+										>
+											E
+										</span>
 										<span>{current.name}</span>
 									</span>
 								);
@@ -495,30 +613,51 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 						<SelectContent
 							position="popper"
 							align="start"
+							onMouseMove={() => {
+								userHoveredRef.current = true;
+							}}
 							onMouseLeave={revertToSavedPreset}
 						>
 							{/* Filter out 'custom' from the dropdown — custom is now
-                                                                a toggle switch below this row. */}
-							{THEMES.filter((t) => t.id !== "custom").map((theme) => (
-								<SelectItem
-									key={theme.id}
-									value={theme.id}
-									onMouseEnter={() => applyHoverPreview(theme.id)}
-								>
-									<span className="flex items-center gap-2.5">
-										<span
-											className="inline-block h-4 w-4 shrink-0 rounded-full border border-border"
-											style={{ backgroundColor: theme.swatch }}
-										/>
-										<div className="flex flex-col">
-											<span className="text-sm font-medium">{theme.name}</span>
-											<span className="text-[10px] text-(--text-muted) leading-tight max-w-48">
-												{theme.description}
+								a toggle switch below this row. */}
+							{THEMES.filter((t) => t.id !== "custom").map((theme) => {
+								const isDark =
+									document.documentElement.classList.contains("dark");
+								const { bg, fg } = getThemePreviewColors(
+									theme.id,
+									isDark,
+									customDraft,
+								);
+								return (
+									<SelectItem
+										key={theme.id}
+										value={theme.id}
+										onMouseEnter={() => {
+											// Only apply the hover preview if the user has
+											// actually moved the mouse inside the content
+											// (see userHoveredRef docs above).  This prevents
+											// the spurious onMouseEnter fired when Radix
+											// mounts the portal under the cursor from
+											// applying the first theme as a "preview" and
+											// making it look like opening the dropdown
+											// changed the theme.
+											if (userHoveredRef.current) {
+												applyHoverPreview(theme.id);
+											}
+										}}
+									>
+										<span className="flex items-center gap-2.5">
+											<span
+												className="inline-flex h-6 w-8 shrink-0 items-center justify-center rounded-md border border-border text-sm font-semibold"
+												style={{ backgroundColor: bg, color: fg }}
+											>
+												E
 											</span>
-										</div>
-									</span>
-								</SelectItem>
-							))}
+											<span className="text-sm font-medium">{theme.name}</span>
+										</span>
+									</SelectItem>
+								);
+							})}
 						</SelectContent>
 					</Select>
 				</SettingRow>
@@ -532,6 +671,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 			{isVisible(
 				"Custom Theme",
 				"Create your own color scheme with the color picker.",
+				sectionTitle,
 			) && (
 				<SettingRow
 					label="Custom Theme"
@@ -541,7 +681,12 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 						checked={config.theme_preset === "custom"}
 						onCheckedChange={(enabled) => {
 							if (enabled) {
-								// Switch ON → enable custom theme
+								// Switch ON → enable custom theme.
+								// Part C4: open the editor on the tab matching the
+								// user's current dark/light mode (was always "light").
+								const isDarkOn =
+									document.documentElement.classList.contains("dark");
+								setCustomEditorMode(isDarkOn ? "dark" : "light");
 								// Read the current applied theme colors from the DOM
 								// so the color picker starts with the active preset's
 								// colors instead of hardcoded defaults.
@@ -661,11 +806,18 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 						})}
 					</div>
 
-					{/* Reset to defaults */}
+					{/* Reset to defaults.
+						Part C5: the previously-broken "#888" 3-digit hex in
+						DEFAULT_CUSTOM_DARK["--text-muted"] is now "#888888" (6-digit)
+						so the validator accepts the payload — no more "Failed to
+						save settings" toast.
+						Part C6: button is disabled while the draft already matches
+						the defaults (re-enables the moment the user edits a color). */}
 					<button
 						type="button"
+						disabled={customDraftIsDefault}
 						onClick={() => {
-							const defaults = {
+							const defaults: CustomThemeData = {
 								light: { ...DEFAULT_CUSTOM_LIGHT },
 								dark: { ...DEFAULT_CUSTOM_DARK },
 							};
@@ -677,10 +829,14 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 							const modeVars = isDark ? defaults.dark : defaults.light;
 							const derived = deriveCustomVars(modeVars, isDark);
 							applyThemeVars("custom", isDark, derived);
+							// Invalidate the colour cache so the next preset-swatch
+							// render re-reads from the (now-default) draft.
+							_themeColorCache.delete("custom");
+							_themeColorCache.delete("default");
 							// Save
 							updateConfig({ custom_theme: defaults });
 						}}
-						className="mt-3 w-full rounded-lg border border-border px-3 py-2 text-xs text-(--text-muted) transition-colors hover:bg-(--surface-hover) hover:text-(--text-primary)"
+						className="mt-3 w-full rounded-lg border border-border px-3 py-2 text-xs text-(--text-muted) transition-colors hover:bg-(--surface-hover) hover:text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-(--text-muted)"
 					>
 						Reset to Default Colors
 					</button>
@@ -688,22 +844,35 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 			)}
 
 			{/* ── Text Size ──────────────────────────────────────── */}
-			<SettingRow
-				label="Text Size"
-				info="Adjust the UI text size for better readability. Default is 14px."
-			>
-				<div className="flex items-center gap-3 w-44">
-					<RangeSlider
-						value={config.text_size ?? 14}
-						onChange={(v) => updateConfig({ text_size: v })}
-						min={10}
-						max={24}
-						step={1}
-						ariaLabel="Text Size"
-						suffix="px"
-					/>
-				</div>
-			</SettingRow>
+			{isVisible(
+				"Text Size",
+				"Adjust the UI text size for better readability.",
+				sectionTitle,
+			) && (
+				<SettingRow
+					label="Text Size"
+					info="Adjust the UI text size for better readability. Default is 14px."
+				>
+					<div className="flex items-center gap-3 w-44">
+						<RangeSlider
+							value={config.text_size ?? 14}
+							onChange={(v) => updateConfig({ text_size: v })}
+							min={10}
+							max={20}
+							step={1}
+							ariaLabel="Text Size"
+							suffix="px"
+							// UX (Task ID 5): defer the IPC write until the user releases
+							// the slider thumb.  Without this, each pixel of drag fires
+							// a separate updateConfig({ text_size }) IPC call, flooding
+							// the backend with set_config writes and re-rendering the
+							// entire UI on every step (the --font-scale CSS var
+							// propagates to rem-based sizes).
+							deferApply
+						/>
+					</div>
+				</SettingRow>
+			)}
 		</SettingsSection>
 	);
 });

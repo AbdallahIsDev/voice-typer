@@ -8,8 +8,23 @@
 
 import type { VoiceTyperConfig } from "@/types/config";
 
-/** Visible-state predicate — matches the page-level `_filter_settings` helper. */
-export type IsVisibleFn = (label: string, info?: string) => boolean;
+/** Visible-state predicate — matches the page-level `_filter_settings`
+ *  helper.
+ *
+ *  FIX (Task ID 6 / Settings Search): the optional third parameter
+ *  ``sectionTitle`` lets the section component pass the title it renders
+ *  inside its ``<SettingsSection title="…">`` block so the search can
+ *  ALSO match the section heading itself (e.g. typing "overlay" surfaces
+ *  every row inside the Overlay section, even if the row's own
+ *  label/info don't contain the word). Section components MUST derive
+ *  this from the same literal/constant they hand to the ``title`` prop
+ *  — never hardcode the title in the predicate call.
+ */
+export type IsVisibleFn = (
+	label: string,
+	info?: string,
+	sectionTitle?: string,
+) => boolean;
 
 /** Props every settings section accepts. */
 export interface SettingsSectionSharedProps {
