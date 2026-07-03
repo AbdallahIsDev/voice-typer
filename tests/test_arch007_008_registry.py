@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, patch
 from voice_typer.server.asr_registry import AsrBackendRegistry
 
 
-class TestArch007RegistryCreate:
+class TestAsrRegistryCreatesEngines:
     """ARCH-007: AsrBackendRegistry.create() owns engine construction."""
 
     def test_create_whisper_constructs_and_registers(self, monkeypatch):
@@ -110,7 +110,7 @@ class TestArch007RegistryCreate:
         assert result is None
 
 
-class TestArch007AppConstructionDelegatesToRegistry:
+class TestAppConstructionDelegatesToRegistry:
     """ARCH-007: All 3 construction sites in app.py delegate to registry.create()."""
 
     def test_no_direct_transcription_engine_construction_in_app(self):
@@ -139,7 +139,7 @@ class TestArch007AppConstructionDelegatesToRegistry:
         )
 
 
-class TestArch008RegistryInitializedEarly:
+class TestAsrRegistryInitializedInAppInit:
     """ARCH-008: registry is initialized in __init__ (not lazily)."""
 
     def test_asr_registry_exists_after_init(self, tmp_path, monkeypatch):
@@ -173,7 +173,7 @@ class TestArch008RegistryInitializedEarly:
         assert app.models.registry is not None
 
 
-class TestArch047SyncRegistryNoChurn:
+class TestRegistrySyncNoChurnOnSameInstance:
     """ARCH-047: _sync_registry_from_fields previously unconditionally
     unregistered all backends and re-registered them, producing log
     spam every time it was called. The fix skips the unregister+register

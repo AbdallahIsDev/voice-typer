@@ -35,7 +35,7 @@ def _make_recorder() -> Recorder:
     return rec
 
 
-class TestH15M8ResampleCacheConcurrentLoad:
+class TestResampleCacheConcurrentLoadSafety:
     """H15/M8: Verify the resample prefix cache is safe under concurrent access."""
 
     def test_concurrent_snapshot_no_corruption(self):

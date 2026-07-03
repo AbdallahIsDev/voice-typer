@@ -26,7 +26,7 @@ import pytest
 # ─── PERF-004: clean_transcribed_text is fast + precompiled ───────────────
 
 
-class TestPerf004CleanupPrecompiledAndFast:
+class TestCleanTranscribedTextUsesPrecompiledRegex:
     """PERF-004 (PARTIALLY FIXED, acceptable).
 
     The finding text claims ``clean_transcribed_text()`` blocks the
@@ -142,7 +142,7 @@ class TestPerf004CleanupPrecompiledAndFast:
 # ─── PERF-012: Win32 hotkey polling uses Sleep(1) ─────────────────────────
 
 
-class TestPerf012Win32PollingUsesSleep1:
+class TestWin32PollingLoopUsesSleepOne:
     """PERF-012 (FALSE POSITIVE / OUTDATED).
 
     The finding claims the Win32 polling loop runs at 10 Hz
@@ -261,7 +261,7 @@ class TestPerf012Win32PollingUsesSleep1:
 # ─── PERF-PIPE: _token_key uses precompiled module-level regex ────────────
 
 
-class TestPerfPipeTokenKeyPrecompiled:
+class TestPipeTokenKeyUsesPrecompiledRegex:
     """PERF-PIPE (FALSE POSITIVE / OUTDATED).
 
     The finding claims ``_token_key`` calls ``re.sub(pattern_str, ...)``
@@ -349,7 +349,7 @@ class TestPerfPipeTokenKeyPrecompiled:
 # ─── PERF-STATS: local ASR engines accept + reuse audio_stats ────────────
 
 
-class TestPerfStatsAllEnginesAcceptAudioStats:
+class TestAllLocalEnginesAcceptAudioStats:
     """PERF-STATS (FALSE POSITIVE / OUTDATED — fixed for all 3 local engines).
 
     The finding claims ``qwen_engine.py:127`` recomputes RMS even when
@@ -573,7 +573,7 @@ class TestPerfStatsAllEnginesAcceptAudioStats:
 # ─── PERF-009: transcribe_batch is intentionally sequential ───────────────
 
 
-class TestPerf009BatchDesignDecision:
+class TestTranscribeBatchSequentialDesignDecision:
     """PERF-009 (PARTIALLY FIXED, acceptable).
 
     The finding acknowledges ``transcribe_batch`` is sequential (not
@@ -666,7 +666,7 @@ class TestPerf009BatchDesignDecision:
 # ─── PERF-EQ: AudioWindow __eq__ layered comparison ──────────────────────
 
 
-class TestPerfEqAudioWindowLayeredEquality:
+class TestAudioWindowEqualityUsesLayeredFastPaths:
     """PERF-EQ (PARTIALLY FIXED, intentional).
 
     The finding claims the custom ``__eq__`` uses ``np.array_equal``

@@ -25,7 +25,7 @@ def temp_config(tmp_path, monkeypatch):
     return tmp_path
 
 
-class TestIssue2Extractions:
+class TestCoreModulesExtractedFromApp:
     """#2: ModelManager / RecordingController / HotkeyDispatcher extracted."""
 
     def test_model_manager_module_exists(self):
@@ -147,7 +147,7 @@ class TestIssue2Extractions:
         assert app.recording._streaming_session is None
 
 
-class TestStartup3ImportFiltering:
+class TestPrewarmFiltersImportsByActiveBackend:
     """STARTUP-3: prewarm import filtering by active backend."""
 
     def test_warm_imports_skips_torch_for_whisper(self, temp_config, monkeypatch):
@@ -205,7 +205,7 @@ class TestStartup3ImportFiltering:
         assert "transformers" in imported, "parakeet backend must import transformers"
 
 
-class TestStartup5PrewarmPosix:
+class TestPrewarmPosixSchedulerSupportsLaunchagentAndSystemd:
     """STARTUP-5: POSIX prewarm scheduler (macOS LaunchAgent + Linux systemd)."""
 
     def test_posix_scheduler_module_exists(self):
@@ -307,7 +307,7 @@ class TestStartup5PrewarmPosix:
         assert not timer_path.exists()
 
 
-class TestStartup7AppAutostartTaskScheduler:
+class TestAppAutostartUsesTaskSchedulerLogonTrigger:
     """STARTUP-7: Windows app autostart uses Task Scheduler logon trigger."""
 
     def test_app_autostart_task_xml_uses_pythonw_directly(self):

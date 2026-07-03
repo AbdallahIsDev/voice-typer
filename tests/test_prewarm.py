@@ -202,7 +202,7 @@ class TestCli:
 # ─── STARTUP-4: active-model filter ─────────────────────────────────────
 
 
-class TestStartup4ActiveModelFilter:
+class TestPrewarmFiltersToActiveModelAndFallback:
     """STARTUP-4: prewarm should only warm the active model + declared fallback.
 
     Previously prewarm walked ALL models--* dirs in the HF cache, warming

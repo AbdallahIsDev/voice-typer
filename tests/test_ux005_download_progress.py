@@ -34,7 +34,7 @@ def captured_events(monkeypatch):
     return events
 
 
-class TestUx005DownloadProgressEvents:
+class TestDownloadModelPushesProgressEvents:
     """UX-005: download_model pushes progress events to the renderer."""
 
     def test_unknown_model_returns_error_no_progress(self, service, captured_events):
@@ -83,7 +83,7 @@ class TestUx005DownloadProgressEvents:
                 assert event["data"]["model"] == "qwen"
 
 
-class TestUx005WhisperDownloadWithProgress:
+class TestWhisperDownloadWithProgressEvents:
     """Whisper download path — mocks snapshot_download + TranscriptionEngine."""
 
     def test_whisper_already_cached_skips_download(

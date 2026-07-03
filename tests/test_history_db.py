@@ -148,7 +148,7 @@ class TestHistoryDBWALMode:
         assert mode.lower() == "wal"
 
 
-class TestErr013RaiseOnError:
+class TestHistoryDbRaisesOnErrorWhenFlagSet:
     """ERR-013: history_db methods must raise HistoryDBError when
     ``raise_on_error=True`` so the IPC layer can distinguish "empty
     result" from "operation failed".

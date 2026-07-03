@@ -48,7 +48,7 @@ def _setup_torch_mock(monkeypatch):
     monkeypatch.setitem(sys.modules, "torch", mock_torch)
 
 
-class TestVad001ChunkSizeHandling:
+class TestSileroVadHandlesNon512SampleChunks:
     """VAD-001: Silero VAD must handle non-512-sample chunks.
 
     Previously, PortAudio delivered chunks of arbitrary size (e.g. 1136

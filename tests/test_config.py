@@ -495,7 +495,7 @@ class TestM4SaveErrorHandling:
 # ── SEC-007: config file permissions ─────────────────────────────────────
 
 
-class TestSec007ConfigFilePermissions:
+class TestConfigSaveEnforcesPosixFilePermissions:
     """SEC-007: on POSIX, the config file must be 0o600 and the
     config directory 0o700 so API keys and other settings are not
     world-readable.  On Windows these checks are skipped (NTFS ACLs

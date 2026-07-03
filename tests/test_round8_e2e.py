@@ -21,7 +21,7 @@ def temp_config(tmp_path, monkeypatch):
     return tmp_path
 
 
-class TestRound8E2E:
+class TestRound8EndToEndSmoke:
     """End-to-end smoke tests for Round 8's 10 fixes."""
 
     def test_startup6_no_spurious_warning(self, temp_config, caplog):
@@ -88,7 +88,7 @@ class TestRound8E2E:
         ctrl2 = OnboardingController(config_dir=temp_config)
         assert ctrl2.is_first_run() is False
 
-    def test_ux005_download_progress_events_pushed(self, temp_config, monkeypatch):
+    def test_download_model_pushes_progress_events(self, temp_config, monkeypatch):
         """UX-005: download_model pushes progress events via IPC."""
         from voice_typer.server.service import VoiceTyperService
         import voice_typer.server.ipc_server as ipc_mod
@@ -104,7 +104,7 @@ class TestRound8E2E:
         progress_events = [e for e in events if e.get("type") == "download_progress"]
         assert any(e["data"]["progress"] == 100 for e in progress_events)
 
-    def test_t021_audio_chunk_forwarded_to_waveform(self):
+    def test_recorder_rms_forwards_audio_chunk_to_waveform(self):
         """T021: app._on_recorder_rms forwards audio_chunk to update_level."""
         import inspect
         from voice_typer.server.app import VoiceTyperApp
@@ -119,13 +119,13 @@ class TestRound8E2E:
         rec_src = inspect.getsource(recording)
         assert "rms_callback(chunk_rms, chunk_peak, filtered)" in rec_src
 
-    def test_arch007_registry_create_exists(self):
+    def test_asr_registry_create_handler_exists(self):
         """ARCH-007: AsrBackendRegistry.create() method exists."""
         from voice_typer.server.asr_registry import AsrBackendRegistry
         assert hasattr(AsrBackendRegistry, "create")
         assert callable(AsrBackendRegistry.create)
 
-    def test_arch008_registry_initialized_in_init(self, tmp_path, monkeypatch):
+    def test_asr_registry_initialized_in_app_init(self, tmp_path, monkeypatch):
         """ARCH-008: registry is set in VoiceTyperApp.__init__ (now via
         ModelManager._registry, accessed as app.models.registry)."""
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)

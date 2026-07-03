@@ -246,7 +246,7 @@ class TestFileExtensionFix:
 # ── ARCH-004: corrections load error surfacing ───────────────────────────
 
 
-class TestArch004CorrectionsLoadError:
+class TestConfigureCorrectionsSurfacesLoadErrors:
     """ARCH-004: configure_corrections must return an error message
     when the user's corrections file is malformed, so the caller can
     surface it via a tray notification."""

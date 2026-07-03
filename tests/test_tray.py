@@ -188,7 +188,7 @@ def _menu_labels(tray):
 
 # ─── Phase 2: Minimal menu tests ────────────────────────────────────────
 
-class TestPhase2MinimalMenu:
+class TestTrayMenuHasMinimalOptions:
     """Phase 2: Right-click menu has only Toggle, Restart, Quit."""
 
     def test_menu_has_toggle_dictation(self, tray):
