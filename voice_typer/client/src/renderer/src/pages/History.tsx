@@ -2,6 +2,7 @@ import {
 	ArrowDown01Icon,
 	Delete01Icon,
 	HistoryIcon,
+	Mic02Icon,
 	StarIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -17,7 +18,12 @@ import { Spinner } from "@/components/Spinner";
 import { Button } from "@/components/ui/button";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { showUndoableToast } from "@/hooks/useSnackbar";
-import type { HistoryRecord, TodayStats, WindowBridge } from "@/types/ipc";
+import type {
+	HistoryRecord,
+	Page,
+	TodayStats,
+	WindowBridge,
+} from "@/types/ipc";
 
 // Module-level cache — persists across page navigations so the records list
 // and stats render instantly on re-visit instead of showing a spinner.
@@ -26,7 +32,12 @@ let _cachedStats: TodayStats | null = null;
 
 const PAGE_SIZE = 50;
 
-export default function HistoryPage() {
+interface HistoryPageProps {
+	/** Navigation callback used by the empty-state's "Start dictation" button. */
+	onNavigate?: (page: Page) => void;
+}
+
+export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 	const { call } = usePython();
 	const [records, setRecords] = useState<HistoryRecord[]>(_cachedRecords);
 	const [stats, setStats] = useState<TodayStats | null>(_cachedStats);
@@ -369,6 +380,24 @@ export default function HistoryPage() {
 								: favoritesOnly
 									? "No favorites yet"
 									: "No transcriptions yet"
+						}
+						description={
+							searchQuery
+								? "Try a different search term or clear the search to see all entries."
+								: favoritesOnly
+									? "Tap the star icon on a transcription to save it here."
+									: "Press your hotkey (or Caps Lock) on the Home page to dictate — your transcriptions will appear here."
+						}
+						actionLabel={
+							!searchQuery && !favoritesOnly && onNavigate
+								? "Start dictation"
+								: undefined
+						}
+						actionIcon={Mic02Icon}
+						onAction={
+							!searchQuery && !favoritesOnly && onNavigate
+								? () => onNavigate("home")
+								: undefined
 						}
 					/>
 				) : (
