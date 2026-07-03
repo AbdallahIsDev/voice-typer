@@ -20,7 +20,7 @@ import sys
 import threading
 import time
 from abc import ABC, abstractmethod
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
 
 log = logging.getLogger("voice_typer")
@@ -577,8 +577,12 @@ class WindowsNativeHotkey(HotkeyBackend):
         self._ready_event = threading.Event()  # signalled when registration completes
         self._hotkey_id = 1  # arbitrary ID for RegisterHotKey
         self._registered = False
-        self._user32 = None
-        self._kernel32 = None
+        # TASK-10: typed as Any — these are populated inside _register()
+        # via ctypes.windll (Windows-only). They remain None on non-Windows
+        # platforms, but the methods that touch them (the message-pump
+        # loop, _unregister) are only invoked from Windows-only code paths.
+        self._user32: Any = None
+        self._kernel32: Any = None
         self._success = False
         self._vk: Optional[int] = None
         self._modifiers = 0
@@ -1930,7 +1934,11 @@ class WaylandHotkey(HotkeyBackend):
     def __init__(self, hotkey_str: str):
         self._hotkey_str = hotkey_str
         self._callback: Optional[Callable[[], None]] = None
-        self._server_socket = None
+        # TASK-10: typed as Any — socket is created lazily inside start()
+        # and remains None if the socket bind fails. _accept_loop checks
+        # self._alive before touching this socket, but pyrefly cannot
+        # prove the narrowing across the thread boundary.
+        self._server_socket: Any = None
         self._thread: Optional[threading.Thread] = None
         self._alive = False
         self._pynput_fallback: Optional[PynputHotkey] = None
@@ -2015,6 +2023,12 @@ class WaylandHotkey(HotkeyBackend):
 
     def _start_pynput_fallback(self) -> None:
         """Start pynput as a direct fallback (no socket)."""
+        # TASK-10: _callback may be None if start() was never called with
+        # one — guard before forwarding to PynputHotkey.start(), which
+        # has a non-Optional callback contract.
+        if self._callback is None:
+            log.warning("[HOTKEY-WAYLAND] Cannot start pynput fallback — no callback registered")
+            return
         try:
             self._pynput_fallback = PynputHotkey(self._hotkey_str)
             self._pynput_fallback.start(self._callback)
@@ -2024,6 +2038,10 @@ class WaylandHotkey(HotkeyBackend):
 
     def _start_pynput_fallback_with_timeout(self) -> None:
         """Start pynput with a timeout — kill it if it doesn't respond."""
+        # TASK-10: same callback guard as _start_pynput_fallback.
+        if self._callback is None:
+            log.warning("[HOTKEY-WAYLAND] Cannot start pynput fallback — no callback registered")
+            return
         try:
             self._pynput_fallback = PynputHotkey(self._hotkey_str)
             self._pynput_fallback.start(self._callback)

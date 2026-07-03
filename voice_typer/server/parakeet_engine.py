@@ -9,7 +9,7 @@ import logging
 import os
 import threading
 import unicodedata
-from typing import Optional, Callable
+from typing import Any, Optional, Callable
 
 import numpy as np
 
@@ -115,11 +115,16 @@ class ParakeetEngine:
     """
 
     # Cache these class-level so they're imported ONCE, not per instance.
-    _imports_loaded = False
-    _AutoModelForTDT = None
-    _AutoProcessor = None
-    _torch = None
-    _hf_home_set = False
+    # TASK-10: typed as ``Any`` so pyrefly can follow the .cuda /
+    # .from_pretrained / .float16 / .generate / .decode accesses after
+    # ``_ensure_imports()`` populates them at runtime. The class attrs
+    # are populated lazily because torch / transformers are optional
+    # deps — they remain ``None`` until first successful import.
+    _imports_loaded: bool = False
+    _AutoModelForTDT: Any = None
+    _AutoProcessor: Any = None
+    _torch: Any = None
+    _hf_home_set: bool = False
 
     def __init__(
         self,
@@ -128,8 +133,13 @@ class ParakeetEngine:
     ):
         self.device = device
         self.language = language
-        self._model = None
-        self._processor = None
+        # TASK-10: instance-level model handles are populated by load()
+        # and read by transcribe(). Typed as Any so attribute accesses
+        # (.device, .dtype, .generate, .decode) type-check without
+        # forcing every call site to repeat the None-narrowing guard
+        # that transcribe() already performs at entry.
+        self._model: Any = None
+        self._processor: Any = None
         self._lock = threading.RLock()
         self._ensure_hf_env()
 
