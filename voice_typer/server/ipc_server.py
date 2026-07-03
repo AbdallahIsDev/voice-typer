@@ -377,14 +377,47 @@ class IPCServer(
         The application instance this server wraps.
     """
 
-    def __init__(self, app) -> None:
+    def __init__(
+        self,
+        app,
+        service: "Optional[Any]" = None,
+    ) -> None:
+        # ARCH-REFAC-004: dependency-injection seam.
+        #
+        # ``IPCServer(app)`` (no ``service``) is the backward-compatible
+        # path used by all existing call sites — production entry point
+        # and 20+ test files.  It constructs a real ``VoiceTyperService``
+        # over ``app`` exactly as before.
+        #
+        # ``IPCServer(app, service=fake)`` is the DI path used by tests
+        # that want to exercise the IPC dispatch layer in isolation
+        # from the service implementation.  The injected ``service`` is
+        # stored verbatim on ``self.service``; no ``VoiceTyperService``
+        # is constructed.  This lets a test substitute a ``MagicMock``
+        # (see ``tests/fixtures/ipc_test_helpers.py:make_fake_service``)
+        # and assert on the IPC layer's behavior without coupling to
+        # ``VoiceTyperService``'s internal app glue.
+        #
+        # ``app`` is typed as ``Any`` (not ``AppProtocol``) so that
+        # existing MagicMock-based test fixtures keep working without
+        # importing the protocol module.  ``AppProtocol`` is a
+        # structural type — a MagicMock satisfies it — but annotating
+        # the parameter with ``AppProtocol`` would force every test
+        # file that constructs ``IPCServer(app)`` to import the
+        # protocol, which is an unnecessary migration burden.  The
+        # protocol is for documentation and the introspection
+        # regression test in ``tests/test_di_providers.py``.
         self.app = app
-        # ARCH-005: wire VoiceTyperService as the service boundary.
-        # IPC routes delegate through the service instead of calling
-        # self.app directly. This allows a second transport (CLI, gRPC)
-        # to reuse the same service layer without duplicating app glue.
-        from voice_typer.server.service import VoiceTyperService
-        self.service = VoiceTyperService(app)
+        if service is not None:
+            self.service = service
+        else:
+            # ARCH-005: wire VoiceTyperService as the service boundary.
+            # IPC routes delegate through the service instead of calling
+            # self.app directly. This allows a second transport (CLI,
+            # gRPC) to reuse the same service layer without duplicating
+            # app glue.
+            from voice_typer.server.service import VoiceTyperService
+            self.service = VoiceTyperService(app)
         self._running = False
         # NEW-CQ-018: use RLock instead of Lock so _hook_tray_set_state
         # (which calls self.push() → self._send() → acquires _lock) can
@@ -1155,7 +1188,14 @@ def main() -> None:
         print(f"Invalid port: {port} (must be 1..65535)", file=sys.stderr)
         sys.exit(EXIT_BAD_ARGS)
 
-    server = IPCServer(app)
+    # ARCH-REFAC-004: use the providers.build_ipc_server composition
+    # root instead of constructing IPCServer directly.  Behavior is
+    # identical today (build_ipc_server just calls IPCServer(app));
+    # the factory exists so future wiring (logging, metrics, feature
+    # flags, an alternate service implementation) lives in one place
+    # rather than being threaded through this entry point.
+    from voice_typer.server.providers import build_ipc_server
+    server = build_ipc_server(app)
     server.start()
     if port is not None:
         server.start_tcp(port)
