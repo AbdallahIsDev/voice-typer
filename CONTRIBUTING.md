@@ -542,6 +542,110 @@ model — `cublas_fallback.py`, `runtime_proof.py`, `diagnose_f2.py`.
 Run them by hand when investigating GPU or hotkey issues; they are
 not part of the CI suite.
 
+### 7.4 Testing patterns
+
+A handful of patterns recur across the suite.  Reach for these before
+inventing a new arrangement — they keep tests fast, isolated, and
+consistent with what reviewers expect.
+
+#### 7.4.1 Headless hardware mocks (autouse)
+
+Every test inherits the `mock_heavy_imports` autouse fixture in
+`tests/conftest.py`, which installs `MagicMock`s for `sounddevice`,
+`faster_whisper`, `pynput`, `pystray`, `PIL`, and `pyperclip`.  This
+lets the suite run on any CI runner without a display, microphone,
+or audio stack.  Two markers opt out:
+
+```python
+@pytest.mark.real_pynput
+def test_uses_real_pynput(): ...
+
+@pytest.mark.real_pil
+def test_renders_tray_bitmap(): ...
+```
+
+When adding a new hardware-touching module, prefer extending this
+fixture over `monkeypatch`-ing the same import in 20 individual
+tests.  When you need to *un-mock* one of these for a single test
+(e.g. a real-PIL test that runs after a `sys.modules.setdefault("PIL",
+MagicMock())` from another module), the fixture already evicts mock
+entries before importing the real package — see the long comment in
+`conftest.py` for the rationale.
+
+#### 7.4.2 Dependency-injection service seam
+
+`IPCServer(app, service=fake)` accepts an injected `service` argument
+that lets you exercise the IPC dispatch layer in isolation from
+`VoiceTyperService`.  The fixture `make_fake_service()` in
+`tests/fixtures/ipc_test_helpers.py` returns a `MagicMock`-based fake
+that satisfies the `AppProtocol` structural type.  Use it for tests
+that assert on dispatch behaviour, error codes, or push events
+without coupling to the service implementation:
+
+```python
+from tests.fixtures.ipc_test_helpers import make_fake_service
+from voice_typer.server.ipc_server import IPCServer
+
+def test_get_history_bounds_limit(monkeypatch):
+    app = MagicMock()
+    app._config_mutation_lock = threading.RLock()
+    fake = make_fake_service()
+    server = IPCServer(app, service=fake)
+    resp = server._dispatch({"type": "get_history",
+                             "data": {"limit": 10**9}, "id": "x"})
+    assert resp["type"] == "history"
+    # SEC-010: limit was clamped to _HISTORY_LIMIT_MAX before reaching the service
+    fake.get_history.assert_called_once()
+    _, kwargs_or_args = fake.get_history.call_args
+    limit = kwargs_or_args.args[0] if hasattr(kwargs_or_args, "args") else kwargs_or_args[0]
+    assert limit <= 500
+```
+
+For tests that only need the registry or dispatch (no service
+behaviour), the lighter pattern used by
+`TestElectronNotificationFieldValidation` in
+`tests/test_bugfix_regressions.py` constructs `IPCServer.__new__(IPCServer)`
+and assigns `app` / `service` directly — bypasses the
+`VoiceTyperService` construction cost entirely.
+
+#### 7.4.3 Push-event testing
+
+The IPC server fans out push events via the module-level
+`_push_event_registry`.  Two helpers — `_set_push_event(fn)` and
+`_clear_push_event(fn)` — let a test capture pushed events without
+spinning up a real TCP client:
+
+```python
+from voice_typer.server.ipc_server import _set_push_event, _clear_push_event
+
+captured = []
+def _capture(msg): captured.append(msg)
+_set_push_event(_capture)
+try:
+    server._dispatch({"type": "show_electron_notification",
+                      "data": {"title": "Hi", "message": "Body"}, "id": "x"})
+finally:
+    _clear_push_event(_capture)
+
+assert any(m["type"] == "electron_notification" for m in captured)
+```
+
+For tests that patch the push hook at the source, target the
+*module* the handler is defined in (e.g.
+`voice_typer.server.handlers.system_handlers._push_event_now`),
+not the re-export in `ipc_server.py` — Python's `from x import y`
+binds the name at import time, so patching the re-export won't
+affect handlers that already captured the reference.
+
+#### 7.4.4 Bounded-limit assertions (SEC-010)
+
+Several IPC handlers (`get_history`, `get_favorites`, `search_history`)
+clamp caller-supplied `limit` / `offset` via `_bound_history_limit`
+and `_bound_history_offset` to prevent DoS via huge values.  When
+adding a new paginated endpoint, reuse the same helpers and add a
+test that dispatches `{"limit": 10**9}` and asserts the service
+received a value within `[_HISTORY_LIMIT_MIN, _HISTORY_LIMIT_MAX]`.
+
 ---
 
 ## 8. Submitting Changes
