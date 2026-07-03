@@ -11,6 +11,7 @@ import PageHeading from "@/components/PageHeading";
 import { SearchField } from "@/components/SearchField";
 import { SettingsSection } from "@/components/SettingsSection";
 import { Spinner } from "@/components/Spinner";
+import { AiEnhancementSettingsSection } from "@/components/settings/AiEnhancementSettingsSection";
 import { AudioSettingsSection } from "@/components/settings/AudioSettingsSection";
 import { GeneralSettingsSection } from "@/components/settings/GeneralSettingsSection";
 import { HotkeySettingsSection } from "@/components/settings/HotkeySettingsSection";
@@ -451,6 +452,14 @@ export default function SettingsPage({
 
 				{/* ── SECTION: Audio Enhancement (volume ducking, noise filter chain) ── */}
 				<AudioSettingsSection
+					config={config}
+					updateConfig={updateConfig}
+					updateConfigDebounced={updateConfigDebounced}
+					isVisible={_filter_settings}
+				/>
+
+				{/* ── SECTION: AI Enhancement + Vocabulary Automation (P4/P5) ── */}
+				<AiEnhancementSettingsSection
 					config={config}
 					updateConfig={updateConfig}
 					updateConfigDebounced={updateConfigDebounced}

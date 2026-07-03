@@ -233,6 +233,15 @@ const baseConfig: VoiceTyperConfig = {
 	voice_biometric_consent: false,
 	llm_polish_consent: false,
 	sound_feedback_enabled: false,
+	// P4: AI enhancement fields (off by default)
+	ai_enhancement_enabled: false,
+	auto_capitalize: true,
+	auto_punctuate: true,
+	fix_grammar_basics: true,
+	// P5: Vocabulary automation fields (off by default)
+	vocabulary_automation_enabled: false,
+	vocabulary_auto_confidence_threshold: 0.7,
+	vocabulary_auto_apply_threshold: 0.95,
 };
 
 /** Count `set_config` IPC calls captured by mockCall. */
