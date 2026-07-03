@@ -270,6 +270,11 @@ class VoiceTyperApp:
         # tasks can check it without reading the boolean (which provides
         # no memory-order guarantee across threads).
         self._shutting_down_event = threading.Event()
+        # P1-1.3: PID of the Electron subprocess we launched in standalone
+        # mode (None when Electron spawned us, or when standalone launch
+        # failed).  Tracked here so quit() can terminate the subprocess
+        # explicitly during shutdown.
+        self._electron_pid: int | None = None
         # ARCH-022: _pending_timers is appended to from the tray thread,
         # the transcription thread, and the timer thread itself; the
         # `for timer in self._pending_timers` iteration in
@@ -1769,18 +1774,38 @@ class VoiceTyperApp:
         # PROD-003: Terminate the Electron subprocess if we spawned one.
         # The IPC "quit_app" push was sent earlier; this is a forced
         # termination as a safety net if the graceful signal didn't land.
+        # P1-1.3: prefer the dedicated electron_launcher.terminate_electron
+        # helper (which kills the entire process tree on Windows and uses
+        # SIGTERM → SIGKILL on POSIX) when we have a tracked PID.  Fall
+        # back to the legacy tray_window path for PID discovery so any
+        # Electron launched via tray_window.open_electron_window() is also
+        # cleaned up.
         try:
-            from voice_typer.server.tray_window import get_electron_pid
-            electron_pid = get_electron_pid()
-            if electron_pid is not None:
-                import signal as _sig
-                log.info("[SHUTDOWN] Terminating Electron subprocess (PID=%s)", electron_pid)
-                try:
-                    os.kill(electron_pid, _sig.SIGTERM)
-                except (OSError, ProcessLookupError):
-                    pass
+            from voice_typer.server import electron_launcher
+            launched_pid = getattr(self, "_electron_pid", None)
+            if launched_pid:
+                log.info("[SHUTDOWN] Terminating Electron subprocess (PID=%s)", launched_pid)
+                electron_launcher.terminate_electron(launched_pid)
+                self._electron_pid = None
+            else:
+                from voice_typer.server.tray_window import get_electron_pid
+                electron_pid = get_electron_pid()
+                if electron_pid is not None:
+                    import signal as _sig
+                    log.info("[SHUTDOWN] Terminating Electron subprocess (PID=%s)", electron_pid)
+                    try:
+                        os.kill(electron_pid, _sig.SIGTERM)
+                    except (OSError, ProcessLookupError):
+                        pass
         except Exception:
-            pass
+            log.debug("[SHUTDOWN] Electron subprocess termination failed", exc_info=True)
+
+        # P1-1.4: release the single-instance mutex and remove the PID
+        # file so a subsequent launch isn't falsely blocked.
+        try:
+            _clear_backend_pid_file()
+        except Exception:
+            log.debug("[SHUTDOWN] could not clear backend PID file", exc_info=True)
 
         log.info("[SHUTDOWN] Shutdown complete, exiting")
 
@@ -1956,6 +1981,10 @@ from voice_typer.server.security import (
     verify_restart_token as _verify_restart_token,
     consume_restart_token as _consume_restart_token,
 )
+# COMPAT-001: backward-compat re-export for tests/test_pii_redaction.py
+# which imports _PIIRedactionFilter from app. The class lives in
+# voice_typer.server.security as PIIRedactionFilter (no underscore).
+from voice_typer.server.security import PIIRedactionFilter as _PIIRedactionFilter  # noqa: F401
 
 
 def _create_restrictive_security_attributes():
@@ -2083,6 +2112,113 @@ def _create_restrictive_security_attributes():
     except Exception:
         # If we can't build a restrictive DACL, return None and fall back
         # to default (NULL) security attributes
+        return None
+
+
+def _backend_pid_file() -> Path:
+    """Return the path to the backend PID file (``<config_dir>/backend.pid``).
+
+    P1-1.4: written by ``_ensure_single_instance`` after the mutex is
+    acquired, removed by ``_clear_backend_pid_file`` during shutdown.
+    Used as a belt-and-suspenders check: on Windows the named mutex is
+    the authoritative single-instance guard, but if a previous instance
+    crashed hard (BSOD, power loss) the OS may not have released the
+    mutex yet when the next launch tries to acquire it.  The PID file
+    lets us detect a stale lock and proceed.
+    """
+    return _config_dir() / "backend.pid"
+
+
+def _write_backend_pid_file() -> None:
+    """Write our PID to the backend PID file (best-effort)."""
+    try:
+        from voice_typer.server.config import _secure_atomic_write
+
+        pid_file = _backend_pid_file()
+        pid_file.parent.mkdir(parents=True, exist_ok=True)
+        _secure_atomic_write(pid_file, f"{os.getpid()}\n")
+    except OSError as exc:
+        log.warning("[STARTUP] could not write backend PID file: %s", exc)
+    except Exception:
+        log.debug("[STARTUP] could not write backend PID file", exc_info=True)
+
+
+def _clear_backend_pid_file() -> None:
+    """Remove the backend PID file (best-effort)."""
+    try:
+        pid_file = _backend_pid_file()
+        if pid_file.exists():
+            pid_file.unlink()
+    except OSError as exc:
+        log.debug("[SHUTDOWN] could not remove backend PID file: %s", exc)
+    except Exception:
+        log.debug("[SHUTDOWN] could not remove backend PID file", exc_info=True)
+
+
+def _is_pid_alive(pid: int) -> bool:
+    """Return True if a process with the given PID is currently running.
+
+    Cross-platform: uses ``os.kill(pid, 0)`` on POSIX and ``OpenProcess``
+    on Windows.  Returns False if the PID is invalid or the process has
+    exited.  On Windows, ERROR_ACCESS_DENIED (5) is treated as "alive"
+    (the process exists but is owned by another session — better to
+    block a duplicate than to proceed when unsure).
+    """
+    if pid <= 0:
+        return False
+    if is_windows():
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            kernel32 = ctypes.windll.kernel32
+            still_active = wintypes.DWORD()
+            handle = kernel32.OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION, False, pid,
+            )
+            if not handle:
+                # ERROR_ACCESS_DENIED (5) means the process exists but is
+                # owned by another user/session — treat as alive.
+                return kernel32.GetLastError() == 5
+            try:
+                if not kernel32.GetExitCodeProcess(handle, ctypes.byref(still_active)):
+                    return False
+                # STILL_ACTIVE == 259 means the process is running.
+                return still_active.value == 259
+            finally:
+                kernel32.CloseHandle(handle)
+        except Exception:
+            return False
+    else:
+        try:
+            os.kill(pid, 0)
+        except (OSError, ProcessLookupError):
+            return False
+        return True
+
+
+def _read_stale_backend_pid() -> int | None:
+    """Return the PID from the backend PID file if it's stale, else None.
+
+    A PID is "stale" if the file exists but no process with that PID is
+    alive.  Returns None if the file doesn't exist, is unreadable, or
+    the PID is still alive.
+    """
+    try:
+        pid_file = _backend_pid_file()
+        if not pid_file.exists():
+            return None
+        content = pid_file.read_text().strip()
+        if not content:
+            return None
+        pid = int(content)
+        if _is_pid_alive(pid):
+            return None
+        return pid
+    except (OSError, ValueError):
+        return None
+    except Exception:
         return None
 
 
@@ -2215,6 +2351,33 @@ def _ensure_single_instance(silent=False):
     )
     last_error = ctypes.windll.kernel32.GetLastError()
     if last_error == ERROR_ALREADY_EXISTS:
+        # P1-1.4: belt-and-suspenders check.  Windows guarantees that
+        # ERROR_ALREADY_EXISTS means another process holds the mutex
+        # RIGHT NOW.  But if that process is actually a zombie (BSOD,
+        # power loss, kill -9 leaving the mutex in a transitional state),
+        # the PID file lets us detect the stale state and proceed.
+        stale_pid = _read_stale_backend_pid()
+        if stale_pid is not None:
+            log.warning(
+                "[STARTUP] mutex reports duplicate, but PID file points to dead "
+                "process %d — clearing stale PID file and proceeding",
+                stale_pid,
+            )
+            _clear_backend_pid_file()
+            # Close the duplicate-handle we just got (we don't own it)
+            # and retry the mutex acquisition.  On Windows, mutexes
+            # auto-release when the owning process dies, so the retry
+            # should succeed.
+            if mutex:
+                ctypes.windll.kernel32.CloseHandle(mutex)
+            mutex = ctypes.windll.kernel32.CreateMutexW(
+                lp_mutex_attributes, True, mutex_name
+            )
+            last_error = ctypes.windll.kernel32.GetLastError()
+            if last_error not in (ERROR_ALREADY_EXISTS, ERROR_ACCESS_DENIED):
+                # Acquired — write our PID and proceed.
+                _write_backend_pid_file()
+                return mutex
         # Windows guarantees: this means another process holds the mutex
         # RIGHT NOW.  Trust it — no need to scan for the competing
         # process (DEAD-013: the old _another_voice_typer_alive() scan
@@ -2239,6 +2402,9 @@ def _ensure_single_instance(silent=False):
         if not silent and sys.stderr is not None:
             print("Voice Typer: mutex access denied.", file=sys.stderr)
         sys.exit(1)
+    # P1-1.4: mutex acquired — write our PID so the next launch can
+    # detect a stale lock if we crash hard.
+    _write_backend_pid_file()
     return mutex
 
 

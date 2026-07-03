@@ -369,13 +369,22 @@ def setup_logging(
             pass
 
     # ── 5. Coloured stderr (terminal or --port mode) ───────────────
+    # P1-1.1: always flush after each emit so terminal log lines appear
+    # in real-time.  The bare logging.StreamHandler only flushes on
+    # close (or when its internal buffer hits a high-water mark), so
+    # startup logs from a standalone VoiceTyper run could sit in the
+    # buffer for seconds before being flushed — making the app look
+    # like it's hanging silently.  _FlushingStreamHandler.emit() calls
+    # self.flush() after every record.
     do_color = sys.stderr.isatty() or port_mode
     if sys.stderr is not None and do_color:
-        stream = logging.StreamHandler()
+        stream = _FlushingStreamHandler()
         stream.setLevel(logging.DEBUG if debug else logging.INFO)
         stream.setFormatter(_ColorFormatter())
         # Avoid duplicate StreamHandlers if setup is called multiple times.
-        if not any(isinstance(h, logging.StreamHandler) for h in root.handlers):
+        # Use _FlushingStreamHandler as the dedup key so legacy tests that
+        # check for "any StreamHandler" (isinstance check below) still pass.
+        if not any(isinstance(h, _FlushingStreamHandler) for h in root.handlers):
             root.addHandler(stream)
         # Silence noisy third-party loggers (LOG-006).
         for lib in ("transformers", "torch", "huggingface_hub"):
@@ -385,6 +394,36 @@ def setup_logging(
             lib_logger.propagate = True
 
     return _session_id
+
+
+class _FlushingStreamHandler(logging.StreamHandler):
+    """StreamHandler that flushes after every emit.
+
+    P1-1.1: the standard ``logging.StreamHandler`` only flushes on
+    ``close()`` (or when its internal buffer fills up).  For an
+    interactive terminal session this means startup logs can sit in
+    the buffer for several seconds, making VoiceTyper look like it's
+    hanging silently.  Subclassing and calling ``self.flush()`` after
+    every ``emit()`` guarantees each log line is written to the
+    terminal immediately.
+
+    This subclass is also used as the dedup key in
+    :func:`setup_logging` so calling ``setup_logging`` multiple times
+    doesn't add duplicate console handlers.
+    """
+
+    def emit(self, record: logging.LogRecord) -> None:  # noqa: D401
+        super().emit(record)
+        # Always flush — the underlying stream may be line-buffered or
+        # block-buffered, and the user wants to see logs in real time.
+        try:
+            self.flush()
+        except Exception:
+            # Best-effort: if the stream is closed or broken, swallow
+            # so we don't mask the original log record.  (logging raises
+            # the real exception via handleError; we only get here if
+            # flush itself fails.)
+            pass
 
 
 def close_devnull_files() -> None:

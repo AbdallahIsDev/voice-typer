@@ -22,10 +22,33 @@ import threading
 import time
 from collections import deque
 
-from voice_typer.server.config import validate_config_update
-from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
-
 log = logging.getLogger("voice_typer.server.ipc_server")
+
+
+def _pick_available_port(start: int = 9876, max_tries: int = 100) -> int:
+    """Return the first TCP port >= ``start`` that is free on 127.0.0.1.
+
+    P1-1.2: used by standalone mode to auto-pick a port for the backend's
+    TCP server.  Starts at the default IPC port (9876) and increments
+    until a free port is found (capped at ``max_tries`` attempts).  Falls
+    back to an OS-assigned ephemeral port (port=0) if every port in the
+    range is busy — this guarantees the function never fails.
+    """
+    import socket as _socket
+
+    for offset in range(max_tries):
+        candidate = start + offset
+        try:
+            with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as s:
+                s.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+                s.bind(("127.0.0.1", candidate))
+                return candidate
+        except OSError:
+            continue
+    # All ports in range are busy — let the OS assign an ephemeral one.
+    with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
 
 
 # ── RELIABILITY-006: per-connection rate limiter ─────────────────────────
@@ -353,6 +376,9 @@ from voice_typer.server.handlers.level_monitor_handlers import (
 )
 from voice_typer.server.handlers.model_handlers import ModelHandlersMixin
 from voice_typer.server.handlers.system_handlers import SystemHandlersMixin
+from voice_typer.server.handlers.vocabulary_automation_handlers import (
+    VocabularyAutomationHandlersMixin,
+)
 
 
 class IPCServer(
@@ -368,6 +394,7 @@ class IPCServer(
     LevelMonitorHandlersMixin,
     ModelHandlersMixin,
     SystemHandlersMixin,
+    VocabularyAutomationHandlersMixin,
 ):
     """Reads JSON commands from stdin or TCP, dispatches, writes responses.
 
@@ -878,12 +905,23 @@ class IPCServer(
         "level_monitor_status": "_handle_level_monitor_status",
         "download_model": "_handle_download_model",
         "cancel_model_download": "_handle_cancel_model_download",
+        # NEW-PAUSE-001: pause/resume in-progress model downloads.
+        "pause_model_download": "_handle_pause_model_download",
+        "resume_model_download": "_handle_resume_model_download",
+        # NEW-MODEL-001: full model catalog (rich metadata for the
+        # Models page: VRAM, languages, speed/accuracy ratings).
+        "get_model_catalog": "_handle_get_model_catalog",
         "test_llm_connection": "_handle_test_llm_connection",
         "delete_model": "_handle_delete_model",
         "export_diagnostics": "_handle_export_diagnostics",
         "check_accessibility": "_handle_check_accessibility",
         "set_tray_locale": "_handle_set_tray_locale",
         "show_electron_notification": "_handle_show_electron_notification",
+        # P5: vocabulary automation — confidence-score-based correction
+        # suggestions.  See ``vocabulary_automation_handlers.py``.
+        "get_vocabulary_suggestions": "_handle_get_vocabulary_suggestions",
+        "apply_vocabulary_suggestion": "_handle_apply_vocabulary_suggestion",
+        "dismiss_vocabulary_suggestion": "_handle_dismiss_vocabulary_suggestion",
     }
 
     def _handle_unknown_command(self, cmd, data, resp) -> dict | None:
@@ -1201,7 +1239,53 @@ def main() -> None:
         server.start_tcp(port)
         log.info("[IPC] TCP mode on port %d — Electron should connect here", port)
     else:
-        log.info("[IPC] stdin/stdout mode")
+        # P1-1.2: Standalone mode (no --port). The user ran VoiceTyper
+        # from a terminal.  Auto-pick an available port, start the TCP
+        # server, generate a session token, and launch the Electron
+        # frontend so it connects back to us over TCP instead of
+        # spawning its own Python backend.
+        from voice_typer.server import electron_launcher
+
+        standalone_port = _pick_available_port(9876)
+        server.start_tcp(standalone_port)
+        log.info(
+            "[IPC] standalone TCP mode on port %d — Electron will connect here",
+            standalone_port,
+        )
+
+        # Generate the session token and set it as an env var so the
+        # backend's TCP auth check (which reads VOICE_TYPER_IPC_TOKEN)
+        # sees the same value we tell Electron to send.
+        ipc_token = electron_launcher.generate_session_token()
+        os.environ["VOICE_TYPER_IPC_TOKEN"] = ipc_token
+
+        # Launch Electron as a subprocess.  Pass the port + token via
+        # env vars so Electron's main process detects them and connects
+        # directly instead of spawning its own Python backend.
+        electron_pid = electron_launcher.launch_electron_frontend(
+            standalone_port, ipc_token,
+        )
+        if electron_pid is not None:
+            # Track PID on the app instance so quit() can terminate
+            # the subprocess during shutdown (P1-1.3).
+            app._electron_pid = electron_pid
+            # Also register with tray_window so its existing cleanup
+            # path (which calls get_electron_pid()) still works.
+            try:
+                from voice_typer.server.tray_window import set_electron_pid
+                set_electron_pid(electron_pid)
+            except Exception:
+                log.debug("[IPC] could not register Electron PID with tray_window", exc_info=True)
+            log.info(
+                "[STARTUP] Standalone mode — launched Electron (PID=%s) on port %d",
+                electron_pid, standalone_port,
+            )
+        else:
+            log.error(
+                "[STARTUP] Standalone mode — failed to launch Electron; "
+                "backend is running on port %d with no UI",
+                standalone_port,
+            )
 
     # Tell the frontend we're ready — Electron defers window creation until this.
     server.push({"type": "ready"})

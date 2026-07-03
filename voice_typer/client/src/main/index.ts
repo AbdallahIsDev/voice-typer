@@ -35,7 +35,13 @@ declare global {
 	}
 }
 
-const IPC_PORT = 9876;
+// P1-1.2: VT_PYTHON_PORT lets a Python backend that spawned us tell us
+// where it's already listening.  When set, startPython() skips spawning
+// a fresh backend and connects directly to 127.0.0.1:VT_PYTHON_PORT.
+// Falls back to the legacy default (9876) when not set.
+const IPC_PORT = process.env.VT_PYTHON_PORT
+	? parseInt(process.env.VT_PYTHON_PORT, 10)
+	: 9876;
 
 // SEC-018: per-launch random session token.  Passed to the Python
 // subprocess via the VOICE_TYPER_IPC_TOKEN env var and sent as the
@@ -46,9 +52,13 @@ const IPC_PORT = 9876;
 //
 // Generated once per Electron process lifetime using crypto.randomBytes
 // (32 bytes = 256 bits of entropy, hex-encoded for transport).
+//
+// P1-1.2: when a Python backend spawned us (VT_IPC_TOKEN env var set),
+// we reuse its token instead of generating a new one — otherwise the
+// backend's auth check would reject our connection.
 import { randomBytes } from "node:crypto";
 
-const IPC_TOKEN = randomBytes(32).toString("hex");
+const IPC_TOKEN = process.env.VT_IPC_TOKEN || randomBytes(32).toString("hex");
 
 // When set (autostart at login), the dashboard window is created hidden.
 // The process + tray + bubble still work; the window appears on demand
@@ -79,8 +89,113 @@ const START_HIDDEN = process.env.VT_START_HIDDEN === "1";
  * duplicate that must exit without doing ANY heavy init (Python, TCP,
  * windows).  The single-instance lock check below handles the normal case;
  * FOCUS_ONLY catches edge cases where the lock might not work as expected.
+ *
+ * P1-1.4: stale-lock recovery.  When requestSingleInstanceLock() returns
+ * false, we read the PID file written by the first instance and check if
+ * that process is still alive.  If it's dead (the previous instance
+ * crashed hard), we delete the PID file, release the stale lock, and
+ * retry.  This prevents a crash from leaving the user unable to start
+ * the app again ("Only one instance can run" forever).
  */
-const gotTheLock = app.requestSingleInstanceLock();
+
+// P1-1.4: compute the config dir the same way app.whenReady() does so the
+// electron.pid file lives alongside the backend.pid file written by Python.
+function computeConfigDir(): string {
+	const envOverride = process.env.VOICE_TYPER_CONFIG_DIR;
+	if (envOverride) return envOverride;
+	const legacy = path.join(os.homedir(), ".voice-typer");
+	try {
+		if (fs.existsSync(legacy)) return legacy;
+	} catch {
+		/* ignore */
+	}
+	if (process.platform === "win32") {
+		return path.join(process.env.APPDATA || os.homedir(), "voice-typer");
+	}
+	if (process.platform === "darwin") {
+		return path.join(
+			os.homedir(),
+			"Library",
+			"Application Support",
+			"voice-typer",
+		);
+	}
+	return path.join(
+		process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share"),
+		"voice-typer",
+	);
+}
+
+function electronPidFile(): string {
+	return path.join(computeConfigDir(), "electron.pid");
+}
+
+function writeElectronPidFile(): void {
+	try {
+		const dir = path.dirname(electronPidFile());
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(electronPidFile(), `${process.pid}\n`, {
+			encoding: "utf-8",
+			flag: "w",
+			mode: 0o600,
+		});
+	} catch {
+		/* best-effort */
+	}
+}
+
+function clearElectronPidFile(): void {
+	try {
+		if (fs.existsSync(electronPidFile())) fs.unlinkSync(electronPidFile());
+	} catch {
+		/* best-effort */
+	}
+}
+
+/**
+ * Read the PID file and return the PID if the process it points to is DEAD
+ * (stale lock).  Returns null if the file doesn't exist, is unreadable, or
+ * the PID is still alive.
+ */
+function readStaleElectronPid(): number | null {
+	try {
+		if (!fs.existsSync(electronPidFile())) return null;
+		const content = fs.readFileSync(electronPidFile(), "utf-8").trim();
+		if (!content) return null;
+		const pid = parseInt(content, 10);
+		if (!Number.isFinite(pid) || pid <= 0) return null;
+		try {
+			// process.kill(pid, 0) throws if the process doesn't exist.
+			process.kill(pid, 0);
+			return null; // still alive
+		} catch {
+			return pid; // stale — process is gone
+		}
+	} catch {
+		return null;
+	}
+}
+
+// Acquire the single-instance lock with at most one stale-lock retry.
+// If the first attempt fails AND the existing PID is stale, release the
+// stale lock and retry once.
+let gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+	const stalePid = readStaleElectronPid();
+	if (stalePid !== null) {
+		console.warn(
+			`[STARTUP] single-instance lock held by dead PID ${stalePid} — ` +
+				"clearing stale PID file and retrying",
+		);
+		clearElectronPidFile();
+		try {
+			app.releaseSingleInstanceLock();
+		} catch {
+			/* ignore */
+		}
+		gotTheLock = app.requestSingleInstanceLock();
+	}
+}
 if (!gotTheLock || process.env.VT_FOCUS_ONLY === "1") {
 	// We are the duplicate (or a focus-only probe).  The first instance has
 	// already received (or is about to receive) the "second-instance" event
@@ -92,6 +207,9 @@ if (!gotTheLock || process.env.VT_FOCUS_ONLY === "1") {
 	// app.exit(0) terminates without waiting.
 	app.exit(0);
 } else {
+	// P1-1.4: we got the lock — write our PID so a future launch can
+	// detect if we've crashed hard and release the stale lock.
+	writeElectronPidFile();
 	app.on("second-instance", () => {
 		// Another launch attempt happened.  Show + focus the dashboard so it
 		// feels like the app "opened."  Create it lazily if autostart started
@@ -1178,6 +1296,25 @@ function startPython() {
 	// a mismatch and stop retrying.
 	_tcpRetryGeneration++;
 
+	// P1-1.2: if VT_PYTHON_PORT is set, a Python backend spawned us
+	// (standalone mode — user ran `VoiceTyper` from a terminal).
+	// The backend is already listening on VT_PYTHON_PORT with the
+	// session token from VT_IPC_TOKEN.  Skip spawning a fresh
+	// backend and connect directly.  pythonProcess stays null so
+	// stopPython() becomes a no-op and we don't try to kill the
+	// backend (which is our parent).
+	if (process.env.VT_PYTHON_PORT && process.env.VT_IPC_TOKEN) {
+		console.warn(
+			`[STARTUP] VT_PYTHON_PORT=${process.env.VT_PYTHON_PORT} set — ` +
+				"connecting to existing backend (no spawn)",
+		);
+		// tcpConnect will use IPC_PORT (which reads VT_PYTHON_PORT at
+		// module load) and IPC_TOKEN (which reads VT_IPC_TOKEN at
+		// module load) for the auth line.
+		tcpConnect(IPC_PORT);
+		return;
+	}
+
 	const [exe, args] = pythonArgs();
 	// Spawn with inherit stdio — stdout/stderr go to the Electron
 	// console (terminal), NOT to pipes.  This eliminates the
@@ -1837,6 +1974,10 @@ app.isQuitting = false;
 app.on("before-quit", () => {
 	app.isQuitting = true;
 	stopPython();
+	// P1-1.4: clear our PID file so the next launch doesn't think
+	// we're still alive.  Best-effort — if the disk is gone, the
+	// stale-PID recovery path will handle it on next start.
+	clearElectronPidFile();
 });
 
 // With close-to-tray, closing the dashboard window just hides it — the
