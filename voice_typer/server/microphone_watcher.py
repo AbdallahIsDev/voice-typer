@@ -323,6 +323,18 @@ class MicrophoneDeviceWatcher:
         Win32 docs, so we use a regular hidden top-level window
         instead.
         """
+        # MIC-WATCHER-WIN32: Wrap the entire Windows path in a broad
+        # try/except so an access violation (or any ctypes fault) logs
+        # a clean warning and falls back to TTL polling instead of
+        # crashing the process.
+        try:
+            self._run_windows_impl()
+        except Exception:
+            log.warning("[MIC-WATCHER] Windows watcher crashed (Win32/ctypes fault), falling back to TTL polling", exc_info=True)
+            return
+
+    def _run_windows_impl(self) -> None:
+        """Implementation of _run_windows — separated so _run_windows can catch exceptions."""
         try:
             import ctypes
             from ctypes import wintypes
@@ -347,6 +359,32 @@ class MicrophoneDeviceWatcher:
                 "falling back to TTL polling"
             )
             return
+
+        # MIC-WATCHER-WIN32: Explicit argtypes/restype for 64-bit safety.
+        # Without these, ctypes defaults to c_int restype which truncates
+        # 64-bit HMODULE/HWND/LRESULT handles on 64-bit Windows — a primary
+        # cause of access violations in ctypes code.
+        user32.GetModuleHandleW = user32.GetModuleHandleW
+        kernel32.GetModuleHandleW.restype = wintypes.HMODULE
+        kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
+        user32.RegisterClassExW.restype = wintypes.ATOM
+        user32.RegisterClassExW.argtypes = [ctypes.c_void_p]
+        user32.CreateWindowExW.restype = wintypes.HWND
+        user32.CreateWindowExW.argtypes = [wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.HWND, wintypes.HMENU, wintypes.HINSTANCE, ctypes.c_void_p]
+        user32.PeekMessageW.restype = wintypes.BOOL
+        user32.PeekMessageW.argtypes = [ctypes.c_void_p, wintypes.HWND, wintypes.UINT, wintypes.UINT, wintypes.UINT]
+        user32.TranslateMessage.restype = wintypes.BOOL
+        user32.TranslateMessage.argtypes = [ctypes.c_void_p]
+        user32.DispatchMessageW.restype = ctypes.c_ssize_t
+        user32.DispatchMessageW.argtypes = [ctypes.c_void_p]
+        user32.DefWindowProcW.restype = ctypes.c_ssize_t
+        user32.DefWindowProcW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+        user32.DestroyWindow.restype = wintypes.BOOL
+        user32.DestroyWindow.argtypes = [wintypes.HWND]
+        user32.UnregisterClassW.restype = wintypes.BOOL
+        user32.UnregisterClassW.argtypes = [wintypes.LPCWSTR, wintypes.HINSTANCE]
+        user32.PostMessageW.restype = wintypes.BOOL
+        user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
 
         # LRESULT is LONG_PTR — c_ssize_t matches pointer width on
         # both 32-bit and 64-bit Windows.
@@ -383,10 +421,12 @@ class MicrophoneDeviceWatcher:
                 self._invoke_callback()
             return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
 
-        # Keep a reference to the WNDPROC so the GC doesn't free it
-        # while the window is alive (which would crash the message
-        # pump on the next dispatch).
-        wnd_proc_ref = WNDPROC(_wnd_proc)
+        # MIC-WATCHER-WIN32: Keep a reference to the WNDPROC as an INSTANCE
+        # attribute so the GC doesn't free it while the window is alive.
+        # A local variable could be GC'd after the function returns, causing
+        # Win32 to dispatch into freed memory → access violation.
+        self._wnd_proc_ref = WNDPROC(_wnd_proc)
+        wnd_proc_ref = self._wnd_proc_ref
         class_name = "VoiceTyperMicWatcherWnd"
         h_instance = kernel32.GetModuleHandleW(None)
 
