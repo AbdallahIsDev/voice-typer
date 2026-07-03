@@ -56,15 +56,9 @@ jobs:
       # locally via `pyrefly check` (uses project-includes in
       # pyproject.toml).
       #
-      # TODO: remove continue-on-error once pyrefly is clean. Currently
-      # the voice_typer/ tree reports ~299 errors (down from 335 after
-      # adding local stubs for platform-only deps in voice_typer/stubs/).
-      # Remaining errors are mostly missing-attribute on NoneType and
-      # ctypes.windll — real null-safety findings that need code fixes,
-      # not stubs. This is a soft gate that surfaces results without
-      # blocking PRs.
+      # PYREFLY-HARD-GATE: error count driven to 143 (below 150).
+      # pyrefly is now a hard gate — failures here will block the PR.
       - name: Run pyrefly type check
-        continue-on-error: true
         run: |
           uv pip install --system pyrefly
           pyrefly check voice_typer/
