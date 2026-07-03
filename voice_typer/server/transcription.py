@@ -52,6 +52,17 @@ _MODEL_SIZE_MB = {
     "large-v2": 3000,
     "large-v3": 3000,
     "large": 3000,
+    # NEW-MODEL-001: added turbo + distilled variants.
+    # ``large-v3-turbo`` (a.k.a. "turbo") is the fast multilingual model
+    # released by OpenAI in 2024 — near-large-v3 accuracy at ~8x speed.
+    # ``distil-large-v3`` and ``distil-medium.en`` are distilled variants
+    # from the Distil-Whisper project: smaller, faster, slightly lower
+    # accuracy.  See ``voice_typer/server/model_registry.py`` for full
+    # metadata (VRAM, supported languages, repo IDs, speed ratings).
+    "large-v3-turbo": 809,
+    "turbo": 809,  # alias for large-v3-turbo
+    "distil-large-v3": 1500,
+    "distil-medium.en": 780,
 }
 # Extra margin for temporary files, metadata, tokenizer, etc.
 _DISK_SPACE_MARGIN_MB = 500
@@ -1016,6 +1027,7 @@ class TranscriptionEngine:
             # M9: Explicitly free GPU memory before reload
             # NEW-MEM-001: also release CUDA cached blocks.
             # RACE-023: gc.collect() deferred outside the lock.
+            release_gpu_memory()
             try:
                 del self._model
             except Exception:
