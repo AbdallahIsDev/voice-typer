@@ -44,6 +44,56 @@ No Python, no terminal, no commands needed.
 
 Requires **Python 3.10+**. Install from [python.org](https://python.org).
 
+### Using `uv` (recommended for fast setup)
+
+[`uv`](https://docs.astral.sh/uv/) is a fast Python package installer/resolver
+by Astral. It is **10-100x faster than pip for cold installs** (parallel
+downloads, a global cache, and Rust-based resolution) and is the recommended
+way for contributors to get a dev environment running. The project already
+declares a `[tool.uv]` section in `pyproject.toml` for uv-native preferences.
+
+```bash
+# Install uv (one-time)
+curl -LsSf https://astral.sh/uv/install.sh | sh  # macOS / Linux
+# or: pip install uv
+# or: winget install astral-sh.uv                # Windows
+
+# Create a venv and install deps in one step
+cd voice-typer
+uv venv
+# `dev` extras = ruff, mypy, pre-commit, mutmut
+# `test` extras = pytest, pytest-cov, hypothesis, pytest-benchmark, ...
+uv pip install -e ".[dev,test]"
+
+# Activate the venv (optional — uv run uses .venv automatically)
+source .venv/bin/activate          # macOS / Linux
+# or: .venv\Scripts\activate       # Windows
+
+# Run tests
+uv run --no-sync pytest
+# or just: pytest                   # if you activated the venv above
+```
+
+> **Why `uv pip install` and not `uv sync`?** The canonical uv workflow is
+> `uv sync --extra dev --extra test` followed by `uv run pytest`, and that
+> is what we recommend *once* the upstream `qwen-asr` package publishes a
+> `>=0.1` release (only `0.0.6` exists on PyPI today, so the optional
+> `[qwen]` extra fails resolution and `uv sync`'s comprehensive lockfile
+> can't be generated). Until then, `uv pip install -e ".[dev,test]"`
+> uses uv's pip-compatible mode — same speed, same global cache, but
+> skips the all-extras lockfile step that triggers the qwen-asr failure.
+> You still get all of uv's speed benefits; you just don't get a
+> checked-in `uv.lock` file. See `pyproject.toml`'s `[tool.uv]` block
+> for the `environments` constraint that limits uv's resolution to
+> Python 3.10-3.14 (matching the project's supported window).
+
+For production-only deps (no test/dev tooling):
+
+```bash
+uv venv
+uv pip install .
+```
+
 ### Editable install (recommended for development)
 
 ```bash

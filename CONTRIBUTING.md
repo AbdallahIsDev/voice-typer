@@ -6,8 +6,13 @@ document is the canonical reference for getting a development
 environment running, understanding the project layout, and shipping
 changes that pass CI and respect the security model.
 
-> **TL;DR** — `pip install -e ".[test,dev]"`, `cd voice_typer/client && npm install`,
+> **TL;DR** — install [`uv`](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`),
+> then `uv venv && uv pip install -e ".[test,dev]"`, `cd voice_typer/client && npm install`,
 > `pre-commit install`, then `pytest tests/ -v` and `npm run test`.
+>
+> (`uv` is 10-100x faster than pip for cold installs and is the preferred
+> dev-environment setup. Plain `pip install -e ".[test,dev]"` still works —
+> see §2.)
 
 ---
 
@@ -49,6 +54,62 @@ locally.
 ---
 
 ## 2. Development Setup
+
+There are two supported paths: **`uv`** (preferred — 10-100x faster than pip
+for cold installs, parallel downloads, global cache) and **plain `pip`**
+(documented below). Both produce equivalent environments; pick whichever
+you already have installed.
+
+### 2.0 Preferred: `uv`-based setup
+
+```bash
+# 1. Clone
+git clone https://github.com/AbdallahIsDev/voice-typer.git
+cd voice-typer
+
+# 2. Install uv (one-time, any of):
+curl -LsSf https://astral.sh/uv/install.sh | sh   # macOS / Linux
+pip install uv                                       # anywhere with pip
+winget install astral-sh.uv                          # Windows
+
+# 3. Create the venv (uv picks a Python 3.12.x by default,
+#    honoring [tool.uv] in pyproject.toml). Use --python 3.11
+#    etc. to override.
+uv venv
+source .venv/bin/activate          # macOS / Linux
+# .venv\Scripts\activate           # Windows
+
+# 4. Install Python deps (editable + test + dev extras).
+#    `uv pip install` is uv's pip-compatible mode. The canonical
+#    `uv sync --extra test --extra dev` would also work, but is
+#    currently blocked by an upstream `qwen-asr` release gap
+#    (only 0.0.6 exists on PyPI; the [qwen] extra requires >=0.1
+#    and uv's lockfile resolves all extras). See README §"Using uv"
+#    for the full backstory.
+uv pip install -e ".[test,dev]"
+#    Option B — pin to the locked set used by CI:
+uv pip install -r requirements.txt
+uv pip install -r requirements-lock.txt   # reproducible exact versions
+
+# 5. Install the Electron + React frontend
+cd voice_typer/client
+npm install
+
+# 6. Run the app in dev mode (two terminals, or use `npm run dev`
+#    which spawns the Python subprocess automatically)
+#    Terminal 1 — Python backend (optional; `npm run dev` starts it
+#    automatically, but running it standalone is useful for debugging):
+python -m voice_typer.server.ipc_server
+#    Terminal 2 — Electron + Vite HMR:
+npm run dev
+
+# 7. Run tests (uv runs them in .venv automatically; --no-sync
+#    skips the uv lockfile step that would otherwise trigger the
+#    qwen-asr resolution failure described above):
+uv run --no-sync pytest tests/ -v
+```
+
+### 2.1 Alternative: `pip`-based setup
 
 ```bash
 # 1. Clone

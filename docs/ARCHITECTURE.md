@@ -127,3 +127,69 @@
 - **PERF-NEW-001**: bubble_level pushes are decoupled from the audio thread via a bounded queue + 30 Hz throttle.
 - **ARCH-009**: `clean_transcribed_text(skip_corrections=True)` when VocabularyManager is enabled, avoiding double-application of corrections.
 - **ARCH-013**: `_init_qwen_engine` and `_init_parakeet_engine` delegate to a generic `_init_asr_engine` dispatcher.
+
+## ARCH-REFAC-003: VoiceTyperApp @property delegates removed
+
+During the Round 9 extraction (Task #2), `VoiceTyperApp` (in
+`voice_typer/server/app.py`) grew ~12 `@property` delegates that
+mirrored fields owned by the extracted modules:
+
+- `ModelManager` (engine fields + lifecycle state):
+  `transcriber`, `_qwen_engine`, `_parakeet_engine`, `_asr_registry`,
+  `_model_load_thread`, `_model_load_attempted`, `_pending_dictation`
+- `RecordingController`: `_transcription_thread`, `_streaming_session`
+- `HotkeyDispatcher`: `_hotkey_backend`, `_esc_backend`, `_repaste_backend`
+
+These delegates were added as a **transition strategy** so existing
+callers (and tests) that read `app.transcriber` / `app._hotkey_backend`
+/ etc. would keep working without modification while the extracted
+modules were wired up. ARCH-REFAC-003 removes them now that the
+extraction is complete and stable.
+
+### Migration guide for callers
+
+| Before (legacy delegate)            | After (direct module access)                                  |
+|-------------------------------------|---------------------------------------------------------------|
+| `app.transcriber`                   | `app.models.transcriber`                                       |
+| `app._qwen_engine`                  | `app.models._qwen_engine`                                      |
+| `app._parakeet_engine`              | `app.models._parakeet_engine`                                  |
+| `app._asr_registry` (read)          | `app.models.registry`                                          |
+| `app._asr_registry = X` (write)     | `app.models._registry = X`                                     |
+| `app._model_load_thread`            | `app.models._model_load_thread`                                |
+| `app._model_load_attempted`         | `app.models._model_load_attempted`                             |
+| `app._pending_dictation`            | `app.models._pending_dictation`                                |
+| `app._transcription_thread`         | `app.recording._transcription_thread`                          |
+| `app._streaming_session`            | `app.recording._streaming_session`                             |
+| `app._hotkey_backend`               | `app.hotkeys._hotkey_backend`                                  |
+| `app._esc_backend`                  | `app.hotkeys._esc_backend`                                     |
+| `app._repaste_backend`              | `app.hotkeys._repaste_backend`                                 |
+
+### Important: registry sync is no longer automatic
+
+The `transcriber`, `_qwen_engine`, and `_parakeet_engine` property
+delegates had setters that called `ModelManager._sync_registry_from_fields()`
+after assignment, keeping the `AsrBackendRegistry` consistent with
+the legacy fields. **This auto-sync no longer happens** when callers
+assign directly to `app.models.<field>`. Callers that mutate these
+fields must invoke `app.models._sync_registry_from_fields()` explicitly
+to keep the registry in sync. In normal operation the registry is the
+source of truth (mutated via `ModelManager._ensure_engine` /
+`ModelManager.load_background` / etc., which call
+`_sync_legacy_fields` themselves), so this only matters for tests
+that swap a mock in directly, e.g.:
+
+```python
+# Before (auto-synced):
+app.transcriber = MagicMock()
+app.transcriber.is_loaded = True
+
+# After (explicit sync):
+app.models.transcriber = MagicMock()
+app.models.transcriber.is_loaded = True
+app.models._sync_registry_from_fields()
+```
+
+`ModelManager.active_transcriber()` still calls
+`_sync_registry_from_fields()` lazily before returning, so call sites
+that go through `app._get_active_transcriber()` are unaffected.
+
