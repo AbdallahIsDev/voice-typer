@@ -27,6 +27,7 @@ the paste target appears to be a rich editor (e.g. Word, LibreOffice).
 import logging
 import sys
 import time
+from typing import Any
 
 import pyperclip
 from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
@@ -39,8 +40,13 @@ log = logging.getLogger(__name__)
 # Win32 on Windows) that requires a running display / window manager.
 # Importing at module level breaks `python -m voice_typer --version`
 # in headless containers / SSH sessions without DISPLAY.
-_Key = None  # type: ignore[assignment]
-_Controller = None  # type: ignore[assignment]
+# TASK-10: _Key / _Controller are lazily populated by
+# _ensure_pynput_imported() on first use. They are typed as ``Any`` so
+# pyrefly can follow the .cmd / .ctrl / .press() / .release() accesses
+# without flagging every call site (the actual pynput import is
+# deferred to runtime so headless installs don't break at import time).
+_Key: Any = None  # type: ignore[assignment]
+_Controller: Any = None  # type: ignore[assignment]
 
 
 def _ensure_pynput_imported():
@@ -698,7 +704,11 @@ class ClipboardManager:
         left in a pressed state. Releasing them before the next paste
         prevents stuck-modifier behavior.
         """
-        if _Key is None:
+        # TASK-10: pynput is optional — _Key / _Controller stay None in
+        # headless environments, and self._keyboard is None whenever
+        # _Controller is unavailable. Guard both before touching the
+        # keyboard controller.
+        if _Key is None or self._keyboard is None:
             return
         try:
             for key in (_Key.ctrl, _Key.shift, _Key.alt, _Key.cmd):
@@ -716,6 +726,13 @@ class ClipboardManager:
         modifier key is always released even if the character press or
         release raises an exception.
         """
+        # TASK-10: pynput may be unavailable (headless / sandboxed).
+        # Without this guard, .press() / .release() would raise
+        # AttributeError on the None controller, defeating the
+        # try/finally cleanup below.
+        if self._keyboard is None:
+            log.debug("[CLIPBOARD] _safe_key_press skipped — no keyboard controller")
+            return
         try:
             self._keyboard.press(modifier)
             self._keyboard.press(char)
@@ -796,6 +813,15 @@ class ClipboardManager:
         """
         # PLAT-STUCK: release any stuck modifier keys before pasting
         self._release_stuck_modifiers()
+
+        # TASK-10: pynput is optional. If both _Key and _Controller are
+        # unavailable AND we're not on Windows (where _send_ctrl_v_win32
+        # uses SendInput directly without pynput), there's no way to
+        # synthesize a paste keystroke. Bail out early rather than
+        # AttributeError on _Key.cmd / _Key.ctrl below.
+        if _Key is None and not is_windows():
+            log.warning("[CLIPBOARD] Cannot paste — pynput unavailable on non-Windows platform")
+            return False
 
         # PLAT-CLIPRACE (revised): verify clipboard wasn't modified between
         # copy and paste. The previous code only LOGGED a warning when the
@@ -898,6 +924,10 @@ class ClipboardManager:
         # Uses a robust try/finally pattern that presses modifier + char,
         # releases in reverse order, and guarantees ALL keys are released
         # in the finally block even if an intermediate release raises.
+        # TASK-10: guard None keyboard — pynput is optional.
+        if self._keyboard is None:
+            log.debug("[CLIPBOARD] _send_keystroke_sequence skipped — no keyboard controller")
+            return
         try:
             self._keyboard.press(modifier)
             self._keyboard.press(char)

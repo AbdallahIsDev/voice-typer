@@ -15,6 +15,7 @@ from voice_typer.server.audio_filters import (
     Limiter,
     NotchFilter,
 )
+from voice_typer.server.audio_filters.base import AudioFilter
 
 log = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ def build_chain(config: Any, sample_rate: int = 16000) -> FilterChain:
     Returns:
         A FilterChain ready to process audio.
     """
-    filters = []
+    filters: list[AudioFilter] = []
 
     # 1. Notch filter (optional, before high-pass to remove hum early)
     if getattr(config, "noise_filter_notch", False):
