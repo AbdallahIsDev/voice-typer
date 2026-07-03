@@ -1452,78 +1452,11 @@ class TestBackpressureDetectionOnDequeOverflow:
             "AUDIO-010: backpressure check must compare against _buffer.maxlen."
         )
 
-class TestAgcFunctionalBehavior:
-    """AUDIO-011.
-
-    The finding: AGC implemented but untested. Fix: added functional
-    tests that call _agc_update with known RMS values and assert gain
-    convergence.
-    """
-
-    def test_agc_increases_gain_for_low_rms(self):
-        """When RMS is consistently below target, AGC gain must increase."""
-        from voice_typer.server.config import Config
-        from voice_typer.server.recording import _AGC_TARGET_RMS, Recorder
-
-        cfg = Config()
-        rec = Recorder(cfg)
-        # Reset AGC state
-        rec._agc_gain = 1.0
-        rec._agc_rms_accumulator = 0.0
-        rec._agc_frame_count = 0
-
-        # Feed 20 chunks of low RMS (well below target)
-        low_rms = _AGC_TARGET_RMS * 0.1  # 10% of target
-        audio = np.full(512, low_rms, dtype=np.float32)
-        initial_gain = rec._agc_gain
-        for _ in range(20):
-            rec._agc_update(low_rms, audio.copy())
-
-        # After 20 low-RMS frames, gain should have increased
-        assert rec._agc_gain > initial_gain, (
-            f"AUDIO-011: AGC gain should increase for low RMS. "
-            f"Initial: {initial_gain}, after 20 frames: {rec._agc_gain}"
-        )
-
-    def test_agc_decreases_gain_for_high_rms(self):
-        """When RMS is consistently above target, AGC gain must decrease."""
-        from voice_typer.server.config import Config
-        from voice_typer.server.recording import _AGC_TARGET_RMS, Recorder
-
-        cfg = Config()
-        rec = Recorder(cfg)
-        rec._agc_gain = 1.0
-        rec._agc_rms_accumulator = 0.0
-        rec._agc_frame_count = 0
-
-        # Feed 20 chunks of high RMS (well above target)
-        high_rms = _AGC_TARGET_RMS * 5.0  # 500% of target
-        audio = np.full(512, high_rms, dtype=np.float32)
-        initial_gain = rec._agc_gain
-        for _ in range(20):
-            rec._agc_update(high_rms, audio.copy())
-
-        assert rec._agc_gain < initial_gain, (
-            f"AUDIO-011: AGC gain should decrease for high RMS. "
-            f"Initial: {initial_gain}, after 20 frames: {rec._agc_gain}"
-        )
-
-    def test_agc_handles_zero_rms(self):
-        """When RMS is 0, AGC must not crash and gain must stay at 1.0."""
-        from voice_typer.server.config import Config
-        from voice_typer.server.recording import Recorder
-
-        cfg = Config()
-        rec = Recorder(cfg)
-        rec._agc_gain = 1.0
-        rec._agc_rms_accumulator = 0.0
-        rec._agc_frame_count = 0
-
-        audio = np.zeros(512, dtype=np.float32)
-        # Must not crash
-        rec._agc_update(0.0, audio)
-        # Gain should not change for zero RMS (no signal to amplify)
-        assert rec._agc_gain == 1.0
+# ADR-0007: AGC removed; test deleted because the feature no longer exists.
+# The per-chunk AGC (_agc_update, C1) and its constants (_AGC_TARGET_RMS,
+# _AGC_ATTACK_ALPHA, _AGC_MIN_GAIN, _AGC_MAX_GAIN) were replaced by the
+# Compressor filter in the audio filter chain. See voice_typer/server/
+# recording.py §3.5 and audio_filters.py for the current chain.
 
 class TestDynamicSampleRateResolution:
     """AUDIO-016.
@@ -1809,19 +1742,22 @@ class TestConcurrentCallbackTestCoverageExists:
     """
 
     def test_concurrent_callback_test_exists(self):
-        """The TestAudioCallbackUsesMinimalLockScope class must exist in
-        the changes-2 test file.
+        """The TestAudioCallbackUsesMinimalLockScope class must exist.
+
+        Originally pinned in tests/test_changes2_fixes.py — that file
+        was consolidated into tests/test_bugfix_regressions.py (this
+        file), where the class now lives.
         """
         try:
-            from tests.test_changes2_fixes import TestAudioCallbackUsesMinimalLockScope
+            from tests.test_bugfix_regressions import TestAudioCallbackUsesMinimalLockScope
             assert hasattr(TestAudioCallbackUsesMinimalLockScope, "test_concurrent_audio_callback_does_not_crash"), (
                 "RACE-001: concurrent callback test must exist."
             )
         except ImportError:
-            # If the changes-2 test file isn't present, this test
-            # should fail to alert the maintainer.
+            # If the test module isn't present, this test should fail
+            # to alert the maintainer.
             pytest.fail(
-                "RACE-001: tests/test_changes2_fixes.py must exist with "
+                "RACE-001: tests/test_bugfix_regressions.py must exist with "
                 "TestAudioCallbackUsesMinimalLockScope."
             )
 
@@ -2576,20 +2512,25 @@ class TestSpanishTranslationComplete:
         )
 
     def test_settings_tsx_has_ui_language_selector(self):
+        # UX-015: The UI language selector was refactored out of
+        # Settings.tsx into the dedicated GeneralSettingsSection
+        # component (see components/settings/GeneralSettingsSection.tsx).
+        # We assert against the new location.
         settings_path = Path(__file__).resolve().parent.parent / "voice_typer" / \
-            "client" / "src" / "renderer" / "src" / "pages" / "Settings.tsx"
+            "client" / "src" / "renderer" / "src" / "components" / "settings" / \
+            "GeneralSettingsSection.tsx"
         src = settings_path.read_text(encoding="utf-8")
         assert "UI Language" in src, (
-            "UX-015: Settings.tsx must have a UI Language selector"
+            "UX-015: GeneralSettingsSection.tsx must have a UI Language selector"
         )
         assert "setLocale" in src, (
-            "UX-015: Settings.tsx must call setLocale when language changes"
+            "UX-015: GeneralSettingsSection.tsx must call setLocale when language changes"
         )
         assert "getLocale()" in src, (
-            "UX-015: Settings.tsx must use getLocale() for the current value"
+            "UX-015: GeneralSettingsSection.tsx must use getLocale() for the current value"
         )
         assert "SUPPORTED_LOCALES" in src, (
-            "UX-015: Settings.tsx must iterate SUPPORTED_LOCALES"
+            "UX-015: GeneralSettingsSection.tsx must iterate SUPPORTED_LOCALES"
         )
         assert "voice-typer-ui-locale" in src, (
             "UX-015: Settings.tsx must persist locale to localStorage"
@@ -2792,6 +2733,148 @@ class TestElectronNotificationIpcEndpoint:
         assert resp["type"] == "error"
         assert "data: object" in resp["data"]["message"]
 
+class TestElectronNotificationFieldValidation:
+    """SEC-VALIDATE-001: per-field input validation on the
+    ``show_electron_notification`` IPC handler.
+
+    Before this fix the handler coerced every field with ``str()`` /
+    ``int()`` / ``bool()`` and relied on the surrounding try/except
+    to convert ``ValueError`` (from ``int("abc")``) into a generic
+    "error" response that echoed the raw Python exception text.  It
+    also treated ``bool("false")`` as ``True`` because any non-empty
+    string is truthy.  Both behaviours are wrong: the client should
+    see a structured ``code: "invalid_field"`` error with the field
+    name and a human-readable message, and a stringly-typed
+    ``"critical": "false"`` should be rejected rather than silently
+    escalate the notification.
+    """
+
+    def _make_server(self):
+        """Build a minimal IPCServer with a mock app + service.
+
+        Reused across every test so we don't pay the cost of
+        constructing a real VoiceTyperApp per case.
+        """
+        from threading import RLock
+        from unittest.mock import MagicMock
+        from voice_typer.server.ipc_server import IPCServer
+
+        app = MagicMock()
+        app._config_mutation_lock = RLock()
+        server = IPCServer.__new__(IPCServer)
+        server.app = app
+        server.service = MagicMock()
+        return server
+
+    def test_non_numeric_duration_ms_returns_invalid_field(self):
+        """``duration_ms: "abc"`` must return code=invalid_field, not a ValueError echo."""
+        server = self._make_server()
+        resp = server._dispatch({
+            "type": "show_electron_notification",
+            "data": {"title": "Hi", "message": "Body", "duration_ms": "abc"},
+            "id": "t1",
+        })
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["field"] == "duration_ms"
+        # The message must NOT contain Python's internal ValueError text.
+        assert "invalid literal" not in resp["data"]["message"]
+
+    def test_stringly_critical_is_rejected(self):
+        """``critical: "false"`` (string) must be rejected, not silently coerced to True."""
+        server = self._make_server()
+        resp = server._dispatch({
+            "type": "show_electron_notification",
+            "data": {"title": "Hi", "message": "Body", "critical": "false"},
+            "id": "t2",
+        })
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["field"] == "critical"
+
+    def test_non_string_title_is_rejected(self):
+        """``title: 42`` must be rejected with code=invalid_field rather than silently stringified."""
+        server = self._make_server()
+        resp = server._dispatch({
+            "type": "show_electron_notification",
+            "data": {"title": 42, "message": "Body"},
+            "id": "t3",
+        })
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["field"] == "title"
+
+    def test_duration_ms_is_clamped_to_24h(self):
+        """A huge ``duration_ms`` is clamped, not rejected — callers can pass any int."""
+        from unittest.mock import patch
+        server = self._make_server()
+        captured = {}
+        with patch(
+            "voice_typer.server.handlers.system_handlers._push_event_now",
+            lambda msg: captured.update(msg),
+        ):
+            resp = server._dispatch({
+                "type": "show_electron_notification",
+                "data": {
+                    "title": "Hi",
+                    "message": "Body",
+                    "duration_ms": 10_000_000_000,  # ~115 days — well over the 24h cap
+                },
+                "id": "t4",
+            })
+        assert resp["type"] == "ack"
+        assert captured["data"]["duration_ms"] == 24 * 60 * 60 * 1000
+
+    def test_well_formed_payload_still_works(self):
+        """Sanity: a well-formed payload must still push the event and ack."""
+        from unittest.mock import patch
+        server = self._make_server()
+        captured = {}
+        with patch(
+            "voice_typer.server.handlers.system_handlers._push_event_now",
+            lambda msg: captured.update(msg),
+        ):
+            resp = server._dispatch({
+                "type": "show_electron_notification",
+                "data": {
+                    "title": "Hello",
+                    "message": "World",
+                    "duration_ms": 5000,
+                    "critical": True,
+                },
+                "id": "t5",
+            })
+        assert resp["type"] == "ack"
+        assert captured["type"] == "electron_notification"
+        assert captured["data"] == {
+            "title": "Hello",
+            "message": "World",
+            "duration_ms": 5000,
+            "critical": True,
+        }
+
+    def test_default_values_when_fields_omitted(self):
+        """Sanity: omitted fields default to title='Voice Typer', message='', duration_ms=0, critical=False."""
+        from unittest.mock import patch
+        server = self._make_server()
+        captured = {}
+        with patch(
+            "voice_typer.server.handlers.system_handlers._push_event_now",
+            lambda msg: captured.update(msg),
+        ):
+            resp = server._dispatch({
+                "type": "show_electron_notification",
+                "data": {},
+                "id": "t6",
+            })
+        assert resp["type"] == "ack"
+        assert captured["data"] == {
+            "title": "Voice Typer",
+            "message": "",
+            "duration_ms": 0,
+            "critical": False,
+        }
+
 class TestUpxDisabledInPyinstallerSpec:
     """TEST-034.
 
@@ -2927,16 +3010,20 @@ class TestSettingsRendererCallsPythonBridgeCall:
     """
 
     def test_settings_uses_call_not_ipc(self):
+        # The Settings UI was refactored: ``window.python?.call(...)`` now
+        # lives in the dedicated GeneralSettingsSection component
+        # (formerly inline in Settings.tsx).
         settings_path = Path(__file__).resolve().parent.parent / "voice_typer" / \
-            "client" / "src" / "renderer" / "src" / "pages" / "Settings.tsx"
+            "client" / "src" / "renderer" / "src" / "components" / "settings" / \
+            "GeneralSettingsSection.tsx"
         src = settings_path.read_text(encoding="utf-8")
         # Must use .call( not .ipc(
         assert "window.python?.call(" in src, (
-            "TS error: Settings.tsx must use window.python?.call() not .ipc()"
+            "TS error: GeneralSettingsSection.tsx must use window.python?.call() not .ipc()"
         )
         # Must NOT use .ipc( anywhere
         assert "window.python?.ipc(" not in src, (
-            "TS error: Settings.tsx must NOT use window.python?.ipc() — "
+            "TS error: GeneralSettingsSection.tsx must NOT use window.python?.ipc() — "
             "the PythonBridge type does not expose an 'ipc' method"
         )
 
@@ -3098,8 +3185,14 @@ class TestCommittedTextSortOrderCoverageExists:
         assert "TEST-009" in src, (
             "TEST-009: test file must reference the fix"
         )
-        # Must contain sort-order verification logic
-        assert "sorted(words, key=lambda w: w.start_seconds)" in src, (
+        # Must contain sort-order verification logic. The TEST-009 fix
+        # originally used a single-key sort; the test was later refined
+        # to break ties using a (start_seconds, end_seconds) tuple, so
+        # accept either form.
+        assert (
+            "sorted(words, key=lambda w: w.start_seconds)" in src
+            or "sorted(words, key=lambda w: (w.start_seconds, w.end_seconds))" in src
+        ), (
             "TEST-009: test must sort input words by start_seconds for comparison"
         )
         assert "emitted_words" in src, (
@@ -3367,8 +3460,10 @@ class TestTextSizeConfigWiredToCssScale:
     """PLAT-017: text_size config wired to CSS --font-scale variable."""
 
     def test_app_tsx_sets_font_scale(self):
+        # PLAT-017: --font-scale / text_size application was refactored
+        # out of App.tsx into the dedicated useTheme hook.
         app_path = Path(__file__).resolve().parent.parent / "voice_typer" / \
-            "client" / "src" / "renderer" / "src" / "App.tsx"
+            "client" / "src" / "renderer" / "src" / "hooks" / "useTheme.ts"
         src = app_path.read_text(encoding="utf-8")
         assert "--font-scale" in src
         assert "text_size" in src
@@ -3381,8 +3476,11 @@ class TestTextSizeConfigWiredToCssScale:
         assert "font-size" in src
 
     def test_settings_has_text_size_slider(self):
+        # PLAT-017: the "Text Size" slider was refactored out of
+        # Settings.tsx into the ThemeSettingsSection component.
         settings_path = Path(__file__).resolve().parent.parent / "voice_typer" / \
-            "client" / "src" / "renderer" / "src" / "pages" / "Settings.tsx"
+            "client" / "src" / "renderer" / "src" / "components" / "settings" / \
+            "ThemeSettingsSection.tsx"
         src = settings_path.read_text(encoding="utf-8")
         assert "Text Size" in src
         assert "text_size" in src
@@ -3458,7 +3556,7 @@ class TestApiDocumentationExists:
         content = api_path.read_text(encoding="utf-8")
         assert "VoiceTyperApp" in content or "Config" in content
 
-class TestIpcSendCatchesOSErrorSubclasses:
+class TestSendCatchesOSErrorSubclasses:
     """NEW-CQ-003: Test IPC error handling for various exception types."""
 
     @pytest.mark.parametrize("exc_class", [BrokenPipeError, ConnectionResetError, OSError])
@@ -3616,7 +3714,7 @@ class TestConcurrentConfigWritesNoCorruption:
         )
         assert cfg.model_size == "tiny.en"
 
-class TestIpcConcurrentDispatchNoDeadlock:
+class TestConcurrentDispatchNoDeadlock:
     """NEW-IPC-011: Concurrent IPC message handling."""
 
     def test_concurrent_dispatch_no_deadlock(self):
@@ -3656,7 +3754,7 @@ class TestIpcConcurrentDispatchNoDeadlock:
 
         assert not errors, f"Concurrent dispatch raised: {errors}"
 
-class TestIpcReadlineCapsOversizedMessages:
+class TestReadlineCapsOversizedMessages:
     """NEW-IPC-012: Large IPC message handling at size boundaries."""
 
     def test_readline_caps_oversized_messages(self):
@@ -3692,7 +3790,7 @@ class TestIpcReadlineCapsOversizedMessages:
         finally:
             srv.close()
 
-class TestIpcSendCatchesSocketTimeout:
+class TestSendCatchesSocketTimeout:
     """NEW-IPC-016: IPC write timeout under blocking conditions."""
 
     def test_send_catches_socket_timeout(self):

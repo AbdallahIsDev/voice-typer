@@ -1036,7 +1036,7 @@ class TestAudioCallbackPreStartGuard:
         )
         # If we WERE able to invoke the callback, it would early-return
         # at the ARCH-026 guard. The full audio-callback path is
-        # exercised by test_round9_e2e.py and the integration suite.
+        # exercised by test_e2e_regression.py and the integration suite.
 
 
 # ── ARCH-040: resample cache invalidates on dtype/sr change ────────────
@@ -2220,26 +2220,26 @@ class TestExceptExceptionNotBaseException:
 
 
 class TestTypeIgnoreBugsFixed:
-    """ERR-ERR-003: verify the 5 type:ignore real bugs are fixed."""
+    """ERR-ERR-003: verify the 5 type:ignore real bugs are fixed.
 
-    def test_audio_processor_hp_state_properly_typed(self):
-        """_hp_state must be typed as Optional[tuple[...]] not Optional[tuple]."""
-        import inspect
-        from voice_typer.server.audio_processor import AudioProcessor
-        src = inspect.getsource(AudioProcessor.__init__)
-        # Must NOT have the old bare `Optional[tuple]` type
-        assert "Optional[tuple]  # (b, a, zi)" not in src
-        # Must have the new typed version
-        assert "tuple[np.ndarray, np.ndarray, np.ndarray]" in src
+    ADR-0007 removed two of the five original sites — the per-chunk
+    ``_hp_state`` IIR filter state (now lives inside the
+    ``HighPassFilter`` filter) and ``_apply_rnnoise`` (now lives inside
+    the ``NoiseSuppressor`` filter). The corresponding tests were
+    deleted because the attributes/methods they pinned no longer exist
+    on ``AudioProcessor``. The remaining three sites
+    (``_quality_callback`` null-check, ``VolumeDucker._backend``
+    null-check x2) are still present and tested below.
+    """
 
-    def test_audio_processor_rnnoise_null_check(self):
-        """_rnnoise must be null-checked before calling filter_frame."""
-        import inspect
-        from voice_typer.server.audio_processor import AudioProcessor
-        src = inspect.getsource(AudioProcessor._apply_rnnoise)
-        assert "if self._rnnoise is None" in src, (
-            "_rnnoise must be null-checked before filter_frame (ERR-ERR-003)"
-        )
+    # ADR-0007: _hp_state moved into HighPassFilter; the test that
+    # pinned `Optional[tuple[np.ndarray, np.ndarray, np.ndarray]]`
+    # typing on AudioProcessor.__init__ was deleted because the
+    # attribute no longer exists on AudioProcessor.
+
+    # ADR-0007: _apply_rnnoise moved into NoiseSuppressor; the test
+    # that pinned its `_rnnoise is None` null-check was deleted
+    # because the method no longer exists on AudioProcessor.
 
     def test_audio_processor_quality_callback_null_check(self):
         """_quality_callback must be null-checked before calling."""
@@ -2356,28 +2356,34 @@ class TestVadStderrRedirect:
 
 
 class TestAudioProcessorNullChecksFunctional:
-    """Functional tests that the null checks actually prevent crashes."""
+    """Functional tests that the null checks actually prevent crashes.
 
-    def test_rnnoise_null_does_not_crash(self):
-        """When _rnnoise is None, _apply_rnnoise should return the input
-        unchanged, not crash with AttributeError."""
-        from voice_typer.server.audio_processor import AudioProcessor, AudioProcessorConfig
-        config = AudioProcessorConfig()
-        proc = AudioProcessor(config, sample_rate=16000)
-        proc._rnnoise = None  # Simulate failed init
-        proc._rnnoise_frame_size = 480
-        # Create enough samples for at least one full frame
-        chunk = np.ones(480, dtype=np.float32) * 0.1
-        result = proc._apply_rnnoise(chunk)
-        # Should return the input unchanged (not crash)
-        assert len(result) == len(chunk)
+    ADR-0007 removed ``_apply_rnnoise`` from ``AudioProcessor`` (it now
+    lives in the ``NoiseSuppressor`` filter); the
+    ``test_rnnoise_null_does_not_crash`` test was deleted because the
+    method it pinned no longer exists. The ``_run_quality_check`` null
+    check is still present and tested below.
+    """
+
+    # ADR-0007: _apply_rnnoise moved into NoiseSuppressor; the test
+    # that exercised its None-handling path was deleted because the
+    # method no longer exists on AudioProcessor.
 
     def test_quality_callback_null_does_not_crash(self):
         """When _quality_callback is None, _run_quality_check should
         be a no-op, not crash."""
-        from voice_typer.server.audio_processor import AudioProcessor, AudioProcessorConfig
-        config = AudioProcessorConfig()
-        proc = AudioProcessor(config, sample_rate=16000)
+        from voice_typer.server.audio_processor import AudioProcessor
+        # ADR-0007: AudioProcessorConfig removed; build_chain reads
+        # noise_filter_* attributes via getattr. Pass a minimal stub.
+        class _Cfg:
+            noise_filter_highpass = False
+            noise_filter_gate = False
+            noise_filter_eq = False
+            noise_filter_compressor = False
+            noise_filter_limiter = False
+            noise_filter_notch = False
+            noise_suppression_method = "none"
+        proc = AudioProcessor(_Cfg(), sample_rate=16000)
         proc._quality_callback = None
         chunk = np.ones(1024, dtype=np.float32) * 0.1
         # Should not raise
@@ -2521,7 +2527,23 @@ def test_mypy_has_per_module_overrides() -> None:
 
 def test_ruff_e501_passes_on_server_tree() -> None:
     """ERR-ERR-006: after removing the E501 blanket-ignore, ruff must pass on
-    the server tree with no E501 errors."""
+    the server tree with no E501 errors.
+
+    Skipped when ruff is not installed (e.g. minimal test environments
+    that only install runtime + pytest deps). The CI image installs
+    ruff via the dev extras; this skip only triggers in sandboxes.
+    """
+    import shutil
+    if shutil.which("ruff") is None:
+        # Also check the ``python -m ruff`` form the test uses.
+        probe = subprocess.run(
+            [sys.executable, "-m", "ruff", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if probe.returncode != 0:
+            pytest.skip("ruff is not installed in this environment")
     result = subprocess.run(
         [sys.executable, "-m", "ruff", "check", "--select", "E501", str(SERVER_DIR)],
         capture_output=True,

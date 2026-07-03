@@ -1,7 +1,14 @@
 """Tests for IME false-fire scenarios.
 
-TEST-018: Mocked IME composition state. Test that hotkeys are
-suppressed during IME composition.
+TEST-018 / PLAT-020: The IME-composition gate is implemented in
+``WindowsNativeHotkey._is_ime_composing()`` (a static method on the
+hotkey backend). The dispatcher no longer carries per-hotkey callbacks
+or a mutable ``_ime_composing`` flag — instead, the Win32 polling loop
+calls ``_is_ime_composing()`` each iteration and skips the callback
+while the IME is composing.
+
+These tests verify the actual implementation rather than the legacy
+dispatcher API that was removed.
 """
 
 from __future__ import annotations
@@ -10,60 +17,91 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 
+def _import_ime_check():
+    """Import the WindowsNativeHotkey class (and its _is_ime_composing method).
+
+    Returns None if the class cannot be imported.
+    """
+    try:
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
+        return WindowsNativeHotkey
+    except ImportError:
+        return None
+
+
 class TestIMEFalseFire:
     """Test that hotkeys are suppressed during IME composition."""
 
-    def test_hotkey_suppressed_during_ime_composition(self, monkeypatch):
-        """When IME composition is active, hotkey presses should be ignored."""
-        from voice_typer.server.hotkey_dispatcher import HotkeyDispatcher
+    def test_is_ime_composing_returns_false_on_non_windows(self):
+        """On non-Windows the IME gate is a no-op (always False)."""
+        cls = _import_ime_check()
+        if cls is None:
+            pytest.skip("WindowsNativeHotkey not importable")
+        with patch("voice_typer.server.hotkeys.is_windows", return_value=False):
+            assert cls._is_ime_composing() is False
 
-        dispatcher = HotkeyDispatcher(MagicMock())
-        # Simulate IME composition active
-        fired = []
+    def test_is_ime_composing_true_when_ime_open_with_composition_string(self):
+        """When IME is open AND a composition string is present, return True."""
+        cls = _import_ime_check()
+        if cls is None:
+            pytest.skip("WindowsNativeHotkey not importable")
 
-        def on_fire():
-            fired.append(True)
+        user32 = MagicMock()
+        user32.GetForegroundWindow.return_value = 1
+        imm32 = MagicMock()
+        imm32.ImmGetContext.return_value = 42
+        imm32.ImmGetOpenStatus.return_value = 1
+        # ImmGetCompositionStringW returns byte length of the composition string.
+        imm32.ImmGetCompositionStringW.return_value = 4  # 4 bytes → composition present
 
-        # Register a hotkey callback
-        dispatcher.register("<f2>", on_fire)
+        fake_windll = MagicMock()
+        fake_windll.user32 = user32
+        fake_windll.imm32 = imm32
 
-        # Simulate IME composition state
-        dispatcher._ime_composing = True
-        dispatcher._on_hotkey("<f2>")
-        # Should NOT have fired during IME composition
-        assert len(fired) == 0
+        with patch("voice_typer.server.hotkeys.is_windows", return_value=True), \
+             patch("ctypes.windll", fake_windll, create=True):
+            assert cls._is_ime_composing() is True
 
-    def test_hotkey_fires_after_ime_ends(self, monkeypatch):
-        """After IME composition ends, hotkey presses should work normally."""
-        from voice_typer.server.hotkey_dispatcher import HotkeyDispatcher
+    def test_is_ime_composing_false_when_ime_closed(self):
+        """When ImmGetOpenStatus is 0 (IME closed), return False."""
+        cls = _import_ime_check()
+        if cls is None:
+            pytest.skip("WindowsNativeHotkey not importable")
 
-        dispatcher = HotkeyDispatcher(MagicMock())
-        fired = []
+        user32 = MagicMock()
+        user32.GetForegroundWindow.return_value = 1
+        imm32 = MagicMock()
+        imm32.ImmGetContext.return_value = 42
+        imm32.ImmGetOpenStatus.return_value = 0  # IME closed
 
-        def on_fire():
-            fired.append(True)
+        fake_windll = MagicMock()
+        fake_windll.user32 = user32
+        fake_windll.imm32 = imm32
 
-        dispatcher.register("<f2>", on_fire)
+        with patch("voice_typer.server.hotkeys.is_windows", return_value=True), \
+             patch("ctypes.windll", fake_windll, create=True):
+            assert cls._is_ime_composing() is False
 
-        # IME composing, then stop
-        dispatcher._ime_composing = True
-        dispatcher._on_hotkey("<f2>")
-        assert len(fired) == 0
+    def test_is_ime_composing_false_when_no_composition_string(self):
+        """When IME is open but composition string is empty, return False."""
+        cls = _import_ime_check()
+        if cls is None:
+            pytest.skip("WindowsNativeHotkey not importable")
 
-        dispatcher._ime_composing = False
-        dispatcher._on_hotkey("<f2>")
-        assert len(fired) == 1
+        user32 = MagicMock()
+        user32.GetForegroundWindow.return_value = 1
+        imm32 = MagicMock()
+        imm32.ImmGetContext.return_value = 42
+        imm32.ImmGetOpenStatus.return_value = 1
+        imm32.ImmGetCompositionStringW.return_value = 0  # no composition string
 
-    def test_ime_state_defaults_to_not_composing(self):
-        """IME state should default to not composing."""
-        try:
-            from voice_typer.server.hotkey_dispatcher import HotkeyDispatcher
-            dispatcher = HotkeyDispatcher(MagicMock())
-            assert not getattr(dispatcher, '_ime_composing', False)
-        except (ImportError, AttributeError):
-            # If the attribute doesn't exist yet, that's fine —
-            # the test documents the expected behavior
-            pass
+        fake_windll = MagicMock()
+        fake_windll.user32 = user32
+        fake_windll.imm32 = imm32
+
+        with patch("voice_typer.server.hotkeys.is_windows", return_value=True), \
+             patch("ctypes.windll", fake_windll, create=True):
+            assert cls._is_ime_composing() is False
 
 
 class TestIMEMarker:

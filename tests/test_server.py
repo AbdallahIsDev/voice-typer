@@ -1605,7 +1605,7 @@ class TestGetDefaultsIpc:
 # ── TEST-001: IPC DoS/flood test ─────────────────────────────────────────
 
 
-class TestIpcServerFloodResistance:
+class TestServerFloodResistance:
     """TEST-001: verify the IPC server can handle a flood of messages
     without crashing or exhausting resources.  The rate limiter
     (RELIABILITY-006) should kick in and reject over-budget messages."""

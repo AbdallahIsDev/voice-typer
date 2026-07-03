@@ -93,6 +93,37 @@ def _make_sine(freq: float, duration_s: float, sr: int = 16000,
     return (amp * np.sin(2 * np.pi * freq * t)).astype(np.float32).reshape(-1, 1)
 
 
+class _FilterConfig:
+    """Minimal config stub for ``AudioProcessor`` (ADR-0007).
+
+    ADR-0007 removed the old ``AudioProcessorConfig`` dataclass and
+    replaced it with the regular ``Config`` object's ``noise_filter_*``
+    fields. Tests build a tiny namespace here with the same attributes
+    that ``audio_chain_builder.build_chain`` reads via ``getattr``.
+    """
+
+    def __init__(
+        self,
+        *,
+        highpass: bool = True,
+        highpass_cutoff_hz: float = 80.0,
+        noise_gate: bool = False,
+        noise_suppression: str = "none",
+        eq: bool = False,
+        compressor: bool = False,
+        limiter: bool = False,
+        notch: bool = False,
+    ) -> None:
+        self.noise_filter_highpass = highpass
+        self.noise_filter_highpass_cutoff_hz = highpass_cutoff_hz
+        self.noise_filter_gate = noise_gate
+        self.noise_suppression_method = noise_suppression
+        self.noise_filter_eq = eq
+        self.noise_filter_compressor = compressor
+        self.noise_filter_limiter = limiter
+        self.noise_filter_notch = notch
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -106,9 +137,7 @@ class TestRecorderCallbackWithAudioProcessor:
         NameError — silently swallowed by PortAudio.  This test makes
         sure the buffer actually grows."""
         from voice_typer.server import recording as rec_mod
-        from voice_typer.server.audio_processor import (
-            AudioProcessor, AudioProcessorConfig,
-        )
+        from voice_typer.server.audio_processor import AudioProcessor
         from voice_typer.server.recording import Recorder
 
         captured_streams = []
@@ -124,10 +153,12 @@ class TestRecorderCallbackWithAudioProcessor:
             max_recording_seconds=0, device="cpu",
             max_recording_seconds_cpu=600, max_recording_seconds_gpu=1200,
         )
+        # ADR-0007: AudioProcessorConfig removed; build_chain reads
+        # noise_filter_* attributes from the config via getattr.
         proc = AudioProcessor(
-            AudioProcessorConfig(
-                enabled=True, highpass=True, highpass_cutoff_hz=80.0,
-                noise_gate=False, post_capture=False,
+            _FilterConfig(
+                highpass=True, highpass_cutoff_hz=80.0,
+                noise_gate=False,
             ),
             sample_rate=16000,
         )
@@ -154,9 +185,7 @@ class TestRecorderCallbackWithAudioProcessor:
         low-frequency content (30 Hz) should be attenuated relative to
         the raw input."""
         from voice_typer.server import recording as rec_mod
-        from voice_typer.server.audio_processor import (
-            AudioProcessor, AudioProcessorConfig,
-        )
+        from voice_typer.server.audio_processor import AudioProcessor
         from voice_typer.server.recording import Recorder
 
         captured_streams = []
@@ -172,10 +201,11 @@ class TestRecorderCallbackWithAudioProcessor:
             max_recording_seconds=0, device="cpu",
             max_recording_seconds_cpu=600, max_recording_seconds_gpu=1200,
         )
+        # ADR-0007: AudioProcessorConfig removed; use noise_filter_* config.
         proc = AudioProcessor(
-            AudioProcessorConfig(
-                enabled=True, highpass=True, highpass_cutoff_hz=80.0,
-                noise_gate=False, post_capture=False,
+            _FilterConfig(
+                highpass=True, highpass_cutoff_hz=80.0,
+                noise_gate=False,
             ),
             sample_rate=16000,
         )
@@ -201,9 +231,7 @@ class TestRecorderCallbackWithAudioProcessor:
         """The on_rms_level callback should fire with values derived
         from the FILTERED audio, not raw mic input."""
         from voice_typer.server import recording as rec_mod
-        from voice_typer.server.audio_processor import (
-            AudioProcessor, AudioProcessorConfig,
-        )
+        from voice_typer.server.audio_processor import AudioProcessor
         from voice_typer.server.recording import Recorder
 
         captured_streams = []
@@ -216,10 +244,11 @@ class TestRecorderCallbackWithAudioProcessor:
             max_recording_seconds=0, device="cpu",
             max_recording_seconds_cpu=600, max_recording_seconds_gpu=1200,
         )
+        # ADR-0007: AudioProcessorConfig removed; use noise_filter_* config.
         proc = AudioProcessor(
-            AudioProcessorConfig(
-                enabled=True, highpass=True, highpass_cutoff_hz=80.0,
-                noise_gate=False, post_capture=False,
+            _FilterConfig(
+                highpass=True, highpass_cutoff_hz=80.0,
+                noise_gate=False,
             ),
             sample_rate=16000,
         )
@@ -245,9 +274,7 @@ class TestRecorderCallbackWithAudioProcessor:
         chunk — this is what wires AudioQualityAnalyzer back into the
         pipeline."""
         from voice_typer.server import recording as rec_mod
-        from voice_typer.server.audio_processor import (
-            AudioProcessor, AudioProcessorConfig,
-        )
+        from voice_typer.server.audio_processor import AudioProcessor
         from voice_typer.server.recording import Recorder
 
         captured_streams = []
@@ -260,10 +287,10 @@ class TestRecorderCallbackWithAudioProcessor:
             max_recording_seconds=0, device="cpu",
             max_recording_seconds_cpu=600, max_recording_seconds_gpu=1200,
         )
+        # ADR-0007: AudioProcessorConfig removed; use noise_filter_* config.
         proc = AudioProcessor(
-            AudioProcessorConfig(
-                enabled=True, highpass=False, noise_gate=False,
-                post_capture=False,
+            _FilterConfig(
+                highpass=False, noise_gate=False,
             ),
             sample_rate=16000,
         )
@@ -281,47 +308,12 @@ class TestRecorderCallbackWithAudioProcessor:
         assert len(quality_calls) == 3, \
             f"Quality callback should fire once per chunk; got {len(quality_calls)} calls for 3 chunks"
 
-    def test_post_capture_runs_in_stop(self, monkeypatch):
-        """Recorder.stop() should invoke process_full_audio() on the
-        captured audio when post_capture is enabled."""
-        from voice_typer.server import recording as rec_mod
-        from voice_typer.server.audio_processor import (
-            AudioProcessor, AudioProcessorConfig,
-        )
-        from voice_typer.server.recording import Recorder
-
-        captured_streams = []
-        monkeypatch.setattr(rec_mod.sd, "InputStream",
-                            lambda *a, **kw: captured_streams.append(FakeInputStream(*a, **kw)) or captured_streams[-1])
-
-        config = MagicMock(
-            sample_rate=16000, microphone=None,
-            silence_warning_seconds=20.0, silence_auto_stop_seconds=120.0,
-            max_recording_seconds=0, device="cpu",
-            max_recording_seconds_cpu=600, max_recording_seconds_gpu=1200,
-        )
-        proc = AudioProcessor(
-            AudioProcessorConfig(
-                enabled=True, highpass=False, noise_gate=False,
-                post_capture=False,  # OFF — we spy on the call directly
-            ),
-            sample_rate=16000,
-        )
-        # Spy on process_full_audio.
-        proc.process_full_audio = MagicMock(
-            side_effect=lambda audio: audio,
-        )
-
-        r = Recorder(config, audio_processor=proc)
-        r.start()
-        stream = captured_streams[0]
-        # Push >0.5s of audio so post-capture (if enabled) would run.
-        stream.push_chunk(_make_sine(freq=440, duration_s=1.0, amp=0.3))
-        r.stop()
-
-        # process_full_audio should have been called once with the
-        # captured audio array.
-        proc.process_full_audio.assert_called_once()
+    # ADR-0007 §3.8: post-capture noisereduce (process_full_audio) was
+    # removed. The real-time NoiseSuppressor filter in the chain now
+    # handles denoising for both the streaming and stop() paths. The
+    # test ``test_post_capture_runs_in_stop`` was deleted because the
+    # feature it pinned no longer exists. See recording.py:1840-1845
+    # for the rationale comment.
 
     def test_callback_without_processor_still_works(self, monkeypatch):
         """Sanity check: the callback path must still work when
@@ -354,9 +346,7 @@ class TestRecorderCallbackWithAudioProcessor:
         """When PortAudio reports an xrun (status flag non-zero), the
         callback should still process the chunk and not raise."""
         from voice_typer.server import recording as rec_mod
-        from voice_typer.server.audio_processor import (
-            AudioProcessor, AudioProcessorConfig,
-        )
+        from voice_typer.server.audio_processor import AudioProcessor
         from voice_typer.server.recording import Recorder
 
         captured_streams = []
@@ -369,10 +359,10 @@ class TestRecorderCallbackWithAudioProcessor:
             max_recording_seconds=0, device="cpu",
             max_recording_seconds_cpu=600, max_recording_seconds_gpu=1200,
         )
+        # ADR-0007: AudioProcessorConfig removed; use noise_filter_* config.
         proc = AudioProcessor(
-            AudioProcessorConfig(
-                enabled=True, highpass=False, noise_gate=False,
-                post_capture=False,
+            _FilterConfig(
+                highpass=False, noise_gate=False,
             ),
             sample_rate=16000,
         )

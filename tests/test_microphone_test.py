@@ -33,6 +33,7 @@ def _reset_module_state():
     import voice_typer.server.level_monitor as lm
     lm._test_mode = False
     lm._test_chunks = []
+    lm._test_raw_chunks = []
     lm._test_start_time = 0.0
     lm._test_duration = 10.0
     lm._monitor_sample_rate = 16000
@@ -40,6 +41,19 @@ def _reset_module_state():
     lm._monitor_stream = None
     lm._monitor_level = 0.0
     lm._monitor_peak = 0.0
+
+
+def _push_test_chunk(chunk: np.ndarray) -> None:
+    """Append an audio chunk to BOTH _test_chunks and _test_raw_chunks.
+
+    level_monitor's stop_test() concatenates both lists in lockstep
+    (see level_monitor.py:243-244). Tests that push chunks directly
+    must mirror them into the raw list or the concatenation step
+    raises ``ValueError: need at least one array to concatenate``.
+    """
+    import voice_typer.server.level_monitor as lm
+    lm._test_chunks.append(chunk)
+    lm._test_raw_chunks.append(chunk.copy())
 
 
 def _decode_wav(audio_b64: str) -> tuple[int, int, np.ndarray]:
@@ -208,7 +222,7 @@ class TestStopTest:
         lm._test_start_time = 1000.0
         lm._monitor_sample_rate = 16000
         for _ in range(3):
-            lm._test_chunks.append(np.ones((512, 1), dtype=np.float32) * 0.25)
+            _push_test_chunk(np.ones((512, 1), dtype=np.float32) * 0.25)
 
         result = stop_test()
         assert result["success"] is True
@@ -228,7 +242,7 @@ class TestStopTest:
         # Simulate audio chunks arriving via callback
         for _ in range(5):
             chunk = np.ones((1024, 1), dtype=np.float32) * 0.25
-            lm._test_chunks.append(chunk)
+            _push_test_chunk(chunk)
 
         result = stop_test()
         assert result["success"] is True
@@ -346,7 +360,7 @@ class TestWavEncoding:
 
         # Add test audio chunks AFTER start_test so they aren't cleared
         for _ in range(3):
-            lm._test_chunks.append(np.ones((512, 1), dtype=np.float32) * 0.25)
+            _push_test_chunk(np.ones((512, 1), dtype=np.float32) * 0.25)
 
         result = stop_test()
 
@@ -369,7 +383,7 @@ class TestWavEncoding:
         start_test(mic_id=None, duration=2.0)
 
         for _ in range(3):
-            lm._test_chunks.append(np.ones((512, 1), dtype=np.float32) * 0.25)
+            _push_test_chunk(np.ones((512, 1), dtype=np.float32) * 0.25)
 
         result = stop_test()
 
@@ -392,7 +406,7 @@ class TestWavEncoding:
         start_test(mic_id=None, duration=2.0)
 
         for _ in range(num_chunks):
-            lm._test_chunks.append(np.ones((chunk_samples, 1), dtype=np.float32) * 0.25)
+            _push_test_chunk(np.ones((chunk_samples, 1), dtype=np.float32) * 0.25)
 
         result = stop_test()
 

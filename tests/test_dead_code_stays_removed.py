@@ -519,7 +519,7 @@ class TestServiceTestMethod:
         assert kwargs["api_url"] == "https://api.openai.com/v1"
         assert kwargs["model"] == "gpt-4"
 
-class TestIpcDispatchesTestLlmConnection:
+class TestDispatchesTestLlmConnection:
     """NEW-DEAD-015: the IPC dispatcher must route test_llm_connection."""
 
     def test_ipc_dispatches_test_llm_connection(self, server_with_mock_app):

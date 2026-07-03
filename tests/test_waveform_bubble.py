@@ -352,6 +352,11 @@ class TestAppMainWiresIpcHook:
                 # Simulate the real IPCServer.start setting the hook
                 ipc_server._set_push_event(self.push)
 
+            def start_tcp(self, port=None):
+                # P1-FIX-001: standalone mode calls start_tcp(port);
+                # stub it so the test doesn't AttributeError.
+                pass
+
             def push(self, msg):
                 pass
 
@@ -453,6 +458,11 @@ class TestWaveformVADGate:
     def test_update_level_with_silent_audio_chunk(self, bubble, monkeypatch):
         """With a silent audio chunk, VAD gates the visualizer (decays)."""
         from voice_typer.server import vad
+        # Skip if torch/Silero VAD is unavailable — the VAD gate only
+        # activates when the Silero model can load. Without torch, the
+        # WaveformBubble falls back to RMS-only mode (is_speaking=True
+        # for any non-zero RMS), so this test cannot pass.
+        pytest.importorskip("torch", reason="Silero VAD requires torch")
         # Force VAD to report non-speech
         monkeypatch.setattr(vad, "is_speech", lambda chunk, sr=16000: False)
         bubble.update_level(0.15, 0.3, audio_chunk=np.zeros(16000, dtype=np.float32))

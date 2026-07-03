@@ -148,13 +148,27 @@ class TestAppHasHelpOverlayForShortcuts:
     def test_help_overlay_lists_shortcuts(self):
         """The overlay must list the keyboard shortcuts."""
         app = _read("App.tsx")
-        assert "Keyboard Shortcuts" in app
-        # Must include the common shortcuts.
+        # NEW-UX-015: the help overlay was internationalized — the
+        # heading + descriptions now go through t() lookups instead of
+        # being inline literals. We assert on the t() keys being used.
+        assert 't("help.title")' in app, (
+            "Help overlay must render the localized heading via t('help.title')"
+        )
+        # Must include the common shortcuts (the `keys` field is still
+        # literal because the keycap glyphs aren't translated).
         assert "Tab / Shift+Tab" in app or "Tab" in app
         assert "Space" in app
         assert "Esc" in app
-        # Must mention the "?" shortcut itself.
-        assert "Open this help overlay" in app
+        # Must mention the "?" shortcut itself — the description now
+        # comes from t('help.openHelp'); verify the t() call is present.
+        assert 't("help.openHelp")' in app, (
+            "Help overlay must describe the '?' shortcut via t('help.openHelp')"
+        )
+        # Cross-check the actual localized strings exist in en.json so
+        # the t() calls have something to resolve to.
+        en = _read("i18n/translations/en.json")
+        assert "Keyboard Shortcuts" in en
+        assert "Open this help overlay" in en
 
     def test_help_overlay_closes_on_escape(self):
         app = _read("App.tsx")
@@ -291,7 +305,11 @@ class TestOnNavigateTypedAsPageLiteralUnion:
 
     def test_settings_imports_page_type(self):
         settings = _read("pages/Settings.tsx")
-        assert "import type { Page } from '@/types/ipc'" in settings, (
+        # The import may use single or double quotes — accept either.
+        assert (
+            "import type { Page } from '@/types/ipc'" in settings
+            or 'import type { Page } from "@/types/ipc"' in settings
+        ), (
             "Settings.tsx must import the Page type so onNavigate can be "
             "typed as (page: Page) => void instead of (page: string) => void"
         )
@@ -320,9 +338,13 @@ class TestNumberInputOmitsOnInvalidFromProps:
     def test_omit_includes_oninvalid(self):
         number_input = _read("components/ui/number-input.tsx")
         # The Omit must include "onInvalid" alongside "type" and "onChange".
+        # The source uses a multi-line `extends Omit<\n  React.ComponentProps<"input">,\n  "type" | "onChange" | "onInvalid"\n>`
+        # form — the regex tolerates either single-line or multi-line
+        # whitespace between the Omit< and the union literal.
         assert re.search(
-            r'Omit<React\.ComponentProps<"input">,\s*"type"\s*\|\s*"onChange"\s*\|\s*"onInvalid"',
+            r'Omit<\s*React\.ComponentProps<"input">\s*,\s*"type"\s*\|\s*"onChange"\s*\|\s*"onInvalid"',
             number_input,
+            re.DOTALL,
         ), (
             'NumberInputProps must Omit "onInvalid" from ComponentProps<"input"> '
             "to avoid the TS2430 conflict with the inherited HTML onInvalid handler"
@@ -337,15 +359,19 @@ class TestNumberInputOmitsOnInvalidFromProps:
 class TestRepasteKeySettingUsesHotkeyPicker:
     """The Re-Paste Key setting must use the HotkeyPicker component
     (which lets the user press a combo) instead of a free-text Input
-    that required pynput syntax knowledge."""
+    that required pynput syntax knowledge.
+
+    The HotkeyPicker wiring was refactored out of Settings.tsx into the
+    dedicated HotkeySettingsSection component.
+    """
 
     def test_settings_imports_hotkey_picker(self):
-        settings = _read("pages/Settings.tsx")
+        settings = _read("components/settings/HotkeySettingsSection.tsx")
         assert "import { HotkeyPicker }" in settings
         assert "@/components/HotkeyPicker" in settings
 
     def test_repaste_key_uses_hotkey_picker_combo_mode(self):
-        settings = _read("pages/Settings.tsx")
+        settings = _read("components/settings/HotkeySettingsSection.tsx")
         # The Re-Paste Key row must use HotkeyPicker with mode="combo".
         assert "<HotkeyPicker" in settings
         assert 'mode="combo"' in settings
@@ -356,7 +382,7 @@ class TestRepasteKeySettingUsesHotkeyPicker:
         Previously it was:
             <Input value={config.repaste_hotkey} onChange={...} />
         which silently failed on invalid pynput syntax."""
-        settings = _read("pages/Settings.tsx")
+        settings = _read("components/settings/HotkeySettingsSection.tsx")
         # The repaste_hotkey must NOT appear in an Input element's value.
         # Look for the pattern `value={config.repaste_hotkey` inside an
         # Input tag — that would indicate the old free-text field.
@@ -371,10 +397,13 @@ class TestRepasteKeySettingUsesHotkeyPicker:
 class TestDictationKeySupportsExpandedPresets:
     """The Dictation Key selector must support more than just F2-F12.
     The HotkeyPicker's SINGLE_KEY_PRESETS includes Caps Lock, Print
-    Screen, Scroll Lock, Pause, Insert, Home, Page Up/Down."""
+    Screen, Scroll Lock, Pause, Insert, Home, Page Up/Down.
+
+    The dictation-key HotkeyPicker was moved to HotkeySettingsSection.tsx.
+    """
 
     def test_dictation_key_uses_hotkey_picker_single_mode(self):
-        settings = _read("pages/Settings.tsx")
+        settings = _read("components/settings/HotkeySettingsSection.tsx")
         assert 'mode="single"' in settings
 
     def test_single_key_presets_include_beyond_f12(self):
@@ -408,15 +437,18 @@ class TestHotkeyUtilsFormatLabel:
         # The function must exist and handle the cases below via the
         # displayMap.  We verify the source contains the mapping logic.
         assert "function formatHotkeyLabel" in utils
-        assert "'Ctrl'" in utils  # ctrl modifier
-        assert "'Caps Lock'" in utils  # caps_lock
-        assert "'Space'" in utils  # space
+        # The source uses double-quoted string literals; accept either
+        # single or double quotes for the display-map entries.
+        assert '"Ctrl"' in utils or "'Ctrl'" in utils  # ctrl modifier
+        assert '"Caps Lock"' in utils or "'Caps Lock'" in utils  # caps_lock
+        assert '"Space"' in utils or "'Space'" in utils  # space
 
     def test_formats_combo(self):
         """The function splits on '+' and formats each part."""
         utils = _read("components/hotkey-utils.ts")
-        assert ".split('+')" in utils
-        assert ".join('+')" in utils
+        # The source uses double-quoted "+" for split/join; accept either.
+        assert '.split("+")' in utils or ".split('+')" in utils
+        assert '.join("+")' in utils or ".join('+')" in utils
 
 class TestHotkeyUtilsValidate:
     """validateHotkey returns null for valid, error string for invalid."""

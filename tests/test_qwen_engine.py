@@ -31,8 +31,15 @@ class TestQwenEngineUnit:
         result = engine.transcribe(np.array([], dtype=np.float32))
         assert result == ""
 
-    def test_load_success(self):
-        engine = self._make_engine()
+    def test_load_success(self, tmp_path):
+        # SEC-audit-007: load() now validates the model directory and reads
+        # config.json before importing qwen_asr. Use a real tmp dir with a
+        # config.json so the security gates pass.
+        import json as _json
+        model_dir = tmp_path / "qwen_model"
+        model_dir.mkdir()
+        (model_dir / "config.json").write_text(_json.dumps({"arch": "qwen3"}))
+        engine = self._make_engine(model_path=str(model_dir))
         mock_model = MagicMock()
         mock_transcription = MagicMock()
         mock_transcription.text = "hello from qwen"
@@ -206,6 +213,9 @@ class TestP1WhisperSkipWhenQwenActive:
         config_file.write_text(json.dumps({
             "asr_backend": "qwen",
             "qwen_model_path": str(tmp_path / "qwen_model"),
+            # PRIV-001: dictation now requires explicit voice-biometric
+            # consent — without this the recorder refuses to start.
+            "voice_biometric_consent": True,
         }))
 
         # Create the Qwen model dir so path validation passes
@@ -323,8 +333,15 @@ class TestM23LoadReturnValues:
         from voice_typer.server.qwen_engine import QwenEngine
         return QwenEngine(model_path=model_path, **kwargs)
 
-    def test_load_returns_true_on_success(self):
-        engine = self._make_engine()
+    def test_load_returns_true_on_success(self, tmp_path):
+        # SEC-audit-007: load() validates the model directory and reads
+        # config.json before importing qwen_asr. Use a real tmp dir with
+        # a config.json so the security gates pass.
+        import json as _json
+        model_dir = tmp_path / "qwen_model"
+        model_dir.mkdir()
+        (model_dir / "config.json").write_text(_json.dumps({"arch": "qwen3"}))
+        engine = self._make_engine(model_path=str(model_dir))
         mock_qwen_module = MagicMock()
         mock_model = MagicMock()
         mock_qwen_module.Qwen3ASRModel.from_pretrained.return_value = mock_model

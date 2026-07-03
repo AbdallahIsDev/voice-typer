@@ -314,7 +314,7 @@ class TestStopAudioPrep:
         assert "Resampled 48000 Hz -> 16000 Hz" not in caplog.text
 
 
-class TestH15CachedResampling:
+class TestCachedResampling:
     """H15/M8: snapshot() triggers full resample on every call."""
 
     def test_snapshot_uses_cached_resampled_prefix(self, monkeypatch):

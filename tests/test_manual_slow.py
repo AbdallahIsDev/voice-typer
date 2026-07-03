@@ -92,7 +92,7 @@ def test_diagnose_f2_deprecated_contract(capsys: pytest.CaptureFixture[str]) -> 
         "diagnose_f2.run() must print a DEPRECATED notice on stderr; "
         f"got stderr={captured.err!r}"
     )
-    assert "test_round8_e2e" in captured.err, (
+    assert "test_e2e_smoke" in captured.err, (
         "diagnose_f2.run() must point users at the modern replacement tests"
     )
 
