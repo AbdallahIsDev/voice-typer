@@ -173,60 +173,55 @@ function getAudioContext(): AudioContext | null {
 }
 
 function playSoundCue(kind: "start" | "stop") {
-	// Check the sound feedback toggle.  The Settings page writes this
-	// to localStorage on every change, so we read it fresh each time
-	// (cheap).
 	try {
-		// The actual source of truth is the Python config, but we cache
-		// it in localStorage from the Settings page so the audio cue
-		// plays immediately without waiting for an IPC round-trip.
-		// If the cache is missing (e.g. fresh install before the user
-		// has visited Settings), default to ON — matches the Python
-		// Config default (sound_feedback_enabled = True).
 		const raw = localStorage.getItem("vt_sound_feedback_enabled");
 		const enabled = raw === null ? true : raw === "1";
 		if (!enabled) return;
 	} catch {
-		return; // localStorage unavailable — skip cue.
+		return;
 	}
 
 	const ctx = getAudioContext();
 	if (!ctx) return;
 
-	// Resume the context if it's suspended (browsers suspend AudioContext
-	// until the user interacts with the page).
+	// SOUND-FIX-001: AudioContext starts suspended until a user gesture
+	// resumes it. resume() is async — schedule the oscillator AFTER the
+	// resume promise resolves, otherwise the sound never plays.
+	const doPlay = () => {
+		const now = ctx.currentTime;
+		const osc = ctx.createOscillator();
+		const gain = ctx.createGain();
+
+		if (kind === "start") {
+			osc.frequency.setValueAtTime(660, now);
+			osc.frequency.exponentialRampToValueAtTime(880, now + 0.08);
+			gain.gain.setValueAtTime(0.0001, now);
+			gain.gain.exponentialRampToValueAtTime(0.15, now + 0.01);
+			gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+			osc.connect(gain).connect(ctx.destination);
+			osc.start(now);
+			osc.stop(now + 0.13);
+		} else {
+			osc.frequency.setValueAtTime(523, now);
+			osc.frequency.exponentialRampToValueAtTime(392, now + 0.1);
+			gain.gain.setValueAtTime(0.0001, now);
+			gain.gain.exponentialRampToValueAtTime(0.15, now + 0.01);
+			gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+			osc.connect(gain).connect(ctx.destination);
+			osc.start(now);
+			osc.stop(now + 0.19);
+		}
+	};
+
 	if (ctx.state === "suspended") {
-		ctx.resume().catch(() => {});
-	}
-
-	const now = ctx.currentTime;
-	const osc = ctx.createOscillator();
-	const gain = ctx.createGain();
-
-	// Start cue: 660Hz (E5), 120ms, gentle attack/release.
-	// Stop cue: 440Hz (A4), 180ms, slightly longer release.
-	if (kind === "start") {
-		osc.frequency.setValueAtTime(660, now);
-		osc.frequency.exponentialRampToValueAtTime(880, now + 0.08);
-		gain.gain.setValueAtTime(0.0001, now);
-		gain.gain.exponentialRampToValueAtTime(0.15, now + 0.01);
-		gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
-		osc.connect(gain).connect(ctx.destination);
-		osc.start(now);
-		osc.stop(now + 0.13);
+		ctx
+			.resume()
+			.then(doPlay)
+			.catch(() => {});
 	} else {
-		// stop cue
-		osc.frequency.setValueAtTime(523, now); // C5
-		osc.frequency.exponentialRampToValueAtTime(392, now + 0.1); // G4
-		gain.gain.setValueAtTime(0.0001, now);
-		gain.gain.exponentialRampToValueAtTime(0.15, now + 0.01);
-		gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
-		osc.connect(gain).connect(ctx.destination);
-		osc.start(now);
-		osc.stop(now + 0.19);
+		doPlay();
 	}
 }
-
 export default function Home({
 	recordingState,
 	lastError,
