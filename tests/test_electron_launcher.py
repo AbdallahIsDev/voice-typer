@@ -174,6 +174,7 @@ class TestLaunchElectronFrontend:
 class TestTerminateElectron:
     """terminate_electron() kills the process (POSIX path mocked)."""
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="SIGKILL not available on Windows")
     def test_terminate_electron_kills_process(self, monkeypatch):
         """SIGTERM + waitpid reap → no SIGKILL needed."""
         # Force the POSIX branch even on Windows so the test is portable.
@@ -206,6 +207,7 @@ class TestTerminateElectron:
         # waitpid was called at least once with WNOHANG.
         assert any(opt == os.WNOHANG for _, opt in waitpid_calls)
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="SIGKILL not available on Windows")
     def test_terminate_electron_escalates_to_sigkill(self, monkeypatch):
         """If SIGTERM doesn't reap within 3s, send SIGKILL."""
         monkeypatch.setattr(electron_launcher, "is_windows", lambda: False)
