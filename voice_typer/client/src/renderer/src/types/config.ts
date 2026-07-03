@@ -211,6 +211,26 @@ export interface VoiceTyperConfig {
 	// when recording starts and stops — useful for accessibility and
 	// for users who prefer an auditory signal.
 	sound_feedback_enabled: boolean;
+
+	// P4: AI grammar / punctuation / capitalization.
+	// Master toggle (ai_enhancement_enabled) defaults OFF — the user
+	// must explicitly opt in via Settings → AI Enhancement.  The three
+	// sub-toggles default ON so enabling the master toggle "just works".
+	// See voice_typer/server/ai_enhancement.py for the implementation.
+	ai_enhancement_enabled: boolean;
+	auto_capitalize: boolean;
+	auto_punctuate: boolean;
+	fix_grammar_basics: boolean;
+
+	// P5: Vocabulary automation (confidence-score suggestions).
+	// Master toggle defaults OFF.  When ON, the dictation pipeline
+	// analyzes each transcription for low-confidence words and
+	// suggests vocabulary corrections; suggestions above the
+	// auto-apply threshold are added to the vocabulary
+	// automatically, the rest are queued for user review.
+	vocabulary_automation_enabled: boolean;
+	vocabulary_auto_confidence_threshold: number;
+	vocabulary_auto_apply_threshold: number;
 }
 
 export interface MicrophoneDevice {

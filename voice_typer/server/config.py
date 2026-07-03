@@ -798,6 +798,39 @@ class Config:
     # locally to the config directory. Nothing is sent remotely.
     telemetry_enabled: bool = False
 
+    # ─── P4: AI grammar / punctuation / capitalization ─────────────
+    # Rule-based, offline enhancement applied AFTER LLM polish and
+    # BEFORE the result is stored to history / pasted.  See
+    # ``voice_typer/server/ai_enhancement.py``.  The master toggle
+    # defaults to OFF — the user must explicitly opt in via Settings
+    # → AI Enhancement so existing users don't see behavior changes
+    # after upgrading.  The three sub-toggles default to True so
+    # that, once the master toggle is flipped, the feature "just
+    # works" without further configuration.
+    ai_enhancement_enabled: bool = False  # master toggle (opt-in)
+    auto_capitalize: bool = True  # capitalize sentence starts + proper nouns
+    auto_punctuate: bool = True  # add periods at sentence boundaries
+    fix_grammar_basics: bool = True  # fix bare "i", contractions, double spaces
+
+    # ─── P5: Vocabulary automation ─────────────────────────────────
+    # Confidence-score-based auto-correction suggestions.  When the
+    # master toggle is ON, the dictation pipeline analyzes each
+    # transcription for low-confidence words and suggests vocabulary
+    # corrections.  Suggestions above ``vocabulary_auto_apply_threshold``
+    # are auto-applied; the rest are queued for the user to review.
+    # Defaults to OFF — the user must explicitly opt in via Settings.
+    vocabulary_automation_enabled: bool = False  # master toggle (opt-in)
+    # Below this segment-confidence, suggest corrections.  0.7 is a
+    # common Whisper "low confidence" threshold (the model emits
+    # avg_logprob values around -1.0 for uncertain words; the
+    # pipeline normalizes to a 0–1 confidence where 0.7 corresponds
+    # to roughly avg_logprob -0.4).
+    vocabulary_auto_confidence_threshold: float = 0.7
+    # Above this confidence, auto-apply suggestions without asking.
+    # 0.95 is high enough that false positives are rare but low
+    # enough that the auto-apply path actually fires in practice.
+    vocabulary_auto_apply_threshold: float = 0.95
+
     def save(self) -> bool:
         """Save config to disk atomically via temp file + os.replace.
 
@@ -1002,6 +1035,15 @@ class Config:
             # ADR 0007: new filter chain bool fields
             "noise_filter_eq", "noise_filter_compressor",
             "noise_filter_limiter", "noise_filter_notch",
+            # P4: AI enhancement toggles.  All four are bools — the
+            # master toggle defaults OFF, the three sub-toggles
+            # default ON.  Include them here so legacy config files
+            # that stored them as "true"/"false" strings or 0/1 ints
+            # are coerced to real bools on load.
+            "ai_enhancement_enabled",
+            "auto_capitalize", "auto_punctuate", "fix_grammar_basics",
+            # P5: vocabulary automation master toggle.
+            "vocabulary_automation_enabled",
         }
         str_fields = {
             "hotkey", "language", "device", "asr_backend",

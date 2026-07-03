@@ -316,6 +316,28 @@ IPC_CONFIG_ALLOWLIST: dict = {
     # ── Audio quality ─────────────────────────────────────────────────
     "audio_quality_warnings":     (bool, _bool_validator),
 
+    # ── P4: AI grammar / punctuation / capitalization ───────────────
+    # All four toggles are user-tunable via Settings → AI Enhancement.
+    # The master toggle (``ai_enhancement_enabled``) defaults OFF;
+    # the three sub-toggles default ON.  Subject to type validation
+    # so a malicious IPC client can't set them to non-bool values.
+    "ai_enhancement_enabled":     (bool, _bool_validator),
+    "auto_capitalize":            (bool, _bool_validator),
+    "auto_punctuate":             (bool, _bool_validator),
+    "fix_grammar_basics":         (bool, _bool_validator),
+
+    # ── P5: Vocabulary automation ───────────────────────────────────
+    # Master toggle + two float thresholds.  The confidence threshold
+    # range is [0.0, 1.0] — values outside that range are nonsense
+    # (a confidence can't be negative or above 1).  The auto-apply
+    # threshold must be >= the suggest threshold to be meaningful,
+    # but we don't enforce that here — the user may want to set
+    # ``auto_apply_threshold = 1.0`` to effectively disable auto-apply
+    # while still queueing suggestions for review.
+    "vocabulary_automation_enabled":      (bool, _bool_validator),
+    "vocabulary_auto_confidence_threshold": (float, _make_float_validator(lo=0.0, hi=1.0)),
+    "vocabulary_auto_apply_threshold":     (float, _make_float_validator(lo=0.0, hi=1.0)),
+
     # ── Waveform bubble ───────────────────────────────────────────────
     "waveform_bubble":       (bool, _bool_validator),
     "bubble_position":       (str, _make_enum_validator({"top", "bottom"})),
