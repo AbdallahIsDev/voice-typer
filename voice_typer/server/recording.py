@@ -1,5 +1,7 @@
 """Session-based audio recording."""
 
+from __future__ import annotations
+
 import collections
 import enum
 import logging
@@ -9,7 +11,22 @@ import time
 from typing import Any, Callable, Optional
 
 import numpy as np
-import sounddevice as sd
+
+# PERF-COLDSTART-001: lazy import — sounddevice loads the PortAudio C
+# library (and on some platforms probes audio hardware) at import time,
+# which adds measurable latency to the app cold-start path
+# (voice_typer.server.app imports this module at module top). sounddevice
+# is only needed once a recording actually starts, so defer the real
+# import to first attribute access. The proxy re-reads sys.modules on
+# every access, so tests that do
+# ``monkeypatch.setattr(recording.sd, "InputStream", fake)`` — or that
+# inject a mock via ``monkeypatch.setitem(sys.modules, "sounddevice",
+# mock)`` — keep working unchanged. The ``from __future__ import
+# annotations`` above stringifies the ``Optional[sd.InputStream]``
+# annotation in Recorder.__init__ so it no longer forces an eager import.
+from voice_typer.server._lazy_import import lazy_module
+
+sd = lazy_module("sounddevice")
 
 from voice_typer.server.config import Config
 

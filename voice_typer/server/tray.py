@@ -27,11 +27,25 @@ Threading model:
   once the event loop is live.
 """
 
+from __future__ import annotations
+
 import logging
 import threading
 from typing import Callable, Optional
 
-import pystray
+# PERF-COLDSTART-001: lazy import — pystray's xorg backend calls
+# Xlib.display.Display() at module import time, costing ~48 ms on the
+# tray cold-start path and failing entirely without an X display
+# (headless CI, bare Wayland). pystray is only used inside start() to
+# build the Icon/Menu, so defer the real import to first attribute
+# access. The proxy re-reads sys.modules on every access, so tests that
+# monkeypatch voice_typer.server.tray.pystray (or sys.modules["pystray"])
+# keep working unchanged. The ``from __future__ import annotations``
+# above also stringifies the ``Optional[pystray.Icon]`` annotation in
+# TrayIcon.__init__ so it no longer forces an eager import.
+from voice_typer.server._lazy_import import lazy_module
+
+pystray = lazy_module("pystray")
 
 from voice_typer.server.tray_icon import _make_icon
 

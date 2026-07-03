@@ -54,26 +54,43 @@ export default function SettingsPage({
 	// UX-028: search/filter state for settings
 	const [settingsFilter, setSettingsFilter] = useState("");
 
-	// PERF: configRef mirrors `config` in a ref so updateConfig and
-	// updateConfigDebounced can read the latest config WITHOUT having
-	// `config` in their useCallback deps.  This keeps the callback
-	// references stable across config changes, which is critical for
-	// React.memo'd section components — without it, every config change
-	// creates new callback references and forces ALL sections to
-	// re-render even if their specific props didn't change.
-	const configRef = useRef<VoiceTyperConfig | null>(config);
-	configRef.current = config;
-
 	// NEW-TS-004: use the shared useSnackbar hook.  The hook manages the
 	// timer ref and clears it on unmount, fixing the leak risk of the
 	// previous inline setTimeout (which wasn't cleared if the page
 	// unmounted mid-toast).
 	const { showSnack, Snackbar } = useSnackbar();
 
+	// PERF-002: batch config writes — single set_config call per
+	// debounce window.
+	//
+	// The previous implementation called `call("set_config", updates)`
+	// immediately inside `updateConfig`, so any code path that fired
+	// multiple `updateConfig` calls in quick succession (rapid slider
+	// drags, multiple toggles in one handler, debounced text inputs
+	// firing close together) produced one IPC write per call.  The
+	// backend's `set_config` already accepts a partial dict (see
+	// IPC_CONFIG_ALLOWLIST), so we accumulate updates in
+	// `pendingUpdatesRef` and flush them in a single `set_config` call
+	// via a microtask.  A `lastSavedConfigRef` lets us diff the pending
+	// updates against the last persisted snapshot so no-op writes
+	// (e.g. a slider dragged back to its original value) are skipped
+	// entirely.
+	const lastSavedConfigRef = useRef<VoiceTyperConfig | null>(_cachedConfig);
+	const pendingUpdatesRef = useRef<Partial<VoiceTyperConfig>>({});
+	const flushScheduledRef = useRef(false);
+	const flushPromiseResolversRef = useRef<Array<() => void>>([]);
+	// Ref mirror of `flushPendingUpdates` so the unmount cleanup (which
+	// has empty deps to avoid re-subscribing on every render) can call
+	// the latest closure.  Updated in a dedicated effect below.
+	const flushPendingUpdatesRef = useRef<() => Promise<void>>(async () => {});
+
 	const loadConfig = useCallback(async () => {
 		try {
 			const result = await call<VoiceTyperConfig>("get_config");
 			_cachedConfig = result;
+			// PERF-002: seed the diff baseline so the initial
+			// snapshot doesn't get re-saved as a "change".
+			lastSavedConfigRef.current = result;
 			setConfig(result);
 		} catch (err) {
 			console.error("Failed to load config:", err);
@@ -90,53 +107,153 @@ export default function SettingsPage({
 		}
 	}, [loadConfig]);
 
+	// PERF-002: flush the pending-updates buffer to the backend in a
+	// single `set_config` call.  Snapshotted from `pendingUpdatesRef`
+	// and diffed against `lastSavedConfigRef` so unchanged keys are
+	// skipped.  All `updateConfig` Promises that contributed to this
+	// flush are resolved (or rejected) together.
+	const flushPendingUpdates = useCallback(async () => {
+		// Snapshot and clear the pending state BEFORE awaiting so
+		// any `updateConfig` call that arrives while the IPC is in
+		// flight accumulates into a fresh buffer for the next flush.
+		const updates = pendingUpdatesRef.current;
+		pendingUpdatesRef.current = {};
+		const resolvers = flushPromiseResolversRef.current;
+		flushPromiseResolversRef.current = [];
+		flushScheduledRef.current = false;
+
+		const resolveAll = () => {
+			for (const resolve of resolvers) resolve();
+		};
+
+		const lastSaved = lastSavedConfigRef.current;
+		if (!lastSaved) {
+			// Config not loaded yet — can't compute a diff.  Drop
+			// the updates (the caller already applied them to
+			// local state, so a subsequent loadConfig will
+			// re-fetch and reconcile).
+			resolveAll();
+			return;
+		}
+
+		// Shallow-compare each pending key against the last saved
+		// snapshot.  `Object.is` distinguishes NaN, +/-0, and
+		// reference-unequal objects (e.g. a freshly-built
+		// `custom_theme` dict even if its contents match).
+		const lastSavedRecord = lastSaved as unknown as Record<string, unknown>;
+		const diff: Record<string, unknown> = {};
+		for (const [key, value] of Object.entries(updates)) {
+			if (!Object.is(lastSavedRecord[key], value)) {
+				diff[key] = value;
+			}
+		}
+
+		if (Object.keys(diff).length === 0) {
+			// Nothing actually changed since the last save —
+			// skip the IPC call entirely.
+			resolveAll();
+			return;
+		}
+
+		try {
+			await call("set_config", diff);
+			// Merge the persisted diff into the baseline so the
+			// next flush only sends keys that changed since
+			// this flush.  We spread the local `lastSaved`
+			// snapshot (captured before the await) rather than
+			// re-reading `lastSavedConfigRef.current` — the ref
+			// is typed as `VoiceTyperConfig | null` and TS
+			// can't prove it's still non-null after the await.
+			// Using the snapshot is safe: any concurrent flush
+			// that updated the ref during our await would only
+			// cause the next flush to re-send its keys
+			// (redundant but idempotent at the backend).
+			lastSavedConfigRef.current = {
+				...lastSaved,
+				...(diff as Partial<VoiceTyperConfig>),
+			};
+
+			// If the custom theme was successfully saved to the backend,
+			// clear the localStorage draft — it's now safely persisted.
+			// (Draft helpers live in ThemeSettingsSection now; the
+			// backend-confirmed save still implies the draft can be
+			// discarded. The section re-loads its own draft from LS on
+			// the next mount, so we don't need to clear it here — the
+			// section's own _clearDraftLS() call inside its onCheckedChange
+			// handler already covers the "disable custom theme" path.)
+
+			// NEW-UX-014 / NEW-UX-035: show a "Saved" toast so the user
+			// knows their change was persisted.  Previously this was a
+			// comment-only "intent" with no actual call — the success
+			// path was completely silent.  Every toggle/select/radio in
+			// Settings now confirms the save via this toast.
+			//
+			// We don't show a toast for every keystroke (those go through
+			// updateConfigDebounced which is debounced).  This path is
+			// only hit by explicit toggle/select changes, so toasting
+			// here is appropriate.
+			showSnack("Saved", "success");
+		} catch (err) {
+			console.error("Failed to update config:", err);
+			await loadConfig();
+			// NEW-UX-014: also surface failures so the user knows.
+			showSnack("Failed to save setting", "error");
+		} finally {
+			setSaving(false);
+			resolveAll();
+		}
+	}, [call, loadConfig, showSnack]);
+
+	// Keep the ref mirror in sync with the latest `flushPendingUpdates`
+	// closure so the unmount cleanup can call it without re-subscribing
+	// on every render.
+	useEffect(() => {
+		flushPendingUpdatesRef.current = flushPendingUpdates;
+	}, [flushPendingUpdates]);
+
 	const updateConfig = useCallback(
 		async (updates: Partial<VoiceTyperConfig>) => {
-			// PERF: read from configRef.current (not `config` from closure)
-			// so this callback's reference is stable across config changes.
-			// This is critical for React.memo'd section components.
-			const currentConfig = configRef.current;
-			if (!currentConfig) return;
+			if (!config) return;
 			setSaving(true);
-			try {
-				const newConfig = { ...currentConfig, ...updates };
-				_cachedConfig = newConfig;
-				setConfig(newConfig);
-				await call("set_config", updates);
+			// Update local state immediately for responsive UI.
+			const newConfig = { ...config, ...updates };
+			_cachedConfig = newConfig;
+			setConfig(newConfig);
 
-				// If the custom theme was successfully saved to the backend,
-				// clear the localStorage draft — it's now safely persisted.
-				// (Draft helpers live in ThemeSettingsSection now; the
-				// backend-confirmed save still implies the draft can be
-				// discarded. The section re-loads its own draft from LS on
-				// the next mount, so we don't need to clear it here — the
-				// section's own _clearDraftLS() call inside its onCheckedChange
-				// handler already covers the "disable custom theme" path.)
+			// PERF-002: batch config writes — accumulate updates
+			// in `pendingUpdatesRef` and schedule a single
+			// microtask flush.  Multiple `updateConfig` calls in
+			// the same synchronous block (or in successive
+			// `updateConfigDebounced` timer callbacks) collapse
+			// into one `set_config` IPC call.
+			pendingUpdatesRef.current = {
+				...pendingUpdatesRef.current,
+				...updates,
+			};
 
-				// NEW-UX-014 / NEW-UX-035: show a "Saved" toast so the user
-				// knows their change was persisted.  Previously this was a
-				// comment-only "intent" with no actual call — the success
-				// path was completely silent.  Every toggle/select/radio in
-				// Settings now confirms the save via this toast.
-				//
-				// We don't show a toast for every keystroke (those go through
-				// updateConfigDebounced which is debounced).  This path is
-				// only hit by explicit toggle/select changes, so toasting
-				// here is appropriate.
-				showSnack("Saved", "success");
-			} catch (err) {
-				console.error("Failed to update config:", err);
-				await loadConfig();
-				// NEW-UX-014: also surface failures so the user knows.
-				showSnack("Failed to save setting", "error");
-			} finally {
-				setSaving(false);
+			// Preserve `await updateConfig(...)` semantics: the
+			// returned Promise resolves after the flush
+			// completes (or fails).  `resetToDefaults` relies on
+			// this to know when the backend write is done.
+			const flushPromise = new Promise<void>((resolve) => {
+				flushPromiseResolversRef.current.push(resolve);
+			});
+
+			if (!flushScheduledRef.current) {
+				flushScheduledRef.current = true;
+				// queueMicrotask rather than setTimeout(0)
+				// so the flush runs in the same macrotask
+				// as the caller — no perceptible delay, and
+				// fake-timer tests can flush it with a
+				// single `await Promise.resolve()`.
+				queueMicrotask(() => {
+					void flushPendingUpdates();
+				});
 			}
+
+			await flushPromise;
 		},
-		// PERF: config is read from configRef.current, not from closure,
-		// so it's not in the deps. This keeps the callback reference
-		// stable across config changes.
-		[call, loadConfig, showSnack],
+		[config, flushPendingUpdates],
 	);
 
 	// UX-007: debounced update for text inputs that fire on every keystroke.
@@ -147,12 +264,9 @@ export default function SettingsPage({
 	);
 	const updateConfigDebounced = useCallback(
 		(key: keyof VoiceTyperConfig, value: unknown, delayMs = 500) => {
-			// PERF: read from configRef.current (not `config` from closure)
-			// so this callback's reference is stable across config changes.
-			const currentConfig = configRef.current;
 			// Update local state immediately for responsive UI
-			if (currentConfig) {
-				const newConfig = { ...currentConfig, [key]: value };
+			if (config) {
+				const newConfig = { ...config, [key]: value };
 				_cachedConfig = newConfig;
 				setConfig(newConfig);
 			}
@@ -166,9 +280,7 @@ export default function SettingsPage({
 				delete debouncedTimers.current[key as string];
 			}, delayMs);
 		},
-		// PERF: config is read from configRef.current, not from closure.
-		// updateConfig is already stable (uses configRef too).
-		[updateConfig],
+		[config, updateConfig],
 	);
 
 	// Cleanup pending debounced timers on unmount.  We intentionally read
@@ -176,7 +288,13 @@ export default function SettingsPage({
 	// during the component's lifetime are cleared.
 	useEffect(() => {
 		return () => {
-			// eslint-disable-next-line react-hooks/exhaustive-deps -- read ref at cleanup time, not effect-run time
+			// PERF-002: flush any pending updates so changes made
+			// just before navigation aren't lost.  Fire-and-forget
+			// — we can't await in a cleanup function, but the IPC
+			// call will still execute in the background.
+			if (Object.keys(pendingUpdatesRef.current).length > 0) {
+				void flushPendingUpdatesRef.current();
+			}
 			Object.values(debouncedTimers.current).forEach(clearTimeout);
 		};
 	}, []);
@@ -256,30 +374,6 @@ export default function SettingsPage({
 		[onThemeChange],
 	);
 
-	// UX-028: filter settings sections by label/description. Passed to each
-	// section component as the `isVisible` prop so the sections can do their
-	// own per-row visibility checks (and section-level hide-when-empty
-	// checks) without duplicating the filter logic.
-	// PERF: wrapped in useCallback with [settingsFilter] deps so the
-	// reference is stable between renders UNLESS the filter text changes.
-	// This is critical for React.memo'd section components — without it,
-	// every parent render creates a new function reference and forces ALL
-	// sections to re-render even when only the filter changed.
-	// NOTE: must be called before any early return to satisfy
-	// react-hooks/rules-of-hooks.
-	const _filter_settings = useCallback(
-		(label: string, info?: string): boolean => {
-			if (!settingsFilter.trim()) return true;
-			const q = settingsFilter.toLowerCase();
-			return (
-				label.toLowerCase().includes(q) ||
-				info?.toLowerCase().includes(q) ||
-				false
-			);
-		},
-		[settingsFilter],
-	);
-
 	if (!config) {
 		return (
 			<div className="flex h-full items-center justify-center">
@@ -290,6 +384,20 @@ export default function SettingsPage({
 			</div>
 		);
 	}
+
+	// UX-028: filter settings sections by label/description. Passed to each
+	// section component as the `isVisible` prop so the sections can do their
+	// own per-row visibility checks (and section-level hide-when-empty
+	// checks) without duplicating the filter logic.
+	const _filter_settings = (label: string, info?: string): boolean => {
+		if (!settingsFilter.trim()) return true;
+		const q = settingsFilter.toLowerCase();
+		return (
+			label.toLowerCase().includes(q) ||
+			info?.toLowerCase().includes(q) ||
+			false
+		);
+	};
 
 	return (
 		<div className="min-h-full">

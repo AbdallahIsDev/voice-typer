@@ -25,7 +25,16 @@ from __future__ import annotations
 import logging
 from typing import Callable, Optional
 
-import pystray
+# PERF-COLDSTART-001: lazy import — pystray's xorg backend calls
+# Xlib.display.Display() at module import time, costing ~48 ms and
+# failing without an X display (headless CI). pystray is only needed
+# when build_menu() actually constructs menu items, so defer it. The
+# proxy re-reads sys.modules on every access, so tests that inject a
+# mock via monkeypatch.setitem(sys.modules, "pystray", ...) — or that
+# assign tray_menu.pystray directly — keep working unchanged.
+from voice_typer.server._lazy_import import lazy_module
+
+pystray = lazy_module("pystray")
 
 from voice_typer.server.tray_hotkey import format_hotkey_label
 
