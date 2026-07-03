@@ -450,7 +450,7 @@ class Config:
     # _validate_non_numeric_fields when a field had an invalid type
     # and was reset to default. The IPC layer can surface these to
     # the renderer so the user knows their config was corrected.
-    last_load_warnings: list = None  # type: ignore[assignment]
+    last_load_warnings: Optional[list] = None
 
     # Hotkey
     # NATIVE-001 / FIX-HOTKEY-ARCHITECTURE: default hotkey is now
@@ -648,7 +648,7 @@ class Config:
     theme_preset: str = "default"
     # User-customised theme colours (only used when theme_preset == "custom").
     # Stored as nested dict: {"light": {var: val, ...}, "dark": {var: val, ...}}
-    custom_theme: dict = None
+    custom_theme: Optional[dict] = None
 
     # UX-036: Accessibility
     high_contrast: bool = False

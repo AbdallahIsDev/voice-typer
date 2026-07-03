@@ -185,7 +185,7 @@ class StreamingTextAssembler:
     # a ``_base_offset`` counter so the external ``_word_key_index``
     # stores ABSOLUTE indices that don't shift on eviction.
     _MAX_WORDS = 10000
-    _words: collections.deque = field(
+    _words: collections.deque[WordTiming] = field(
         default_factory=lambda: collections.deque(maxlen=StreamingTextAssembler._MAX_WORDS)
     )
     # AUDIO-019: number of items evicted from the front of ``_words``.

@@ -32,12 +32,17 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/pyproject.toml"
+
       - name: Install dependencies
         run: |
-          pip install --upgrade pip
-          pip install ".[test]"
+          uv pip install --system ".[test]"
           # NEW-CI-001: install lint + audit tools.
-          pip install ruff pip-audit
+          uv pip install --system ruff pip-audit
           pip list
 
       - name: Run ruff linter
@@ -52,14 +57,16 @@ jobs:
       # pyproject.toml).
       #
       # TODO: remove continue-on-error once pyrefly is clean. Currently
-      # the voice_typer/ tree reports ~276 errors (mostly missing-import
-      # on platform-only deps like pycaw / webrtc-audio-processing and
-      # legacy untyped attrs), so this is a soft gate that surfaces
-      # results without blocking PRs.
+      # the voice_typer/ tree reports ~299 errors (down from 335 after
+      # adding local stubs for platform-only deps in voice_typer/stubs/).
+      # Remaining errors are mostly missing-attribute on NoneType and
+      # ctypes.windll — real null-safety findings that need code fixes,
+      # not stubs. This is a soft gate that surfaces results without
+      # blocking PRs.
       - name: Run pyrefly type check
         continue-on-error: true
         run: |
-          pip install pyrefly
+          uv pip install --system pyrefly
           pyrefly check voice_typer/
 
       - name: Run tests with coverage
@@ -98,10 +105,15 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/pyproject.toml"
+
       - name: Install dependencies
         run: |
-          pip install --upgrade pip
-          pip install ".[test]"
+          uv pip install --system ".[test]"
           pip list
 
       - name: Run slow manual-script wrappers
@@ -121,7 +133,7 @@ jobs:
           python-version: "3.12"
       - name: Check version sync
         run: |
-          pip install -e ".[test]"
+          uv pip install --system -e ".[test]"
           python scripts/build/sync_versions.py
           python -c "from voice_typer import __version__; print(__version__)"
 
@@ -293,11 +305,16 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/pyproject.toml"
+
       - name: Install Python dependencies
         run: |
-          pip install --upgrade pip
-          pip install ".[build]"
-          pip install .
+          uv pip install --system ".[build]"
+          uv pip install --system .
           pip list
 
       # GAP-1: download the Windows native binary compiled by build-native
@@ -398,11 +415,16 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/pyproject.toml"
+
       - name: Install Python dependencies
         run: |
-          pip install --upgrade pip
-          pip install ".[build]"
-          pip install .
+          uv pip install --system ".[build]"
+          uv pip install --system .
           pip list
 
       - name: Download macOS native binary
@@ -475,11 +497,16 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/pyproject.toml"
+
       - name: Install Python dependencies
         run: |
-          pip install --upgrade pip
-          pip install ".[build]"
-          pip install .
+          uv pip install --system ".[build]"
+          uv pip install --system .
           pip list
 
       - name: Download Linux native binary
