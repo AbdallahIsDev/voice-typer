@@ -231,7 +231,7 @@ def _check_macos_accessibility() -> PermissionState:
     without it).
     """
     try:
-        from CoreFoundation import CFDictionaryCreate, kCFBooleanTrue
+        from CoreFoundation import CFDictionaryCreate
         from ApplicationServices import AXIsProcessTrustedWithOptions
         # AXIsProcessTrustedWithOptions takes an options dict; passing
         # kAXTrustedCheckOptionPrompt=True would pop the OS dialog.

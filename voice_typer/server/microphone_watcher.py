@@ -13,9 +13,13 @@ Platform support
 - **Linux**: polls ``/dev/snd`` directory listings at a configurable
   interval (default 1s) — lighter than PortAudio's 30s cache and
   doesn't require ``pyinotify`` as a dependency.
-- **macOS**: not implemented (falls back to the 30s TTL polling in
-  ``recording.py``). A future iteration can wire up CoreAudio's
-  ``kAudioDevicePropertyListenerProc`` via ``pyobjc``.
+- **macOS**: polls ``sounddevice.query_devices()`` (which wraps
+  CoreAudio) at the configured interval. A property-listener
+  approach via ``AudioObjectAddPropertyListener`` would be more
+  elegant but requires a CFRunLoop on the watcher thread, which is
+  hard to test and to shut down cleanly. The polling approach is
+  consistent with the Linux implementation and degrades to the 30s
+  TTL cache if ``sounddevice``/PortAudio is unavailable.
 
 The watcher runs in a daemon thread and calls the registered
 invalidation callback when a device change is detected. The
@@ -101,7 +105,7 @@ class MicrophoneDeviceWatcher:
         """
         if self._thread is not None:
             return
-        if self._platform not in ("windows", "linux"):
+        if self._platform not in ("windows", "linux", "macos"):
             log.debug(
                 "[MIC-WATCHER] Platform %s not supported, "
                 "falling back to TTL polling",
@@ -163,6 +167,8 @@ class MicrophoneDeviceWatcher:
                 self._run_windows()
             elif self._platform == "linux":
                 self._run_linux()
+            elif self._platform == "macos":
+                self._run_macos()
         except Exception:
             log.warning(
                 "[MIC-WATCHER] Watcher thread crashed, "
@@ -225,6 +231,82 @@ class MicrophoneDeviceWatcher:
                 )
                 last_entries = current
                 self._invoke_callback()
+
+    # ── macOS implementation ──────────────────────────────────────────
+
+    def _run_macos(self) -> None:
+        """Watch for CoreAudio device changes by polling ``sounddevice``.
+
+        Uses ``sounddevice.query_devices()`` (which wraps PortAudio,
+        which in turn talks to CoreAudio) to get the current device
+        list every ``poll_interval`` seconds. When the device count
+        changes, ``_invoke_callback()`` fires.
+
+        A property-listener approach via
+        ``AudioObjectAddPropertyListener`` on
+        ``kAudioHardwarePropertyDevices`` would be more elegant
+        (event-driven, no polling), but it requires a running
+        ``CFRunLoop`` on the watcher thread — which is awkward to
+        integrate with the ``_stop_event`` shutdown pattern used by
+        the Linux/Windows runners and hard to unit-test on non-mac
+        CI. The polling approach is consistent with ``_run_linux``
+        and degrades gracefully if ``sounddevice`` or PortAudio is
+        unavailable.
+
+        Falls back silently to the 30s TTL cache in ``recording.py``
+        if ``sounddevice`` cannot be imported (e.g. PortAudio not
+        installed) or if ``query_devices`` raises persistently —
+        matching the Linux watcher's behavior when ``/dev/snd`` is
+        missing.
+        """
+        try:
+            import sounddevice as sd
+        except ImportError:
+            log.debug(
+                "[MIC-WATCHER] sounddevice not importable on macOS, "
+                "falling back to TTL polling"
+            )
+            return
+
+        # Capture the baseline device count. query_devices can raise
+        # PortAudioError on a fresh boot before the audio HAL is
+        # ready — treat that as "no baseline yet" so the first
+        # successful poll doesn't spuriously fire a callback.
+        try:
+            last_count: Optional[int] = len(sd.query_devices())
+        except Exception:
+            last_count = None
+            log.debug(
+                "[MIC-WATCHER] initial sd.query_devices() failed, "
+                "deferring baseline capture",
+                exc_info=True,
+            )
+
+        log.debug(
+            "[MIC-WATCHER] watching macOS device count (initial=%s)",
+            last_count,
+        )
+        while not self._stop_event.wait(self._poll_interval):
+            try:
+                current_count = len(sd.query_devices())
+            except Exception:
+                # Transient PortAudio error — skip this cycle. The
+                # TTL cache will refresh on the next list_microphones
+                # call regardless.
+                log.debug(
+                    "[MIC-WATCHER] macOS poll failed, skipping cycle",
+                    exc_info=True,
+                )
+                continue
+            if last_count is not None and current_count != last_count:
+                log.debug(
+                    "[MIC-WATCHER] macOS device count changed (%d -> %d), "
+                    "invalidating cache",
+                    last_count,
+                    current_count,
+                )
+                self._invoke_callback()
+            last_count = current_count
 
     # ── Windows implementation ────────────────────────────────────────
 

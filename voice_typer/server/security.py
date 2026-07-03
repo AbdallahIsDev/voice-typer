@@ -13,7 +13,6 @@ import logging
 import os
 import re
 import secrets
-import sys
 from pathlib import Path
 
 log = logging.getLogger(__name__)

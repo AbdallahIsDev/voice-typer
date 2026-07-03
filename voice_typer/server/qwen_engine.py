@@ -255,6 +255,15 @@ class QwenEngine:
         allows for future optimization (parallel GPU streams, batched
         attention, etc.).
 
+        Design rationale: the sequential implementation is acceptable
+        because Voice Typer is a single-user desktop application — only
+        one dictation session is active at a time, so batch calls are
+        rare (mainly used for segmented transcription of a single
+        recording). The sequential path keeps the code simple and
+        avoids GPU memory fragmentation from parallel streams. A
+        future multi-user or server deployment would justify revisiting
+        this design decision.
+
         Parameters
         ----------
         audio_chunks : list[np.ndarray]
