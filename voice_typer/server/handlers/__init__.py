@@ -38,6 +38,9 @@ from voice_typer.server.handlers.level_monitor_handlers import (
 )
 from voice_typer.server.handlers.model_handlers import ModelHandlersMixin
 from voice_typer.server.handlers.system_handlers import SystemHandlersMixin
+from voice_typer.server.handlers.vocabulary_automation_handlers import (
+    VocabularyAutomationHandlersMixin,
+)
 
 __all__ = [
     "ConfigHandlersMixin",
@@ -52,4 +55,5 @@ __all__ = [
     "LevelMonitorHandlersMixin",
     "ModelHandlersMixin",
     "SystemHandlersMixin",
+    "VocabularyAutomationHandlersMixin",
 ]

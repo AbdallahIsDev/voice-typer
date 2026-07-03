@@ -5,12 +5,24 @@ The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 """
 
+from typing import Any
 from voice_typer.server.ipc_server import log, _push_event_now
 from voice_typer.server.config import validate_config_update
 
 
 class ConfigHandlersMixin:
     """Mixin: config-related IPC handlers (get_config / get_defaults / set_config)."""
+
+    # ARCH-REFAC-002 / TASK-10: pyrefly null-safety fix.
+    # These attributes are provided at runtime by the IPCServer host
+    # class via multiple inheritance. Declaring them as ``Any`` here
+    # lets pyrefly type-check the mixin methods in isolation without
+    # requiring a Protocol that would couple the mixin to a specific
+    # service/app implementation (MagicMock fixtures in tests rely on
+    # the loose typing).
+    service: "Any"
+    app: "Any"
+    _send: "Any"
 
     def _handle_get_config(self, data, resp) -> dict | None:
         """Handle the ``get_config`` IPC command."""
