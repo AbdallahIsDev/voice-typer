@@ -1686,6 +1686,15 @@ class VoiceTyperApp:
                 except Exception as e2:
                     log.warning("[SHUTDOWN] recorder.discard() also failed: %s", e2)
 
+        # PERF-MIC-001: stop the OS-event device watcher so its daemon
+        # thread exits cleanly before the process tears down. Best-effort
+        # — the thread is a daemon and would die on process exit anyway,
+        # but explicit stop() avoids a 2s join race during GC.
+        try:
+            self.recorder.shutdown_mic_watcher()
+        except Exception as e:
+            log.debug("[SHUTDOWN] mic watcher shutdown failed: %s", e)
+
         # Restore volume if we were ducked when the app quit.
         # Without this, a quit-during-recording leaves volume stuck low.
         # Use fade_ms=0 for instant restore — the app is exiting.

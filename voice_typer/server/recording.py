@@ -342,6 +342,31 @@ class Recorder:
         self._device_list_cache_time: float = 0.0
         self._device_list_cache_ttl: float = 30.0  # seconds
 
+        # PERF-MIC-001: OS-event-driven cache invalidation. The watcher
+        # runs in a daemon thread and calls _invalidate_device_cache()
+        # when the OS reports a device plug/unplug event (WM_DEVICECHANGE
+        # on Windows, /dev/snd dir change on Linux). The 30s TTL above
+        # remains as a fallback for platforms where the watcher can't
+        # start (macOS) or for the case where the watcher thread crashes.
+        self._mic_watcher: Optional[Any] = None
+        try:
+            from voice_typer.server.microphone_watcher import (
+                MicrophoneDeviceWatcher,
+            )
+            self._mic_watcher = MicrophoneDeviceWatcher(
+                on_change=self._invalidate_device_cache
+            )
+            self._mic_watcher.start()
+        except Exception:
+            # Watcher is best-effort — the 30s TTL cache covers the
+            # case where the watcher fails to start.
+            log.warning(
+                "[RECORDING] mic device watcher failed to start, "
+                "falling back to 30s TTL polling",
+                exc_info=True,
+            )
+            self._mic_watcher = None
+
         # H12: Silent mic disconnection detection
         self._silence_timer: float = 0.0
         # AUDIO-013: absolute timestamp for silence start, prevents
@@ -437,6 +462,58 @@ class Recorder:
         except Exception as e:
             log.debug("[RECORDING] Could not enumerate devices: %s", e)
             return self._device_list_cache or []
+
+    def _invalidate_device_cache(self) -> None:
+        """Reset the device-list cache so the next ``_refresh_device_list``
+        call re-queries PortAudio.
+
+        PERF-MIC-001: called by ``MicrophoneDeviceWatcher`` from its
+        daemon thread when the OS reports a device plug/unplug event
+        (``WM_DEVICECHANGE`` on Windows, ``/dev/snd`` change on Linux).
+        The 30s TTL cache in ``_refresh_device_list`` remains as a
+        fallback for platforms where the watcher can't start (macOS)
+        or for the case where the watcher thread crashes.
+
+        Thread-safety: writes to ``_device_list_cache`` and
+        ``_device_list_cache_time`` are simple attribute assignments
+        guarded by the GIL. A concurrent reader in
+        ``_refresh_device_list`` may see either the old or new value
+        — both are correct (the reader either returns the stale cache
+        for one more call, or re-queries immediately).
+        """
+        self._device_list_cache = None
+        self._device_list_cache_time = 0.0
+        log.debug(
+            "[RECORDING] Device cache invalidated by OS-event watcher"
+        )
+
+    def shutdown_mic_watcher(self) -> None:
+        """Stop the microphone device-change watcher.
+
+        Called explicitly from ``VoiceTyperApp.quit_app()`` during
+        shutdown and defensively from ``__del__``. Safe to call even
+        if the watcher never started (``_mic_watcher`` is None).
+        """
+        watcher = getattr(self, "_mic_watcher", None)
+        if watcher is None:
+            return
+        try:
+            watcher.stop()
+        except Exception:
+            log.debug(
+                "[RECORDING] mic watcher stop failed", exc_info=True
+            )
+        self._mic_watcher = None
+
+    def __del__(self) -> None:
+        """Best-effort cleanup of the mic watcher. Must never raise."""
+        try:
+            self.shutdown_mic_watcher()
+        except Exception:
+            # __del__ must never raise — Python logs and ignores it,
+            # but we don't want to add noise during interpreter
+            # teardown.
+            pass
 
     # ── AUDIO-HOT: hot-plug disconnect handling ─────────────────────────
 
