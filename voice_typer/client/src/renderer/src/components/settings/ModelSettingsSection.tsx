@@ -2,10 +2,10 @@
 // Settings page.
 //
 // Extracted from src/renderer/src/pages/Settings.tsx. Renders two
-// SettingsSection blocks: "Post-Processing" (Language, Auto Punctuation,
-// Text Cleanup, Text Snippets, Vocabulary) and "LLM Polishing" (Enable,
-// API Key, API URL, Model, Preset). Behaviour is identical to the
-// previous monolithic implementation; both sections are always rendered
+// SettingsSection blocks: "Post-Processing" (Transcription Language, Auto
+// Punctuation, Text Cleanup, Text Snippets, Vocabulary) and "LLM Polishing"
+// (Enable, API Key, API URL, Model, Preset). Behaviour is identical to
+// the previous monolithic implementation; both sections are always rendered
 // (no search-filter hide-when-empty wrapper, matching the original).
 
 import { memo, useState } from "react";
@@ -21,54 +21,53 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { t } from "@/i18n/i18n";
 import { SettingsSkeleton } from "./SettingsSkeleton";
 
 import type { SettingsSectionSharedProps } from "./types";
 
+// UX-015: dropdown option labels are translated at render time so they
+// follow the user's chosen UI language. No `description` field is set
+// on any entry — earlier versions shipped inconsistent per-language
+// descriptions (only English and Auto-detect had them), which made the
+// dropdown look broken in other languages. Descriptions were removed
+// entirely for consistency.
 const LANGUAGE_OPTIONS = [
-	{
-		value: "auto",
-		label: "Auto-detect",
-		description: "Any language — no hallucination filtering",
-	},
-	{
-		value: "en",
-		label: "English",
-		description: "Enables Latin-script hallucination filter",
-	},
-	{ value: "zh", label: "Chinese" },
-	{ value: "es", label: "Spanish" },
-	{ value: "ar", label: "Arabic" },
-	{ value: "fr", label: "French" },
-	{ value: "ru", label: "Russian" },
-	{ value: "pt", label: "Portuguese" },
-	{ value: "de", label: "German" },
-	{ value: "ja", label: "Japanese" },
-	{ value: "ko", label: "Korean" },
-	{ value: "it", label: "Italian" },
-	{ value: "nl", label: "Dutch" },
-	{ value: "pl", label: "Polish" },
-	{ value: "tr", label: "Turkish" },
-	{ value: "vi", label: "Vietnamese" },
-	{ value: "th", label: "Thai" },
-	{ value: "hi", label: "Hindi" },
-	{ value: "id", label: "Indonesian" },
-	{ value: "sv", label: "Swedish" },
-	{ value: "da", label: "Danish" },
-	{ value: "fi", label: "Finnish" },
-	{ value: "no", label: "Norwegian" },
-	{ value: "cs", label: "Czech" },
-	{ value: "ro", label: "Romanian" },
-	{ value: "hu", label: "Hungarian" },
-	{ value: "el", label: "Greek" },
-	{ value: "he", label: "Hebrew" },
+	{ value: "auto", labelKey: "settings.languageAutoDetect" },
+	{ value: "en", labelKey: "settings.languageEnglish" },
+	{ value: "zh", labelKey: "settings.languageChinese" },
+	{ value: "es", labelKey: "settings.languageSpanish" },
+	{ value: "ar", labelKey: "settings.languageArabic" },
+	{ value: "fr", labelKey: "settings.languageFrench" },
+	{ value: "ru", labelKey: "settings.languageRussian" },
+	{ value: "pt", labelKey: "settings.languagePortuguese" },
+	{ value: "de", labelKey: "settings.languageGerman" },
+	{ value: "ja", labelKey: "settings.languageJapanese" },
+	{ value: "ko", labelKey: "settings.languageKorean" },
+	{ value: "it", labelKey: "settings.languageItalian" },
+	{ value: "nl", labelKey: "settings.languageDutch" },
+	{ value: "pl", labelKey: "settings.languagePolish" },
+	{ value: "tr", labelKey: "settings.languageTurkish" },
+	{ value: "vi", labelKey: "settings.languageVietnamese" },
+	{ value: "th", labelKey: "settings.languageThai" },
+	{ value: "hi", labelKey: "settings.languageHindi" },
+	{ value: "id", labelKey: "settings.languageIndonesian" },
+	{ value: "sv", labelKey: "settings.languageSwedish" },
+	{ value: "da", labelKey: "settings.languageDanish" },
+	{ value: "fi", labelKey: "settings.languageFinnish" },
+	{ value: "no", labelKey: "settings.languageNorwegian" },
+	{ value: "cs", labelKey: "settings.languageCzech" },
+	{ value: "ro", labelKey: "settings.languageRomanian" },
+	{ value: "hu", labelKey: "settings.languageHungarian" },
+	{ value: "el", labelKey: "settings.languageGreek" },
+	{ value: "he", labelKey: "settings.languageHebrew" },
 ];
 
 const LLM_PRESET_OPTIONS = [
-	{ value: "professional", label: "Professional" },
-	{ value: "casual", label: "Casual" },
-	{ value: "email", label: "Email" },
-	{ value: "code", label: "Code" },
+	{ value: "professional", labelKey: "settings.presetProfessional" },
+	{ value: "casual", labelKey: "settings.presetCasual" },
+	{ value: "email", labelKey: "settings.presetEmail" },
+	{ value: "code", labelKey: "settings.presetCode" },
 ] as const;
 
 export const ModelSettingsSection = memo(function ModelSettingsSection({
@@ -85,12 +84,12 @@ export const ModelSettingsSection = memo(function ModelSettingsSection({
 		<>
 			{/* ── SECTION: Post-Processing ──────────────────────────── */}
 			<SettingsSection
-				title="Post-Processing"
-				description="Cleanup, corrections, and language."
+				title={t("settings.postProcessing")}
+				description={t("settings.postProcessingDescription")}
 			>
 				<SettingRow
-					label="Language"
-					info="Auto-detect the spoken language, or pick one for better accuracy."
+					label={t("settings.transcriptionLanguage")}
+					info={t("settings.transcriptionLanguageDescription")}
 				>
 					<Select
 						value={config.language || "auto"}
@@ -98,18 +97,16 @@ export const ModelSettingsSection = memo(function ModelSettingsSection({
 							updateConfig({ language: v === "auto" ? "" : v })
 						}
 					>
-						<SelectTrigger className="w-44" aria-label="Language">
+						<SelectTrigger
+							className="w-44"
+							aria-label={t("settings.transcriptionLanguage")}
+						>
 							<SelectValue />
 						</SelectTrigger>
 						<SelectContent>
 							{LANGUAGE_OPTIONS.map((lang) => (
 								<SelectItem key={lang.value} value={lang.value}>
-									<span>{lang.label}</span>
-									{lang.description && (
-										<span className="ml-2 text-[10px] text-(--text-muted)">
-											{lang.description}
-										</span>
-									)}
+									<span>{t(lang.labelKey)}</span>
 								</SelectItem>
 							))}
 						</SelectContent>
@@ -117,79 +114,79 @@ export const ModelSettingsSection = memo(function ModelSettingsSection({
 				</SettingRow>
 
 				<SettingRow
-					label="Auto Punctuation"
-					info="Add periods, commas, and question marks automatically."
+					label={t("settings.autoPunctuation")}
+					info={t("settings.autoPunctuationInfo")}
 				>
 					<Switch
 						checked={config.auto_punctuation ?? false}
 						onCheckedChange={(checked) =>
 							updateConfig({ auto_punctuation: checked })
 						}
-						aria-label="Auto Punctuation"
+						aria-label={t("settings.autoPunctuation")}
 					/>
 				</SettingRow>
 
 				<SettingRow
-					label="Text Cleanup"
-					info="Fix common misspellings, remove repeated words, and capitalize sentences."
+					label={t("settings.textCleanupLabel")}
+					info={t("settings.textCleanupInfo")}
 				>
 					<Switch
 						checked={config.text_cleanup_enabled}
 						onCheckedChange={(checked) =>
 							updateConfig({ text_cleanup_enabled: checked })
 						}
-						aria-label="Text Cleanup"
+						aria-label={t("settings.textCleanupLabel")}
 					/>
 				</SettingRow>
 
 				<SettingRow
-					label="Text Snippets"
-					info="Use voice commands to insert pre-written text snippets with placeholders."
+					label={t("settings.textSnippets")}
+					info={t("settings.textSnippetsInfo")}
 				>
 					<Switch
 						checked={config.templates_enabled ?? true}
 						onCheckedChange={(checked) =>
 							updateConfig({ templates_enabled: checked })
 						}
-						aria-label="Text Snippets"
+						aria-label={t("settings.textSnippets")}
 					/>
 				</SettingRow>
 
 				<SettingRow
-					label="Vocabulary"
-					info="Custom word replacements so the transcription uses your preferred terms."
+					label={t("settings.vocabulary")}
+					info={t("settings.vocabularyInfo")}
 				>
 					<Switch
 						checked={config.vocabulary_enabled ?? true}
 						onCheckedChange={(checked) =>
 							updateConfig({ vocabulary_enabled: checked })
 						}
-						aria-label="Vocabulary"
+						aria-label={t("settings.vocabulary")}
 					/>
 				</SettingRow>
 			</SettingsSection>
 
 			{/* ── SECTION: LLM Polishing ────────────────────────────── */}
 			<SettingsSection
-				title="LLM Polishing"
-				description="AI-powered transcription enhancement."
+				title={t("settings.llmPolishing")}
+				description={t("settings.llmPolishingDescription2")}
 			>
 				<SettingRow
-					label="Enable"
-					info="Use an AI language model to clean up and improve the transcribed text. Requires an API key."
+					label={t("settings.enable")}
+					info={t("settings.enableInfo")}
 				>
 					<Switch
 						checked={config.llm_polish ?? false}
 						onCheckedChange={(checked) => updateConfig({ llm_polish: checked })}
-						aria-label="LLM Polishing"
+						aria-label={t("settings.llmPolishing")}
 					/>
 				</SettingRow>
 
 				{config.llm_polish && (
 					<div className="animate-fade-in space-y-0 divide-y divide-border">
 						<SettingRow
-							label="API Key"
-							info="Your OpenAI-compatible API key for the polishing service."
+							label={t("settings.apiKey")}
+							info={t("settings.apiKeyInfo")}
 						>
 							<div className="relative">
 								<Input
@@ -213,23 +210,25 @@ export const ModelSettingsSection = memo(function ModelSettingsSection({
 											: ""
 									}
 									className="w-56 pr-8"
-									aria-label="LLM API Key"
+									aria-label={t("settings.apiKey")}
 								/>
 								<Button
 									variant="ghost"
 									size="xs"
 									onClick={() => setLlmKeyVisible(!llmKeyVisible)}
 									className="absolute right-1 top-1/2 -translate-y-1/2 text-xs"
-									aria-label={llmKeyVisible ? "Hide API key" : "Show API key"}
+									aria-label={
+										llmKeyVisible ? t("settings.hide") : t("settings.show")
+									}
 								>
-									{llmKeyVisible ? "Hide" : "Show"}
+									{llmKeyVisible ? t("settings.hide") : t("settings.show")}
 								</Button>
 							</div>
 						</SettingRow>
 
 						<SettingRow
-							label="API URL"
-							info="The endpoint URL for the AI language model service."
+							label={t("settings.apiUrl")}
+							info={t("settings.apiUrlInfo")}
 						>
 							<Input
 								value={
@@ -240,13 +239,13 @@ export const ModelSettingsSection = memo(function ModelSettingsSection({
 									updateConfigDebounced("llm_api_url", e.target.value)
 								}
 								className="w-64"
-								aria-label="LLM API URL"
+								aria-label={t("settings.apiUrl")}
 							/>
 						</SettingRow>
 
 						<SettingRow
-							label="Model"
-							info="The AI model to use for polishing (e.g., gpt-4o-mini)."
+							label={t("settings.model")}
+							info={t("settings.modelInfo")}
 						>
 							<Input
 								value={config.llm_model ?? "gpt-4o-mini"}
@@ -254,25 +253,28 @@ export const ModelSettingsSection = memo(function ModelSettingsSection({
 									updateConfigDebounced("llm_model", e.target.value)
 								}
 								className="w-44"
-								aria-label="LLM Model"
+								aria-label={t("settings.model")}
 							/>
 						</SettingRow>
 
 						<SettingRow
-							label="Preset"
-							info="The writing style to apply — professional, casual, email, or code."
+							label={t("settings.preset")}
+							info={t("settings.presetInfo")}
 						>
 							<Select
 								value={config.llm_preset ?? "professional"}
 								onValueChange={(v) => updateConfig({ llm_preset: v })}
 							>
-								<SelectTrigger className="w-40" aria-label="LLM Preset">
+								<SelectTrigger
+									className="w-40"
+									aria-label={t("settings.preset")}
+								>
 									<SelectValue />
 								</SelectTrigger>
 								<SelectContent>
 									{LLM_PRESET_OPTIONS.map((opt) => (
 										<SelectItem key={opt.value} value={opt.value}>
-											{opt.label}
+											{t(opt.labelKey)}
 										</SelectItem>
 									))}
 								</SelectContent>

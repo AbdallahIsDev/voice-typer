@@ -1,7 +1,7 @@
 // GeneralSettingsSection — General + Overlay sections of the Settings page.
 //
 // Extracted from src/renderer/src/pages/Settings.tsx. Renders two
-// SettingsSection blocks: "General" (Launch at Login, UI Language,
+// SettingsSection blocks: "General" (Launch at Login, App Language,
 // Notifications, Tray Click) and "Overlay" (Bubble Behavior, Bubble
 // Position, Show on App Startup, Drag to Move). Behaviour is identical
 // to the previous monolithic implementation, including the per-row
@@ -22,6 +22,7 @@ import { Switch } from "@/components/ui/switch";
 import {
 	getLocale,
 	getLocaleLabel,
+	type Locale,
 	SUPPORTED_LOCALES,
 	setLocale,
 	t,
@@ -31,19 +32,39 @@ import { SettingsSkeleton } from "./SettingsSkeleton";
 import type { SettingsSectionSharedProps } from "./types";
 
 const TRAY_CLICK_OPTIONS = [
-	{ value: "open_app", label: "Open App" },
-	{ value: "toggle_dictation", label: "Toggle Dictation" },
+	{ value: "open_app", labelKey: "settings.trayClickOpenApp" },
+	{ value: "toggle_dictation", labelKey: "settings.trayClickToggleDictation" },
 ] as const;
 
 const BUBBLE_POSITION_OPTIONS = [
-	{ value: "top", label: "Top Center" },
-	{ value: "bottom", label: "Bottom Center" },
+	{ value: "top", labelKey: "settings.bubblePositionTop" },
+	{ value: "bottom", labelKey: "settings.bubblePositionBottom" },
 ] as const;
 
 const BUBBLE_BEHAVIOR_OPTIONS = [
-	{ value: "show_on_record", label: "Show on Record" },
-	{ value: "always_visible", label: "Always Visible" },
+	{ value: "show_on_record", labelKey: "settings.bubbleBehaviorShowOnRecord" },
+	{ value: "always_visible", labelKey: "settings.bubbleBehaviorAlwaysVisible" },
 ] as const;
+
+// Locale selector options — derived from SUPPORTED_LOCALES so adding a
+// new locale in i18n.ts automatically appears here.
+const LOCALE_OPTIONS = SUPPORTED_LOCALES.map((locale) => ({
+	value: locale,
+	label: getLocaleLabel(locale),
+}));
+
+// UX-015: translate "Launch at Login" / "Notifications" / "Tray Click"
+// search-visible labels. The isVisible predicate matches against both
+// the user-visible label and the info string, so we use the translated
+// forms for both.
+const LAUNCH_AT_LOGIN_LABEL = t("settings.launchAtLogin");
+const LAUNCH_AT_LOGIN_INFO = t("settings.launchAtLoginDescription");
+const NOTIFICATIONS_LABEL = t("settings.notifications");
+const NOTIFICATIONS_INFO = t("settings.notificationsDescription");
+const TRAY_CLICK_LABEL = t("settings.trayClick");
+const TRAY_CLICK_INFO = t("settings.trayClickDescription");
+const APP_LANGUAGE_LABEL = t("settings.appLanguage");
+const APP_LANGUAGE_INFO = t("settings.appLanguageDescription");
 
 export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 	config,
@@ -54,18 +75,10 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 
 	// UX-028: section-level visibility check for the General section.
 	const generalItems = [
-		{
-			label: "Launch at Login",
-			info: "Automatically start Voice Typer when you log into Windows.",
-		},
-		{
-			label: "Notifications",
-			info: "Show a desktop notification when transcription completes or an error occurs.",
-		},
-		{
-			label: "Tray Click",
-			info: "What happens when you left-click the Voice Typer icon in the system tray.",
-		},
+		{ label: LAUNCH_AT_LOGIN_LABEL, info: LAUNCH_AT_LOGIN_INFO },
+		{ label: APP_LANGUAGE_LABEL, info: APP_LANGUAGE_INFO },
+		{ label: NOTIFICATIONS_LABEL, info: NOTIFICATIONS_INFO },
+		{ label: TRAY_CLICK_LABEL, info: TRAY_CLICK_INFO },
 	];
 	const generalVisible = generalItems.some((item) =>
 		isVisible(item.label, item.info),
@@ -77,92 +90,82 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 			{generalVisible && (
 				<SettingsSection
 					title={t("settings.general")}
-					description="Behavior, startup, and appearance."
+					description={t("settings.generalDescription")}
 				>
-					{isVisible(
-						"Launch at Login",
-						"Automatically start Voice Typer when you log into Windows.",
-					) && (
+					{isVisible(LAUNCH_AT_LOGIN_LABEL, LAUNCH_AT_LOGIN_INFO) && (
 						<SettingRow
-							label="Launch at Login"
-							info="Automatically start Voice Typer when you log into Windows."
+							label={LAUNCH_AT_LOGIN_LABEL}
+							info={LAUNCH_AT_LOGIN_INFO}
 						>
 							<Switch
 								checked={config.autostart}
 								onCheckedChange={(checked) =>
 									updateConfig({ autostart: checked })
 								}
-								aria-label="Launch at Login"
+								aria-label={LAUNCH_AT_LOGIN_LABEL}
 							/>
 						</SettingRow>
 					)}
 
-					{/* UX-015: UI Language selector — distinct from the spoken-language
-                                                selector in Post-Processing. This controls the Electron UI
-                                                language via the i18n framework. The choice is persisted to
-                                                localStorage so it survives restarts, and pushed to the
-                                                Python backend so the tray menu labels also switch language. */}
-					<SettingRow
-						label="UI Language"
-						info="Choose the interface language for Voice Typer."
-					>
-						<Select
-							value={getLocale()}
-							onValueChange={(v) => {
-								setLocale(v as "en" | "es");
-								// Persist to localStorage so the choice survives restarts
-								try {
-									localStorage.setItem("voice-typer-ui-locale", v);
-								} catch {
-									// localStorage may be unavailable in some contexts
-								}
-								// TRAY-008: push the locale to the Python backend so
-								// the tray menu labels also switch language.
-								try {
-									void window.python?.call({
-										type: "set_tray_locale",
-										data: { locale: v },
-									});
-								} catch {
-									// IPC may not be available during startup
-								}
-								// Force a re-render so all t() calls update
-								window.location.reload();
-							}}
-						>
-							<SelectTrigger className="w-44" aria-label="UI Language">
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								{SUPPORTED_LOCALES.map((locale) => (
-									<SelectItem key={locale} value={locale}>
-										<span>{getLocaleLabel(locale)}</span>
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-					</SettingRow>
+					{/* UX-015: App Language selector — distinct from the spoken-language
+						selector in Post-Processing. This controls the Electron UI
+						language via the i18n framework. The choice is persisted to
+						localStorage so it survives restarts, and pushed to the
+						Python backend so the tray menu labels also switch language. */}
+					{isVisible(APP_LANGUAGE_LABEL, APP_LANGUAGE_INFO) && (
+						<SettingRow label={APP_LANGUAGE_LABEL} info={APP_LANGUAGE_INFO}>
+							<Select
+								value={getLocale()}
+								onValueChange={(v) => {
+									setLocale(v as Locale);
+									// Persist to localStorage so the choice survives restarts
+									try {
+										localStorage.setItem("voice-typer-ui-locale", v);
+									} catch {
+										// localStorage may be unavailable in some contexts
+									}
+									// TRAY-008: push the locale to the Python backend so
+									// the tray menu labels also switch language.
+									try {
+										void window.python?.call({
+											type: "set_tray_locale",
+											data: { locale: v },
+										});
+									} catch {
+										// IPC may not be available during startup
+									}
+									// Force a re-render so all t() calls update
+									window.location.reload();
+								}}
+							>
+								<SelectTrigger className="w-44" aria-label={APP_LANGUAGE_LABEL}>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									{LOCALE_OPTIONS.map((opt) => (
+										<SelectItem key={opt.value} value={opt.value}>
+											<span>{opt.label}</span>
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</SettingRow>
+					)}
 
-					{isVisible("Notifications", "Show a desktop notification") && (
-						<SettingRow
-							label="Notifications"
-							info="Show a desktop notification when transcription completes or an error occurs."
-						>
+					{isVisible(NOTIFICATIONS_LABEL, NOTIFICATIONS_INFO) && (
+						<SettingRow label={NOTIFICATIONS_LABEL} info={NOTIFICATIONS_INFO}>
 							<Switch
 								checked={config.show_notifications}
 								onCheckedChange={(checked) =>
 									updateConfig({ show_notifications: checked })
 								}
-								aria-label="Notifications"
+								aria-label={NOTIFICATIONS_LABEL}
 							/>
 						</SettingRow>
 					)}
 
-					{isVisible("Tray Click", "What happens when you left-click") && (
-						<SettingRow
-							label="Tray Click"
-							info="What happens when you left-click the Voice Typer icon in the system tray."
-						>
+					{isVisible(TRAY_CLICK_LABEL, TRAY_CLICK_INFO) && (
+						<SettingRow label={TRAY_CLICK_LABEL} info={TRAY_CLICK_INFO}>
 							<Select
 								value={config.tray_left_click_action ?? "open_app"}
 								onValueChange={(v) =>
@@ -173,13 +176,13 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 									})
 								}
 							>
-								<SelectTrigger className="w-40" aria-label="Tray Click">
+								<SelectTrigger className="w-40" aria-label={TRAY_CLICK_LABEL}>
 									<SelectValue />
 								</SelectTrigger>
 								<SelectContent>
 									{TRAY_CLICK_OPTIONS.map((opt) => (
 										<SelectItem key={opt.value} value={opt.value}>
-											{opt.label}
+											{t(opt.labelKey)}
 										</SelectItem>
 									))}
 								</SelectContent>
@@ -190,11 +193,14 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 			)}
 
 			{/* ── SECTION: Overlay ──────────────────────────────────── */}
-			<SettingsSection title="Overlay" description="Floating recording bubble.">
+			<SettingsSection
+				title={t("settings.overlay")}
+				description={t("settings.overlayDescription")}
+			>
 				{/* ── Dropdowns ──────────────────────────────────────── */}
 				<SettingRow
-					label="Bubble Behavior"
-					info="Show the bubble only while recording, or keep it visible at all times."
+					label={t("settings.bubbleBehaviorLabel")}
+					info={t("settings.bubbleBehaviorInfo")}
 				>
 					<Select
 						value={config.bubble_behavior ?? "show_on_record"}
@@ -204,13 +210,16 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 							});
 						}}
 					>
-						<SelectTrigger className="w-40" aria-label="Bubble Behavior">
+						<SelectTrigger
+							className="w-40"
+							aria-label={t("settings.bubbleBehaviorLabel")}
+						>
 							<SelectValue />
 						</SelectTrigger>
 						<SelectContent>
 							{BUBBLE_BEHAVIOR_OPTIONS.map((opt) => (
 								<SelectItem key={opt.value} value={opt.value}>
-									{opt.label}
+									{t(opt.labelKey)}
 								</SelectItem>
 							))}
 						</SelectContent>
@@ -218,8 +227,8 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 				</SettingRow>
 
 				<SettingRow
-					label="Bubble Position"
-					info="Where the bubble appears on screen — top or bottom center."
+					label={t("settings.bubblePositionLabel")}
+					info={t("settings.bubblePositionInfo")}
 				>
 					<Select
 						value={config.bubble_position ?? "bottom"}
@@ -229,13 +238,16 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 							window.bubble?.setPosition?.(v);
 						}}
 					>
-						<SelectTrigger className="w-40" aria-label="Bubble Position">
+						<SelectTrigger
+							className="w-40"
+							aria-label={t("settings.bubblePositionLabel")}
+						>
 							<SelectValue />
 						</SelectTrigger>
 						<SelectContent>
 							{BUBBLE_POSITION_OPTIONS.map((opt) => (
 								<SelectItem key={opt.value} value={opt.value}>
-									{opt.label}
+									{t(opt.labelKey)}
 								</SelectItem>
 							))}
 						</SelectContent>
@@ -246,22 +258,22 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 				{/* Show on app startup toggle — only visible when Always Visible is selected */}
 				{config.bubble_behavior === "always_visible" && (
 					<SettingRow
-						label="Show on App Startup"
-						info="Show the bubble as soon as the app opens. When off, it appears only when you start recording."
+						label={t("settings.showOnAppStartup")}
+						info={t("settings.showOnAppStartupInfo")}
 					>
 						<Switch
 							checked={config.bubble_show_on_startup ?? true}
 							onCheckedChange={(checked) =>
 								updateConfig({ bubble_show_on_startup: checked })
 							}
-							aria-label="Show on App Startup"
+							aria-label={t("settings.showOnAppStartup")}
 						/>
 					</SettingRow>
 				)}
 
 				<SettingRow
-					label="Drag to Move"
-					info="Allow dragging the bubble with your mouse to reposition it on screen."
+					label={t("settings.dragToMove")}
+					info={t("settings.dragToMoveInfo")}
 				>
 					<Switch
 						checked={config.bubble_draggable ?? true}
@@ -270,7 +282,7 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 							// Notify the main process immediately so the bubble responds.
 							window.bubble?.setDraggable?.(checked);
 						}}
-						aria-label="Drag to Move"
+						aria-label={t("settings.dragToMove")}
 					/>
 				</SettingRow>
 			</SettingsSection>
