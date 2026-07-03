@@ -43,11 +43,24 @@ jobs:
       - name: Run ruff linter
         run: python -m ruff check voice_typer/server/ --select E501
 
+      # TEST-036: pyrefly is a fast Rust-based Python type checker.
+      # It runs after ruff (cheap) and before pytest (expensive) so a
+      # type regression can fail the build before we spend time on the
+      # full test suite. Targets voice_typer/ only — tests/ already
+      # carries inline `# pyrefly: ignore` annotations and is checked
+      # locally via `pyrefly check` (uses project-includes in
+      # pyproject.toml).
+      #
+      # TODO: remove continue-on-error once pyrefly is clean. Currently
+      # the voice_typer/ tree reports ~276 errors (mostly missing-import
+      # on platform-only deps like pycaw / webrtc-audio-processing and
+      # legacy untyped attrs), so this is a soft gate that surfaces
+      # results without blocking PRs.
       - name: Run pyrefly type check
         continue-on-error: true
         run: |
           pip install pyrefly
-          pyrefly check
+          pyrefly check voice_typer/
 
       - name: Run tests with coverage
         run: |
@@ -64,6 +77,38 @@ jobs:
       - name: Run pip-audit
         continue-on-error: true
         run: pip-audit --strict
+
+  # TASK-013: optional slow-tests job. Runs the @pytest.mark.slow
+  # wrappers around the manual diagnostic scripts in tests/manual/.
+  # This is best-effort — failures here do NOT block the build
+  # (continue-on-error: true) and the job only runs on main-branch
+  # pushes (not PRs) to save CI minutes. The job exists to surface
+  # regressions in the manual scripts themselves (e.g. a refactor
+  # breaking runtime_proof.py's exit-code contract), not to gate
+  # releases.
+  slow-tests:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install ".[test]"
+          pip list
+
+      - name: Run slow manual-script wrappers
+        # --no-cov: coverage is already collected by the main test job;
+        # we only care whether the slow wrappers pass here.
+        run: |
+          python -m pytest tests/test_manual_slow.py -v --tb=short --slow --no-cov
 
   # NEW-CI-002: version sync check
   version-check:
