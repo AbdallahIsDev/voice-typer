@@ -103,26 +103,50 @@ export default function App() {
 	// UX-031: Ctrl+B toggles the sidebar — discoverable keyboard shortcut
 	// matching VS Code / Chrome's convention. Without this the collapse
 	// button is invisible at width 0px in the collapsed state.
+	//
+	// UX-NAV-001: Ctrl+, (Cmd+, on macOS) jumps to Settings — matches the
+	// convention used by VS Code, macOS System Settings, and most Electron
+	// apps.  Ctrl+H jumps to Home (matches the "Home" key convention in
+	// browsers and the Chrome "History" mnemonic doesn't apply here since
+	// Voice Typer's own History page is reached via the sidebar / Ctrl+Alt+H
+	// is reserved by some OS IMEs).  Both shortcuts are skipped while typing
+	// in an input/textarea so the user can type "b" or "," into a field
+	// without navigating away.
 	useEffect(() => {
 		const handler = (e: KeyboardEvent) => {
-			if (
-				(e.ctrlKey || e.metaKey) &&
-				e.key === "b" &&
-				!e.shiftKey &&
-				!e.altKey
-			) {
-				// Don't intercept when typing in an input/textarea
+			if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
 				const target = e.target as HTMLElement | null;
 				const tag = target?.tagName?.toLowerCase() ?? "";
-				if (tag === "input" || tag === "textarea" || target?.isContentEditable)
+				const typing =
+					tag === "input" ||
+					tag === "textarea" ||
+					target?.isContentEditable === true;
+
+				if (e.key === "b" && !typing) {
+					e.preventDefault();
+					setSidebarCollapsed((c) => !c);
 					return;
-				e.preventDefault();
-				setSidebarCollapsed((c) => !c);
+				}
+				// Ctrl+, → Settings.  The comma key is "," so we match
+				// e.key rather than e.code (which would be "Comma" and
+				// locale-dependent).
+				if (e.key === "," && !typing) {
+					e.preventDefault();
+					navigate("settings");
+					return;
+				}
+				// Ctrl+H → Home.  Skip when typing so IME composition
+				// (e.g. Japanese romaji → hiragana "h") isn't interrupted.
+				if (e.key === "h" && !typing) {
+					e.preventDefault();
+					navigate("home");
+					return;
+				}
 			}
 		};
 		window.addEventListener("keydown", handler);
 		return () => window.removeEventListener("keydown", handler);
-	}, []);
+	}, [navigate]);
 
 	// ── Page renderer ─────────────────────────────────────────────
 
@@ -157,7 +181,7 @@ export default function App() {
 					/>
 				);
 			case "history":
-				return <HistoryPage />;
+				return <HistoryPage onNavigate={navigate} />;
 			case "templates":
 				return <TemplatesPage />;
 			case "vocabulary":
@@ -323,6 +347,8 @@ export default function App() {
 									},
 									{ keys: "Ctrl+Alt+V", desc: t("help.repaste") },
 									{ keys: "Ctrl+B", desc: t("help.toggleSidebar") },
+									{ keys: "Ctrl+,", desc: t("help.openSettings") },
+									{ keys: "Ctrl+H", desc: t("help.goHome") },
 									{
 										keys: "Tab / Shift+Tab",
 										desc: t("help.navigate"),

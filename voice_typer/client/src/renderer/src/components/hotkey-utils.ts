@@ -175,14 +175,11 @@ export const COMBO_PRESETS: { value: string; label: string }[] = [
 				},
 			]
 		: []),
-	...(IS_WIN
-		? [
-				{
-					value: "<win>+<space>",
-					label: "Win+Space (Windows language switcher conflict)",
-				},
-			]
-		: []),
+	// Win+Space is intentionally NOT offered on Windows: it is reserved
+	// by the OS for the input-language switcher and binding it as a
+	// dictation/paste shortcut would silently break language switching.
+	// Users can still pick any combo via the custom capture button if
+	// they really want to override it.
 	...(IS_LINUX ? [{ value: "<super>+<space>", label: "Super+Space" }] : []),
 ];
 
