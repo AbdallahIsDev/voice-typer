@@ -106,9 +106,15 @@ def app(tmp_config_dir, monkeypatch):
     # must enable the toggle in Settings > Privacy before recording).
     instance.config.voice_biometric_consent = True
     # TranscriptionEngine is now created in _do_startup (background), not __init__
-    # Set a mock transcriber for tests that need it
-    instance.transcriber = MagicMock()
-    instance.transcriber.is_loaded = True
+    # Set a mock transcriber for tests that need it.
+    # ARCH-REFAC-003: with the @property delegate removed, assigning to
+    # instance.models.transcriber no longer auto-syncs the registry —
+    # call _sync_registry_from_fields() so the registry knows about the
+    # mock and _start_dictation's ensure_active_engine_loaded() doesn't
+    # try to create a fresh TranscriptionEngine.
+    instance.models.transcriber = MagicMock()
+    instance.models.transcriber.is_loaded = True
+    instance.models._sync_registry_from_fields()
     return instance
 
 
@@ -124,8 +130,9 @@ class TestAppStateTransitions:
         app.recorder.recording = False
         app.recorder.start = MagicMock()
         app.tray = MagicMock()
-        app.transcriber = MagicMock()
-        app.transcriber.is_loaded = True
+        app.models.transcriber = MagicMock()
+        app.models._sync_registry_from_fields()
+        app.models.transcriber.is_loaded = True
 
         app._start_dictation()
 
@@ -172,9 +179,10 @@ class TestAppStateTransitions:
         app.clipboard.copy = MagicMock(return_value=True)
         app.clipboard.paste = MagicMock(return_value=False)
 
-        app.transcriber = MagicMock()
-        app.transcriber.transcribe_with_fallback = MagicMock(return_value="hello world")
-        app.transcriber.device_info = "cpu (int8)"
+        app.models.transcriber = MagicMock()
+        app.models._sync_registry_from_fields()
+        app.models.transcriber.transcribe_with_fallback = MagicMock(return_value="hello world")
+        app.models.transcriber.device_info = "cpu (int8)"
 
         app.recorder = MagicMock()
         app.recorder.recording = True
@@ -192,11 +200,12 @@ class TestAppStateTransitions:
         app.clipboard.copy = MagicMock(return_value=True)
         app.clipboard.paste = MagicMock(return_value=False)
 
-        app.transcriber = MagicMock()
-        app.transcriber.transcribe_with_fallback = MagicMock(
+        app.models.transcriber = MagicMock()
+        app.models._sync_registry_from_fields()
+        app.models.transcriber.transcribe_with_fallback = MagicMock(
             return_value="can we test this this now"
         )
-        app.transcriber.device_info = "cuda/float16/small.en"
+        app.models.transcriber.device_info = "cuda/float16/small.en"
 
         app.recorder = MagicMock()
         app.recorder.recording = True
@@ -217,9 +226,10 @@ class TestAppStateTransitions:
         app.clipboard.copy = MagicMock(return_value=False)  # copy FAILS
         app.clipboard.paste = MagicMock(return_value=True)
 
-        app.transcriber = MagicMock()
-        app.transcriber.transcribe_with_fallback = MagicMock(return_value="secret text")
-        app.transcriber.device_info = "cpu (int8)"
+        app.models.transcriber = MagicMock()
+        app.models._sync_registry_from_fields()
+        app.models.transcriber.transcribe_with_fallback = MagicMock(return_value="secret text")
+        app.models.transcriber.device_info = "cpu (int8)"
 
         app.tray = MagicMock()
 
@@ -242,8 +252,9 @@ class TestAppStateTransitions:
 
     def test_transcribe_empty_result_no_clipboard(self, app):
         app.clipboard = MagicMock()
-        app.transcriber = MagicMock()
-        app.transcriber.transcribe_with_fallback = MagicMock(return_value="")
+        app.models.transcriber = MagicMock()
+        app.models._sync_registry_from_fields()
+        app.models.transcriber.transcribe_with_fallback = MagicMock(return_value="")
 
         app.recorder = MagicMock()
         app.recorder.recording = True
@@ -256,8 +267,9 @@ class TestAppStateTransitions:
         app.clipboard.copy.assert_not_called()
 
     def test_transcribe_failure_shows_error(self, app):
-        app.transcriber = MagicMock()
-        app.transcriber.transcribe_with_fallback = MagicMock(side_effect=Exception("model crash"))
+        app.models.transcriber = MagicMock()
+        app.models._sync_registry_from_fields()
+        app.models.transcriber.transcribe_with_fallback = MagicMock(side_effect=Exception("model crash"))
 
         app.recorder = MagicMock()
         app.recorder.recording = True
@@ -273,10 +285,11 @@ class TestAppStateTransitions:
     def test_transcribe_cuda_fallback_clears_busy(self, app):
         """When GPU transcription fails with CUDA error, fallback to CPU succeeds
         and _busy is still cleared."""
-        app.transcriber = MagicMock()
+        app.models.transcriber = MagicMock()
+        app.models._sync_registry_from_fields()
         # First call (GPU) raises CUDA error, fallback (CPU) returns text
-        app.transcriber.transcribe_with_fallback = MagicMock(return_value="fallback worked")
-        app.transcriber.device_info = "cpu (int8)"
+        app.models.transcriber.transcribe_with_fallback = MagicMock(return_value="fallback worked")
+        app.models.transcriber.device_info = "cpu (int8)"
 
         app.recorder = MagicMock()
         app.recorder.recording = True
@@ -287,7 +300,7 @@ class TestAppStateTransitions:
         _wait_for_busy_clear(app)
 
         assert app._busy_event.is_set()
-        app.transcriber.transcribe_with_fallback.assert_called_once()
+        app.models.transcriber.transcribe_with_fallback.assert_called_once()
 
     def test_force_recover_resets_busy(self, app):
         """_force_recover_from_stuck_transcription clears _busy and resets tray."""
@@ -313,8 +326,10 @@ class TestAppStateTransitions:
         """Watchdog must not allow a second transcription while the old one runs."""
         app._busy_event.clear()  # busy
         app.tray = MagicMock()
-        app._transcription_thread = MagicMock()
-        app._transcription_thread.is_alive.return_value = True
+        # ARCH-REFAC-003: write to RecordingController directly (was a
+        # @property delegate on VoiceTyperApp).
+        app.recording._transcription_thread = MagicMock()
+        app.recording._transcription_thread.is_alive.return_value = True
 
         app._force_recover_from_stuck_transcription()
 
@@ -326,11 +341,12 @@ class TestAppStateTransitions:
     def test_f2_works_after_transcription_failure(self, app):
         """After a transcription failure, pressing F2 should work again."""
         # Simulate: transcription failed, busy was cleared
-        app.transcriber = MagicMock()
-        app.transcriber.transcribe_with_fallback = MagicMock(
+        app.models.transcriber = MagicMock()
+        app.models._sync_registry_from_fields()
+        app.models.transcriber.transcribe_with_fallback = MagicMock(
             side_effect=RuntimeError("cublas64_12.dll is not found or cannot be loaded")
         )
-        app.transcriber.device_info = "cpu (int8)"
+        app.models.transcriber.device_info = "cpu (int8)"
 
         app.recorder = MagicMock()
         app.recorder.recording = True
@@ -344,8 +360,8 @@ class TestAppStateTransitions:
 
         # Now simulate pressing F2 again
         app.recorder.recording = False
-        app.transcriber.is_loaded = True
-        app.transcriber.transcribe_with_fallback = MagicMock(return_value="recovered!")
+        app.models.transcriber.is_loaded = True
+        app.models.transcriber.transcribe_with_fallback = MagicMock(return_value="recovered!")
 
         app.toggle_dictation()  # F2 → start recording
         app.recorder.start.assert_called_once()
@@ -355,7 +371,7 @@ class TestAppStateTransitions:
         _wait_for_busy_clear(app)
 
         assert app._busy_event.is_set()
-        app.transcriber.transcribe_with_fallback.assert_called_once_with(
+        app.models.transcriber.transcribe_with_fallback.assert_called_once_with(
             app.recorder.stop.return_value
         )
 
@@ -423,7 +439,7 @@ class TestConfigWiring:
         app._do_startup()
         # Model load now runs in a daemon thread — wait for it so the
         # assertions below don't race with the background worker.
-        load_thread = app._model_load_thread
+        load_thread = app.models._model_load_thread
         if load_thread is not None:
             load_thread.join(timeout=5)
             assert not load_thread.is_alive(), "model load thread hung"
@@ -478,7 +494,7 @@ class TestSettingsWindowIntegration:
 
     def test_restart_hotkey_stops_existing_backend_and_registers_new_one(self, app):
         old_backend = MagicMock()
-        app._hotkey_backend = old_backend
+        app.hotkeys._hotkey_backend = old_backend
         # #2 (Round 9): _register_hotkey now delegates to HotkeyDispatcher.register().
         # Monkeypatch the dispatcher method directly.
         app.hotkeys.register = MagicMock()
@@ -507,9 +523,9 @@ class TestSettingsWindowIntegration:
         monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
         monkeypatch.setattr(sys, "argv", ["voice_typer", "--port", "9876"])
         monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
-        app._hotkey_backend = MagicMock()
-        app._esc_backend = MagicMock()
-        app._repaste_backend = MagicMock()
+        app.hotkeys._hotkey_backend = MagicMock()
+        app.hotkeys._esc_backend = MagicMock()
+        app.hotkeys._repaste_backend = MagicMock()
         app._cancel_pending_timers = MagicMock()
         app.tray = MagicMock()
         # Stub _push_event_now so restart_app's TCP push doesn't blow up
@@ -546,9 +562,9 @@ class TestSettingsWindowIntegration:
         monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
         monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
         monkeypatch.setattr(sys, "argv", ["voice_typer"])
-        app._hotkey_backend = MagicMock()
-        app._esc_backend = MagicMock()
-        app._repaste_backend = MagicMock()
+        app.hotkeys._hotkey_backend = MagicMock()
+        app.hotkeys._esc_backend = MagicMock()
+        app.hotkeys._repaste_backend = MagicMock()
         app._cancel_pending_timers = MagicMock()
         app.tray = MagicMock()
         pushed = []
@@ -578,7 +594,7 @@ class TestSettingsWindowIntegration:
         app._change_model("medium.en")
 
         assert app.config.model_size == "medium.en"
-        assert app._model_load_attempted is False
+        assert app.models._model_load_attempted is False
         _, kwargs = transcriber_cls.call_args
         assert kwargs["model_size"] == "medium.en"
         assert kwargs["device"] == "cpu"
@@ -608,10 +624,12 @@ class TestQuitAppCleanShutdown:
         app._get_streaming_session = MagicMock(return_value=None)
         app._set_streaming_session = MagicMock()
         app.recorder = MagicMock()
-        app._transcription_thread = None
-        app._hotkey_backend = MagicMock()
-        app._esc_backend = MagicMock()
-        app._repaste_backend = MagicMock()
+        # ARCH-REFAC-003: write to RecordingController directly (was a
+        # @property delegate on VoiceTyperApp).
+        app.recording._transcription_thread = None
+        app.hotkeys._hotkey_backend = MagicMock()
+        app.hotkeys._esc_backend = MagicMock()
+        app.hotkeys._repaste_backend = MagicMock()
         app.tray = MagicMock()
 
         try:
@@ -674,10 +692,12 @@ class TestQuitAppCleanShutdown:
         app._get_streaming_session = MagicMock(return_value=None)
         app._set_streaming_session = MagicMock()
         app.recorder = MagicMock()
-        app._transcription_thread = None
-        app._hotkey_backend = MagicMock()
-        app._esc_backend = MagicMock()
-        app._repaste_backend = MagicMock()
+        # ARCH-REFAC-003: write to RecordingController directly (was a
+        # @property delegate on VoiceTyperApp).
+        app.recording._transcription_thread = None
+        app.hotkeys._hotkey_backend = MagicMock()
+        app.hotkeys._esc_backend = MagicMock()
+        app.hotkeys._repaste_backend = MagicMock()
         app.tray = MagicMock()
 
         try:
@@ -685,9 +705,9 @@ class TestQuitAppCleanShutdown:
         except SystemExit:
             pass
 
-        app._hotkey_backend.stop.assert_called_once()
-        app._esc_backend.stop.assert_called_once()
-        app._repaste_backend.stop.assert_called_once()
+        app.hotkeys._hotkey_backend.stop.assert_called_once()
+        app.hotkeys._esc_backend.stop.assert_called_once()
+        app.hotkeys._repaste_backend.stop.assert_called_once()
 
 
 class TestRestartAppCleanShutdown:
@@ -708,9 +728,9 @@ class TestRestartAppCleanShutdown:
         monkeypatch.setattr(sys, "argv", ["voice_typer"])
         # Force the pre-restart sleep to no-op so the test is fast.
         monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
-        app._hotkey_backend = MagicMock()
-        app._esc_backend = MagicMock()
-        app._repaste_backend = MagicMock()
+        app.hotkeys._hotkey_backend = MagicMock()
+        app.hotkeys._esc_backend = MagicMock()
+        app.hotkeys._repaste_backend = MagicMock()
         app._cancel_pending_timers = MagicMock()
         app.tray = MagicMock()
 
@@ -732,9 +752,9 @@ class TestRestartAppCleanShutdown:
         monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
         # Belt-and-suspenders: don't let os._exit kill the pytest process.
         monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
-        app._hotkey_backend = MagicMock()
-        app._esc_backend = MagicMock()
-        app._repaste_backend = MagicMock()
+        app.hotkeys._hotkey_backend = MagicMock()
+        app.hotkeys._esc_backend = MagicMock()
+        app.hotkeys._repaste_backend = MagicMock()
         app._cancel_pending_timers = MagicMock()
         app.tray = MagicMock()
 
@@ -743,9 +763,9 @@ class TestRestartAppCleanShutdown:
         except SystemExit:
             pass
 
-        app._hotkey_backend.stop.assert_called_once()
-        app._esc_backend.stop.assert_called_once()
-        app._repaste_backend.stop.assert_called_once()
+        app.hotkeys._hotkey_backend.stop.assert_called_once()
+        app.hotkeys._esc_backend.stop.assert_called_once()
+        app.hotkeys._repaste_backend.stop.assert_called_once()
 
     def test_restart_app_calls_tray_stop(self, app, monkeypatch):
         """restart_app must call self.tray.stop() to break the pystray
@@ -756,9 +776,9 @@ class TestRestartAppCleanShutdown:
         monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
         # Belt-and-suspenders: don't let os._exit kill the pytest process.
         monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
-        app._hotkey_backend = MagicMock()
-        app._esc_backend = MagicMock()
-        app._repaste_backend = MagicMock()
+        app.hotkeys._hotkey_backend = MagicMock()
+        app.hotkeys._esc_backend = MagicMock()
+        app.hotkeys._repaste_backend = MagicMock()
         app._cancel_pending_timers = MagicMock()
         app.tray = MagicMock()
 
@@ -781,9 +801,9 @@ class TestRestartAppCleanShutdown:
         monkeypatch.setattr(sys, "argv", ["voice_typer"])
         monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
         monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
-        app._hotkey_backend = MagicMock()
-        app._esc_backend = MagicMock()
-        app._repaste_backend = MagicMock()
+        app.hotkeys._hotkey_backend = MagicMock()
+        app.hotkeys._esc_backend = MagicMock()
+        app.hotkeys._repaste_backend = MagicMock()
         app._cancel_pending_timers = MagicMock()
         app.tray = MagicMock()
 
@@ -821,7 +841,7 @@ class TestHotkeyMapping:
 
         app._register_hotkey()
 
-        assert app._hotkey_backend is not None
+        assert app.hotkeys._hotkey_backend is not None
         # Main hotkey + repaste hotkey both call GlobalHotKeys.start
         assert mock_ghk_cls.call_count >= 1
         assert mock_listener.start.call_count >= 1
@@ -837,8 +857,8 @@ class TestHotkeyMapping:
         # Should not raise
         app._register_hotkey()
         # Backend was created but start() failed -> not alive or None
-        if app._hotkey_backend is not None:
-            assert app._hotkey_backend.is_alive() is False
+        if app.hotkeys._hotkey_backend is not None:
+            assert app.hotkeys._hotkey_backend.is_alive() is False
 
     def test_register_esc_hotkey_creates_and_starts_backend(self, app, monkeypatch):
         """_register_esc_hotkey should create a backend and call start()."""
@@ -850,10 +870,10 @@ class TestHotkeyMapping:
         mock_kb = sys.modules['pynput.keyboard']
         mock_kb.GlobalHotKeys = mock_ghk_cls
 
-        assert app._esc_backend is None
+        assert app.hotkeys._esc_backend is None
         app._register_esc_hotkey()
 
-        assert app._esc_backend is not None
+        assert app.hotkeys._esc_backend is not None
         mock_ghk_cls.assert_called_once_with({"<esc>": app._cancel_dictation})
         mock_listener.start.assert_called_once()
 
@@ -865,16 +885,16 @@ class TestHotkeyMapping:
         monkeypatch.setattr("voice_typer.server.hotkey_dispatcher.create_hotkey_backend", MagicMock(return_value=mock_backend))
 
         app._register_esc_hotkey()
-        assert app._esc_backend is mock_backend
+        assert app.hotkeys._esc_backend is mock_backend
 
         app._unregister_esc_hotkey()
 
-        assert app._esc_backend is None
+        assert app.hotkeys._esc_backend is None
         mock_backend.stop.assert_called_once()
 
     def test_unregister_esc_hotkey_noop_when_none(self, app):
         """_unregister_esc_hotkey should not crash when _esc_backend is None."""
-        app._esc_backend = None
+        app.hotkeys._esc_backend = None
         app._unregister_esc_hotkey()  # Must not raise
 
     def test_register_esc_hotkey_failure_does_not_crash(self, app, monkeypatch):
@@ -886,7 +906,7 @@ class TestHotkeyMapping:
         monkeypatch.setattr("voice_typer.server.hotkey_dispatcher.create_hotkey_backend", failing_create)
         # Should not raise even though create_hotkey_backend raises
         app._register_esc_hotkey()
-        assert app._esc_backend is None
+        assert app.hotkeys._esc_backend is None
 
     def test_register_hotkey_includes_esc_when_enabled(self, app, monkeypatch):
         """When esc_cancel_enabled is True, _register_hotkey should also call _register_esc_hotkey."""
@@ -901,7 +921,7 @@ class TestHotkeyMapping:
         app.config.esc_cancel_enabled = True
         app._register_hotkey()
 
-        assert app._esc_backend is not None
+        assert app.hotkeys._esc_backend is not None
 
     def test_register_hotkey_skips_esc_when_disabled(self, app, monkeypatch):
         """When esc_cancel_enabled is False, _register_hotkey should skip ESC registration."""
@@ -916,7 +936,7 @@ class TestHotkeyMapping:
         app.config.esc_cancel_enabled = False
         app._register_hotkey()
 
-        assert app._esc_backend is None
+        assert app.hotkeys._esc_backend is None
 
 
 class TestFallbackHotkeyParser:
@@ -1012,14 +1032,14 @@ class TestModelLoadingQueue:
         # Simulate an in-flight background loader.
         loader = MagicMock()
         loader.is_alive.return_value = True
-        app._model_load_thread = loader
+        app.models._model_load_thread = loader
 
         app._start_dictation = MagicMock()
         app._stop_dictation = MagicMock()
 
         app.toggle_dictation()
 
-        assert app._pending_dictation is True
+        assert app.models._pending_dictation is True
         app._start_dictation.assert_not_called()
         app._stop_dictation.assert_not_called()
         # Tray should reflect the loading state.
@@ -1035,7 +1055,7 @@ class TestModelLoadingQueue:
         # Loader finished (thread object exists but not alive).
         loader = MagicMock()
         loader.is_alive.return_value = False
-        app._model_load_thread = loader
+        app.models._model_load_thread = loader
 
         started = []
         app._start_dictation = lambda: started.append(True)
@@ -1043,7 +1063,7 @@ class TestModelLoadingQueue:
 
         app.toggle_dictation()
 
-        assert app._pending_dictation is False
+        assert app.models._pending_dictation is False
         assert len(started) == 1
 
     def test_toggle_survives_loader_cleared_during_is_alive(self, app):
@@ -1068,10 +1088,10 @@ class TestModelLoadingQueue:
         # (as the real finally block does) then returns True so the queuing
         # path is exercised.
         def clear_then_alive():
-            app._model_load_thread = None
+            app.models._model_load_thread = None
             return True
         loader.is_alive.side_effect = clear_then_alive
-        app._model_load_thread = loader
+        app.models._model_load_thread = loader
 
         # Must not raise AttributeError.  (The old code re-read the
         # attribute for is_alive() and would hit None here.)
@@ -1080,7 +1100,7 @@ class TestModelLoadingQueue:
         except AttributeError as exc:
             pytest.fail(f"toggle_dictation crashed on race: {exc}")
 
-        assert app._pending_dictation is True
+        assert app.models._pending_dictation is True
 
     def test_background_load_auto_starts_pending_dictation(self, app, monkeypatch):
         """When the loader finishes and _pending_dictation is set, it
@@ -1093,7 +1113,7 @@ class TestModelLoadingQueue:
         app._fallback_to_whisper = MagicMock()
 
         # Simulate a queued F2 press.
-        app._pending_dictation = True
+        app.models._pending_dictation = True
 
         scheduled = []
         def fake_schedule(delay, func):
@@ -1108,7 +1128,7 @@ class TestModelLoadingQueue:
 
         # The pending dictation should have been cleared and a 0-delay
         # _start_dictation scheduled.
-        assert app._pending_dictation is False
+        assert app.models._pending_dictation is False
         assert any(delay == 0 for delay, _ in scheduled), \
             "pending dictation should schedule _start_dictation at delay=0"
 
@@ -1118,7 +1138,7 @@ class TestModelLoadingQueue:
         app._init_parakeet_engine = MagicMock()
         app._try_load_model = MagicMock()
         app._fallback_to_whisper = MagicMock()
-        app._pending_dictation = False
+        app.models._pending_dictation = False
 
         scheduled = []
         app._schedule_timer = lambda delay, func: scheduled.append((delay, func))
@@ -1136,9 +1156,13 @@ class TestModelLoadingQueue:
         # ARCH-007: _load_transcription_engine_background now delegates
         # to AsrBackendRegistry.load_with_fallback. Mock it to raise.
         app._sync_asr_registry = MagicMock()
-        app._asr_registry = MagicMock()
-        app._asr_registry.load_with_fallback = _MM(side_effect=RuntimeError("disk on fire"))
-        app._pending_dictation = False
+        # ARCH-REFAC-003: assign to ModelManager._registry directly (was
+        # a @property delegate on VoiceTyperApp).
+        app.models._registry = MagicMock()
+        app.models.registry.load_with_fallback = _MM(side_effect=RuntimeError("disk on fire"))
+        # ARCH-REFAC-003: write to ModelManager directly (was a @property
+        # delegate on VoiceTyperApp).
+        app.models._pending_dictation = False
         app.config.asr_backend = "whisper"
 
         # Must not raise.
@@ -1158,8 +1182,9 @@ class TestStartDictationBehavior:
         app.recorder = MagicMock()
         app.recorder.recording = False
         app.tray = MagicMock()
-        app.transcriber = MagicMock()
-        app.transcriber.is_loaded = True
+        app.models.transcriber = MagicMock()
+        app.models._sync_registry_from_fields()
+        app.models.transcriber.is_loaded = True
 
         app._start_dictation()
 
@@ -1192,8 +1217,9 @@ class TestHotkeyCallbackChain:
         app.recorder.recording = False
         app.tray = MagicMock()
         app._busy_event.set()  # not busy
-        app.transcriber = MagicMock()
-        app.transcriber.is_loaded = True
+        app.models.transcriber = MagicMock()
+        app.models._sync_registry_from_fields()
+        app.models.transcriber.is_loaded = True
 
         # Simulate what GlobalHotKeys does: call the registered callback directly
         from voice_typer.server.tray import AppState
@@ -1298,7 +1324,7 @@ class TestAppStartupIntegration:
         app._do_startup()
         # Model load runs in a background thread now — wait for it so the
         # test doesn't tear down while the loader is mid-flight.
-        load_thread = app._model_load_thread
+        load_thread = app.models._model_load_thread
         if load_thread is not None:
             load_thread.join(timeout=5)
 
@@ -1367,13 +1393,13 @@ class TestTryLoadModel:
         """On successful load, tray state should be IDLE with device info."""
         self._setup_registry(app)
         app.tray = MagicMock()
-        app.transcriber.load = MagicMock()
-        app.transcriber.device_info = "cpu (int8)"
-        app.transcriber.loaded_via = "cpu/int8/small.en"
+        app.models.transcriber.load = MagicMock()
+        app.models.transcriber.device_info = "cpu (int8)"
+        app.models.transcriber.loaded_via = "cpu/int8/small.en"
 
         app._try_load_model()
 
-        app.transcriber.load.assert_called_once()
+        app.models.transcriber.load.assert_called_once()
         app.tray.set_state.assert_called()
         from voice_typer.server.tray import AppState
         # The last set_state call should be IDLE
@@ -1385,8 +1411,8 @@ class TestTryLoadModel:
         """On failed load, tray state should be ERROR."""
         self._setup_registry(app)
         app.tray = MagicMock()
-        app.transcriber.load = MagicMock(side_effect=RuntimeError("OOM"))
-        app.transcriber.is_loaded = False
+        app.models.transcriber.load = MagicMock(side_effect=RuntimeError("OOM"))
+        app.models.transcriber.is_loaded = False
 
         app._try_load_model()
 
@@ -1399,8 +1425,8 @@ class TestTryLoadModel:
         """notify_on_failure=True should send a desktop notification."""
         self._setup_registry(app)
         app.tray = MagicMock()
-        app.transcriber.load = MagicMock(side_effect=RuntimeError("OOM"))
-        app.transcriber.is_loaded = False
+        app.models.transcriber.load = MagicMock(side_effect=RuntimeError("OOM"))
+        app.models.transcriber.is_loaded = False
 
         app._try_load_model(notify_on_failure=True)
 
@@ -1412,8 +1438,8 @@ class TestTryLoadModel:
         """notify_on_failure=False should NOT send a notification."""
         self._setup_registry(app)
         app.tray = MagicMock()
-        app.transcriber.load = MagicMock(side_effect=RuntimeError("OOM"))
-        app.transcriber.is_loaded = False
+        app.models.transcriber.load = MagicMock(side_effect=RuntimeError("OOM"))
+        app.models.transcriber.is_loaded = False
 
         app._try_load_model(notify_on_failure=False)
 
@@ -1423,12 +1449,12 @@ class TestTryLoadModel:
         """_model_load_attempted should be True after _try_load_model."""
         self._setup_registry(app)
         app.tray = MagicMock()
-        app.transcriber.load = MagicMock()
+        app.models.transcriber.load = MagicMock()
 
-        assert app._model_load_attempted is False
+        assert app.models._model_load_attempted is False
         app._try_load_model()
         # pyrefly: ignore [unnecessary-comparison]
-        assert app._model_load_attempted is True
+        assert app.models._model_load_attempted is True
 
 
 class TestStreamingIntegration:
@@ -1436,8 +1462,9 @@ class TestStreamingIntegration:
         app.config.streaming_transcription = True
         app.recorder = MagicMock()
         app.recorder.recording = False
-        app.transcriber = MagicMock()
-        app.transcriber.is_loaded = True
+        app.models.transcriber = MagicMock()
+        app.models._sync_registry_from_fields()
+        app.models.transcriber.is_loaded = True
         app.tray = MagicMock()
         app.clipboard = MagicMock()
 
@@ -1460,9 +1487,10 @@ class TestStreamingIntegration:
         app.clipboard.copy = MagicMock(return_value=True)
         app.clipboard.paste = MagicMock(return_value=True)
 
-        app.transcriber = MagicMock()
-        app.transcriber.transcribe_with_fallback = MagicMock(return_value="batch text")
-        app.transcriber.device_info = "cpu (int8)"
+        app.models.transcriber = MagicMock()
+        app.models._sync_registry_from_fields()
+        app.models.transcriber.transcribe_with_fallback = MagicMock(return_value="batch text")
+        app.models.transcriber.device_info = "cpu (int8)"
 
         app.recorder = MagicMock()
         app.recorder.recording = True
@@ -1478,7 +1506,7 @@ class TestStreamingIntegration:
         _wait_for_busy_clear(app)
 
         session.finalize.assert_called_once_with(audio)
-        app.transcriber.transcribe_with_fallback.assert_not_called()
+        app.models.transcriber.transcribe_with_fallback.assert_not_called()
         app.clipboard.copy.assert_called_once_with("Streamed text")
         app.clipboard.paste.assert_called_once()
 
@@ -1487,8 +1515,9 @@ class TestStreamingIntegration:
         monkeypatch.setenv("VOICE_TYPER_STREAMING", "0")
         app.recorder = MagicMock()
         app.recorder.recording = False
-        app.transcriber = MagicMock()
-        app.transcriber.is_loaded = True
+        app.models.transcriber = MagicMock()
+        app.models._sync_registry_from_fields()
+        app.models.transcriber.is_loaded = True
         app.tray = MagicMock()
 
         session_cls = MagicMock()
@@ -1540,8 +1569,10 @@ class TestStartupResilience:
         # _asr_registry.load_with_fallback. Mock the registry so we
         # can track when model loading happens.
         app._sync_asr_registry = MagicMock()
-        app._asr_registry = MagicMock()
-        app._asr_registry.load_with_fallback = track_model_load
+        # ARCH-REFAC-003: assign to ModelManager._registry directly (was
+        # a @property delegate on VoiceTyperApp).
+        app.models._registry = MagicMock()
+        app.models.registry.load_with_fallback = track_model_load
         app._sync_autostart = MagicMock()
         app._sync_prewarm_task = MagicMock()
         app._load_microphones = MagicMock()
@@ -1550,7 +1581,7 @@ class TestStartupResilience:
         app._do_startup()
         # Model load now runs in a background thread — wait for it so
         # the "model" step has actually executed before asserting order.
-        load_thread = app._model_load_thread
+        load_thread = app.models._model_load_thread
         if load_thread is not None:
             load_thread.join(timeout=5)
 
@@ -1573,7 +1604,7 @@ class TestStartupResilience:
         app._do_startup()
         # Wait for the background loader so the assertion below sees the
         # post-load state (hotkey registered, app still alive).
-        load_thread = app._model_load_thread
+        load_thread = app.models._model_load_thread
         if load_thread is not None:
             load_thread.join(timeout=5)
             assert not load_thread.is_alive(), "loader thread hung"
@@ -1583,19 +1614,20 @@ class TestStartupResilience:
 
     def test_start_dictation_retries_model_load(self, app):
         """When model not loaded, _start_dictation should try loading it."""
-        app.transcriber = MagicMock()
-        app.transcriber.is_loaded = False
-        app.transcriber.load = MagicMock()
-        app.transcriber.device_info = "cpu (int8)"
-        app.transcriber.loaded_via = "cpu/int8/tiny.en"
+        app.models.transcriber = MagicMock()
+        app.models._sync_registry_from_fields()
+        app.models.transcriber.is_loaded = False
+        app.models.transcriber.load = MagicMock()
+        app.models.transcriber.device_info = "cpu (int8)"
+        app.models.transcriber.loaded_via = "cpu/int8/tiny.en"
         app.tray = MagicMock()
         app.recorder = MagicMock()
         app.recorder.recording = False
 
         # After _try_load_model, is_loaded becomes True
         def mock_load(**kwargs):
-            app.transcriber.is_loaded = True
-        app.transcriber.load = mock_load
+            app.models.transcriber.is_loaded = True
+        app.models.transcriber.load = mock_load
 
         app._start_dictation()
 
@@ -1604,9 +1636,10 @@ class TestStartupResilience:
 
     def test_start_dictation_fails_gracefully_if_model_still_unavailable(self, app):
         """If model retry fails, should not attempt recording."""
-        app.transcriber = MagicMock()
-        app.transcriber.is_loaded = False
-        app.transcriber.load = MagicMock(side_effect=RuntimeError("still OOM"))
+        app.models.transcriber = MagicMock()
+        app.models._sync_registry_from_fields()
+        app.models.transcriber.is_loaded = False
+        app.models.transcriber.load = MagicMock(side_effect=RuntimeError("still OOM"))
         app.tray = MagicMock()
         app.recorder = MagicMock()
         app.recorder.recording = False
@@ -1642,7 +1675,7 @@ class TestStartupNoCrash:
         assert app.tray is not None
         assert app.recorder is not None
         assert app.clipboard is not None
-        assert app._hotkey_backend is None
+        assert app.hotkeys._hotkey_backend is None
         assert app._busy_event.is_set()  # not busy
 
     def test_tray_start_creates_icon(self, tmp_config_dir, monkeypatch):
@@ -1693,8 +1726,9 @@ class TestTextCleanupConfig:
         app.clipboard = MagicMock()
         app.clipboard.copy = MagicMock(return_value=True)
         app.clipboard.paste = MagicMock(return_value=False)
-        app.transcriber = MagicMock()
-        app.transcriber.transcribe_with_fallback = MagicMock(return_value="hello world")
+        app.models.transcriber = MagicMock()
+        app.models._sync_registry_from_fields()
+        app.models.transcriber.transcribe_with_fallback = MagicMock(return_value="hello world")
         app.recorder = MagicMock()
         app.recorder.recording = True
         app.recorder.stop = MagicMock(return_value=np.ones(16000, dtype=np.float32))
@@ -1856,9 +1890,9 @@ class TestRestartAppCleanupPath:
         monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
         monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
         monkeypatch.setattr("voice_typer.server.app.sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
-        app._hotkey_backend = MagicMock()
-        app._esc_backend = MagicMock()
-        app._repaste_backend = MagicMock()
+        app.hotkeys._hotkey_backend = MagicMock()
+        app.hotkeys._esc_backend = MagicMock()
+        app.hotkeys._repaste_backend = MagicMock()
         app._cancel_pending_timers = MagicMock()
         app.tray = MagicMock()
 
@@ -1867,9 +1901,9 @@ class TestRestartAppCleanupPath:
         except SystemExit:
             pass
 
-        app._hotkey_backend.stop.assert_called_once()
-        app._esc_backend.stop.assert_called_once()
-        app._repaste_backend.stop.assert_called_once()
+        app.hotkeys._hotkey_backend.stop.assert_called_once()
+        app.hotkeys._esc_backend.stop.assert_called_once()
+        app.hotkeys._repaste_backend.stop.assert_called_once()
 
     def test_restart_calls_tray_stop(self, app, monkeypatch):
         """restart_app must call tray.stop() to break the pystray loop."""
@@ -1880,9 +1914,9 @@ class TestRestartAppCleanupPath:
         monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
         monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
         monkeypatch.setattr("voice_typer.server.app.sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
-        app._hotkey_backend = MagicMock()
-        app._esc_backend = MagicMock()
-        app._repaste_backend = MagicMock()
+        app.hotkeys._hotkey_backend = MagicMock()
+        app.hotkeys._esc_backend = MagicMock()
+        app.hotkeys._repaste_backend = MagicMock()
         app._cancel_pending_timers = MagicMock()
         app.tray = MagicMock()
 
@@ -1905,9 +1939,9 @@ class TestRestartAppCleanupPath:
         monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: os_exit_calls.append(code))
         sys_exit_called = []
         monkeypatch.setattr("voice_typer.server.app.sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
-        app._hotkey_backend = MagicMock()
-        app._esc_backend = MagicMock()
-        app._repaste_backend = MagicMock()
+        app.hotkeys._hotkey_backend = MagicMock()
+        app.hotkeys._esc_backend = MagicMock()
+        app.hotkeys._repaste_backend = MagicMock()
         app._cancel_pending_timers = MagicMock()
         app.tray = MagicMock()
 

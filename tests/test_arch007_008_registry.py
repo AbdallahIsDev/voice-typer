@@ -143,8 +143,13 @@ class TestArch008RegistryInitializedEarly:
     """ARCH-008: registry is initialized in __init__ (not lazily)."""
 
     def test_asr_registry_exists_after_init(self, tmp_path, monkeypatch):
-        """VoiceTyperApp.__init__ must set self._asr_registry before any
-        engine field is accessed."""
+        """VoiceTyperApp.__init__ must initialize ModelManager (and thus
+        the AsrBackendRegistry) before any engine field is accessed.
+
+        ARCH-REFAC-003: the registry used to be exposed via
+        ``app._asr_registry`` (@property delegate); it now lives on
+        ``app.models._registry`` / ``app.models.registry``.
+        """
         # Point config to a temp directory
         monkeypatch.setattr(
             "voice_typer.server.config._config_dir", lambda: tmp_path
@@ -158,11 +163,14 @@ class TestArch008RegistryInitializedEarly:
         )
         from voice_typer.server.app import VoiceTyperApp
         app = VoiceTyperApp()
-        assert hasattr(app, '_asr_registry'), (
-            "_asr_registry must be set in __init__ so _start_dictation "
+        # The registry must exist on ModelManager from __init__ time so
+        # _start_dictation and other code paths can rely on it existing.
+        assert hasattr(app.models, "_registry"), (
+            "ModelManager._registry must be set in __init__ so _start_dictation "
             "and other code paths can rely on it existing"
         )
-        assert app._asr_registry is not None
+        assert app.models._registry is not None
+        assert app.models.registry is not None
 
 
 class TestArch047SyncRegistryNoChurn:

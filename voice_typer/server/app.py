@@ -211,9 +211,10 @@ class VoiceTyperApp:
         # Previously VoiceTyperApp owned the AsrBackendRegistry + three
         # engine fields + ~500 LOC of load/fallback/change logic. Now
         # ModelManager owns all of that; app.py accesses it via
-        # `self.models` and the property delegates below
-        # (`self.transcriber`, `self._qwen_engine`, etc.) for back-compat
-        # with tests that read those fields directly.
+        # `self.models`. (ARCH-REFAC-003: the @property delegates that
+        # used to mirror `self.transcriber` / `self._qwen_engine` /
+        # `self._asr_registry` / etc. on VoiceTyperApp have been
+        # removed — callers now use `self.models.<field>` directly.)
         from voice_typer.server.model_manager import ModelManager
         self.models: ModelManager = ModelManager(self)
         if self.config.asr_backend == "qwen" and self.config.qwen_model_path:
@@ -231,14 +232,18 @@ class VoiceTyperApp:
 
         # #2 (Round 9): Hotkey registration extracted to HotkeyDispatcher.
         # Owns the 3 hotkey backends (dictation / ESC / repaste) and the
-        # register/restart logic. The 3 legacy fields (_hotkey_backend,
-        # _esc_backend, _repaste_backend) are exposed via @property
-        # delegates below for back-compat with tests that read them.
+        # register/restart logic. (ARCH-REFAC-003: the @property
+        # delegates that used to mirror the 3 legacy fields
+        # (_hotkey_backend, _esc_backend, _repaste_backend) on
+        # VoiceTyperApp have been removed — callers now use
+        # `self.hotkeys.<field>` directly.)
         from voice_typer.server.hotkey_dispatcher import HotkeyDispatcher
         self.hotkeys: HotkeyDispatcher = HotkeyDispatcher(self)
         # #2 (Round 9): _streaming_session and _transcription_thread now
-        # live in RecordingController. Exposed via @property delegates
-        # below for back-compat with code that reads them directly.
+        # live in RecordingController. (ARCH-REFAC-003: the @property
+        # delegates that used to mirror them on VoiceTyperApp have been
+        # removed — callers now use `self.recording.<field>` directly,
+        # or `self._get_streaming_session()` / `self._set_streaming_session()`.)
         self._settings_window: Optional[SettingsWindow] = None
         self._microphones: list[dict] = []
         self._busy_event = threading.Event()
@@ -256,9 +261,10 @@ class VoiceTyperApp:
         self._config_mutation_lock = threading.RLock()
 
         # #2 (Round 9): _model_load_attempted / _model_load_thread /
-        # _pending_dictation now live in ModelManager. They're exposed
-        # on VoiceTyperApp via @property delegates below for back-compat
-        # with code that reads them directly.
+        # _pending_dictation now live in ModelManager. (ARCH-REFAC-003:
+        # the @property delegates that used to mirror them on
+        # VoiceTyperApp have been removed — callers now use
+        # `self.models.<field>` directly.)
         self._shutting_down = False  # True once quit() starts
         # RACE-020: threading.Event version of _shutting_down so executor
         # tasks can check it without reading the boolean (which provides
@@ -387,121 +393,23 @@ class VoiceTyperApp:
 
     # ─── #2 (Round 9): ASR backend delegates to ModelManager ───────────
     #
-    # The following @property delegates expose the engine fields and
-    # model-lifecycle state that previously lived directly on
-    # VoiceTyperApp. They read/write through to ``self.models`` so
-    # existing code paths (and tests) that do ``app.transcriber = X``
-    # or ``app._model_load_thread`` keep working without modification.
+    # ARCH-REFAC-003: removed @property delegates (transcriber,
+    # _qwen_engine, _parakeet_engine, _asr_registry, _model_load_thread,
+    # _model_load_attempted, _pending_dictation) — callers now use
+    # ``self.models.<field>`` directly (e.g. ``self.models.transcriber``,
+    # ``self.models._registry``, ``self.models._model_load_thread``).
     #
     # The actual logic lives in voice_typer/server/model_manager.py.
 
-    @property
-    def transcriber(self):
-        """Whisper engine (legacy field; mirrored from ModelManager)."""
-        return self.models.transcriber
+    # ARCH-REFAC-003: removed @property delegates (_transcription_thread,
+    # _streaming_session) — callers now use self.recording._transcription_thread
+    # and self.recording._streaming_session (or the get/set_streaming_session
+    # methods) directly.
 
-    @transcriber.setter
-    def transcriber(self, value):
-        # Tests sometimes do `app.transcriber = MagicMock()` directly.
-        # Mirror the assignment into ModelManager and re-sync the registry.
-        self.models.transcriber = value
-        self.models._sync_registry_from_fields()
-
-    @property
-    def _qwen_engine(self):
-        return self.models._qwen_engine
-
-    @_qwen_engine.setter
-    def _qwen_engine(self, value):
-        self.models._qwen_engine = value
-        self.models._sync_registry_from_fields()
-
-    @property
-    def _parakeet_engine(self):
-        return self.models._parakeet_engine
-
-    @_parakeet_engine.setter
-    def _parakeet_engine(self, value):
-        self.models._parakeet_engine = value
-        self.models._sync_registry_from_fields()
-
-    @property
-    def _asr_registry(self):
-        return self.models.registry
-
-    @_asr_registry.setter
-    def _asr_registry(self, value):
-        # Allow tests to swap the registry if needed.
-        self.models._registry = value
-
-    @property
-    def _model_load_thread(self):
-        return self.models._model_load_thread
-
-    @_model_load_thread.setter
-    def _model_load_thread(self, value):
-        self.models._model_load_thread = value
-
-    @property
-    def _model_load_attempted(self):
-        return self.models._model_load_attempted
-
-    @_model_load_attempted.setter
-    def _model_load_attempted(self, value):
-        self.models._model_load_attempted = value
-
-    @property
-    def _pending_dictation(self):
-        return self.models._pending_dictation
-
-    @_pending_dictation.setter
-    def _pending_dictation(self, value):
-        self.models._pending_dictation = value
-
-    @property
-    def _transcription_thread(self):
-        """#2 (Round 9): delegate to RecordingController._transcription_thread."""
-        return self.recording._transcription_thread
-
-    @_transcription_thread.setter
-    def _transcription_thread(self, value):
-        self.recording._transcription_thread = value
-
-    @property
-    def _streaming_session(self):
-        """#2 (Round 9): delegate to RecordingController._streaming_session."""
-        return self.recording._streaming_session
-
-    @_streaming_session.setter
-    def _streaming_session(self, value):
-        self.recording._streaming_session = value
-
-    @property
-    def _hotkey_backend(self):
-        """#2 (Round 9): delegate to HotkeyDispatcher._hotkey_backend."""
-        return self.hotkeys._hotkey_backend
-
-    @_hotkey_backend.setter
-    def _hotkey_backend(self, value):
-        self.hotkeys._hotkey_backend = value
-
-    @property
-    def _esc_backend(self):
-        """#2 (Round 9): delegate to HotkeyDispatcher._esc_backend."""
-        return self.hotkeys._esc_backend
-
-    @_esc_backend.setter
-    def _esc_backend(self, value):
-        self.hotkeys._esc_backend = value
-
-    @property
-    def _repaste_backend(self):
-        """#2 (Round 9): delegate to HotkeyDispatcher._repaste_backend."""
-        return self.hotkeys._repaste_backend
-
-    @_repaste_backend.setter
-    def _repaste_backend(self, value):
-        self.hotkeys._repaste_backend = value
+    # ARCH-REFAC-003: removed @property delegates (_hotkey_backend,
+    # _esc_backend, _repaste_backend) — callers now use
+    # self.hotkeys._hotkey_backend / self.hotkeys._esc_backend /
+    # self.hotkeys._repaste_backend directly.
 
     # ── Model lifecycle methods (thin delegates to ModelManager) ──────
 
@@ -1293,7 +1201,9 @@ class VoiceTyperApp:
                 watchdog=None,  # RACE-013: Event-based watchdog is used, not Timer
             )
 
-        self._transcription_thread = threading.Thread(
+        # ARCH-REFAC-003: write directly to RecordingController's
+        # _transcription_thread (was a @property delegate previously).
+        self.recording._transcription_thread = threading.Thread(
             target=transcribe_thread,
             name="Transcription",
             daemon=True,
@@ -1301,7 +1211,7 @@ class VoiceTyperApp:
             # finally block clears the busy event and crash recovery is
             # handled by the atexit handler if the thread is killed.
         )
-        self._transcription_thread.start()
+        self.recording._transcription_thread.start()
 
     def _streaming_enabled(self) -> bool:
         """#2 (Round 9): delegate to RecordingController._streaming_enabled()."""
@@ -1692,12 +1602,14 @@ class VoiceTyperApp:
         # 3. Stop backends so the new instance can re-register everything.
         self._cancel_pending_timers()
         try:
-            if self._hotkey_backend:
-                self._hotkey_backend.stop()
-            if self._esc_backend:
-                self._esc_backend.stop()
-            if self._repaste_backend:
-                self._repaste_backend.stop()
+            # ARCH-REFAC-003: access HotkeyDispatcher directly (was a
+            # @property delegate previously).
+            if self.hotkeys._hotkey_backend:
+                self.hotkeys._hotkey_backend.stop()
+            if self.hotkeys._esc_backend:
+                self.hotkeys._esc_backend.stop()
+            if self.hotkeys._repaste_backend:
+                self.hotkeys._repaste_backend.stop()
         except Exception:
             pass
         try:
@@ -1780,27 +1692,31 @@ class VoiceTyperApp:
         self._restore_volume(fade_ms=0)
 
         # Wait for any running transcription thread to finish (short timeout).
-        t = self._transcription_thread
+        # ARCH-REFAC-003: read directly from RecordingController (was a
+        # @property delegate previously).
+        t = self.recording._transcription_thread
         if t is not None and t.is_alive():
             log.info("[SHUTDOWN] Waiting for transcription thread to finish...")
             t.join(timeout=3.0)
             if t.is_alive():
                 log.warning("[SHUTDOWN] Transcription thread did not finish in time, continuing shutdown")
 
-        if self._hotkey_backend:
-            self._hotkey_backend.stop()
+        # ARCH-REFAC-003: access HotkeyDispatcher directly (was a
+        # @property delegate previously).
+        if self.hotkeys._hotkey_backend:
+            self.hotkeys._hotkey_backend.stop()
 
         # RELIABILITY-003: also stop ESC cancel and repaste hotkey
         # backends so their RegisterHotKey / GlobalHotKeys registrations
         # are released before the next instance tries to claim them.
-        if self._esc_backend:
+        if self.hotkeys._esc_backend:
             try:
-                self._esc_backend.stop()
+                self.hotkeys._esc_backend.stop()
             except Exception as e:
                 log.warning("[SHUTDOWN] ESC backend stop failed: %s", e)
-        if self._repaste_backend:
+        if self.hotkeys._repaste_backend:
             try:
-                self._repaste_backend.stop()
+                self.hotkeys._repaste_backend.stop()
             except Exception as e:
                 log.warning("[SHUTDOWN] repaste backend stop failed: %s", e)
 
@@ -1898,8 +1814,10 @@ class VoiceTyperApp:
         except Exception:
             pass
         try:
-            if self._hotkey_backend:
-                self._hotkey_backend.stop()
+            # ARCH-REFAC-003: access HotkeyDispatcher directly (was a
+            # @property delegate previously).
+            if self.hotkeys._hotkey_backend:
+                self.hotkeys._hotkey_backend.stop()
         except Exception:
             pass
         try:

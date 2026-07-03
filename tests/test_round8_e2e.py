@@ -126,13 +126,17 @@ class TestRound8E2E:
         assert callable(AsrBackendRegistry.create)
 
     def test_arch008_registry_initialized_in_init(self, tmp_path, monkeypatch):
-        """ARCH-008: _asr_registry is set in VoiceTyperApp.__init__."""
+        """ARCH-008: registry is set in VoiceTyperApp.__init__ (now via
+        ModelManager._registry, accessed as app.models.registry)."""
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
         monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
         from voice_typer.server.app import VoiceTyperApp
         app = VoiceTyperApp()
-        assert app._asr_registry is not None
+        # ARCH-REFAC-003: registry now lives on ModelManager; the legacy
+        # app._asr_registry @property delegate was removed.
+        assert app.models._registry is not None
+        assert app.models.registry is not None
 
     def test_issue13_tray_menu_module_exists(self):
         """#13: tray_menu module extracted with build_menu, display_hotkey, wrap_callback."""

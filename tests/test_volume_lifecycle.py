@@ -187,8 +187,8 @@ def app_with_fake_ducker(tmp_config_dir, monkeypatch):
     # the recording path must explicitly opt in (just like real users
     # must enable the toggle in Settings → Privacy before recording).
     instance.config.voice_biometric_consent = True
-    instance.transcriber = MagicMock()
-    instance.transcriber.is_loaded = True
+    instance.models.transcriber = MagicMock()
+    instance.models.transcriber.is_loaded = True
 
     # Replace the auto-detected backend with our FakeBackend.  We keep
     # the real DuckCrashRecovery so crash-recovery tests can write a
@@ -310,9 +310,9 @@ class TestStopDictationRestoresVolume:
         app.config.volume_duck_enabled = True
 
         app.recorder.recording = True
-        app.transcriber = MagicMock()
-        app.transcriber.transcribe_with_fallback = MagicMock(return_value="hello")
-        app.transcriber.device_info = "cpu"
+        app.models.transcriber = MagicMock()
+        app.models.transcriber.transcribe_with_fallback = MagicMock(return_value="hello")
+        app.models.transcriber.device_info = "cpu"
         app.recorder.stop = MagicMock(return_value=np.ones(16000, dtype=np.float32))
         app._volume_ducker.duck(0.25)
 
@@ -322,11 +322,11 @@ class TestStopDictationRestoresVolume:
             events.append("restore")
             return original_fade(target, duration_ms, steps)
         backend.fade_to = spy_fade
-        original_transcribe = app.transcriber.transcribe_with_fallback
+        original_transcribe = app.models.transcriber.transcribe_with_fallback
         def spy_transcribe(*a, **kw):
             events.append("transcribe")
             return original_transcribe(*a, **kw)
-        app.transcriber.transcribe_with_fallback = spy_transcribe
+        app.models.transcriber.transcribe_with_fallback = spy_transcribe
 
         app._stop_dictation()
         _wait_for_busy_clear(app)
@@ -414,11 +414,13 @@ class TestQuitRestoresVolumeInstantly:
         app._cancel_pending_timers = MagicMock()
         app._get_streaming_session = MagicMock(return_value=None)
         app._set_streaming_session = MagicMock()
-        app._hotkey_backend = MagicMock()
-        app._esc_backend = MagicMock()
-        app._repaste_backend = MagicMock()
+        app.hotkeys._hotkey_backend = MagicMock()
+        app.hotkeys._esc_backend = MagicMock()
+        app.hotkeys._repaste_backend = MagicMock()
         app._crash_recovery = MagicMock()
-        app._transcription_thread = None
+        # ARCH-REFAC-003: write to RecordingController directly (was a
+        # @property delegate on VoiceTyperApp).
+        app.recording._transcription_thread = None
         app.tray = MagicMock()
         # Stub sys.exit so quit() doesn't actually terminate the test runner.
         with patch("voice_typer.server.app.sys.exit"):
@@ -459,12 +461,14 @@ class TestRestartRestoresBeforeExiting:
         with patch("voice_typer.server.ipc_server._push_event_now"):
             # Also stub the rest of restart_app() that would block or kill
             app._cancel_pending_timers = MagicMock()
-            app._hotkey_backend = MagicMock()
-            app._esc_backend = MagicMock()
-            app._repaste_backend = MagicMock()
+            app.hotkeys._hotkey_backend = MagicMock()
+            app.hotkeys._esc_backend = MagicMock()
+            app.hotkeys._repaste_backend = MagicMock()
             app._crash_recovery = MagicMock()
             app.tray = MagicMock()
-            app._transcription_thread = None
+            # ARCH-REFAC-003: write to RecordingController directly (was
+            # a @property delegate on VoiceTyperApp).
+            app.recording._transcription_thread = None
             # Spy on sys.exit to record that exit happened AFTER restore.
             real_sys_exit = app_mod.sys.exit
             def spy_exit(code=0):
@@ -594,8 +598,8 @@ class TestPerSessionDuckGatedOnSupport:
         # voice_biometric_consent — tests that exercise the recording
         # path must explicitly opt in.
         instance.config.voice_biometric_consent = True
-        instance.transcriber = MagicMock()
-        instance.transcriber.is_loaded = True
+        instance.models.transcriber = MagicMock()
+        instance.models.transcriber.is_loaded = True
 
         backend = FakeBackend(current=0.5, per_session_capable=True)
         from voice_typer.server.volume_ducker import VolumeDucker

@@ -39,7 +39,8 @@ class RecordingController:
     - Read ``app.config`` (recording_mode, streaming_*, silence_*)
     - Read/write ``app.recorder`` (Recorder instance)
     - Read/write ``app._busy_event`` (busy flag)
-    - Read/write ``app._transcription_thread``
+    - Own ``self._transcription_thread`` / ``self._streaming_session``
+      (ARCH-REFAC-003: callers must read these via ``app.recording.X``)
     - Update ``app.tray`` state during recording
     - Call ``app._schedule_timer`` / ``app._cancel_pending_timers``
     - Call ``app.models.ensure_active_engine_loaded()`` / ``app._fallback_to_whisper()``
@@ -161,13 +162,13 @@ class RecordingController:
         # runs on the hotkey thread while the loader runs on its own thread,
         # re-reading the attribute in the is_alive() check is a TOCTOU race
         # that can dereference None.
-        loader = app._model_load_thread
+        loader = app.models._model_load_thread
         if loader is not None and loader.is_alive():
             log.info(
                 "[HOTKEY FIRED] Model still loading -- queuing dictation (cycle=%s)",
                 app._cycle_id,
             )
-            app._pending_dictation = True
+            app.models._pending_dictation = True
             app.tray.set_state(
                 AppState.LOADING,
                 "Loading model -- your dictation will start automatically…",

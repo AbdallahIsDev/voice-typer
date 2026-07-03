@@ -215,9 +215,9 @@ class TestP1WhisperSkipWhenQwenActive:
         app = VoiceTyperApp()
 
         # Mock the Qwen engine
-        app._qwen_engine = MagicMock()
-        app._qwen_engine.is_loaded = qwen_loaded
-        app._qwen_engine.load = MagicMock()
+        app.models._qwen_engine = MagicMock()
+        app.models._qwen_engine.is_loaded = qwen_loaded
+        app.models._qwen_engine.load = MagicMock()
 
         return app
 
@@ -236,11 +236,11 @@ class TestP1WhisperSkipWhenQwenActive:
             whisper_load_called.append(True)
             # Simulate successful load so it doesn't loop
             # pyrefly: ignore [read-only]
-            app.transcriber.is_loaded = True
+            app.models.transcriber.is_loaded = True
             # pyrefly: ignore [read-only]
-            app.transcriber.device_info = "cpu (int8)"
+            app.models.transcriber.device_info = "cpu (int8)"
             # pyrefly: ignore [read-only]
-            app.transcriber.loaded_via = "cpu/int8/small.en"
+            app.models.transcriber.loaded_via = "cpu/int8/small.en"
             original_try_load(*args, **kwargs)
 
         app._try_load_model = track_try_load
@@ -248,12 +248,12 @@ class TestP1WhisperSkipWhenQwenActive:
         app._do_startup()
 
         # Wait for the background model-load thread to complete
-        if app._model_load_thread is not None:
-            app._model_load_thread.join(timeout=5)
+        if app.models._model_load_thread is not None:
+            app.models._model_load_thread.join(timeout=5)
 
         # Qwen engine should have been loaded (via registry)
         # pyrefly: ignore [missing-attribute]
-        app._qwen_engine.load.assert_called_once()
+        app.models._qwen_engine.load.assert_called_once()
         # Whisper should NOT have been loaded since Qwen succeeded
         assert len(whisper_load_called) == 0, "Whisper should not be loaded when Qwen is active and loaded"
 
@@ -275,23 +275,23 @@ class TestP1WhisperSkipWhenQwenActive:
             "voice_typer.server.app.TranscriptionEngine",
             MagicMock(return_value=mock_transcriber),
         )
-        app.transcriber = mock_transcriber
+        app.models.transcriber = mock_transcriber
 
         # Make Qwen load() raise so the registry falls back to Whisper
         # pyrefly: ignore [missing-attribute]
-        app._qwen_engine.load = MagicMock(side_effect=RuntimeError("Qwen unavailable"))
+        app.models._qwen_engine.load = MagicMock(side_effect=RuntimeError("Qwen unavailable"))
 
         app._do_startup()
 
         # Wait for the background model-load thread to complete
-        if app._model_load_thread is not None:
-            app._model_load_thread.join(timeout=5)
+        if app.models._model_load_thread is not None:
+            app.models._model_load_thread.join(timeout=5)
 
         # Qwen engine load should have been attempted (via registry)
         # pyrefly: ignore [missing-attribute]
-        app._qwen_engine.load.assert_called_once()
+        app.models._qwen_engine.load.assert_called_once()
         # Whisper should have been loaded as fallback (via registry)
-        app.transcriber.load.assert_called_once()
+        app.models.transcriber.load.assert_called_once()
 
     def test_start_dictation_lazy_loads_whisper_when_qwen_unavailable(self, monkeypatch, tmp_path):
         """When Qwen is configured but not loaded, _start_dictation should lazy-load Whisper."""
@@ -299,16 +299,16 @@ class TestP1WhisperSkipWhenQwenActive:
         app.recorder = MagicMock()
         app.recorder.recording = False
         app.tray = MagicMock()
-        app.transcriber = MagicMock()
-        app.transcriber.is_loaded = False
-        app.transcriber.load = MagicMock()
-        app.transcriber.device_info = "cpu (int8)"
-        app.transcriber.loaded_via = "cpu/int8/small.en"
+        app.models.transcriber = MagicMock()
+        app.models.transcriber.is_loaded = False
+        app.models.transcriber.load = MagicMock()
+        app.models.transcriber.device_info = "cpu (int8)"
+        app.models.transcriber.loaded_via = "cpu/int8/small.en"
 
         def mock_load(**kwargs):
             # pyrefly: ignore [read-only]
-            app.transcriber.is_loaded = True
-        app.transcriber.load = mock_load
+            app.models.transcriber.is_loaded = True
+        app.models.transcriber.load = mock_load
 
         app._start_dictation()
 

@@ -182,9 +182,11 @@ class DictationPipeline:
             # ARCH-016: clear _transcription_thread under the app's
             # state lock so concurrent readers (e.g. _cancel_streaming_session
             # in another thread) don't see a torn None vs Thread object.
+            # ARCH-REFAC-003: write directly to RecordingController (was a
+            # @property delegate previously).
             try:
                 with self._app._lock:
-                    self._app._transcription_thread = None
+                    self._app.recording._transcription_thread = None
             except Exception:
                 # Defensive: if the lock is unavailable we still want
                 # to clear the field — but log the race.
@@ -194,7 +196,7 @@ class DictationPipeline:
                     exc_info=True,
                 )
                 try:
-                    self._app._transcription_thread = None
+                    self._app.recording._transcription_thread = None
                 except Exception:
                     pass
             try:

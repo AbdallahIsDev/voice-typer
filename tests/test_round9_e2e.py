@@ -112,21 +112,39 @@ class TestIssue2Extractions:
                 f"HotkeyDispatcher must have {method}"
             )
 
-    def test_app_property_delegates_work(self, temp_config, monkeypatch):
-        """The @property delegates (transcriber, _hotkey_backend, etc.)
-        read/write through to the extracted controllers."""
+    def test_app_property_delegates_removed(self, temp_config, monkeypatch):
+        """ARCH-REFAC-003: the @property delegates (transcriber,
+        _hotkey_backend, _streaming_session, etc.) have been removed from
+        VoiceTyperApp. Callers must access the extracted modules directly
+        via ``app.models``, ``app.hotkeys``, ``app.recording``."""
         monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
         monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
         from voice_typer.server.app import VoiceTyperApp
         app = VoiceTyperApp()
-        # transcriber property delegate
-        assert app.transcriber is None
-        app.transcriber = MagicMock()
-        assert app.transcriber is app.models.transcriber
-        # _hotkey_backend property delegate
-        assert app._hotkey_backend is app.hotkeys._hotkey_backend
-        # _streaming_session property delegate
-        assert app._streaming_session is app.recording._streaming_session
+        # The legacy @property delegates must no longer exist on the app.
+        for removed in (
+            "transcriber",
+            "_qwen_engine",
+            "_parakeet_engine",
+            "_asr_registry",
+            "_model_load_thread",
+            "_model_load_attempted",
+            "_pending_dictation",
+            "_transcription_thread",
+            "_streaming_session",
+            "_hotkey_backend",
+            "_esc_backend",
+            "_repaste_backend",
+        ):
+            assert not hasattr(type(app), removed), (
+                f"ARCH-REFAC-003 regression: VoiceTyperApp still has a "
+                f"class-level attribute {removed!r} (expected the "
+                f"@property delegate to be removed)"
+            )
+        # The extracted modules expose the same state directly.
+        assert app.models.transcriber is None
+        assert app.hotkeys._hotkey_backend is None
+        assert app.recording._streaming_session is None
 
 
 class TestStartup3ImportFiltering:

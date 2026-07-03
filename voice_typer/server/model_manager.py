@@ -14,9 +14,14 @@ Architecture:
                 └── _parakeet_engine            ← legacy field, mirrored from registry
 
 The registry is the source of truth; the three fields are kept as
-backwards-compat mirrors because tests and a few call sites still read
-``app.transcriber`` directly. All mutations go through ModelManager
-methods, which keep the registry and the fields in sync.
+backwards-compat mirrors. (ARCH-REFAC-003: the @property delegates
+that used to live on VoiceTyperApp and mirror these fields have
+been removed — callers now read ``app.models.transcriber`` /
+``app.models._qwen_engine`` / ``app.models._parakeet_engine``
+directly, and call ``app.models._sync_registry_from_fields()`` after
+mutating them so the registry stays consistent.) All mutations go
+through ModelManager methods, which keep the registry and the fields
+in sync.
 
 Previously this concern lived in VoiceTyperApp as ~500 LOC across 8 methods:
     _load_transcription_engine_background, _fallback_to_whisper,
@@ -50,7 +55,9 @@ class ModelManager:
     - Read/write ``app.config`` (asr_backend, model_size, etc.)
     - Update ``app.tray`` state during loads
     - Schedule the pending-dictation callback via ``app._schedule_timer``
-    - Read ``app._shutting_down`` / ``app._pending_dictation`` flags
+    - Read ``app._shutting_down`` flag and ``self._pending_dictation``
+      (ARCH-REFAC-003: ``_pending_dictation`` now lives on ModelManager
+      directly — accessed via ``app.models._pending_dictation``.)
 
     PERF-015: includes an LRU cache for loaded models. When loading a
     new model, if more than 2 models are loaded, the least recently
@@ -67,10 +74,15 @@ class ModelManager:
         # Callers can rely on it existing from the start.
         self._registry: AsrBackendRegistry = AsrBackendRegistry(app.config)
 
-        # Legacy engine fields — mirrored from the registry so existing
-        # tests that read app.transcriber / app._qwen_engine /
-        # app._parakeet_engine directly still work. The registry is the
-        # source of truth; these are kept in sync by _sync_legacy_fields().
+        # Legacy engine fields — mirrored from the registry so callers
+        # that read app.models.transcriber / app.models._qwen_engine /
+        # app.models._parakeet_engine directly still work. The registry
+        # is the source of truth; these are kept in sync by
+        # _sync_legacy_fields(). (ARCH-REFAC-003: the @property
+        # delegates that used to live on VoiceTyperApp — and auto-sync
+        # the registry on assignment — have been removed; callers must
+        # now call ``app.models._sync_registry_from_fields()`` after
+        # writing to these fields.)
         self.transcriber: Optional[Any] = None
         self._qwen_engine: Optional[Any] = None
         self._parakeet_engine: Optional[Any] = None
@@ -103,9 +115,9 @@ class ModelManager:
     def _sync_legacy_fields(self) -> None:
         """Mirror registry state into the three legacy fields.
 
-        Called after every registry mutation so ``app.transcriber`` etc.
-        stay consistent with the registry without callers needing to know
-        about the registry.
+        Called after every registry mutation so ``app.models.transcriber``
+        etc. stay consistent with the registry without callers needing to
+        know about the registry.
         """
         self.transcriber = self._registry.get("whisper")
         self._qwen_engine = self._registry.get("qwen")
@@ -115,8 +127,11 @@ class ModelManager:
         """Re-populate the registry from the legacy fields.
 
         Used when a code path writes to a legacy field directly (back-compat
-        with tests that do ``app.transcriber = MagicMock()``). After this
-        call, the registry and the fields are consistent.
+        with tests that do ``app.models.transcriber = MagicMock()``).
+        (ARCH-REFAC-003: this method used to be auto-invoked by the
+        @property delegates on VoiceTyperApp — it must now be called
+        explicitly after writing to a legacy field.) After this call,
+        the registry and the fields are consistent.
 
         ARCH-047: previously this method unconditionally unregistered all
         three backends and re-registered them, producing log spam

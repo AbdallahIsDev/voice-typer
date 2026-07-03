@@ -1,0 +1,39 @@
+"""Templates IPC handler mixin: get_templates, save_templates.
+
+ARCH-REFAC-002: extracted verbatim from ``voice_typer/server/ipc_server.py``.
+The methods are mixed into :class:`IPCServer` via multiple inheritance and
+access ``self.app`` / ``self.service`` as before.
+"""
+
+from voice_typer.server.ipc_server import log
+
+
+class TemplatesHandlersMixin:
+    """Mixin: templates IPC handlers (get_templates / save_templates)."""
+
+    def _handle_get_templates(self, data, resp) -> dict | None:
+        """Handle the ``get_templates`` IPC command."""
+        try:
+            templates = self.service.get_templates()
+            resp["type"] = "templates"
+            resp["data"] = {"templates": templates}
+        except Exception as e:
+            log.error("[IPC] get_templates failed: %s", e, exc_info=True)
+            resp["type"] = "error"
+            resp["data"] = {"message": str(e)}
+        return resp
+
+    def _handle_save_templates(self, data, resp) -> dict | None:
+        """Handle the ``save_templates`` IPC command."""
+        try:
+            templates = (data or {}).get("templates", [])
+            if not isinstance(templates, list):
+                raise ValueError("templates must be a list")
+            self.service.save_templates(templates)
+            resp["type"] = "ack"
+            resp["data"] = {"saved": len(templates)}
+        except Exception as e:
+            log.error("[IPC] save_templates failed: %s", e, exc_info=True)
+            resp["type"] = "error"
+            resp["data"] = {"message": str(e)}
+        return resp
