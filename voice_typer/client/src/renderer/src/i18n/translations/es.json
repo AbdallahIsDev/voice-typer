@@ -4,7 +4,9 @@
 		"startingBackend": "Iniciando backend de Python…",
 		"firstLaunchHint": "El primer inicio puede tardar 30–60 segundos mientras descargamos el modelo de reconocimiento de voz (~466 MB para small.en). Los inicios posteriores son mucho más rápidos. Puede cerrar esta ventana — el dictado funcionará desde la bandeja del sistema una vez que esté listo.",
 		"lostConnection": "Se perdió la conexión con el backend de Python",
-		"retryConnection": "Reintentar conexión"
+		"retryConnection": "Reintentar conexión",
+		"restartingBackend": "Reiniciando backend de Voice Typer…",
+		"restartingHint": "Esto suele tardar unos segundos. El dictado se reanudará desde la bandeja del sistema cuando esté listo."
 	},
 	"nav": {
 		"home": "Inicio",
@@ -118,6 +120,8 @@
 		"cancel": "Cancelar grabación, o cerrar este cuadro",
 		"repaste": "Re-pegar última transcripción",
 		"toggleSidebar": "Alternar barra lateral",
+		"openSettings": "Abrir Configuración",
+		"goHome": "Ir a Inicio",
 		"navigate": "Navegar entre controles",
 		"toggle": "Alternar interruptores / presionar botones",
 		"activate": "Activar control enfocado",

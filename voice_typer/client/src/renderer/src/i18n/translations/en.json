@@ -120,6 +120,8 @@
 		"cancel": "Cancel recording, or close this dialog",
 		"repaste": "Re-paste last transcription",
 		"toggleSidebar": "Toggle sidebar",
+		"openSettings": "Open Settings",
+		"goHome": "Go to Home",
 		"navigate": "Navigate between controls",
 		"toggle": "Toggle switches / press buttons",
 		"activate": "Activate focused control",

@@ -2,6 +2,7 @@ import {
 	Alert02Icon,
 	Delete01Icon,
 	Download01Icon,
+	PauseIcon,
 	PlayIcon,
 	Shield01Icon,
 	SparklesIcon,
@@ -37,6 +38,23 @@ interface ModelInfo {
 	// from HuggingFace on first use), so the "Download" button is
 	// hidden for models where alwaysAvailable is true.
 	alwaysAvailable?: boolean;
+}
+
+// NEW-MODEL-001: rich metadata from the backend's MODEL_REGISTRY.
+// Fetched via the ``get_model_catalog`` IPC command and used to
+// populate model cards with VRAM, language, and speed badges.
+interface ModelMetadata {
+	name: string;
+	download_size_mb: number;
+	required_vram_mb: number;
+	backend: string;
+	multilingual: boolean;
+	supported_languages: string[] | null; // null = all languages
+	description: string;
+	repo_id: string;
+	is_distilled: boolean;
+	speed_rating: string; // "fast" | "medium" | "slow"
+	accuracy_rating: string; // "low" | "medium" | "high"
 }
 
 const CLOUD_PROVIDERS = [
@@ -88,6 +106,35 @@ const INITIAL_MODELS: ModelInfo[] = [
 		depsOk: true,
 		isActive: false,
 	},
+	// NEW-MODEL-001: turbo + distilled variants.  Sizes from the
+	// backend's MODEL_REGISTRY (download_size_mb field).
+	{
+		name: "large-v3-turbo",
+		size: "~809MB",
+		speed: "Fast",
+		backend: "whisper",
+		downloaded: false,
+		depsOk: true,
+		isActive: false,
+	},
+	{
+		name: "distil-large-v3",
+		size: "~1.5GB",
+		speed: "Fast",
+		backend: "distil-whisper",
+		downloaded: false,
+		depsOk: true,
+		isActive: false,
+	},
+	{
+		name: "distil-medium.en",
+		size: "~780MB",
+		speed: "Fast",
+		backend: "distil-whisper",
+		downloaded: false,
+		depsOk: true,
+		isActive: false,
+	},
 	// UX-010: alwaysAvailable replaces the magic string `!model.alwaysAvailable`
 	{
 		name: "qwen",
@@ -110,6 +157,77 @@ const INITIAL_MODELS: ModelInfo[] = [
 	},
 ];
 
+// NEW-PAUSE-001: helpers for formatting the rich download progress
+// display.  Pure functions — no state, no IPC.  Exported indirectly
+// via closure when used in the JSX below.
+
+function formatBytes(bytes: number | null | undefined): string {
+	/** Format a byte count as "12.3 MB" / "1.5 GB" / "750 KB". */
+	if (bytes == null || bytes < 0 || !Number.isFinite(bytes)) return "—";
+	if (bytes < 1024) return `${bytes} B`;
+	const KB = 1024;
+	const MB = KB * 1024;
+	const GB = MB * 1024;
+	if (bytes < MB) return `${(bytes / KB).toFixed(1)} KB`;
+	if (bytes < GB) return `${(bytes / MB).toFixed(1)} MB`;
+	return `${(bytes / GB).toFixed(2)} GB`;
+}
+
+function formatSpeed(bps: number | null | undefined): string {
+	/** Format a bytes/sec rate as "1.2 MB/s" / "450 KB/s". */
+	if (bps == null || bps < 0 || !Number.isFinite(bps)) return "—";
+	const KB = 1024;
+	const MB = KB * 1024;
+	const GB = MB * 1024;
+	if (bps < KB) return `${bps.toFixed(0)} B/s`;
+	if (bps < MB) return `${(bps / KB).toFixed(0)} KB/s`;
+	if (bps < GB) return `${(bps / MB).toFixed(1)} MB/s`;
+	return `${(bps / GB).toFixed(2)} GB/s`;
+}
+
+function formatEta(seconds: number | null | undefined): string {
+	/** Format an ETA in seconds as "mm:ss" or "h:mm:ss" for >1h. */
+	if (seconds == null || seconds < 0 || !Number.isFinite(seconds)) return "—";
+	const s = Math.floor(seconds % 60);
+	const m = Math.floor((seconds / 60) % 60);
+	const h = Math.floor(seconds / 3600);
+	const pad = (n: number) => n.toString().padStart(2, "0");
+	if (h > 0) return `${h}:${pad(m)}:${pad(s)}`;
+	return `${pad(m)}:${pad(s)}`;
+}
+
+/**
+ * UX-ERR-001: format an unknown caught value as a user-friendly string.
+ *
+ * Catch blocks frequently do ``showSnack(`Failed: ${err}`)`` which
+ * stringifies the error via ``String(err)``.  For plain ``Error``
+ * objects this produces ``"Error: <message>"`` (acceptable), but for
+ * non-Error values it produces ``"[object Object]"`` (cryptic) or
+ * ``"undefined"`` (useless).  This helper extracts a useful message
+ * from any thrown value so the snackbar text is always actionable.
+ *
+ * @param err - the value caught in a ``catch (err)`` block
+ * @param fallback - returned when no useful message can be extracted
+ * @returns a short, user-facing string suitable for a snackbar
+ */
+function formatErrorMessage(err: unknown, fallback = "Unknown error"): string {
+	if (err instanceof Error) {
+		return err.message || fallback;
+	}
+	if (typeof err === "string") {
+		return err || fallback;
+	}
+	if (err && typeof err === "object") {
+		// IPC responses shape errors as { _error: "..." } or
+		// { message: "..." }; prefer those when present.
+		const obj = err as { _error?: unknown; message?: unknown; error?: unknown };
+		if (typeof obj._error === "string" && obj._error) return obj._error;
+		if (typeof obj.message === "string" && obj.message) return obj.message;
+		if (typeof obj.error === "string" && obj.error) return obj.error;
+	}
+	return fallback;
+}
+
 export default function ModelsPage() {
 	const { call } = usePython();
 	const { showSnack, Snackbar } = useSnackbar();
@@ -119,6 +237,16 @@ export default function ModelsPage() {
 	const [downloadProgress, setDownloadProgress] = useState(0);
 	const [downloadStatus, setDownloadStatus] = useState("");
 	const [isDownloading, setIsDownloading] = useState(false);
+	// NEW-PAUSE-001: pause/resume + rich progress fields.
+	const [isPaused, setIsPaused] = useState(false);
+	const [downloadedBytes, setDownloadedBytes] = useState<number | null>(null);
+	const [totalBytes, setTotalBytes] = useState<number | null>(null);
+	const [speedBps, setSpeedBps] = useState<number | null>(null);
+	const [etaSeconds, setEtaSeconds] = useState<number | null>(null);
+	// NEW-MODEL-001: model catalog (rich metadata from backend).
+	const [modelCatalog, setModelCatalog] = useState<
+		Record<string, ModelMetadata>
+	>({});
 	const [benchmarkResult, setBenchmarkResult] = useState("");
 	const [isBenchmarking, _setIsBenchmarking] = useState(false);
 
@@ -174,6 +302,24 @@ export default function ModelsPage() {
 				console.error("Failed to get model status:", err);
 			}
 
+			// NEW-MODEL-001: fetch rich metadata (VRAM, languages,
+			// speed/accuracy ratings) for the model catalog.  Used to
+			// populate the model cards with extra info badges.
+			try {
+				const catalog = await call<{ models: ModelMetadata[] }>(
+					"get_model_catalog",
+				);
+				if (catalog?.models && Array.isArray(catalog.models)) {
+					const byName: Record<string, ModelMetadata> = {};
+					for (const m of catalog.models) {
+						byName[m.name] = m;
+					}
+					setModelCatalog(byName);
+				}
+			} catch (err) {
+				console.error("Failed to get model catalog:", err);
+			}
+
 			setApiKeys({
 				// SEC-003: backend redacts keys to '<redacted>'.  Show empty
 				// in the input fields so the user can type a new key to
@@ -206,14 +352,42 @@ export default function ModelsPage() {
 	// so the progress bar and status text update in real time during a
 	// model download. Previously these state values were declared but
 	// never written, so the progress bar stayed at 0% forever.
+	//
+	// NEW-PAUSE-001: also read the new rich fields (downloaded_bytes,
+	// total_bytes, speed_bytes_per_sec, eta_seconds, paused, resumed)
+	// so the renderer can show a detailed progress bar with speed / ETA
+	// and a Pause/Resume button.
 	usePythonEvent(
 		"download_progress",
 		useCallback((data: Record<string, unknown> | undefined) => {
-			if (data && typeof data.progress === "number") {
+			if (!data) return;
+			if (typeof data.progress === "number") {
 				setDownloadProgress(data.progress);
 			}
-			if (data && typeof data.status === "string") {
+			if (typeof data.status === "string") {
 				setDownloadStatus(data.status);
+			}
+			if (typeof data.downloaded_bytes === "number") {
+				setDownloadedBytes(data.downloaded_bytes);
+			}
+			if (typeof data.total_bytes === "number") {
+				setTotalBytes(data.total_bytes);
+			}
+			if (typeof data.speed_bytes_per_sec === "number") {
+				setSpeedBps(data.speed_bytes_per_sec);
+			} else if (data.speed_bytes_per_sec == null) {
+				setSpeedBps(null);
+			}
+			if (typeof data.eta_seconds === "number") {
+				setEtaSeconds(data.eta_seconds);
+			} else if (data.eta_seconds == null) {
+				setEtaSeconds(null);
+			}
+			if (typeof data.paused === "boolean") {
+				setIsPaused(data.paused);
+			}
+			if (typeof data.resumed === "boolean" && data.resumed) {
+				setIsPaused(false);
 			}
 		}, []),
 	);
@@ -224,6 +398,11 @@ export default function ModelsPage() {
 			setIsDownloading(false);
 			setDownloadProgress(0);
 			setDownloadStatus("");
+			setDownloadedBytes(null);
+			setTotalBytes(null);
+			setSpeedBps(null);
+			setEtaSeconds(null);
+			setIsPaused(false);
 		};
 	}, []);
 
@@ -231,6 +410,11 @@ export default function ModelsPage() {
 	const resetProgress = useCallback(() => {
 		setDownloadProgress(0);
 		setDownloadStatus("");
+		setDownloadedBytes(null);
+		setTotalBytes(null);
+		setSpeedBps(null);
+		setEtaSeconds(null);
+		setIsPaused(false);
 	}, []);
 
 	const updateConfig = async (updates: Partial<VoiceTyperConfig>) => {
@@ -301,7 +485,7 @@ export default function ModelsPage() {
 				showSnack(result.error || `Failed to download ${model.name}`, "error");
 			}
 		} catch (err) {
-			showSnack(`Download failed: ${err}`, "error");
+			showSnack(`Download failed: ${formatErrorMessage(err)}`, "error");
 		} finally {
 			setIsDownloading(false);
 			// Keep the final progress/status visible briefly so the user
@@ -492,7 +676,7 @@ export default function ModelsPage() {
 		} catch (err) {
 			setTestResults((prev) => ({
 				...prev,
-				[provider]: `Connection test failed: ${err}`,
+				[provider]: `Connection test failed: ${formatErrorMessage(err)}`,
 			}));
 		}
 	};
@@ -637,32 +821,91 @@ export default function ModelsPage() {
 					<div className="space-y-2">
 						<div className="h-1.5 w-full rounded-full bg-border overflow-hidden">
 							<div
-								className="h-full rounded-full bg-accent transition-all duration-300"
+								className={`h-full rounded-full transition-all duration-300 ${
+									isPaused ? "bg-amber-500" : "bg-accent"
+								}`}
 								style={{ width: `${downloadProgress}%` }}
 							/>
 						</div>
 						<div className="flex items-center justify-between gap-3">
-							<p className="text-xs text-(--text-muted)">{downloadStatus}</p>
-							{/* NEW-PRIV-011: Cancel button for in-progress downloads. */}
-							<Button
-								variant="outline"
-								size="sm"
-								onClick={async () => {
-									try {
-										await call("cancel_model_download");
-										showSnack(
-											"Download cancelled. Partial files will be reused on retry.",
-											"warning",
-										);
-									} catch (err) {
-										showSnack(`Failed to cancel: ${err}`, "error");
-									}
-								}}
-								aria-label="Cancel model download"
-								className="h-7 px-3 text-xs"
-							>
-								Cancel
-							</Button>
+							<p className="text-xs text-(--text-muted) flex-1 min-w-0 truncate">
+								{downloadStatus}
+								{/* NEW-PAUSE-001: rich progress display —
+                                                                         downloaded / total · speed · ETA. */}
+								{downloadedBytes !== null && totalBytes !== null && (
+									<span className="ml-2 whitespace-nowrap">
+										· {formatBytes(downloadedBytes)} / {formatBytes(totalBytes)}
+									</span>
+								)}
+								{speedBps !== null && speedBps > 0 && (
+									<span className="ml-2 whitespace-nowrap">
+										· {formatSpeed(speedBps)}
+									</span>
+								)}
+								{etaSeconds !== null && etaSeconds > 0 && (
+									<span className="ml-2 whitespace-nowrap">
+										· ETA {formatEta(etaSeconds)}
+									</span>
+								)}
+								{isPaused && (
+									<span className="ml-2 text-amber-500 font-medium">
+										· Paused
+									</span>
+								)}
+							</p>
+							<div className="flex items-center gap-2 shrink-0">
+								{/* NEW-PAUSE-001: Pause/Resume button. */}
+								<Button
+									variant="outline"
+									size="sm"
+									onClick={async () => {
+										try {
+											if (isPaused) {
+												await call("resume_model_download");
+											} else {
+												await call("pause_model_download");
+											}
+										} catch (err) {
+											showSnack(
+												`Failed to ${isPaused ? "resume" : "pause"}: ${formatErrorMessage(err)}`,
+												"error",
+											);
+										}
+									}}
+									aria-label={isPaused ? "Resume download" : "Pause download"}
+									className="h-7 gap-1 px-3 text-xs"
+								>
+									<HugeiconsIcon
+										icon={isPaused ? PlayIcon : PauseIcon}
+										strokeWidth={2}
+										className="h-3.5 w-3.5"
+									/>
+									{isPaused ? "Resume" : "Pause"}
+								</Button>
+								{/* NEW-PRIV-011: Cancel button for in-progress downloads. */}
+								<Button
+									variant="outline"
+									size="sm"
+									onClick={async () => {
+										try {
+											await call("cancel_model_download");
+											showSnack(
+												"Download cancelled. Partial files will be reused on retry.",
+												"warning",
+											);
+										} catch (err) {
+											showSnack(
+												`Failed to cancel: ${formatErrorMessage(err)}`,
+												"error",
+											);
+										}
+									}}
+									aria-label="Cancel model download"
+									className="h-7 px-3 text-xs"
+								>
+									Cancel
+								</Button>
+							</div>
 						</div>
 					</div>
 				)}
@@ -671,6 +914,10 @@ export default function ModelsPage() {
 				<div className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
 					{models.map((model) => {
 						const badge = getStatusBadge(model);
+						// NEW-MODEL-001: look up rich metadata from the backend
+						// catalog.  Falls back to undefined when the backend
+						// hasn't sent the catalog yet (initial render).
+						const meta = modelCatalog[model.name];
 						return (
 							<div
 								key={model.name}
@@ -698,7 +945,30 @@ export default function ModelsPage() {
 											? "NVIDIA Parakeet TDT v3  ·  "
 											: ""}
 										Size: {model.size}
+										{/* NEW-MODEL-001: rich metadata badges from
+                                                                                         the backend's MODEL_REGISTRY.  Only shown
+                                                                                         when the catalog has loaded — keeps the
+                                                                                         card compact for backends like qwen /
+                                                                                         parakeet that aren't in the registry. */}
+										{meta && (
+											<span className="text-(--text-muted)">
+												{"  ·  "}VRAM: ~{meta.required_vram_mb} MB
+												{"  ·  "}
+												{meta.multilingual ? "Multilingual" : "English only"}
+												{"  ·  "}
+												{meta.speed_rating} speed
+												{meta.is_distilled ? "  ·  distilled" : ""}
+											</span>
+										)}
 									</p>
+									{/* NEW-MODEL-001: human-readable description from
+                                                                                 the registry.  Helps the user pick the right
+                                                                                 model without leaving the page. */}
+									{meta?.description && (
+										<p className="text-[10px] text-(--text-muted) mt-0.5 italic">
+											{meta.description}
+										</p>
+									)}
 								</div>
 								<div className="flex items-center gap-2 shrink-0">
 									{model.name === "parakeet" && !model.depsOk ? (
