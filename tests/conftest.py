@@ -42,7 +42,14 @@ from unittest.mock import MagicMock
 
 
 def pytest_configure(config):
-    """TEST-003: register the real_pynput and real_pil markers."""
+    """TEST-003: register the real_pynput and real_pil markers.
+
+    TASK-013: also register the ``slow`` marker used by
+    ``tests/test_manual_slow.py`` to wrap the manual diagnostic
+    scripts in ``tests/manual/`` as proper pytest tests. Slow tests
+    are deselected by default (see ``pytest_collection_modifyitems``)
+    and only run when ``--slow`` is passed.
+    """
     config.addinivalue_line(
         "markers",
         "real_pynput: opt out of the pynput mock (use real pynput.keyboard)",
@@ -51,6 +58,40 @@ def pytest_configure(config):
         "markers",
         "real_pil: opt out of the PIL mock (use real PIL for image tests)",
     )
+    config.addinivalue_line(
+        "markers",
+        "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    )
+
+
+def pytest_addoption(parser):
+    """TASK-013: add ``--slow`` flag to opt in to slow tests.
+
+    Slow tests (marked with ``@pytest.mark.slow``) are skipped by
+    default to keep the regular pytest suite fast. Pass ``--slow`` to
+    run them — typically in a separate, best-effort CI job.
+    """
+    parser.addoption(
+        "--slow",
+        action="store_true",
+        default=False,
+        help="run slow tests (default: skipped)",
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    """TASK-013: skip slow tests unless ``--slow`` was passed.
+
+    We use ``skip`` (not ``deselect``) so the tests still appear in
+    the report as skipped, making it obvious that they exist and
+    would have run with ``--slow``.
+    """
+    if config.getoption("--slow"):
+        return
+    skip_slow = pytest.mark.skip(reason="need --slow option to run")
+    for item in items:
+        if "slow" in item.keywords:
+            item.add_marker(skip_slow)
 
 
 # TEST-024: WAV fixture path for audio tests

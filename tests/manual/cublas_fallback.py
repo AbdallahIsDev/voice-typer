@@ -21,17 +21,34 @@ pytest suite in ``tests/test_transcription.py::TestFallbackChain`` and
 ``tests/test_round9_e2e.py``. This file is kept for historical context
 but is no longer runnable; the matching logic was ported to the
 pytest tests above.
+
+TASK-013: ``run()`` is exposed so ``tests/test_manual_slow.py`` can wrap
+this script as a ``@pytest.mark.slow`` test that verifies the deprecation
+contract (the script must always exit with code 2 and a clear message
+pointing at the modern replacement tests).
 """
 
 import sys
 
+DEPRECATION_MESSAGE = (
+    "[cublas_fallback.py] DEPRECATED: this script references the deleted "
+    "`voice_typer.app` (Electron) module. The cuBLAS fallback path is now "
+    "covered by tests/test_transcription.py::TestFallbackChain. "
+    "Run `pytest tests/test_transcription.py -k FallbackChain` instead."
+)
+
+
+def run() -> int:
+    """Print the deprecation notice and return the exit code (2).
+
+    TASK-013: extracted from the ``__main__`` block so the slow test in
+    ``tests/test_manual_slow.py`` can call it directly without spawning
+    a subprocess.
+    """
+    print(DEPRECATION_MESSAGE, file=sys.stderr)
+    return 2
+
+
 # Fail fast with a clear message instead of an opaque ImportError.
 if __name__ == "__main__":
-    print(
-        "[cublas_fallback.py] DEPRECATED: this script references the deleted "
-        "`voice_typer.app` (Electron) module. The cuBLAS fallback path is now "
-        "covered by tests/test_transcription.py::TestFallbackChain. "
-        "Run `pytest tests/test_transcription.py -k FallbackChain` instead.",
-        file=sys.stderr,
-    )
-    sys.exit(2)
+    sys.exit(run())

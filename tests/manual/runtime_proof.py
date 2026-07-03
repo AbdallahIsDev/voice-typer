@@ -326,3 +326,12 @@ if __name__ == "__main__":
     except Exception:
         traceback.print_exc()
         sys.exit(2)
+
+
+# TASK-013: expose a stable ``run()`` alias so ``tests/test_manual_slow.py``
+# can wrap this script as a ``@pytest.mark.slow`` test without coupling to
+# the historical ``run_runtime_proof`` name. The alias is defined AFTER the
+# ``__main__`` block so running the script directly still uses the
+# try/except wrapper above (which converts success → exit 0, failure → 1,
+# crash → 2).
+run = run_runtime_proof

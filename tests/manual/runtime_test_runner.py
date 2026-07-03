@@ -309,3 +309,10 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# TASK-013: expose a stable ``run()`` alias so ``tests/test_manual_slow.py``
+# can wrap this script as a ``@pytest.mark.slow`` test. Defined AFTER the
+# ``__main__`` block so running the script directly still uses the
+# zero-arg ``main()`` call above.
+run = main
