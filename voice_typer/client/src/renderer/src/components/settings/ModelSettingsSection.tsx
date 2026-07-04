@@ -74,215 +74,257 @@ export const ModelSettingsSection = memo(function ModelSettingsSection({
 	config,
 	updateConfig,
 	updateConfigDebounced,
+	isVisible,
 }: SettingsSectionSharedProps) {
 	// LLM API key visibility toggle (show/hide the password-style input).
 	const [llmKeyVisible, setLlmKeyVisible] = useState(false);
 
 	if (!config) return <SettingsSkeleton rows={3} />;
 
+	// UX-028: section-level visibility check for Post-Processing section.
+	const postProcessingTitle = t("settings.postProcessing");
+	const postProcessingItems = [
+		{
+			label: t("settings.transcriptionLanguage"),
+			info: t("settings.transcriptionLanguageDescription"),
+		},
+		{
+			label: t("settings.autoPunctuation"),
+			info: t("settings.autoPunctuationInfo"),
+		},
+		{
+			label: t("settings.textCleanupLabel"),
+			info: t("settings.textCleanupInfo"),
+		},
+		{ label: t("settings.textSnippets"), info: t("settings.textSnippetsInfo") },
+		{ label: t("settings.vocabulary"), info: t("settings.vocabularyInfo") },
+	];
+	const postProcessingVisible = postProcessingItems.some((item) =>
+		isVisible(item.label, item.info, postProcessingTitle),
+	);
+
+	// UX-028: section-level visibility check for LLM Polishing section.
+	const llmPolishingTitle = t("settings.llmPolishing");
+	const llmPolishingItems = [
+		{ label: t("settings.enable"), info: t("settings.enableInfo") },
+		{ label: t("settings.apiKey"), info: t("settings.apiKeyInfo") },
+		{ label: t("settings.apiUrl"), info: t("settings.apiUrlInfo") },
+		{ label: t("settings.model"), info: t("settings.modelInfo") },
+		{ label: t("settings.preset"), info: t("settings.presetInfo") },
+	];
+	const llmPolishingVisible = llmPolishingItems.some((item) =>
+		isVisible(item.label, item.info, llmPolishingTitle),
+	);
+
 	return (
 		<>
 			{/* ── SECTION: Post-Processing ──────────────────────────── */}
-			<SettingsSection
-				title={t("settings.postProcessing")}
-				description={t("settings.postProcessingDescription")}
-			>
-				<SettingRow
-					label={t("settings.transcriptionLanguage")}
-					info={t("settings.transcriptionLanguageDescription")}
+			{postProcessingVisible && (
+				<SettingsSection
+					title={postProcessingTitle}
+					description={t("settings.postProcessingDescription")}
 				>
-					<Select
-						value={config.language || "auto"}
-						onValueChange={(v) =>
-							updateConfig({ language: v === "auto" ? "" : v })
-						}
+					<SettingRow
+						label={t("settings.transcriptionLanguage")}
+						info={t("settings.transcriptionLanguageDescription")}
 					>
-						<SelectTrigger
-							className="w-44"
-							aria-label={t("settings.transcriptionLanguage")}
+						<Select
+							value={config.language || "auto"}
+							onValueChange={(v) =>
+								updateConfig({ language: v === "auto" ? "" : v })
+							}
 						>
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							{LANGUAGE_OPTIONS.map((lang) => (
-								<SelectItem key={lang.value} value={lang.value}>
-									<span>{t(lang.labelKey)}</span>
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
-				</SettingRow>
+							<SelectTrigger
+								className="w-44"
+								aria-label={t("settings.transcriptionLanguage")}
+							>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								{LANGUAGE_OPTIONS.map((lang) => (
+									<SelectItem key={lang.value} value={lang.value}>
+										<span>{t(lang.labelKey)}</span>
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+					</SettingRow>
 
-				<SettingRow
-					label={t("settings.autoPunctuation")}
-					info={t("settings.autoPunctuationInfo")}
-				>
-					<Switch
-						checked={config.auto_punctuation ?? false}
-						onCheckedChange={(checked) =>
-							updateConfig({ auto_punctuation: checked })
-						}
-						aria-label={t("settings.autoPunctuation")}
-					/>
-				</SettingRow>
+					<SettingRow
+						label={t("settings.autoPunctuation")}
+						info={t("settings.autoPunctuationInfo")}
+					>
+						<Switch
+							checked={config.auto_punctuation ?? false}
+							onCheckedChange={(checked) =>
+								updateConfig({ auto_punctuation: checked })
+							}
+							aria-label={t("settings.autoPunctuation")}
+						/>
+					</SettingRow>
 
-				<SettingRow
-					label={t("settings.textCleanupLabel")}
-					info={t("settings.textCleanupInfo")}
-				>
-					<Switch
-						checked={config.text_cleanup_enabled}
-						onCheckedChange={(checked) =>
-							updateConfig({ text_cleanup_enabled: checked })
-						}
-						aria-label={t("settings.textCleanupLabel")}
-					/>
-				</SettingRow>
+					<SettingRow
+						label={t("settings.textCleanupLabel")}
+						info={t("settings.textCleanupInfo")}
+					>
+						<Switch
+							checked={config.text_cleanup_enabled}
+							onCheckedChange={(checked) =>
+								updateConfig({ text_cleanup_enabled: checked })
+							}
+							aria-label={t("settings.textCleanupLabel")}
+						/>
+					</SettingRow>
 
-				<SettingRow
-					label={t("settings.textSnippets")}
-					info={t("settings.textSnippetsInfo")}
-				>
-					<Switch
-						checked={config.templates_enabled ?? true}
-						onCheckedChange={(checked) =>
-							updateConfig({ templates_enabled: checked })
-						}
-						aria-label={t("settings.textSnippets")}
-					/>
-				</SettingRow>
+					<SettingRow
+						label={t("settings.textSnippets")}
+						info={t("settings.textSnippetsInfo")}
+					>
+						<Switch
+							checked={config.templates_enabled ?? true}
+							onCheckedChange={(checked) =>
+								updateConfig({ templates_enabled: checked })
+							}
+							aria-label={t("settings.textSnippets")}
+						/>
+					</SettingRow>
 
-				<SettingRow
-					label={t("settings.vocabulary")}
-					info={t("settings.vocabularyInfo")}
-				>
-					<Switch
-						checked={config.vocabulary_enabled ?? true}
-						onCheckedChange={(checked) =>
-							updateConfig({ vocabulary_enabled: checked })
-						}
-						aria-label={t("settings.vocabulary")}
-					/>
-				</SettingRow>
-			</SettingsSection>
+					<SettingRow
+						label={t("settings.vocabulary")}
+						info={t("settings.vocabularyInfo")}
+					>
+						<Switch
+							checked={config.vocabulary_enabled ?? true}
+							onCheckedChange={(checked) =>
+								updateConfig({ vocabulary_enabled: checked })
+							}
+							aria-label={t("settings.vocabulary")}
+						/>
+					</SettingRow>
+				</SettingsSection>
+			)}
 
 			{/* ── SECTION: LLM Polishing ────────────────────────────── */}
-			<SettingsSection
-				title={t("settings.llmPolishing")}
-				description={t("settings.llmPolishingDescription2")}
-			>
-				<SettingRow
-					label={t("settings.enable")}
-					info={t("settings.enableInfo")}
+			{llmPolishingVisible && (
+				<SettingsSection
+					title={llmPolishingTitle}
+					description={t("settings.llmPolishingDescription2")}
 				>
-					<Switch
-						checked={config.llm_polish ?? false}
-						onCheckedChange={(checked) => updateConfig({ llm_polish: checked })}
-						aria-label={t("settings.llmPolishing")}
-					/>
-				</SettingRow>
+					<SettingRow
+						label={t("settings.enable")}
+						info={t("settings.enableInfo")}
+					>
+						<Switch
+							checked={config.llm_polish ?? false}
+							onCheckedChange={(checked) =>
+								updateConfig({ llm_polish: checked })
+							}
+							aria-label={t("settings.llmPolishing")}
+						/>
+					</SettingRow>
 
-				{config.llm_polish && (
-					<div className="animate-fade-in space-y-0 divide-y divide-border">
-						<SettingRow
-							label={t("settings.apiKey")}
-							info={t("settings.apiKeyInfo")}
-						>
-							<div className="relative">
+					{config.llm_polish && (
+						<div className="animate-fade-in space-y-0 divide-y divide-border">
+							<SettingRow
+								label={t("settings.apiKey")}
+								info={t("settings.apiKeyInfo")}
+							>
+								<div className="relative">
+									<Input
+										type={llmKeyVisible ? "text" : "password"}
+										/* SEC-003: backend redacts the key to '<redacted>' in
+										 * get_config responses.  Show empty in that case so
+										 * the user isn't tempted to "save" the sentinel back.
+										 * When the user types a real key, updateConfig sends
+										 * it via set_config (which is allowlisted). */
+										value={
+											config.llm_api_key && config.llm_api_key !== "<redacted>"
+												? config.llm_api_key
+												: ""
+										}
+										onChange={(e) =>
+											updateConfigDebounced("llm_api_key", e.target.value)
+										}
+										placeholder={
+											config.llm_api_key === "<redacted>"
+												? "•••••••• (configured)"
+												: ""
+										}
+										className="w-56 pr-8"
+										aria-label={t("settings.apiKey")}
+									/>
+									<Button
+										variant="ghost"
+										size="xs"
+										onClick={() => setLlmKeyVisible(!llmKeyVisible)}
+										className="absolute right-1 top-1/2 -translate-y-1/2 text-xs"
+										aria-label={
+											llmKeyVisible ? t("settings.hide") : t("settings.show")
+										}
+									>
+										{llmKeyVisible ? t("settings.hide") : t("settings.show")}
+									</Button>
+								</div>
+							</SettingRow>
+
+							<SettingRow
+								label={t("settings.apiUrl")}
+								info={t("settings.apiUrlInfo")}
+							>
 								<Input
-									type={llmKeyVisible ? "text" : "password"}
-									/* SEC-003: backend redacts the key to '<redacted>' in
-									 * get_config responses.  Show empty in that case so
-									 * the user isn't tempted to "save" the sentinel back.
-									 * When the user types a real key, updateConfig sends
-									 * it via set_config (which is allowlisted). */
 									value={
-										config.llm_api_key && config.llm_api_key !== "<redacted>"
-											? config.llm_api_key
-											: ""
+										config.llm_api_url ??
+										"https://api.openai.com/v1/chat/completions"
 									}
 									onChange={(e) =>
-										updateConfigDebounced("llm_api_key", e.target.value)
+										updateConfigDebounced("llm_api_url", e.target.value)
 									}
-									placeholder={
-										config.llm_api_key === "<redacted>"
-											? "•••••••• (configured)"
-											: ""
-									}
-									className="w-56 pr-8"
-									aria-label={t("settings.apiKey")}
+									className="w-64"
+									aria-label={t("settings.apiUrl")}
 								/>
-								<Button
-									variant="ghost"
-									size="xs"
-									onClick={() => setLlmKeyVisible(!llmKeyVisible)}
-									className="absolute right-1 top-1/2 -translate-y-1/2 text-xs"
-									aria-label={
-										llmKeyVisible ? t("settings.hide") : t("settings.show")
-									}
-								>
-									{llmKeyVisible ? t("settings.hide") : t("settings.show")}
-								</Button>
-							</div>
-						</SettingRow>
+							</SettingRow>
 
-						<SettingRow
-							label={t("settings.apiUrl")}
-							info={t("settings.apiUrlInfo")}
-						>
-							<Input
-								value={
-									config.llm_api_url ??
-									"https://api.openai.com/v1/chat/completions"
-								}
-								onChange={(e) =>
-									updateConfigDebounced("llm_api_url", e.target.value)
-								}
-								className="w-64"
-								aria-label={t("settings.apiUrl")}
-							/>
-						</SettingRow>
-
-						<SettingRow
-							label={t("settings.model")}
-							info={t("settings.modelInfo")}
-						>
-							<Input
-								value={config.llm_model ?? "gpt-4o-mini"}
-								onChange={(e) =>
-									updateConfigDebounced("llm_model", e.target.value)
-								}
-								className="w-44"
-								aria-label={t("settings.model")}
-							/>
-						</SettingRow>
-
-						<SettingRow
-							label={t("settings.preset")}
-							info={t("settings.presetInfo")}
-						>
-							<Select
-								value={config.llm_preset ?? "professional"}
-								onValueChange={(v) => updateConfig({ llm_preset: v })}
+							<SettingRow
+								label={t("settings.model")}
+								info={t("settings.modelInfo")}
 							>
-								<SelectTrigger
-									className="w-40"
-									aria-label={t("settings.preset")}
+								<Input
+									value={config.llm_model ?? "gpt-4o-mini"}
+									onChange={(e) =>
+										updateConfigDebounced("llm_model", e.target.value)
+									}
+									className="w-44"
+									aria-label={t("settings.model")}
+								/>
+							</SettingRow>
+
+							<SettingRow
+								label={t("settings.preset")}
+								info={t("settings.presetInfo")}
+							>
+								<Select
+									value={config.llm_preset ?? "professional"}
+									onValueChange={(v) => updateConfig({ llm_preset: v })}
 								>
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									{LLM_PRESET_OPTIONS.map((opt) => (
-										<SelectItem key={opt.value} value={opt.value}>
-											{t(opt.labelKey)}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-						</SettingRow>
-					</div>
-				)}
-			</SettingsSection>
+									<SelectTrigger
+										className="w-40"
+										aria-label={t("settings.preset")}
+									>
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										{LLM_PRESET_OPTIONS.map((opt) => (
+											<SelectItem key={opt.value} value={opt.value}>
+												{t(opt.labelKey)}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</SettingRow>
+						</div>
+					)}
+				</SettingsSection>
+			)}
 		</>
 	);
 });

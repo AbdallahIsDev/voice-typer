@@ -8,11 +8,15 @@
 // implementation; both sections are always rendered (no search-filter
 // hide-when-empty wrapper, matching the original).
 
-import { memo } from "react";
+import { memo, useCallback } from "react";
 import { HotkeyPicker } from "@/components/HotkeyPicker";
 import { SettingRow } from "@/components/SettingRow";
 import { SettingsSection } from "@/components/SettingsSection";
 import { NumberInput } from "@/components/ui/number-input";
+import {
+	SegmentedControl,
+	type SegmentedControlOption,
+} from "@/components/ui/segmented-control";
 import {
 	Select,
 	SelectContent,
@@ -32,10 +36,12 @@ const AUTO_STOP_OPTIONS = [
 	{ value: 300, label: "5 minutes" },
 ];
 
-const RECORDING_MODE_OPTIONS = [
-	{ value: "toggle", label: "Toggle (F2)" },
-	{ value: "push_to_talk", label: "Push-to-Talk" },
-] as const;
+const RECORDING_MODE_OPTIONS: SegmentedControlOption<
+	"toggle" | "push_to_talk"
+>[] = [
+	{ value: "toggle", label: "Tap to Record" },
+	{ value: "push_to_talk", label: "Push to Talk" },
+];
 
 export const HotkeySettingsSection = memo(function HotkeySettingsSection({
 	config,
@@ -43,6 +49,43 @@ export const HotkeySettingsSection = memo(function HotkeySettingsSection({
 	updateConfigDebounced,
 	isVisible,
 }: SettingsSectionSharedProps) {
+	// ESC-FIX-002-LEGACY: useCallback calls MUST be before any early return
+	// per React's Rules of Hooks. These only depend on props (updateConfig)
+	// which are always available, so they are safe to call unconditionally.
+	const handleDictationChange = useCallback(
+		(h: string) => updateConfig({ hotkey: h }),
+		[updateConfig],
+	);
+	const handleDictationCaptureStart = useCallback(() => {
+		void window.python?.call({
+			type: "set_esc_cancel_paused",
+			data: { paused: true },
+		});
+	}, []);
+	const handleDictationCaptureEnd = useCallback(() => {
+		void window.python?.call({
+			type: "set_esc_cancel_paused",
+			data: { paused: false },
+		});
+	}, []);
+
+	const handleRepasteChange = useCallback(
+		(h: string) => updateConfig({ repaste_hotkey: h }),
+		[updateConfig],
+	);
+	const handleRepasteCaptureStart = useCallback(() => {
+		void window.python?.call({
+			type: "set_esc_cancel_paused",
+			data: { paused: true },
+		});
+	}, []);
+	const handleRepasteCaptureEnd = useCallback(() => {
+		void window.python?.call({
+			type: "set_esc_cancel_paused",
+			data: { paused: false },
+		});
+	}, []);
+
 	if (!config) return <SettingsSkeleton rows={3} />;
 
 	// FIX (Task ID 6 / Settings Search): capture each section's title in
@@ -116,9 +159,11 @@ export const HotkeySettingsSection = memo(function HotkeySettingsSection({
 					>
 						<HotkeyPicker
 							value={config.hotkey}
-							onChange={(h) => updateConfig({ hotkey: h })}
+							onChange={handleDictationChange}
 							mode="single"
 							aria-label="Dictation key"
+							onCaptureStart={handleDictationCaptureStart}
+							onCaptureEnd={handleDictationCaptureEnd}
 						/>
 					</SettingRow>
 				</SettingsSection>
@@ -135,23 +180,14 @@ export const HotkeySettingsSection = memo(function HotkeySettingsSection({
 						label="Recording Mode"
 						info="Toggle: press the key once to start and again to stop. Push-to-talk: hold the key while speaking."
 					>
-						<Select
+						<SegmentedControl
+							options={RECORDING_MODE_OPTIONS}
 							value={config.recording_mode ?? "toggle"}
-							onValueChange={(v) =>
+							onChange={(v) =>
 								updateConfig({ recording_mode: v as "toggle" | "push_to_talk" })
 							}
-						>
-							<SelectTrigger className="w-40" aria-label="Recording Mode">
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								{RECORDING_MODE_OPTIONS.map((opt) => (
-									<SelectItem key={opt.value} value={opt.value}>
-										{opt.label}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
+							ariaLabel="Recording Mode"
+						/>
 					</SettingRow>
 
 					<SettingRow
@@ -239,9 +275,11 @@ export const HotkeySettingsSection = memo(function HotkeySettingsSection({
 					>
 						<HotkeyPicker
 							value={config.repaste_hotkey ?? "<ctrl>+<alt>+v"}
-							onChange={(h) => updateConfig({ repaste_hotkey: h })}
+							onChange={handleRepasteChange}
 							mode="combo"
 							aria-label="Re-paste key"
+							onCaptureStart={handleRepasteCaptureStart}
+							onCaptureEnd={handleRepasteCaptureEnd}
 						/>
 					</SettingRow>
 

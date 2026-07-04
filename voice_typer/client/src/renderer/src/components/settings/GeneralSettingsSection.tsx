@@ -11,6 +11,7 @@
 import { memo } from "react";
 import { SettingRow } from "@/components/SettingRow";
 import { SettingsSection } from "@/components/SettingsSection";
+import { SegmentedControl } from "@/components/ui/segmented-control";
 import {
 	Select,
 	SelectContent,
@@ -34,11 +35,6 @@ import type { SettingsSectionSharedProps } from "./types";
 const TRAY_CLICK_OPTIONS = [
 	{ value: "open_app", labelKey: "settings.trayClickOpenApp" },
 	{ value: "toggle_dictation", labelKey: "settings.trayClickToggleDictation" },
-] as const;
-
-const BUBBLE_POSITION_OPTIONS = [
-	{ value: "top", labelKey: "settings.bubblePositionTop" },
-	{ value: "bottom", labelKey: "settings.bubblePositionBottom" },
 ] as const;
 
 const BUBBLE_BEHAVIOR_OPTIONS = [
@@ -74,6 +70,7 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 	if (!config) return <SettingsSkeleton rows={3} />;
 
 	// UX-028: section-level visibility check for the General section.
+	const generalSectionTitle = t("settings.general");
 	const generalItems = [
 		{ label: LAUNCH_AT_LOGIN_LABEL, info: LAUNCH_AT_LOGIN_INFO },
 		{ label: APP_LANGUAGE_LABEL, info: APP_LANGUAGE_INFO },
@@ -81,7 +78,31 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 		{ label: TRAY_CLICK_LABEL, info: TRAY_CLICK_INFO },
 	];
 	const generalVisible = generalItems.some((item) =>
-		isVisible(item.label, item.info),
+		isVisible(item.label, item.info, generalSectionTitle),
+	);
+
+	// UX-028: section-level visibility check for the Overlay section.
+	const overlaySectionTitle = t("settings.overlay");
+	const overlayItems = [
+		{
+			label: t("settings.bubbleBehaviorLabel"),
+			info: t("settings.bubbleBehaviorInfo"),
+		},
+		{
+			label: t("settings.bubblePositionLabel"),
+			info: t("settings.bubblePositionInfo"),
+		},
+		{
+			label: t("settings.showOnAppStartup"),
+			info: t("settings.showOnAppStartupInfo"),
+		},
+		{
+			label: t("settings.dragToMove"),
+			info: t("settings.dragToMoveInfo"),
+		},
+	];
+	const overlayVisible = overlayItems.some((item) =>
+		isVisible(item.label, item.info, overlaySectionTitle),
 	);
 
 	return (
@@ -193,99 +214,92 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 			)}
 
 			{/* ── SECTION: Overlay ──────────────────────────────────── */}
-			<SettingsSection
-				title={t("settings.overlay")}
-				description={t("settings.overlayDescription")}
-			>
-				{/* ── Dropdowns ──────────────────────────────────────── */}
-				<SettingRow
-					label={t("settings.bubbleBehaviorLabel")}
-					info={t("settings.bubbleBehaviorInfo")}
+			{overlayVisible && (
+				<SettingsSection
+					title={overlaySectionTitle}
+					description={t("settings.overlayDescription")}
 				>
-					<Select
-						value={config.bubble_behavior ?? "show_on_record"}
-						onValueChange={(v) => {
-							updateConfig({
-								bubble_behavior: v as "show_on_record" | "always_visible",
-							});
-						}}
-					>
-						<SelectTrigger
-							className="w-40"
-							aria-label={t("settings.bubbleBehaviorLabel")}
-						>
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							{BUBBLE_BEHAVIOR_OPTIONS.map((opt) => (
-								<SelectItem key={opt.value} value={opt.value}>
-									{t(opt.labelKey)}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
-				</SettingRow>
-
-				<SettingRow
-					label={t("settings.bubblePositionLabel")}
-					info={t("settings.bubblePositionInfo")}
-				>
-					<Select
-						value={config.bubble_position ?? "bottom"}
-						onValueChange={(v) => {
-							updateConfig({ bubble_position: v as "top" | "bottom" });
-							// Notify the main process immediately so the bubble repositions.
-							window.bubble?.setPosition?.(v);
-						}}
-					>
-						<SelectTrigger
-							className="w-40"
-							aria-label={t("settings.bubblePositionLabel")}
-						>
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							{BUBBLE_POSITION_OPTIONS.map((opt) => (
-								<SelectItem key={opt.value} value={opt.value}>
-									{t(opt.labelKey)}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
-				</SettingRow>
-
-				{/* ── Switches ───────────────────────────────────────── */}
-				{/* Show on app startup toggle — only visible when Always Visible is selected */}
-				{config.bubble_behavior === "always_visible" && (
+					{/* ── Dropdowns ──────────────────────────────────────── */}
 					<SettingRow
-						label={t("settings.showOnAppStartup")}
-						info={t("settings.showOnAppStartupInfo")}
+						label={t("settings.bubbleBehaviorLabel")}
+						info={t("settings.bubbleBehaviorInfo")}
 					>
-						<Switch
-							checked={config.bubble_show_on_startup ?? true}
-							onCheckedChange={(checked) =>
-								updateConfig({ bubble_show_on_startup: checked })
-							}
-							aria-label={t("settings.showOnAppStartup")}
+						<Select
+							value={config.bubble_behavior ?? "show_on_record"}
+							onValueChange={(v) => {
+								updateConfig({
+									bubble_behavior: v as "show_on_record" | "always_visible",
+								});
+							}}
+						>
+							<SelectTrigger
+								className="w-40"
+								aria-label={t("settings.bubbleBehaviorLabel")}
+							>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								{BUBBLE_BEHAVIOR_OPTIONS.map((opt) => (
+									<SelectItem key={opt.value} value={opt.value}>
+										{t(opt.labelKey)}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+					</SettingRow>
+
+					<SettingRow
+						label={t("settings.bubblePositionLabel")}
+						info={t("settings.bubblePositionInfo")}
+					>
+						<SegmentedControl
+							options={[
+								{ value: "top", label: t("settings.bubblePositionTop") },
+								{ value: "bottom", label: t("settings.bubblePositionBottom") },
+							]}
+							value={config.bubble_position ?? "bottom"}
+							onChange={(v) => {
+								updateConfig({ bubble_position: v as "top" | "bottom" });
+								// Notify the main process immediately so the bubble repositions.
+								window.bubble?.setPosition?.(v);
+							}}
+							ariaLabel={t("settings.bubblePositionLabel")}
 						/>
 					</SettingRow>
-				)}
 
-				<SettingRow
-					label={t("settings.dragToMove")}
-					info={t("settings.dragToMoveInfo")}
-				>
-					<Switch
-						checked={config.bubble_draggable ?? true}
-						onCheckedChange={(checked) => {
-							updateConfig({ bubble_draggable: checked });
-							// Notify the main process immediately so the bubble responds.
-							window.bubble?.setDraggable?.(checked);
-						}}
-						aria-label={t("settings.dragToMove")}
-					/>
-				</SettingRow>
-			</SettingsSection>
+					{/* ── Switches ───────────────────────────────────────── */}
+					{/* Show on app startup toggle — only visible when Always Visible is selected */}
+					{config.bubble_behavior === "always_visible" && (
+						<SettingRow
+							label={t("settings.showOnAppStartup")}
+							info={t("settings.showOnAppStartupInfo")}
+						>
+							<Switch
+								checked={config.bubble_show_on_startup ?? true}
+								onCheckedChange={(checked) =>
+									updateConfig({ bubble_show_on_startup: checked })
+								}
+								aria-label={t("settings.showOnAppStartup")}
+							/>
+						</SettingRow>
+					)}
+
+					<SettingRow
+						label={t("settings.dragToMove")}
+						info={t("settings.dragToMoveInfo")}
+					>
+						<Switch
+							checked={config.bubble_draggable ?? true}
+							onCheckedChange={(checked) => {
+								updateConfig({ bubble_draggable: checked });
+								// Notify the main process immediately so the bubble responds.
+								window.bubble?.setDraggable?.(checked);
+							}}
+							aria-label={t("settings.dragToMove")}
+						/>
+					</SettingRow>
+				</SettingsSection>
+			)}
 		</>
 	);
 });
