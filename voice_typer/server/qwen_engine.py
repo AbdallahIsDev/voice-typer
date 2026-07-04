@@ -281,7 +281,9 @@ class QwenEngine:
             results.append(self.transcribe(chunk))
         return results
 
-    def transcribe_with_fallback(self, audio: np.ndarray, audio_stats: "tuple[float, float, float] | None" = None) -> str:
+    def transcribe_with_fallback(self, audio: np.ndarray,
+            audio_stats: "tuple[float, float, float] | None" = None,
+        ) -> str:
         """Transcribe with GPU→CPU fallback on CUDA errors.
 
         ERR-008: Previously this method just delegated to ``transcribe``

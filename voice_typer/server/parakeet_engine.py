@@ -573,7 +573,9 @@ class ParakeetEngine:
         # scales with chunk length, unlike the old ratio-based skip.
         return 1 if len(new_words) > 1 else 0
 
-    def transcribe_with_fallback(self, audio: np.ndarray, audio_stats: "tuple[float, float, float] | None" = None) -> str:
+    def transcribe_with_fallback(self, audio: np.ndarray,
+            audio_stats: "tuple[float, float, float] | None" = None,
+        ) -> str:
         """transcribe with GPU→CPU fallback on CUDA errors.
 
         PERF-STATS: ``audio_stats`` is an optional pre-computed

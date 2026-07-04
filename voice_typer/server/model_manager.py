@@ -38,6 +38,7 @@ import logging
 import threading
 from typing import Any, Optional
 
+from voice_typer.server.branding import APP_NAME
 from voice_typer.server.asr_registry import AsrBackendRegistry
 from voice_typer.server.tray_types import AppState
 
@@ -233,7 +234,7 @@ class ModelManager:
                 elif backend_name == "parakeet":
                     hint = " Check that Parakeet weights are downloaded."
                 self._app.tray.notify(
-                    "Voice Typer",
+                    APP_NAME,
                     f"Could not initialize the {backend_name.title()} backend.{hint}",
                 )
             except Exception:
@@ -373,7 +374,7 @@ class ModelManager:
             if notify_on_failure:
                 # NEW-UX-018: critical — bypass toggle (model load failed).
                 self._app.tray.notify_safety(
-                    "Voice Typer",
+                    APP_NAME,
                     "Could not load the speech model.\n"
                     "The app will keep running. Press F2 to retry loading.",
                 )
@@ -413,7 +414,7 @@ class ModelManager:
             )
             if notify_on_failure:
                 self._app.tray.notify(
-                    "Voice Typer",
+                    APP_NAME,
                     f"Could not load the speech model.\n{e}\n\n"
                     "The app will keep running. Press F2 to retry loading.",
                 )
@@ -454,7 +455,7 @@ class ModelManager:
             # notification was a lie.
             self._pending_model_change = model_size
             self._app.tray.notify(
-                "Voice Typer",
+                APP_NAME,
                 f"Model will change to {model_size} after current recording",
             )
             return

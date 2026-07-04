@@ -350,7 +350,8 @@ def start_test_recording(
         dict with {"success": bool, "message": str, "duration": float,
                    "sample_rate": int}.
     """
-    global _test_mode, _test_chunks, _test_raw_chunks, _test_start_time, _test_duration, _test_filters, _test_auto_stop_timer, _monitor_mic_id
+    global _test_mode, _test_chunks, _test_raw_chunks, _test_start_time
+    global _test_duration, _test_filters, _test_auto_stop_timer, _monitor_mic_id
 
     with _monitor_lock:
         if _test_mode:
