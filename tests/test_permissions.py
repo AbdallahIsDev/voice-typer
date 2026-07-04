@@ -116,6 +116,7 @@ class TestCheckKeyboardPermission:
 class TestLinuxInputAccessCheck:
     """Verify the Linux input group + device readability check."""
 
+    @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux-only test (requires grp module)")
     def test_returns_denied_when_input_group_missing(self, monkeypatch):
         from voice_typer.server.permissions import _check_linux_input_access, PermissionState
         # Mock grp.getgrnam to raise KeyError (group doesn't exist)
@@ -124,6 +125,7 @@ class TestLinuxInputAccessCheck:
         result = _check_linux_input_access()
         assert result == PermissionState.DENIED
 
+    @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux-only test (requires grp module)")
     def test_returns_granted_when_in_group_and_device_readable(self, monkeypatch, tmp_path):
         from voice_typer.server.permissions import _check_linux_input_access, PermissionState
         import grp as grp_module
@@ -354,6 +356,7 @@ _UNINSTALL_SCRIPT = _SCRIPTS_LINUX_DIR / "uninstall_permissions.py"
 class TestInstallPermissionsScript:
     """Smoke tests for the install_permissions.py script."""
 
+    @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux-only test (requires grp module)")
     def test_script_refuses_non_root(self):
         """When run as non-root, exit code 1."""
         import subprocess
@@ -366,6 +369,7 @@ class TestInstallPermissionsScript:
         assert result.returncode == 1
         assert "must run as root" in result.stdout.lower() or "must run as root" in result.stderr.lower()
 
+    @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux-only test (requires grp module)")
     def test_uninstall_script_refuses_non_root(self):
         """When run as non-root, exit code 1."""
         import subprocess

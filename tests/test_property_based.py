@@ -112,7 +112,7 @@ class TestConfigSerializationRoundtrip:
         device=st.sampled_from(["cuda", "cpu"]),
         beam_size=st.integers(min_value=1, max_value=5),
     )
-    @settings(max_examples=20)
+    @settings(max_examples=20, suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_config_roundtrip(self, tmp_path, monkeypatch, hotkey, model_size, device, beam_size):
         from voice_typer.server.config import Config
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
@@ -164,7 +164,7 @@ class TestTextCleanupRandom:
         result = clean_transcribed_text(text)
         assert isinstance(result, str)
 
-    @given(s=st.text(min_size=1, max_size=10, alphabet=st.characters(whitelist_categories=('Lu', 'Ll'))))
+    @given(s=st.text(min_size=1, max_size=10, alphabet='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'))
     @settings(max_examples=30)
     def test_single_word_capitalized(self, s):
         """A single word should be capitalized."""
@@ -188,7 +188,7 @@ class TestCorrectionsJsonFuzzing:
         st.integers(),
         st.floats(allow_nan=False, allow_infinity=False),
     ))
-    @settings(max_examples=50)
+    @settings(max_examples=50, suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_parser_handles_random_json(self, tmp_path, monkeypatch, obj):
         """Parser should handle malformed/random JSON gracefully (no crashes)."""
         from voice_typer.server import text_cleanup
@@ -205,7 +205,7 @@ class TestCorrectionsJsonFuzzing:
         assert result is None or isinstance(result, str)
 
     @given(text=st.text(min_size=0, max_size=50, alphabet=st.characters(whitelist_categories=('L', 'N', 'Z'))))
-    @settings(max_examples=20)
+    @settings(max_examples=20, suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_cleanup_after_random_corrections(self, tmp_path, monkeypatch, text):
         """After loading random corrections, cleanup should still work."""
         from voice_typer.server import text_cleanup

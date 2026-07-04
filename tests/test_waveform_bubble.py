@@ -473,8 +473,8 @@ class TestWaveformVADGate:
     def test_update_level_with_speech_audio_chunk(self, bubble, monkeypatch):
         """With speech audio chunk, VAD allows the normal update path."""
         from voice_typer.server import vad
-        # Force VAD to report speech
-        monkeypatch.setattr(vad, "is_speech", lambda chunk, sr=16000: True)
+        # Force VAD to report speech — update_level uses compute_vad_prob, not is_speech
+        monkeypatch.setattr(vad, "compute_vad_prob", lambda chunk, sr=16000: 0.8)
         bubble.update_level(0.15, 0.3, audio_chunk=np.full(16000, 0.1, dtype=np.float32))
         assert bubble.rms_level > 0
         assert bubble.is_speaking is True

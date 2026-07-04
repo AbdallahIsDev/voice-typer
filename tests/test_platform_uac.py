@@ -56,7 +56,7 @@ class TestUACFocus:
         mock_ctypes.windll.user32 = mock_user32
         mock_ctypes.wintypes = MagicMock()
 
-        monkeypatch.setitem(sys.modules, "ctypes mock_ctypes")
+        monkeypatch.setitem(sys.modules, "ctypes", mock_ctypes)
         monkeypatch.setitem(sys.modules, "ctypes.wintypes", mock_ctypes.wintypes)
 
         # The app should handle a NULL foreground window gracefully

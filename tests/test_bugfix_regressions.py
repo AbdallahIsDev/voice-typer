@@ -2516,12 +2516,14 @@ class TestSpanishTranslationComplete:
         # Settings.tsx into the dedicated GeneralSettingsSection
         # component (see components/settings/GeneralSettingsSection.tsx).
         # We assert against the new location.
+        # Note: the label is now translated via t("settings.appLanguage")
+        # instead of the hardcoded "UI Language" string.
         settings_path = Path(__file__).resolve().parent.parent / "voice_typer" / \
             "client" / "src" / "renderer" / "src" / "components" / "settings" / \
             "GeneralSettingsSection.tsx"
         src = settings_path.read_text(encoding="utf-8")
-        assert "UI Language" in src, (
-            "UX-015: GeneralSettingsSection.tsx must have a UI Language selector"
+        assert "settings.appLanguage" in src, (
+            "UX-015: GeneralSettingsSection.tsx must have an App Language selector (translated key)"
         )
         assert "setLocale" in src, (
             "UX-015: GeneralSettingsSection.tsx must call setLocale when language changes"
@@ -3770,6 +3772,10 @@ class TestReadlineCapsOversizedMessages:
         # The drop condition must return empty string on overflow
         assert "return" in src
 
+    @pytest.mark.skipif(
+        not hasattr(__import__("socket"), "AF_UNIX"),
+        reason="AF_UNIX not available on Windows",
+    )
     def test_normal_sized_message_passes_through(self):
         """A message under the cap must be read successfully."""
         from voice_typer.server.ipc_server import _TCPLineIO
