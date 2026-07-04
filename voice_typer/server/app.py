@@ -133,7 +133,8 @@ def _validate_env_vars() -> None:
     restart_val = os.environ.get("VOICE_TYPER_RESTART")
     if restart_val is not None and not _TOKEN_PATTERN.match(restart_val):
         log.warning(
-            "[ENV] Invalid value for VOICE_TYPER_RESTART=<redacted> -- expected alphanumeric token. Resetting to empty.",
+            ("[ENV] Invalid value for VOICE_TYPER_RESTART=<redacted> -- "
+            "expected alphanumeric token. Resetting to empty."),
         )
         os.environ.pop("VOICE_TYPER_RESTART", None)
 
@@ -148,7 +149,8 @@ def _validate_env_vars() -> None:
     ipc_token = os.environ.get("VOICE_TYPER_IPC_TOKEN")
     if ipc_token is not None and not _TOKEN_PATTERN.match(ipc_token):
         log.warning(
-            "[ENV] Invalid value for VOICE_TYPER_IPC_TOKEN=<redacted> -- expected alphanumeric token. Resetting to empty.",
+            ("[ENV] Invalid value for VOICE_TYPER_IPC_TOKEN=<redacted> -- "
+            "expected alphanumeric token. Resetting to empty."),
         )
         os.environ.pop("VOICE_TYPER_IPC_TOKEN", None)
 
@@ -174,7 +176,7 @@ class VoiceTyperApp:
 
         # Startup banner -- first visible log, before any subsystem init
         log.info(
-            "Voice Typer starting -- model=%s, hotkey=%s, mic=%s, sample_rate=%s",
+            "%s starting -- model=%s, hotkey=%s, mic=%s, sample_rate=%s",
             self.config.model_size, self.config.hotkey,
             self.config.microphone or "default", self.config.sample_rate,
         )
@@ -276,6 +278,12 @@ class VoiceTyperApp:
         # failed).  Tracked here so quit() can terminate the subprocess
         # explicitly during shutdown.
         self._electron_pid: int | None = None
+        # ESC-FIX-001: flag gating the global ESC cancel hotkey.  Set to
+        # True by the ""set_esc_cancel_paused"" IPC handler when the
+        # frontend HotkeyPicker enters capture mode, so the backend's
+        # ESC polling callback doesn't fire while the user is assigning
+        # a custom hotkey in the Settings UI.
+        self._esc_cancel_paused: bool = False
         # ARCH-022: _pending_timers is appended to from the tray thread,
         # the transcription thread, and the timer thread itself; the
         # `for timer in self._pending_timers` iteration in
@@ -705,7 +713,7 @@ class VoiceTyperApp:
                 # NEW-UX-018: critical — bypass toggle (broken corrections file).
                 try:
                     self.tray.notify_safety(
-                        "Voice Typer — Corrections Error",
+                        f"{APP_NAME} — Corrections Error",
                         f"{err}\nCorrections will use built-in defaults. "
                         f"Fix the file and restart.",
                     )
@@ -756,7 +764,7 @@ class VoiceTyperApp:
                     )
                     # NEW-UX-018: critical — bypass toggle (hotkeys broken).
                     self.tray.notify_safety(
-                        "Voice Typer — Wayland Hotkeys",
+                        f"{APP_NAME} — Wayland Hotkeys",
                         "Global hotkeys may not work on Wayland. "
                         "Install 'wtype' or 'ydotool' for hotkey support, "
                         "or use the tray menu's Toggle Dictation option.",
@@ -802,10 +810,10 @@ class VoiceTyperApp:
                     log.warning("[STARTUP] macOS Accessibility permission not granted")
                     # NEW-UX-018: critical — bypass toggle (hotkeys broken).
                     self.tray.notify_safety(
-                        "Voice Typer — Accessibility Permission",
+                        f"{APP_NAME} — Accessibility Permission",
                         "Global hotkeys require Accessibility permission. "
                         "Open System Settings \u2192 Privacy & Security \u2192 Accessibility "
-                        "and add Voice Typer (or Terminal).",
+                        f"and add {APP_NAME} (or Terminal).",
                     )
             except Exception:
                 log.debug("[STARTUP] macOS accessibility check failed")
@@ -1327,7 +1335,15 @@ class VoiceTyperApp:
         """#2 (Round 9): delegate to RecordingController.on_xrun_threshold()."""
         self.recording.on_xrun_threshold(count)
     def _cancel_dictation(self):
-        """#2 (Round 9): delegate to RecordingController.cancel()."""
+        """#2 (Round 9): delegate to RecordingController.cancel().
+
+        ESC-FIX-001: If _esc_cancel_paused is True (the frontend
+        HotkeyPicker is in hotkey capture mode), the ESC cancel is a
+        no-op — the frontend owns the Escape key while capturing.
+        """
+        if self._esc_cancel_paused:
+            log.debug("[CANCEL] ESC cancel paused (frontend hotkey capture) — no-op")
+            return
         self.recording.cancel()
     def _toggle_autostart(self):
         """Toggle autostart on/off from the tray menu. Delegates to _set_autostart (P2 dedup)."""
@@ -1513,7 +1529,7 @@ class VoiceTyperApp:
         so the Electron frontend knows to call ``app.quit()`` and shut
         down cleanly (instead of being left orphaned with no backend).
         """
-        log.info("[QUIT] Quitting Voice Typer...")
+        log.info("[QUIT] Quitting %s...")
 
         # Item 12: If recording, discard the recording before quitting
         # so we don't leave the mic open or lose the in-flight audio.
@@ -1576,7 +1592,7 @@ class VoiceTyperApp:
         ``_shutting_down`` before cleanup so atexit doesn't log "likely
         killed externally" for an intentional restart.
         """
-        log.info("[RESTART] Restarting Voice Typer...")
+        log.info("[RESTART] Restarting %s...")
 
         # ── CRITICAL ORDERING FIX ────────────────────────────────────
         #
@@ -2351,6 +2367,7 @@ def _ensure_single_instance(silent=False):
         lp_mutex_attributes, True, mutex_name
     )
     last_error = ctypes.windll.kernel32.GetLastError()
+
     if last_error == ERROR_ALREADY_EXISTS:
         # P1-1.4: belt-and-suspenders check.  Windows guarantees that
         # ERROR_ALREADY_EXISTS means another process holds the mutex
@@ -2365,20 +2382,46 @@ def _ensure_single_instance(silent=False):
                 stale_pid,
             )
             _clear_backend_pid_file()
-            # Close the duplicate-handle we just got (we don't own it)
-            # and retry the mutex acquisition.  On Windows, mutexes
-            # auto-release when the owning process dies, so the retry
-            # should succeed.
-            if mutex:
-                ctypes.windll.kernel32.CloseHandle(mutex)
-            mutex = ctypes.windll.kernel32.CreateMutexW(
-                lp_mutex_attributes, True, mutex_name
+        else:
+            log.warning(
+                "[STARTUP] mutex reports duplicate; PID file missing or PID "
+                "still alive — retrying anyway in case mutex was abandoned",
             )
-            last_error = ctypes.windll.kernel32.GetLastError()
-            if last_error not in (ERROR_ALREADY_EXISTS, ERROR_ACCESS_DENIED):
-                # Acquired — write our PID and proceed.
+        # Use WaitForSingleObject with zero timeout to check if the
+        # mutex is genuinely owned by another live process or was
+        # abandoned (previous process crashed).  This is the correct
+        # Windows API for distinguishing abandoned mutexes from live
+        # ones — CloseHandle+CreateMutexW doesn't work because the
+        # named kernel object persists in the \BaseNamedObjects        # namespace even after all handles are closed.
+        #
+        # WaitForSingleObject return values:
+        #   WAIT_ABANDONED (0x00000080): previous owner died, WE now
+        #     own the mutex → proceed.
+        #   WAIT_TIMEOUT  (0x00000102): another live process owns it
+        #     → genuine duplicate, exit.
+        #   WAIT_OBJECT_0 (0x00000000): we acquired it (unexpected
+        #     since CreateMutexW returned ERROR_ALREADY_EXISTS).
+        WAIT_ABANDONED = 0x00000080
+        WAIT_TIMEOUT = 0x00000102
+        if mutex:
+            wait_result = ctypes.windll.kernel32.WaitForSingleObject(mutex, 0)
+            if wait_result == WAIT_ABANDONED:
+                # Previous instance crashed.  The mutex is now OURS.
+                log.warning(
+                    "[STARTUP] Mutex was abandoned (previous instance crashed) "
+                    "— acquired ownership, proceeding"
+                )
                 _write_backend_pid_file()
                 return mutex
+            elif wait_result == WAIT_OBJECT_0:
+                # Unexpectedly acquired the mutex.  Proceed anyway.
+                log.warning(
+                    "[STARTUP] Mutex unexpectedly acquired after ERROR_ALREADY_EXISTS"
+                )
+                _write_backend_pid_file()
+                return mutex
+            # WAIT_TIMEOUT (or any other result) → genuine duplicate.
+            # Fall through to sys.exit(1) below.
         # Windows guarantees: this means another process holds the mutex
         # RIGHT NOW.  Trust it — no need to scan for the competing
         # process (DEAD-013: the old _another_voice_typer_alive() scan
