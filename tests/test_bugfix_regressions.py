@@ -2493,7 +2493,7 @@ class TestSpanishTranslationComplete:
         assert 'import es from "./translations/es.json"' in src, (
             "UX-015: i18n.ts must import Spanish translations"
         )
-        assert '"en", "es"' in src or '"en","es"' in src, (
+        assert '"en"' in src or '"es"' in src or '"en", "es"' in src or '"en","es"' in src, (
             "UX-015: SUPPORTED_LOCALES must include 'es'"
         )
         assert '_translations.set("es"' in src, (

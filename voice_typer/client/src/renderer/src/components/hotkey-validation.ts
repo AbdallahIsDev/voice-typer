@@ -179,7 +179,7 @@ export function validateHotkey(
 	platform: string,
 ): ValidationResult {
 	// 1. Non-empty
-	if (!hotkey || !hotkey.trim()) {
+	if (!hotkey?.trim()) {
 		return { valid: false, reason: "Hotkey is empty" };
 	}
 

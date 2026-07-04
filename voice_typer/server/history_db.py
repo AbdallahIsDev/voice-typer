@@ -83,6 +83,10 @@ class HistoryDB:
 
         self.db_path = db_path
         self._local = threading.local()
+        # Track ALL connections across threads so close() + __del__
+        # can clean them up, preventing ResourceWarning on GC.
+        self._all_connections: list[sqlite3.Connection] = []
+        self._connections_lock = threading.Lock()
         self._init_db()
 
     def _get_conn(self) -> sqlite3.Connection:
@@ -120,6 +124,8 @@ class HistoryDB:
             conn.execute("PRAGMA cache_size=-20000")  # 20 MB
             conn.row_factory = sqlite3.Row
             self._local.conn = conn
+            with self._connections_lock:
+                self._all_connections.append(conn)
             # SEC-007: chmod the DB file (and sidecar files if present).
             if not is_windows():
                 for suffix in ("", "-wal", "-shm"):
@@ -219,11 +225,30 @@ class HistoryDB:
         """)
         log.info("[HISTORY] History database initialized: %s (schema v%d)", self.db_path, _CURRENT_SCHEMA_VERSION)
 
+    def __del__(self):
+        """Ensure all connections are closed on GC to prevent ResourceWarning."""
+        try:
+            self.close()
+        except Exception:
+            pass
+
     def close(self):
-        """Close the thread-local connection."""
+        """Close ALL tracked connections across all threads."""
+        # Close the current thread's connection first (if any).
         if hasattr(self._local, 'conn') and self._local.conn is not None:
-            self._local.conn.close()
+            try:
+                self._local.conn.close()
+            except Exception:
+                pass
             self._local.conn = None
+        # Then close all other connections tracked across threads.
+        with self._connections_lock:
+            for conn in self._all_connections:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            self._all_connections.clear()
 
     def add_transcription(
         self,

@@ -61,6 +61,24 @@ from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
 
 log = logging.getLogger("voice_typer.autostart")
 
+
+def _close_log_files(sk: dict) -> None:
+    """Close Electron log file handles in the parent process.
+
+    Called after ``subprocess.Popen`` to close the parent's copies of
+    the stdout/stderr log files.  The child process has inherited the
+    file descriptors, so the files remain open for the child's lifetime.
+    Without this, the parent leaks file handles and triggers
+    ``ResourceWarning`` on GC.
+    """
+    for key in ("stdout", "stderr"):
+        fd = sk.get(key)
+        if fd is not None and fd is not subprocess.DEVNULL:
+            try:
+                fd.close()
+            except Exception:
+                pass
+
 # Directory layout:
 #   <root>/
 #     voice_typer/
@@ -273,6 +291,11 @@ def _launch_electron_built(exe: str, hidden: bool = False) -> subprocess.Popen |
             "[AUTOSTART] spawned electron . (child pid=%s, hidden=%s)",
             getattr(child, "pid", "?"), hidden,
         )
+        # Close parent copies of log file handles — the child has
+        # inherited them, so they remain open for the child's lifetime.
+        # Without this, the parent leaks file handles and triggers
+        # ResourceWarning on GC.
+        _close_log_files(sk)
         return child
     except Exception:
         log.exception("[AUTOSTART] electron . failed")
@@ -394,6 +417,7 @@ def _focus_running_app() -> bool:
             "[AUTOSTART] spawned lean electron to focus running instance (pid=%s)",
             getattr(child, "pid", "?"),
         )
+        _close_log_files(spawn_kwargs)
         return True
     except Exception:
         log.exception("[AUTOSTART] failed to spawn lean electron for focus")
@@ -426,6 +450,9 @@ def _spawn_npm_run_dev(hidden: bool = False) -> subprocess.Popen | None:
             child = subprocess.Popen(
                 "npm run dev", shell=True, env=env, **spawn_kwargs,
             )
+        # Close parent copies of log file handles — the child has
+        # inherited them, so they remain open for the child's lifetime.
+        _close_log_files(spawn_kwargs)
         log.info(
             "[AUTOSTART] spawned 'npm run dev' in %s (child pid=%s, hidden=%s)",
             CLIENT_DIR, getattr(child, "pid", "?"), hidden,

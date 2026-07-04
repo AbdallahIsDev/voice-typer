@@ -239,7 +239,7 @@ export function validateHotkey(
 	hotkey: string,
 	mode: "single" | "combo",
 ): string | null {
-	if (!hotkey || !hotkey.trim()) {
+	if (!hotkey?.trim()) {
 		return "Hotkey is empty";
 	}
 	const parts = hotkey

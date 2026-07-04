@@ -148,7 +148,7 @@ export default function SettingsPage({
 
 		// Only switch if we found a clear winner and it's not already active.
 		if (bestTab && bestScore > 0) {
-			setActiveTab((prev) => (prev !== bestTab ? bestTab! : prev));
+			setActiveTab(bestTab);
 		}
 	}, []);
 	// NEW: settings tab navigation — groups related sections into tabs.

@@ -16,15 +16,13 @@ interface WindowWithPython {
 		onEvent: (callback: EventCallback) => () => void;
 	};
 }
-
 export function usePython() {
-	const api = (window as unknown as WindowWithPython).python;
-
 	const call = useCallback(
 		async <T = unknown>(
 			type: string,
 			data?: Record<string, unknown>,
 		): Promise<T> => {
+			const api = (window as unknown as WindowWithPython).python;
 			if (!api) throw new Error("Python bridge not available");
 			const result = (await api.call({ type, data })) as Record<
 				string,
@@ -35,7 +33,7 @@ export function usePython() {
 			}
 			return result as T;
 		},
-		[api],
+		[],
 	);
 
 	// NEW-TS-015: previously this hook also returned ``isReady: !!api``.

@@ -157,6 +157,12 @@ class AppProtocol(Protocol):
     (QUIT-CLEAN-001).
     """
 
+    _esc_cancel_paused: bool
+    """``True`` while the frontend HotkeyPicker is in capture mode; the
+    ESC cancel handler checks this to avoid stealing the Escape key
+    while the user is assigning it in the Settings UI.
+    """
+
     # ── Methods invoked by the IPC layer ───────────────────────────
     # The service layer delegates these to the app.  Declaring them
     # on the protocol means a fake app must implement them (or be a

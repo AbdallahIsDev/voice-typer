@@ -261,6 +261,12 @@ filterwarnings = [
     # If a specific ResourceWarning is known-noise from a third-party
     # library, add a targeted filter here (e.g.
     # "ignore::ResourceWarning:sounddevice").
+    # CQ-006: Suppress the intentional deprecation warning from the
+    # dead-code settings module (kept for backward compat in app.py).
+    "ignore:voice_typer.server.settings is deprecated:DeprecationWarning",
+    # torch.jit.load emits a DeprecationWarning on Python 3.14+ that is
+    # outside our control (third-party library).
+    "ignore:`torch.jit.load` is not supported:DeprecationWarning",
 ]
 
 [tool.ruff]
