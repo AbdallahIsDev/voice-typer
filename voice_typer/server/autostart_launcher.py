@@ -106,12 +106,24 @@ def _client_dir_exists() -> bool:
     return CLIENT_DIR.is_dir() and (CLIENT_DIR / "package.json").exists()
 
 
-def _spawn_flags() -> dict:
-    """Platform-specific kwargs for spawning child processes hidden."""
+def _spawn_flags(hidden: bool = True) -> dict:
+    """Platform-specific kwargs for spawning child processes.
+
+    Parameters
+    ----------
+    hidden : bool
+        If True (autostart at login), prevents console windows from
+        flashing.  If False (desktop shortcut), child processes get
+        normal Windows process creation — they can create their own
+        console windows if needed (e.g. ``npm run dev``).
+    """
     kwargs: dict = {}
     if is_windows():
-        # CREATE_NO_WINDOW (0x08000000) prevents a console from flashing.
-        kwargs["creationflags"] = 0x08000000
+        if hidden:
+            # CREATE_NO_WINDOW (0x08000000) prevents a console from flashing
+            # during autostart (the user is logging in, not clicking a shortcut).
+            kwargs["creationflags"] = 0x08000000
+        # else: no creation flags — processes get normal console behavior.
     else:
         # Detach into a new session so the child survives this launcher.
         kwargs["start_new_session"] = True
@@ -247,7 +259,7 @@ def _launch_electron_built(exe: str, hidden: bool = False) -> subprocess.Popen |
     # crashes are diagnosable. Pre-fix this used DEVNULL.
     sk = dict(cwd=str(CLIENT_DIR))
     sk.update(_electron_log_files())
-    sk.update(_spawn_flags())
+    sk.update(_spawn_flags(hidden=hidden))
     # NEW-PRIV-003: Electron needs the full env for native module loading,
     # PATH resolution, and platform-specific init.  Unlike the Python IPC
     # server restart path, Electron does NOT expose env vars via IPC, so
@@ -368,7 +380,9 @@ def _focus_running_app() -> bool:
     spawn_kwargs: dict = dict(cwd=str(CLIENT_DIR))
     # RACE-009: redirect Electron stdout/stderr to log files.
     spawn_kwargs.update(_electron_log_files())
-    spawn_kwargs.update(_spawn_flags())
+    # _focus_running_app() always spawns the lean electron in the
+    # foreground (hidden=False) so the user sees the focused window.
+    spawn_kwargs.update(_spawn_flags(hidden=False))
     try:
         # ``electron .`` runs the app pointed at by package.json "main",
         # i.e. ./out/main/index.js.  VT_FOCUS_ONLY is a marker env var the
@@ -395,7 +409,7 @@ def _spawn_npm_run_dev(hidden: bool = False) -> subprocess.Popen | None:
     spawn_kwargs: dict = dict(cwd=str(CLIENT_DIR))
     # RACE-009: redirect Electron stdout/stderr to log files.
     spawn_kwargs.update(_electron_log_files())
-    spawn_kwargs.update(_spawn_flags())
+    spawn_kwargs.update(_spawn_flags(hidden=hidden))
     env = dict(os.environ)
     if hidden:
         env["VT_START_HIDDEN"] = "1"

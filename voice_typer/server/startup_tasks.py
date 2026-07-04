@@ -28,6 +28,7 @@ from typing import Any, Optional
 
 from voice_typer.server import task_scheduler
 from voice_typer.server.platform_utils import is_windows
+from voice_typer.server.branding import APP_NAME
 from voice_typer.server.server_platform import create_launcher_shortcut
 
 log = logging.getLogger(__name__)
@@ -260,7 +261,7 @@ def start_accessibility_pulse(app: Any, initial_state: bool) -> None:
                     log.info("[PLAT-009] macOS Accessibility permission granted")
                     try:
                         app.tray.notify(
-                            "Voice Typer",
+                            APP_NAME,
                             "Accessibility permission granted. Hotkeys are now active.",
                         )
                     except Exception:
@@ -269,7 +270,7 @@ def start_accessibility_pulse(app: Any, initial_state: bool) -> None:
                     log.warning("[PLAT-009] macOS Accessibility permission revoked")
                     try:
                         app.tray.notify_safety(
-                            "Voice Typer — Accessibility Revoked",
+                            f"{APP_NAME} — Accessibility Revoked",
                             "Global hotkeys have been disabled. Open System Settings "
                             "\u2192 Privacy & Security \u2192 Accessibility to re-grant.",
                         )
