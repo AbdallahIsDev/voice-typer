@@ -179,7 +179,8 @@ def _load_external_corrections(
     if _dropped_pattern:
         log.warning("[CLEANUP] Dropped %d misspellings with pattern > %d chars", _dropped_pattern, MAX_PATTERN_LENGTH)
     if _dropped_replacement:
-        log.warning("[CLEANUP] Dropped %d misspellings with replacement > %d chars", _dropped_replacement, MAX_REPLACEMENT_LENGTH)
+        log.warning("[CLEANUP] Dropped %d misspellings with replacement "
+           "> %d chars", _dropped_replacement, MAX_REPLACEMENT_LENGTH)
 
     _dropped_phrase = 0
     filtered_phrases = []
