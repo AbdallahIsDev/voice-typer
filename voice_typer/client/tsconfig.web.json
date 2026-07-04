@@ -12,9 +12,10 @@
 		"forceConsistentCasingInFileNames": true,
 		"resolveJsonModule": true,
 		"isolatedModules": true,
-		"baseUrl": ".",
+
 		"allowImportingTsExtensions": true,
 		"emitDeclarationOnly": true,
+		"types": [],
 		"paths": {
 			"@/*": ["./src/renderer/src/*"],
 			"#ui/*": ["./src/renderer/src/components/ui/*"],

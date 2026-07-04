@@ -547,6 +547,9 @@ function sendToPython(msg: Record<string, unknown>): Promise<unknown> {
 			// NEW-UX-005: allow delete_model so the renderer can actually
 			// delete model files from disk (not just remove from UI list).
 			"delete_model",
+			// NEW-MODEL-001: allow get_model_catalog so the Models page can
+			// fetch the available model catalog from the backend.
+			"get_model_catalog",
 			// Microphone test commands
 			"microphone_test_start",
 			"microphone_test_stop",
@@ -557,6 +560,11 @@ function sendToPython(msg: Record<string, unknown>): Promise<unknown> {
 			"level_monitor_start",
 			"level_monitor_stop",
 			"level_monitor_status",
+			// ESC-FIX-001: pause/resume the global ESC cancel hotkey so the
+			// frontend (HotkeyPicker in hotkey capture mode) can temporarily
+			// disable it, preventing the backend from processing Escape while
+			// the UI is capturing a custom hotkey.
+			"set_esc_cancel_paused",
 		]);
 		const cmd = String(msg?.type ?? "").trim();
 		if (!ALLOWED_COMMANDS.has(cmd)) {
@@ -1356,8 +1364,8 @@ function startPython() {
 				mainWindow = null;
 			}
 			dialog.showErrorBox(
-				"Voice Typer",
-				"Only one instance of Voice Typer can run at a time.\n\n" +
+				APP_NAME,
+				`Only one instance of ${APP_NAME} can run at a time.\n\n` +
 					"Close the existing instance first, then try again.",
 			);
 			app.quit();
@@ -1541,6 +1549,17 @@ function broadcastMaximized(maximized: boolean) {
 	});
 }
 
+// BRAND-METADATA: Set the AppUserModelID so Windows associates the
+// Electron process with Voice Typer (taskbar grouping, Task Manager,
+// Volume Mixer). This must be called before any windows are created.
+try {
+	app.setAppUserModelId("abdallahisdev.VoiceTyper");
+} catch {
+	// Best-effort — only matters on Windows 7+.
+}
+
+import { APP_NAME } from "./branding";
+
 app.whenReady().then(() => {
 	// SEC-029: generate a per-session nonce. Use crypto.randomUUID()
 	// when available (Node 14.17+/Electron 12+), fall back to a
@@ -1688,10 +1707,10 @@ app.whenReady().then(() => {
 			);
 			try {
 				dialog.showErrorBox(
-					"Voice Typer — Critical Error",
+					`${APP_NAME} — Critical Error`,
 					`The app encountered ${uncaughtCount} uncaught exceptions and will exit.\n` +
 						`Crash log: ${crashLogPath}\n` +
-						`Please restart Voice Typer.`,
+						`Please restart ${APP_NAME}.`,
 				);
 			} catch {
 				// dialog may not be available in headless mode
