@@ -1,6 +1,7 @@
 import { Mic02Icon, Share08Icon, StopIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import ActivityList from "@/components/ActivityList";
 import { Spinner } from "@/components/Spinner";
 import StatCards from "@/components/StatCards";
@@ -153,23 +154,47 @@ function statusKeyFor(state: RecordingState, hasError: boolean): string {
 // is gated by the ``sound_feedback_enabled`` config flag (read
 // from localStorage cache updated by Settings).
 //
-// We use a shared AudioContext (created lazily on first call) so
-// we don't pay the cost of creating a new context per cue.
+// We use a shared AudioContext (created eagerly on component mount
+// via initAudioContext so it's never in "suspended" state when the
+// first recording event arrives).  The context persists across page
+// navigations via the module-level singleton._sharedAudioContext.
 let _sharedAudioContext: AudioContext | null = null;
-function getAudioContext(): AudioContext | null {
-	if (typeof window === "undefined") return null;
-	if (_sharedAudioContext) return _sharedAudioContext;
+let _audioContextInitAttempted = false;
+
+/**
+ * Eagerly initialise the shared AudioContext so subsequent
+ * playSoundCue() calls don't have to wait for resume().
+ * Call once on Home component mount or any user gesture.
+ */
+export function initAudioContext(): void {
+	if (_audioContextInitAttempted) return;
+	_audioContextInitAttempted = true;
+	if (typeof window === "undefined") return;
 	try {
 		const Ctor =
 			window.AudioContext ||
 			(window as unknown as { webkitAudioContext: typeof AudioContext })
 				.webkitAudioContext;
-		if (!Ctor) return null;
+		if (!Ctor) return;
 		_sharedAudioContext = new Ctor();
-		return _sharedAudioContext;
+		// If suspended (autoplay policy), optimistically resume.
+		if (_sharedAudioContext.state === "suspended") {
+			_sharedAudioContext.resume().catch(() => {
+				// Context may remain suspended — playSoundCue will retry
+				// resume() at cue time.
+			});
+		}
 	} catch {
-		return null;
+		_sharedAudioContext = null;
 	}
+}
+
+function getAudioContext(): AudioContext | null {
+	// Lazily init if initAudioContext wasn't called (e.g. tests, SSR).
+	if (!_audioContextInitAttempted) {
+		initAudioContext();
+	}
+	return _sharedAudioContext;
 }
 
 function playSoundCue(kind: "start" | "stop") {
@@ -218,9 +243,10 @@ function playSoundCue(kind: "start" | "stop") {
 			.resume()
 			.then(doPlay)
 			.catch(() => {});
-	} else {
+	} else if (ctx.state === "running") {
 		doPlay();
 	}
+	// If closed, the AudioContext is gone — silently skip the cue.
 }
 export default function Home({
 	recordingState,
@@ -343,12 +369,10 @@ export default function Home({
 							// transcription of the user's lifetime (today is their
 							// first day using Voice Typer).
 							if (s && s.count === 1) {
-								import("sonner").then(({ toast }) => {
-									toast.success("🎉 Your first dictation!", {
-										description:
-											"Welcome to Voice Typer. Press the hotkey anytime to dictate.",
-										duration: 6000,
-									});
+								toast.success("🎉 Your first dictation!", {
+									description:
+										"Welcome to Voice Typer. Press the hotkey anytime to dictate.",
+									duration: 6000,
 								});
 								localStorage.setItem("vt_first_recording_celebrated", "1");
 							}
@@ -360,10 +384,6 @@ export default function Home({
 			} catch {
 				// localStorage may be unavailable — non-fatal.
 			}
-
-			// NEW-UX-029: play a stop-recording sound (gated by the
-			// sound_feedback_enabled setting inside playSoundCue).
-			playSoundCue("stop");
 		}
 
 		// Proactive background refresh: silently refresh the cached recent
@@ -402,6 +422,20 @@ export default function Home({
 		// tone is a soft 660Hz sine for 120ms with a quick fade-out.
 		playSoundCue("start");
 	});
+
+	// SOUND-FIX-002: play the stop-recording sound IMMEDIATELY when the
+	// backend emits recording_stopped (not when transcription_final
+	// arrives — those are separate events with a seconds-long gap).
+	usePythonEvent("recording_stopped", () => {
+		playSoundCue("stop");
+	});
+
+	// SOUND-FIX-003: eagerly initialize the AudioContext on component mount
+	// so it's never in "suspended" state when the first recording event
+	// fires (which often happens before any user gesture on Home).
+	useEffect(() => {
+		initAudioContext();
+	}, []);
 
 	// Clean up pending refresh timer on unmount
 	useEffect(() => {

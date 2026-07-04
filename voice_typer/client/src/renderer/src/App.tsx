@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { useConnection } from "@/hooks/useConnection";
 import { useNavigation } from "@/hooks/useNavigation";
-import { usePython } from "@/hooks/usePython";
+import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { useTheme } from "@/hooks/useTheme";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
@@ -28,7 +28,7 @@ import SettingsPage from "@/pages/Settings";
 import TemplatesPage from "@/pages/Templates";
 import VocabularyPage from "@/pages/Vocabulary";
 import type { VoiceTyperConfig } from "@/types/config";
-import type { WindowBridge } from "@/types/ipc";
+import type { Page, WindowBridge } from "@/types/ipc";
 
 export default function App() {
 	// ── Routing (extracted to useNavigation) ──────────────────────
@@ -61,8 +61,13 @@ export default function App() {
 	const { call } = usePython();
 
 	// ── Theme + connection (extracted to useTheme / useConnection) ─
-	const { themeMode, handleThemeChange, reloadThemeFromConfig } =
-		useTheme(call);
+	const {
+		themeMode,
+		handleThemeChange,
+		reloadThemeFromConfig,
+		textSize,
+		setTextSize,
+	} = useTheme(call);
 	const { recordingState, connectionStatus, lastError, handleRetryConnection } =
 		useConnection({ call, currentPage, navigate });
 
@@ -113,7 +118,7 @@ export default function App() {
 	// in an input/textarea so the user can type "b" or "," into a field
 	// without navigating away.
 	useEffect(() => {
-		const handler = (e: KeyboardEvent) => {
+		const keyHandler = (e: KeyboardEvent) => {
 			if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
 				const target = e.target as HTMLElement | null;
 				const tag = target?.tagName?.toLowerCase() ?? "";
@@ -143,10 +148,83 @@ export default function App() {
 					return;
 				}
 			}
+
+			// Ctrl+= / Ctrl+Plus → Increase text size by 1px
+			if ((e.ctrlKey || e.metaKey) && (e.key === "=" || e.key === "+")) {
+				e.preventDefault();
+				const current = textSize ?? 14;
+				const next = Math.min(current + 1, 20);
+				if (next !== current) {
+					setTextSize(next);
+					call("set_config", { text_size: next }).catch(() => {});
+				}
+				return;
+			}
+
+			// Ctrl+- / Ctrl+Minus → Decrease text size by 1px
+			if ((e.ctrlKey || e.metaKey) && e.key === "-") {
+				e.preventDefault();
+				const current = textSize ?? 14;
+				const next = Math.max(current - 1, 10);
+				if (next !== current) {
+					setTextSize(next);
+					call("set_config", { text_size: next }).catch(() => {});
+				}
+				return;
+			}
 		};
-		window.addEventListener("keydown", handler);
-		return () => window.removeEventListener("keydown", handler);
-	}, [navigate]);
+
+		// Ctrl+MouseWheel → Zoom text size by 1px per notch
+		const wheelHandler = (e: WheelEvent) => {
+			if (!e.ctrlKey && !e.metaKey) return;
+			e.preventDefault();
+			const current = textSize ?? 14;
+			if (e.deltaY < 0) {
+				// Scroll up → increase
+				const next = Math.min(current + 1, 20);
+				if (next !== current) {
+					setTextSize(next);
+					call("set_config", { text_size: next }).catch(() => {});
+				}
+			} else if (e.deltaY > 0) {
+				// Scroll down → decrease
+				const next = Math.max(current - 1, 10);
+				if (next !== current) {
+					setTextSize(next);
+					call("set_config", { text_size: next }).catch(() => {});
+				}
+			}
+		};
+
+		window.addEventListener("keydown", keyHandler);
+		window.addEventListener("wheel", wheelHandler, { passive: false });
+		return () => {
+			window.removeEventListener("keydown", keyHandler);
+			window.removeEventListener("wheel", wheelHandler);
+		};
+	}, [navigate, textSize, call, setTextSize]);
+
+	// ── Listen for navigate events from Python (e.g. tray "More models...") ──
+	usePythonEvent("navigate", (data) => {
+		const path = (data as Record<string, string>)?.path;
+		if (path) {
+			// Strip leading slash and convert to page name
+			const page = path.replace(/^\//, "");
+			// Map URL paths to internal page names
+			const pageMap: Record<string, Page> = {
+				models: "models",
+				home: "home",
+				settings: "settings",
+				history: "history",
+				templates: "templates",
+				vocabulary: "vocabulary",
+				microphone: "microphone",
+				analytics: "analytics",
+				about: "about",
+			};
+			navigate(pageMap[page] ?? (page as Page));
+		}
+	});
 
 	// ── Page renderer ─────────────────────────────────────────────
 
@@ -355,6 +433,7 @@ export default function App() {
 									},
 									{ keys: "Space", desc: t("help.toggle") },
 									{ keys: "Enter", desc: t("help.activate") },
+									{ keys: "Ctrl+Plus / Ctrl+Minus", desc: "Zoom text size" },
 									{ keys: "?", desc: t("help.openHelp") },
 									{
 										keys: "Alt+Left / Alt+Right",
