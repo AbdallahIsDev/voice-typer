@@ -433,7 +433,7 @@ def _build_app_autostart_task_xml() -> str:
     reg = ET.SubElement(root, "RegistrationInfo")
     desc = ET.SubElement(reg, "Description")
     desc.text = (
-        "Launches Voice Typer at user logon. Safe to disable or delete; "
+        f"Launches {APP_NAME} at user logon. Safe to disable or delete; "
         "the app can still be started manually from the Start Menu."
     )
     uri = ET.SubElement(reg, "URI")
@@ -793,7 +793,7 @@ def _enable_autostart_linux() -> bool:
 
     desktop_content = f"""[Desktop Entry]
 Type=Application
-Name=Voice Typer
+Name={APP_NAME}
 Comment=Background voice-to-text utility
 Exec={exec_field}
 Icon=audio-input-microphone
@@ -822,6 +822,9 @@ def _disable_autostart_linux() -> bool:
 
 def _is_autostart_linux() -> bool:
     return (get_autostart_dir() / "voice-typer.desktop").exists()
+
+
+from voice_typer.server.branding import APP_NAME
 
 
 # ─── Launcher shortcut ────────────────────────────────────────────────
@@ -870,7 +873,7 @@ def _start_menu_programs_dir() -> Path:
     """Windows Start Menu → Programs directory for the current user.
 
     Shortcuts placed here are discoverable via Start Menu search, so the
-    user can type "Voice Typer" to open/focus the app.
+    user can open/focus the app from the Start Menu.
     """
     return Path(os.environ.get("APPDATA", Path.home())) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
 
@@ -994,7 +997,7 @@ def create_launcher_shortcut() -> Optional[Path]:
         target=str(pythonw),
         arguments=f'"{launcher}"',
         icon_ico=icon_ico,
-        description="Voice Typer — voice-to-text dictation",
+        description=f"{APP_NAME} — voice-to-text dictation",
     ):
         log.info("[STARTUP] Desktop .lnk created: %s", lnk_desktop)
         primary_path = lnk_desktop
@@ -1010,7 +1013,7 @@ def create_launcher_shortcut() -> Optional[Path]:
             target=str(pythonw),
             arguments=f'"{launcher}"',
             icon_ico=icon_ico,
-            description="Voice Typer — voice-to-text dictation",
+            description=f"{APP_NAME} — voice-to-text dictation",
         ):
             log.info("[STARTUP] Start Menu .lnk created: %s", lnk_start)
     except OSError as e:

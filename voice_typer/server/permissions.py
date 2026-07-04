@@ -36,6 +36,7 @@ import sys
 from enum import Enum
 from typing import Callable, Optional
 
+from voice_typer.server.branding import APP_NAME
 from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
 
 log = logging.getLogger("voice_typer.server.permissions")
@@ -444,7 +445,7 @@ def show_permission_notification(tray, error_message: str) -> None:
     method). If ``tray`` is None, the notification is only logged.
     """
     if is_macos():
-        title = "Voice Typer needs permission"
+        title = f"{APP_NAME} needs permission"
         body = (
             "Click to open System Settings → Accessibility. "
             "Add Voice Typer (and its key-listener helper) to the list."
@@ -458,7 +459,7 @@ def show_permission_notification(tray, error_message: str) -> None:
         )
     else:
         # Windows shouldn't reach here — no permission needed
-        title = "Voice Typer"
+        title = APP_NAME
         body = error_message
 
     log.warning("[PERMISSION] %s: %s (error: %s)", title, body, error_message)
