@@ -342,21 +342,32 @@ def _is_password_field() -> bool:
         # Try using comtypes for UI Automation (preferred path)
         try:
             import comtypes.client
-            UIA = comtypes.client.GetModule("UIAutomationCore.dll")
-            uia = comtypes.CoCreateInstance(
-                UIA.CUIAutomation._reg_clsid_,
-                interface=UIA.IUIAutomation,
-            )
-            focused = uia.GetFocusedElement()
-            if focused is not None:
-                # UIA_IsPasswordPropertyId = 30022
-                is_password = focused.GetCurrentPropertyValue(30022)
-                if is_password:
-                    log.warning(
-                        "[CLIPBOARD] Password field detected — "
-                        "dictation into password fields is disabled for security"
-                    )
-                    return True
+            import comtypes
+            # Initialize COM for this thread before using UIAutomation.
+            # Without this, CoCreateInstance fails with
+            # "CoInitialize has not been called".
+            comtypes.CoInitialize()
+            try:
+                UIA = comtypes.client.GetModule("UIAutomationCore.dll")
+                uia = comtypes.CoCreateInstance(
+                    UIA.CUIAutomation._reg_clsid_,
+                    interface=UIA.IUIAutomation,
+                )
+                focused = uia.GetFocusedElement()
+                if focused is not None:
+                    # UIA_IsPasswordPropertyId = 30022
+                    is_password = focused.GetCurrentPropertyValue(30022)
+                    if is_password:
+                        log.warning(
+                            "[CLIPBOARD] Password field detected — "
+                            "dictation into password fields is disabled for security"
+                        )
+                        return True
+            finally:
+                try:
+                    comtypes.CoUninitialize()
+                except Exception:
+                    pass
         except ImportError:
             # PLAT-014: comtypes not installed. Pre-fix this failed
             # OPEN (returned False → paste allowed into any field).
@@ -420,25 +431,33 @@ def _is_content_editable() -> bool:
         return False
     try:
         import comtypes.client
-        UIA = comtypes.client.GetModule("UIAutomationCore.dll")
-        uia = comtypes.CoCreateInstance(
-            UIA.CUIAutomation._reg_clsid_,
-            interface=UIA.IUIAutomation,
-        )
-        focused = uia.GetFocusedElement()
-        if focused is None:
+        import comtypes
+        comtypes.CoInitialize()
+        try:
+            UIA = comtypes.client.GetModule("UIAutomationCore.dll")
+            uia = comtypes.CoCreateInstance(
+                UIA.CUIAutomation._reg_clsid_,
+                interface=UIA.IUIAutomation,
+            )
+            focused = uia.GetFocusedElement()
+            if focused is None:
+                return False
+            # UIA_ControlTypePropertyId = 30003
+            control_type = focused.GetCurrentPropertyValue(30003)
+            # UIA_ControlType_Edit = 50004, UIA_ControlType_Document = 50036
+            # These are the control types that typically support contentEditable.
+            if control_type in (50004, 50036):
+                # Check if the element supports the Value pattern (text input)
+                # UIA_IsValuePatternAvailablePropertyId = 30101
+                has_value = focused.GetCurrentPropertyValue(30101)
+                if has_value:
+                    return True
             return False
-        # UIA_ControlTypePropertyId = 30003
-        control_type = focused.GetCurrentPropertyValue(30003)
-        # UIA_ControlType_Edit = 50004, UIA_ControlType_Document = 50036
-        # These are the control types that typically support contentEditable.
-        if control_type in (50004, 50036):
-            # Check if the element supports the Value pattern (text input)
-            # UIA_IsValuePatternAvailablePropertyId = 30101
-            has_value = focused.GetCurrentPropertyValue(30101)
-            if has_value:
-                return True
-        return False
+        finally:
+            try:
+                comtypes.CoUninitialize()
+            except Exception:
+                pass
     except ImportError:
         return False
     except Exception:
@@ -791,13 +810,15 @@ class ClipboardManager:
                     if saved_clipboard is not None:
                         try:
                             pyperclip.copy(saved_clipboard)
-                            log.info("[CLIPBOARD-AUDIT] Clipboard restored to previous content after %ds delay", int(delay))
+                            log.info("[CLIPBOARD-AUDIT] Clipboard restored to previous content "
+                    "after %ds delay", int(delay))
                         except Exception:
                             pyperclip.copy("")
                             log.info("[CLIPBOARD-AUDIT] Clipboard cleared (sensitive data removed, restore failed)")
                     else:
                         pyperclip.copy("")
-                        log.info("[CLIPBOARD-AUDIT] Clipboard cleared (sensitive data removed) after %ds delay", int(delay))
+                        log.info("[CLIPBOARD-AUDIT] Clipboard cleared (sensitive data removed) "
+                    "after %ds delay", int(delay))
                 else:
                     log.debug("[CLIPBOARD-AUDIT] Clipboard not cleared — content changed since copy")
             except Exception:
@@ -866,7 +887,8 @@ class ClipboardManager:
                 from voice_typer.server.server_platform import is_remote_session
                 if is_remote_session():
                     paste_delay = 0.10
-                    log.info("[CLIPBOARD] RDP session detected — increasing paste delay to %dms", int(paste_delay * 1000))
+                    log.info("[CLIPBOARD] RDP session detected — increasing paste delay "
+                    "to %dms", int(paste_delay * 1000))
             except Exception:
                 pass
 
@@ -913,7 +935,8 @@ class ClipboardManager:
                 self._safe_key_press(_Key.ctrl, "v")
 
             self._last_paste_time = time.monotonic()
-            log.info("[CLIPBOARD-AUDIT] Sent paste keystroke (terminal=%s, target=%s)", is_terminal, process_name or "unknown")
+            log.info("[CLIPBOARD-AUDIT] Sent paste keystroke "
+                    "(terminal=%s, target=%s)", is_terminal, process_name or "unknown")
             return True
         except Exception as e:
             log.warning("[CLIPBOARD] Auto-paste failed (clipboard still has the text): %s", e)
@@ -1025,11 +1048,13 @@ class ClipboardManager:
                     release_events = (INPUT * 2)(
                         INPUT(
                             INPUT.KEYBOARD,
-                            INPUT_union(ki=KEYBDINPUT(wVk=VK_V, wScan=0, dwFlags=KEYBDINPUT.KEYUP, time=0, dwExtraInfo=0)),
+                            INPUT_union(ki=KEYBDINPUT(wVk=VK_V, wScan=0, dwFlags=KEYBDINPUT.KEYUP,
+                            time=0, dwExtraInfo=0)),
                         ),
                         INPUT(
                             INPUT.KEYBOARD,
-                            INPUT_union(ki=KEYBDINPUT(wVk=VK_CONTROL, wScan=0, dwFlags=KEYBDINPUT.KEYUP, time=0, dwExtraInfo=0)),
+                            INPUT_union(ki=KEYBDINPUT(wVk=VK_CONTROL, wScan=0, dwFlags=KEYBDINPUT.KEYUP,
+                            time=0, dwExtraInfo=0)),
                         ),
                     )
                     SendInput(2, ctypes.byref(release_events), ctypes.sizeof(INPUT))
