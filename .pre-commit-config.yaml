@@ -46,3 +46,9 @@ repos:
         language: system
         files: ^voice_typer/client/src/.*\.(ts|tsx)$
         pass_filenames: false
+      - id: check-branding
+        name: Check hardcoded app name
+        entry: python scripts/check_branding.py
+        language: system
+        files: ^voice_typer/(server|client/src)/.*\.(py|ts|tsx|html)$
+        pass_filenames: false

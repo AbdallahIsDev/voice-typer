@@ -11,7 +11,9 @@ import "./index.css";
 window.bubble?.signalReady?.();
 
 // ERR-ERR-005 (fix): explicit null check instead of `!` non-null assertion.
-const bubbleRootEl = document.getElementById("bubble-root");
+const bubbleRootEl = document.getElementById(
+	"bubble-root",
+) as HTMLElement | null;
 if (!bubbleRootEl)
 	throw new Error("Bubble root element #bubble-root not found in bubble.html");
 

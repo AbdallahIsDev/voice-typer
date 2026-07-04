@@ -3,6 +3,8 @@ interface LogoProps {
 	className?: string;
 }
 
+import { APP_NAME } from "./../branding";
+
 export function Logo({ size = 20, className }: LogoProps) {
 	return (
 		<svg
@@ -13,9 +15,9 @@ export function Logo({ size = 20, className }: LogoProps) {
 			xmlns="http://www.w3.org/2000/svg"
 			className={className}
 			role="img"
-			aria-label="Voice Typer"
+			aria-label={APP_NAME}
 		>
-			<title>Voice Typer</title>
+			<title>{APP_NAME}</title>
 			<rect
 				x="15"
 				y="48"

@@ -27,6 +27,7 @@ Both are intentional; removing either would break a real use case.
 
 import argparse
 import sys
+from voice_typer.server.branding import APP_NAME
 
 # NEW-CLI-003: standardized exit codes
 EXIT_CLEAN = 0
@@ -40,7 +41,7 @@ def _parse_args(argv=None):
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         prog="voice_typer",
-        description="Voice Typer — background voice-to-text utility",
+        description=f"{APP_NAME} — background voice-to-text utility",
     )
     parser.add_argument(
         "--version",

@@ -81,7 +81,7 @@ export function Sidebar({
 							: "max-w-32 opacity-100 filter-none",
 					)}
 				>
-					Voice Typer
+					{APP_NAME}
 				</span>
 			</div>
 
