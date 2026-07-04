@@ -272,7 +272,10 @@ class HistoryDB:
             """, (text, duration, model, device, word_count, char_count, language))
             conn.commit()
             row_id = cursor.lastrowid
+            if row_id is None:
+                return -1
             log.debug("Added transcription %d: %d chars", row_id, char_count)
+            assert row_id is not None
             return row_id
         except Exception as e:
             log.error("[HISTORY] Failed to add transcription: %s", e)
@@ -385,7 +388,10 @@ class HistoryDB:
             """, (text, duration, model, device, word_count, char_count, language, favorite))
             conn.commit()
             new_id = cursor.lastrowid
+            if new_id is None:
+                return -1
             log.info("[HISTORY] Restored transcription as id=%d (%d chars)", new_id, char_count)
+            assert new_id is not None
             return new_id
         except Exception as e:
             log.error("[HISTORY] Failed to restore transcription: %s", e)

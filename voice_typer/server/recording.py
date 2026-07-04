@@ -1267,7 +1267,7 @@ class Recorder:
 
             # AUDIO-019: Backpressure detection — if the deque dropped chunks
             # (maxlen exceeded), increment a counter and warn the user
-            if buffer_len >= self._buffer.maxlen - 1:
+            if self._buffer.maxlen is not None and buffer_len >= self._buffer.maxlen - 1:
                 self._dropped_chunks = getattr(self, '_dropped_chunks', 0) + 1
                 if self._dropped_chunks == 1 or self._dropped_chunks % 100 == 0:
                     log.warning(
@@ -1682,7 +1682,7 @@ class Recorder:
                 used_fallback = True
                 log.info(
                     "[RECORDING] Fallback succeeded with device [%s] %s",
-                    # pyrefly: ignore [unsupported-operation]
+                  
                     candidate, dev_info_extra["name"],
                 )
                 break
@@ -2097,7 +2097,7 @@ class Recorder:
                 ratio = target_sr / effective_sr
                 new_len = int(len(audio) * ratio)
                 indices = np.linspace(0, len(audio) - 1, new_len)
-                # pyrefly: ignore [bad-assignment]
+              
                 audio = np.interp(
                     indices, np.arange(len(audio)), audio,
                 ).astype(np.float32)

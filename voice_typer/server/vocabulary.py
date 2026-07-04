@@ -18,7 +18,7 @@ in the pipeline: transcribe → text cleanup → vocabulary → templates → au
 import json
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 log = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ class VocabularyManager:
         self._bundled_path = bundled_path
 
         # Active merged data: {category: data}
-        self._data: dict[str, object] = {}
+        self._data: dict[str, Any] = {}
         self._load_and_merge()
 
     # ── Loading and merging ──────────────────────────────────────────
@@ -136,7 +136,7 @@ class VocabularyManager:
         if not isinstance(data, dict):
             return {cat: ({} if cat in ("misspellings", "technical_terms", "names", "products") else [])
                     for cat in CATEGORIES}
-        result = {}
+        result: dict[str, Any] = {}
         for cat in CATEGORIES:
             val = data.get(cat)
             if cat in ("misspellings", "technical_terms", "names", "products"):
@@ -238,11 +238,14 @@ class VocabularyManager:
             return False
         if not isinstance(self._data.get(category), dict):
             self._data[category] = {}
-        if len(self._data[category]) >= MAX_CORRECTIONS_ENTRIES:
+        cat_data = self._data[category]
+        if not isinstance(cat_data, dict):
+            return False
+        if len(cat_data) >= MAX_CORRECTIONS_ENTRIES:
             log.warning("[VOCAB] Category %s has reached MAX_CORRECTIONS_ENTRIES (%d), rejecting",
                         category, MAX_CORRECTIONS_ENTRIES)
             return False
-        self._data[category][key] = value
+        cat_data[key] = value
         self._save_user()
         return True
 
@@ -276,11 +279,14 @@ class VocabularyManager:
             return False
         if not isinstance(self._data.get(category), list):
             self._data[category] = []
-        if len(self._data[category]) >= MAX_CORRECTIONS_ENTRIES:
+        cat_data = self._data[category]
+        if not isinstance(cat_data, list):
+            return False
+        if len(cat_data) >= MAX_CORRECTIONS_ENTRIES:
             log.warning("[VOCAB] Category %s has reached MAX_CORRECTIONS_ENTRIES (%d), rejecting",
                         category, MAX_CORRECTIONS_ENTRIES)
             return False
-        self._data[category].append([wrong, correct])
+        cat_data.append([wrong, correct])
         self._save_user()
         return True
 
@@ -316,11 +322,15 @@ class VocabularyManager:
                     if cat in ("misspellings", "technical_terms", "names", "products"):
                         if not isinstance(self._data.get(cat), dict):
                             self._data[cat] = {}
-                        self._data[cat].update(data[cat])
+                        cat_dict = self._data[cat]
+                        if isinstance(cat_dict, dict) and isinstance(data[cat], dict):
+                            cat_dict.update(data[cat])
                     else:
                         if not isinstance(self._data.get(cat), list):
                             self._data[cat] = []
-                        self._data[cat].extend(data[cat])
+                        cat_list = self._data[cat]
+                        if isinstance(cat_list, list) and isinstance(data[cat], list):
+                            cat_list.extend(data[cat])
                 else:
                     self._data[cat] = data[cat]
                 count += 1

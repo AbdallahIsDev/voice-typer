@@ -403,8 +403,9 @@ class CrashRecovery:
                     pass
 
                 # 5. Crash recovery entries
+                import json as _json
                 with self._lock:
-                    entries_json = json.dumps(
+                    entries_json = _json.dumps(
                         {"entries": self._entries}, indent=2, ensure_ascii=False,
                     )
                 zf.writestr("crash_recovery.json", entries_json)

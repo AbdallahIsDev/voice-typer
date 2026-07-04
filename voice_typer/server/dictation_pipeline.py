@@ -16,6 +16,8 @@ import logging
 import time
 from typing import Optional, Any
 
+import numpy as np
+
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.tray_types import AppState
 

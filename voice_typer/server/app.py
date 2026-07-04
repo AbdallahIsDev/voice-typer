@@ -781,6 +781,7 @@ class VoiceTyperApp:
         # On macOS, global hotkeys require Accessibility permission.
         # The app can't request it directly, but we can detect it's
         # missing and notify the user.
+        _has_accessibility = False
         if is_macos():
             try:
                 import subprocess as _sp
@@ -789,7 +790,6 @@ class VoiceTyperApp:
                 # API — it returns True iff the process has Accessibility
                 # permission.  We load it from ApplicationServices.framework
                 # via ctypes (no PyObjC dependency required).
-                _has_accessibility = False
                 try:
                     import ctypes
                     app_services = ctypes.cdll.LoadLibrary(
@@ -2402,6 +2402,7 @@ def _ensure_single_instance(silent=False):
         #   WAIT_OBJECT_0 (0x00000000): we acquired it (unexpected
         #     since CreateMutexW returned ERROR_ALREADY_EXISTS).
         WAIT_ABANDONED = 0x00000080
+        WAIT_OBJECT_0 = 0x00000000
         WAIT_TIMEOUT = 0x00000102
         if mutex:
             wait_result = ctypes.windll.kernel32.WaitForSingleObject(mutex, 0)

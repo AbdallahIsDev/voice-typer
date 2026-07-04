@@ -237,7 +237,7 @@ def _sanitize_config_for_ipc(config) -> dict:
 # out to ALL registered servers.  Each IPCServer registers on start
 # and unregisters on stop, so the registry stays consistent across
 # any number of concurrent instances.
-_push_event_registry: "set[Callable[[dict], None]]" = set()
+_push_event_registry: "set[typing.Callable[[dict], None]]" = set()
 _push_event_registry_lock = threading.Lock()
 
 
@@ -416,7 +416,7 @@ class IPCServer(
     def __init__(
         self,
         app,
-        service: "Optional[Any]" = None,
+        service: "typing.Optional[typing.Any]" = None,
     ) -> None:
         # ARCH-REFAC-004: dependency-injection seam.
         #
@@ -475,7 +475,7 @@ class IPCServer(
         # module-level _push_event_registry on start() and unregistered
         # on stop().  Tracked on the instance so stop() can remove just
         # our callable without affecting other active servers.
-        self._push_fn: "Optional[Callable[[dict], None]]" = None
+        self._push_fn: "typing.Optional[typing.Callable[[dict], None]]" = None
 
     # ── Lifecycle ───────────────────────────────────────────────────────
 
@@ -1213,6 +1213,7 @@ def main() -> None:
         pass  # Not available on all platforms
 
     from voice_typer.server.app import VoiceTyperApp, _setup_logging, _ensure_single_instance
+    from voice_typer.server.config import _config_dir
 
     _setup_logging()
     _single_instance_mutex = _ensure_single_instance(silent=True)
