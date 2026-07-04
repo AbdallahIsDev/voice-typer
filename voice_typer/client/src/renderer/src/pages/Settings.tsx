@@ -19,7 +19,8 @@ import { ModelSettingsSection } from "@/components/settings/ModelSettingsSection
 import { PrivacySettingsSection } from "@/components/settings/PrivacySettingsSection";
 import { ThemeSettingsSection } from "@/components/settings/ThemeSettingsSection";
 import { Button } from "@/components/ui/button";
-import { usePython } from "@/hooks/usePython";
+import { SegmentedControl } from "@/components/ui/segmented-control";
+import { usePython, usePythonEvent } from "@/hooks/usePython";
 // NEW-TS-004: use the shared useSnackbar hook instead of re-implementing
 // the useState + setTimeout + JSX pattern inline.  Previously this page
 // had its own ``showSnack`` function with a setTimeout that wasn't
@@ -33,6 +34,72 @@ import type { Page } from "@/types/ipc";
 // Module-level cache — persists across page navigations so settings render
 // instantly on re-visit instead of showing a loading spinner.
 let _cachedConfig: VoiceTyperConfig | null = null;
+
+/** Settings tab identifiers used by the SegmentedControl and search-to-tab
+ *  auto-switch feature.  Defined at module level so SEARCH_TAB_HINTS can
+ *  reference it. */
+type SettingsTab = "appearance" | "general" | "aiAudio" | "privacy";
+
+/** Keyword-to-tab mapping for the search auto-switch feature.
+ *  Each tab has lowercase keywords that uniquely identify it.
+ *  Module-level constant — never recreated on re-render. */
+const SEARCH_TAB_HINTS: Record<SettingsTab, string[]> = {
+	appearance: [
+		"theme",
+		"appearance",
+		"color",
+		"dark",
+		"light",
+		"text size",
+		"font",
+	],
+	general: [
+		"language",
+		"notification",
+		"tray",
+		"bubble",
+		"overlay",
+		"startup",
+		"login",
+		"launch",
+		"hotkey",
+		"shortcut",
+		"dictation key",
+		"recording mode",
+		"push to talk",
+	],
+	aiAudio: [
+		"model",
+		"llm",
+		"audio",
+		"volume",
+		"ducking",
+		"noise",
+		"filter",
+		"post-processing",
+		"ai enhancement",
+		"vocabulary",
+		"api key",
+		"polish",
+		"transcription",
+		"preset",
+		"snippet",
+	],
+	privacy: [
+		"privacy",
+		"recovery",
+		"crash",
+		"export",
+		"consent",
+		"troubleshooting",
+		"diagnostics",
+		"reset",
+		"log",
+		"bug",
+		"help",
+		"faq",
+	],
+};
 
 interface SettingsPageProps {
 	themeMode?: VoiceTyperConfig["theme_mode"];
@@ -54,6 +121,65 @@ export default function SettingsPage({
 	const [showResetDialog, setShowResetDialog] = useState(false);
 	// UX-028: search/filter state for settings
 	const [settingsFilter, setSettingsFilter] = useState("");
+
+	// SEARCH-SWITCH: when the user types a search query, check if it
+	// matches a hint keyword for a tab other than the current one. If so,
+	// auto-switch to that tab so the matching results are visible.
+	const handleSearchChange = useCallback((value: string) => {
+		setSettingsFilter(value);
+
+		const q = value.toLowerCase().trim();
+		if (!q || q.length < 2) return; // Too short — would match hints across
+		// multiple tabs and cause jarring auto-switching as the user types.
+
+		// Score each tab by counting how many hint keywords match.
+		let bestTab: SettingsTab | null = null;
+		let bestScore = 0;
+
+		for (const [tab, hints] of Object.entries(SEARCH_TAB_HINTS)) {
+			const score = hints.filter(
+				(hint) => hint.includes(q) || q.includes(hint),
+			).length;
+			if (score > bestScore) {
+				bestScore = score;
+				bestTab = tab as SettingsTab;
+			}
+		}
+
+		// Only switch if we found a clear winner and it's not already active.
+		if (bestTab && bestScore > 0) {
+			setActiveTab((prev) => (prev !== bestTab ? bestTab! : prev));
+		}
+	}, []);
+	// NEW: settings tab navigation — groups related sections into tabs.
+	// Persisted in localStorage so the active tab survives page navigation.
+	const LS_KEY = "voice-typer-settings-tab";
+	const getSavedTab = (): SettingsTab => {
+		try {
+			const saved = localStorage.getItem(LS_KEY);
+			if (
+				saved === "appearance" ||
+				saved === "general" ||
+				saved === "aiAudio" ||
+				saved === "privacy"
+			) {
+				return saved;
+			}
+		} catch {
+			// localStorage may be unavailable (SSR, sandboxed)
+		}
+		return "general";
+	};
+	const [activeTab, setActiveTab] = useState<SettingsTab>(getSavedTab);
+
+	// Persist tab changes to localStorage so the choice survives navigation.
+	useEffect(() => {
+		try {
+			localStorage.setItem(LS_KEY, activeTab);
+		} catch {
+			// localStorage may be unavailable
+		}
+	}, [activeTab]);
 
 	// NEW-TS-004: use the shared useSnackbar hook.  The hook manages the
 	// timer ref and clears it on unmount, fixing the leak risk of the
@@ -284,6 +410,41 @@ export default function SettingsPage({
 		[config, updateConfig],
 	);
 
+	// ── Live config sync (external changes) ───────────────────────────
+	// When a config field is changed from OUTSIDE the Settings page
+	// (e.g. Ctrl+MouseWheel zoom in App.tsx toggles text_size, or
+	// the sidebar ThemeSwitch changes theme_mode), the Python backend
+	// emits a config_changed event.  This listener merges those updates
+	// into the Settings page's local config state so sliders, selects,
+	// and switches reflect the current value.
+	//
+	// Without this, the slider stays frozen at the mount-time value
+	// even though the backend and the CSS --font-scale var have already
+	// updated — the user sees one thing but the slider shows another.
+	usePythonEvent(
+		"config_changed",
+		useCallback(
+			(data) => {
+				if (!data) return;
+				setConfig((prev) => {
+					if (!prev) return prev;
+					const merged = { ...prev, ...data } as VoiceTyperConfig;
+					_cachedConfig = merged;
+					return merged;
+				});
+				// Sync the diff baseline so the next flush doesn't
+				// re-send values the backend already has.
+				if (lastSavedConfigRef.current) {
+					lastSavedConfigRef.current = {
+						...lastSavedConfigRef.current,
+						...data,
+					} as VoiceTyperConfig;
+				}
+			},
+			[], // stable — uses functional setConfig + refs only
+		),
+	);
+
 	// Cleanup pending debounced timers on unmount.  We intentionally read
 	// .current at cleanup time (not effect-run time) so ALL timers added
 	// during the component's lifetime are cleared.
@@ -421,183 +582,208 @@ export default function SettingsPage({
 					description="Adjust Voice Typer to your preferences."
 				/>
 
-				{/* UX-028: Settings search/filter */}
+				{/* UX-028: Settings search/filter — also auto-switches to the
+                                relevant tab when the query matches a hint keyword. */}
 				<SearchField
 					value={settingsFilter}
-					onChange={setSettingsFilter}
+					onChange={handleSearchChange}
 					placeholder={t("settings.searchPlaceholder")}
 				/>
 
-				{/* ── SECTION: Appearance (theme mode, preset, custom picker, text size) ── */}
-				<ThemeSettingsSection
-					config={config}
-					updateConfig={updateConfig}
-					updateConfigDebounced={updateConfigDebounced}
-					isVisible={_filter_settings}
-					themeModeProp={themeModeProp}
-					onThemeChange={handleThemeChangeLocal}
-				/>
+				{/* NEW: Settings tab navigation — SegmentedControl at the top switches between tab groups */}
+				<div className="flex justify-center">
+					<SegmentedControl<SettingsTab>
+						variant="tabs"
+						options={[
+							{ value: "appearance", label: t("settings.tabs.appearance") },
+							{ value: "general", label: t("settings.tabs.general") },
+							{ value: "aiAudio", label: t("settings.tabs.aiAudio") },
+							{ value: "privacy", label: t("settings.tabs.privacy") },
+						]}
+						value={activeTab}
+						onChange={setActiveTab}
+						ariaLabel="Settings tabs"
+					/>
+				</div>
 
-				{/* ── SECTION: General + Overlay (autostart, UI lang, notifications, tray, bubble) ── */}
-				<GeneralSettingsSection
-					config={config}
-					updateConfig={updateConfig}
-					updateConfigDebounced={updateConfigDebounced}
-					isVisible={_filter_settings}
-				/>
+				{/* ── TAB: Appearance (theme mode, preset, custom picker, text size) ───── */}
+				{activeTab === "appearance" && (
+					<ThemeSettingsSection
+						config={config}
+						updateConfig={updateConfig}
+						updateConfigDebounced={updateConfigDebounced}
+						isVisible={_filter_settings}
+						themeModeProp={themeModeProp}
+						onThemeChange={handleThemeChangeLocal}
+					/>
+				)}
 
-				{/* ── SECTION: Hotkey + Recording (dictation key, mode, push-to-talk) ── */}
-				<HotkeySettingsSection
-					config={config}
-					updateConfig={updateConfig}
-					updateConfigDebounced={updateConfigDebounced}
-					isVisible={_filter_settings}
-				/>
+				{/* ── TAB: General (autostart, UI lang, notifications, tray, bubble, hotkey) ── */}
+				{activeTab === "general" && (
+					<>
+						<GeneralSettingsSection
+							config={config}
+							updateConfig={updateConfig}
+							updateConfigDebounced={updateConfigDebounced}
+							isVisible={_filter_settings}
+						/>
+						<HotkeySettingsSection
+							config={config}
+							updateConfig={updateConfig}
+							updateConfigDebounced={updateConfigDebounced}
+							isVisible={_filter_settings}
+						/>
+					</>
+				)}
 
-				{/* ── SECTION: Post-Processing + LLM Polishing (language, cleanup, API key) ── */}
-				<ModelSettingsSection
-					config={config}
-					updateConfig={updateConfig}
-					updateConfigDebounced={updateConfigDebounced}
-					isVisible={_filter_settings}
-				/>
+				{/* ── TAB: AI & Audio (model, audio enhancement, AI enhancement) ────────── */}
+				{activeTab === "aiAudio" && (
+					<>
+						<ModelSettingsSection
+							config={config}
+							updateConfig={updateConfig}
+							updateConfigDebounced={updateConfigDebounced}
+							isVisible={_filter_settings}
+						/>
+						<AudioSettingsSection
+							config={config}
+							updateConfig={updateConfig}
+							updateConfigDebounced={updateConfigDebounced}
+							isVisible={_filter_settings}
+						/>
+						<AiEnhancementSettingsSection
+							config={config}
+							updateConfig={updateConfig}
+							updateConfigDebounced={updateConfigDebounced}
+							isVisible={_filter_settings}
+						/>
+					</>
+				)}
 
-				{/* ── SECTION: Audio Enhancement (volume ducking, noise filter chain) ── */}
-				<AudioSettingsSection
-					config={config}
-					updateConfig={updateConfig}
-					updateConfigDebounced={updateConfigDebounced}
-					isVisible={_filter_settings}
-				/>
+				{/* ── TAB: Privacy (privacy & recovery, troubleshooting) ───────────────── */}
+				{activeTab === "privacy" && (
+					<>
+						<PrivacySettingsSection
+							config={config}
+							updateConfig={updateConfig}
+							updateConfigDebounced={updateConfigDebounced}
+							isVisible={_filter_settings}
+						/>
 
-				{/* ── SECTION: AI Enhancement + Vocabulary Automation (P4/P5) ── */}
-				<AiEnhancementSettingsSection
-					config={config}
-					updateConfig={updateConfig}
-					updateConfigDebounced={updateConfigDebounced}
-					isVisible={_filter_settings}
-				/>
-
-				{/* ── SECTION: Audio & Recovery + Privacy & Consent (crash recovery, consents, export) ── */}
-				<PrivacySettingsSection
-					config={config}
-					updateConfig={updateConfig}
-					updateConfigDebounced={updateConfigDebounced}
-					isVisible={_filter_settings}
-				/>
-
-				{/* ── SECTION: Troubleshooting ──────────────────────────── */}
-				{/* NEW-UX-025: previously only had "View Logs" (which lied —
-                                        it opened the log FOLDER, not a log viewer) and "Reset to
-                                        Defaults" (destructive, no undo).  We now also surface:
-                                                - Diagnostics link (opens the About page's diagnostics
-                                                        section which has version, ASR backend, device, etc.)
-                                                - Help / FAQ link
-                                                - Report a Bug link
-                                        And clarify the "View Logs" label. */}
-				{(_filter_settings(
-					"Troubleshooting",
-					"Diagnostic tools, help, and support.",
-					"Troubleshooting",
-				) ||
-					[
-						"Open Log Folder",
-						"Diagnostics",
-						"Help & FAQ",
-						"Report a Bug",
-						"Reset to Defaults",
-					].some((label) =>
-						_filter_settings(label, undefined, "Troubleshooting"),
-					)) && (
-					<SettingsSection
-						title="Troubleshooting"
-						description="Diagnostic tools, help, and support."
-					>
-						<div className="px-3.5 py-3.5 flex flex-wrap gap-3">
-							<Button
-								variant="outline"
-								className="gap-2"
-								onClick={viewLogs}
-								aria-label="Open log folder"
-								title="Open the folder containing the Python backend's log files"
+						{/* ── Troubleshooting ──────────────────────────── */}
+						{/* NEW-UX-025: previously only had "View Logs" (which lied —
+								it opened the log FOLDER, not a log viewer) and "Reset to
+								Defaults" (destructive, no undo).  We now also surface:
+										- Diagnostics link (opens the About page's diagnostics
+												section which has version, ASR backend, device, etc.)
+										- Help / FAQ link
+										- Report a Bug link
+								And clarify the "View Logs" label. */}
+						{(_filter_settings(
+							"Troubleshooting",
+							"Diagnostic tools, help, and support.",
+							"Troubleshooting",
+						) ||
+							[
+								"Open Log Folder",
+								"Diagnostics",
+								"Help & FAQ",
+								"Report a Bug",
+								"Reset to Defaults",
+							].some((label) =>
+								_filter_settings(label, undefined, "Troubleshooting"),
+							)) && (
+							<SettingsSection
+								title="Troubleshooting"
+								description="Diagnostic tools, help, and support."
 							>
-								<HugeiconsIcon
-									icon={File02Icon}
-									strokeWidth={2}
-									className="h-4 w-4"
-								/>
-								Open Log Folder
-							</Button>
-							<Button
-								variant="outline"
-								className="gap-2"
-								onClick={() => onNavigate?.("about")}
-								aria-label="Open Diagnostics"
-								title="Open the About page with version, backend status, and config info"
-							>
-								<HugeiconsIcon
-									icon={InformationCircleIcon}
-									strokeWidth={2}
-									className="h-4 w-4"
-								/>
-								Diagnostics
-							</Button>
-							<Button
-								variant="outline"
-								className="gap-2"
-								onClick={() =>
-									window.open(
-										"https://github.com/AbdallahIsDev/voice-typer/blob/main/README.md",
-										"_blank",
-										"noopener,noreferrer",
-									)
-								}
-								aria-label="Open documentation"
-								title="Open the project README in your browser"
-							>
-								<HugeiconsIcon
-									icon={Book02Icon}
-									strokeWidth={2}
-									className="h-4 w-4"
-								/>
-								Help & FAQ
-							</Button>
-							<Button
-								variant="outline"
-								className="gap-2"
-								onClick={() =>
-									window.open(
-										"https://github.com/AbdallahIsDev/voice-typer/issues",
-										"_blank",
-										"noopener,noreferrer",
-									)
-								}
-								aria-label="Report a bug"
-								title="Open the GitHub issue tracker"
-							>
-								<HugeiconsIcon
-									icon={Bug02Icon}
-									strokeWidth={2}
-									className="h-4 w-4"
-								/>
-								Report a Bug
-							</Button>
-							<Button
-								variant="destructive"
-								className="gap-2"
-								onClick={() => setShowResetDialog(true)}
-								aria-label="Reset to Defaults"
-								title="Reset all settings to their default values (cannot be undone)"
-							>
-								<HugeiconsIcon
-									icon={RefreshIcon}
-									strokeWidth={2}
-									className="h-4 w-4"
-								/>
-								Reset to Defaults
-							</Button>
-						</div>
-					</SettingsSection>
+								<div className="px-3.5 py-3.5 flex flex-wrap gap-3">
+									<Button
+										variant="outline"
+										className="gap-2"
+										onClick={viewLogs}
+										aria-label="Open log folder"
+										title="Open the folder containing the Python backend's log files"
+									>
+										<HugeiconsIcon
+											icon={File02Icon}
+											strokeWidth={2}
+											className="h-4 w-4"
+										/>
+										Open Log Folder
+									</Button>
+									<Button
+										variant="outline"
+										className="gap-2"
+										onClick={() => onNavigate?.("about")}
+										aria-label="Open Diagnostics"
+										title="Open the About page with version, backend status, and config info"
+									>
+										<HugeiconsIcon
+											icon={InformationCircleIcon}
+											strokeWidth={2}
+											className="h-4 w-4"
+										/>
+										Diagnostics
+									</Button>
+									<Button
+										variant="outline"
+										className="gap-2"
+										onClick={() =>
+											window.open(
+												"https://github.com/AbdallahIsDev/voice-typer/blob/main/README.md",
+												"_blank",
+												"noopener,noreferrer",
+											)
+										}
+										aria-label="Open documentation"
+										title="Open the project README in your browser"
+									>
+										<HugeiconsIcon
+											icon={Book02Icon}
+											strokeWidth={2}
+											className="h-4 w-4"
+										/>
+										Help & FAQ
+									</Button>
+									<Button
+										variant="outline"
+										className="gap-2"
+										onClick={() =>
+											window.open(
+												"https://github.com/AbdallahIsDev/voice-typer/issues",
+												"_blank",
+												"noopener,noreferrer",
+											)
+										}
+										aria-label="Report a bug"
+										title="Open the GitHub issue tracker"
+									>
+										<HugeiconsIcon
+											icon={Bug02Icon}
+											strokeWidth={2}
+											className="h-4 w-4"
+										/>
+										Report a Bug
+									</Button>
+									<Button
+										variant="destructive"
+										className="gap-2"
+										onClick={() => setShowResetDialog(true)}
+										aria-label="Reset to Defaults"
+										title="Reset all settings to their default values (cannot be undone)"
+									>
+										<HugeiconsIcon
+											icon={RefreshIcon}
+											strokeWidth={2}
+											className="h-4 w-4"
+										/>
+										Reset to Defaults
+									</Button>
+								</div>
+							</SettingsSection>
+						)}
+					</>
 				)}
 
 				{/* BUGFIX: replaced the fixed bottom-right banner with a subtle
