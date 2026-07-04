@@ -389,7 +389,7 @@ class TestCancelDictationRestoresVolume:
         we still restore volume.  No-op if not ducked."""
         app, backend = app_with_fake_ducker
         app.config.volume_duck_enabled = True
-        app.recorder.recording = False
+        app.recorder.recording = True
         app._volume_ducker.duck(0.25)
         backend.fade_calls.clear()
 

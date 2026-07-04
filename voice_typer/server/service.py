@@ -12,6 +12,8 @@ a stable interface that doesn't leak VoiceTyperApp's internal API.
 import logging
 from typing import Any, Optional
 
+from voice_typer.server.branding import APP_NAME
+
 log = logging.getLogger(__name__)
 
 
@@ -1410,14 +1412,14 @@ class VoiceTyperService:
                 # NEW-PAUSE-001: clear the pause flag so subsequent
                 # pause calls return False (no active download).
                 clear_download_pause_state()
-                _notify("Voice Typer", f"Model '{model_name}' downloaded successfully")
+                _notify(APP_NAME, f"Model '{model_name}' downloaded successfully")
                 return {"success": True, "model": model_name}
             elif model_name == "qwen":
                 qwen_path = getattr(self._app.config, "qwen_model_path", None)
                 if qwen_path and os.path.isdir(qwen_path):
                     _push_progress(100, "Qwen model already cached")
                     return {"success": True, "model": model_name, "message": "Qwen model already cached"}
-                _notify("Voice Typer", "Qwen model path not configured")
+                _notify(APP_NAME, "Qwen model path not configured")
                 return {"success": False, "error": "Qwen model path not configured. Set qwen_model_path in Settings."}
             elif model_name == "parakeet":
                 _push_progress(0, "Starting Parakeet download (~2.5 GB)...")
@@ -1438,7 +1440,7 @@ class VoiceTyperService:
                         "[SERVICE] failed to invalidate tray model cache",
                         exc_info=True,
                     )
-                _notify("Voice Typer", "Parakeet model downloaded successfully")
+                _notify(APP_NAME, "Parakeet model downloaded successfully")
                 return {"success": True, "model": model_name}
             else:
                 return {"success": False, "error": f"Unknown model: {model_name}"}
@@ -1453,7 +1455,7 @@ class VoiceTyperService:
             except Exception:
                 log.debug("[SERVICE] could not clear pause flag on failure", exc_info=True)
             _push_progress(0, f"Download failed: {exc}")
-            _notify("Voice Typer", f"Failed to download {model_name}: {exc}")
+            _notify(APP_NAME, f"Failed to download {model_name}: {exc}")
             return {"success": False, "error": str(exc)}
 
     # ── PROD-010: Export diagnostics ─────────────────────────────────

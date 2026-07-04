@@ -25,6 +25,7 @@ import os
 import threading
 from typing import Any, Optional
 
+from voice_typer.server.branding import APP_NAME
 from voice_typer.server.streaming import StreamingConfig, StreamingTranscriptionSession
 from voice_typer.server.tray_types import AppState
 
@@ -214,7 +215,7 @@ class RecordingController:
                 try:
                     app.tray.set_state(AppState.ERROR, "Voice biometric consent required")
                     app.tray.notify_safety(
-                        "Voice Typer",
+                        APP_NAME,
                         "Voice biometric consent is required to start recording.\n"
                         "Enable it in Settings > Privacy > Voice Biometric Consent.",
                     )
@@ -296,7 +297,7 @@ class RecordingController:
             self._cancel_streaming_session()
             app.tray.set_state(AppState.ERROR, "Recording failed")
             app.tray.notify(
-                "Voice Typer",
+                APP_NAME,
                 f"Could not start recording.\n{e}\n\n"
                 "Check voice-typer.log for traceback.",
             )
@@ -340,7 +341,7 @@ class RecordingController:
             self._cancel_streaming_session()
             app._restore_volume()
             app.tray.set_state(AppState.ERROR, "Stop failed")
-            app.tray.notify("Voice Typer", f"Could not stop recording.\n{e}")
+            app.tray.notify(APP_NAME, f"Could not stop recording.\n{e}")
             app._busy_event.set()  # busy = False
             app._schedule_timer(3.0, lambda: app.tray.set_state(AppState.IDLE))
             return
@@ -436,6 +437,17 @@ class RecordingController:
         instantly transitioning RECORDING → IDLE (which flickers).
         """
         app = self._app
+
+        # ESC-FIX-001: If no recording is active, the ESC cancel is a no-op.
+        # The global ESC hotkey backend fires on every Escape press regardless
+        # of whether a recording is in progress.  Early-return here avoids
+        # spurious CANCEL logs (which look like errors to the user) and
+        # prevents unnecessary cleanup (streaming session cancel, volume
+        # restore, bubble hide) when nothing is running.
+        if not app.recorder.recording:
+            log.debug("[CANCEL] Cancel pressed but no recording active (cycle=%s) — no-op", app._cycle_id)
+            return
+
         log.info("[CANCEL] Cancelling current dictation (cycle=%s)", app._cycle_id)
         # ARCH-042: show CANCELLING state immediately.
         try:
@@ -503,7 +515,7 @@ class RecordingController:
         log.warning("[DICTATION] Silence warning: no audio detected for a while")
         try:
             self._app.tray.notify_safety(
-                "Voice Typer",
+                APP_NAME,
                 "No audio detected. Check your microphone is connected and working.",
             )
         except Exception:
@@ -514,7 +526,7 @@ class RecordingController:
         log.warning("[DICTATION] Silence auto-stop: stopping recording due to prolonged silence")
         try:
             self._app.tray.notify_safety(
-                "Voice Typer",
+                APP_NAME,
                 "Recording stopped: no audio detected for an extended period.",
             )
         except Exception:
@@ -533,7 +545,7 @@ class RecordingController:
         log.warning("[DICTATION] Max duration auto-stop: stopping recording")
         try:
             self._app.tray.notify_safety(
-                "Voice Typer",
+                APP_NAME,
                 "Recording stopped: maximum recording duration reached.",
             )
         except Exception:
@@ -547,7 +559,7 @@ class RecordingController:
         if self._app.config.show_notifications:
             try:
                 self._app.tray.notify(
-                    "Voice Typer — Audio Issues",
+                    f"{APP_NAME} — Audio Issues",
                     f"Detected {count} audio buffer underruns. "
                     "Try closing other audio apps or reducing CPU load.",
                 )
@@ -661,7 +673,7 @@ class RecordingController:
             )
             app.tray.set_state(AppState.TRANSCRIBING, "Still transcribing...")
             app.tray.notify(
-                "Voice Typer",
+                APP_NAME,
                 "Transcription is still running.\n"
                 "Long recordings or CPU fallback can take extra time.",
             )
@@ -683,7 +695,7 @@ class RecordingController:
         app._busy_event.set()  # busy = False
         app.tray.set_state(AppState.IDLE, "Recovered -- transcription timed out")
         app.tray.notify(
-            "Voice Typer",
+            APP_NAME,
             "Transcription took too long and was cancelled.\n"
             "Press F2 to try again.",
         )

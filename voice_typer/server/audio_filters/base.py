@@ -112,9 +112,10 @@ class FilterChain:
             for f in self._filters:
                 if audio is None or audio.size == 0:
                     return audio
-                audio = f.process(audio, sample_rate)
-                if audio is None:
+                result = f.process(audio, sample_rate)
+                if result is None:
                     return None
+                audio = result
             return audio
 
     def reset(self) -> None:

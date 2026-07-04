@@ -330,7 +330,8 @@ class MicrophoneDeviceWatcher:
         try:
             self._run_windows_impl()
         except Exception:
-            log.warning("[MIC-WATCHER] Windows watcher crashed (Win32/ctypes fault), falling back to TTL polling", exc_info=True)
+            log.warning("[MIC-WATCHER] Windows watcher crashed "
+            "(Win32/ctypes fault), falling back to TTL polling", exc_info=True)
             return
 
     def _run_windows_impl(self) -> None:
@@ -364,13 +365,16 @@ class MicrophoneDeviceWatcher:
         # Without these, ctypes defaults to c_int restype which truncates
         # 64-bit HMODULE/HWND/LRESULT handles on 64-bit Windows — a primary
         # cause of access violations in ctypes code.
-        user32.GetModuleHandleW = user32.GetModuleHandleW
         kernel32.GetModuleHandleW.restype = wintypes.HMODULE
         kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
         user32.RegisterClassExW.restype = wintypes.ATOM
         user32.RegisterClassExW.argtypes = [ctypes.c_void_p]
         user32.CreateWindowExW.restype = wintypes.HWND
-        user32.CreateWindowExW.argtypes = [wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.HWND, wintypes.HMENU, wintypes.HINSTANCE, ctypes.c_void_p]
+        user32.CreateWindowExW.argtypes = [
+                wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD,
+                ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                wintypes.HWND, wintypes.HMENU, wintypes.HINSTANCE, ctypes.c_void_p,
+            ]
         user32.PeekMessageW.restype = wintypes.BOOL
         user32.PeekMessageW.argtypes = [ctypes.c_void_p, wintypes.HWND, wintypes.UINT, wintypes.UINT, wintypes.UINT]
         user32.TranslateMessage.restype = wintypes.BOOL

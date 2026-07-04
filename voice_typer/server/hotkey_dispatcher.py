@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
+from voice_typer.server.branding import APP_NAME
 from voice_typer.server.hotkeys import HotkeyBackend, create_hotkey_backend
 
 log = logging.getLogger(__name__)
@@ -95,7 +96,7 @@ class HotkeyDispatcher:
             log.warning("[HOTKEY] Registration FAILED -- %s: %s", hotkey_str, exc)
             log.debug("Hotkey registration error", exc_info=True)
             app.tray.notify(
-                "Voice Typer",
+                APP_NAME,
                 f"Hotkey {hotkey_str} could not be registered. "
                 "It may be in use by another app. "
                 "Use the tray menu to toggle dictation, or pick a different hotkey in Settings.",

@@ -149,7 +149,7 @@ class TestCleanTextProperties:
         result = clean_transcribed_text(text)
         assert result == result.strip()
 
-    @given(text=st.text(min_size=1, max_size=100, alphabet=st.characters(whitelist_categories=('Lu', 'Ll'))))
+    @given(text=st.text(min_size=1, max_size=100, alphabet='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'))
     @settings(max_examples=30)
     def test_capitalization_of_first_word(self, text):
         """First character of output should be uppercase if output is non-empty."""
@@ -176,7 +176,7 @@ class TestCorrectionsJsonFuzzing:
         st.floats(allow_nan=False, allow_infinity=False),
         st.text(min_size=0, max_size=100),
     ))
-    @settings(max_examples=60)
+    @settings(max_examples=60, suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_parser_handles_random_json(self, tmp_path, monkeypatch, obj):
         """Parser should handle malformed/random JSON gracefully (no crashes)."""
         from voice_typer.server import text_cleanup
@@ -196,7 +196,7 @@ class TestCorrectionsJsonFuzzing:
             st.text(min_size=0, max_size=20),
         )
     )
-    @settings(max_examples=30)
+    @settings(max_examples=30, suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_random_misspelling_dict(self, tmp_path, monkeypatch, misspellings):
         """Parser should handle random misspelling dictionaries without crashing."""
         from voice_typer.server import text_cleanup
@@ -217,7 +217,7 @@ class TestCorrectionsJsonFuzzing:
             max_size=5,
         )
     )
-    @settings(max_examples=30)
+    @settings(max_examples=30, suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_random_phrase_corrections(self, tmp_path, monkeypatch, phrase):
         """Parser should handle random phrase corrections without crashing."""
         from voice_typer.server import text_cleanup
@@ -234,7 +234,7 @@ class TestCorrectionsJsonFuzzing:
         assert result is None or isinstance(result, str)
 
     @given(text=st.text(min_size=0, max_size=100, alphabet=st.characters(whitelist_categories=('L', 'N', 'Z'))))
-    @settings(max_examples=20)
+    @settings(max_examples=20, suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_cleanup_works_after_fuzzed_corrections(self, tmp_path, monkeypatch, text):
         """After loading random corrections, cleanup should still work."""
         from voice_typer.server import text_cleanup

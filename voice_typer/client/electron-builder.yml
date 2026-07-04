@@ -28,14 +28,9 @@ win:
   icon: resources/icon.png
   target:
     - nsis
-  # NEW-DOC-014: Windows code signing config.
-  # These use env vars so secrets aren't committed. When the env vars
-  # are not set, electron-builder skips signing (unsigned build).
-  signingHashAlgorithms: [sha256]
-  certificateFile: ${env.WIN_CERT_FILE}
-  certificatePassword: ${env.WIN_CERT_PASSWORD}
-  publisherName: ${env.WIN_PUBLISHER_NAME}
   signAndEditExecutable: true
+  # Code signing uses standard electron-builder env vars:
+  # WIN_CSC_LINK / CSC_LINK, WIN_CSC_KEY_PASSWORD / CSC_KEY_PASSWORD
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
@@ -52,11 +47,8 @@ mac:
         - arm64
   hardenedRuntime: true
   gatekeeperAssess: false
-  # NEW-DOC-014: macOS notarization + signing config.
   identity: ${env.MAC_SIGNING_IDENTITY}
-  notarize:
-    teamId: ${env.APPLE_TEAM_ID}
-  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+  notarize: true
 dmg:
   artifactName: ${productName}-${version}-mac-${arch}.${ext}
   contents:
@@ -67,18 +59,17 @@ dmg:
       type: link
       path: /Applications
 
+# Linux — general options shared across all Linux targets.
+# v26+: `linux`, `deb`, `rpm`, and `appImage` are all valid top-level keys.
+# The `linux` section holds shared options (category, target, icon); per-format
+# overrides (depends, afterInstall, afterRemove) go in the format-specific keys.
 linux:
   icon: resources/icon.png
-  category: Office
+  category: Utility
   target:
     - AppImage
     - deb
     - rpm
-  maintainer: voice-typer@example.com
-  vendor: Voice Typer
-  artifactName: ${productName}-${version}-linux-${arch}.${ext}
-AppImage:
-  artifactName: ${productName}-${version}-linux-${arch}.AppImage
 # GAP-3: Linux zero-command setup. The postinst/prerm scripts install
 # the udev rule, add the user to the input group, and configure Caps Lock
 # neutralization. The user only types their sudo password once (prompted

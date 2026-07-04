@@ -173,7 +173,7 @@ export function clearThemeVars(): void {
 // array) or use the new `THEME_PRESETS` record for O(1) id → preset
 // lookups. Callers that want to lazy-load a single preset can dynamically
 // `import()` the individual file (e.g. `await import("./themes/amoled")`).
-export { THEMES, THEME_PRESETS };
+export { THEME_PRESETS, THEMES };
 
 /** Look up a theme preset by id. Returns the default theme if not found. */
 export function getThemeById(id: string): ThemePreset {
@@ -227,20 +227,20 @@ export const CUSTOM_COLOR_KEYS: {
 
 export const DEFAULT_CUSTOM_LIGHT: Record<string, string> = {
 	"--background": "#ffffff",
-	"--foreground": "#0a0a0a",
-	"--primary": "#5469d4",
+	"--foreground": "#09090b",
+	"--primary": "#1447e6",
 	"--bg-subtle": "#f5f5f5",
-	"--border": "#e5e5e5",
-	"--text-muted": "#737373",
+	"--border": "#e4e4e7",
+	"--text-muted": "#71717b",
 };
 
 export const DEFAULT_CUSTOM_DARK: Record<string, string> = {
-	"--background": "#1a1b1e",
-	"--foreground": "#ededed",
-	"--primary": "#6b7fd4",
-	"--bg-subtle": "#232428",
-	"--border": "#2e2f33",
-	"--text-muted": "#888",
+	"--background": "#131313",
+	"--foreground": "#fafafa",
+	"--primary": "#193cb8",
+	"--bg-subtle": "#0f0f0f",
+	"--border": "#1f1f1f",
+	"--text-muted": "#9f9fa9",
 };
 
 /** Build a full set of CSS var overrides from the 6 core custom colours. */

@@ -237,7 +237,7 @@ def _sanitize_config_for_ipc(config) -> dict:
 # out to ALL registered servers.  Each IPCServer registers on start
 # and unregisters on stop, so the registry stays consistent across
 # any number of concurrent instances.
-_push_event_registry: "set[Callable[[dict], None]]" = set()
+_push_event_registry: "set[typing.Callable[[dict], None]]" = set()
 _push_event_registry_lock = threading.Lock()
 
 
@@ -356,10 +356,19 @@ class _TCPLineIO:
 # ``_bound_history_limit`` are defined) so the mixins can resolve their
 # ``from voice_typer.server.ipc_server import ...`` references via the
 # partially initialized module already present in ``sys.modules``.
-# ``IPCServer`` inherits from every mixin; the existing
-# ``_COMMAND_REGISTRY`` lookup (``getattr(self, handler_name)``) finds
-# the ``_handle_*`` methods via the normal MRO.  This is a mechanical
-# split: zero behavior change, no IPC protocol change, no new public API.
+#
+# CRITICAL: Register the canonical module name BEFORE the mixin imports.
+# When ``python -m voice_typer.server.ipc_server`` loads this module,
+# it is stored in ``sys.modules`` as ``__main__``, NOT under its
+# canonical dotted name.  The mixin handlers do
+# ``from voice_typer.server.ipc_server import log, _push_event_now``;
+# without this registration, Python creates a FRESH module for the
+# canonical name, which then tries to import the mixins again —
+# producing a circular ``ImportError``.
+_CANONICAL = "voice_typer.server.ipc_server"
+if _CANONICAL not in sys.modules:
+    sys.modules[_CANONICAL] = sys.modules["__main__"]
+
 from voice_typer.server.handlers.config_handlers import ConfigHandlersMixin
 from voice_typer.server.handlers.status_handlers import StatusHandlersMixin
 from voice_typer.server.handlers.dictation_handlers import DictationHandlersMixin
@@ -407,7 +416,7 @@ class IPCServer(
     def __init__(
         self,
         app,
-        service: "Optional[Any]" = None,
+        service: "typing.Optional[typing.Any]" = None,
     ) -> None:
         # ARCH-REFAC-004: dependency-injection seam.
         #
@@ -466,7 +475,7 @@ class IPCServer(
         # module-level _push_event_registry on start() and unregistered
         # on stop().  Tracked on the instance so stop() can remove just
         # our callable without affecting other active servers.
-        self._push_fn: "Optional[Callable[[dict], None]]" = None
+        self._push_fn: "typing.Optional[typing.Callable[[dict], None]]" = None
 
     # ── Lifecycle ───────────────────────────────────────────────────────
 
@@ -917,6 +926,11 @@ class IPCServer(
         "check_accessibility": "_handle_check_accessibility",
         "set_tray_locale": "_handle_set_tray_locale",
         "show_electron_notification": "_handle_show_electron_notification",
+        # ESC-FIX-001: pause/resume the global ESC cancel hotkey so the
+        # frontend (HotkeyPicker in hotkey capture mode) can temporarily
+        # disable it, preventing the backend from processing Escape while
+        # the UI is capturing a custom hotkey.
+        "set_esc_cancel_paused": "_handle_set_esc_cancel_paused",
         # P5: vocabulary automation — confidence-score-based correction
         # suggestions.  See ``vocabulary_automation_handlers.py``.
         "get_vocabulary_suggestions": "_handle_get_vocabulary_suggestions",
@@ -1147,6 +1161,19 @@ class IPCServer(
 # ── Entry point ─────────────────────────────────────────────────────────
 
 
+def _set_process_metadata() -> None:
+    """Set process-level metadata (console title, AppUserModelID, etc.).
+
+    BRAND-METADATA: On Windows the Python backend appears as a generic
+    pythonw.exe in Task Manager.  We call the platform helper to set
+    the console title and AppUserModelID, which improves the process
+    identity wherever the OS supports it.
+    """
+    from voice_typer.server.branding import APP_NAME
+    from voice_typer.server.platform_utils import _set_windows_process_metadata
+    _set_windows_process_metadata(APP_NAME)
+
+
 def main() -> None:
     """Create a ``VoiceTyperApp``, wrap it in an ``IPCServer``, and block.
 
@@ -1160,26 +1187,18 @@ def main() -> None:
     during the heavy torch import.  Push events reach the frontend
     via TCP, and the terminal sees normal log output.
     """
+    # BRAND-METADATA: set process metadata early, before any subsystem
+    # init, so the OS sees the correct identity from the start.
+    _set_process_metadata()
+
     # NEW-CLI-003: import the standardized exit-code constants. Both
     # EXIT_BAD_ARGS (bad --port) and EXIT_CRASH (uncaught exception in
     # app.start()) are used below; previously EXIT_CRASH was imported
     # but unused and the crash path called sys.exit with a raw literal.
     from voice_typer.__main__ import EXIT_BAD_ARGS, EXIT_CRASH
-    # When run as ``python -m voice_typer.server.ipc_server``, this
-    # module is loaded as ``__main__`` and is NOT registered in
-    # ``sys.modules`` under its canonical dotted name.  Any code that
-    # later does ``from voice_typer.server.ipc_server import ...``
-    # (notably ``app._wire_waveform_bubble``, which imports
-    # ``_push_event_now``) would trigger a SECOND module load with
-    # fresh, uninitialized globals — so the push-event registry would
-    # be empty in the copy the bubble callbacks read from, and every
-    # push event would silently fail (``push=NO IPC``).  Register the
-    # canonical name to point at THIS running module so all imports
-    # return the same single instance whose push-event registry is
-    # populated by ``IPCServer.start()``.
-    _CANONICAL = "voice_typer.server.ipc_server"
-    if _CANONICAL not in sys.modules:
-        sys.modules[_CANONICAL] = sys.modules["__main__"]
+    # The canonical-name registration (``sys.modules[_CANONICAL]``)
+    # is handled at module level, before the mixin imports, so it
+    # applies to ALL execution modes (__main__, -m, and direct import).
 
     # RACE-018: Enable faulthandler for automatic thread-dump on SIGSEGV/SIGABRT.
     # Invaluable for debugging production crashes with CUDA/GPU drivers.
@@ -1194,6 +1213,7 @@ def main() -> None:
         pass  # Not available on all platforms
 
     from voice_typer.server.app import VoiceTyperApp, _setup_logging, _ensure_single_instance
+    from voice_typer.server.config import _config_dir
 
     _setup_logging()
     _single_instance_mutex = _ensure_single_instance(silent=True)
@@ -1201,7 +1221,30 @@ def main() -> None:
     # NEW-SEC-015: the os._exit monkey-patch that printed a stack trace
     # on every shutdown has been removed.
 
-    app = VoiceTyperApp()
+    try:
+        app = VoiceTyperApp()
+    except Exception:
+        # Under pythonw.exe, _setup_logging() redirects stdout/stderr to
+        # devnull, so ANY exception here is invisible to the user — they
+        # only see "Python process exited: 1" + the misleading "Only one
+        # instance" dialog from Electron.  Log the full traceback to both
+        # the app's log file and a dedicated diagnostic file so debugging
+        # is possible.
+        log.exception("[FATAL] VoiceTyperApp() construction failed")
+        try:
+            import traceback
+            diag_path = _config_dir() / "startup-error.log"
+            with open(diag_path, "w", encoding="utf-8") as f:
+                f.write(f"Voice Typer startup failed at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"sys.executable: {sys.executable}\n")
+                f.write(f"sys.argv: {sys.argv}\n")
+                traceback.print_exc(file=f)
+            log.error("[FATAL] Diagnostic written to %s", diag_path)
+        except Exception:
+            pass
+        # NEW-CLI-003: use the standardized exit code instead of raw 1.
+        sys.exit(EXIT_CRASH)
+
     # PLAT-HLEAK: store the mutex handle on the app instance so
     # quit() can CloseHandle it on shutdown
     app._mutex_handle = _single_instance_mutex
@@ -1247,17 +1290,21 @@ def main() -> None:
         from voice_typer.server import electron_launcher
 
         standalone_port = _pick_available_port(9876)
+
+        # Generate the session token and set it as an env var BEFORE
+        # starting the TCP listener.  The _accept_tcp daemon thread reads
+        # VOICE_TYPER_IPC_TOKEN at the top of its function; if we set it
+        # after start_tcp(), the thread can read the env var before we
+        # assign it, leaving expected_token empty and the connection
+        # unauthenticated.
+        ipc_token = electron_launcher.generate_session_token()
+        os.environ["VOICE_TYPER_IPC_TOKEN"] = ipc_token
+
         server.start_tcp(standalone_port)
         log.info(
             "[IPC] standalone TCP mode on port %d — Electron will connect here",
             standalone_port,
         )
-
-        # Generate the session token and set it as an env var so the
-        # backend's TCP auth check (which reads VOICE_TYPER_IPC_TOKEN)
-        # sees the same value we tell Electron to send.
-        ipc_token = electron_launcher.generate_session_token()
-        os.environ["VOICE_TYPER_IPC_TOKEN"] = ipc_token
 
         # Launch Electron as a subprocess.  Pass the port + token via
         # env vars so Electron's main process detects them and connects
@@ -1307,7 +1354,21 @@ def main() -> None:
         # ERR-ERR-002 (fix): was `except BaseException` which also caught
         # KeyboardInterrupt and GeneratorExit. Now catches only Exception
         # so Ctrl+C and SystemExit propagate normally to the finally block.
-        log.exception("app.start() raised — shutting down")
+        log.exception("[FATAL] app.start() raised — shutting down")
+        # Also write to the diagnostic file for users running under
+        # pythonw.exe where stdout/stderr are devnull.
+        try:
+            import traceback
+            import io
+            buf = io.StringIO()
+            traceback.print_exc(file=buf)
+            diag_path = _config_dir() / "startup-error.log"
+            with open(diag_path, "a", encoding="utf-8") as f:
+                f.write(f"\n--- app.start() failed at {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+                f.write(buf.getvalue())
+            log.error("[FATAL] Diagnostic written to %s", diag_path)
+        except Exception:
+            pass
         # NEW-CLI-003: use the standardized exit code instead of raw 1.
         sys.exit(EXIT_CRASH)
     else:

@@ -350,7 +350,7 @@ class StreamingTextAssembler:
         """
         # AUDIO-019: detect imminent eviction BEFORE appending so we
         # can log which word is being evicted and adjust indices.
-        if len(self._words) >= self._words.maxlen:
+        if self._words.maxlen is not None and len(self._words) >= self._words.maxlen:
             # Peek the leftmost item; deque.append will evict it.
             evicted_word = self._words[0]
             evicted_absolute_idx = self._base_offset  # current offset → 0 in deque

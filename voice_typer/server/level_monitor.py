@@ -173,8 +173,7 @@ def start_monitoring(mic_id: Optional[str] = None) -> dict:
         else:
             old_stream = None
 
-    # Close old stream (if any) without holding the lock
-    if old_stream is not None:
+    # Close old stream (if any) without holding the lock        if old_stream is not None:
         try:
             old_stream.stop()
             old_stream.close()
@@ -205,6 +204,7 @@ def start_monitoring(mic_id: Optional[str] = None) -> dict:
 
         def callback(indata, frames, time_info, status):
             global _monitor_level, _monitor_peak, _monitor_active, _test_mode, _test_chunks
+            global _test_silence_blocks, _test_clip_count
             if status:
                 log.debug("[LEVEL-MON] PortAudio status: %s", status)
             with _monitor_lock:
@@ -350,7 +350,8 @@ def start_test_recording(
         dict with {"success": bool, "message": str, "duration": float,
                    "sample_rate": int}.
     """
-    global _test_mode, _test_chunks, _test_raw_chunks, _test_start_time, _test_duration, _test_filters, _test_auto_stop_timer, _monitor_mic_id
+    global _test_mode, _test_chunks, _test_raw_chunks, _test_start_time
+    global _test_duration, _test_filters, _test_auto_stop_timer, _monitor_mic_id
 
     with _monitor_lock:
         if _test_mode:
@@ -591,7 +592,11 @@ def stop_test_recording() -> dict:
             for i in range(0, len(audio), block_size):
                 block = audio[i:i + block_size]
                 processed_parts.append(processor.process_chunk(block))
-            processed = np.concatenate(processed_parts)
+            non_null = [p for p in processed_parts if p is not None]
+            if non_null:
+                processed = np.concatenate(non_null)
+            else:
+                processed = audio
 
             if len(processed) > 0:
                 log.info(

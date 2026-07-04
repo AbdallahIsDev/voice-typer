@@ -305,17 +305,25 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		const { default: SettingsPage } = await import("@/pages/Settings");
 		render(<SettingsPage />);
 
-		// Wait for the Appearance section to render (config loaded,
-		// custom-theme color picker visible).
+		// Wait for the page to load (the tab labels are always visible).
 		await waitFor(() => {
 			expect(screen.getByText("Appearance")).toBeTruthy();
 		});
 
-		// The custom-theme color picker renders one <input type="color">
-		// per core color var per visible mode tab (default: light → 6
-		// inputs).  We only need 3 for this test.
+		// The color pickers live in the ThemeSettingsSection, which is
+		// only rendered when the Appearance tab is active.  Click the
+		// tab label to navigate there.
+		fireEvent.click(screen.getByText("Appearance"));
+
+		// Wait for ThemeSettingsSection to mount and render the color
+		// pickers (it calls setCustomDraft during render which needs an
+		// extra React pass to finalise).
+		await waitFor(() => {
+			expect(
+				document.querySelectorAll('input[type="color"]').length,
+			).toBeGreaterThanOrEqual(3);
+		});
 		const colorInputs = document.querySelectorAll('input[type="color"]');
-		expect(colorInputs.length).toBeGreaterThanOrEqual(3);
 
 		// Change 3 colors in rapid succession — each change schedules a
 		// 300ms per-key debounce via updateConfigDebounced("custom_theme", …).
@@ -357,9 +365,17 @@ describe("Settings page — PERF-002 batched config writes", () => {
 			expect(screen.getByText("Appearance")).toBeTruthy();
 		});
 
-		// The custom-theme color picker inputs.
+		// Navigate to the Appearance tab so the color pickers are visible.
+		// The ThemeSettingsSection calls setCustomDraft during render, so we
+		// wait for the color inputs to actually appear before proceeding.
+		fireEvent.click(screen.getByText("Appearance"));
+		await waitFor(() => {
+			expect(
+				document.querySelectorAll('input[type="color"]').length,
+			).toBeGreaterThanOrEqual(1);
+		});
+
 		const colorInputs = document.querySelectorAll('input[type="color"]');
-		expect(colorInputs.length).toBeGreaterThanOrEqual(1);
 
 		// Capture the original hex value of the first color input, then
 		// change it to something else, then change it back.  The PERF-002

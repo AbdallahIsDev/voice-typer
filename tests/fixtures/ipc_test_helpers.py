@@ -117,6 +117,9 @@ def make_fake_app() -> MagicMock:
     # _shutting_down must be `False` (not a truthy child mock) so the
     # IPC _send shutdown short-circuit logic gates correctly.
     app._shutting_down = False
+    # _esc_cancel_paused must be `False` so the ESC cancel handler
+    # doesn't skip cancel when the frontend isn't in capture mode.
+    app._esc_cancel_paused = False
 
     return app
 

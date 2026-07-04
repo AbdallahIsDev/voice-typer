@@ -268,12 +268,13 @@ def _make_icon(state: AppState, size: int = 0):
         asset_dir = Path(__file__).resolve().parent / "assets"
         available = [16, 24, 32, 48, 64]
         best = min(available, key=lambda x: abs(x - size))
-        mic_img = Image.open(str(asset_dir / f"tray-mic-{best}.png")).convert("RGBA")
-        colored = Image.new("RGBA", mic_img.size, color)
+        PilImg = _get_pil_image()
+        mic_img = PilImg.open(str(asset_dir / f"tray-mic-{best}.png")).convert("RGBA")
+        colored = PilImg.new("RGBA", mic_img.size, color)
         # NEW-MEM-004: use getchannel('A') instead of split()[3].
         colored.putalpha(mic_img.getchannel('A'))
         if colored.size != (size, size):
-            colored = colored.resize((size, size), Image.LANCZOS)
+            colored = colored.resize((size, size), PilImg.LANCZOS)
         png_loaded = True
     except Exception:
         pass
@@ -297,7 +298,7 @@ def _make_icon(state: AppState, size: int = 0):
             ico_buf = io.BytesIO()
             colored.save(ico_buf, format='ICO', sizes=[(16, 16), (32, 32), (48, 48), (256, 256)])
             ico_buf.seek(0)
-            colored = Image.open(ico_buf)
+            colored = PilImg.open(ico_buf)
         except Exception:
             pass
 

@@ -58,6 +58,11 @@ DEFAULT_MIN_FREE_RAM_MB = 6 * 1024
 # own working set tiny, large enough to amortise per-read overhead.
 _READ_CHUNK_BYTES = 4 * 1024 * 1024  # 4 MB
 
+# Sentinel file written after successful prewarm.  If a second instance
+# fires within the same boot session (known Windows LogonTrigger +
+# Hidden=true quirk), the sentinel check skips it early.
+_PREWARM_SENTINEL = Path.home() / ".voice-typer" / ".prewarm-sentinel"
+
 
 # ─── Exit codes (distinct for diagnostics in Task Scheduler history) ─────
 
@@ -397,6 +402,51 @@ def _warm_file(path: Path) -> int:
     return read
 
 
+# ─── Boot-session dedup (prevent LogonTrigger re-fire) ────────────────────
+
+def _boot_time() -> int | None:
+    """Return system boot time as Unix timestamp, or None."""
+    try:
+        import psutil
+        return int(psutil.boot_time())
+    except Exception:
+        pass
+    if is_windows():
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            # GetTickCount64 -> ms since boot, subtract from now.
+            ms = kernel32.GetTickCount64()
+            return int(time.time() - ms / 1000)
+        except Exception:
+            pass
+    return None
+
+
+def _already_warmed() -> bool:
+    """Return True if prewarm already succeeded in this boot session."""
+    try:
+        bt = _boot_time()
+        if bt is None or not _PREWARM_SENTINEL.exists():
+            return False
+        stored = int(_PREWARM_SENTINEL.read_text().strip())
+        return stored == bt
+    except Exception:
+        return False
+
+
+def _mark_warmed() -> None:
+    """Record successful prewarm for this boot session."""
+    try:
+        bt = _boot_time()
+        if bt is None:
+            return
+        _PREWARM_SENTINEL.parent.mkdir(parents=True, exist_ok=True)
+        _PREWARM_SENTINEL.write_text(str(bt))
+    except Exception:
+        pass
+
+
 # ─── Orchestration ───────────────────────────────────────────────────────
 
 def run(
@@ -416,6 +466,7 @@ def run(
         log.info("[PREWARM] delaying %.0fs to let login settle", delay)
         time.sleep(delay)
     log.info("[PREWARM] starting (force=%s, min_ram_mb=%d)", force, min_ram_mb)
+    t_start = time.perf_counter()
 
     if not force and not _fast_startup_enabled():
         log.info("[PREWARM] fast_startup disabled — exiting")
@@ -429,6 +480,10 @@ def run(
                 "evicting the user's working set", free, min_ram_mb,
             )
             return EXIT_LOW_RAM
+
+    if not force and _already_warmed():
+        log.info("[PREWARM] already ran this boot session — skipping")
+        return EXIT_OK
 
     _lower_io_priority()
 
@@ -486,7 +541,9 @@ def run(
         log.info("[PREWARM] No model weights cached yet — skipping weights warmup")
         return EXIT_NO_MODEL
 
-    log.info("[PREWARM] complete")
+    elapsed = time.perf_counter() - t_start
+    log.info("[PREWARM] complete (%.1fs)", elapsed)
+    _mark_warmed()
     return EXIT_OK
 
 

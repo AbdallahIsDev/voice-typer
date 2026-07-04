@@ -1,5 +1,11 @@
-import { resolve } from "node:path";
+// This file has been automatically migrated to valid ESM format by Storybook.
+
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { StorybookConfig } from "@storybook/react-vite";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Storybook 9 configuration for the voice-typer Electron renderer.
 //

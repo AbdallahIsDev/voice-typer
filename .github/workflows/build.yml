@@ -125,11 +125,33 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/pyproject.toml"
+
       - name: Check version sync
         run: |
           uv pip install --system -e ".[test]"
           python scripts/build/sync_versions.py
           python -c "from voice_typer import __version__; print(__version__)"
+
+  # BRAND-001: branding consistency check
+  branding-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check for hardcoded app name references
+        run: |
+          python scripts/check_branding.py
 
   # BUILD-N08: client-build job
   client-build:

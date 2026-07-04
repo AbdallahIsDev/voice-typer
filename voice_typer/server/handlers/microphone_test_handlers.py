@@ -28,7 +28,7 @@ class MicrophoneTestHandlersMixin:
         try:
             d = data if isinstance(data, dict) else {}
             mic_id = d.get("mic_id", None)
-            duration = float(d.get("duration", 10.0))
+            duration = float(d.get("duration") or 10.0)
             filters = d.get("filters", None)
             result = self.service.microphone_test_start(mic_id=mic_id, duration=duration, filters=filters)
             resp["type"] = "microphone_test_result"

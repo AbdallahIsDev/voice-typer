@@ -206,6 +206,14 @@ dev = [
 python-version = "3.12"
 project-includes = ["voice_typer", "tests"]
 project-excludes = ["voice_typer/client/**", "build/**", "dist/**"]
+# PYREFLY-002: baseline file containing suppressed type errors. The
+# baseline captures known platform-specific false positives (e.g.
+# O_NOFOLLOW on Windows, WNOHANG on Linux, optional import errors for
+# win32gui/comtypes/qwen_asr, and None-narrowing limitations through
+# threading locks). Only NEW errors (not in the baseline) will be
+# reported as failures, allowing the codebase to stay clean without
+# inline `# pyrefly: ignore` suppression comments.
+baseline = "pyrefly-baseline.json"
 # PYREFLY-001: local stubs for platform-only deps (pycaw, comtypes, pyobjc, webrtc)
 # These are never installed on the CI runner's platform, so pyrefly
 # reports missing-import. The stubs declare the import surface with
@@ -261,6 +269,12 @@ filterwarnings = [
     # If a specific ResourceWarning is known-noise from a third-party
     # library, add a targeted filter here (e.g.
     # "ignore::ResourceWarning:sounddevice").
+    # CQ-006: Suppress the intentional deprecation warning from the
+    # dead-code settings module (kept for backward compat in app.py).
+    "ignore:voice_typer.server.settings is deprecated:DeprecationWarning",
+    # torch.jit.load emits a DeprecationWarning on Python 3.14+ that is
+    # outside our control (third-party library).
+    "ignore:`torch.jit.load` is not supported:DeprecationWarning",
 ]
 
 [tool.ruff]

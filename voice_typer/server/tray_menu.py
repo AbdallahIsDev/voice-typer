@@ -6,8 +6,8 @@ _build_models_submenu / _display_hotkey / _wrap). This module owns
 the menu-building side; tray.py owns the lifecycle.
 
 The menu structure:
-  - Toggle Dictation (default action)
-  - Open App
+  - Open App (default/bold action)
+  - Toggle Dictation
   - --- separator ---
   - Models ▸ (submenu built by tray_models.build_models_menu_items)
   - --- separator ---
@@ -23,7 +23,7 @@ actually changes (microphone list, autostart toggle, hotkey, etc.).
 from __future__ import annotations
 
 import logging
-from typing import Callable, Optional
+from typing import Callable
 
 # PERF-COLDSTART-001: lazy import — pystray's xorg backend calls
 # Xlib.display.Display() at module import time, costing ~48 ms and
@@ -110,18 +110,25 @@ def build_menu(
     # ALWAYS started recording regardless of the Settings page choice.
     # Now this parameter controls which menu item gets ``default=True``.
     left_click_action: str = "open_app",
-    # TRAY-014: About and Diagnostics entries
-    about_callback: Optional[Callable[[], None]] = None,
-    diagnostics_callback: Optional[Callable[[], None]] = None,
-    # TRAY-025 / TRAY-035: Re-show last notification
-    show_last_notification_callback: Optional[Callable[[], None]] = None,
     # TRAY-008: localization function
     localize: Callable[[str], str] = lambda k: k,
 ) -> tuple:
-    """Build the Phase 2 minimal tray menu with Models submenu.
+    """Build the minimal tray menu with Models submenu.
 
     #13: extracted from TrayIcon._build_menu. Returns a tuple of
     pystray.MenuItem suitable for passing to pystray.Menu(*items).
+
+    Menu structure:
+      - Open App (default/bold)
+      - Toggle Dictation
+      - --- separator ---
+      - Models ▸
+      - --- separator ---
+      - Restart
+      - Quit
+
+    About and Diagnostics are no longer in the tray menu; they remain
+    available inside the main application (Electron window).
 
     Parameters
     ----------
@@ -147,18 +154,20 @@ def build_menu(
     dictation_default = left_click_action == "toggle_dictation"
     open_app_default = left_click_action == "open_app"
 
-    items.append(
-        pystray.MenuItem(
-            f"{localize('toggle_dictation')} ({hotkey_label})",
-            wrap_callback(toggle_dictation),
-            default=dictation_default,
-        )
-    )
+    # Open App is first (default/bold action)
     items.append(
         pystray.MenuItem(
             localize("open_app"),
             wrap_callback(open_app),
             default=open_app_default,
+        )
+    )
+    # Toggle Dictation is second
+    items.append(
+        pystray.MenuItem(
+            f"{localize('toggle_dictation')} ({hotkey_label})",
+            wrap_callback(toggle_dictation),
+            default=dictation_default,
         )
     )
 
@@ -167,19 +176,6 @@ def build_menu(
     # Models submenu — only show downloaded models
     models_sub = build_models_submenu()
     items.append(pystray.MenuItem(localize("models"), pystray.Menu(*models_sub)))
-
-    # TRAY-014: About and Diagnostics entries
-    if about_callback:
-        items.append(pystray.MenuItem(localize("about"), wrap_callback(about_callback)))
-    if diagnostics_callback:
-        items.append(pystray.MenuItem(localize("diagnostics"), wrap_callback(diagnostics_callback)))
-
-    # TRAY-025 / TRAY-035: Re-show last notification
-    if show_last_notification_callback:
-        items.append(pystray.MenuItem(
-            localize("show_last_notification"),
-            wrap_callback(show_last_notification_callback),
-        ))
 
     items.append(pystray.Menu.SEPARATOR)
 

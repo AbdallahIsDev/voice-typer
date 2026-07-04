@@ -381,7 +381,9 @@ class CrashRecovery:
                     if torch.cuda.is_available():
                         sys_info.append(f"CUDA version: {torch.version.cuda}")
                         sys_info.append(f"GPU: {torch.cuda.get_device_name(0)}")
-                        sys_info.append(f"GPU memory: {torch.cuda.get_device_properties(0).total_mem // (1024*1024)} MB")
+                        _gpu_props = torch.cuda.get_device_properties(0)
+                        _gpu_mem = _gpu_props.total_mem // 1048576
+                        sys_info.append(f"GPU memory: {_gpu_mem} MB")
                 except ImportError:
                     sys_info.append("PyTorch not installed")
                 except Exception as exc:
@@ -401,8 +403,9 @@ class CrashRecovery:
                     pass
 
                 # 5. Crash recovery entries
+                import json as _json
                 with self._lock:
-                    entries_json = json.dumps(
+                    entries_json = _json.dumps(
                         {"entries": self._entries}, indent=2, ensure_ascii=False,
                     )
                 zf.writestr("crash_recovery.json", entries_json)

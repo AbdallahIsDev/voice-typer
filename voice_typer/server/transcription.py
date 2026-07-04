@@ -365,7 +365,7 @@ class TranscriptionEngine:
         self.condition_on_previous_text = condition_on_previous_text
         self._model = None
         self._lock = threading.RLock()
-        self._requested_device = device  # defer CUDA detection to load()
+        self._requested_device: str | None = device  # defer CUDA detection to load()
         self._device = "cpu"
         self._compute_type = "int8"
         # NEW-PRIV-005: store a reference to the app's Config dataclass

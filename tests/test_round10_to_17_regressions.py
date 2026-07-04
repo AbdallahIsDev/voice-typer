@@ -1580,7 +1580,7 @@ class TestCancelSetsCancellingState:
         app._cycle_id = "test"
         app._pending_timers_lock = threading.Lock()
         app._pending_timers = []
-        app.recorder.recording = False
+        app.recorder.recording = True
         app._waveform_bubble = MagicMock()
         app._cancel_streaming_session = MagicMock()
         app._restore_volume = MagicMock()

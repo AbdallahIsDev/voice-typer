@@ -152,6 +152,7 @@ class TestRecorderCallbackWithAudioProcessor:
             silence_warning_seconds=20.0, silence_auto_stop_seconds=120.0,
             max_recording_seconds=0, device="cpu",
             max_recording_seconds_cpu=600, max_recording_seconds_gpu=1200,
+            use_silero_vad=False, vad_speech_threshold=0.5,
         )
         # ADR-0007: AudioProcessorConfig removed; build_chain reads
         # noise_filter_* attributes from the config via getattr.
@@ -200,6 +201,7 @@ class TestRecorderCallbackWithAudioProcessor:
             silence_warning_seconds=20.0, silence_auto_stop_seconds=120.0,
             max_recording_seconds=0, device="cpu",
             max_recording_seconds_cpu=600, max_recording_seconds_gpu=1200,
+            use_silero_vad=False, vad_speech_threshold=0.5,
         )
         # ADR-0007: AudioProcessorConfig removed; use noise_filter_* config.
         proc = AudioProcessor(
@@ -243,6 +245,7 @@ class TestRecorderCallbackWithAudioProcessor:
             silence_warning_seconds=20.0, silence_auto_stop_seconds=120.0,
             max_recording_seconds=0, device="cpu",
             max_recording_seconds_cpu=600, max_recording_seconds_gpu=1200,
+            use_silero_vad=False, vad_speech_threshold=0.5,
         )
         # ADR-0007: AudioProcessorConfig removed; use noise_filter_* config.
         proc = AudioProcessor(
@@ -286,6 +289,7 @@ class TestRecorderCallbackWithAudioProcessor:
             silence_warning_seconds=20.0, silence_auto_stop_seconds=120.0,
             max_recording_seconds=0, device="cpu",
             max_recording_seconds_cpu=600, max_recording_seconds_gpu=1200,
+            use_silero_vad=False, vad_speech_threshold=0.5,
         )
         # ADR-0007: AudioProcessorConfig removed; use noise_filter_* config.
         proc = AudioProcessor(
@@ -331,6 +335,7 @@ class TestRecorderCallbackWithAudioProcessor:
             silence_warning_seconds=20.0, silence_auto_stop_seconds=120.0,
             max_recording_seconds=0, device="cpu",
             max_recording_seconds_cpu=600, max_recording_seconds_gpu=1200,
+            use_silero_vad=False, vad_speech_threshold=0.5,
         )
         r = Recorder(config, audio_processor=None)
         r.start()
@@ -358,6 +363,7 @@ class TestRecorderCallbackWithAudioProcessor:
             silence_warning_seconds=20.0, silence_auto_stop_seconds=120.0,
             max_recording_seconds=0, device="cpu",
             max_recording_seconds_cpu=600, max_recording_seconds_gpu=1200,
+            use_silero_vad=False, vad_speech_threshold=0.5,
         )
         # ADR-0007: AudioProcessorConfig removed; use noise_filter_* config.
         proc = AudioProcessor(

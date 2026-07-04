@@ -7,6 +7,8 @@ access ``self.app`` / ``self.service`` as before.
 """
 
 from typing import Any
+
+from voice_typer.server.branding import APP_NAME
 from voice_typer.server.ipc_server import log, _push_event_now
 from voice_typer.server.platform_utils import is_macos
 
@@ -135,6 +137,32 @@ class SystemHandlersMixin:
             resp["data"] = {"message": str(e)}
         return resp
 
+    def _handle_set_esc_cancel_paused(self, data, resp) -> dict | None:
+        """Handle the ``set_esc_cancel_paused`` IPC command.
+
+        ESC-FIX-001: pause/resume the global ESC cancel hotkey so the
+        frontend (HotkeyPicker in hotkey capture mode) can temporarily
+        disable it, preventing the backend from processing Escape while
+        the UI is capturing a custom hotkey.
+
+        The ``data`` dict should contain ``{"paused": true}`` or
+        ``{"paused": false}``.
+        """
+        try:
+            paused = bool((data or {}).get("paused", False))
+            self.app._esc_cancel_paused = paused
+            log.info(
+                "[IPC] ESC cancel %s (via frontend hotkey capture mode)",
+                "PAUSED" if paused else "RESUMED",
+            )
+            resp["type"] = "ack"
+            resp["data"] = {"paused": paused}
+        except Exception as e:
+            log.error("[IPC] set_esc_cancel_paused failed: %s", e)
+            resp["type"] = "error"
+            resp["data"] = {"message": str(e)}
+        return resp
+
     def _handle_show_electron_notification(self, data, resp) -> dict | None:
         """Handle the ``show_electron_notification`` IPC command.
 
@@ -175,9 +203,9 @@ class SystemHandlersMixin:
                 resp["data"] = {"message": "show_electron_notification requires data: object"}
                 return resp
 
-            title = data.get("title", "Voice Typer")
+            title = data.get("title", APP_NAME)
             if title is None:
-                title = "Voice Typer"
+                title = APP_NAME
             if not isinstance(title, str):
                 resp["type"] = "error"
                 resp["data"] = {

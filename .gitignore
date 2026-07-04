@@ -4,6 +4,7 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
+node_modules/
 
 # DEAD-003: Electron/Vite build outputs — never commit these.
 # They're regenerated on every `npm run build` and bloat the repo.

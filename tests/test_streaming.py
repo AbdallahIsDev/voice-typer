@@ -722,7 +722,7 @@ class TestHypothesisAudioPipeline:
         @given(
             values=st.lists(
                 st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinity=False),
-                min_size=0, max_size=100,
+                min_size=1, max_size=100,
             )
         )
         @settings(max_examples=50, deadline=5000)

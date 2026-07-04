@@ -452,9 +452,9 @@ export default function VocabularyPage() {
 						<EmptyState icon={BookOpen02Icon} title="No results found" />
 					) : (
 						<div className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
-							{filtered.map((entry, idx) => (
+							{filtered.map((entry) => (
 								<div
-									key={`${entry.original}-${entry.category}-${idx}`}
+									key={`${entry.original}-${entry.category}`}
 									className="flex items-start gap-3 px-3.5 py-2.5"
 								>
 									<div className="min-w-0 flex-1">

@@ -36,6 +36,12 @@
 	"settings": {
 		"title": "Configuración",
 		"searchPlaceholder": "Buscar configuración…",
+		"tabs": {
+			"appearance": "Apariencia",
+			"general": "General",
+			"aiAudio": "IA y Audio",
+			"privacy": "Privacidad"
+		},
 		"general": "General",
 		"language": "Idioma",
 		"languageDescription": "Idioma de reconocimiento de voz",
@@ -172,7 +178,13 @@
 		"preset": "Preset",
 		"presetInfo": "The writing style to apply — professional, casual, email, or code.",
 		"show": "Show",
-		"hide": "Hide"
+		"hide": "Hide",
+		"trayClickOpenApp": "Abrir aplicación",
+		"trayClickToggleDictation": "Alternar dictado",
+		"bubblePositionTop": "Centro superior",
+		"bubblePositionBottom": "Centro inferior",
+		"bubbleBehaviorShowOnRecord": "Mostrar al grabar",
+		"bubbleBehaviorAlwaysVisible": "Siempre visible"
 	},
 	"models": {
 		"title": "Modelos",

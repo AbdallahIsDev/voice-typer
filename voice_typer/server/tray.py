@@ -70,9 +70,8 @@ _TRAY_LABELS_EN: dict[str, str] = {
     "models": "Models",
     "restart": "Restart",
     "quit": "Quit",
-    "about": "About",
-    "diagnostics": "Diagnostics",
-    "show_last_notification": "Show Last Notification",
+    "about": "About",  # kept for potential in-app use
+    "diagnostics": "Diagnostics",  # kept for potential in-app use
     "recording_active": "Recording active",
     "confirm_quit": "Quit while recording?",
     "confirm_quit_message": "A recording is in progress. Are you sure you want to quit?",
@@ -88,9 +87,8 @@ _TRAY_LABELS_ES: dict[str, str] = {
     "models": "Modelos",
     "restart": "Reiniciar",
     "quit": "Salir",
-    "about": "Acerca de",
-    "diagnostics": "Diagnósticos",
-    "show_last_notification": "Mostrar Última Notificación",
+    "about": "Acerca de",  # kept for potential in-app use
+    "diagnostics": "Diagnósticos",  # kept for potential in-app use
     "recording_active": "Grabación activa",
     "confirm_quit": "¿Salir mientras graba?",
     "confirm_quit_message": "Hay una grabación en curso. ¿Está seguro de que quiere salir?",
@@ -172,15 +170,7 @@ class TrayIcon:
         # NEW-CQ-008: _microphones cache removed — was write-only
         self._autostart_enabled = False
 
-        # TRAY-025 / TRAY-035: Store the last notification text so the user
-        # can re-display it via the tray menu. This works around the OS
-        # limitation that notification duration is controlled by the OS, not
-        # the app (TRAY-035), and the pystray limitation that drag-then-release
-        # misses notifications (TRAY-025).
-        self._last_notification_title: str = ""
-        self._last_notification_message: str = ""
-
-        # TRAY-015: Periodic update check state
+    # TRAY-015: Periodic update check state
         self._update_check_timer: Optional[threading.Timer] = None
         self._check_updates: bool = getattr(config, 'check_updates', True) if config else True
 
@@ -474,11 +464,11 @@ class TrayIcon:
     def notify(self, title: str, message: str) -> None:
         """Show a notification if notifications are enabled.
 
-        TRAY-025 / TRAY-035: Also stores the notification text so the
-        user can re-display it via the tray menu.
+        TRAY-025 / TRAY-035: (removed) Notification re-display was
+        previously stored and accessible via the tray menu; that menu
+        item has been removed since the OS manages notification
+        lifetime.
         """
-        self._last_notification_title = title
-        self._last_notification_message = message
         if not self._notifications_enabled:
             return
         if self._icon:
@@ -557,11 +547,24 @@ class TrayIcon:
 
 
     def _build_menu(self) -> tuple:
-        """Build the Phase 2 minimal tray menu with Models submenu.
+        """Build the minimal tray menu with Models submenu.
 
         #13: delegates to tray_menu.build_menu(). tray.py owns the
         cache (so it can invalidate on config change); tray_menu.py
         owns the menu structure.
+
+        Menu structure:
+          - Open App (default/bold)
+          - Toggle Dictation
+          - --- separator ---
+          - Models ▸
+          - --- separator ---
+          - Restart
+          - Quit
+
+        About, Diagnostics, and Show Last Notification have been
+        removed from the tray menu (they remain available in the
+        Electron app).
         """
         if self._menu_cache_valid and self._cached_menu is not None:
             return self._cached_menu
@@ -577,17 +580,32 @@ class TrayIcon:
             quit_app=self._confirm_quit_while_recording,
             build_models_submenu=self._build_models_submenu,
             left_click_action=left_click,
-            # TRAY-014: About and Diagnostics entries
-            about_callback=self._show_about,
-            diagnostics_callback=self._run_diagnostics,
-            # TRAY-025 / TRAY-035: Re-show last notification
-            show_last_notification_callback=self._show_last_notification,
             # TRAY-008: localization function
             localize=_,
         )
         self._cached_menu = result
         self._menu_cache_valid = True
         return result
+
+    def _open_models_page(self) -> None:
+        """Open the Electron window and navigate to the Models page.
+
+        Called from the tray menu's "More models..." item. Opens/focuses
+        the Electron window (same as open_electron_window) and sends a
+        ``navigate`` push event so the renderer navigates to the Models
+        page instead of staying on whatever page was last open.
+        """
+        # 1. Open/focus the Electron window
+        from voice_typer.server.tray_window import open_electron_window as _open
+        _open()
+
+        # 2. Push a navigate event so the renderer navigates to /models
+        from voice_typer.server.ipc_server import _push_event_now
+        try:
+            _push_event_now({"type": "navigate", "data": {"path": "/models"}})
+            log.info("[TRAY] Navigate-to-models push sent to Electron")
+        except Exception as e:
+            log.warning("[TRAY] Failed to push navigate-to-models event: %s", e)
 
     def _build_models_submenu(self) -> list:
         """Build a list of model MenuItems — only cached models + More models link.
@@ -608,7 +626,7 @@ class TrayIcon:
             _config_dir,
             self._controller.change_model,
             wrap_callback,  # use the shared wrapper from tray_menu
-            self.open_electron_window,
+            self._open_models_page,  # use models-page callback (opens + navigates)
             config_provider=config_provider,
         )
 
@@ -657,61 +675,6 @@ class TrayIcon:
             except Exception:
                 pass
         self._controller.quit_app()
-
-    # ─── TRAY-014: About and Diagnostics ────────────────────────────────
-
-    def _show_about(self) -> None:
-        """TRAY-014: Show About dialog with version info."""
-        try:
-            import tkinter as tk
-            from tkinter import messagebox
-            try:
-                from voice_typer import __version__ as version
-            except ImportError:
-                version = "1.0.0"
-            root = tk.Tk()
-            root.withdraw()
-            messagebox.showinfo(
-                f"About {APP_NAME}",
-                f"{APP_NAME} {version}\n\nA background voice-to-text utility.\nhttps://github.com/AbdallahIsDev/voice-typer",
-            )
-            root.destroy()
-        except Exception as e:
-            log.warning("[TRAY] Could not show About dialog: %s", e)
-
-    def _run_diagnostics(self) -> None:
-        """TRAY-014: Trigger diagnostic bundle generation."""
-        try:
-            from voice_typer.server.crash_recovery import CrashRecovery
-            recovery = CrashRecovery()
-            path = recovery.create_diagnostic_bundle()
-            if path:
-                self.notify(_("diagnostics"), f"Diagnostic bundle saved: {path}")
-            else:
-                self.notify(_("diagnostics"), "Could not generate diagnostic bundle")
-        except Exception as e:
-            log.warning("[TRAY] Diagnostics failed: %s", e)
-            self.notify(_("diagnostics"), f"Diagnostics error: {e}")
-
-    # ─── TRAY-025 / TRAY-035: Re-show last notification ─────────────────
-
-    def _show_last_notification(self) -> None:
-        """TRAY-025 / TRAY-035: Re-display the last notification.
-
-        Workaround for:
-        - TRAY-025: pystray drag-then-release miss (pystray library
-          limitation — notifications can be lost if the user drags
-          the tray icon and releases. Adding a click handler that
-          re-shows the last notification gives the user a way to
-          recover the missed information.)
-        - TRAY-035: notification duration is controlled by the OS,
-          not the app. This is an OS limitation. The user can
-          re-display the notification via this menu item.
-        """
-        if self._last_notification_title or self._last_notification_message:
-            self._do_notify(self._last_notification_title, self._last_notification_message)
-        else:
-            self._do_notify(APP_NAME, "No recent notifications")
 
     # ─── TRAY-015: Periodic update check ────────────────────────────────
 

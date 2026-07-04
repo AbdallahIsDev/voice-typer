@@ -16,6 +16,9 @@ import logging
 import time
 from typing import Optional, Any
 
+import numpy as np
+
+from voice_typer.server.branding import APP_NAME
 from voice_typer.server.tray_types import AppState
 
 log = logging.getLogger("voice_typer")
@@ -157,7 +160,7 @@ class DictationPipeline:
             # file paths, CUDA version strings, and internal stack
             # details. Map to a user-friendly message instead.
             self._app.tray.notify(
-                "Voice Typer Error",
+                APP_NAME,
                 _friendly_transcription_error(e),
             )
             self._app._schedule_timer(3.0, lambda: self._app.tray.set_state(AppState.IDLE))
@@ -261,7 +264,7 @@ class DictationPipeline:
         if self._recorded_rms < 0.005:
             self._app.tray.set_state(AppState.IDLE, "No speech -- check microphone")
             self._app.tray.notify(
-                "Voice Typer",
+                APP_NAME,
                 "No speech was detected and audio was near-silence.\n"
                 "Your microphone may not be capturing audio.\n"
                 "Check that the correct mic is selected and is active.",
@@ -305,7 +308,7 @@ class DictationPipeline:
                 self._vocab_fail_notified = True
                 try:
                     self._app.tray.notify(
-                        "Voice Typer",
+                        APP_NAME,
                         "Vocabulary correction failed. Check the log file for details.",
                     )
                 except Exception:
@@ -333,7 +336,7 @@ class DictationPipeline:
                 self._template_fail_notified = True
                 try:
                     self._app.tray.notify(
-                        "Voice Typer",
+                        APP_NAME,
                         "Template matching failed. Check the log file for details.",
                     )
                 except Exception:
@@ -513,7 +516,7 @@ class DictationPipeline:
                 self._history_fail_notified = True
                 try:
                     self._app.tray.notify(
-                        "Voice Typer",
+                        APP_NAME,
                         "Could not save the transcription to history. "
                         "Check the log file for details.",
                     )
@@ -529,7 +532,7 @@ class DictationPipeline:
                     self._crash_recovery_fail_notified = True
                     try:
                         self._app.tray.notify(
-                            "Voice Typer",
+                            APP_NAME,
                             "Could not save the transcription to the crash-recovery "
                             "buffer. Check the log file for details.",
                         )
@@ -596,7 +599,7 @@ class DictationPipeline:
             )
             if recovery_path:
                 notice += f"\nRecovery file: {recovery_path}"
-            self._app.tray.notify("Voice Typer", notice)
+            self._app.tray.notify(APP_NAME, notice)
             self._app._busy_event.set()
             self._app._schedule_timer(
                 3.0,
@@ -620,7 +623,7 @@ class DictationPipeline:
             status = f"Done -- {len(text)} chars (in clipboard)"
 
         self._app.tray.set_state(AppState.IDLE, status)
-        self._app.tray.notify("Voice Typer", f"Transcribed {len(text)} characters")
+        self._app.tray.notify(APP_NAME, f"Transcribed {len(text)} characters")
         self._app._schedule_timer(
             3.0,
             lambda: self._app.tray.set_state(AppState.IDLE, f"Ready -- {self._device_info}"),

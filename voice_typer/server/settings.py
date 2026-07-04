@@ -10,7 +10,7 @@ from __future__ import annotations
 import contextlib
 import re
 import warnings
-from typing import Callable, Optional
+from typing import Callable, Optional, cast
 
 # RACE-011: ``contextlib.nullcontext`` is used as the no-op context
 # manager when ``SettingsController._config_mutation_lock`` is None
@@ -144,7 +144,7 @@ class SettingsController:
         # so a concurrent IPC set_config can't interleave.
         lock = self._config_mutation_lock
         ctx = _nullcontext() if lock is None else lock
-        with ctx:
+        with cast(contextlib.AbstractContextManager, ctx):
             changes = {
                 "hotkey": self.config.hotkey != hotkey,
                 "model_size": self.config.model_size != model_size,

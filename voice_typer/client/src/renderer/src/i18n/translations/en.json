@@ -36,6 +36,12 @@
 	"settings": {
 		"title": "Settings",
 		"searchPlaceholder": "Search settings…",
+		"tabs": {
+			"appearance": "Appearance",
+			"general": "General",
+			"aiAudio": "AI & Audio",
+			"privacy": "Privacy"
+		},
 		"general": "General",
 		"language": "Language",
 		"languageDescription": "Speech recognition language",
@@ -172,7 +178,13 @@
 		"preset": "Preset",
 		"presetInfo": "The writing style to apply — professional, casual, email, or code.",
 		"show": "Show",
-		"hide": "Hide"
+		"hide": "Hide",
+		"trayClickOpenApp": "Open App",
+		"trayClickToggleDictation": "Toggle Dictation",
+		"bubblePositionTop": "Top Center",
+		"bubblePositionBottom": "Bottom Center",
+		"bubbleBehaviorShowOnRecord": "Show on Record",
+		"bubbleBehaviorAlwaysVisible": "Always Visible"
 	},
 	"models": {
 		"title": "Models",

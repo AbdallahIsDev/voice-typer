@@ -26,6 +26,20 @@ interface HotkeyPickerProps {
 	mode: "single" | "combo";
 	className?: string;
 	"aria-label"?: string;
+	/**
+	 * ESC-FIX-001: optional callback invoked when capture mode starts.
+	 * Used by the parent to pause the global ESC cancel hotkey in the
+	 * backend so that pressing Escape during capture doesn't trigger
+	 * recording cancellation.
+	 */
+	onCaptureStart?: () => void;
+	/**
+	 * ESC-FIX-001: optional callback invoked when capture mode ends
+	 * (user pressed Escape, selected a key, or clicked the button
+	 * again).  Used by the parent to resume the global ESC cancel
+	 * hotkey in the backend.
+	 */
+	onCaptureEnd?: () => void;
 }
 
 /**
@@ -43,30 +57,98 @@ export function HotkeyPicker({
 	mode,
 	className,
 	"aria-label": ariaLabel = "Hotkey picker",
+	onCaptureStart,
+	onCaptureEnd,
 }: HotkeyPickerProps) {
 	const [recording, setRecording] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const modifierHeldRef = useRef<Set<string>>(new Set());
+	// Ref mirror of recording state so event handlers always read the
+	// latest value from a ref instead of relying on a re-created closure.
+	// This eliminates the stale-closure window where the handler could
+	// see recording=false after the user clicked the button but before
+	// React re-registered the listener.
+	const recordingRef = useRef(false);
+	// ESC-FIX-002: store the latest onCaptureEnd / onCaptureStart in refs
+	// so the unmount cleanup can call the latest version without depending
+	// on the prop directly in the effect (which would fire the cleanup on
+	// every re-render when the parent passes inline arrow functions).
+	const onCaptureEndRef = useRef(onCaptureEnd);
+	const onCaptureStartRef = useRef(onCaptureStart);
+	// ESC-FIX-003: refs for handleKeyDown / handleKeyUp so the
+	// always-attached listener effect (empty deps) always reads the
+	// latest closure without needing to re-register the DOM listener.
+	// Initialized with no-op functions to avoid TDZ errors —
+	// ``handleKeyDown`` and ``handleKeyUp`` are ``const`` declarations
+	// defined later in the component body. The tracking effect below
+	// updates these refs with the real callbacks after every render.
+	const handleKeyDownRef = useRef<(e: KeyboardEvent) => void>(() => {});
+	const handleKeyUpRef = useRef<(e: KeyboardEvent) => void>(() => {});
+	// HOTKEY-FIX-005: flag set when a non-modifier key is pressed during
+	// the current capture session.  Prevents ``handleKeyUp``'s modifier-only
+	// release detection from partially assigning a modifier when the full
+	// combination (e.g. Shift+Z) was rejected as invalid.
+	const nonModifierSeenRef = useRef(false);
+
+	useEffect(() => {
+		recordingRef.current = recording;
+	}, [recording]);
+
+	// Track the latest callbacks into refs after every render so the
+	// always-attached listener (``useEffect([], ..)``) never goes stale.
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	useEffect(() => {
+		onCaptureEndRef.current = onCaptureEnd;
+		onCaptureStartRef.current = onCaptureStart;
+		handleKeyDownRef.current = handleKeyDown;
+		handleKeyUpRef.current = handleKeyUp;
+	});
+
+	// ESC-FIX-003: always-attached keyboard listener — NEVER re-register,
+	// avoiding the race window where listeners are removed and re-added.
+	// The handlers themselves check ``recordingRef.current`` so it's safe
+	// to keep them registered even when NOT in capture mode.
+	useEffect(() => {
+		const onKeyDown = (e: KeyboardEvent) => handleKeyDownRef.current(e);
+		const onKeyUp = (e: KeyboardEvent) => handleKeyUpRef.current(e);
+		window.addEventListener("keydown", onKeyDown, true);
+		window.addEventListener("keyup", onKeyUp, true);
+		return () => {
+			window.removeEventListener("keydown", onKeyDown, true);
+			window.removeEventListener("keyup", onKeyUp, true);
+		};
+	}, []);
 
 	useEffect(() => {
 		return () => {
 			if (timeoutRef.current) clearTimeout(timeoutRef.current);
+			// ESC-FIX-001: if the component unmounts while still capturing,
+			// notify the parent so the backend ESC cancel is resumed.
+			if (recordingRef.current) {
+				onCaptureEndRef.current?.();
+			}
 		};
 	}, []);
-
 	const handleKeyDown = useCallback(
 		(e: KeyboardEvent) => {
-			if (!recording) return;
+			if (!recordingRef.current) return;
+
+			if (e.key === "Escape") {
+				// NB: sync the ref immediately so a second keydown arriving
+				// before React's re-render sees the correct state.
+				recordingRef.current = false;
+				setRecording(false);
+				setError(null);
+				modifierHeldRef.current.clear();
+				// ESC-FIX-001 / 002: read from ref so we always call the
+				// latest onCaptureEnd without depending on it in deps.
+				onCaptureEndRef.current?.();
+				return;
+			}
 
 			e.preventDefault();
 			e.stopPropagation();
-
-			if (e.key === "Escape") {
-				setRecording(false);
-				setError(null);
-				return;
-			}
 
 			// Track held modifiers so we can detect "modifier-only" presses
 			// (user presses Alt alone and releases it without any other key).
@@ -75,6 +157,12 @@ export function HotkeyPicker({
 				modifierHeldRef.current.add(modifierCode);
 				return;
 			}
+
+			// HOTKEY-FIX-005: a non-modifier key was pressed — mark the flag
+			// so ``handleKeyUp``'s modifier-only release detection skips.
+			// This prevents partial modifier assignment when the combination
+			// is later rejected (e.g. Shift+Z where Z is unsupported).
+			nonModifierSeenRef.current = true;
 
 			const isModifier = e.code in MODIFIER_CODE_TO_PYNPUT;
 			if (mode === "single") {
@@ -96,6 +184,7 @@ export function HotkeyPicker({
 				setError(null);
 				setRecording(false);
 				modifierHeldRef.current.clear();
+				onCaptureEndRef.current?.();
 				return;
 			}
 
@@ -126,8 +215,9 @@ export function HotkeyPicker({
 			setError(null);
 			setRecording(false);
 			modifierHeldRef.current.clear();
+			onCaptureEndRef.current?.();
 		},
-		[recording, mode, onChange],
+		[mode, onChange], // ESC-FIX-002: onCaptureEnd removed from deps → read from ref
 	);
 
 	// Detect modifier-only release (single mode): if the user pressed a
@@ -136,15 +226,18 @@ export function HotkeyPicker({
 	// as single-key triggers.
 	const handleKeyUp = useCallback(
 		(e: KeyboardEvent) => {
-			if (!recording) return;
+			if (!recordingRef.current) return;
 			if (mode !== "single") return;
 			const modifierCode = MODIFIER_CODE_TO_PYNPUT[e.code];
 			if (!modifierCode) return;
 
 			modifierHeldRef.current.delete(modifierCode);
-			// If this was the last held modifier and no other key was pressed,
-			// treat the modifier alone as the hotkey.
-			if (modifierHeldRef.current.size === 0) {
+			// If this was the last held modifier and no non-modifier key was
+			// pressed during this capture session, treat the modifier alone
+			// as the hotkey.  The ``nonModifierSeenRef`` guard prevents
+			// partial assignment when a combination (Shift+Z) was rejected
+			// but the modifier release still fires (e.g. Shift keyup).
+			if (modifierHeldRef.current.size === 0 && !nonModifierSeenRef.current) {
 				const newHotkey = `<${modifierCode}>`;
 				const validationError = validateHotkey(newHotkey, mode);
 				if (validationError) {
@@ -154,36 +247,42 @@ export function HotkeyPicker({
 				onChange(newHotkey);
 				setError(null);
 				setRecording(false);
+				onCaptureEndRef.current?.();
 			}
 		},
-		[recording, mode, onChange],
+		[mode, onChange], // ESC-FIX-002: onCaptureEnd removed from deps → read from ref
 	);
-
-	useEffect(() => {
-		if (!recording) return;
-		window.addEventListener("keydown", handleKeyDown, true);
-		window.addEventListener("keyup", handleKeyUp, true);
-		return () => {
-			window.removeEventListener("keydown", handleKeyDown, true);
-			window.removeEventListener("keyup", handleKeyUp, true);
-		};
-	}, [recording, handleKeyDown, handleKeyUp]);
 
 	const startRecording = useCallback(() => {
 		setRecording(true);
+		// Sync the ref immediately alongside the state setter so the
+		// keydown handler sees recording=true even before React's
+		// re-render + effect cycle completes.
+		recordingRef.current = true;
 		setError(null);
 		modifierHeldRef.current.clear();
+		// HOTKEY-FIX-005: fresh capture session — reset the flag so
+		// modifier-only release detection works on the next attempt.
+		nonModifierSeenRef.current = false;
+		// ESC-FIX-001/002: read from ref so we always call the latest
+		// onCaptureStart without depending on it in deps.
+		onCaptureStartRef.current?.();
 		// HOTKEY-FIX-003: No capture timeout — stay in capture mode
 		// indefinitely. Exit only when: user clicks outside, clicks
 		// the capture button again, or presses Esc.
-	}, []);
+	}, []); // ESC-FIX-002: empty deps — onCaptureStart read from ref
 
 	const cancelRecording = useCallback(() => {
 		setRecording(false);
+		recordingRef.current = false;
 		setError(null);
 		modifierHeldRef.current.clear();
+		nonModifierSeenRef.current = false;
 		if (timeoutRef.current) clearTimeout(timeoutRef.current);
-	}, []);
+		// ESC-FIX-001/002: read from ref so we always call the latest
+		// onCaptureEnd without depending on it in deps.
+		onCaptureEndRef.current?.();
+	}, []); // ESC-FIX-002: empty deps — onCaptureEnd read from ref
 
 	const presets = mode === "single" ? SINGLE_KEY_PRESETS : COMBO_PRESETS;
 	const presetValue = mode === "single" ? value.replace(/[<>]/g, "") : value;
@@ -228,7 +327,7 @@ export function HotkeyPicker({
 					}}
 				>
 					<SelectTrigger
-						className="w-56"
+						className="w-40"
 						aria-label={`Preset hotkeys \u2014 ${ariaLabel}`}
 					>
 						<SelectValue placeholder="Presets\u2026" />

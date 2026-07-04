@@ -31,6 +31,7 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 	config,
 	updateConfig,
 	updateConfigDebounced,
+	isVisible,
 }: SettingsSectionSharedProps) {
 	const { call } = usePython();
 
@@ -68,9 +69,59 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 
 	if (!config) return <SettingsSkeleton rows={3} />;
 
+	// UX-028: section-level visibility check for the Audio Enhancement section.
+	const audioSectionTitle = "Audio Enhancement";
+	const sectionItems = [
+		{ label: "Volume Backend", info: "The active audio control backend." },
+		{
+			label: "Auto Duck Volume",
+			info: "Reduce system volume during dictation.",
+		},
+		{ label: "Duck Level", info: "How quiet to make system audio." },
+		{
+			label: "Microphone Quality",
+			info: "Presets configure the entire filter chain.",
+		},
+		{ label: "High-Pass Filter", info: "Remove low-frequency rumble." },
+		{
+			label: "High-Pass Cutoff",
+			info: "Frequencies below this are attenuated.",
+		},
+		{ label: "Noise Suppression", info: "Neural network denoiser." },
+		{ label: "Noise Gate", info: "Silence audio below a threshold." },
+		{ label: "Gate Open Threshold", info: "Level above which the gate opens." },
+		{
+			label: "Gate Close Threshold",
+			info: "Level below which the gate closes.",
+		},
+		{ label: "Equalizer", info: "3-band EQ." },
+		{ label: "EQ — Low (bass)", info: "Boost/cut below 800Hz." },
+		{ label: "EQ — Mid (speech)", info: "Boost/cut 800Hz–5kHz." },
+		{ label: "EQ — High (treble)", info: "Boost/cut above 5kHz." },
+		{ label: "Compressor", info: "Evens out loud/quiet speech." },
+		{
+			label: "Compressor Threshold",
+			info: "Level above which compression starts.",
+		},
+		{ label: "Compressor Ratio", info: "How hard to compress." },
+		{ label: "Limiter", info: "Brick-wall ceiling to prevent clipping." },
+		{ label: "Limiter Ceiling", info: "Absolute maximum output level." },
+		{
+			label: "Notch Filter (hum)",
+			info: "Remove 50/60Hz electrical mains hum.",
+		},
+	];
+	if (
+		!sectionItems.some((item) =>
+			isVisible(item.label, item.info, audioSectionTitle),
+		)
+	) {
+		return null;
+	}
+
 	return (
 		<SettingsSection
-			title="Audio Enhancement"
+			title={audioSectionTitle}
 			description="Volume ducking and noise filtering for cleaner dictation."
 		>
 			<div className="animate-fade-in space-y-0 divide-y divide-border">

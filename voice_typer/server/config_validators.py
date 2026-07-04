@@ -22,7 +22,7 @@ backward compatibility.
 """
 
 import logging
-from typing import Callable, Optional, Tuple
+from typing import Callable, Optional, Tuple, TypeGuard
 from urllib.parse import urlparse
 
 log = logging.getLogger("voice_typer.server.config_validators")
@@ -74,17 +74,17 @@ ValidatorFn = Callable[[object], Optional[str]]
 FieldSpec = Tuple[type, ValidatorFn]
 
 
-def _is_str(v: object) -> bool:
+def _is_str(v: object) -> TypeGuard[str]:
     return isinstance(v, str)
 
 
-def _is_int_not_bool(v: object) -> bool:
+def _is_int_not_bool(v: object) -> TypeGuard[int]:
     # bool is a subclass of int in Python; reject it explicitly so that
     # ``max_recording_seconds=True`` doesn't silently become 1.
     return isinstance(v, int) and not isinstance(v, bool)
 
 
-def _is_float_or_int_not_bool(v: object) -> bool:
+def _is_float_or_int_not_bool(v: object) -> TypeGuard[float | int]:
     # Accept ints on the numeric tower (they're valid floats), but still
     # reject bool.  This matches the dataclass field type ``float`` while
     # being friendly to JSON, which has no int/float distinction.
@@ -353,7 +353,10 @@ IPC_CONFIG_ALLOWLIST: dict = {
     # ── P3 Features / UX ──────────────────────────────────────────────
     "tray_left_click_action": (str, _make_enum_validator({"open_app", "toggle_dictation"})),
     "theme_mode":            (str, _make_enum_validator({"system", "light", "dark"})),
-    "theme_preset":          (str, _make_enum_validator({"default", "amoled", "nord", "dracula", "sepia", "solarized", "monokai", "ayu", "github", "catppuccin", "tokyo-night", "custom"})),
+            "theme_preset":          (str, _make_enum_validator({
+               "default", "amoled", "nord", "dracula", "sepia", "solarized",
+               "monokai", "ayu", "github", "catppuccin", "tokyo-night", "custom",
+           })),
     "custom_theme":          (dict, _make_custom_theme_validator()),
     "high_contrast":         (bool, _bool_validator),
     "text_size":             (int, _make_int_validator(lo=8, hi=72)),

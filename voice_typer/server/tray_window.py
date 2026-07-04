@@ -13,6 +13,7 @@ import os
 import subprocess
 import sys
 from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
+from voice_typer.server.branding import APP_NAME
 
 log = logging.getLogger("voice_typer.server.tray_window")
 
@@ -53,7 +54,7 @@ def bring_electron_to_front() -> bool:
             buf = ctypes.create_unicode_buffer(256)
             ctypes.windll.user32.GetWindowTextW(hwnd, buf, 256)
             title = buf.value
-            if title and "Voice Typer" in title:
+            if title and APP_NAME in title:
                 found_hwnd = hwnd
                 return False
             return True
