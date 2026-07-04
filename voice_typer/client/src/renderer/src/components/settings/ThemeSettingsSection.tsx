@@ -30,6 +30,7 @@ import { Switch } from "@/components/ui/switch";
 import {
 	applyThemeVars,
 	CUSTOM_COLOR_KEYS,
+	CUSTOM_THEME_ID,
 	type CustomThemeData,
 	DEFAULT_CUSTOM_DARK,
 	DEFAULT_CUSTOM_LIGHT,
@@ -275,49 +276,46 @@ function getCurrentThemeColors(currentPresetId: string): {
 }
 
 /**
- * Compute the { background, foreground } pair used for the rounded-rectangle
- * "E" preview shown next to each theme in the dropdown and in the trigger.
+ * Compute the { background, foreground } pair shown inside the square
+ * preview next to each theme in the dropdown and in the trigger.
  *
- * For built-in presets (other than default) the values come straight
- * from the theme's light / dark var maps (selected by the user's
- * current mode).  For default (which has empty var maps) we fall back
- * to the same colours the stylesheet defines in :root / .dark.
+ * The square background uses the theme's **primary/accent** colour so
+ * the user immediately sees the dominant accent of each preset.  The
+ * "A" letter is rendered in the theme's **foreground/text** colour so
+ * it stays readable against the primary background.
  *
- * Task ID 7 / Part C1: replaced the old circular swatch with a larger
- * rounded rectangle showing the letter "E" in the theme's text colour —
- * this gives a more honest preview of what the theme looks like (you see
- * both the background and the text colour at once).
+ * For built-in presets the values come straight from the theme's light /
+ * dark var maps.  For 'default' (which has empty var maps) we fall back
+ * to the theme's ``swatch`` field (the primary blue from the stylesheet).
+ * For 'custom', we use the primary colour from the user's draft.
  */
 function getThemePreviewColors(
 	themeId: string,
 	isDark: boolean,
 	customDraft: CustomThemeData | null,
 ): { bg: string; fg: string } {
-	// Custom theme — use the actual custom colours (Task ID 7 / Part C2:
-	// previously this fell through to the static swatch placeholder
-	// "oklch(0.6 0.15 280)" which bore no resemblance to the user's
-	// chosen colours).
+	// Custom theme — use the primary/accent colour from the custom draft.
 	if (themeId === "custom" && customDraft) {
 		const vars = isDark ? customDraft.dark : customDraft.light;
 		return {
-			bg: vars["--background"] ?? (isDark ? "#1a1b1e" : "#ffffff"),
+			bg: vars["--primary"] ?? (isDark ? "#6b7fd4" : "#5469d4"),
 			fg: vars["--foreground"] ?? (isDark ? "#ededed" : "#0a0a0a"),
 		};
 	}
+	// Default preset — no CSS var overrides, use the swatch as primary.
 	if (themeId === "default") {
-		// default preset is a no-op — the colours come from index.css.
-		return {
-			bg: isDark ? "oklch(18.674% 0 271.152)" : "oklch(1 0 0)",
-			fg: isDark ? "oklch(0.985 0 0)" : "oklch(0.141 0.005 285.823)",
-		};
+		const defaultTheme = THEMES[0];
+		const swatch = defaultTheme?.swatch ?? "oklch(0.488 0.243 264.376)";
+		const fgSwatch = isDark ? "oklch(0.985 0 0)" : "oklch(0.141 0.005 285.823)";
+		return { bg: swatch, fg: fgSwatch };
 	}
 	const theme = THEMES.find((t) => t.id === themeId);
 	if (!theme) {
-		return { bg: "#ffffff", fg: "#000000" };
+		return { bg: "#5469d4", fg: "#000000" };
 	}
 	const vars = isDark ? theme.dark : theme.light;
 	return {
-		bg: vars["--background"] ?? (isDark ? "#1a1b1e" : "#ffffff"),
+		bg: vars["--primary"] ?? (isDark ? "#6b7fd4" : "#5469d4"),
 		fg: vars["--foreground"] ?? (isDark ? "#ededed" : "#0a0a0a"),
 	};
 }
@@ -357,6 +355,20 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 	// `onMouseMove` inside the content, so opening + closing the dropdown
 	// without moving the mouse leaves the applied theme untouched.
 	const userHoveredRef = useRef(false);
+	// ESC-THEME-FIX-003: ref mirror of ``customDraft`` so the stable
+	// ``revertToSavedPreset`` callback (empty deps) can re-apply custom
+	// vars when the saved preset is ``CUSTOM_THEME_ID`` without needing
+	// ``customDraft`` as a dependency (which would make the callback
+	// unstable and churn the mouseleave listener on every color edit).
+	// ESC-THEME-FIX-003-TDZ: initialized with ``null`` instead of
+	// ``customDraft`` because the ``customDraft`` ``const`` is declared
+	// later (via ``useState``) and is in the temporal dead zone here.
+	// The tracking effect below updates the ref with the real value
+	// after every render.
+	const customDraftRef = useRef<CustomThemeData | null>(null);
+	useEffect(() => {
+		customDraftRef.current = customDraft;
+	});
 	// Track the last non-custom preset so we can revert when the
 	// custom-theme toggle is turned off.
 	const lastNonCustomRef = useRef(
@@ -478,7 +490,27 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 
 	const revertToSavedPreset = useCallback(() => {
 		const isDark = document.documentElement.classList.contains("dark");
-		applyThemeVars(savedPresetRef.current, isDark);
+		const preset = savedPresetRef.current;
+		if (preset === CUSTOM_THEME_ID) {
+			// ESC-THEME-FIX-003: ``applyThemeVars("custom", isDark)``
+			// without a third argument clears all custom vars from the DOM
+			// (via ``clearThemeVars()``) but then can't re-apply them because
+			// the ``custom`` ThemePreset has empty light/dark var maps — the
+			// user's actual colors live in the config/customDraft.  Derive
+			// the full var set from the draft so the revert actually restores
+			// the saved custom theme.
+			const draft = customDraftRef.current;
+			if (draft) {
+				const modeVars = isDark ? draft.dark : draft.light;
+				const derived = deriveCustomVars(modeVars, isDark);
+				applyThemeVars(CUSTOM_THEME_ID, isDark, derived);
+			} else {
+				// No draft available — fall back to default (no vars to apply).
+				applyThemeVars("default", isDark);
+			}
+		} else {
+			applyThemeVars(preset, isDark);
+		}
 	}, []);
 
 	if (!config) return <SettingsSkeleton rows={3} />;
@@ -600,10 +632,10 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 								return (
 									<span className="flex items-center gap-2">
 										<span
-											className="inline-flex h-5 w-7 shrink-0 items-center justify-center rounded-md border border-border text-xs font-semibold"
+											className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-semibold"
 											style={{ backgroundColor: bg, color: fg }}
 										>
-											E
+											A
 										</span>
 										<span>{current.name}</span>
 									</span>
@@ -648,10 +680,10 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 									>
 										<span className="flex items-center gap-2.5">
 											<span
-												className="inline-flex h-6 w-8 shrink-0 items-center justify-center rounded-md border border-border text-sm font-semibold"
+												className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-semibold"
 												style={{ backgroundColor: bg, color: fg }}
 											>
-												E
+												A
 											</span>
 											<span className="text-sm font-medium">{theme.name}</span>
 										</span>
