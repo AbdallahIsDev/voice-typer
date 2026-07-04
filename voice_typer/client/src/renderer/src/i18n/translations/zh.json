@@ -36,6 +36,12 @@
 	"settings": {
 		"title": "设置",
 		"searchPlaceholder": "搜索设置…",
+		"tabs": {
+			"appearance": "外观",
+			"general": "常规",
+			"aiAudio": "AI 与音频",
+			"privacy": "隐私"
+		},
 		"general": "常规",
 		"generalDescription": "行为、启动和外观。",
 		"appLanguage": "应用语言",

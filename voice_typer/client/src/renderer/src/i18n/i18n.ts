@@ -1,20 +1,36 @@
 // i18n infrastructure for Voice Typer.
 // UX-015: Internationalization support.
-// Currently supports English (en) and Spanish (es) as a proof of concept.
+// Supported locales: Arabic (ar), German (de), English (en), Russian (ru), Spanish (es), French (fr),
+// Chinese/Mandarin (zh), Hindi (hi).
 // Adding a new language requires:
-//   1. Create a new JSON file in translations/ (e.g., translations/fr.json)
+//   1. Create a new JSON file in translations/ (e.g., translations/ar.json)
 //   2. Add the locale to SUPPORTED_LOCALES below
 //   3. Import and register it in the translations map below
 //
 // The t() function returns the translated string for a dot-separated key.
 // If the key is not found, it falls back to English, then returns the key itself.
 
+import ar from "./translations/ar.json";
+import de from "./translations/de.json";
 import en from "./translations/en.json";
 import es from "./translations/es.json";
+import fr from "./translations/fr.json";
+import hi from "./translations/hi.json";
+import ru from "./translations/ru.json";
+import zh from "./translations/zh.json";
 
 type TranslationDict = Record<string, unknown>;
 
-const SUPPORTED_LOCALES = ["en", "es"] as const;
+const SUPPORTED_LOCALES = [
+	"ar",
+	"de",
+	"en",
+	"ru",
+	"es",
+	"fr",
+	"zh",
+	"hi",
+] as const;
 export type Locale = (typeof SUPPORTED_LOCALES)[number];
 
 // UX-015: export the list of supported locales for the UI language selector.
@@ -22,8 +38,14 @@ export { SUPPORTED_LOCALES };
 
 // Human-readable labels for each locale (used in the Settings dropdown).
 const LOCALE_LABELS: Record<Locale, string> = {
+	ar: "العربية",
+	de: "Deutsch",
 	en: "English",
 	es: "Español",
+	fr: "Français",
+	ru: "Русский",
+	zh: "中文",
+	hi: "हिन्दी",
 };
 
 /**
@@ -76,6 +98,24 @@ _translations.set("en", flatten(en as TranslationDict));
 
 // Register Spanish translations (UX-015: proof of concept for i18n)
 _translations.set("es", flatten(es as TranslationDict));
+
+// Register French translations
+_translations.set("fr", flatten(fr as TranslationDict));
+
+// Register Chinese (Mandarin) translations
+_translations.set("zh", flatten(zh as TranslationDict));
+
+// Register Hindi translations
+_translations.set("hi", flatten(hi as TranslationDict));
+
+// Register Arabic translations
+_translations.set("ar", flatten(ar as TranslationDict));
+
+// Register Russian translations
+_translations.set("ru", flatten(ru as TranslationDict));
+
+// Register German translations
+_translations.set("de", flatten(de as TranslationDict));
 
 /**
  * Register translations for a locale.

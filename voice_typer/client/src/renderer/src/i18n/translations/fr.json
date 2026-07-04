@@ -36,6 +36,12 @@
 	"settings": {
 		"title": "Paramètres",
 		"searchPlaceholder": "Rechercher des paramètres…",
+		"tabs": {
+			"appearance": "Apparence",
+			"general": "Général",
+			"aiAudio": "IA & Audio",
+			"privacy": "Confidentialité"
+		},
 		"general": "Général",
 		"generalDescription": "Comportement, démarrage et apparence.",
 		"appLanguage": "Langue de l'application",
