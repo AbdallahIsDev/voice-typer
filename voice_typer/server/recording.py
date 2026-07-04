@@ -1146,7 +1146,8 @@ class Recorder:
                             # HOTKEY-CRASH: double-check recording is still active
                             if not self._recording_event.is_set():
                                 return
-                            log.warning("[RECORDING] Current device no longer available in query_devices — disconnect detected")
+                            log.warning("[RECORDING] Current device no longer available "
+                            "in query_devices — disconnect detected")
                             self._device_disconnected = True
                             _captured_gen = self._stop_generation
                             try:
