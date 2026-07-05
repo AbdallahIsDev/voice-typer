@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
+import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 import type { VoiceTyperConfig } from "@/types/config"; // Module-level cache — persists across page navigations so the models view
 
@@ -497,10 +498,7 @@ export default function ModelsPage() {
 	// #7: ConfirmDialog — ask before deleting a model
 	const requestDeleteModel = (model: ModelInfo) => {
 		if (model.isActive) {
-			showSnack(
-				"Cannot delete the active model. Switch to another model first.",
-				"warning",
-			);
+			showSnack(t("models.cannotDeleteActive"), "warning");
 			return;
 		}
 		setDeleteModelTarget(model);
@@ -592,9 +590,7 @@ export default function ModelsPage() {
 			prev ? { ...prev, huggingface_consent: granted } : prev,
 		);
 		showSnack(
-			granted
-				? "Consent granted — model downloads from HuggingFace will proceed."
-				: "Consent revoked — model downloads from HuggingFace are blocked.",
+			granted ? t("models.consentGranted") : t("models.consentRevoked"),
 			granted ? "success" : "warning",
 		);
 	};
@@ -612,7 +608,7 @@ export default function ModelsPage() {
 		if (!key) {
 			setTestResults((prev) => ({
 				...prev,
-				[provider]: "Please enter an API key first",
+				[provider]: t("models.pleaseEnterApiKey"),
 			}));
 			return;
 		}
@@ -628,12 +624,12 @@ export default function ModelsPage() {
 				if (resp.ok) {
 					setTestResults((prev) => ({
 						...prev,
-						[provider]: "Connection successful — API key is valid.",
+						[provider]: t("models.connectionSuccessful"),
 					}));
 				} else {
 					setTestResults((prev) => ({
 						...prev,
-						[provider]: `Connection failed: ${resp.status} ${resp.statusText}`,
+						[provider]: `${t("models.connectionFailed")}: ${resp.status} ${resp.statusText}`,
 					}));
 				}
 			} else if (provider === "groq") {
@@ -643,12 +639,12 @@ export default function ModelsPage() {
 				if (resp.ok) {
 					setTestResults((prev) => ({
 						...prev,
-						[provider]: "Connection successful — API key is valid.",
+						[provider]: t("models.connectionSuccessful"),
 					}));
 				} else {
 					setTestResults((prev) => ({
 						...prev,
-						[provider]: `Connection failed: ${resp.status} ${resp.statusText}`,
+						[provider]: `${t("models.connectionFailed")}: ${resp.status} ${resp.statusText}`,
 					}));
 				}
 			} else if (provider === "deepgram") {
@@ -658,12 +654,12 @@ export default function ModelsPage() {
 				if (resp.ok) {
 					setTestResults((prev) => ({
 						...prev,
-						[provider]: "Connection successful — API key is valid.",
+						[provider]: t("models.connectionSuccessful"),
 					}));
 				} else {
 					setTestResults((prev) => ({
 						...prev,
-						[provider]: `Connection failed: ${resp.status} ${resp.statusText}`,
+						[provider]: `${t("models.connectionFailed")}: ${resp.status} ${resp.statusText}`,
 					}));
 				}
 			} else {
@@ -684,7 +680,7 @@ export default function ModelsPage() {
 	const runBenchmark = async () => {
 		// DEAD-021-025: previously this returned a hardcoded "~2.3s".
 		// We now show an honest "not implemented" message.
-		setBenchmarkResult("Benchmark not yet implemented.");
+		setBenchmarkResult(t("models.benchmarkNotImplemented"));
 	};
 
 	const allDownloaded = models.every((m) => m.downloaded);
@@ -727,10 +723,7 @@ export default function ModelsPage() {
 
 	return (
 		<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
-			<PageHeading
-				title="Models"
-				description="Configure your speech-to-text engines"
-			>
+			<PageHeading title={t("models.title")} description={t("models.subtitle")}>
 				<Button
 					variant="outline"
 					size="sm"
@@ -746,16 +739,14 @@ export default function ModelsPage() {
 					}}
 					disabled={isDownloading || allDownloaded}
 					title={
-						allDownloaded
-							? "All models already downloaded"
-							: "Download all models"
+						allDownloaded ? t("models.allDownloaded") : t("models.downloadAll")
 					}
 					// FIX: muted text/icon by default, white on hover —
 					// matches the outline-button style used across other
 					// page headings (Templates add, Vocabulary add, etc.).
 					className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
 					aria-label={
-						allDownloaded ? "All models downloaded" : "Download all models"
+						allDownloaded ? t("models.allDownloaded") : t("models.downloadAll")
 					}
 				>
 					<HugeiconsIcon
@@ -764,10 +755,10 @@ export default function ModelsPage() {
 						className="h-4 w-4"
 					/>
 					{isDownloading
-						? "Downloading..."
+						? t("models.downloading")
 						: allDownloaded
-							? "All Downloaded"
-							: "Download All"}
+							? t("models.allDownloaded")
+							: t("models.downloadAll")}
 				</Button>
 			</PageHeading>
 
@@ -1037,10 +1028,10 @@ export default function ModelsPage() {
 				{/* Cloud ASR Providers */}
 				<div className="space-y-4">
 					<h2 className="font-sans text-lg font-semibold text-(--text-primary)">
-						Cloud ASR Providers
+						{t("models.cloudProviders")}
 					</h2>
 					<p className="text-sm text-(--text-muted) -mt-3">
-						Configure cloud-based transcription services
+						{t("models.cloudProvidersDescription")}
 					</p>
 
 					<div className="space-y-4">
@@ -1076,7 +1067,7 @@ export default function ModelsPage() {
 												[provider.key]: e.target.value,
 											}))
 										}
-										placeholder="Enter your API key"
+										placeholder={t("models.apiKeyPlaceholder")}
 										className="w-full max-w-md"
 									/>
 								</div>
