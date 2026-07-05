@@ -25,6 +25,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { setSoundFeedbackEnabled } from "@/lib/sound-manager";
 import { SettingsSkeleton } from "./SettingsSkeleton";
 
 import type { SettingsSectionSharedProps } from "./types";
@@ -251,18 +252,13 @@ export const HotkeySettingsSection = memo(function HotkeySettingsSection({
 							checked={config.sound_feedback_enabled ?? true}
 							onCheckedChange={(checked) => {
 								updateConfig({ sound_feedback_enabled: checked });
-								// NEW-UX-029: mirror to localStorage so Home.tsx's
-								// playSoundCue() can read it without an IPC round-trip
-								// (the cue needs to play instantly on record start/stop).
-								try {
-									localStorage.setItem(
-										"vt_sound_feedback_enabled",
-										checked ? "1" : "0",
-									);
-								} catch {
-									// localStorage unavailable — non-fatal; the cue just
-									// won't play until the next Settings page mount.
-								}
+								// SOUND-FIX-REWRITE: use the centralized
+								// setSoundFeedbackEnabled helper from
+								// @/lib/sound-manager. This keeps the
+								// localStorage flag in sync with config
+								// and is the same path used by App.tsx's
+								// config-load sync.
+								setSoundFeedbackEnabled(checked);
 							}}
 							aria-label="Sound Feedback"
 						/>
