@@ -284,7 +284,7 @@ def _build_task_xml(python_exe: str, arguments: str | None = None) -> str:
         "so the app starts fast after a reboot. Safe to disable or delete."
     )
     uri = ET.SubElement(reg, "URI")
-    uri.text = f"\\{TASK_NAME}"
+    uri.text = f"{TASK_NAME}"
 
     # ── Triggers ──────────────────────────────────────────────────────
     triggers = ET.SubElement(root, "Triggers")
@@ -346,7 +346,7 @@ def _build_task_xml(python_exe: str, arguments: str | None = None) -> str:
 
 
 
-# ─── schtasks wrapper ─────────────────────────────────────────────────────
+# ─── schtasks wrappers ──────────────────────────────────────────────────
 
 def _schtasks(args: list[str], *, capture: bool = True) -> tuple[int, str]:
     """Run ``schtasks`` with *args*. Returns (returncode, combined output).
@@ -372,6 +372,96 @@ def _schtasks(args: list[str], *, capture: bool = True) -> tuple[int, str]:
     except subprocess.TimeoutExpired:
         log.error("[TASK] schtasks timed out: %s", cmd)
         return 124, "schtasks timed out"
+
+
+def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int, str]:
+    """Run ``schtasks`` with *args* via UAC elevation prompt.
+
+    Used when a non-elevated schtasks call fails with "Access is denied"
+    (e.g. overwriting a task created by an admin install).  Shows the
+    standard Windows UAC consent dialog and waits for the user to accept
+    or reject.
+
+    Returns (returncode, combined_output).  If the user cancels UAC,
+    the ShellExecuteExW fails and we return (1223, "user cancelled").
+    """
+    import ctypes
+    import ctypes.wintypes
+
+    class SHELLEXECUTEINFO(ctypes.Structure):
+        _fields_ = [
+            ("cbSize", ctypes.wintypes.DWORD),
+            ("fMask", ctypes.wintypes.ULONG),
+            ("hwnd", ctypes.wintypes.HWND),
+            ("lpVerb", ctypes.wintypes.LPCWSTR),
+            ("lpFile", ctypes.wintypes.LPCWSTR),
+            ("lpParameters", ctypes.wintypes.LPCWSTR),
+            ("lpDirectory", ctypes.wintypes.LPCWSTR),
+            ("nShow", ctypes.c_int),
+            ("hInstApp", ctypes.wintypes.HINSTANCE),
+            ("lpIDList", ctypes.wintypes.LPVOID),
+            ("lpClass", ctypes.wintypes.LPCWSTR),
+            ("hKeyClass", ctypes.wintypes.HKEY),
+            ("dwHotKey", ctypes.wintypes.DWORD),
+            ("hMonitor", ctypes.wintypes.HANDLE),
+            ("hProcess", ctypes.wintypes.HANDLE),
+        ]
+
+    see_mask_noclose = 0x00000040
+    sw_hide = 0
+
+    # Build the arg string for schtasks
+    arg_str = " ".join(
+        f'"{a}"' if " " in a or "&" in a else a for a in args
+    )
+
+    # Redirect output to a temp file so we can read it back
+    out_file = tempfile.NamedTemporaryFile(
+        mode="w+t", suffix=".txt", delete=False, encoding="utf-8"
+    )
+    out_path = out_file.name
+
+    try:
+        # Launch via cmd.exe /c with redirection so we capture output
+        cmd_line = f'schtasks {arg_str} > "{out_path}" 2>&1'
+        sei = SHELLEXECUTEINFO()
+        sei.cbSize = ctypes.sizeof(sei)
+        sei.fMask = see_mask_noclose
+        sei.lpVerb = "runas"
+        sei.lpFile = "cmd.exe"
+        sei.lpParameters = f"/c \"{cmd_line}\""
+        sei.nShow = sw_hide
+
+        if not ctypes.windll.shell32.ShellExecuteExW(ctypes.byref(sei)):
+            err = ctypes.WinError()
+            return 1223, f"UAC elevation failed: {err}"
+
+        # Wait for the process to finish
+        ctypes.windll.kernel32.WaitForSingleObject(
+            sei.hProcess, timeout_ms
+        )
+
+        exit_code = ctypes.wintypes.DWORD()
+        ctypes.windll.kernel32.GetExitCodeProcess(
+            sei.hProcess, ctypes.byref(exit_code)
+        )
+        ctypes.windll.kernel32.CloseHandle(sei.hProcess)
+
+        # Read output from the temp file
+        output = ""
+        try:
+            with open(out_path, encoding="utf-8") as f:
+                output = f.read()
+        except OSError:
+            pass
+
+        return exit_code.value, output
+
+    finally:
+        try:
+            os.unlink(out_path)
+        except OSError:
+            pass
 
 
 # ─── Public API ──────────────────────────────────────────────────────────
@@ -477,6 +567,12 @@ def register_prewarm_task() -> bool:
             ["/Create", "/TN", TASK_NAME, "/XML", temp_xml, "/F"],
             capture=True,
         )
+        # If non-elevated attempt fails with Access denied, try via UAC
+        if rc != 0 and "access is denied" in (output or "").lower():
+            log.info("[TASK] Non-elevated schtasks failed — retrying with UAC elevation prompt")
+            rc, output = _schtasks_elevated(
+                ["/Create", "/TN", TASK_NAME, "/XML", temp_xml, "/F"],
+            )
         if rc == 0:
             log.info("[TASK] VoiceTyperPrewarm registered OK")
             # We switched to the Task Scheduler path — remove any stale

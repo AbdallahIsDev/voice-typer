@@ -437,7 +437,7 @@ def _build_app_autostart_task_xml() -> str:
         "the app can still be started manually from the Start Menu."
     )
     uri = ET.SubElement(reg, "URI")
-    uri.text = f"\\{_APP_AUTOSTART_TASK_NAME}"
+    uri.text = f"{_APP_AUTOSTART_TASK_NAME}"
 
     triggers = ET.SubElement(root, "Triggers")
     logon = ET.SubElement(triggers, "LogonTrigger")
@@ -497,6 +497,11 @@ def _register_app_autostart_task() -> bool:
                 ["/Create", "/TN", _APP_AUTOSTART_TASK_NAME, "/XML", temp_xml, "/F"],
                 capture=True,
             )
+            if rc != 0 and "access is denied" in (output or "").lower():
+                log.info("[CONFIG] Non-elevated schtasks failed — retrying with UAC elevation prompt")
+                rc, output = task_scheduler._schtasks_elevated(
+                    ["/Create", "/TN", _APP_AUTOSTART_TASK_NAME, "/XML", temp_xml, "/F"],
+                )
             if rc == 0:
                 log.info("[CONFIG] App autostart registered via Task Scheduler (logon trigger)")
                 return True
