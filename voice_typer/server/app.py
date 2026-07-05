@@ -176,7 +176,7 @@ class VoiceTyperApp:
 
         # Startup banner -- first visible log, before any subsystem init
         log.info(
-            "%s starting -- model=%s, hotkey=%s, mic=%s, sample_rate=%s",
+            "starting -- model=%s, hotkey=%s, mic=%s, sample_rate=%s",
             self.config.model_size, self.config.hotkey,
             self.config.microphone or "default", self.config.sample_rate,
         )
