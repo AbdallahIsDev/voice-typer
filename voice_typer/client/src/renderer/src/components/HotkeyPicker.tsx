@@ -135,6 +135,15 @@ export function HotkeyPicker({
 			if (!recordingRef.current) return;
 
 			if (e.key === "Escape") {
+				// ARCH-ESC-001: cancel hotkey capture on Escape. We call
+				// preventDefault() and stopPropagation() so no other
+				// listener (e.g. the App.tsx help-overlay handler, or
+				// any future document-level Escape handler) can
+				// interfere with the capture-mode cancel. The backend's
+				// ESC cancel hotkey is handled separately via the
+				// KeyboardOwnership singleton (see system_handlers.py).
+				e.preventDefault();
+				e.stopPropagation();
 				// NB: sync the ref immediately so a second keydown arriving
 				// before React's re-render sees the correct state.
 				recordingRef.current = false;
@@ -169,9 +178,7 @@ export function HotkeyPicker({
 				if (isModifier) return;
 				const pynputName = KEY_CODE_TO_PYNPUT[e.key];
 				if (!pynputName) {
-					setError(
-						`Key "${e.key}" is not supported as a hotkey. Try Caps Lock, Alt, or use the dropdown.`,
-					);
+					setError(`Key "${e.key}" is not supported as a hotkey.`);
 					return;
 				}
 				const newHotkey = `<${pynputName}>`;
@@ -307,7 +314,7 @@ export function HotkeyPicker({
 						className="h-4 w-4"
 					/>
 					{recording ? (
-						<span className="animate-pulse">Press a key\u2026</span>
+						<span className="animate-pulse">Press a key</span>
 					) : (
 						<span>{formatHotkeyLabel(value) || "None"}</span>
 					)}
@@ -344,19 +351,6 @@ export function HotkeyPicker({
 			{error && (
 				<p className="text-xs text-destructive" role="alert">
 					{error}
-				</p>
-			)}
-			{recording && (
-				<p className="text-xs text-(--text-muted)">
-					Press a key
-					{mode === "combo"
-						? " combination (hold modifiers, then press a key)"
-						: " or hold a modifier and release it alone (e.g. just Alt)"}
-					. Press <kbd className="rounded border border-border px-1">Esc</kbd>{" "}
-					to cancel.
-					{!IS_MAC && mode === "single" && (
-						<> Note: the Fn key is only supported on macOS.</>
-					)}
 				</p>
 			)}
 		</div>
