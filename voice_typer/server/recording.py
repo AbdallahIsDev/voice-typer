@@ -1753,20 +1753,37 @@ class Recorder:
         # PortAudio from calling the callback during/after stream.stop()
         # which can cause use-after-free or deadlock.
         #
-        # PERF-FIX-001: previously this was a fixed 6×50ms retry loop
-        # (worst case 300ms).  On a healthy system the callback usually
-        # returns in <20ms, so the loop broke on iteration 1 — but the
-        # 50ms minimum wait was still paid every time.  Replaced with
-        # exponential backoff starting at 20ms: typical case ~20ms,
-        # worst case ~510ms (20+30+50+80+130+200).  This recovers
-        # 30-250ms of post-recording latency on every dictation.
+        # PERF-FIX-002 (Round 0): the previous "exponential backoff"
+        # implementation was inverted. It used::
+        #
+        #     if self._is_in_audio_callback.wait(timeout=_timeout):
+        #         break  # callback completed
+        #
+        # but ``threading.Event.wait(timeout)`` returns ``True`` when the
+        # flag is *set* — and the flag is set while the callback is
+        # *running* (see lines 1082/1086: set on entry, clear on exit).
+        # So the loop broke immediately when the callback WAS running
+        # (defeating the safety guard) and blocked for the full
+        # 20+30+50+80+130+200 = 510ms when the callback was NOT running
+        # (the common case).  Every dictation paid a half-second penalty.
+        #
+        # The fix: poll for the flag to become *clear* (callback not
+        # running), with a 5ms interval and a 300ms hard budget (matching
+        # the original 6×50ms worst case).  On a healthy system the flag
+        # is already clear on the first check → 0ms wait.  When the
+        # callback genuinely runs past ``stream.stop()``, the poll loop
+        # waits for it to finish (restoring the AUDIO-009/AUDIO-015
+        # safety contract).
         if self._stream:
             self._stream.stop()
-            # Wait for the in-flight callback to finish, with backoff.
-            _BACKOFF_SECONDS = (0.020, 0.030, 0.050, 0.080, 0.130, 0.200)
-            for _wait_attempt, _timeout in enumerate(_BACKOFF_SECONDS):
-                if self._is_in_audio_callback.wait(timeout=_timeout):
-                    break  # callback completed
+            _BACKOFF_BUDGET_S = 0.300  # total worst-case wait, same as pre-fix
+            _POLL_INTERVAL_S = 0.005   # 5ms poll
+            _deadline = time.perf_counter() + _BACKOFF_BUDGET_S
+            while self._is_in_audio_callback.is_set():
+                remaining = _deadline - time.perf_counter()
+                if remaining <= 0:
+                    break
+                time.sleep(min(_POLL_INTERVAL_S, remaining))
             self._stream.close()
             self._stream = None
         stream_ms = (time.perf_counter() - stop_started) * 1000
