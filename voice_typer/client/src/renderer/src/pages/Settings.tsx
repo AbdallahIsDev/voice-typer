@@ -598,6 +598,27 @@ export default function SettingsPage({
 
 	return (
 		<div className="min-h-full">
+			{/* Fixed settings tab navigation at the top of the viewport */}
+			<div className="fixed top-12 left-0 right-0 z-40 flex justify-center">
+				<div className="mx-auto w-full max-w-2xl px-6">
+					<SegmentedControl<SettingsTab>
+						options={[
+							{ value: "appearance", label: t("settings.tabs.appearance") },
+							{ value: "general", label: t("settings.tabs.general") },
+							{ value: "aiAudio", label: t("settings.tabs.aiAudio") },
+							{ value: "privacy", label: t("settings.tabs.privacy") },
+						]}
+						value={activeTab}
+						onChange={setActiveTab}
+						ariaLabel="Settings tabs"
+						indicatorClassName="bg-input"
+						activeClassName="text-(--text-primary)"
+						labelClassName="flex-1 text-center"
+						className="w-full"
+					/>
+				</div>
+			</div>
+
 			<div className="mx-auto max-w-2xl space-y-8 px-6 pt-28 pb-6">
 				{/* Header */}
 				<PageHeading
@@ -612,22 +633,6 @@ export default function SettingsPage({
 					onChange={handleSearchChange}
 					placeholder={t("settings.searchPlaceholder")}
 				/>
-
-				{/* NEW: Settings tab navigation — SegmentedControl at the top switches between tab groups */}
-				<div className="flex justify-center">
-					<SegmentedControl<SettingsTab>
-						variant="tabs"
-						options={[
-							{ value: "appearance", label: t("settings.tabs.appearance") },
-							{ value: "general", label: t("settings.tabs.general") },
-							{ value: "aiAudio", label: t("settings.tabs.aiAudio") },
-							{ value: "privacy", label: t("settings.tabs.privacy") },
-						]}
-						value={activeTab}
-						onChange={setActiveTab}
-						ariaLabel="Settings tabs"
-					/>
-				</div>
 
 				{/* ── TAB: Appearance (theme mode, preset, custom picker, text size) ───── */}
 				{activeTab === "appearance" && (
