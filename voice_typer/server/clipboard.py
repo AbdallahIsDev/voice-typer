@@ -327,6 +327,18 @@ def _is_password_field() -> bool:
 
     Returns True if a password field is detected, False otherwise.
 
+    PERF-FIX-001: previously this function created a fresh IUIAutomation
+    COM instance on every call (CoCreateInstance + GetModule), which is
+    a 10-50ms cross-process RPC.  Combined with ``_is_content_editable``
+    doing the same, that was 5+ UIA RPCs per paste (100-800ms total in
+    browsers/Electron/Office).  Now uses the module-level cached
+    ``_get_uia_focused_element()`` helper which:
+      - Creates the IUIAutomation instance ONCE (cached in
+        ``_UIA_SINGLETON``).
+      - Fetches the focused element ONCE per paste and returns it so
+        both password and content-editable checks can read multiple
+        properties from the same element without re-fetching.
+
     PLAT-014 (revised): The previous code had a no-op ctypes fallback
     block (lines 310-316) that just did ``pass`` if comtypes wasn't
     installed — meaning password detection silently failed open. Now
@@ -343,17 +355,9 @@ def _is_password_field() -> bool:
         try:
             import comtypes.client
             import comtypes
-            # Initialize COM for this thread before using UIAutomation.
-            # Without this, CoCreateInstance fails with
-            # "CoInitialize has not been called".
             comtypes.CoInitialize()
             try:
-                UIA = comtypes.client.GetModule("UIAutomationCore.dll")
-                uia = comtypes.CoCreateInstance(
-                    UIA.CUIAutomation._reg_clsid_,
-                    interface=UIA.IUIAutomation,
-                )
-                focused = uia.GetFocusedElement()
+                focused = _get_uia_focused_element()
                 if focused is not None:
                     # UIA_IsPasswordPropertyId = 30022
                     is_password = focused.GetCurrentPropertyValue(30022)
@@ -414,6 +418,65 @@ def _is_password_field() -> bool:
         return False
 
 
+# PERF-FIX-001: module-level cached IUIAutomation instance.
+# Creating a fresh IUIAutomation COM instance on every paste was costing
+# 10-50ms per call (cross-process RPC).  Caching it here eliminates that
+# cost for every subsequent paste.  The instance is created lazily on
+# first use and reused for the lifetime of the process.
+_UIA_SINGLETON = None
+_UIA_MODULE = None
+_UIA_SINGLETON_INIT_ATTEMPTED = False
+
+
+def _get_uia_singleton():
+    """Return the cached IUIAutomation instance, or None if unavailable.
+
+    PERF-FIX-001: caches both the comtypes module reference (from
+    GetModule("UIAutomationCore.dll")) and the IUIAutomation COM
+    instance so we don't pay the CoCreateInstance cost on every paste.
+    """
+    global _UIA_SINGLETON, _UIA_MODULE, _UIA_SINGLETON_INIT_ATTEMPTED
+    if _UIA_SINGLETON_INIT_ATTEMPTED:
+        return _UIA_SINGLETON
+    _UIA_SINGLETON_INIT_ATTEMPTED = True
+    if not is_windows():
+        return None
+    try:
+        import comtypes.client
+        _UIA_MODULE = comtypes.client.GetModule("UIAutomationCore.dll")
+        _UIA_SINGLETON = comtypes.CoCreateInstance(
+            _UIA_MODULE.CUIAutomation._reg_clsid_,
+            interface=_UIA_MODULE.IUIAutomation,
+        )
+    except Exception as exc:
+        log.debug(
+            "[CLIPBOARD] IUIAutomation singleton init failed: %s — UIA checks disabled",
+            exc,
+        )
+        _UIA_SINGLETON = None
+    return _UIA_SINGLETON
+
+
+def _get_uia_focused_element():
+    """Return the focused UI element via the cached IUIAutomation singleton.
+
+    PERF-FIX-001: reuses the module-level ``_UIA_SINGLETON`` so we don't
+    pay CoCreateInstance + GetModule on every call.  Returns None if
+    UIA is unavailable or no element is focused.
+    """
+    uia = _get_uia_singleton()
+    if uia is None:
+        return None
+    try:
+        return uia.GetFocusedElement()
+    except Exception as exc:
+        log.debug(
+            "[CLIPBOARD] GetFocusedElement failed: %s — failing open",
+            exc,
+        )
+        return None
+
+
 def _is_content_editable() -> bool:
     """PLAT-CONTENT: Check if the focused element is a contentEditable element.
 
@@ -430,16 +493,10 @@ def _is_content_editable() -> bool:
     if not is_windows():
         return False
     try:
-        import comtypes.client
         import comtypes
         comtypes.CoInitialize()
         try:
-            UIA = comtypes.client.GetModule("UIAutomationCore.dll")
-            uia = comtypes.CoCreateInstance(
-                UIA.CUIAutomation._reg_clsid_,
-                interface=UIA.IUIAutomation,
-            )
-            focused = uia.GetFocusedElement()
+            focused = _get_uia_focused_element()
             if focused is None:
                 return False
             # UIA_ControlTypePropertyId = 30003
