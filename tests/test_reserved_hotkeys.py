@@ -3,7 +3,7 @@
 HOTKEY-UNIFY-002: verifies that:
   1. ``_RESERVED_HOTKEYS`` in ``config_validators.py`` matches the
      frontend ``RESERVED_SHORTCUTS`` in ``hotkey-validation.ts``.
-  2. ``_is_reserved_hotkey`` correctly identifies reserved shortcuts.
+  2. ``_validate_hotkey`` correctly identifies reserved shortcuts.
   3. The ``_VALIDATOR_HOTKEY`` validator rejects reserved shortcuts
      via ``validate_config_update``.
   4. Cross-platform: a shortcut reserved on macOS (Cmd+Space) is NOT
@@ -19,8 +19,8 @@ import pytest
 
 from voice_typer.server.config_validators import (
     _RESERVED_HOTKEYS,
-    _current_platform,
-    _is_reserved_hotkey,
+    _platform_key,
+    _validate_hotkey,
     validate_config_update,
 )
 
@@ -96,61 +96,130 @@ def test_reserved_hotkeys_match_frontend() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# 2. _is_reserved_hotkey
+# 2. _validate_hotkey
 # ──────────────────────────────────────────────────────────────────────────
 
 def test_is_reserved_hotkey_win32() -> None:
     """Win32-reserved shortcuts are detected on the win32 platform."""
-    assert _is_reserved_hotkey("<win>+e", "win32") is True
-    assert _is_reserved_hotkey("<win>+v", "win32") is True
-    assert _is_reserved_hotkey("<win>+space", "win32") is True
-    assert _is_reserved_hotkey("<win>+l", "win32") is True
+    import voice_typer.server.config_validators as cv
+
+    original = cv._sys.platform
+    cv._sys.platform = "win32"
+    try:
+        assert _validate_hotkey("<win>+<e>") is not None
+        assert _validate_hotkey("<win>+<v>") is not None
+        assert _validate_hotkey("<win>+<space>") is not None
+        assert _validate_hotkey("<win>+<l>") is not None
+    finally:
+        cv._sys.platform = original
 
 
 def test_is_reserved_hotkey_darwin() -> None:
     """macOS-reserved shortcuts are detected on the darwin platform."""
-    assert _is_reserved_hotkey("<cmd>+space", "darwin") is True
-    assert _is_reserved_hotkey("<cmd>+q", "darwin") is True
-    assert _is_reserved_hotkey("<cmd>+tab", "darwin") is True
+    import voice_typer.server.config_validators as cv
+
+    original = cv._sys.platform
+    cv._sys.platform = "darwin"
+    try:
+        assert _validate_hotkey("<cmd>+<space>") is not None
+        assert _validate_hotkey("<cmd>+<q>") is not None
+        assert _validate_hotkey("<cmd>+<tab>") is not None
+    finally:
+        cv._sys.platform = original
 
 
 def test_is_reserved_hotkey_linux() -> None:
     """Linux-reserved shortcuts are detected on the linux platform."""
-    assert _is_reserved_hotkey("<super>+l", "linux") is True
-    assert _is_reserved_hotkey("<super>+d", "linux") is True
+    import voice_typer.server.config_validators as cv
+
+    original = cv._sys.platform
+    cv._sys.platform = "linux"
+    try:
+        assert _validate_hotkey("<super>+<l>") is not None
+        assert _validate_hotkey("<super>+<d>") is not None
+    finally:
+        cv._sys.platform = original
 
 
 def test_is_reserved_hotkey_cross_platform() -> None:
     """A shortcut reserved on one platform is NOT reserved on another.
 
-    <cmd>+space is reserved on macOS (Spotlight) but not on Windows/Linux.
-    <win>+e is reserved on Windows (Explorer) but not on macOS/Linux.
+    <cmd>+<tab> is reserved on macOS (Spotlight) but not on Windows/Linux.
+    <win>+<e> is reserved on Windows (Explorer) but not on macOS.
     """
-    assert _is_reserved_hotkey("<cmd>+space", "win32") is False
-    assert _is_reserved_hotkey("<cmd>+space", "linux") is False
-    assert _is_reserved_hotkey("<win>+e", "darwin") is False
-    assert _is_reserved_hotkey("<win>+e", "linux") is False
+    import voice_typer.server.config_validators as cv
+
+    original = cv._sys.platform
+
+    cv._sys.platform = "win32"
+    try:
+        assert _validate_hotkey("<cmd>+<tab>") is None
+    finally:
+        cv._sys.platform = original
+
+    cv._sys.platform = "linux"
+    try:
+        assert _validate_hotkey("<cmd>+<tab>") is None
+    finally:
+        cv._sys.platform = original
+
+    cv._sys.platform = "darwin"
+    try:
+        assert _validate_hotkey("<win>+<e>") is None
+    finally:
+        cv._sys.platform = original
 
 
 def test_is_reserved_hotkey_case_insensitive() -> None:
-    """Comparison is case-insensitive — <WIN>+E matches <win>+e."""
-    assert _is_reserved_hotkey("<WIN>+E", "win32") is True
-    assert _is_reserved_hotkey("<Cmd>+<Space>", "darwin") is True
+    """Comparison is case-insensitive — <WIN>+<E> matches <win>+<e>."""
+    import voice_typer.server.config_validators as cv
+
+    original = cv._sys.platform
+    cv._sys.platform = "win32"
+    try:
+        assert _validate_hotkey("<WIN>+<E>") is not None
+    finally:
+        cv._sys.platform = original
+
+    cv._sys.platform = "darwin"
+    try:
+        assert _validate_hotkey("<Cmd>+<Space>") is not None
+    finally:
+        cv._sys.platform = original
 
 
 def test_is_reserved_hotkey_empty() -> None:
-    """Empty string is never reserved."""
-    assert _is_reserved_hotkey("", "win32") is False
-    assert _is_reserved_hotkey(None, "win32") is False  # type: ignore[arg-type]
+    """Empty/None values are rejected as invalid."""
+    assert _validate_hotkey("") is not None
+    assert _validate_hotkey(None) is not None  # type: ignore[arg-type]
 
 
 def test_is_reserved_hotkey_non_reserved() -> None:
     """Common dictation shortcuts are NOT reserved."""
-    assert _is_reserved_hotkey("<f2>", "win32") is False
-    assert _is_reserved_hotkey("<f2>", "darwin") is False
-    assert _is_reserved_hotkey("<caps_lock>", "win32") is False
-    assert _is_reserved_hotkey("<ctrl>+<alt>+v", "win32") is False
-    assert _is_reserved_hotkey("<super>+<space>", "linux") is False  # not reserved on Linux
+    import voice_typer.server.config_validators as cv
+
+    original = cv._sys.platform
+
+    cv._sys.platform = "win32"
+    try:
+        assert _validate_hotkey("<f2>") is None
+        assert _validate_hotkey("<caps_lock>") is None
+        assert _validate_hotkey("<ctrl>+<alt>+v") is None
+    finally:
+        cv._sys.platform = original
+
+    cv._sys.platform = "darwin"
+    try:
+        assert _validate_hotkey("<f2>") is None
+        assert _validate_hotkey("<ctrl>+<alt>+v") is None
+    finally:
+        cv._sys.platform = original
+
+    cv._sys.platform = "linux"
+    try:
+        assert _validate_hotkey("<ctrl>+<alt>+v") is None
+    finally:
+        cv._sys.platform = original
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -165,12 +234,12 @@ def test_validate_config_update_rejects_reserved_hotkey() -> None:
     rejected by the backend mirror.
     """
     # Use the darwin platform to test <cmd>+<space> rejection.
-    # We monkeypatch _current_platform to make this deterministic
+    # We monkeypatch _sys.platform to make this deterministic
     # regardless of where the test runs.
     import voice_typer.server.config_validators as cv
 
-    original = cv._current_platform
-    cv._current_platform = lambda: "darwin"  # type: ignore[assignment]
+    original = cv._sys.platform
+    cv._sys.platform = "darwin"
     try:
         validated, errors = validate_config_update(
             {"hotkey": "<cmd>+<space>"}
@@ -179,7 +248,7 @@ def test_validate_config_update_rejects_reserved_hotkey() -> None:
         assert "reserved" in errors[0].lower()
         assert "hotkey" not in validated
     finally:
-        cv._current_platform = original
+        cv._sys.platform = original
 
 
 def test_validate_config_update_accepts_non_reserved_hotkey() -> None:
@@ -193,42 +262,42 @@ def test_validate_config_update_rejects_reserved_repaste_hotkey() -> None:
     """The repaste_hotkey field also rejects reserved shortcuts."""
     import voice_typer.server.config_validators as cv
 
-    original = cv._current_platform
-    cv._current_platform = lambda: "win32"  # type: ignore[assignment]
+    original = cv._sys.platform
+    cv._sys.platform = "win32"
     try:
         validated, errors = validate_config_update(
-            {"repaste_hotkey": "<win>+l"}
+            {"repaste_hotkey": "<win>+<l>"}
         )
         assert len(errors) == 1
         assert "reserved" in errors[0].lower()
     finally:
-        cv._current_platform = original
+        cv._sys.platform = original
 
 
 def test_validate_config_update_rejects_reserved_push_to_talk_hotkey() -> None:
     """The push_to_talk_hotkey field also rejects reserved shortcuts."""
     import voice_typer.server.config_validators as cv
 
-    original = cv._current_platform
-    cv._current_platform = lambda: "darwin"  # type: ignore[assignment]
+    original = cv._sys.platform
+    cv._sys.platform = "darwin"
     try:
         validated, errors = validate_config_update(
-            {"push_to_talk_hotkey": "<cmd>+q"}
+            {"push_to_talk_hotkey": "<cmd>+<q>"}
         )
         assert len(errors) == 1
         assert "reserved" in errors[0].lower()
     finally:
-        cv._current_platform = original
+        cv._sys.platform = original
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# 4. _current_platform
+# 4. _platform_key
 # ──────────────────────────────────────────────────────────────────────────
 
-def test_current_platform_returns_valid_key() -> None:
-    """_current_platform returns one of the valid _RESERVED_HOTKEYS keys."""
-    pk = _current_platform()
+def test_platform_key_returns_valid_key() -> None:
+    """_platform_key returns one of the valid _RESERVED_HOTKEYS keys."""
+    pk = _platform_key()
     assert pk in _RESERVED_HOTKEYS, (
-        f"_current_platform() returned {pk!r}, expected one of "
+        f"_platform_key() returned {pk!r}, expected one of "
         f"{list(_RESERVED_HOTKEYS.keys())}"
     )

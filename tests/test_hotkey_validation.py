@@ -1,0 +1,241 @@
+"""Regression tests for the backend hotkey validator (HOTKEY-VALIDATION-001).
+
+These tests pin the denylist-based validation policy introduced in
+``voice_typer/server/config_validators.py::_validate_hotkey``.  The
+validator mirrors the frontend ``validateHotkey`` in
+``voice_typer/client/src/renderer/src/components/hotkey-validation.ts``.
+
+The policy is a DENYLIST design, not a blanket rule design:
+  - Allow Alt+<letter> by default (e.g. <alt>+<q>, <alt>+<r>).
+  - Allow Ctrl+Shift, Ctrl+Alt+<key>, Delete+End, and similar non-reserved
+    combinations.
+  - Block OS-reserved shortcuts (Alt+Tab, Alt+F4, Alt+Esc, Alt+Space,
+    Win+*, Cmd+<letter> on macOS, etc.).
+  - Block common Ctrl+<letter> app shortcuts (Copy/Paste/Undo/Save/etc.).
+  - Block Shift+<letter> (interferes with capitalization).
+  - Block Alt+Shift on Windows (language switching).
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from voice_typer.server.config_validators import (
+    _BLOCKED_CTRL_LETTERS,
+    _HOTKEY_MODIFIERS,
+    _RESERVED_HOTKEYS,
+    _validate_hotkey,
+)
+
+
+# ── Allowed combinations ──────────────────────────────────────────────
+
+ALLOWED_HOTKEYS = [
+    "<caps_lock>",
+    "<ctrl>",
+    "<alt>",
+    "<shift>",
+    "<f2>",
+    "<tab>",
+    "<delete>",
+    "<insert>",
+    "<home>",
+    "<end>",
+    "<page_up>",
+    "<page_down>",
+    "<space>",
+    "<enter>",
+    # Alt+<letter> is allowed by default (denylist design).
+    "<alt>+<q>",
+    "<alt>+<r>",
+    "<alt>+<z>",
+    "<alt>+<v>",
+    # Ctrl+Shift (modifier-only combo) is allowed.
+    "<ctrl>+<shift>",
+    # Ctrl+Alt+<key> is allowed.
+    "<ctrl>+<alt>+<u>",
+    "<ctrl>+<alt>+<v>",
+    # Multi-key non-modifier combos are allowed.
+    "<delete>+<end>",
+    # F-key combos with modifiers are allowed.
+    "<shift>+<f5>",
+    "<ctrl>+<f1>",
+    "<shift>+<tab>",
+    "<ctrl>+<alt>+<f2>",
+]
+
+
+# ── Blocked combinations ─────────────────────────────────────────────
+
+BLOCKED_HOTKEYS = [
+    # OS-reserved (Windows) — these are in the per-platform denylist.
+    # Note: <alt>+<shift> is Windows-only (language switching), so it's
+    # in a separate platform-conditional test below.
+    "<win>+<l>",
+    "<win>+<e>",
+    "<win>+<v>",
+    "<win>+<d>",
+    "<win>+<r>",
+    # Universal window-management shortcuts (blocked on ALL platforms).
+    "<alt>+<tab>",
+    "<alt>+<f4>",
+    "<alt>+<esc>",
+    "<alt>+<space>",
+    # Common Ctrl+<letter> app shortcuts.
+    "<ctrl>+<c>",
+    "<ctrl>+<v>",
+    "<ctrl>+<x>",
+    "<ctrl>+<z>",
+    "<ctrl>+<a>",
+    "<ctrl>+<s>",
+    "<ctrl>+<y>",
+    "<ctrl>+<w>",
+    "<ctrl>+<f>",
+    "<ctrl>+<p>",
+    "<ctrl>+<n>",
+    "<ctrl>+<o>",
+    "<ctrl>+<t>",
+    "<ctrl>+<l>",
+    "<ctrl>+<r>",
+    "<ctrl>+<h>",
+    "<ctrl>+<j>",
+    "<ctrl>+<k>",
+    "<ctrl>+<b>",
+    "<ctrl>+<i>",
+    "<ctrl>+<u>",
+    "<ctrl>+<d>",
+    "<ctrl>+<e>",
+    "<ctrl>+<g>",
+    "<ctrl>+<m>",
+    "<ctrl>+<q>",
+    # Shift+<letter> (interferes with capitalization).
+    "<shift>+<z>",
+    "<shift>+<a>",
+    "<shift>+<m>",
+]
+
+
+class TestValidateHotkeyAllows:
+    """Verify the denylist allows non-reserved combinations."""
+
+    @pytest.mark.parametrize("hotkey", ALLOWED_HOTKEYS)
+    def test_allows(self, hotkey: str) -> None:
+        result = _validate_hotkey(hotkey)
+        assert result is None, (
+            f"Expected {hotkey!r} to be allowed, but got: {result}"
+        )
+
+
+class TestValidateHotkeyBlocks:
+    """Verify the denylist blocks reserved/conflicting combinations."""
+
+    @pytest.mark.parametrize("hotkey", BLOCKED_HOTKEYS)
+    def test_blocks(self, hotkey: str) -> None:
+        result = _validate_hotkey(hotkey)
+        assert result is not None, (
+            f"Expected {hotkey!r} to be blocked, but it was allowed"
+        )
+
+
+class TestValidateHotkeyPlatformConditional:
+    """Platform-conditional blocks: Alt+Shift is Windows-only."""
+
+    def test_alt_shift_blocked_on_windows(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Alt+Shift is blocked on Windows (language switching)."""
+        import voice_typer.server.config_validators as cv
+        monkeypatch.setattr(cv._sys, "platform", "win32")
+        result = _validate_hotkey("<alt>+<shift>")
+        assert result is not None, (
+            "Alt+Shift should be blocked on Windows (language switching)"
+        )
+
+    def test_alt_shift_allowed_on_linux(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Alt+Shift is allowed on Linux (no language-switching conflict)."""
+        import voice_typer.server.config_validators as cv
+        monkeypatch.setattr(cv._sys, "platform", "linux")
+        result = _validate_hotkey("<alt>+<shift>")
+        assert result is None, (
+            "Alt+Shift should be allowed on Linux"
+        )
+
+
+class TestValidateHotkeyEdgeCases:
+    """Edge cases: empty, non-string, oversized, structural."""
+
+    def test_rejects_empty_string(self) -> None:
+        assert _validate_hotkey("") is not None
+
+    def test_rejects_whitespace_only(self) -> None:
+        assert _validate_hotkey("   ") is not None
+
+    def test_rejects_non_string(self) -> None:
+        assert _validate_hotkey(123) is not None  # type: ignore[arg-type]
+        assert _validate_hotkey(None) is not None  # type: ignore[arg-type]
+        assert _validate_hotkey([]) is not None  # type: ignore[arg-type]
+
+    def test_rejects_oversized(self) -> None:
+        huge = "<" + "a" * 300 + ">"
+        assert _validate_hotkey(huge) is not None
+
+    def test_rejects_no_keys_after_parse(self) -> None:
+        assert _validate_hotkey("<>+<>") is not None
+        assert _validate_hotkey("++++") is not None
+
+
+class TestReservedHotkeysTable:
+    """Verify the _RESERVED_HOTKEYS table invariants."""
+
+    def test_has_entries_for_all_platforms(self) -> None:
+        assert "win32" in _RESERVED_HOTKEYS
+        assert "darwin" in _RESERVED_HOTKEYS
+        assert "linux" in _RESERVED_HOTKEYS
+
+    def test_all_entries_are_lowercase(self) -> None:
+        for platform, entries in _RESERVED_HOTKEYS.items():
+            for entry in entries:
+                assert entry == entry.lower(), (
+                    f"Reserved hotkey {entry!r} for {platform} must be lowercase"
+                )
+
+    def test_linux_does_not_reserve_super_space(self) -> None:
+        # Invariant: <super>+<space> is intentionally NOT reserved on Linux.
+        # The frontend test "still offers <super>+<space> on Linux" pins this.
+        assert "<super>+<space>" not in _RESERVED_HOTKEYS["linux"]
+
+
+class TestBlockedCtrlLetters:
+    """Verify the _BLOCKED_CTRL_LETTERS set covers common app shortcuts."""
+
+    def test_contains_copy_paste_undo(self) -> None:
+        assert "c" in _BLOCKED_CTRL_LETTERS  # Copy
+        assert "v" in _BLOCKED_CTRL_LETTERS  # Paste
+        assert "x" in _BLOCKED_CTRL_LETTERS  # Cut
+        assert "z" in _BLOCKED_CTRL_LETTERS  # Undo
+        assert "y" in _BLOCKED_CTRL_LETTERS  # Redo
+        assert "a" in _BLOCKED_CTRL_LETTERS  # Select All
+        assert "s" in _BLOCKED_CTRL_LETTERS  # Save
+        assert "f" in _BLOCKED_CTRL_LETTERS  # Find
+        assert "p" in _BLOCKED_CTRL_LETTERS  # Print
+        assert "w" in _BLOCKED_CTRL_LETTERS  # Close (Windows/Linux)
+
+    def test_all_entries_are_single_lowercase_letters(self) -> None:
+        for letter in _BLOCKED_CTRL_LETTERS:
+            assert len(letter) == 1
+            assert letter.isalpha()
+            assert letter.islower()
+
+
+class TestHotkeyModifiers:
+    """Verify the _HOTKEY_MODIFIERS set covers all modifier variants."""
+
+    def test_contains_core_modifiers(self) -> None:
+        for mod in ("ctrl", "shift", "alt", "cmd", "win", "super", "fn"):
+            assert mod in _HOTKEY_MODIFIERS
+
+    def test_contains_left_right_variants(self) -> None:
+        for mod in ("ctrl_l", "ctrl_r", "shift_l", "shift_r", "alt_l", "alt_r"):
+            assert mod in _HOTKEY_MODIFIERS
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

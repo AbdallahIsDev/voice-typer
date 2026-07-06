@@ -19,20 +19,10 @@ import.  ``config.py`` imports from this module (for
 ``ALLOWED_USER_MODELS``) and re-exports everything else via a wildcard
 ``from .config_validators import *`` at the bottom of ``config.py`` for
 backward compatibility.
-
-HOTKEY-UNIFY-002: this module now contains ``_RESERVED_HOTKEYS`` — the
-backend mirror of the frontend ``RESERVED_SHORTCUTS`` in
-``hotkey-validation.ts``. The two MUST be kept in sync: if you add a
-shortcut to one, add it to the other. The
-``test_reserved_hotkeys_match_frontend`` test in
-``tests/test_reserved_hotkeys.py`` enforces this at test time by
-parsing the TypeScript source and comparing the literal arrays.
 """
 
 import logging
-import platform
-import re
-from typing import Callable, Optional, Tuple, TypeGuard
+from typing import Callable, Optional, Tuple
 from urllib.parse import urlparse
 
 log = logging.getLogger("voice_typer.server.config_validators")
@@ -84,17 +74,17 @@ ValidatorFn = Callable[[object], Optional[str]]
 FieldSpec = Tuple[type, ValidatorFn]
 
 
-def _is_str(v: object) -> TypeGuard[str]:
+def _is_str(v: object) -> bool:
     return isinstance(v, str)
 
 
-def _is_int_not_bool(v: object) -> TypeGuard[int]:
+def _is_int_not_bool(v: object) -> bool:
     # bool is a subclass of int in Python; reject it explicitly so that
     # ``max_recording_seconds=True`` doesn't silently become 1.
     return isinstance(v, int) and not isinstance(v, bool)
 
 
-def _is_float_or_int_not_bool(v: object) -> TypeGuard[float | int]:
+def _is_float_or_int_not_bool(v: object) -> bool:
     # Accept ints on the numeric tower (they're valid floats), but still
     # reject bool.  This matches the dataclass field type ``float`` while
     # being friendly to JSON, which has no int/float distinction.
@@ -228,148 +218,188 @@ def _make_url_validator(*, allow_empty: bool = False, max_len: int = _MAX_STRING
 
 # Validator combinations ────────────────────────────────────────────────────
 
-
-# ──────────────────────────────────────────────────────────────────────────
-# HOTKEY-UNIFY-002: Reserved OS shortcuts — backend mirror of the
-# frontend ``RESERVED_SHORTCUTS`` in
+# HOTKEY-VALIDATION-001: OS-reserved shortcuts that must never be assigned
+# as global hotkeys.  This is the backend mirror of the frontend
+# ``RESERVED_SHORTCUTS`` table in
 # ``voice_typer/client/src/renderer/src/components/hotkey-validation.ts``.
+# The two MUST be kept in sync — if you add a shortcut here, add it there.
 #
-# These are OS-level shortcuts that should never be assignable as a
-# dictation/paste hotkey because binding them would silently break core
-# OS functionality (Spotlight, window switching, lock screen, etc.).
+# In addition to the per-platform explicit denylist, ``_validate_hotkey``
+# applies the following blanket rules (mirroring the frontend):
+#   - Win+* and Super+* are blocked on Windows and Linux respectively
+#     (system-wide shell shortcuts).
+#   - Alt+Tab, Alt+F4, Alt+Esc, Alt+Space are blocked on every platform
+#     (window management).
+#   - Alt+Shift is blocked on Windows (language switching).
+#   - Ctrl+<common-letter> (c, v, x, z, a, s, y, w, f, p, n, o, t, l, r,
+#     h, j, k, b, i, u, d, e, g, m, q) is blocked (Copy/Paste/Undo/Save/
+#     etc.).  Ctrl+<F-key> and Ctrl+<special-key> are allowed.
+#   - Shift+<letter> is blocked (interferes with capitalization).
+#     Shift+<F-key> and Shift+<special-key> are allowed.
 #
-# The frontend ``hotkey-validation.ts`` filters these from the preset
-# dropdown and rejects them in ``validateHotkey()``. This backend mirror
-# is a DEFENSE-IN-DEPTH check — a malicious or buggy IPC client that
-# bypasses the frontend (e.g. by sending ``set_config`` directly over
-# the TCP socket) will still be rejected here.
-#
-# The two dictionaries MUST be kept in sync. The
-# ``test_reserved_hotkeys_match_frontend`` test enforces this by
-# parsing the TypeScript source and comparing the literal arrays.
-#
-# Keys are stored lowercase; comparison is case-insensitive (see
-# ``_is_reserved_hotkey``).
-# ──────────────────────────────────────────────────────────────────────────
-_RESERVED_HOTKEYS: dict = {
-    "win32": [
-        "<win>+e",
-        "<win>+v",
-        "<win>+space",
-        "<win>+d",
-        "<win>+l",
-        "<win>+tab",
-        "<win>+r",
-        "<win>+i",
-        "<win>+p",
-        "<win>+m",
-    ],
-    "darwin": [
-        "<cmd>+space",
-        "<cmd>+q",
-        "<cmd>+w",
-        "<cmd>+h",
-        "<cmd>+m",
-        "<cmd>+tab",
-        "<cmd>+shift+3",
-        "<cmd>+shift+4",
-        "<cmd>+shift+5",
-    ],
-    "linux": [
-        "<super>+l",
-        "<super>+d",
-        "<super>+tab",
-        # NOTE: <super>+<space> is intentionally NOT reserved on Linux
-        # — most desktop environments allow it to be reassigned. See
-        # the matching comment in hotkey-validation.ts.
-    ],
+# All other combinations (including Alt+<letter>) are allowed by default.
+# This is a denylist design, not a blanket rule design.
+import sys as _sys
+
+_RESERVED_HOTKEYS: dict[str, set[str]] = {
+    # Platform-specific reserved shortcuts.
+    # Stored in the SAME format as user input (angle brackets, lowercase)
+    # so we can compare directly with ``value.lower()``.
+    "win32": {
+        "<win>+<e>", "<win>+<v>", "<win>+<space>", "<win>+<d>", "<win>+<l>",
+        "<win>+<tab>", "<win>+<r>", "<win>+<i>", "<win>+<p>", "<win>+<m>",
+        "<alt>+<shift>",  # Windows language switching
+    },
+    "darwin": {
+        "<cmd>+<space>", "<cmd>+<q>", "<cmd>+<w>", "<cmd>+<h>", "<cmd>+<m>",
+        "<cmd>+<tab>", "<cmd>+<shift>+<3>", "<cmd>+<shift>+<4>", "<cmd>+<shift>+<5>",
+    },
+    "linux": {
+        "<super>+<l>", "<super>+<d>", "<super>+<tab>",
+        # NOTE: <super>+<space> is intentionally NOT reserved on Linux.
+    },
 }
 
+# Universal window-management shortcuts blocked on EVERY platform.
+# Alt+Tab, Alt+F4, Alt+Esc, Alt+Space are OS-level window management
+# on Windows, macOS (with Alt=Option), and most Linux desktops.
+# Stored in the SAME format as user input (angle brackets, lowercase)
+# so we can compare directly with ``value.lower()``.
+_UNIVERSAL_RESERVED_HOTKEYS = frozenset({
+    "<alt>+<tab>", "<alt>+<f4>", "<alt>+<esc>", "<alt>+<space>",
+})
 
-def _current_platform() -> str:
-    """Return the current platform key for ``_RESERVED_HOTKEYS`` lookup.
+# Common Ctrl+<letter> shortcuts that are universally expected by users
+# (Copy, Paste, Undo, Save, Select All, etc.).  Mirrors the frontend
+# behavior.  These are blocked regardless of platform.
+_BLOCKED_CTRL_LETTERS = frozenset({
+    "c", "v", "x", "z", "a", "s", "y", "w", "f", "p", "n", "o", "t",
+    "l", "r", "h", "j", "k", "b", "i", "u", "d", "e", "g", "m", "q",
+})
 
-    Returns one of ``"win32"``, ``"darwin"``, ``"linux"`` based on
-    ``platform.system()``. Falls back to ``"linux"`` for unknown
-    platforms (the most permissive set).
-    """
-    system = platform.system().lower()
-    if system == "windows":
+# Modifier keys recognized in the hotkey string (pynput-style, lowercase).
+_HOTKEY_MODIFIERS = frozenset({
+    "ctrl", "ctrl_l", "ctrl_r", "shift", "shift_l", "shift_r",
+    "alt", "alt_l", "alt_r", "alt_gr", "cmd", "cmd_l", "cmd_r",
+    "win", "super", "fn", "globe",
+})
+
+
+def _platform_key() -> str:
+    """Return the platform key for ``_RESERVED_HOTKEYS`` lookup."""
+    if _sys.platform == "win32":
         return "win32"
-    if system == "darwin":
+    if _sys.platform == "darwin":
         return "darwin"
     return "linux"
 
 
-def _normalize_hotkey_for_compare(hotkey: str) -> str:
-    """Normalize a hotkey string for case-insensitive comparison.
-
-    Strips angle brackets from each part and lowercases. Handles
-    ``<Cmd>+<Space>`` matching ``<cmd>+space`` and ``<CMD>+SPACE``.
-
-    Used by ``_is_reserved_hotkey`` so callers can pass either
-    convention (with or without angle brackets around non-modifier
-    keys) and still get correct reserved-shortcut detection.
-    """
+def _parse_hotkey_parts(hotkey: str) -> list[str]:
+    """Parse a hotkey string like ``"<ctrl>+<alt>+v"`` into ``["ctrl","alt","v"]``."""
     if not hotkey:
-        return ""
-    return "+".join(
-        p.replace("<", "").replace(">", "").strip().lower()
-        for p in hotkey.split("+")
-    )
+        return []
+    parts: list[str] = []
+    for raw in hotkey.split("+"):
+        part = raw.replace("<", "").replace(">", "").strip().lower()
+        if part:
+            parts.append(part)
+    return parts
 
 
-def _is_reserved_hotkey(hotkey: str, platform_key: Optional[str] = None) -> bool:
-    """Check if a hotkey is reserved by the OS for the given platform.
+def _validate_hotkey(value: object) -> Optional[str]:
+    """Validate a hotkey string against the reserved-shortcut denylist.
 
-    Comparison is case-insensitive and angle-bracket-insensitive —
-    ``<Cmd>+<Space>`` matches ``<cmd>+space`` and ``<CMD>+SPACE``.
-    Callers can pass either convention (with or without angle brackets
-    around non-modifier keys) and still get correct detection.
+    Returns ``None`` if valid, or a human-readable error string if invalid.
+    Mirrors the frontend ``validateHotkey`` in ``hotkey-validation.ts``.
+
+    HOTKEY-VALIDATION-001: this replaces the previous length-only check
+    (``_make_str_validator(max_len=256)``) which accepted OS-reserved
+    shortcuts like ``<alt>+<tab>`` and conflict-prone combos like
+    ``<ctrl>+<c>``.
     """
-    if not hotkey:
-        return False
-    pk = platform_key or _current_platform()
-    reserved = _RESERVED_HOTKEYS.get(pk, [])
-    normalized = _normalize_hotkey_for_compare(hotkey)
-    return any(_normalize_hotkey_for_compare(r) == normalized for r in reserved)
-
-
-def _validate_hotkey_with_reserved(v: object) -> Optional[str]:
-    """Validator for hotkey fields: type check + length + reserved check.
-
-    This is the validator used for ``hotkey``, ``push_to_talk_hotkey``,
-    and ``repaste_hotkey``. It rejects:
-      - Non-string values
-      - Strings longer than 256 chars
-      - OS-reserved shortcuts (Win+E, Cmd+Space, etc.)
-
-    The reserved-shortcut check uses the CURRENT platform — a config
-    file created on macOS with ``<cmd>+<space>`` will be rejected when
-    loaded on macOS, but accepted on Windows/Linux (where it's not
-    reserved). This matches the frontend behavior.
-    """
-    if not _is_str(v):
-        return f"must be a string, got {type(v).__name__}"
-    if len(v) > 256:
+    if not isinstance(value, str):
+        return f"must be a string, got {type(value).__name__}"
+    if len(value) > 256:
         return "exceeds maximum length 256"
-    if _is_reserved_hotkey(v):
-        return f"is reserved by the operating system ({_current_platform()})"
+    if not value.strip():
+        return "must not be empty"
+
+    parts = _parse_hotkey_parts(value)
+    if not parts:
+        return "hotkey has no keys"
+
+    # Check the universal window-management denylist (applies to all platforms).
+    normalized = value.lower()
+    if normalized in _UNIVERSAL_RESERVED_HOTKEYS:
+        return "reserved by operating system (window management)"
+
+    # Check the per-platform denylist.
+    platform = _platform_key()
+    reserved = _RESERVED_HOTKEYS.get(platform, set())
+    for r in reserved:
+        if r == normalized:
+            return f"reserved by operating system ({platform})"
+
+    # Win+* / Super+* / Cmd+* blanket blocks for system shell shortcuts.
+    has_win = any(p in ("win", "super") for p in parts)
+    has_cmd = any(p in ("cmd", "cmd_l", "cmd_r") for p in parts)
+    if has_win and platform in ("win32", "linux"):
+        return "Windows/Super key combinations are reserved by the OS shell"
+    if has_cmd and platform == "darwin" and len(parts) > 1:
+        # On macOS, Cmd+<letter> is heavily used by the system and apps.
+        # Block Cmd+<letter> but allow Cmd+<F-key> and Cmd+<special-key>.
+        non_mods = [p for p in parts if p not in _HOTKEY_MODIFIERS]
+        for nm in non_mods:
+            if len(nm) == 1 and nm.isalpha():
+                return f"Cmd+{nm.upper()} is reserved by macOS / common apps"
+
+    # Alt+Shift blanket block (Windows language switching).
+    if platform == "win32":
+        non_mods = [p for p in parts if p not in _HOTKEY_MODIFIERS]
+        has_alt = any(p.startswith("alt") for p in parts)
+        has_shift = any(p.startswith("shift") for p in parts)
+        if has_alt and has_shift and not non_mods:
+            return "Alt+Shift is reserved by Windows for language switching"
+
+    # Ctrl+<common-letter> blanket block (Copy/Paste/Undo/Save/etc.).
+    # Only applies to PURE Ctrl+<letter> — if another modifier is present
+    # (e.g. Ctrl+Alt+U), the combo is allowed because it doesn't conflict
+    # with the common app shortcuts.
+    has_ctrl = any(p.startswith("ctrl") for p in parts)
+    if has_ctrl:
+        non_mods = [p for p in parts if p not in _HOTKEY_MODIFIERS]
+        modifiers_non_ctrl = [p for p in parts if p in _HOTKEY_MODIFIERS and not p.startswith("ctrl")]
+        if not modifiers_non_ctrl:
+            # Pure Ctrl+<key> — apply the letter block.
+            for nm in non_mods:
+                if nm in _BLOCKED_CTRL_LETTERS:
+                    return f"Ctrl+{nm.upper()} is a reserved application shortcut"
+
+    # Shift+<letter> blanket block (interferes with capitalization).
+    # Only applies to PURE Shift+<letter> — if another modifier is present,
+    # the combo is allowed (e.g. Ctrl+Shift+Z = redo in many apps).
+    has_shift = any(p.startswith("shift") for p in parts)
+    if has_shift:
+        non_mods = [p for p in parts if p not in _HOTKEY_MODIFIERS]
+        modifiers_non_shift = [p for p in parts if p in _HOTKEY_MODIFIERS and not p.startswith("shift")]
+        if not modifiers_non_shift:
+            # Pure Shift+<key> — apply the letter block.
+            for nm in non_mods:
+                if len(nm) == 1 and nm.isalpha():
+                    return f"Shift+{nm.upper()} interferes with text capitalization"
+
     return None
 
 
-_VALIDATOR_HOTKEY = _validate_hotkey_with_reserved
+_VALIDATOR_HOTKEY = _validate_hotkey
 _VALIDATOR_LANGUAGE = _make_str_validator(max_len=16)
 _VALIDATOR_API_KEY = _make_str_validator(max_len=_MAX_API_KEY_LEN)
 _VALIDATOR_API_URL = _make_url_validator(allow_empty=True)
 _VALIDATOR_LLM_API_URL = _make_url_validator(allow_empty=False)
 _VALIDATOR_LLM_MODEL = _make_str_validator(max_len=256)
-# HOTKEY-UNIFY-002: repaste + push-to-talk hotkeys also use the
-# reserved-shortcut validator — a malicious IPC client shouldn't be
-# able to set ``<cmd>+<space>`` as the repaste hotkey either.
-_VALIDATOR_REPASTE_HOTKEY = _validate_hotkey_with_reserved
+_VALIDATOR_REPASTE_HOTKEY = _validate_hotkey
 _VALIDATOR_MICROPHONE = _make_optional_str_validator(max_len=512)
-_VALIDATOR_PUSH_TO_TALK_HOTKEY = _validate_hotkey_with_reserved
+_VALIDATOR_PUSH_TO_TALK_HOTKEY = _validate_hotkey
 _VALIDATOR_CLOUD_MODEL = _make_str_validator(max_len=256)
 
 
@@ -669,11 +699,6 @@ __all__ = [
     "ALLOWED_USER_MODELS",
     "_MAX_STRING_LEN",
     "_MAX_API_KEY_LEN",
-    # HOTKEY-UNIFY-002: reserved hotkeys + helpers
-    "_RESERVED_HOTKEYS",
-    "_current_platform",
-    "_is_reserved_hotkey",
-    "_validate_hotkey_with_reserved",
     # Type aliases
     "ValidatorFn",
     "FieldSpec",
