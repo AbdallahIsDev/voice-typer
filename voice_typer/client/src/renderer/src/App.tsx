@@ -10,6 +10,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { useConnection } from "@/hooks/useConnection";
 import { useNavigation } from "@/hooks/useNavigation";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
+import { useSoundFeedback } from "@/hooks/useSoundFeedback";
 import { useTheme } from "@/hooks/useTheme";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
@@ -34,6 +35,12 @@ export default function App() {
 	// ── Routing (extracted to useNavigation) ──────────────────────
 	const { currentPage, navigate, goBack, goForward, canGoBack, canGoForward } =
 		useNavigation();
+
+	// SOUND-FIX-004: App-level sound feedback subscription.  Previously
+	// lived in Home.tsx, so cues only played when the user was on Home.
+	// Mounting at the App root ensures cues fire on every page and when
+	// the window is hidden to the tray.
+	useSoundFeedback();
 
 	// NEW-UX-043: "?" key opens a help overlay listing keyboard shortcuts.
 	// Also closes on Escape.

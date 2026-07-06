@@ -8,6 +8,12 @@ import StatCards from "@/components/StatCards";
 import { StatsShareImage } from "@/components/StatsShareImage";
 import { Button } from "@/components/ui/button";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
+// SOUND-FIX-004: sound feedback logic moved to App-level hook so cues
+// play on every page, not just Home.  Home no longer subscribes to
+// recording_started / recording_stopped for sound — the App root does.
+// The local playSoundCue / initAudioContext functions below are kept
+// only as thin re-exports for backward compatibility with any external
+// importer, but they are no longer called from Home's event handlers.
 import { computeShareStats, useStatsShare } from "@/hooks/useStatsShare";
 import {
 	initAudioContext,
@@ -154,30 +160,13 @@ function statusKeyFor(state: RecordingState, hasError: boolean): string {
 	return state;
 }
 
-// NEW-UX-029: play a short audio cue using the Web Audio API.
-// No asset files needed — works offline, no network.  The cue
-// is gated by the ``sound_feedback_enabled`` config flag (read
-// from localStorage cache updated by Settings).
-//
-// SOUND-FIX-REWRITE: the audio cue logic has been moved to
-// ``@/lib/sound-manager``. This file imports ``initAudioContext``,
-// ``playSoundCue``, and ``setSoundFeedbackEnabled`` from there.
-// The new module fixes four bugs in the previous inline
-// implementation:
-//  1. ``_audioContextInitAttempted`` was set before construction,
-//     so a failed init never retried.
-//  2. AudioContext suspended on mount — resume() rejected silently.
-//  3. ``playSoundCue`` swallowed resume() rejections with no fallback.
-//  4. localStorage flag was only written on Settings toggle, not on
-//     initial config load — caused the flag to drift from the actual
-//     config value after a fresh install.
-//
-// The new module installs a one-time global gesture listener that
-// resumes the AudioContext on the first user interaction, and falls
-// back to HTMLAudioElement when the AudioContext is unavailable.
-// Combined with the ``autoplayPolicy: "no-user-gesture-required"``
-// setting in the Electron BrowserWindow config (see main/index.ts),
-// this ensures the cue plays reliably on every recording start/stop.
+// SOUND-FIX-004: the sound feedback logic (AudioContext singleton,
+// initAudioContext, playSoundCue) has been moved to
+// ``@/hooks/useSoundFeedback`` and is now subscribed at the App root
+// so cues fire on every page, not just Home.  These re-exports keep
+// backward compatibility for any external importer.
+export { initAudioContext, playSoundCue } from "@/hooks/useSoundFeedback";
+
 export default function Home({
 	recordingState,
 	lastError,
@@ -346,26 +335,7 @@ export default function Home({
 			clearTimeout(lastTextTimer.current);
 			lastTextTimer.current = null;
 		}
-		// NEW-UX-029: play a start-recording sound if the user has enabled
-		// sound feedback.  We use the Web Audio API to synthesize a short
-		// tone — no asset files needed, works offline, no network.  The
-		// tone is a soft 660Hz sine for 120ms with a quick fade-out.
-		playSoundCue("start");
 	});
-
-	// SOUND-FIX-002: play the stop-recording sound IMMEDIATELY when the
-	// backend emits recording_stopped (not when transcription_final
-	// arrives — those are separate events with a seconds-long gap).
-	usePythonEvent("recording_stopped", () => {
-		playSoundCue("stop");
-	});
-
-	// SOUND-FIX-003: eagerly initialize the AudioContext on component mount
-	// so it's never in "suspended" state when the first recording event
-	// fires (which often happens before any user gesture on Home).
-	useEffect(() => {
-		initAudioContext();
-	}, []);
 
 	// Clean up pending refresh timer on unmount
 	useEffect(() => {

@@ -302,11 +302,18 @@ class RecordingController:
                 )
             # NEW-IPC-002: emit recording_started push event so the
             # renderer can proactively refresh UI (Home/Dashboard/History)
+            # SOUND-FIX-004: log push failures instead of silently
+            # swallowing them — a failed push means the renderer never
+            # hears about recording_started, so the sound cue won't play
+            # and the user gets no audible feedback.  This must be visible.
             try:
                 from voice_typer.server.ipc_server import _push_event_now
                 _push_event_now({"type": "recording_started"})
             except Exception:
-                pass
+                log.warning(
+                    "[SOUND] failed to push recording_started event",
+                    exc_info=True,
+                )
         except Exception as e:
             log.exception("[DICTATION] Failed to start recording: %s", e)
             self._cancel_streaming_session()
@@ -325,11 +332,15 @@ class RecordingController:
             log.info("[DICTATION] _stop_dictation: not recording, no-op")
             return
         # NEW-IPC-002: emit recording_stopped push event
+        # SOUND-FIX-004: log push failures (see comment in start() above).
         try:
             from voice_typer.server.ipc_server import _push_event_now
             _push_event_now({"type": "recording_stopped"})
         except Exception:
-            pass
+            log.warning(
+                "[SOUND] failed to push recording_stopped event",
+                exc_info=True,
+            )
 
         # ARCH-ESC-001: recording is stopping — release keyboard ownership
         # back to "normal" so the ESC cancel hotkey stops firing. This
