@@ -156,7 +156,7 @@ export const HotkeySettingsSection = memo(function HotkeySettingsSection({
 				>
 					<SettingRow
 						label="Dictation Key"
-						info="The keyboard key used to start and stop recording. Click the button to record a new key, or pick from the preset list. Supports F1-F19, Caps Lock, Print Screen, and more."
+						info="The keyboard key used to start and stop recording. Click the button to record a new key, or pick from the preset list."
 					>
 						<HotkeyPicker
 							value={config.hotkey}

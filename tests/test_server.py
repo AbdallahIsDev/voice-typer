@@ -280,13 +280,22 @@ class TestDispatchEscCancelLive:
         mock_app._register_esc_hotkey.assert_not_called()
 
     def test_enable_repaste_hotkey_calls_register_repaste_hotkey(self, server, mock_app):
-        """set_config with repaste_hotkey should call _register_repaste_hotkey."""
+        """set_config with repaste_hotkey should call _register_repaste_hotkey.
+
+        Round 0: changed the test input from ``<ctrl>+<v>`` to
+        ``<ctrl>+<alt>+v`` because the config_validators denylist
+        (SEC-CTRL-BLOCK) now blocks pure Ctrl+letter combos that clash
+        with reserved application shortcuts (Copy/Paste/Undo/Save/etc.).
+        ``<ctrl>+<alt>+v`` is the default repaste_hotkey (config.py:536)
+        and is also used by the passing sibling test
+        test_side_effect_repaste_fires_on_repaste_hotkey.
+        """
         mock_app._register_repaste_hotkey = MagicMock()
 
         result = server._dispatch({
             "id": 1,
             "type": "set_config",
-            "data": {"repaste_hotkey": "<ctrl>+<v>"},
+            "data": {"repaste_hotkey": "<ctrl>+<alt>+v"},
         })
         assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         mock_app._register_repaste_hotkey.assert_called_once()

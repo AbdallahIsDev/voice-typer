@@ -136,8 +136,18 @@ export function detectPlatform(): string {
 export function isReserved(hotkey: string, platform: string): boolean {
 	if (!hotkey) return false;
 	const reserved = RESERVED_SHORTCUTS[platform] || [];
-	const normalized = hotkey.toLowerCase();
-	return reserved.some((r) => r.toLowerCase() === normalized);
+	// HOTKEY-FIX-001 (Round 0): normalize both sides via normalizeHotkey()
+	// (which strips angle brackets and lowercases) before comparing. The
+	// RESERVED_SHORTCUTS table stores entries with brackets on both parts
+	// (e.g. ``"<win>+<e>"``), but callers pass hotkeys using the pynput
+	// convention with brackets only on the modifier (e.g. ``"<win>+e"``).
+	// The previous raw-lowercase comparison only matched when the caller
+	// used the exact same bracket convention as the table — so Win+E,
+	// Cmd+Space, Super+L, etc. were all silently accepted as valid
+	// despite being OS-reserved. Normalizing both sides makes the
+	// comparison bracket-agnostic.
+	const normalized = normalizeHotkey(hotkey);
+	return reserved.some((r) => normalizeHotkey(r) === normalized);
 }
 
 /**
