@@ -41,11 +41,24 @@ class TestGuards:
 
     def test_unknown_ram_does_not_skip(self, monkeypatch):
         """If free RAM can't be queried (None), prewarm should NOT bail on
-        the RAM guard — it should proceed (and fail later on imports)."""
+        the RAM guard — it should proceed (and fail later on imports).
+
+        Round 0: also mock ``_already_warmed`` to return False so the test
+        is machine-state-independent. Previously, on machines where the
+        prewarm scheduled task had already run in the current boot session
+        (sentinel file ``~/.voice-typer/.prewarm-sentinel`` exists and
+        matches boot time), ``run()`` short-circuited to EXIT_OK=0 before
+        reaching the mocked ``_warm_imports`` — causing the test to fail
+        with ``assert 0 == 40``. The boot-session dedup is correct
+        production behavior; the test just needs to isolate itself.
+        """
         monkeypatch.setattr(prewarm, "_setup_logging", lambda: None)
         monkeypatch.setattr(prewarm, "_fast_startup_enabled", lambda: True)
         monkeypatch.setattr(prewarm, "_free_ram_mb", lambda: None)
         monkeypatch.setattr(prewarm, "_lower_io_priority", lambda: None)
+        # Bypass the boot-session sentinel so the test always reaches
+        # _warm_imports regardless of prior prewarm runs on this machine.
+        monkeypatch.setattr(prewarm, "_already_warmed", lambda: False)
         # _warm_imports will raise ImportError on the mocked torch.
         monkeypatch.setattr(
             prewarm, "_warm_imports",

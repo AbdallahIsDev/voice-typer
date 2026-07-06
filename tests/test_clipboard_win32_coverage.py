@@ -489,6 +489,27 @@ class TestFocusedWindowIsCredentialDialog:
 
 
 class TestIsPasswordFieldWindows:
+    @pytest.fixture(autouse=True)
+    def _reset_uia_singleton(self):
+        """Reset the module-level UIA singleton so each test's per-test
+        comtypes mock is consulted fresh.
+
+        PERF-FIX-001 (Round 0): the UIA COM object is now a module-level
+        singleton in clipboard.py (_UIA_SINGLETON, _UIA_MODULE,
+        _UIA_SINGLETON_INIT_ATTEMPTED). Without this reset, the first
+        test that triggers _get_uia_singleton() caches its fake_uia mock
+        in the singleton, and every subsequent test receives the stale
+        mock — causing false positives/negatives depending on test order.
+        """
+        clip_mod._UIA_SINGLETON = None
+        clip_mod._UIA_MODULE = None
+        clip_mod._UIA_SINGLETON_INIT_ATTEMPTED = False
+        yield
+        # Restore after test in case the test set them.
+        clip_mod._UIA_SINGLETON = None
+        clip_mod._UIA_MODULE = None
+        clip_mod._UIA_SINGLETON_INIT_ATTEMPTED = False
+
     def test_returns_false_when_no_foreground_window(self, fake_win32):
         """No focused window → False (comtypes path returns False too)."""
         fake_win32["user32"].GetForegroundWindow.return_value = 0
@@ -671,6 +692,17 @@ class TestIsPasswordFieldWindows:
 
 
 class TestIsContentEditableWindows:
+    @pytest.fixture(autouse=True)
+    def _reset_uia_singleton(self):
+        """Reset the module-level UIA singleton (see TestIsPasswordFieldWindows)."""
+        clip_mod._UIA_SINGLETON = None
+        clip_mod._UIA_MODULE = None
+        clip_mod._UIA_SINGLETON_INIT_ATTEMPTED = False
+        yield
+        clip_mod._UIA_SINGLETON = None
+        clip_mod._UIA_MODULE = None
+        clip_mod._UIA_SINGLETON_INIT_ATTEMPTED = False
+
     def test_returns_true_for_edit_with_value_pattern(self, fake_win32):
         """Edit control type (50004) with Value pattern → True."""
         fake_uia_mod = MagicMock(name="UIA_module")

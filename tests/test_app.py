@@ -899,7 +899,13 @@ class TestHotkeyMapping:
             assert app.hotkeys._hotkey_backend.is_alive() is False
 
     def test_register_esc_hotkey_creates_and_starts_backend(self, app, monkeypatch):
-        """_register_esc_hotkey should create a backend and call start()."""
+        """_register_esc_hotkey should create a backend and call start().
+
+        ARCH-ESC-001 (Round 0): the ESC callback is now a closure
+        (_esc_callback in hotkey_dispatcher.register_esc) that wraps
+        app._cancel_dictation with a keyboard_ownership guard — so the
+        test must accept any callable, not the raw bound method.
+        """
 
         mock_listener = MagicMock()
         mock_listener.is_alive.return_value = True
@@ -912,7 +918,14 @@ class TestHotkeyMapping:
         app._register_esc_hotkey()
 
         assert app.hotkeys._esc_backend is not None
-        mock_ghk_cls.assert_called_once_with({"<esc>": app._cancel_dictation})
+        # The callback is now a closure (ARCH-ESC-001), so accept any
+        # callable rather than asserting it's the raw bound method.
+        mock_ghk_cls.assert_called_once()
+        call_args = mock_ghk_cls.call_args
+        assert len(call_args.args) == 1, "GlobalHotKeys must be called with the hotkey dict"
+        hotkey_dict = call_args.args[0]
+        assert "<esc>" in hotkey_dict, "hotkey dict must contain <esc>"
+        assert callable(hotkey_dict["<esc>"]), "ESC callback must be callable"
         mock_listener.start.assert_called_once()
 
     def test_unregister_esc_hotkey_stops_and_clears_backend(self, app, monkeypatch):
