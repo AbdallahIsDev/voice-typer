@@ -61,23 +61,43 @@ interface ModelMetadata {
 const CLOUD_PROVIDERS = [
 	{
 		key: "openai",
-		label: "OpenAI Whisper API",
 		url: "https://api.openai.com/v1/audio/transcriptions",
 		model: "whisper-1",
 	},
 	{
 		key: "groq",
-		label: "Groq Whisper API",
 		url: "https://api.groq.com/openai/v1/audio/transcriptions",
 		model: "whisper-large-v3",
 	},
 	{
 		key: "deepgram",
-		label: "Deepgram API",
 		url: "https://api.deepgram.com/v1/listen",
 		model: "nova-2",
 	},
 ] as const;
+
+// I18N-FIX: provider labels are translated at render time (not baked into
+// the module-level constant) so locale changes take effect on the next
+// render without re-loading the module.  ``key`` is the stable identifier;
+// ``label`` is derived via getProviderLabel().
+function getProviderLabel(providerKey: string): string {
+	switch (providerKey) {
+		case "openai":
+			return t("models.providers.openai.label");
+		case "groq":
+			return t("models.providers.groq.label");
+		case "deepgram":
+			return t("models.providers.deepgram.label");
+		default:
+			return providerKey;
+	}
+}
+
+// I18N-FIX: model size "Variable" is a sentinel for qwen / always-available
+// models.  Translate it for display; pass through literal sizes like ~466MB.
+function formatModelSize(size: string): string {
+	return size === "Variable" ? t("models.variable") : size;
+}
 
 const INITIAL_MODELS: ModelInfo[] = [
 	{
@@ -435,15 +455,12 @@ export default function ModelsPage() {
 
 	const selectModel = async (model: ModelInfo) => {
 		if (model.name === "parakeet" && !model.depsOk) {
-			showSnack(
-				"Dependencies required for Parakeet. Download first.",
-				"warning",
-			);
+			showSnack(t("models.snack.parakeetDepsRequired"), "warning");
 			return;
 		}
 		if (!model.downloaded && !model.alwaysAvailable) {
 			showSnack(
-				`Model "${model.name}" not downloaded yet. Download it first.`,
+				t("models.snack.notDownloaded", { name: model.name }),
 				"warning",
 			);
 			return;
@@ -462,7 +479,7 @@ export default function ModelsPage() {
 		setModels((prev) =>
 			prev.map((m) => ({ ...m, isActive: m.name === model.name })),
 		);
-		showSnack(`Using model: ${model.name}`, "success");
+		showSnack(t("models.snack.usingModel", { name: model.name }), "success");
 	};
 
 	const downloadModel = async (model: ModelInfo) => {
@@ -486,14 +503,23 @@ export default function ModelsPage() {
 					),
 				);
 				showSnack(
-					result.message || `${model.name} downloaded successfully`,
+					result.message || t("models.snack.downloaded", { name: model.name }),
 					"success",
 				);
 			} else {
-				showSnack(result.error || `Failed to download ${model.name}`, "error");
+				showSnack(
+					result.error ||
+						t("models.snack.downloadFailedName", { name: model.name }),
+					"error",
+				);
 			}
 		} catch (err) {
-			showSnack(`Download failed: ${formatErrorMessage(err)}`, "error");
+			showSnack(
+				t("models.snack.downloadFailed", {
+					error: formatErrorMessage(err),
+				}),
+				"error",
+			);
 		} finally {
 			setIsDownloading(false);
 			// Keep the final progress/status visible briefly so the user
@@ -530,12 +556,18 @@ export default function ModelsPage() {
 						m.name === deleteModelTarget.name ? { ...m, downloaded: false } : m,
 					),
 				);
-				showSnack(`Deleted: ${deleteModelTarget.name}`, "warning");
+				showSnack(
+					t("models.snack.deleted", { name: deleteModelTarget.name }),
+					"warning",
+				);
 			} else {
-				showSnack(result?.message ?? "Delete failed", "error");
+				showSnack(result?.message ?? t("models.snack.deleteFailed"), "error");
 			}
 		} catch (e) {
-			showSnack(`Delete failed: ${e}`, "error");
+			showSnack(
+				t("models.snack.deleteFailedError", { error: String(e) }),
+				"error",
+			);
 		}
 		setDeleteModelTarget(null);
 	};
@@ -551,7 +583,7 @@ export default function ModelsPage() {
 		const updates = { [configKey]: key } as Partial<VoiceTyperConfig>;
 		await updateConfig(updates);
 		showSnack(
-			`${CLOUD_PROVIDERS.find((p) => p.key === provider)?.label} API key saved`,
+			t("models.snack.apiKeySaved", { provider: getProviderLabel(provider) }),
 			"success",
 		);
 	};
@@ -581,8 +613,12 @@ export default function ModelsPage() {
 		setConfig((prev) => (prev ? { ...prev, [configKey]: granted } : prev));
 		showSnack(
 			granted
-				? `Consent granted for ${CLOUD_PROVIDERS.find((p) => p.key === provider)?.label} — audio will be sent to this provider.`
-				: `Consent revoked for ${CLOUD_PROVIDERS.find((p) => p.key === provider)?.label} — audio will NOT be sent.`,
+				? t("models.snack.consentGranted", {
+						provider: getProviderLabel(provider),
+					})
+				: t("models.snack.consentRevoked", {
+						provider: getProviderLabel(provider),
+					}),
 			granted ? "success" : "warning",
 		);
 	};
@@ -820,28 +856,22 @@ export default function ModelsPage() {
 							/>
 							<div className="flex-1">
 								<h3 className="text-sm font-semibold text-(--text-primary)">
-									HuggingFace download consent required
+									{t("models.hfConsent.title")}
 								</h3>
 								<p className="mt-1 text-xs leading-relaxed text-(--text-muted)">
-									Local Whisper models (tiny.en, small.en, medium.en) download
-									weights from <strong>huggingface.co</strong> on first use.
-									This download reveals your IP address to a US-headquartered
-									third party (Hugging Face, Inc.). Under GDPR Art. 13/44
-									(Schrems II), we need your explicit consent before initiating
-									the download. Audio itself is never sent — only the model
-									weights are fetched.
+									{t("models.hfConsent.description")}
 								</p>
 								<div className="mt-3 flex items-center gap-3">
 									<Button
 										variant="default"
 										size="sm"
 										onClick={() => setHuggingFaceConsent(true)}
-										aria-label="Grant HuggingFace download consent"
+										aria-label={t("models.hfConsent.grantAria")}
 									>
-										Grant consent
+										{t("models.hfConsent.grant")}
 									</Button>
 									<span className="text-xs text-(--text-muted)">
-										Model downloads are blocked until you grant consent.
+										{t("models.hfConsent.blockedHint")}
 									</span>
 								</div>
 							</div>
@@ -877,12 +907,13 @@ export default function ModelsPage() {
 								)}
 								{etaSeconds !== null && etaSeconds > 0 && (
 									<span className="ml-2 whitespace-nowrap">
-										· ETA {formatEta(etaSeconds)}
+										·{" "}
+										{t("models.progress.eta", { time: formatEta(etaSeconds) })}
 									</span>
 								)}
 								{isPaused && (
 									<span className="ml-2 text-amber-500 font-medium">
-										· Paused
+										{t("models.progress.paused")}
 									</span>
 								)}
 							</p>
@@ -900,7 +931,13 @@ export default function ModelsPage() {
 											}
 										} catch (err) {
 											showSnack(
-												`Failed to ${isPaused ? "resume" : "pause"}: ${formatErrorMessage(err)}`,
+												isPaused
+													? t("models.snack.resumeFailed", {
+															error: formatErrorMessage(err),
+														})
+													: t("models.snack.pauseFailed", {
+															error: formatErrorMessage(err),
+														}),
 												"error",
 											);
 										}
@@ -928,21 +965,20 @@ export default function ModelsPage() {
 									onClick={async () => {
 										try {
 											await call("cancel_model_download");
-											showSnack(
-												"Download cancelled. Partial files will be reused on retry.",
-												"warning",
-											);
+											showSnack(t("models.snack.cancelled"), "warning");
 										} catch (err) {
 											showSnack(
-												`Failed to cancel: ${formatErrorMessage(err)}`,
+												t("models.snack.cancelFailed", {
+													error: formatErrorMessage(err),
+												}),
 												"error",
 											);
 										}
 									}}
-									aria-label="Cancel model download"
+									aria-label={t("models.download.cancelAria")}
 									className="h-7 px-3 text-xs"
 								>
-									Cancel
+									{t("models.download.cancel")}
 								</Button>
 							</div>
 						</div>
@@ -981,9 +1017,11 @@ export default function ModelsPage() {
 									</div>
 									<p className="text-xs text-(--text-muted) mt-0.5">
 										{model.name === "parakeet"
-											? "NVIDIA Parakeet TDT v3  ·  "
+											? t("models.card.parakeetLabel")
 											: ""}
-										Size: {model.size}
+										{t("models.card.size", {
+											size: formatModelSize(model.size),
+										})}
 										{/* NEW-MODEL-001: rich metadata badges from
                                                                                          the backend's MODEL_REGISTRY.  Only shown
                                                                                          when the catalog has loaded — keeps the
@@ -991,12 +1029,19 @@ export default function ModelsPage() {
                                                                                          parakeet that aren't in the registry. */}
 										{meta && (
 											<span className="text-(--text-muted)">
-												{"  ·  "}VRAM: ~{meta.required_vram_mb} MB
 												{"  ·  "}
-												{meta.multilingual ? "Multilingual" : "English only"}
+												{t("models.card.vram", {
+													mb: String(meta.required_vram_mb),
+												})}
 												{"  ·  "}
-												{meta.speed_rating} speed
-												{meta.is_distilled ? "  ·  distilled" : ""}
+												{meta.multilingual
+													? t("models.card.multilingual")
+													: t("models.card.englishOnly")}
+												{"  ·  "}
+												{t("models.card.speedSuffix", {
+													rating: meta.speed_rating,
+												})}
+												{meta.is_distilled ? t("models.card.distilled") : ""}
 											</span>
 										)}
 									</p>
@@ -1017,14 +1062,16 @@ export default function ModelsPage() {
 											className="gap-1"
 											onClick={() => downloadModel(model)}
 											disabled={isDownloading}
-											aria-label={`Download dependencies for ${model.name}`}
+											aria-label={t("models.download.depsAria", {
+												name: model.name,
+											})}
 										>
 											<HugeiconsIcon
 												icon={Download01Icon}
 												strokeWidth={2}
 												className="h-4 w-4"
 											/>
-											Download Deps
+											{t("models.download.deps")}
 										</Button>
 									) : (
 										<Button
@@ -1038,8 +1085,8 @@ export default function ModelsPage() {
 											}
 											aria-label={
 												model.isActive
-													? `Active: ${model.name}`
-													: `Use ${model.name}`
+													? t("models.card.activeAria", { name: model.name })
+													: t("models.card.useAria", { name: model.name })
 											}
 										>
 											<HugeiconsIcon
@@ -1057,8 +1104,12 @@ export default function ModelsPage() {
 											onClick={() => requestDeleteModel(model)}
 											disabled={model.isActive}
 											className="text-(--text-muted) hover:text-destructive"
-											aria-label={`Delete ${model.name}`}
-											title={`Delete ${model.name}`}
+											aria-label={t("models.card.deleteAria", {
+												name: model.name,
+											})}
+											title={t("models.card.deleteAria", {
+												name: model.name,
+											})}
 										>
 											<HugeiconsIcon
 												icon={Delete01Icon}
@@ -1095,7 +1146,9 @@ export default function ModelsPage() {
 										className="h-4 w-4 text-accent"
 									/>
 									<h3 className="text-base font-semibold text-(--text-primary)">
-										{provider.label} Settings
+										{t("models.cloud.providerSettings", {
+											provider: getProviderLabel(provider.key),
+										})}
 									</h3>
 								</div>
 								<div className="mb-4">
@@ -1103,7 +1156,7 @@ export default function ModelsPage() {
 										htmlFor="api-key-input"
 										className="text-sm font-medium text-(--text-primary) mb-1.5 block"
 									>
-										API Key
+										{t("models.cloud.apiKey")}
 									</label>
 									<Input
 										id="api-key-input"
@@ -1124,23 +1177,27 @@ export default function ModelsPage() {
 										variant="default"
 										size="sm"
 										onClick={() => saveApiKey(provider.key)}
-										aria-label={`Save ${provider.label} API key`}
+										aria-label={t("models.cloud.saveKeyAria", {
+											provider: getProviderLabel(provider.key),
+										})}
 									>
-										Save Key
+										{t("models.cloud.saveKey")}
 									</Button>
 									<Button
 										variant="outline"
 										size="sm"
 										className="gap-2"
 										onClick={() => testConnection(provider.key)}
-										aria-label={`Test ${provider.label} connection`}
+										aria-label={t("models.cloud.testConnectionAria", {
+											provider: getProviderLabel(provider.key),
+										})}
 									>
 										<HugeiconsIcon
 											icon={SparklesIcon}
 											strokeWidth={2}
 											className="h-4 w-4"
 										/>
-										Test Connection
+										{t("models.cloud.testConnection")}
 									</Button>
 									{testResults[provider.key] && (
 										<span
@@ -1171,28 +1228,22 @@ export default function ModelsPage() {
 										<div className="flex items-start justify-between gap-4">
 											<div className="flex-1">
 												<h4 className="text-sm font-semibold text-(--text-primary)">
-													Audio transmission consent
+													{t("models.cloud.consentTitle")}
 												</h4>
 												<p className="mt-1 text-xs leading-relaxed text-(--text-muted)">
-													When this provider is selected as the active ASR
-													backend, your{" "}
-													<strong>audio recordings will be sent</strong> to{" "}
-													{provider.label} for transcription. The provider's
-													privacy policy applies to the audio sent. Voice Typer
-													never enables cloud ASR without your explicit consent
-													— even if an API key is configured.
+													{t("models.cloud.consentDescription", {
+														provider: getProviderLabel(provider.key),
+													})}
 												</p>
 												<p className="mt-2 text-xs text-(--text-muted)">
-													Status:{" "}
+													{t("models.cloud.statusLabel")}{" "}
 													{config?.[consentKeyFor(provider.key)] ? (
 														<span className="font-medium text-emerald-500">
-															Consent granted — audio will be sent when this
-															provider is active.
+															{t("models.cloud.consentGrantedStatus")}
 														</span>
 													) : (
 														<span className="font-medium text-amber-500">
-															Consent not granted — this provider will refuse to
-															transcribe.
+															{t("models.cloud.consentNotGrantedStatus")}
 														</span>
 													)}
 												</p>
@@ -1206,7 +1257,9 @@ export default function ModelsPage() {
 												onCheckedChange={(checked) =>
 													setCloudConsent(provider.key, checked)
 												}
-												aria-label={`Grant audio transmission consent for ${provider.label}`}
+												aria-label={t("models.cloud.consentAria", {
+													provider: getProviderLabel(provider.key),
+												})}
 											/>
 										</div>
 									</div>
@@ -1250,9 +1303,11 @@ export default function ModelsPage() {
 			{/* #7: ConfirmDialog for model deletion */}
 			<ConfirmDialog
 				open={deleteModelTarget !== null}
-				title="Delete Model"
-				message={`Are you sure you want to delete "${deleteModelTarget?.name ?? ""}"? This action cannot be undone.`}
-				confirmLabel="Delete"
+				title={t("models.deleteDialog.title")}
+				message={t("models.deleteDialog.message", {
+					name: deleteModelTarget?.name ?? "",
+				})}
+				confirmLabel={t("models.delete")}
 				onConfirm={confirmDeleteModel}
 				onCancel={() => setDeleteModelTarget(null)}
 			/>

@@ -215,22 +215,26 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 				// pattern.
 				if (deleted) {
 					showUndoableToast(
-						"Entry deleted",
+						t("history.entryDeleted"),
 						async () => {
 							try {
 								await call("restore_history", { record: deleted });
 								// Reload to reflect the restored entry.
 								load();
-								toast.success("Entry restored");
+								toast.success(t("history.entryRestored"));
 							} catch {
-								toast.error("Failed to restore entry");
+								toast.error(t("history.restoreFailed"));
 							}
 						},
-						{ undoLabel: "Undo", type: "warning", timeoutMs: 6000 },
+						{
+							undoLabel: t("history.undo"),
+							type: "warning",
+							timeoutMs: 6000,
+						},
 					);
 				}
 			} catch {
-				toast.error("Failed to delete item");
+				toast.error(t("history.deleteFailed"));
 			}
 		},
 		[call, records, load],
@@ -244,7 +248,7 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 					prev.map((r) => (r.id === id ? { ...r, favorite: res.favorite } : r)),
 				);
 			} catch {
-				toast.error("Failed to toggle favorite");
+				toast.error(t("history.favoriteFailed"));
 			}
 		},
 		[call],
@@ -267,9 +271,9 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 			setRecords([]);
 			setStats(emptyStats);
 			setHasMore(false);
-			toast.success("History cleared");
+			toast.success(t("history.historyCleared"));
 		} catch {
-			toast.error("Failed to clear history");
+			toast.error(t("history.clearFailed"));
 		} finally {
 			setShowClearConfirm(false);
 		}
@@ -278,7 +282,7 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 	const doExport = useCallback(
 		async (format: "json" | "csv") => {
 			if (records.length === 0) {
-				toast.error("Nothing to export — history is empty");
+				toast.error(t("history.exportEmpty"));
 				return;
 			}
 			try {
@@ -293,11 +297,11 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 					// ERR-ERR-005 (fix): null-safe path handling instead of `!` assertions
 					const path = result.path ?? "";
 					const filename = path.split(/[\\/]/).pop() || "untitled";
-					toast.success(`${filename} saved successfully`);
+					toast.success(t("history.exportSaved", { filename }));
 				}
 			} catch (err) {
 				console.error("History export failed:", err);
-				toast.error("Export failed");
+				toast.error(t("history.exportFailed"));
 			}
 		},
 		[call, records.length],
@@ -337,7 +341,7 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 						size="sm"
 						onClick={toggleFavorites}
 						aria-label={
-							favoritesOnly ? "Show all history" : "Show favorites only"
+							favoritesOnly ? t("history.showAll") : t("history.showFavorites")
 						}
 						className={`gap-2 ${
 							favoritesOnly
@@ -350,13 +354,13 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 							strokeWidth={2}
 							className={`h-4 w-4 ${favoritesOnly ? "text-amber-400" : ""}`}
 						/>
-						Favorites
+						{t("history.favorites")}
 					</Button>
 					<Button
 						variant="outline"
 						size="sm"
 						onClick={handleClearAll}
-						aria-label="Clear all history"
+						aria-label={t("history.clearAllAria")}
 						className="gap-2 text-(--text-muted) hover:text-red-400"
 					>
 						<HugeiconsIcon
@@ -364,7 +368,7 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 							strokeWidth={2}
 							className="h-4 w-4"
 						/>
-						Clear All
+						{t("history.clearAll")}
 					</Button>
 					<div className="ml-auto">
 						<ExportFormatMenu
@@ -427,7 +431,7 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 								{loadingMore ? (
 									<>
 										<Spinner className="border-current" />
-										Loading...
+										{t("history.loading")}
 									</>
 								) : (
 									<>
@@ -436,7 +440,7 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 											strokeWidth={2}
 											className="h-4 w-4"
 										/>
-										Load More
+										{t("history.loadMore")}
 									</>
 								)}
 							</Button>
