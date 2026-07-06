@@ -100,6 +100,14 @@ class DictationPipeline:
         try:
             log.info("[TRANSCRIBE] Starting transcription... (cycle=%s)", self._cycle_id)
 
+            # PERF-FIX-001: per-stage timing instrumentation so future
+            # regressions are diagnosable.  Each stage logs its duration
+            # in milliseconds at INFO level.  The total is logged at the
+            # end.  This adds negligible overhead (a few perf_counter
+            # calls per dictation) and is the only way to identify which
+            # stage regressed without re-instrumenting the code.
+            _stage_t0 = time.perf_counter()
+
             # Step 1: Transcribe (streaming finalize or direct)
             text = self._transcribe()
 
@@ -108,6 +116,10 @@ class DictationPipeline:
                 "[TRANSCRIBE] Transcription complete (len=%d, took=%.1fs, cycle=%s)",
                 len(text) if text else 0, _elapsed, self._cycle_id,
             )
+            log.info(
+                "[PIPE-PERF] transcribe: %.0f ms (cycle=%s)",
+                (time.perf_counter() - _stage_t0) * 1000, self._cycle_id,
+            )
 
             # Step 2: Check for empty result
             if not text:
@@ -115,19 +127,46 @@ class DictationPipeline:
                 return
 
             # Step 3: Text cleanup
+            _stage_t0 = time.perf_counter()
             text = self._clean_text(text)
+            log.info(
+                "[PIPE-PERF] clean: %.0f ms (cycle=%s)",
+                (time.perf_counter() - _stage_t0) * 1000, self._cycle_id,
+            )
 
             # Step 4: Vocabulary correction
+            _stage_t0 = time.perf_counter()
             text = self._apply_vocabulary(text)
+            log.info(
+                "[PIPE-PERF] vocabulary: %.0f ms (cycle=%s)",
+                (time.perf_counter() - _stage_t0) * 1000, self._cycle_id,
+            )
 
             # Step 5: Template matching
+            _stage_t0 = time.perf_counter()
             text = self._apply_templates(text)
+            log.info(
+                "[PIPE-PERF] templates: %.0f ms (cycle=%s)",
+                (time.perf_counter() - _stage_t0) * 1000, self._cycle_id,
+            )
 
             # Step 6: Auto-punctuation
+            _stage_t0 = time.perf_counter()
             text = self._apply_punctuation(text)
+            log.info(
+                "[PIPE-PERF] punctuation: %.0f ms (cycle=%s)",
+                (time.perf_counter() - _stage_t0) * 1000, self._cycle_id,
+            )
 
             # Step 7: LLM polish
+            _stage_t0 = time.perf_counter()
             text = self._apply_llm_polish(text)
+            _llm_ms = (time.perf_counter() - _stage_t0) * 1000
+            if _llm_ms > 1:
+                log.info(
+                    "[PIPE-PERF] llm_polish: %.0f ms (cycle=%s)",
+                    _llm_ms, self._cycle_id,
+                )
 
             # Step 7b: AI enhancement (P4)
             #
@@ -136,7 +175,14 @@ class DictationPipeline:
             # deterministic cleanup as raw transcription. Master
             # toggle (``ai_enhancement_enabled``) defaults OFF — see
             # ``voice_typer/server/ai_enhancement.py``.
+            _stage_t0 = time.perf_counter()
             text = self._apply_ai_enhancement(text)
+            _ai_ms = (time.perf_counter() - _stage_t0) * 1000
+            if _ai_ms > 1:
+                log.info(
+                    "[PIPE-PERF] ai_enhancement: %.0f ms (cycle=%s)",
+                    _ai_ms, self._cycle_id,
+                )
 
             # Step 7c: Vocabulary automation analysis (P5)
             #
@@ -144,13 +190,35 @@ class DictationPipeline:
             # AFTER enhancement so the analyzed text matches what the
             # user actually sees pasted. Master toggle
             # (``vocabulary_automation_enabled``) defaults OFF.
+            _stage_t0 = time.perf_counter()
             self._analyze_vocabulary(text)
+            _va_ms = (time.perf_counter() - _stage_t0) * 1000
+            if _va_ms > 1:
+                log.info(
+                    "[PIPE-PERF] vocab_automation: %.0f ms (cycle=%s)",
+                    _va_ms, self._cycle_id,
+                )
 
             # Step 8: Store in history + crash recovery
+            _stage_t0 = time.perf_counter()
             self._store_result(text)
+            log.info(
+                "[PIPE-PERF] store: %.0f ms (cycle=%s)",
+                (time.perf_counter() - _stage_t0) * 1000, self._cycle_id,
+            )
 
             # Step 9: Copy to clipboard + paste
+            _stage_t0 = time.perf_counter()
             self._copy_and_paste(text)
+            log.info(
+                "[PIPE-PERF] copy_and_paste: %.0f ms (cycle=%s)",
+                (time.perf_counter() - _stage_t0) * 1000, self._cycle_id,
+            )
+
+            log.info(
+                "[PIPE-PERF] total: %.0f ms (cycle=%s)",
+                (time.perf_counter() - _t0) * 1000, self._cycle_id,
+            )
 
         except Exception as e:
             log.exception("[TRANSCRIBE] Transcription FAILED (cycle=%s)", self._cycle_id)
