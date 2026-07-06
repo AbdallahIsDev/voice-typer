@@ -620,17 +620,6 @@ function createMainWindow(forceShow = false) {
 		webPreferences: {
 			preload: path.join(__dirname, "../preload/index.js"),
 			backgroundThrottling: false,
-			// SEC-014: explicit hardening.  These are Electron defaults
-			// for most fields, but setting them explicitly guards against
-			// future Electron version changes flipping a default to a
-			// less-safe value.
-			contextIsolation: true, // renderer can't touch Node require
-			nodeIntegration: false, // no require() in renderer
-			sandbox: true, // preload runs in sandboxed context
-			webSecurity: true, // enforce same-origin policy
-			allowRunningInsecureContent: false, // block mixed-content
-			// spellcheck adds a tiny IPC surface; we don't need it.
-			spellcheck: false,
 			// SOUND-FIX: allow AudioContext / HTMLAudioElement to play
 			// without a prior user gesture in the renderer.  The user
 			// has explicitly launched VoiceTyper as a desktop app, so
@@ -644,6 +633,17 @@ function createMainWindow(forceShow = false) {
 			// bug — the cue plays only if the user happened to click
 			// in the Electron window before pressing the hotkey.
 			autoplayPolicy: "no-user-gesture-required",
+			// SEC-014: explicit hardening.  These are Electron defaults
+			// for most fields, but setting them explicitly guards against
+			// future Electron version changes flipping a default to a
+			// less-safe value.
+			contextIsolation: true, // renderer can't touch Node require
+			nodeIntegration: false, // no require() in renderer
+			sandbox: true, // preload runs in sandboxed context
+			webSecurity: true, // enforce same-origin policy
+			allowRunningInsecureContent: false, // block mixed-content
+			// spellcheck adds a tiny IPC surface; we don't need it.
+			spellcheck: false,
 		},
 	});
 
