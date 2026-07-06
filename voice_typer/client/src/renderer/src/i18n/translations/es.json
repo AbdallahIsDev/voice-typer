@@ -188,9 +188,127 @@
 	},
 	"models": {
 		"title": "Modelos",
-		"download": "Descargar",
+		"download": {
+			"resumeAria": "Reanudar descarga",
+			"pauseAria": "Pausar descarga",
+			"resume": "Reanudar",
+			"pause": "Pausar",
+			"cancelAria": "Cancelar descarga del modelo",
+			"cancel": "Cancelar",
+			"depsAria": "Descargar dependencias para {name}",
+			"deps": "Descargar Deps"
+		},
 		"active": "Activo",
 		"delete": "Eliminar",
+		"description": "Configura tus motores de reconocimiento de voz",
+		"use": "Usar",
+		"providers": {
+			"openai": {
+				"label": "OpenAI Whisper API"
+			},
+			"groq": {
+				"label": "Groq Whisper API"
+			},
+			"deepgram": {
+				"label": "Deepgram API"
+			}
+		},
+		"errors": {
+			"unknown": "Error desconocido"
+		},
+		"snack": {
+			"parakeetDepsRequired": "Se requieren dependencias para Parakeet. Descarga primero.",
+			"notDownloaded": "El modelo \"{name}\" no se ha descargado aún. Descárgalo primero.",
+			"usingModel": "Usando modelo: {name}",
+			"downloaded": "{name} descargado correctamente",
+			"downloadFailedName": "Error al descargar {name}",
+			"downloadFailed": "Error de descarga: {error}",
+			"cannotDeleteActive": "No se puede eliminar el modelo activo. Cambia a otro modelo primero.",
+			"deleted": "Eliminado: {name}",
+			"deleteFailed": "Error al eliminar",
+			"deleteFailedError": "Error al eliminar: {error}",
+			"apiKeySaved": "Clave API de {provider} guardada",
+			"consentGranted": "Consentimiento otorgado para {provider} — el audio se enviará a este proveedor.",
+			"consentRevoked": "Consentimiento revocado para {provider} — el audio NO se enviará.",
+			"hfConsentGranted": "Consentimiento otorgado — las descargas de modelos desde HuggingFace continuarán.",
+			"hfConsentRevoked": "Consentimiento revocado — las descargas de modelos desde HuggingFace están bloqueadas.",
+			"resumeFailed": "Error al reanudar: {error}",
+			"pauseFailed": "Error al pausar: {error}",
+			"cancelled": "Descarga cancelada. Los archivos parciales se reutilizarán al reintentar.",
+			"cancelFailed": "Error al cancelar: {error}"
+		},
+		"test": {
+			"needApiKey": "Por favor, introduce una clave API primero",
+			"connectionSuccessful": "Conexión exitosa — la clave API es válida.",
+			"connectionFailed": "Error de conexión: {status} {statusText}",
+			"endpointUnavailable": "Clave API guardada — endpoint de prueba no disponible para este proveedor.",
+			"connectionTestFailed": "Error en la prueba de conexión: {error}"
+		},
+		"benchmark": {
+			"notImplemented": "Benchmark aún no implementado.",
+			"title": "Benchmark de Modelo",
+			"description": "Compara el rendimiento del modelo en tu sistema",
+			"runAria": "Ejecutar benchmark de modelo",
+			"running": "Ejecutando...",
+			"run": "Ejecutar Benchmark"
+		},
+		"status": {
+			"active": "Activo",
+			"downloaded": "Descargado",
+			"depsRequired": "Dependencias requeridas",
+			"available": "Disponible"
+		},
+		"downloadAll": {
+			"alreadyDownloadedTitle": "Todos los modelos ya están descargados",
+			"downloadAllTitle": "Descargar todos los modelos",
+			"downloading": "Descargando...",
+			"allDownloaded": "Todos Descargados",
+			"downloadAll": "Descargar Todo"
+		},
+		"hfConsent": {
+			"title": "Se requiere consentimiento de descarga de HuggingFace",
+			"description": "Los modelos Whisper locales (tiny.en, base.en, etc.) descargan pesos desde huggingface.co en el primer uso. Otorga consentimiento para habilitar las descargas de modelos. No se sube audio — solo se obtienen los pesos del modelo.",
+			"grantAria": "Otorgar consentimiento de descarga de HuggingFace",
+			"grant": "Otorgar consentimiento",
+			"blockedHint": "Las descargas de modelos están bloqueadas hasta que otorgues consentimiento."
+		},
+		"progress": {
+			"eta": "ETA {time}",
+			"paused": "· Pausado"
+		},
+		"card": {
+			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
+			"size": "Tamaño: {size}",
+			"vram": "VRAM: ~{mb} MB",
+			"multilingual": "Multilingüe",
+			"englishOnly": "Solo inglés",
+			"speedSuffix": "{rating} velocidad",
+			"distilled": "  ·  destilado",
+			"activeAria": "Activo: {name}",
+			"useAria": "Usar {name}",
+			"deleteAria": "Eliminar {name}"
+		},
+		"cloud": {
+			"title": "Proveedores ASR en la Nube",
+			"description": "Configura servicios de transcripción basados en la nube",
+			"providerSettings": "Ajustes de {provider}",
+			"apiKey": "Clave API",
+			"apiKeyPlaceholder": "Introduce tu clave API",
+			"saveKeyAria": "Guardar clave API de {provider}",
+			"saveKey": "Guardar Clave",
+			"testConnectionAria": "Probar conexión de {provider}",
+			"testConnection": "Probar Conexión",
+			"consentTitle": "Consentimiento de transmisión de audio",
+			"consentDescription": "Cuando este proveedor se selecciona como backend ASR activo, tus grabaciones de audio se enviarán a {provider} para transcripción. Otorga consentimiento para habilitar la transmisión de audio.",
+			"statusLabel": "Estado:",
+			"consentGrantedStatus": "Consentimiento otorgado — el audio se enviará cuando este proveedor esté activo.",
+			"consentNotGrantedStatus": "Consentimiento no otorgado — este proveedor se negará a transcribir.",
+			"consentAria": "Otorgar consentimiento de transmisión de audio para {provider}"
+		},
+		"deleteDialog": {
+			"title": "Eliminar Modelo",
+			"message": "¿Estás seguro de que quieres eliminar \"{name}\"? Esta acción no se puede deshacer."
+		},
 		"subtitle": "Download and manage speech recognition models",
 		"localModels": "Local Models",
 		"localModelsDescription": "Run Whisper models directly on your device. No internet required after download.",
@@ -217,7 +335,6 @@
 		"pleaseEnterApiKey": "Please enter an API key first",
 		"consentGranted": "Consent granted — model downloads from HuggingFace will proceed.",
 		"consentRevoked": "Consent revoked — model downloads from HuggingFace are blocked.",
-		"benchmark": "Benchmark",
 		"benchmarkNotImplemented": "Benchmark not yet implemented.",
 		"speed": "Speed",
 		"size": "Size",
@@ -232,7 +349,6 @@
 		"groqWhisperApi": "Groq Whisper API",
 		"deepgramApi": "Deepgram API",
 		"allDownloaded": "All Downloaded",
-		"downloadAll": "Download All",
 		"downloading": "Downloading...",
 		"configureEngines": "Configure your speech-to-text engines"
 	},
@@ -293,6 +409,8 @@
 		"exportSaved": "{filename} saved successfully",
 		"transcriptionsToday": "{count} transcription(s) today{chars}",
 		"noTranscriptionsToday": "0 transcriptions today",
+		"undo": "Deshacer",
+		"clearAllAria": "Borrar todo el historial",
 		"export": "Export",
 		"exportAs": "Export as",
 		"searchByContent": "Search by content...",

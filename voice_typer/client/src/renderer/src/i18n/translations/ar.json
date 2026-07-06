@@ -188,9 +188,127 @@
 	},
 	"models": {
 		"title": "النماذج",
-		"download": "تنزيل",
+		"download": {
+			"resumeAria": "استئناف التحميل",
+			"pauseAria": "إيقاف التحميل مؤقتاً",
+			"resume": "استئناف",
+			"pause": "إيقاف مؤقت",
+			"cancelAria": "إلغاء تحميل النموذج",
+			"cancel": "إلغاء",
+			"depsAria": "تحميل التبعيات لـ {name}",
+			"deps": "تحميل التبعيات"
+		},
 		"active": "نشط",
 		"delete": "حذف",
+		"description": "تكوين محركات تحويل الكلام إلى نص",
+		"use": "استخدام",
+		"providers": {
+			"openai": {
+				"label": "OpenAI Whisper API"
+			},
+			"groq": {
+				"label": "Groq Whisper API"
+			},
+			"deepgram": {
+				"label": "Deepgram API"
+			}
+		},
+		"errors": {
+			"unknown": "خطأ غير معروف"
+		},
+		"snack": {
+			"parakeetDepsRequired": "التبعيات المطلوبة لـ Parakeet. حمّلها أولاً.",
+			"notDownloaded": "النموذج \"{name}\" غير محمّل بعد. حمّله أولاً.",
+			"usingModel": "استخدام النموذج: {name}",
+			"downloaded": "تم تحميل {name} بنجاح",
+			"downloadFailedName": "فشل تحميل {name}",
+			"downloadFailed": "فشل التحميل: {error}",
+			"cannotDeleteActive": "لا يمكن حذف النموذج النشط. بدّل إلى نموذج آخر أولاً.",
+			"deleted": "تم الحذف: {name}",
+			"deleteFailed": "فشل الحذف",
+			"deleteFailedError": "فشل الحذف: {error}",
+			"apiKeySaved": "تم حفظ مفتاح API لـ {provider}",
+			"consentGranted": "تم منح الموافقة لـ {provider} — سيتم إرسال الصوت إلى هذا المزود.",
+			"consentRevoked": "تم إلغاء الموافقة لـ {provider} — لن يتم إرسال الصوت.",
+			"hfConsentGranted": "تم منح الموافقة — ستستمر تحميلات النماذج من HuggingFace.",
+			"hfConsentRevoked": "تم إلغاء الموافقة — تم حظر تحميلات النماذج من HuggingFace.",
+			"resumeFailed": "فشل الاستئناف: {error}",
+			"pauseFailed": "فشل الإيقاف المؤقت: {error}",
+			"cancelled": "تم إلغاء التحميل. ستتم إعادة استخدام الملفات الجزئية عند إعادة المحاولة.",
+			"cancelFailed": "فشل الإلغاء: {error}"
+		},
+		"test": {
+			"needApiKey": "الرجاء إدخال مفتاح API أولاً",
+			"connectionSuccessful": "نجح الاتصال — مفتاح API صالح.",
+			"connectionFailed": "فشل الاتصال: {status} {statusText}",
+			"endpointUnavailable": "تم حفظ مفتاح API — نقطة الاختبار غير متاحة لهذا المزود.",
+			"connectionTestFailed": "فشل اختبار الاتصال: {error}"
+		},
+		"benchmark": {
+			"notImplemented": "لم يتم تنفيذ المعيار بعد.",
+			"title": "معيار الأداء للنموذج",
+			"description": "قارن أداء النموذج على نظامك",
+			"runAria": "تشغيل معيار الأداء للنموذج",
+			"running": "جارٍ التشغيل...",
+			"run": "تشغيل المعيار"
+		},
+		"status": {
+			"active": "نشط",
+			"downloaded": "محمّل",
+			"depsRequired": "التبعيات مطلوبة",
+			"available": "متاح"
+		},
+		"downloadAll": {
+			"alreadyDownloadedTitle": "تم تحميل جميع النماذج بالفعل",
+			"downloadAllTitle": "تحميل جميع النماذج",
+			"downloading": "جارٍ التحميل...",
+			"allDownloaded": "تم تحميل الكل",
+			"downloadAll": "تحميل الكل"
+		},
+		"hfConsent": {
+			"title": "موافقة تحميل HuggingFace مطلوبة",
+			"description": "نماذج Whisper المحلية (tiny.en، base.en، إلخ) تقوم بتحميل الأوزان من huggingface.co عند أول استخدام. امنح الموافقة لتمكين تحميلات النماذج. لا يتم رفع أي صوت — يتم فقط جلب أوزان النموذج.",
+			"grantAria": "منح موافقة تحميل HuggingFace",
+			"grant": "منح الموافقة",
+			"blockedHint": "تحميلات النماذج محظورة حتى تمنح الموافقة."
+		},
+		"progress": {
+			"eta": "الوقت المتبقي {time}",
+			"paused": "· متوقف مؤقتاً"
+		},
+		"card": {
+			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
+			"size": "الحجم: {size}",
+			"vram": "VRAM: ~{mb} ميجابايت",
+			"multilingual": "متعدد اللغات",
+			"englishOnly": "الإنجليزية فقط",
+			"speedSuffix": "{rating} سرعة",
+			"distilled": "  ·  مُقطّر",
+			"activeAria": "نشط: {name}",
+			"useAria": "استخدام {name}",
+			"deleteAria": "حذف {name}"
+		},
+		"cloud": {
+			"title": "مزودو ASR السحابيين",
+			"description": "تكوين خدمات التفريغ الصوتي السحابية",
+			"providerSettings": "إعدادات {provider}",
+			"apiKey": "مفتاح API",
+			"apiKeyPlaceholder": "أدخل مفتاح API",
+			"saveKeyAria": "حفظ مفتاح API لـ {provider}",
+			"saveKey": "حفظ المفتاح",
+			"testConnectionAria": "اختبار اتصال {provider}",
+			"testConnection": "اختبار الاتصال",
+			"consentTitle": "موافقة إرسال الصوت",
+			"consentDescription": "عند تحديد هذا المزود كخلفية ASR النشطة، سيتم إرسال تسجيلاتك الصوتية إلى {provider} للتفريغ. امنح الموافقة لتمكين إرسال الصوت.",
+			"statusLabel": "الحالة:",
+			"consentGrantedStatus": "تم منح الموافقة — سيتم إرسال الصوت عندما يكون هذا المزود نشطاً.",
+			"consentNotGrantedStatus": "لم يتم منح الموافقة — سيرفض هذا المزود التفريغ.",
+			"consentAria": "منح موافقة إرسال الصوت لـ {provider}"
+		},
+		"deleteDialog": {
+			"title": "حذف النموذج",
+			"message": "هل أنت متأكد أنك تريد حذف \"{name}\"؟ لا يمكن التراجع عن هذا الإجراء."
+		},
 		"subtitle": "Download and manage speech recognition models",
 		"localModels": "Local Models",
 		"localModelsDescription": "Run Whisper models directly on your device. No internet required after download.",
@@ -217,7 +335,6 @@
 		"pleaseEnterApiKey": "Please enter an API key first",
 		"consentGranted": "Consent granted — model downloads from HuggingFace will proceed.",
 		"consentRevoked": "Consent revoked — model downloads from HuggingFace are blocked.",
-		"benchmark": "Benchmark",
 		"benchmarkNotImplemented": "Benchmark not yet implemented.",
 		"speed": "Speed",
 		"size": "Size",
@@ -232,7 +349,6 @@
 		"groqWhisperApi": "Groq Whisper API",
 		"deepgramApi": "Deepgram API",
 		"allDownloaded": "All Downloaded",
-		"downloadAll": "Download All",
 		"downloading": "Downloading...",
 		"configureEngines": "Configure your speech-to-text engines"
 	},
@@ -267,6 +383,8 @@
 		"exportSaved": "تم حفظ {filename} بنجاح",
 		"transcriptionsToday": "{count} كتابة اليوم{chars}",
 		"noTranscriptionsToday": "0 كتابات اليوم",
+		"undo": "تراجع",
+		"clearAllAria": "مسح كل السجل",
 		"export": "Export",
 		"exportAs": "Export as",
 		"searchByContent": "Search by content...",

@@ -258,7 +258,14 @@ export default function ModelsPage() {
 
 	// Cloud provider API keys
 	const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
-	const [testResults, setTestResults] = useState<Record<string, string>>({});
+	// I18N-FIX: testResults now carries a status enum alongside the
+	// message so the JSX can color the result by status (success /
+	// failure / info) instead of grepping the message for "successful"
+	// / "Failed" substrings (which would break once the message is
+	// translated).
+	const [testResults, setTestResults] = useState<
+		Record<string, { message: string; status: "success" | "failure" | "info" }>
+	>({});
 
 	const loadConfig = useCallback(async () => {
 		setInitialLoading(true);
@@ -608,7 +615,7 @@ export default function ModelsPage() {
 		if (!key) {
 			setTestResults((prev) => ({
 				...prev,
-				[provider]: t("models.pleaseEnterApiKey"),
+				[provider]: { message: t("models.test.needApiKey"), status: "info" },
 			}));
 			return;
 		}
@@ -624,12 +631,21 @@ export default function ModelsPage() {
 				if (resp.ok) {
 					setTestResults((prev) => ({
 						...prev,
-						[provider]: t("models.connectionSuccessful"),
+						[provider]: {
+							message: t("models.test.connectionSuccessful"),
+							status: "success",
+						},
 					}));
 				} else {
 					setTestResults((prev) => ({
 						...prev,
-						[provider]: `${t("models.connectionFailed")}: ${resp.status} ${resp.statusText}`,
+						[provider]: {
+							message: t("models.test.connectionFailed", {
+								status: String(resp.status),
+								statusText: resp.statusText,
+							}),
+							status: "failure",
+						},
 					}));
 				}
 			} else if (provider === "groq") {
@@ -639,12 +655,21 @@ export default function ModelsPage() {
 				if (resp.ok) {
 					setTestResults((prev) => ({
 						...prev,
-						[provider]: t("models.connectionSuccessful"),
+						[provider]: {
+							message: t("models.test.connectionSuccessful"),
+							status: "success",
+						},
 					}));
 				} else {
 					setTestResults((prev) => ({
 						...prev,
-						[provider]: `${t("models.connectionFailed")}: ${resp.status} ${resp.statusText}`,
+						[provider]: {
+							message: t("models.test.connectionFailed", {
+								status: String(resp.status),
+								statusText: resp.statusText,
+							}),
+							status: "failure",
+						},
 					}));
 				}
 			} else if (provider === "deepgram") {
@@ -654,25 +679,41 @@ export default function ModelsPage() {
 				if (resp.ok) {
 					setTestResults((prev) => ({
 						...prev,
-						[provider]: t("models.connectionSuccessful"),
+						[provider]: {
+							message: t("models.test.connectionSuccessful"),
+							status: "success",
+						},
 					}));
 				} else {
 					setTestResults((prev) => ({
 						...prev,
-						[provider]: `${t("models.connectionFailed")}: ${resp.status} ${resp.statusText}`,
+						[provider]: {
+							message: t("models.test.connectionFailed", {
+								status: String(resp.status),
+								statusText: resp.statusText,
+							}),
+							status: "failure",
+						},
 					}));
 				}
 			} else {
 				setTestResults((prev) => ({
 					...prev,
-					[provider]:
-						"API key saved — test endpoint not available for this provider.",
+					[provider]: {
+						message: t("models.test.endpointUnavailable"),
+						status: "info",
+					},
 				}));
 			}
 		} catch (err) {
 			setTestResults((prev) => ({
 				...prev,
-				[provider]: `Connection test failed: ${formatErrorMessage(err)}`,
+				[provider]: {
+					message: t("models.test.connectionTestFailed", {
+						error: formatErrorMessage(err),
+					}),
+					status: "failure",
+				},
 			}));
 		}
 	};
@@ -688,26 +729,27 @@ export default function ModelsPage() {
 	const getStatusBadge = (model: ModelInfo) => {
 		// UX-009: distinct colors per state so users can tell at a glance
 		// which models are active, downloaded, need deps, or available.
+		// I18N-FIX: labels are translated via the models.status.* keys.
 		if (model.isActive)
 			return {
-				label: "Active",
+				label: t("models.status.active"),
 				bg: "color-mix(in srgb, #22c55e 15%, transparent)",
 				color: "#22c55e",
 			};
 		if (model.downloaded)
 			return {
-				label: "Downloaded",
+				label: t("models.status.downloaded"),
 				bg: "color-mix(in srgb, #3b82f6 15%, transparent)",
 				color: "#3b82f6",
 			};
 		if (!model.depsOk)
 			return {
-				label: "Dependencies required",
+				label: t("models.status.depsRequired"),
 				bg: "color-mix(in srgb, #f59e0b 15%, transparent)",
 				color: "#f59e0b",
 			};
 		return {
-			label: "Available",
+			label: t("models.status.available"),
 			bg: "color-mix(in srgb, var(--text-muted) 12%, transparent)",
 			color: "var(--text-muted)",
 		};
@@ -863,7 +905,11 @@ export default function ModelsPage() {
 											);
 										}
 									}}
-									aria-label={isPaused ? "Resume download" : "Pause download"}
+									aria-label={
+										isPaused
+											? t("models.download.resumeAria")
+											: t("models.download.pauseAria")
+									}
 									className="h-7 gap-1 px-3 text-xs"
 								>
 									<HugeiconsIcon
@@ -871,7 +917,9 @@ export default function ModelsPage() {
 										strokeWidth={2}
 										className="h-3.5 w-3.5"
 									/>
-									{isPaused ? "Resume" : "Pause"}
+									{isPaused
+										? t("models.download.resume")
+										: t("models.download.pause")}
 								</Button>
 								{/* NEW-PRIV-011: Cancel button for in-progress downloads. */}
 								<Button
@@ -999,7 +1047,7 @@ export default function ModelsPage() {
 												strokeWidth={2}
 												className="h-4 w-4"
 											/>
-											{model.isActive ? "Active" : "Use"}
+											{model.isActive ? t("models.active") : t("models.use")}
 										</Button>
 									)}
 									{!model.alwaysAvailable && (
@@ -1098,15 +1146,16 @@ export default function ModelsPage() {
 										<span
 											className={cn(
 												"text-xs",
-												testResults[provider.key].includes("successful")
+												// I18N-FIX: use the status enum (not substring grep)
+												// so the color logic survives translation.
+												testResults[provider.key].status === "success"
 													? "text-primary"
-													: testResults[provider.key].includes("Failed") ||
-															testResults[provider.key].includes("error")
+													: testResults[provider.key].status === "failure"
 														? "text-destructive"
 														: "text-[(--text-muted)]",
 											)}
 										>
-											{testResults[provider.key]}
+											{testResults[provider.key].message}
 										</span>
 									)}
 								</div>{" "}
@@ -1170,20 +1219,22 @@ export default function ModelsPage() {
 				{/* Model Benchmark */}
 				<div className="rounded-xl border border-border bg-(--bg-subtle) p-6">
 					<h2 className="font-sans text-lg font-semibold text-(--text-primary)">
-						Model Benchmark
+						{t("models.benchmark.title")}
 					</h2>
 					<p className="text-sm text-(--text-muted) mt-0.5 mb-4">
-						Compare model performance on your system
+						{t("models.benchmark.description")}
 					</p>
 					<Button
 						variant="default"
 						className="gap-2"
 						onClick={runBenchmark}
 						disabled={isBenchmarking}
-						aria-label="Run model benchmark"
+						aria-label={t("models.benchmark.runAria")}
 					>
 						<HugeiconsIcon icon={ZapIcon} strokeWidth={2} className="h-4 w-4" />
-						{isBenchmarking ? "Running..." : "Run Benchmark"}
+						{isBenchmarking
+							? t("models.benchmark.running")
+							: t("models.benchmark.run")}
 					</Button>
 					{benchmarkResult && (
 						<p className="text-sm text-(--text-muted) mt-3">

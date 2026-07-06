@@ -188,9 +188,127 @@
 	},
 	"models": {
 		"title": "Модели",
-		"download": "Скачать",
+		"download": {
+			"resumeAria": "Resume download",
+			"pauseAria": "Pause download",
+			"resume": "Возобновить",
+			"pause": "Пауза",
+			"cancelAria": "Cancel model download",
+			"cancel": "Отмена",
+			"depsAria": "Download dependencies for {name}",
+			"deps": "Загрузить зависимости"
+		},
 		"active": "Активна",
 		"delete": "Удалить",
+		"description": "Настройте движки преобразования речи в текст",
+		"use": "Использовать",
+		"providers": {
+			"openai": {
+				"label": "OpenAI Whisper API"
+			},
+			"groq": {
+				"label": "Groq Whisper API"
+			},
+			"deepgram": {
+				"label": "Deepgram API"
+			}
+		},
+		"errors": {
+			"unknown": "Неизвестная ошибка"
+		},
+		"snack": {
+			"parakeetDepsRequired": "Dependencies required for Parakeet. Download first.",
+			"notDownloaded": "Model \"{name}\" not downloaded yet. Download it first.",
+			"usingModel": "Using model: {name}",
+			"downloaded": "{name} downloaded successfully",
+			"downloadFailedName": "Failed to download {name}",
+			"downloadFailed": "Download failed: {error}",
+			"cannotDeleteActive": "Cannot delete the active model. Switch to another model first.",
+			"deleted": "Deleted: {name}",
+			"deleteFailed": "Delete failed",
+			"deleteFailedError": "Delete failed: {error}",
+			"apiKeySaved": "{provider} API key saved",
+			"consentGranted": "Consent granted for {provider} — audio will be sent to this provider.",
+			"consentRevoked": "Consent revoked for {provider} — audio will NOT be sent.",
+			"hfConsentGranted": "Consent granted — model downloads from HuggingFace will proceed.",
+			"hfConsentRevoked": "Consent revoked — model downloads from HuggingFace are blocked.",
+			"resumeFailed": "Failed to resume: {error}",
+			"pauseFailed": "Failed to pause: {error}",
+			"cancelled": "Download cancelled. Partial files will be reused on retry.",
+			"cancelFailed": "Failed to cancel: {error}"
+		},
+		"test": {
+			"needApiKey": "Please enter an API key first",
+			"connectionSuccessful": "Connection successful — API key is valid.",
+			"connectionFailed": "Connection failed: {status} {statusText}",
+			"endpointUnavailable": "API key saved — test endpoint not available for this provider.",
+			"connectionTestFailed": "Connection test failed: {error}"
+		},
+		"benchmark": {
+			"notImplemented": "Benchmark not yet implemented.",
+			"title": "Тест производительности модели",
+			"description": "Сравните производительность модели в вашей системе",
+			"runAria": "Run model benchmark",
+			"running": "Выполняется...",
+			"run": "Запустить тест"
+		},
+		"status": {
+			"active": "Активен",
+			"downloaded": "Загружен",
+			"depsRequired": "Требуются зависимости",
+			"available": "Доступен"
+		},
+		"downloadAll": {
+			"alreadyDownloadedTitle": "All models already downloaded",
+			"downloadAllTitle": "Download all models",
+			"downloading": "Загрузка...",
+			"allDownloaded": "Всё загружено",
+			"downloadAll": "Загрузить всё"
+		},
+		"hfConsent": {
+			"title": "HuggingFace download consent required",
+			"description": "Local Whisper models (tiny.en, base.en, etc.) download weights from huggingface.co on first use. Grant consent to enable model downloads. No audio is uploaded — only model weights are fetched.",
+			"grantAria": "Grant HuggingFace download consent",
+			"grant": "Предоставить согласие",
+			"blockedHint": "Model downloads are blocked until you grant consent."
+		},
+		"progress": {
+			"eta": "ETA {time}",
+			"paused": "· Paused"
+		},
+		"card": {
+			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
+			"size": "Size: {size}",
+			"vram": "VRAM: ~{mb} MB",
+			"multilingual": "Multilingual",
+			"englishOnly": "English only",
+			"speedSuffix": "{rating} speed",
+			"distilled": "  ·  distilled",
+			"activeAria": "Active: {name}",
+			"useAria": "Use {name}",
+			"deleteAria": "Delete {name}"
+		},
+		"cloud": {
+			"title": "Cloud ASR Providers",
+			"description": "Configure cloud-based transcription services",
+			"providerSettings": "{provider} Settings",
+			"apiKey": "API-ключ",
+			"apiKeyPlaceholder": "Введите ваш API-ключ",
+			"saveKeyAria": "Save {provider} API key",
+			"saveKey": "Сохранить ключ",
+			"testConnectionAria": "Test {provider} connection",
+			"testConnection": "Проверить соединение",
+			"consentTitle": "Audio transmission consent",
+			"consentDescription": "When this provider is selected as the active ASR backend, your audio recordings will be sent to {provider} for transcription. Grant consent to enable audio transmission.",
+			"statusLabel": "Status:",
+			"consentGrantedStatus": "Consent granted — audio will be sent when this provider is active.",
+			"consentNotGrantedStatus": "Consent not granted — this provider will refuse to transcribe.",
+			"consentAria": "Grant audio transmission consent for {provider}"
+		},
+		"deleteDialog": {
+			"title": "Удалить модель",
+			"message": "Are you sure you want to delete \"{name}\"? This action cannot be undone."
+		},
 		"subtitle": "Download and manage speech recognition models",
 		"localModels": "Local Models",
 		"localModelsDescription": "Run Whisper models directly on your device. No internet required after download.",
@@ -217,7 +335,6 @@
 		"pleaseEnterApiKey": "Please enter an API key first",
 		"consentGranted": "Consent granted — model downloads from HuggingFace will proceed.",
 		"consentRevoked": "Consent revoked — model downloads from HuggingFace are blocked.",
-		"benchmark": "Benchmark",
 		"benchmarkNotImplemented": "Benchmark not yet implemented.",
 		"speed": "Speed",
 		"size": "Size",
@@ -232,7 +349,6 @@
 		"groqWhisperApi": "Groq Whisper API",
 		"deepgramApi": "Deepgram API",
 		"allDownloaded": "All Downloaded",
-		"downloadAll": "Download All",
 		"downloading": "Downloading...",
 		"configureEngines": "Configure your speech-to-text engines"
 	},
@@ -267,6 +383,8 @@
 		"exportSaved": "{filename} успешно сохранён",
 		"transcriptionsToday": "{count} расшифровок(а) сегодня{chars}",
 		"noTranscriptionsToday": "0 расшифровок сегодня",
+		"undo": "Отменить",
+		"clearAllAria": "Очистить всю историю",
 		"export": "Export",
 		"exportAs": "Export as",
 		"searchByContent": "Search by content...",

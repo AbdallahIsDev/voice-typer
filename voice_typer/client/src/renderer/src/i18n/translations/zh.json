@@ -188,9 +188,127 @@
 	},
 	"models": {
 		"title": "模型",
-		"download": "下载",
+		"download": {
+			"resumeAria": "Resume download",
+			"pauseAria": "Pause download",
+			"resume": "恢复",
+			"pause": "暂停",
+			"cancelAria": "Cancel model download",
+			"cancel": "取消",
+			"depsAria": "Download dependencies for {name}",
+			"deps": "下载依赖项"
+		},
 		"active": "活动",
 		"delete": "删除",
+		"description": "配置您的语音转文本引擎",
+		"use": "使用",
+		"providers": {
+			"openai": {
+				"label": "OpenAI Whisper API"
+			},
+			"groq": {
+				"label": "Groq Whisper API"
+			},
+			"deepgram": {
+				"label": "Deepgram API"
+			}
+		},
+		"errors": {
+			"unknown": "未知错误"
+		},
+		"snack": {
+			"parakeetDepsRequired": "Dependencies required for Parakeet. Download first.",
+			"notDownloaded": "Model \"{name}\" not downloaded yet. Download it first.",
+			"usingModel": "Using model: {name}",
+			"downloaded": "{name} downloaded successfully",
+			"downloadFailedName": "Failed to download {name}",
+			"downloadFailed": "Download failed: {error}",
+			"cannotDeleteActive": "Cannot delete the active model. Switch to another model first.",
+			"deleted": "Deleted: {name}",
+			"deleteFailed": "Delete failed",
+			"deleteFailedError": "Delete failed: {error}",
+			"apiKeySaved": "{provider} API key saved",
+			"consentGranted": "Consent granted for {provider} — audio will be sent to this provider.",
+			"consentRevoked": "Consent revoked for {provider} — audio will NOT be sent.",
+			"hfConsentGranted": "Consent granted — model downloads from HuggingFace will proceed.",
+			"hfConsentRevoked": "Consent revoked — model downloads from HuggingFace are blocked.",
+			"resumeFailed": "Failed to resume: {error}",
+			"pauseFailed": "Failed to pause: {error}",
+			"cancelled": "Download cancelled. Partial files will be reused on retry.",
+			"cancelFailed": "Failed to cancel: {error}"
+		},
+		"test": {
+			"needApiKey": "Please enter an API key first",
+			"connectionSuccessful": "Connection successful — API key is valid.",
+			"connectionFailed": "Connection failed: {status} {statusText}",
+			"endpointUnavailable": "API key saved — test endpoint not available for this provider.",
+			"connectionTestFailed": "Connection test failed: {error}"
+		},
+		"benchmark": {
+			"notImplemented": "Benchmark not yet implemented.",
+			"title": "模型基准测试",
+			"description": "在您的系统上比较模型性能",
+			"runAria": "Run model benchmark",
+			"running": "运行中...",
+			"run": "运行基准测试"
+		},
+		"status": {
+			"active": "活跃",
+			"downloaded": "已下载",
+			"depsRequired": "需要依赖项",
+			"available": "可用"
+		},
+		"downloadAll": {
+			"alreadyDownloadedTitle": "All models already downloaded",
+			"downloadAllTitle": "Download all models",
+			"downloading": "下载中...",
+			"allDownloaded": "全部已下载",
+			"downloadAll": "全部下载"
+		},
+		"hfConsent": {
+			"title": "HuggingFace download consent required",
+			"description": "Local Whisper models (tiny.en, base.en, etc.) download weights from huggingface.co on first use. Grant consent to enable model downloads. No audio is uploaded — only model weights are fetched.",
+			"grantAria": "Grant HuggingFace download consent",
+			"grant": "授予同意",
+			"blockedHint": "Model downloads are blocked until you grant consent."
+		},
+		"progress": {
+			"eta": "ETA {time}",
+			"paused": "· Paused"
+		},
+		"card": {
+			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
+			"size": "Size: {size}",
+			"vram": "VRAM: ~{mb} MB",
+			"multilingual": "Multilingual",
+			"englishOnly": "English only",
+			"speedSuffix": "{rating} speed",
+			"distilled": "  ·  distilled",
+			"activeAria": "Active: {name}",
+			"useAria": "Use {name}",
+			"deleteAria": "Delete {name}"
+		},
+		"cloud": {
+			"title": "Cloud ASR Providers",
+			"description": "Configure cloud-based transcription services",
+			"providerSettings": "{provider} Settings",
+			"apiKey": "API 密钥",
+			"apiKeyPlaceholder": "输入您的 API 密钥",
+			"saveKeyAria": "Save {provider} API key",
+			"saveKey": "保存密钥",
+			"testConnectionAria": "Test {provider} connection",
+			"testConnection": "测试连接",
+			"consentTitle": "Audio transmission consent",
+			"consentDescription": "When this provider is selected as the active ASR backend, your audio recordings will be sent to {provider} for transcription. Grant consent to enable audio transmission.",
+			"statusLabel": "Status:",
+			"consentGrantedStatus": "Consent granted — audio will be sent when this provider is active.",
+			"consentNotGrantedStatus": "Consent not granted — this provider will refuse to transcribe.",
+			"consentAria": "Grant audio transmission consent for {provider}"
+		},
+		"deleteDialog": {
+			"title": "删除模型",
+			"message": "Are you sure you want to delete \"{name}\"? This action cannot be undone."
+		},
 		"subtitle": "Download and manage speech recognition models",
 		"localModels": "Local Models",
 		"localModelsDescription": "Run Whisper models directly on your device. No internet required after download.",
@@ -217,7 +335,6 @@
 		"pleaseEnterApiKey": "Please enter an API key first",
 		"consentGranted": "Consent granted — model downloads from HuggingFace will proceed.",
 		"consentRevoked": "Consent revoked — model downloads from HuggingFace are blocked.",
-		"benchmark": "Benchmark",
 		"benchmarkNotImplemented": "Benchmark not yet implemented.",
 		"speed": "Speed",
 		"size": "Size",
@@ -232,7 +349,6 @@
 		"groqWhisperApi": "Groq Whisper API",
 		"deepgramApi": "Deepgram API",
 		"allDownloaded": "All Downloaded",
-		"downloadAll": "Download All",
 		"downloading": "Downloading...",
 		"configureEngines": "Configure your speech-to-text engines"
 	},
@@ -267,6 +383,8 @@
 		"exportSaved": "{filename} 已成功保存",
 		"transcriptionsToday": "今日 {count} 条转写{chars}",
 		"noTranscriptionsToday": "今日 0 条转写",
+		"undo": "撤销",
+		"clearAllAria": "清除所有历史记录",
 		"export": "Export",
 		"exportAs": "Export as",
 		"searchByContent": "Search by content...",
