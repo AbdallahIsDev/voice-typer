@@ -251,7 +251,7 @@
 		},
 		"hfConsent": {
 			"title": "HuggingFace download consent required",
-			"description": "Local Whisper models (tiny.en, base.en, etc.) download weights from huggingface.co on first use. Grant consent to enable model downloads. No audio is uploaded — only model weights are fetched.",
+			"description": "Local Whisper models (tiny.en, small.en, medium.en) download weights from huggingface.co on first use. This download reveals your IP address to a US-headquartered third party (Hugging Face, Inc.). Under GDPR Art. 13/44 (Schrems II), we need your explicit consent before initiating the download. Audio itself is never sent — only the model weights are fetched.",
 			"grantAria": "Grant HuggingFace download consent",
 			"grant": "Grant consent",
 			"blockedHint": "Model downloads are blocked until you grant consent."
@@ -293,7 +293,7 @@
 			"testConnectionAria": "Test {provider} connection",
 			"testConnection": "Test Connection",
 			"consentTitle": "Audio transmission consent",
-			"consentDescription": "When this provider is selected as the active ASR backend, your audio recordings will be sent to {provider} for transcription. Grant consent to enable audio transmission.",
+			"consentDescription": "When this provider is selected as the active ASR backend, your audio recordings will be sent to {provider} for transcription. The provider's privacy policy applies to the audio sent. Voice Typer never enables cloud ASR without your explicit consent — even if an API key is configured.",
 			"statusLabel": "Status:",
 			"consentGrantedStatus": "Consent granted — audio will be sent when this provider is active.",
 			"consentNotGrantedStatus": "Consent not granted — this provider will refuse to transcribe.",
