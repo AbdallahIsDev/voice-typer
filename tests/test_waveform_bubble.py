@@ -447,7 +447,16 @@ class TestVADModule:
 
 
 class TestWaveformVADGate:
-    """Test that WaveformBubble.update_level gates on VAD."""
+    """Test that WaveformBubble.update_level uses the RMS-only path.
+
+    BUBBLE-FIX-4.1: the previous VAD gate (T021) was removed because it
+    called ``compute_vad_prob`` with the device's native sample-rate
+    audio (often 44.1/48 kHz) but the VAD model assumes 16 kHz,
+    systematically biasing probabilities low and collapsing the bars.
+    The visualizer now relies on the renderer's attack/release smoothing
+    to handle ambient noise.  These tests verify the RMS-only behavior
+    is preserved whether or not an ``audio_chunk`` is supplied.
+    """
 
     def test_update_level_without_audio_chunk(self, bubble):
         """When no audio_chunk is passed, update_level works as before (RMS-only)."""
@@ -456,28 +465,34 @@ class TestWaveformVADGate:
         assert bubble.is_speaking is True  # 0.045 > 0.01 threshold
 
     def test_update_level_with_silent_audio_chunk(self, bubble, monkeypatch):
-        """With a silent audio chunk, VAD gates the visualizer (decays)."""
-        from voice_typer.server import vad
-        # Skip if torch/Silero VAD is unavailable — the VAD gate only
-        # activates when the Silero model can load. Without torch, the
-        # WaveformBubble falls back to RMS-only mode (is_speaking=True
-        # for any non-zero RMS), so this test cannot pass.
-        pytest.importorskip("torch", reason="Silero VAD requires torch")
-        # Force VAD to report non-speech
-        monkeypatch.setattr(vad, "is_speech", lambda chunk, sr=16000: False)
+        """With a silent audio chunk but non-zero RMS, the RMS-only path
+        fires (VAD gate removed in BUBBLE-FIX-4.1).  is_speaking tracks
+        the smoothed RMS level, not VAD output."""
+        # VAD is no longer consulted; the audio_chunk argument is accepted
+        # for backward-compat with callers but ignored.
         bubble.update_level(0.15, 0.3, audio_chunk=np.zeros(16000, dtype=np.float32))
-        # Level should decay, not increase
-        assert bubble.rms_level < 0.15
-        assert bubble.is_speaking is False
+        # RMS-only path: smoothed level is 0.5 * 0 (initial) + 0.5 * 0.15 = 0.075
+        assert bubble.rms_level > 0
+        assert bubble.is_speaking is True  # 0.075 > 0.005 threshold
 
     def test_update_level_with_speech_audio_chunk(self, bubble, monkeypatch):
-        """With speech audio chunk, VAD allows the normal update path."""
-        from voice_typer.server import vad
-        # Force VAD to report speech — update_level uses compute_vad_prob, not is_speech
-        monkeypatch.setattr(vad, "compute_vad_prob", lambda chunk, sr=16000: 0.8)
+        """With speech audio chunk, the RMS-only path updates normally
+        (VAD gate removed in BUBBLE-FIX-4.1)."""
         bubble.update_level(0.15, 0.3, audio_chunk=np.full(16000, 0.1, dtype=np.float32))
         assert bubble.rms_level > 0
         assert bubble.is_speaking is True
+
+    def test_update_level_with_zero_rms_decays(self, bubble):
+        """With zero RMS (true silence), the level decays and is_speaking
+        eventually becomes False."""
+        # Prime the level
+        bubble.update_level(0.2, 0.4)
+        assert bubble.is_speaking is True
+        # Feed silence
+        for _ in range(20):
+            bubble.update_level(0.0, 0.0)
+        assert bubble.rms_level < 0.005
+        assert bubble.is_speaking is False
 
 
 class TestT021ProductionWiring:

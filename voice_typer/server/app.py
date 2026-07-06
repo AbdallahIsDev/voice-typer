@@ -521,16 +521,24 @@ class VoiceTyperApp:
 
         def _push_bubble_level(rms: float, peak: float) -> None:
             # PERF-NEW-001 / PERF-NEW-015: this callback fires from the
-            # PortAudio thread at ~16 Hz.  Calling _push_event_now
-            # directly was holding the IPC server's _lock for
-            # json.dumps + socket.sendall, which on a slow Electron
-            # receive window stalled the audio thread and triggered
-            # xruns.  We now throttle to ~30 Hz max (every 33 ms) and
-            # push the actual IPC send to a background queue drained
-            # by a low-priority daemon thread.
+            # PortAudio thread at the device's native chunk rate
+            # (~31 Hz @ 16 kHz / blocksize 512, ~94 Hz @ 48 kHz).
+            # Calling _push_event_now directly was holding the IPC
+            # server's _lock for json.dumps + socket.sendall, which on
+            # a slow Electron receive window stalled the audio thread
+            # and triggered xruns.  We push the actual IPC send to a
+            # background queue drained by a low-priority daemon thread.
+            #
+            # BUBBLE-FIX-4.1: the previous throttle (33 ms / ~30 Hz) sat
+            # exactly at the 32 ms chunk interval for 16 kHz devices, so
+            # PortAudio timing jitter caused irregular accept/drop
+            # patterns and the visualizer froze.  Lowered to 16 ms
+            # (~60 Hz) so every chunk is delivered; the bounded queue
+            # (maxsize=64) and worker thread handle backpressure.  Each
+            # message is ~40 bytes JSON, so 60 msg/s is trivial for TCP.
             now = time.monotonic()
             last = getattr(self, "_last_bubble_level_push_ts", 0.0)
-            if now - last < 0.033:  # 33 ms = ~30 Hz
+            if now - last < 0.016:  # 16 ms = ~60 Hz
                 return
             self._last_bubble_level_push_ts = now
             q = getattr(self, "_bubble_level_queue", None)

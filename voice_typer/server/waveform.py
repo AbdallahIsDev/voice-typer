@@ -112,48 +112,20 @@ class WaveformBubble:
         ``[0, 1.0]`` and is used by the renderer to spike the waveform
         on transients.
 
-        T021: If an audio_chunk is provided, runs Silero VAD to gate
-        the visualizer — only updates when speech is detected.  When
-        VAD indicates non-speech, the level decays smoothly.
+        BUBBLE-FIX-4.1: the previous VAD gate (T021) called
+        ``compute_vad_prob(audio_chunk)`` with the device's native
+        sample-rate audio (often 44.1/48 kHz) but ``compute_vad_prob``
+        assumes 16 kHz.  Silero VAD then received an 11 ms slice
+        interpreted as 32 ms, systematically biasing probabilities low
+        and collapsing the bars on most chunks.  The VAD gate is
+        cosmetic (the renderer's attack/release smoothing already
+        handles ambient noise), so we disable it entirely and rely on
+        the RMS-only path below.  This is simpler and more robust than
+        resampling on the audio thread, and removes a torch dependency
+        from the visualizer critical path.
         """
-        # T021: VAD gate — only update visualizer if speech is detected.
-        # BUGFIX 2026-06-25: reduced decay factor from 0.85→0.95 and
-        # lowered visualizer VAD threshold to 0.3 so quiet speech still
-        # animates the bars instead of decaying instantly. The old 0.85
-        # decay caused bars to drop to 44% within 5 chunks (~160ms) of
-        # VAD non-speech, making short pauses between words look like
-        # dead bars. The higher threshold of 0.5 classified quiet speech
-        # as non-speech, starving the visualizer.
-        if audio_chunk is not None:
-            try:
-                from voice_typer.server.vad import compute_vad_prob
-                vad_prob = compute_vad_prob(audio_chunk)
-                # Use a lenient threshold for the visualizer (0.3) — the
-                # standard 0.5 is too aggressive for quiet speech and
-                # causes the visualizer to decay during natural pauses.
-                _VISUALIZER_VAD_THRESHOLD = 0.3
-                if vad_prob is not None and vad_prob < _VISUALIZER_VAD_THRESHOLD:
-                    # Non-speech: decay the level smoothly instead of
-                    # letting ambient noise animate the visualizer.
-                    # Use a gentle decay so short pauses between words
-                    # don't make the bars collapse to resting height.
-                    with self._lock:
-                        self._rms_level *= 0.95
-                        self._peak_level *= 0.9
-                        self._is_speaking = False
-                        cb = self.on_level
-                        rms_out = self._rms_level
-                        peak_out = self._peak_level
-                    if cb is not None:
-                        try:
-                            cb(rms_out, peak_out)
-                        except Exception:
-                            pass
-                    return
-            except ImportError:
-                pass  # VAD not available, fall through to RMS-only path
-            except Exception:
-                log.debug("[WAVEFORM] VAD inference failed on chunk", exc_info=True)
+        # VAD gate intentionally removed (BUBBLE-FIX-4.1).  See docstring.
+        del audio_chunk  # accepted for backward-compat with callers
 
         with self._lock:
             # Cheap low-pass smoothing so the bubble doesn't jitter

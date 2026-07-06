@@ -272,7 +272,13 @@ export function Bubble({ className: _className }: { className?: string }) {
         `}
 			>
 				{/* ── Voice level visualiser ──────────────────────────── */}
-				<div className="flex items-center gap-[3px]">
+				{/* BUBBLE-FIX-4.2: fixed-height wrapper so the animated bar
+				    heights (5px→32px) cannot resize the parent pill. Without
+				    this, the pill grew from 27px to 54px on every beat,
+				    causing layout shift and a flickering BrowserWindow resize.
+				    Use a literal Tailwind class (h-8 = 32px = MAX_HEIGHT) so
+				    the JIT compiler picks it up. */}
+				<div className="flex h-8 items-center gap-[3px]">
 					{dots.map((i) => (
 						<span
 							key={i}
