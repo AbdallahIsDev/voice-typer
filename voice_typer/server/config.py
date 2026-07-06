@@ -193,7 +193,16 @@ def _secure_read_text(path: Path, *, encoding: str = "utf-8") -> str:
         # Windows: check for reparse points (symlinks/junctions) before reading
         # NTFS reparse points have the FILE_ATTRIBUTE_REPARSE_POINT bit set.
         try:
-            attrs = os.lstat(str(path)).st_file_attributes if hasattr(os, 'lstat') else 0
+            # `st_file_attributes` is a Windows-only attribute on
+            # `os.stat_result`. Use ``getattr`` with a default of 0 so
+            # the type-checker doesn't reject the access on the
+            # cross-platform `stat_result` type (which doesn't declare
+            # this attribute). On non-Windows platforms the attribute
+            # is absent at runtime and ``getattr`` returns 0, so the
+            # reparse-point check is a no-op (correct behavior —
+            # reparse points are a Windows-only NTFS concept).
+            stat_result = os.lstat(str(path)) if hasattr(os, "lstat") else None
+            attrs = getattr(stat_result, "st_file_attributes", 0) or 0
             if attrs & 0x00000400:  # FILE_ATTRIBUTE_REPARSE_POINT
                 raise OSError(f"SEC-002: refusing to follow reparse point: {path}")
         except (AttributeError, OSError):

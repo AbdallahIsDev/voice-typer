@@ -210,6 +210,20 @@ export default function SettingsPage({
 	// has empty deps to avoid re-subscribing on every render) can call
 	// the latest closure.  Updated in a dedicated effect below.
 	const flushPendingUpdatesRef = useRef<() => Promise<void>>(async () => {});
+	// PERF-MEMO-001: ref mirror of `config` so `updateConfig` and
+	// `updateConfigDebounced` can read the latest config WITHOUT
+	// depending on it in their useCallback deps.  Previously, both
+	// callbacks had `config` in their deps, which meant they were
+	// recreated on every config change — defeating the React.memo
+	// wrappers on child sections (HotkeySettingsSection,
+	// GeneralSettingsSection, etc.) and causing unnecessary
+	// re-renders across the entire Settings page on every keystroke.
+	// Now the callbacks have stable identity (empty deps) and read
+	// the latest config from this ref.
+	const configRef = useRef<VoiceTyperConfig | null>(_cachedConfig);
+	useEffect(() => {
+		configRef.current = config;
+	}, [config]);
 
 	const loadConfig = useCallback(async () => {
 		try {
@@ -340,10 +354,15 @@ export default function SettingsPage({
 
 	const updateConfig = useCallback(
 		async (updates: Partial<VoiceTyperConfig>) => {
-			if (!config) return;
+			// PERF-MEMO-001: read from configRef instead of
+			// depending on `config` in deps — keeps the
+			// callback identity stable so React.memo children
+			// don't re-render on every config change.
+			const currentConfig = configRef.current;
+			if (!currentConfig) return;
 			setSaving(true);
 			// Update local state immediately for responsive UI.
-			const newConfig = { ...config, ...updates };
+			const newConfig = { ...currentConfig, ...updates };
 			_cachedConfig = newConfig;
 			setConfig(newConfig);
 
@@ -374,13 +393,13 @@ export default function SettingsPage({
 				// fake-timer tests can flush it with a
 				// single `await Promise.resolve()`.
 				queueMicrotask(() => {
-					void flushPendingUpdates();
+					void flushPendingUpdatesRef.current();
 				});
 			}
 
 			await flushPromise;
 		},
-		[config, flushPendingUpdates],
+		[], // PERF-MEMO-001: stable identity — reads from refs
 	);
 
 	// UX-007: debounced update for text inputs that fire on every keystroke.
@@ -391,9 +410,13 @@ export default function SettingsPage({
 	);
 	const updateConfigDebounced = useCallback(
 		(key: keyof VoiceTyperConfig, value: unknown, delayMs = 500) => {
+			// PERF-MEMO-001: read from configRef instead of
+			// depending on `config` in deps — keeps the
+			// callback identity stable.
+			const currentConfig = configRef.current;
 			// Update local state immediately for responsive UI
-			if (config) {
-				const newConfig = { ...config, [key]: value };
+			if (currentConfig) {
+				const newConfig = { ...currentConfig, [key]: value };
 				_cachedConfig = newConfig;
 				setConfig(newConfig);
 			}
@@ -407,7 +430,7 @@ export default function SettingsPage({
 				delete debouncedTimers.current[key as string];
 			}, delayMs);
 		},
-		[config, updateConfig],
+		[updateConfig], // PERF-MEMO-001: updateConfig is now stable (empty deps)
 	);
 
 	// ── Live config sync (external changes) ───────────────────────────
@@ -672,13 +695,13 @@ export default function SettingsPage({
 
 						{/* ── Troubleshooting ──────────────────────────── */}
 						{/* NEW-UX-025: previously only had "View Logs" (which lied —
-								it opened the log FOLDER, not a log viewer) and "Reset to
-								Defaults" (destructive, no undo).  We now also surface:
-										- Diagnostics link (opens the About page's diagnostics
-												section which has version, ASR backend, device, etc.)
-										- Help / FAQ link
-										- Report a Bug link
-								And clarify the "View Logs" label. */}
+                                                                it opened the log FOLDER, not a log viewer) and "Reset to
+                                                                Defaults" (destructive, no undo).  We now also surface:
+                                                                                - Diagnostics link (opens the About page's diagnostics
+                                                                                                section which has version, ASR backend, device, etc.)
+                                                                                - Help / FAQ link
+                                                                                - Report a Bug link
+                                                                And clarify the "View Logs" label. */}
 						{(_filter_settings(
 							"Troubleshooting",
 							"Diagnostic tools, help, and support.",

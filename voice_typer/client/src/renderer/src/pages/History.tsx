@@ -18,6 +18,7 @@ import { Spinner } from "@/components/Spinner";
 import { Button } from "@/components/ui/button";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { showUndoableToast } from "@/hooks/useSnackbar";
+import { t } from "@/i18n/i18n";
 import type {
 	HistoryRecord,
 	Page,
@@ -306,11 +307,17 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 		<>
 			<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
 				<PageHeading
-					title="History"
+					title={t("history.title")}
 					description={
 						stats
-							? `${stats.count} transcription${stats.count !== 1 ? "s" : ""} today${stats.chars > 0 ? ` (${stats.chars.toLocaleString()} chars)` : ""}`
-							: "0 transcriptions today"
+							? t("history.transcriptionsToday", {
+									count: String(stats.count),
+									chars:
+										stats.chars > 0
+											? ` (${stats.chars.toLocaleString()} chars)`
+											: "",
+								})
+							: t("history.noTranscriptionsToday")
 					}
 				/>
 
@@ -319,7 +326,7 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 					<SearchField
 						value={searchQuery}
 						onChange={handleSearch}
-						placeholder="Search history..."
+						placeholder={t("history.searchPlaceholder")}
 					/>
 				</div>
 
@@ -376,21 +383,21 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 						icon={HistoryIcon}
 						title={
 							searchQuery
-								? "No results found"
+								? t("history.noResults")
 								: favoritesOnly
-									? "No favorites yet"
-									: "No transcriptions yet"
+									? t("history.noFavorites")
+									: t("history.noTranscriptions")
 						}
 						description={
 							searchQuery
-								? "Try a different search term or clear the search to see all entries."
+								? t("history.noResultsDescription")
 								: favoritesOnly
-									? "Tap the star icon on a transcription to save it here."
-									: "Press your hotkey (or Caps Lock) on the Home page to dictate — your transcriptions will appear here."
+									? t("history.noFavoritesDescription")
+									: t("history.noTranscriptionsDescription")
 						}
 						actionLabel={
 							!searchQuery && !favoritesOnly && onNavigate
-								? "Start dictation"
+								? t("history.startDictation")
 								: undefined
 						}
 						actionIcon={Mic02Icon}
@@ -441,9 +448,9 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 			{/* #7: ConfirmDialog for Clear All */}
 			<ConfirmDialog
 				open={showClearConfirm}
-				title="Clear All History"
-				message="Are you sure you want to clear all transcription history? Favorites will also be deleted. This action cannot be undone."
-				confirmLabel="Clear All"
+				title={t("history.clearAllHistory")}
+				message={t("history.clearAllMessage")}
+				confirmLabel={t("history.clearAllConfirm")}
 				onConfirm={confirmClearAll}
 				onCancel={() => setShowClearConfirm(false)}
 			/>

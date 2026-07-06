@@ -140,16 +140,31 @@ class SystemHandlersMixin:
     def _handle_set_esc_cancel_paused(self, data, resp) -> dict | None:
         """Handle the ``set_esc_cancel_paused`` IPC command.
 
-        ESC-FIX-001: pause/resume the global ESC cancel hotkey so the
-        frontend (HotkeyPicker in hotkey capture mode) can temporarily
-        disable it, preventing the backend from processing Escape while
-        the UI is capturing a custom hotkey.
+        ARCH-ESC-001: this is now a thin wrapper around the
+        ``KeyboardOwnership`` singleton. The ``paused`` flag sets the
+        keyboard owner to ``"hotkey_capture"`` (paused=True) or
+        ``"normal"`` (paused=False).
+
+        The previous implementation mutated ``app._esc_cancel_paused``
+        directly. That attribute is kept as a backward-compat alias
+        for existing tests, but the canonical state lives in
+        ``KeyboardOwnership``. The hotkey backends consult
+        ``KeyboardOwnership.is_hotkey_capture_active()`` on every poll,
+        so the moment this IPC lands, the next poll cycle honors it.
 
         The ``data`` dict should contain ``{"paused": true}`` or
         ``{"paused": false}``.
         """
         try:
             paused = bool((data or {}).get("paused", False))
+            # ARCH-ESC-001: update the canonical ownership state.
+            from voice_typer.server.keyboard_ownership import keyboard_ownership
+
+            keyboard_ownership().set_owner(
+                "hotkey_capture" if paused else "normal",
+                reason="frontend hotkey capture" if paused else "capture ended",
+            )
+            # Backward-compat alias for tests that read app._esc_cancel_paused.
             self.app._esc_cancel_paused = paused
             log.info(
                 "[IPC] ESC cancel %s (via frontend hotkey capture mode)",

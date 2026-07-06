@@ -56,8 +56,11 @@ jobs:
       # locally via `pyrefly check` (uses project-includes in
       # pyproject.toml).
       #
-      # PYREFLY-HARD-GATE: error count driven to 143 (below 150).
+      # PYREFLY-HARD-GATE: error count driven from 143 → 0.
       # pyrefly is now a hard gate — failures here will block the PR.
+      # The baseline file (pyrefly-baseline.json) tracks the remaining
+      # 16 platform-specific false positives that are intentionally
+      # suppressed (Windows-only APIs, optional imports, etc.).
       - name: Run pyrefly type check
         run: |
           uv pip install --system pyrefly

@@ -19,6 +19,7 @@ from typing import Any, Optional
 
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.hotkeys import HotkeyBackend, create_hotkey_backend
+from voice_typer.server.keyboard_ownership import keyboard_ownership
 
 log = logging.getLogger(__name__)
 
@@ -111,7 +112,17 @@ class HotkeyDispatcher:
             self.register_repaste()
 
     def register_esc(self) -> None:
-        """Register the ESC hotkey for cancelling dictation."""
+        """Register the ESC hotkey for cancelling dictation.
+
+        ARCH-ESC-001: the ESC callback is wrapped to consult the
+        KeyboardOwnership singleton. If the frontend is in hotkey
+        capture mode (``is_hotkey_capture_active()`` returns True),
+        the ESC callback is a no-op — the frontend owns the keyboard
+        during capture. This is a defense-in-depth check on top of
+        ``app._esc_cancel_paused`` (which is now an alias for the same
+        state) and the recording controller's own
+        ``recorder.recording`` check.
+        """
         # Stop any existing backend first
         if self._esc_backend:
             try:
@@ -121,7 +132,21 @@ class HotkeyDispatcher:
             self._esc_backend = None
         try:
             self._esc_backend = create_hotkey_backend("<esc>")
-            self._esc_backend.start(self._app._cancel_dictation)
+
+            def _esc_callback() -> None:
+                # ARCH-ESC-001: centralized ownership check. The
+                # KeyboardOwnership singleton is the single source of
+                # truth for which subsystem owns the keyboard. If the
+                # frontend is capturing a hotkey, the ESC callback is
+                # a no-op — no matter what.
+                if keyboard_ownership().is_hotkey_capture_active():
+                    log.debug(
+                        "[HOTKEY] ESC ignored — frontend hotkey capture active"
+                    )
+                    return
+                self._app._cancel_dictation()
+
+            self._esc_backend.start(_esc_callback)
             log.info("[HOTKEY] ESC cancel hotkey registered")
         except Exception:
             log.warning("[HOTKEY] ESC cancel hotkey registration failed")

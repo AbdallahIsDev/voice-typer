@@ -19,9 +19,19 @@ import.  ``config.py`` imports from this module (for
 ``ALLOWED_USER_MODELS``) and re-exports everything else via a wildcard
 ``from .config_validators import *`` at the bottom of ``config.py`` for
 backward compatibility.
+
+HOTKEY-UNIFY-002: this module now contains ``_RESERVED_HOTKEYS`` — the
+backend mirror of the frontend ``RESERVED_SHORTCUTS`` in
+``hotkey-validation.ts``. The two MUST be kept in sync: if you add a
+shortcut to one, add it to the other. The
+``test_reserved_hotkeys_match_frontend`` test in
+``tests/test_reserved_hotkeys.py`` enforces this at test time by
+parsing the TypeScript source and comparing the literal arrays.
 """
 
 import logging
+import platform
+import re
 from typing import Callable, Optional, Tuple, TypeGuard
 from urllib.parse import urlparse
 
@@ -218,15 +228,148 @@ def _make_url_validator(*, allow_empty: bool = False, max_len: int = _MAX_STRING
 
 # Validator combinations ────────────────────────────────────────────────────
 
-_VALIDATOR_HOTKEY = _make_str_validator(max_len=256)
+
+# ──────────────────────────────────────────────────────────────────────────
+# HOTKEY-UNIFY-002: Reserved OS shortcuts — backend mirror of the
+# frontend ``RESERVED_SHORTCUTS`` in
+# ``voice_typer/client/src/renderer/src/components/hotkey-validation.ts``.
+#
+# These are OS-level shortcuts that should never be assignable as a
+# dictation/paste hotkey because binding them would silently break core
+# OS functionality (Spotlight, window switching, lock screen, etc.).
+#
+# The frontend ``hotkey-validation.ts`` filters these from the preset
+# dropdown and rejects them in ``validateHotkey()``. This backend mirror
+# is a DEFENSE-IN-DEPTH check — a malicious or buggy IPC client that
+# bypasses the frontend (e.g. by sending ``set_config`` directly over
+# the TCP socket) will still be rejected here.
+#
+# The two dictionaries MUST be kept in sync. The
+# ``test_reserved_hotkeys_match_frontend`` test enforces this by
+# parsing the TypeScript source and comparing the literal arrays.
+#
+# Keys are stored lowercase; comparison is case-insensitive (see
+# ``_is_reserved_hotkey``).
+# ──────────────────────────────────────────────────────────────────────────
+_RESERVED_HOTKEYS: dict = {
+    "win32": [
+        "<win>+e",
+        "<win>+v",
+        "<win>+space",
+        "<win>+d",
+        "<win>+l",
+        "<win>+tab",
+        "<win>+r",
+        "<win>+i",
+        "<win>+p",
+        "<win>+m",
+    ],
+    "darwin": [
+        "<cmd>+space",
+        "<cmd>+q",
+        "<cmd>+w",
+        "<cmd>+h",
+        "<cmd>+m",
+        "<cmd>+tab",
+        "<cmd>+shift+3",
+        "<cmd>+shift+4",
+        "<cmd>+shift+5",
+    ],
+    "linux": [
+        "<super>+l",
+        "<super>+d",
+        "<super>+tab",
+        # NOTE: <super>+<space> is intentionally NOT reserved on Linux
+        # — most desktop environments allow it to be reassigned. See
+        # the matching comment in hotkey-validation.ts.
+    ],
+}
+
+
+def _current_platform() -> str:
+    """Return the current platform key for ``_RESERVED_HOTKEYS`` lookup.
+
+    Returns one of ``"win32"``, ``"darwin"``, ``"linux"`` based on
+    ``platform.system()``. Falls back to ``"linux"`` for unknown
+    platforms (the most permissive set).
+    """
+    system = platform.system().lower()
+    if system == "windows":
+        return "win32"
+    if system == "darwin":
+        return "darwin"
+    return "linux"
+
+
+def _normalize_hotkey_for_compare(hotkey: str) -> str:
+    """Normalize a hotkey string for case-insensitive comparison.
+
+    Strips angle brackets from each part and lowercases. Handles
+    ``<Cmd>+<Space>`` matching ``<cmd>+space`` and ``<CMD>+SPACE``.
+
+    Used by ``_is_reserved_hotkey`` so callers can pass either
+    convention (with or without angle brackets around non-modifier
+    keys) and still get correct reserved-shortcut detection.
+    """
+    if not hotkey:
+        return ""
+    return "+".join(
+        p.replace("<", "").replace(">", "").strip().lower()
+        for p in hotkey.split("+")
+    )
+
+
+def _is_reserved_hotkey(hotkey: str, platform_key: Optional[str] = None) -> bool:
+    """Check if a hotkey is reserved by the OS for the given platform.
+
+    Comparison is case-insensitive and angle-bracket-insensitive —
+    ``<Cmd>+<Space>`` matches ``<cmd>+space`` and ``<CMD>+SPACE``.
+    Callers can pass either convention (with or without angle brackets
+    around non-modifier keys) and still get correct detection.
+    """
+    if not hotkey:
+        return False
+    pk = platform_key or _current_platform()
+    reserved = _RESERVED_HOTKEYS.get(pk, [])
+    normalized = _normalize_hotkey_for_compare(hotkey)
+    return any(_normalize_hotkey_for_compare(r) == normalized for r in reserved)
+
+
+def _validate_hotkey_with_reserved(v: object) -> Optional[str]:
+    """Validator for hotkey fields: type check + length + reserved check.
+
+    This is the validator used for ``hotkey``, ``push_to_talk_hotkey``,
+    and ``repaste_hotkey``. It rejects:
+      - Non-string values
+      - Strings longer than 256 chars
+      - OS-reserved shortcuts (Win+E, Cmd+Space, etc.)
+
+    The reserved-shortcut check uses the CURRENT platform — a config
+    file created on macOS with ``<cmd>+<space>`` will be rejected when
+    loaded on macOS, but accepted on Windows/Linux (where it's not
+    reserved). This matches the frontend behavior.
+    """
+    if not _is_str(v):
+        return f"must be a string, got {type(v).__name__}"
+    if len(v) > 256:
+        return "exceeds maximum length 256"
+    if _is_reserved_hotkey(v):
+        return f"is reserved by the operating system ({_current_platform()})"
+    return None
+
+
+_VALIDATOR_HOTKEY = _validate_hotkey_with_reserved
 _VALIDATOR_LANGUAGE = _make_str_validator(max_len=16)
 _VALIDATOR_API_KEY = _make_str_validator(max_len=_MAX_API_KEY_LEN)
 _VALIDATOR_API_URL = _make_url_validator(allow_empty=True)
 _VALIDATOR_LLM_API_URL = _make_url_validator(allow_empty=False)
 _VALIDATOR_LLM_MODEL = _make_str_validator(max_len=256)
-_VALIDATOR_REPASTE_HOTKEY = _make_str_validator(max_len=256)
+# HOTKEY-UNIFY-002: repaste + push-to-talk hotkeys also use the
+# reserved-shortcut validator — a malicious IPC client shouldn't be
+# able to set ``<cmd>+<space>`` as the repaste hotkey either.
+_VALIDATOR_REPASTE_HOTKEY = _validate_hotkey_with_reserved
 _VALIDATOR_MICROPHONE = _make_optional_str_validator(max_len=512)
-_VALIDATOR_PUSH_TO_TALK_HOTKEY = _make_str_validator(max_len=256)
+_VALIDATOR_PUSH_TO_TALK_HOTKEY = _validate_hotkey_with_reserved
 _VALIDATOR_CLOUD_MODEL = _make_str_validator(max_len=256)
 
 
@@ -526,6 +669,11 @@ __all__ = [
     "ALLOWED_USER_MODELS",
     "_MAX_STRING_LEN",
     "_MAX_API_KEY_LEN",
+    # HOTKEY-UNIFY-002: reserved hotkeys + helpers
+    "_RESERVED_HOTKEYS",
+    "_current_platform",
+    "_is_reserved_hotkey",
+    "_validate_hotkey_with_reserved",
     # Type aliases
     "ValidatorFn",
     "FieldSpec",

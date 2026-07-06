@@ -285,6 +285,21 @@ class RecordingController:
             # chunk of audio benefits from the ducked speakers.
             app._duck_volume()
             log.info("[DICTATION] Recording started OK (cycle=%s)", app._cycle_id)
+            # ARCH-ESC-001: mark the recording subsystem as the keyboard
+            # owner. The ESC cancel hotkey will fire normally during a
+            # recording (it's the only way to cancel). When recording
+            # stops, ownership returns to "normal".
+            try:
+                from voice_typer.server.keyboard_ownership import keyboard_ownership
+
+                keyboard_ownership().set_owner(
+                    "recording", reason=f"recording started (cycle={app._cycle_id})"
+                )
+            except Exception:
+                log.debug(
+                    "[DICTATION] failed to set keyboard ownership on start",
+                    exc_info=True,
+                )
             # NEW-IPC-002: emit recording_started push event so the
             # renderer can proactively refresh UI (Home/Dashboard/History)
             try:
@@ -315,6 +330,22 @@ class RecordingController:
             _push_event_now({"type": "recording_stopped"})
         except Exception:
             pass
+
+        # ARCH-ESC-001: recording is stopping — release keyboard ownership
+        # back to "normal" so the ESC cancel hotkey stops firing. This
+        # MUST happen before recorder.stop() so that any key events
+        # processed during the stop sequence see the correct owner.
+        try:
+            from voice_typer.server.keyboard_ownership import keyboard_ownership
+
+            keyboard_ownership().set_owner(
+                "normal", reason=f"recording stopped (cycle={app._cycle_id})"
+            )
+        except Exception:
+            log.debug(
+                "[DICTATION] failed to reset keyboard ownership on stop",
+                exc_info=True,
+            )
 
         # Cancel any stale pending timers
         app._cancel_pending_timers()
@@ -444,11 +475,45 @@ class RecordingController:
         # spurious CANCEL logs (which look like errors to the user) and
         # prevents unnecessary cleanup (streaming session cancel, volume
         # restore, bubble hide) when nothing is running.
+        #
+        # ARCH-ESC-001: in addition to the recorder.recording check, we
+        # also consult the KeyboardOwnership singleton. Even if
+        # recorder.recording is True (e.g. stale state from a previous
+        # session that wasn't cleaned up), if the frontend is in hotkey
+        # capture mode we MUST NOT fire cancel — the frontend owns the
+        # keyboard during capture.
+        try:
+            from voice_typer.server.keyboard_ownership import keyboard_ownership
+
+            if keyboard_ownership().is_hotkey_capture_active():
+                log.debug(
+                    "[CANCEL] ESC ignored — frontend hotkey capture active (cycle=%s)",
+                    app._cycle_id,
+                )
+                return
+        except Exception:
+            log.debug("[CANCEL] keyboard ownership check failed", exc_info=True)
+
         if not app.recorder.recording:
             log.debug("[CANCEL] Cancel pressed but no recording active (cycle=%s) — no-op", app._cycle_id)
             return
 
         log.info("[CANCEL] Cancelling current dictation (cycle=%s)", app._cycle_id)
+
+        # ARCH-ESC-001: release keyboard ownership back to "normal" so
+        # subsequent Escape presses during the cancel cleanup don't
+        # re-enter the cancel path.
+        try:
+            from voice_typer.server.keyboard_ownership import keyboard_ownership
+
+            keyboard_ownership().set_owner(
+                "normal", reason=f"recording cancelled (cycle={app._cycle_id})"
+            )
+        except Exception:
+            log.debug(
+                "[CANCEL] failed to reset keyboard ownership on cancel",
+                exc_info=True,
+            )
         # ARCH-042: show CANCELLING state immediately.
         try:
             app.tray.set_state(AppState.CANCELLING, "Cancelling...")

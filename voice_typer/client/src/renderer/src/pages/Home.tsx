@@ -9,6 +9,11 @@ import { StatsShareImage } from "@/components/StatsShareImage";
 import { Button } from "@/components/ui/button";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { computeShareStats, useStatsShare } from "@/hooks/useStatsShare";
+import {
+	initAudioContext,
+	playSoundCue,
+	setSoundFeedbackEnabled,
+} from "@/lib/sound-manager";
 import { cn } from "@/lib/utils";
 import type { VoiceTyperConfig } from "@/types/config";
 import type {
@@ -154,100 +159,25 @@ function statusKeyFor(state: RecordingState, hasError: boolean): string {
 // is gated by the ``sound_feedback_enabled`` config flag (read
 // from localStorage cache updated by Settings).
 //
-// We use a shared AudioContext (created eagerly on component mount
-// via initAudioContext so it's never in "suspended" state when the
-// first recording event arrives).  The context persists across page
-// navigations via the module-level singleton._sharedAudioContext.
-let _sharedAudioContext: AudioContext | null = null;
-let _audioContextInitAttempted = false;
-
-/**
- * Eagerly initialise the shared AudioContext so subsequent
- * playSoundCue() calls don't have to wait for resume().
- * Call once on Home component mount or any user gesture.
- */
-export function initAudioContext(): void {
-	if (_audioContextInitAttempted) return;
-	_audioContextInitAttempted = true;
-	if (typeof window === "undefined") return;
-	try {
-		const Ctor =
-			window.AudioContext ||
-			(window as unknown as { webkitAudioContext: typeof AudioContext })
-				.webkitAudioContext;
-		if (!Ctor) return;
-		_sharedAudioContext = new Ctor();
-		// If suspended (autoplay policy), optimistically resume.
-		if (_sharedAudioContext.state === "suspended") {
-			_sharedAudioContext.resume().catch(() => {
-				// Context may remain suspended — playSoundCue will retry
-				// resume() at cue time.
-			});
-		}
-	} catch {
-		_sharedAudioContext = null;
-	}
-}
-
-function getAudioContext(): AudioContext | null {
-	// Lazily init if initAudioContext wasn't called (e.g. tests, SSR).
-	if (!_audioContextInitAttempted) {
-		initAudioContext();
-	}
-	return _sharedAudioContext;
-}
-
-function playSoundCue(kind: "start" | "stop") {
-	try {
-		const raw = localStorage.getItem("vt_sound_feedback_enabled");
-		const enabled = raw === null ? true : raw === "1";
-		if (!enabled) return;
-	} catch {
-		return;
-	}
-
-	const ctx = getAudioContext();
-	if (!ctx) return;
-
-	// SOUND-FIX-001: AudioContext starts suspended until a user gesture
-	// resumes it. resume() is async — schedule the oscillator AFTER the
-	// resume promise resolves, otherwise the sound never plays.
-	const doPlay = () => {
-		const now = ctx.currentTime;
-		const osc = ctx.createOscillator();
-		const gain = ctx.createGain();
-
-		if (kind === "start") {
-			osc.frequency.setValueAtTime(660, now);
-			osc.frequency.exponentialRampToValueAtTime(880, now + 0.08);
-			gain.gain.setValueAtTime(0.0001, now);
-			gain.gain.exponentialRampToValueAtTime(0.15, now + 0.01);
-			gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
-			osc.connect(gain).connect(ctx.destination);
-			osc.start(now);
-			osc.stop(now + 0.13);
-		} else {
-			osc.frequency.setValueAtTime(523, now);
-			osc.frequency.exponentialRampToValueAtTime(392, now + 0.1);
-			gain.gain.setValueAtTime(0.0001, now);
-			gain.gain.exponentialRampToValueAtTime(0.15, now + 0.01);
-			gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
-			osc.connect(gain).connect(ctx.destination);
-			osc.start(now);
-			osc.stop(now + 0.19);
-		}
-	};
-
-	if (ctx.state === "suspended") {
-		ctx
-			.resume()
-			.then(doPlay)
-			.catch(() => {});
-	} else if (ctx.state === "running") {
-		doPlay();
-	}
-	// If closed, the AudioContext is gone — silently skip the cue.
-}
+// SOUND-FIX-REWRITE: the audio cue logic has been moved to
+// ``@/lib/sound-manager``. This file imports ``initAudioContext``,
+// ``playSoundCue``, and ``setSoundFeedbackEnabled`` from there.
+// The new module fixes four bugs in the previous inline
+// implementation:
+//  1. ``_audioContextInitAttempted`` was set before construction,
+//     so a failed init never retried.
+//  2. AudioContext suspended on mount — resume() rejected silently.
+//  3. ``playSoundCue`` swallowed resume() rejections with no fallback.
+//  4. localStorage flag was only written on Settings toggle, not on
+//     initial config load — caused the flag to drift from the actual
+//     config value after a fresh install.
+//
+// The new module installs a one-time global gesture listener that
+// resumes the AudioContext on the first user interaction, and falls
+// back to HTMLAudioElement when the AudioContext is unavailable.
+// Combined with the ``autoplayPolicy: "no-user-gesture-required"``
+// setting in the Electron BrowserWindow config (see main/index.ts),
+// this ensures the cue plays reliably on every recording start/stop.
 export default function Home({
 	recordingState,
 	lastError,

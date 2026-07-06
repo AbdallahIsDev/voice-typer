@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePythonEvent } from "@/hooks/usePython";
+import { setSoundFeedbackEnabled } from "@/lib/sound-manager";
 import { useAppStore } from "@/stores/appStore";
 import {
 	applyThemeVars,
@@ -101,6 +102,16 @@ export function useTheme(
 			if (cfg?.custom_theme) setCustomTheme(cfg.custom_theme);
 			// PLAT-017: load text_size from config for UI scaling
 			if (cfg?.text_size) setTextSize(cfg.text_size);
+			// SOUND-FIX-REWRITE: sync the sound_feedback_enabled
+			// flag from config to localStorage on every config
+			// load.  Previously the localStorage flag was only
+			// written when the user toggled the switch in
+			// Settings, which caused drift on fresh installs
+			// and after clearing localStorage.  Now the flag
+			// is always in sync with the actual config value.
+			if (typeof cfg?.sound_feedback_enabled === "boolean") {
+				setSoundFeedbackEnabled(cfg.sound_feedback_enabled);
+			}
 		} catch {}
 	}, [call]);
 
@@ -133,6 +144,13 @@ export function useTheme(
 				}
 				if (data.custom_theme && typeof data.custom_theme === "object") {
 					setCustomTheme(data.custom_theme as CustomThemeData);
+				}
+				// SOUND-FIX-REWRITE: keep localStorage in sync
+				// when the sound_feedback_enabled flag changes
+				// via ANY path (Settings toggle, config import,
+				// CLI tool, etc.) — not just the Settings UI.
+				if (typeof data.sound_feedback_enabled === "boolean") {
+					setSoundFeedbackEnabled(data.sound_feedback_enabled);
 				}
 			},
 			[mergeConfig],

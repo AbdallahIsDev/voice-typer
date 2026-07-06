@@ -6,7 +6,36 @@
  * keyboards (Caps Lock, Alt, common modifier combos) plus the Fn key
  * (macOS only — firmware-only on Windows/Linux). The custom capture
  * button still lets users pick any key.
+ *
+ * HOTKEY-UNIFY-002: this module now re-exports the shared validation
+ * system from ``hotkey-validation.ts``. The legacy ``validateHotkey``
+ * function below is kept for backward compat with callers that pass
+ * the ``mode`` argument (single/combo). Internally it delegates to
+ * the shared ``validateHotkey`` from ``hotkey-validation.ts``, which
+ * is the single source of truth for reserved-shortcut checking,
+ * structural validation, and normalization.
+ *
+ * The preset lists (SINGLE_KEY_PRESETS, COMBO_PRESETS) are now
+ * filtered through ``isReserved()`` at module load time, so any
+ * preset that conflicts with an OS-reserved shortcut (e.g.
+ * ``<cmd>+<space>`` on macOS) is automatically excluded from the
+ * dropdown.
  */
+
+import {
+	detectPlatform,
+	isReserved,
+	validateHotkey as validateHotkeyShared,
+} from "./hotkey-validation";
+
+// Re-export the shared validation API so callers can use either
+// ``hotkey-utils`` or ``hotkey-validation`` — they're equivalent.
+export {
+	detectPlatform,
+	isReserved,
+	normalizeHotkey,
+	RESERVED_SHORTCUTS,
+} from "./hotkey-validation";
 
 // Detect platform from navigator.userAgent (renderer process).
 // In Electron, process.platform is also available via the preload bridge
@@ -158,6 +187,14 @@ export const SINGLE_KEY_PRESETS: { value: string; label: string }[] = [
 /**
  * Combo presets — combos that work on all platforms (with platform-aware
  * modifier naming).
+ *
+ * HOTKEY-UNIFY-002: presets are filtered through ``isReserved()`` so
+ * any combo that conflicts with an OS-reserved shortcut is NOT
+ * offered. Previously ``<cmd>+<space>`` (macOS Spotlight) was
+ * offered with a warning label — now it's silently excluded, since
+ * the user shouldn't be able to pick a combo that will silently
+ * break the OS. ``<super>+<space>`` on Linux is NOT reserved (most
+ * desktop environments allow reassigning it), so it's still offered.
  */
 export const COMBO_PRESETS: { value: string; label: string }[] = [
 	{ value: "<ctrl>+<alt>+v", label: "Ctrl+Alt+V (default)" },
@@ -169,10 +206,12 @@ export const COMBO_PRESETS: { value: string; label: string }[] = [
 	...(IS_MAC
 		? [
 				{ value: "<cmd>+<shift>+v", label: "Cmd+Shift+V (macOS)" },
-				{
-					value: "<cmd>+<space>",
-					label: "Cmd+Space (macOS Spotlight conflict)",
-				},
+				// HOTKEY-UNIFY-002: <cmd>+<space> (Spotlight) is now
+				// excluded — it's reserved by macOS and binding it as
+				// a dictation shortcut would silently break Spotlight.
+				// Users who really want it can still attempt the custom
+				// capture button, where validateHotkey() will reject it
+				// with a clear error message.
 			]
 		: []),
 	// Win+Space is intentionally NOT offered on Windows: it is reserved
@@ -181,7 +220,7 @@ export const COMBO_PRESETS: { value: string; label: string }[] = [
 	// Users can still pick any combo via the custom capture button if
 	// they really want to override it.
 	...(IS_LINUX ? [{ value: "<super>+<space>", label: "Super+Space" }] : []),
-];
+].filter((preset) => !isReserved(preset.value, PLATFORM));
 
 export function formatHotkeyLabel(hotkey: string): string {
 	if (!hotkey) return "None";
@@ -239,9 +278,26 @@ export function validateHotkey(
 	hotkey: string,
 	mode: "single" | "combo",
 ): string | null {
+	// HOTKEY-UNIFY-002: delegate to the shared validation system.
+	// The shared validateHotkey handles:
+	//  - empty / no-keys check
+	//  - reserved-shortcut check (OS-specific)
+	//  - structural check (combo must end with non-modifier)
+	//
+	// We add mode-specific checks (single key constraint, Fn-on-macOS-only)
+	// on top, since those are UI-mode concerns the shared validator
+	// doesn't know about.
 	if (!hotkey?.trim()) {
 		return "Hotkey is empty";
 	}
+
+	// Delegate reserved + structural checks to the shared validator.
+	const platform = detectPlatform();
+	const sharedResult = validateHotkeyShared(hotkey, platform);
+	if (!sharedResult.valid) {
+		return sharedResult.reason ?? "Invalid hotkey";
+	}
+
 	const parts = hotkey
 		.split("+")
 		.map((p) => p.replace(/[<>]/g, "").trim())
@@ -263,7 +319,8 @@ export function validateHotkey(
 		// Accept any single key (including modifiers and caps_lock)
 		return null;
 	}
-	// Combo mode: last part must be a non-modifier
+	// Combo mode: last part must be a non-modifier (already checked by
+	// the shared validator, but double-check here for clarity).
 	const lastKey = parts[parts.length - 1];
 	if (MODIFIER_KEYS.includes(lastKey as (typeof MODIFIER_KEYS)[number])) {
 		return "Combo must end with a non-modifier key (e.g. Ctrl+Alt+V, not just Ctrl)";

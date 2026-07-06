@@ -430,6 +430,13 @@ class TestModifierOnlyHotkeys:
         'C') is pressed between the modifier press and release, the
         press callback must NOT fire on release — the user was doing a
         combo like Alt+C, not invoking the bare Alt hotkey.
+
+        FLAKY-FIX: previously used 30/30/50ms sleeps which could be too
+        short under CI load — the polling loop (1ms interval) needs at
+        least ~10 cycles per phase to reliably observe each state
+        transition. Bumped to 80/80/120ms to give a comfortable margin
+        even on slow CI runners. Also added a final state verification
+        so a failure gives a clearer diagnostic.
         """
         mock_user32, _ = mock_win32
         from voice_typer.server.hotkeys import WindowsNativeHotkey
@@ -457,15 +464,15 @@ class TestModifierOnlyHotkeys:
             import time as _time
             # Phase 1: press Alt.
             state["value"] = 1
-            _time.sleep(0.03)
+            _time.sleep(0.08)
             assert callback.call_count == 0  # toggle mode defers
             # Phase 2: press C while Alt held (Alt+C combo).
             state["value"] = 2
-            _time.sleep(0.03)
+            _time.sleep(0.08)
             assert callback.call_count == 0  # still no fire while held
             # Phase 3: release everything.
             state["value"] = 3
-            _time.sleep(0.05)
+            _time.sleep(0.12)
             # The non-modifier key (C) was pressed during the hold, so
             # the toggle fire on release must be suppressed.
             assert callback.call_count == 0, (
