@@ -1,10 +1,21 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 
 // ── Constants ────────────────────────────────────────────────────
 
 const DOT_COUNT = 7;
 const MIN_HEIGHT = 5; // px — resting bar height (was 4, bumped so bars are always subtly visible)
-const MAX_HEIGHT = 32; // px — peak bar height (was 30, slightly more range)
+// BUBBLE-FIX-5.1 (Round 0): reduced from 32 → 22 to fit inside the new h-6
+// (24px) wrapper with 2px vertical headroom. Previously MAX_HEIGHT matched
+// h-8 (32px) exactly; after the h-8 → h-6 change (BUBBLE-FIX-5.1) the peak
+// bars would overflow the 24px wrapper and clip against the pill's py-2.5
+// padding. 22px keeps bars fully inside the wrapper at peak volume.
+const MAX_HEIGHT = 22; // px — peak bar height
 
 /**
  * Per-bar response weights.  A gentle bell shape so the spectrum looks
@@ -208,18 +219,32 @@ export function Bubble({ className: _className }: { className?: string }) {
 	// transparent dead zone that blocks clicks to underlying windows.
 	const pillRef = useRef<HTMLDivElement>(null);
 
-	useEffect(() => {
-		if (animState !== "" && animState !== "exit") return;
-		if (animState === "") {
-			// Stable (enter complete or idle) — measure and resize.
-			const el = pillRef.current;
-			if (!el) return;
-			const rect = el.getBoundingClientRect();
-			const w = Math.ceil(rect.width);
-			const h = Math.ceil(rect.height);
-			// Add 1px safety margin so the window fully contains the pill.
-			window.bubble?.resizeTo?.(w + 1, h + 1);
-		}
+	// BUBBLE-FIX-5.2 (Round 0): useLayoutEffect (not useEffect) so the
+	// resize IPC arrives at the main process BEFORE the browser paints.
+	// useEffect ran after paint, so the first frame of the enter
+	// animation showed the pill clipped to the 27px initial window —
+	// then 180ms later the window snapped to full size, causing the
+	// "cut-off then flash" artifact on every show.
+	//
+	// Also: run on BOTH "enter" (animation start) and "" (stable),
+	// not just "" — so the window is at full size for the entire
+	// 180ms enter animation, not just after it ends.
+	//
+	// Also: use offsetWidth/offsetHeight (layout box, transform-
+	// independent) instead of getBoundingClientRect() (visual box,
+	// affected by the scale(0.92) enter animation) so the measurement
+	// is correct even mid-enter-animation.
+	useLayoutEffect(() => {
+		if (animState === "exit") return; // don't resize during exit
+		const el = pillRef.current;
+		if (!el) return;
+		// offsetWidth/offsetHeight are layout dimensions unaffected by
+		// CSS transform: scale(), so the measurement is correct even
+		// while the bubbleEnter animation is mid-flight.
+		const w = Math.ceil(el.offsetWidth);
+		const h = Math.ceil(el.offsetHeight);
+		// Add 1px safety margin so the window fully contains the pill.
+		window.bubble?.resizeTo?.(w + 1, h + 1);
 	}, [animState]);
 
 	// ── Animation-end callback ──────────────────────────────────────
@@ -273,12 +298,15 @@ export function Bubble({ className: _className }: { className?: string }) {
 			>
 				{/* ── Voice level visualiser ──────────────────────────── */}
 				{/* BUBBLE-FIX-4.2: fixed-height wrapper so the animated bar
-				    heights (5px→32px) cannot resize the parent pill. Without
-				    this, the pill grew from 27px to 54px on every beat,
-				    causing layout shift and a flickering BrowserWindow resize.
-				    Use a literal Tailwind class (h-8 = 32px = MAX_HEIGHT) so
-				    the JIT compiler picks it up. */}
-				<div className="flex h-8 items-center gap-[3px]">
+                                    heights (5px→22px) cannot resize the parent pill. Without
+                                    this, the pill grew on every beat, causing layout shift
+                                    and a flickering BrowserWindow resize.
+                                    BUBBLE-FIX-5.1 (Round 0): wrapper reduced from h-8 (32px)
+                                    to h-6 (24px) per user request — tighter, more compact
+                                    bubble. MAX_HEIGHT reduced to 22px to fit inside with
+                                    2px headroom. Use a literal Tailwind class so the JIT
+                                    compiler picks it up. */}
+				<div className="flex h-6 items-center gap-[3px]">
 					{dots.map((i) => (
 						<span
 							key={i}

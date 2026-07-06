@@ -313,8 +313,15 @@ let _relaunching = false;
 let _restartTriggered = false;
 
 // Bubble geometry (logical px).
+// BUBBLE-FIX-5.2 (Round 0): BUBBLE_HEIGHT bumped from 27 → 46 to match
+// the actual pill height (h-6 wrapper 24px + py-2.5 20px + border 2px = 46px).
+// The previous 27px caused the pill to be clipped for the entire 180ms
+// enter animation, then the renderer's useLayoutEffect resize caused a
+// sudden snap to full size — the "cut-off then flash" artifact. With the
+// correct initial height, the first frame is already full-size and the
+// subsequent resize is a no-op (or sub-pixel adjustment).
 const BUBBLE_WIDTH = 74;
-const BUBBLE_HEIGHT = 27;
+const BUBBLE_HEIGHT = 46;
 
 // Bubble screen position preference (persisted via IPC from renderer).
 let bubblePosition: "top" | "bottom" = "top";

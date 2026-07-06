@@ -230,8 +230,9 @@ class TestModuleLevelPushHook:
         app._bubble_level_worker_stop = _threading.Event()
         app._bubble_level_worker = None
         # Reset the throttle timestamp so the first update_level call
-        # isn't dropped by the 33ms throttle (other tests in the suite
-        # may have set it recently).
+        # isn't dropped by the 16ms throttle (BUBBLE-FIX-4.1 changed it
+        # from 33ms to 16ms = ~60Hz; other tests in the suite may have
+        # set it recently).
         app._last_bubble_level_push_ts = 0.0
         VoiceTyperApp._wire_waveform_bubble(app)
 
