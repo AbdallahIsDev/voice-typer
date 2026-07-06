@@ -62,8 +62,7 @@ describe("SoundManager", () => {
 		// Use a regular function (not arrow) so `new Ctor()` works —
 		// arrow functions can't be used as constructors.
 		mockCtor = vi.fn(() => new MockAudioContext());
-		// @ts-expect-error — assigning mock for test
-		window.AudioContext = mockCtor;
+		window.AudioContext = mockCtor as typeof AudioContext;
 	});
 
 	afterEach(() => {
@@ -135,8 +134,15 @@ describe("SoundManager", () => {
 		});
 		expect(initAudioContext()).toBe(false);
 
-		// Second call: constructor succeeds — should NOT be permanently skipped
-		mockCtor.mockImplementation(() => new MockAudioContext());
+		// Second call: constructor succeeds — should NOT be permanently skipped.
+		// IMPORTANT: use a regular function (not arrow) so `new Ctor()` works —
+		// arrow functions can't be used as constructors and would throw a
+		// TypeError, which the catch block would swallow as a "failed
+		// construction" (matching the beforeEach mock setup convention).
+		// biome-ignore lint/complexity/useArrowFunction: arrow functions cannot be used as constructors — `new Ctor()` requires a regular function or class
+		mockCtor.mockImplementation(function () {
+			return new MockAudioContext();
+		});
 		expect(initAudioContext()).toBe(true);
 	});
 

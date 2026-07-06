@@ -15,11 +15,14 @@ import { usePython, usePythonEvent } from "@/hooks/usePython";
 // only as thin re-exports for backward compatibility with any external
 // importer, but they are no longer called from Home's event handlers.
 import { computeShareStats, useStatsShare } from "@/hooks/useStatsShare";
-import {
-	initAudioContext,
-	playSoundCue,
-	setSoundFeedbackEnabled,
-} from "@/lib/sound-manager";
+// SOUND-FIX-006 (Round 0): removed dead imports from @/lib/sound-manager.
+// These were imported but never used inside Home.tsx — the sound feedback
+// logic moved to App-level useSoundFeedback hook (SOUND-FIX-004), and
+// Home's only remaining reference is the re-export at the bottom of this
+// file which sources from @/hooks/useSoundFeedback, not @/lib/sound-manager.
+// Removing these dead imports reduces the surface area of the legacy
+// sound-manager.ts and advances the single-sound-system consolidation
+// (Approach C from the sound investigation).
 import { cn } from "@/lib/utils";
 import type { VoiceTyperConfig } from "@/types/config";
 import type {
