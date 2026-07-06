@@ -1109,131 +1109,31 @@ class VoiceTyperApp:
             log.debug("[AUDIO_QUALITY] finalize report failed", exc_info=True)
 
     def _stop_dictation(self):
-        """Stop recording and transcribe in background."""
-        if not self.recorder.recording:
-            log.info("[DICTATION] _stop_dictation: not recording, no-op")
-            return
+        """Stop recording and transcribe in background.
 
-        # Cancel any stale pending timers
-        self._cancel_pending_timers()
+        SOUND-FIX-005 (Round 0): this method is now a thin delegate to
+        ``RecordingController.stop()``. Previously it was a 125-line
+        duplicate of ``RecordingController.stop()`` that was missing
+        three critical side effects:
 
-        log.info("[DICTATION] Stopping recording... (cycle=%s)", self._cycle_id)
+        1. It never emitted the ``recording_stopped`` IPC push event,
+           so the renderer's ``useSoundFeedback`` hook never received
+           the stop cue and the stop beep never played.
+        2. It never reset ``keyboard_ownership`` back to ``"normal"``,
+           so the ESC cancel hotkey kept firing after a normal stop.
+        3. It never started the Event-based watchdog thread
+           (``_start_watchdog_thread``), so transcription hangs (>60s)
+           never auto-recovered.
 
-        self._busy_event.clear()  # busy = True
-
-        # Detach the RMS callback and hide the bubble so the audio path
-        # cannot keep pushing levels after the stream is closed.
-        self.recorder.on_rms_level = None
-        # Push a final zero-level event so the renderer resets its animation
-        # envelope. Without this, the dots stay frozen at their last active
-        # height because rawLevelRef is never set back to 0.
-        self._waveform_bubble.reset_level()
-        # Hide bubble unless always_visible mode (bubble stays on screen)
-        if self.config.bubble_behavior != 'always_visible':
-            self._waveform_bubble.hide()
-
-        try:
-            audio = self.recorder.stop()
-        except Exception as e:
-            log.exception("[DICTATION] Failed to stop recording")
-            self._cancel_streaming_session()
-            self._restore_volume()
-            self.tray.set_state(AppState.ERROR, "Stop failed")
-            # NEW-UX-018: critical — bypass toggle (dictation failed).
-            self.tray.notify_safety(APP_NAME, f"Could not stop recording.\n{e}")
-            self._busy_event.set()  # busy = False
-            self._schedule_timer(3.0, lambda: self.tray.set_state(AppState.IDLE))
-            return
-
-        # Restore system volume immediately — don't wait for transcription
-        # (which takes seconds) before the user gets their audio back.
-        self._restore_volume()
-
-        # Audio has already been resampled to config.sample_rate by Recorder.stop()
-        duration = len(audio) / self.config.sample_rate if len(audio) > 0 else 0
-        # Capture RMS before starting transcription thread (race-safe)
-        recorded_rms = self.recorder.last_rms
-
-        # Run the revived AudioQualityAnalyzer on the captured audio.
-        # Surfaces clipping / low-volume / high-noise warnings via tray
-        # (gated by config.audio_quality_warnings).  Must run BEFORE
-        # the transcription thread starts so the report reflects this
-        # session's audio, not whatever the next session produces.
-        if duration > 0:
-            try:
-                self._finalize_audio_quality_report(audio)
-            except Exception:
-                log.debug("[AUDIO_QUALITY] finalize failed", exc_info=True)
-        log.info("[DICTATION] Recording stopped -- %.1fs of audio, busy=True (cycle=%s)", duration, self._cycle_id)
-
-        if duration < 0.5:
-            log.info("[DICTATION] Audio too short, skipping transcription")
-            self._cancel_streaming_session()
-            self.tray.set_state(AppState.IDLE, "Too short -- ignored")
-            self._busy_event.set()  # busy = False
-            self._schedule_timer(2.0, lambda: self.tray.set_state(AppState.IDLE))
-            return
-
-        log.info("[DICTATION] Starting transcription thread... (cycle=%s)", self._cycle_id)
-        self.tray.set_state(AppState.TRANSCRIBING, "Transcribing...")
-
-        # PERF-NEW-005: signal the streaming session to cancel BEFORE
-        # starting the final transcription thread.  The streaming
-        # thread's cancel event is set here (non-blocking), so any
-        # in-flight streaming inference will abort quickly and release
-        # the transcriber lock before the final transcription tries to
-        # acquire it.  Previously the streaming thread could still be
-        # holding the lock, adding 600-1200ms latency.
-        session = self._get_streaming_session()
-        if session is not None:
-            try:
-                session._cancel_event.set()
-            except Exception:
-                pass
-
-        # RACE-013 / ARCH-017: The legacy Timer-based watchdog that used
-        # to live here has been REMOVED. It was duplicating the Event-based
-        # persistent watchdog thread started by RecordingController.stop()
-        # (see recording_controller.py:_start_watchdog_thread), causing BOTH
-        # to fire 60s after a transcription completed normally — the Timer
-        # would force-recover an already-healthy app.
-        #
-        # The pipeline's finally block (dictation_pipeline.py:166-169) now
-        # resets + stops the Event-based watchdog via _reset_watchdog() +
-        # _stop_watchdog_thread(). There is no Timer to cancel anymore.
-        #
-        # The `watchdog` argument to DictationPipeline.run() below is kept
-        # for backward compatibility with older tests that still construct
-        # DictationPipeline directly; it is ignored inside the pipeline.
-
-        _captured_cycle_id = self._cycle_id
-
-        # ARCH-006: transcribe_thread extracted to DictationPipeline class.
-        # The pipeline runs on a daemon thread and handles all steps:
-        # transcribe → clean → vocab → templates → punctuate → LLM → store → paste.
-        from voice_typer.server.dictation_pipeline import DictationPipeline
-
-        def transcribe_thread():
-            pipeline = DictationPipeline(self)
-            pipeline.run(
-                audio=audio,
-                duration=duration,
-                recorded_rms=recorded_rms,
-                cycle_id=_captured_cycle_id,
-                watchdog=None,  # RACE-013: Event-based watchdog is used, not Timer
-            )
-
-        # ARCH-REFAC-003: write directly to RecordingController's
-        # _transcription_thread (was a @property delegate previously).
-        self.recording._transcription_thread = threading.Thread(
-            target=transcribe_thread,
-            name="Transcription",
-            daemon=True,
-            # RACE-016: daemon=True is acceptable because the pipeline's
-            # finally block clears the busy event and crash recovery is
-            # handled by the atexit handler if the thread is killed.
-        )
-        self.recording._transcription_thread.start()
+        ``RecordingController.stop()`` already contains the full,
+        correct implementation — including all three missing side
+        effects — but was unreachable from production call sites
+        (``toggle``, ``on_silence_auto_stop``, ``on_max_duration_auto_stop``
+        all called ``app._stop_dictation`` directly). Making this method
+        a delegate routes all production stop traffic through the
+        correct implementation and eliminates the duplication.
+        """
+        self.recording.stop()
 
     def _streaming_enabled(self) -> bool:
         """#2 (Round 9): delegate to RecordingController._streaming_enabled()."""

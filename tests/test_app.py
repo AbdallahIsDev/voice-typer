@@ -375,6 +375,44 @@ class TestAppStateTransitions:
             app.recorder.stop.return_value
         )
 
+    def test_stop_dictation_emits_recording_stopped_event(self, app, monkeypatch):
+        """SOUND-FIX-005 (Round 0): ``app._stop_dictation`` must emit the
+        ``recording_stopped`` IPC push event so the renderer's
+        ``useSoundFeedback`` hook can play the stop cue.
+
+        Previously ``app._stop_dictation`` was a 125-line duplicate of
+        ``RecordingController.stop()`` that skipped the emit, so the stop
+        beep never played. This test guards against regression by
+        asserting the event is pushed exactly once per stop.
+        """
+        # Simulate a recording in progress with enough audio to pass the
+        # 0.5s short-circuit gate (we don't need transcription to succeed).
+        app.recorder = MagicMock()
+        app.recorder.recording = True
+        app.recorder.stop = MagicMock(return_value=np.ones(16000, dtype=np.float32))
+
+        # Stub the pipeline so the transcription thread completes quickly.
+        captured = {"events": []}
+
+        def fake_push_event_now(event):
+            captured["events"].append(event)
+
+        monkeypatch.setattr(
+            "voice_typer.server.ipc_server._push_event_now",
+            fake_push_event_now,
+        )
+
+        # Drive a real stop via the delegate.
+        app._stop_dictation()
+        _wait_for_busy_clear(app)
+
+        # Assert the recording_stopped event was emitted exactly once.
+        stop_events = [e for e in captured["events"] if e.get("type") == "recording_stopped"]
+        assert len(stop_events) == 1, (
+            f"Expected exactly one recording_stopped event, got {len(stop_events)}. "
+            f"All captured events: {captured['events']}"
+        )
+
 
 class TestConfigWiring:
     def test_paste_on_stop_preserves_user_value(self, tmp_config_dir, monkeypatch):

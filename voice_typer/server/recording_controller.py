@@ -383,7 +383,10 @@ class RecordingController:
             self._cancel_streaming_session()
             app._restore_volume()
             app.tray.set_state(AppState.ERROR, "Stop failed")
-            app.tray.notify(APP_NAME, f"Could not stop recording.\n{e}")
+            # NEW-UX-018: critical — bypass the notification toggle
+            # (dictation failed, the user must be told even if they
+            # disabled normal notifications).
+            app.tray.notify_safety(APP_NAME, f"Could not stop recording.\n{e}")
             app._busy_event.set()  # busy = False
             app._schedule_timer(3.0, lambda: app.tray.set_state(AppState.IDLE))
             return
