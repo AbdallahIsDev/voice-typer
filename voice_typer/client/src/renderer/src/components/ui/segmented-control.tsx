@@ -22,7 +22,6 @@ export interface SegmentedControlOption<T extends string> {
 	/** Visible label. */
 	label: string;
 }
-
 export interface SegmentedControlProps<T extends string> {
 	options: SegmentedControlOption<T>[];
 	/** Currently-selected value. */
@@ -34,12 +33,20 @@ export interface SegmentedControlProps<T extends string> {
 	/** Optional wrapper className. */
 	className?: string;
 	/**
-	 * Visual variant.
-	 * - ``"default"`` — compact inline pill (``h-8``, ``text-xs``, border).
-	 * - ``"tabs"`` — larger navigation tabs (``h-10``, ``text-sm``, more padding).
-	 * @default "default"
+	 * Extra classes for the active indicator pill (e.g. ``"bg-input"``
+	 * to replace the default ``bg-primary shadow-xs``).
 	 */
-	variant?: "default" | "tabs";
+	indicatorClassName?: string;
+	/**
+	 * Extra classes for the active label (e.g. ``"text-(--text-primary)"``
+	 * to replace the default ``text-primary-foreground``).
+	 */
+	activeClassName?: string;
+	/**
+	 * Extra classes for every label element (e.g. ``"flex-1 text-center"``
+	 * to make each option take equal width).
+	 */
+	labelClassName?: string;
 }
 
 export function SegmentedControl<T extends string>({
@@ -48,7 +55,9 @@ export function SegmentedControl<T extends string>({
 	onChange,
 	ariaLabel,
 	className,
-	variant = "default",
+	indicatorClassName,
+	activeClassName,
+	labelClassName,
 }: SegmentedControlProps<T>) {
 	const containerRef = useRef<HTMLDivElement>(null);
 	// Store refs for each option label so we can measure their position.
@@ -107,10 +116,7 @@ export function SegmentedControl<T extends string>({
 			role="radiogroup"
 			aria-label={ariaLabel}
 			className={cn(
-				"relative inline-flex items-center",
-				variant === "default" &&
-					"rounded-xl border border-border/50 bg-input/50 p-0.5 h-8",
-				variant === "tabs" && "rounded-lg bg-(--bg) p-1 h-10",
+				"relative inline-flex items-center rounded-xl border border-border bg-input p-1",
 				className,
 			)}
 		>
@@ -118,9 +124,9 @@ export function SegmentedControl<T extends string>({
 			{indicatorStyle && (
 				<div
 					className={cn(
-						"pointer-events-none absolute z-0 bg-primary shadow-xs transition-all duration-200 ease-out",
-						variant === "default" && "inset-y-0.5 rounded-lg",
-						variant === "tabs" && "inset-y-1 rounded-md",
+						"pointer-events-none absolute z-0 inset-y-1 rounded-lg transition-all duration-200 ease-out",
+						"bg-primary shadow-xs",
+						indicatorClassName,
 					)}
 					style={{
 						left: `${indicatorStyle.left}px`,
@@ -136,13 +142,12 @@ export function SegmentedControl<T extends string>({
 						key={opt.value}
 						ref={getLabelRef(opt.value)}
 						className={cn(
-							"relative z-10 cursor-pointer font-medium outline-none transition-colors duration-150 focus-within:ring-2 focus-within:ring-ring/40",
+							"relative z-10 cursor-pointer font-medium outline-none transition-colors duration-150",
 							"select-none whitespace-nowrap",
-							variant === "default" && "rounded-lg px-3 py-1 text-xs",
-							variant === "tabs" && "rounded-md px-4 py-1.5 text-sm",
-							active
-								? "text-primary-foreground"
-								: "text-(--text-muted) hover:text-(--text-primary)",
+							"rounded-lg px-4 py-1.5 text-sm",
+							labelClassName,
+							active && ["text-primary-foreground", activeClassName],
+							!active && "text-(--text-muted) hover:text-(--text-primary)",
 						)}
 					>
 						<input

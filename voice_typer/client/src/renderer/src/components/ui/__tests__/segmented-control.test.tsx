@@ -61,7 +61,7 @@ describe("SegmentedControl (default variant)", () => {
 		expect(screen.getByText("Right")).toBeInTheDocument();
 	});
 
-	it("applies default variant class names (h-8, rounded-xl, border)", () => {
+	it("applies default variant class names (rounded-xl, border, p-1)", () => {
 		render(
 			<SegmentedControl
 				options={TWO_OPTIONS}
@@ -72,9 +72,9 @@ describe("SegmentedControl (default variant)", () => {
 		);
 
 		const fieldset = screen.getByRole("radiogroup");
-		expect(fieldset.className).toContain("h-8");
 		expect(fieldset.className).toContain("rounded-xl");
 		expect(fieldset.className).toContain("border");
+		expect(fieldset.className).toContain("p-1");
 	});
 
 	it("marks the active option as checked", () => {
@@ -168,7 +168,7 @@ describe("SegmentedControl (default variant)", () => {
 		expect(rightLabel?.className).toContain("text-(--text-muted)");
 	});
 
-	it("renders labels with text-xs in default variant", () => {
+	it("renders labels with text-sm", () => {
 		render(
 			<SegmentedControl
 				options={TWO_OPTIONS}
@@ -181,119 +181,8 @@ describe("SegmentedControl (default variant)", () => {
 		const radios = screen.getAllByRole("radio");
 		for (const radio of radios) {
 			const label = radio.closest("label");
-			expect(label?.className).toContain("text-xs");
-		}
-	});
-});
-
-// ── Tabs variant ─────────────────────────────────────────────────────────────
-
-describe("SegmentedControl (tabs variant)", () => {
-	it("renders all option labels", () => {
-		render(
-			<SegmentedControl
-				variant="tabs"
-				options={FOUR_OPTIONS}
-				value="two"
-				onChange={() => {}}
-				ariaLabel="test-tabs"
-			/>,
-		);
-
-		expect(screen.getByText("Option One")).toBeInTheDocument();
-		expect(screen.getByText("Option Two")).toBeInTheDocument();
-		expect(screen.getByText("Option Three")).toBeInTheDocument();
-		expect(screen.getByText("Option Four")).toBeInTheDocument();
-	});
-
-	it("applies tabs variant class names (h-10, rounded-lg, no border)", () => {
-		render(
-			<SegmentedControl
-				variant="tabs"
-				options={FOUR_OPTIONS}
-				value="two"
-				onChange={() => {}}
-				ariaLabel="test-tabs"
-			/>,
-		);
-
-		const fieldset = screen.getByRole("radiogroup");
-		expect(fieldset.className).toContain("h-10");
-		expect(fieldset.className).toContain("rounded-lg");
-		expect(fieldset.className).not.toContain("border-");
-	});
-
-	it("renders labels with text-sm in tabs variant", () => {
-		render(
-			<SegmentedControl
-				variant="tabs"
-				options={FOUR_OPTIONS}
-				value="two"
-				onChange={() => {}}
-				ariaLabel="test-tabs"
-			/>,
-		);
-
-		const radios = screen.getAllByRole("radio");
-		for (const radio of radios) {
-			const label = radio.closest("label");
 			expect(label?.className).toContain("text-sm");
 		}
-	});
-
-	it("marks the active option as checked", () => {
-		render(
-			<SegmentedControl
-				variant="tabs"
-				options={FOUR_OPTIONS}
-				value="three"
-				onChange={() => {}}
-				ariaLabel="test-tabs"
-			/>,
-		);
-
-		const radios = screen.getAllByRole("radio");
-		expect(radios[2]).toBeChecked();
-		expect(radios[0]).not.toBeChecked();
-		expect(radios[1]).not.toBeChecked();
-		expect(radios[3]).not.toBeChecked();
-	});
-
-	it("calls onChange when clicking an unselected tab", async () => {
-		const user = userEvent.setup();
-		const onChange = vi.fn();
-
-		render(
-			<SegmentedControl
-				variant="tabs"
-				options={FOUR_OPTIONS}
-				value="one"
-				onChange={onChange}
-				ariaLabel="test-tabs"
-			/>,
-		);
-
-		await user.click(screen.getByText("Option Four"));
-		expect(onChange).toHaveBeenCalledTimes(1);
-		expect(onChange).toHaveBeenCalledWith("four");
-	});
-
-	it("does NOT call onChange when clicking the already-active tab", async () => {
-		const user = userEvent.setup();
-		const onChange = vi.fn();
-
-		render(
-			<SegmentedControl
-				variant="tabs"
-				options={FOUR_OPTIONS}
-				value="two"
-				onChange={onChange}
-				ariaLabel="test-tabs"
-			/>,
-		);
-
-		await user.click(screen.getByText("Option Two"));
-		expect(onChange).not.toHaveBeenCalled();
 	});
 });
 
@@ -388,7 +277,6 @@ describe("SegmentedControl with many options", () => {
 
 		render(
 			<SegmentedControl
-				variant="tabs"
 				options={SIX_OPTIONS}
 				value="c"
 				onChange={onChange}
@@ -409,7 +297,6 @@ describe("SegmentedControl with many options", () => {
 
 		render(
 			<SegmentedControl
-				variant="tabs"
 				options={SIX_OPTIONS}
 				value="a"
 				onChange={onChange}
@@ -522,48 +409,6 @@ describe("SegmentedControl keyboard navigation", () => {
 		expect(onChange).toHaveBeenCalledTimes(1);
 		expect(onChange).toHaveBeenCalledWith("four");
 	});
-
-	it("works with ArrowRight on tabs variant", async () => {
-		const user = userEvent.setup();
-		const onChange = vi.fn();
-
-		render(
-			<SegmentedControl
-				variant="tabs"
-				options={FOUR_OPTIONS}
-				value="one"
-				onChange={onChange}
-				ariaLabel="test-tabs"
-			/>,
-		);
-
-		screen.getAllByRole("radio")[0].focus();
-		await user.keyboard("{ArrowRight}");
-
-		expect(onChange).toHaveBeenCalledTimes(1);
-		expect(onChange).toHaveBeenCalledWith("two");
-	});
-
-	it("works with ArrowLeft on tabs variant", async () => {
-		const user = userEvent.setup();
-		const onChange = vi.fn();
-
-		render(
-			<SegmentedControl
-				variant="tabs"
-				options={FOUR_OPTIONS}
-				value="four"
-				onChange={onChange}
-				ariaLabel="test-tabs"
-			/>,
-		);
-
-		screen.getAllByRole("radio")[3].focus();
-		await user.keyboard("{ArrowLeft}");
-
-		expect(onChange).toHaveBeenCalledTimes(1);
-		expect(onChange).toHaveBeenCalledWith("three");
-	});
 });
 
 // ── Extra className ──────────────────────────────────────────────────────────
@@ -584,20 +429,19 @@ describe("SegmentedControl className prop", () => {
 		expect(group.className).toContain("my-custom-class");
 	});
 
-	it("merges extra className with variant classes", () => {
+	it("merges extra className with base classes", () => {
 		render(
 			<SegmentedControl
-				variant="tabs"
 				options={FOUR_OPTIONS}
 				value="one"
 				onChange={() => {}}
-				ariaLabel="test-tabs"
+				ariaLabel="test-classname"
 				className="w-full"
 			/>,
 		);
 
 		const group = screen.getByRole("radiogroup");
 		expect(group.className).toContain("w-full");
-		expect(group.className).toContain("h-10");
+		expect(group.className).toContain("rounded-xl");
 	});
 });
