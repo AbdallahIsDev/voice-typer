@@ -210,10 +210,16 @@ class _ColorFormatter(logging.Formatter):
     """
 
     _DIM = "38;5;242"  # grey
+    # LOG-COLOR-FIX (Round 1): WARN was 38;5;214 (orange #FFAF00) which
+    # 256→16-color quantization on Windows conhost maps to bright-red,
+    # making WARN look red and ERROR look yellow by comparison — the
+    # inversion the user reported. Changed to 38;5;226 (pure yellow
+    # #FFFF00) which quantizes to bright-yellow slot 14 on Windows
+    # conhost, matching the standard WARN=yellow / ERROR=red convention.
     _LVL_COLOR = {
-        logging.WARNING: "38;5;214",
-        logging.ERROR: "38;5;196",
-        logging.CRITICAL: "38;5;196;1",
+        logging.WARNING: "38;5;226",   # pure yellow (#FFFF00)
+        logging.ERROR: "38;5;196",     # pure red (#FF0000)
+        logging.CRITICAL: "38;5;196;1",  # red bold
     }
     _LVL_SYM = {
         logging.WARNING: "WARN",
