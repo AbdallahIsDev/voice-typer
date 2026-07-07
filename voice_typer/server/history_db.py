@@ -120,7 +120,15 @@ class HistoryDB:
             conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA synchronous=NORMAL")
-            conn.execute("PRAGMA busy_timeout=5000")
+            # DB-LOCK-FIX-001 (Round 1): lowered from 5000ms to 1000ms.
+            # The previous 5000ms value matched the user-reported ~5.5s
+            # stall exactly — a held write lock would block the caller
+            # for the full 5s before raising SQLITE_BUSY (which was then
+            # swallowed and logged as "database is locked"). With the
+            # retry helper (_exec_with_retry) and chunked apply_retention
+            # (DB-LOCK-FIX-002), 1000ms is enough for transient
+            # contention while failing fast enough to retry.
+            conn.execute("PRAGMA busy_timeout=1000")
             conn.execute("PRAGMA cache_size=-20000")  # 20 MB
             conn.row_factory = sqlite3.Row
             self._local.conn = conn
@@ -136,6 +144,46 @@ class HistoryDB:
                     except OSError:
                         pass
         return self._local.conn
+
+    def _exec_with_retry(
+        self,
+        fn: Any,
+        *,
+        max_attempts: int = 5,
+        base_delay: float = 0.05,
+    ) -> Any:
+        """Execute a DB write function with retry on SQLITE_BUSY/SQLITE_LOCKED.
+
+        DB-LOCK-FIX-001 (Round 1): previously, any SQLITE_BUSY (after the
+        full ``busy_timeout`` wait) was caught by the caller's broad
+        ``except Exception`` and logged as a hard failure — losing the
+        row from history and stalling the user for 5+ seconds. This
+        helper wraps the write in a retry loop with exponential backoff
+        (50, 100, 200, 400 ms) so transient contention from concurrent
+        writers (apply_retention sweep, IPC delete/toggle, external
+        Defender scan) recovers gracefully instead of failing.
+
+        Total worst-case wait per call: ``busy_timeout`` (1000ms) +
+        50+100+200+400 ms = ~1.75s, vs the previous 5s + hard failure.
+        On the common case (no contention) there is zero overhead — the
+        first attempt succeeds and no retry occurs.
+        """
+        last_err: Optional[Exception] = None
+        for attempt in range(max_attempts):
+            try:
+                return fn()
+            except sqlite3.OperationalError as e:
+                msg = str(e).lower()
+                if "locked" not in msg and "busy" not in msg:
+                    raise  # Not a lock error — re-raise immediately
+                last_err = e
+                if attempt == max_attempts - 1:
+                    raise  # Final attempt failed — re-raise
+                # Exponential backoff: 50, 100, 200, 400 ms
+                time.sleep(base_delay * (2 ** attempt))
+        # Should be unreachable, but satisfy type checker
+        if last_err:
+            raise last_err
 
     def _init_db(self):
         """Initialize the database schema and run migrations."""
@@ -263,18 +311,23 @@ class HistoryDB:
             word_count = len(text.split())
             char_count = len(text)
 
-            conn = self._get_conn()
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO transcriptions
-                (text, duration, model, device, word_count, char_count, language)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (text, duration, model, device, word_count, char_count, language))
-            conn.commit()
-            row_id = cursor.lastrowid
-            if row_id is None:
-                return -1
-            log.debug("Added transcription %d: %d chars", row_id, char_count)
+            def _do_insert() -> int:
+                conn = self._get_conn()
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO transcriptions
+                    (text, duration, model, device, word_count, char_count, language)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (text, duration, model, device, word_count, char_count, language))
+                conn.commit()
+                row_id = cursor.lastrowid
+                if row_id is None:
+                    return -1
+                log.debug("Added transcription %d: %d chars", row_id, char_count)
+                return row_id
+
+            # DB-LOCK-FIX-001: retry on SQLITE_BUSY/LOCKED with backoff
+            row_id = self._exec_with_retry(_do_insert)
             assert row_id is not None
             return row_id
         except Exception as e:
@@ -471,9 +524,21 @@ class HistoryDB:
 
         DEAD-012: retention_count is wired as a fallback for max_entries.
         If max_entries is not set but retention_count is, use it.
+
+        DB-LOCK-FIX-002 (Round 1): the previous implementation held a
+        single write transaction open across DELETE + SELECT COUNT +
+        DELETE before committing. On a DB with many old rows, this held
+        the write lock for seconds — blocking the Transcription thread's
+        ``add_transcription`` call for the full ``busy_timeout`` (5s,
+        now 1s) and causing the user-reported "database is locked"
+        5.5s stall. The fix: chunk deletes into batches of 100, committing
+        after each batch so the write lock is released between batches
+        and other writers can interleave.
         """
         # DEAD-012: wire retention_count as fallback for max_entries
         effective_max = max_entries or retention_count
+        # DB-LOCK-FIX-002: batch size for chunked deletes.
+        _RETENTION_BATCH = 100
 
         deleted = 0
         try:
@@ -482,18 +547,33 @@ class HistoryDB:
 
             if retention_days > 0:
                 cutoff = (datetime.now() - timedelta(days=retention_days)).isoformat()
-                cursor.execute(
-                    "DELETE FROM transcriptions WHERE timestamp < ? AND favorite = 0",
-                    (cutoff,)
-                )
-                deleted += cursor.rowcount
+                # Chunked: delete in batches of _RETENTION_BATCH, committing
+                # after each batch so the write lock is released between
+                # batches and other writers (add_transcription, IPC
+                # delete/toggle) can interleave.
+                while True:
+                    cursor.execute(
+                        "DELETE FROM transcriptions WHERE id IN ("
+                        "  SELECT id FROM transcriptions"
+                        "  WHERE timestamp < ? AND favorite = 0"
+                        "  LIMIT ?"
+                        ")", (cutoff, _RETENTION_BATCH),
+                    )
+                    batch_deleted = cursor.rowcount
+                    if batch_deleted == 0:
+                        break
+                    deleted += batch_deleted
+                    conn.commit()  # release write lock between batches
 
             if effective_max > 0:
-                # Keep favorites + the most recent non-favorite entries
-                cursor.execute("SELECT COUNT(*) FROM transcriptions")
-                total = cursor.fetchone()[0]
-                if total > effective_max:
-                    excess = total - effective_max
+                # Keep favorites + the most recent non-favorite entries.
+                # Chunked: delete in batches of _RETENTION_BATCH.
+                while True:
+                    cursor.execute("SELECT COUNT(*) FROM transcriptions")
+                    total = cursor.fetchone()[0]
+                    if total <= effective_max:
+                        break
+                    excess = min(total - effective_max, _RETENTION_BATCH)
                     cursor.execute("""
                         DELETE FROM transcriptions
                         WHERE id IN (
@@ -503,10 +583,13 @@ class HistoryDB:
                             LIMIT ?
                         )
                     """, (excess,))
-                    deleted += cursor.rowcount
+                    batch_deleted = cursor.rowcount
+                    if batch_deleted == 0:
+                        break
+                    deleted += batch_deleted
+                    conn.commit()  # release write lock between batches
 
             if deleted:
-                conn.commit()
                 log.info("[HISTORY_DB] Retention policy deleted %d entries", deleted)
         except Exception as e:
             log.error("[HISTORY] Failed to apply retention: %s", e)
