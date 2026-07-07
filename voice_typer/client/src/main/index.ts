@@ -572,6 +572,9 @@ function sendToPython(msg: Record<string, unknown>): Promise<unknown> {
 			// disable it, preventing the backend from processing Escape while
 			// the UI is capturing a custom hotkey.
 			"set_esc_cancel_paused",
+			// TRAY-008: allow set_tray_locale so tray labels update when the
+			// user changes the UI language in Settings.
+			"set_tray_locale",
 		]);
 		const cmd = String(msg?.type ?? "").trim();
 		if (!ALLOWED_COMMANDS.has(cmd)) {
@@ -686,17 +689,19 @@ function createMainWindow(forceShow = false) {
 	mainWindow.on("maximize", () => broadcastMaximized(true));
 	mainWindow.on("unmaximize", () => broadcastMaximized(false));
 
-	mainWindow.webContents.on(
-		"console-message",
-		(_e, level, message, line, source) => {
-			if (level >= 2) {
-				const tag = ["VRB", "INFO", "WARN", "ERROR"][level] ?? "LOG";
-				console.warn(
-					`${ts()}  ${RENDERER_CLR}[${tag}]${RESET} ${cleanConsoleMsg(message)} (${source}:${line})`,
-				);
-			}
-		},
-	);
+	// CONSOLE-FIX (Round 1): Electron 30+ deprecated the multi-argument
+	// console-message signature `(_e, level, message, line, source)`.
+	// The new signature is a single Event object with properties:
+	//   e.level, e.message, e.lineNumber, e.sourceId
+	// The old signature emitted a deprecation warning on every app start.
+	mainWindow.webContents.on("console-message", (e) => {
+		if (e.level >= 2) {
+			const tag = ["VRB", "INFO", "WARN", "ERROR"][e.level] ?? "LOG";
+			console.warn(
+				`${ts()}  ${RENDERER_CLR}[${tag}]${RESET} ${cleanConsoleMsg(e.message)} (${e.sourceId}:${e.lineNumber})`,
+			);
+		}
+	});
 
 	mainWindow.webContents.on("before-input-event", (_event, input) => {
 		if (
@@ -842,11 +847,12 @@ function createBubbleWindow(): BrowserWindow {
 			err,
 		);
 	});
-	win.webContents.on("console-message", (_e, level, message, line, source) => {
-		if (level >= 2) {
-			const tag = ["VRB", "INFO", "WARN", "ERROR"][level] ?? "LOG";
+	// CONSOLE-FIX (Round 1): new Electron console-message signature.
+	win.webContents.on("console-message", (e) => {
+		if (e.level >= 2) {
+			const tag = ["VRB", "INFO", "WARN", "ERROR"][e.level] ?? "LOG";
 			console.warn(
-				`${ts()}  ${BUBBLE_CLR}[BUBBLE] renderer ${tag}${RESET} ${cleanConsoleMsg(message)} (${source}:${line})`,
+				`${ts()}  ${BUBBLE_CLR}[BUBBLE] renderer ${tag}${RESET} ${cleanConsoleMsg(e.message)} (${e.sourceId}:${e.lineNumber})`,
 			);
 		}
 	});
