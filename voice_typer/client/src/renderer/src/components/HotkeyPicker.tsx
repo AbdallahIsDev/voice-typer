@@ -176,7 +176,11 @@ export function HotkeyPicker({
 			const isModifier = e.code in MODIFIER_CODE_TO_PYNPUT;
 			if (mode === "single") {
 				if (isModifier) return;
-				const pynputName = KEY_CODE_TO_PYNPUT[e.key];
+				// HOTKEY-FIX-002: use e.code (layout-independent) instead
+				// of e.key (layout-dependent) so the lookup works on
+				// AZERTY, Dvorak, etc. The KEY_CODE_TO_PYNPUT table now
+				// includes letters and digits (was missing in Round 0).
+				const pynputName = KEY_CODE_TO_PYNPUT[e.code];
 				if (!pynputName) {
 					setError(`Key "${e.key}" is not supported as a hotkey.`);
 					return;
@@ -203,10 +207,19 @@ export function HotkeyPicker({
 			if (e.altKey) mods.push("alt");
 			if (e.metaKey) mods.push(IS_MAC ? "cmd" : "win");
 
-			const pynputName = KEY_CODE_TO_PYNPUT[e.key];
+			// HOTKEY-FIX-002: use e.code (layout-independent).
+			const pynputName = KEY_CODE_TO_PYNPUT[e.code];
 			if (!pynputName) {
+				// HOTKEY-FIX-003 (Round 1): include held modifiers in
+				// the error message so the user sees the complete
+				// attempted shortcut, not just the final key. Previously
+				// pressing Shift+Z showed "Key 'Z' is not supported" —
+				// dropping the Shift modifier entirely. Now it shows
+				// "Shift+Z is not supported" (or the full combo).
+				const attemptedCombo =
+					mods.length > 0 ? `${mods.join("+")}+${e.key}` : e.key;
 				setError(
-					`Key "${e.key}" is not supported. Try letters, numbers, F-keys, or Space.`,
+					`"${attemptedCombo}" is not supported. Try letters, numbers, F-keys, or Space.`,
 				);
 				return;
 			}
@@ -292,7 +305,22 @@ export function HotkeyPicker({
 	}, []); // ESC-FIX-002: empty deps — onCaptureEnd read from ref
 
 	const presets = mode === "single" ? SINGLE_KEY_PRESETS : COMBO_PRESETS;
-	const presetValue = mode === "single" ? value.replace(/[<>]/g, "") : value;
+	// HOTKEY-FIX-004 (Round 1): "Custom" sentinel. When the current
+	// hotkey is not one of the preset values, the Select would render
+	// an empty trigger (Radix Select quirk: a non-empty value that
+	// matches no SelectItem suppresses the placeholder). We detect
+	// custom values and map them to a "__custom__" sentinel that
+	// displays the actual hotkey label, so the dropdown always shows
+	// something meaningful.
+	const _CUSTOM_SENTINEL = "__custom__";
+	const rawPresetValue = mode === "single" ? value.replace(/[<>]/g, "") : value;
+	const isPresetValue = presets.some((opt) => opt.value === rawPresetValue);
+	const presetValue = isPresetValue
+		? rawPresetValue
+		: value
+			? _CUSTOM_SENTINEL
+			: "";
+	const customLabel = value ? formatHotkeyLabel(value) : "";
 
 	return (
 		<div className="flex flex-col gap-2">
@@ -323,6 +351,11 @@ export function HotkeyPicker({
 				<Select
 					value={presetValue}
 					onValueChange={(v) => {
+						// HOTKEY-FIX-004: ignore the "__custom__"
+						// sentinel — it's display-only, not a real
+						// choice. The user picks it via the capture
+						// button instead.
+						if (v === _CUSTOM_SENTINEL) return;
 						const newValue = mode === "single" ? `<${v}>` : v;
 						const validationError = validateHotkey(newValue, mode);
 						if (validationError) {
@@ -345,6 +378,14 @@ export function HotkeyPicker({
 								{opt.label}
 							</SelectItem>
 						))}
+						{/* HOTKEY-FIX-004: show "Custom: <hotkey>" when
+                                                    the current value is not a preset. This
+                                                    prevents the dropdown from appearing empty. */}
+						{!isPresetValue && value && (
+							<SelectItem value={_CUSTOM_SENTINEL}>
+								Custom: {customLabel}
+							</SelectItem>
+						)}
 					</SelectContent>
 				</Select>
 			</div>
