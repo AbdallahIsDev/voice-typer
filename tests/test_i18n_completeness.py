@@ -45,6 +45,21 @@ ALLOWED_UNTRANSLATED = {
     "models.providers.deepgram.label", # "Deepgram API"
     # Parakeet label is a product name — kept identical.
     "models.card.parakeetLabel",  # "NVIDIA Parakeet TDT v3  ·  "
+    # Em-dash placeholder for missing data — identical glyph across locales.
+    "about.unknown",  # "—"
+    # Version number format — "v{version}" is universally identical.
+    "about.versionValue",  # "v{version}"
+    # AUDIO-TERM (Round 1): audio engineering terms that are genuinely
+    # identical cognates in de/es/fr — "Equalizer", "Limiter" are
+    # standard technical vocabulary used untranslated in German, Spanish,
+    # and French audio engineering contexts. Adding them here avoids
+    # forcing a fake distinction that would confuse native speakers.
+    "settings.audioEnhancement.equalizer",      # "Equalizer"
+    "settings.audioEnhancement.equalizerAria",  # "Equalizer"
+    "settings.audioEnhancement.limiter",        # "Limiter"
+    "settings.audioEnhancement.limiterAria",    # "Limiter"
+    # "Variables: {vars}" — "Variables" is identical in EN/ES (cognate).
+    "templates.variablesTooltip",  # "Variables: {vars}"
 }
 
 # Pre-existing untranslated settings keys documented in the directive (§6).
