@@ -314,6 +314,158 @@ class TestStopAudioPrep:
         assert "Resampled 48000 Hz -> 16000 Hz" not in caplog.text
 
 
+class TestStopCallbackBackoff:
+    """PERF-FIX-002 (Round 0): the backoff loop in Recorder.stop() was
+    inverted (Event.wait() returned True when callback was running, but
+    the loop treated True as "completed"). The fix replaced it with a
+    polling loop: ``while self._is_in_audio_callback.is_set(): sleep(5ms)``
+    with a 300ms hard deadline.
+
+    These tests verify the three key behaviors:
+    1. 0ms common case (flag already clear → no wait).
+    2. Callback-in-flight guard (flag set → polls until clear).
+    3. Deadline exceeded (flag stays set → breaks after 300ms).
+    """
+
+    def test_zero_ms_common_case_when_flag_already_clear(self, monkeypatch):
+        """When _is_in_audio_callback is NOT set (no callback in flight),
+        the polling loop exits immediately on the first check — 0ms wait."""
+        from voice_typer.server.recording import Recorder
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        r._recording_event.set()
+        r._effective_sr = 16000
+        r._stream = MagicMock()
+        r._buffer = [np.array([[1.0]], dtype=np.float32)]
+
+        # Flag is cleared (default state) → loop should not sleep at all
+        sleep_calls = []
+        monkeypatch.setattr(
+            "voice_typer.server.recording.time.sleep",
+            lambda s: sleep_calls.append(s),
+        )
+
+        r.stop()
+
+        # No sleep calls because the flag was never set
+        assert len(sleep_calls) == 0, (
+            f"Expected 0 sleep calls (flag clear), got {len(sleep_calls)}"
+        )
+
+    def test_polls_until_callback_completes(self, monkeypatch):
+        """When _is_in_audio_callback IS set, the loop polls until it's
+
+        cleared. Simulate the callback completing after 3 polls."""
+        from voice_typer.server.recording import Recorder
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        r._recording_event.set()
+        r._effective_sr = 16000
+        r._stream = MagicMock()
+        r._buffer = [np.array([[1.0]], dtype=np.float32)]
+
+        # Set the flag (callback in flight)
+        r._is_in_audio_callback.set()
+
+        # Clear the flag after 3 sleep calls (simulating callback completion)
+        poll_count = {"n": 0}
+
+        def fake_sleep(s):
+            poll_count["n"] += 1
+            if poll_count["n"] >= 3:
+                r._is_in_audio_callback.clear()
+
+        monkeypatch.setattr(
+            "voice_typer.server.recording.time.sleep",
+            fake_sleep,
+        )
+
+        r.stop()
+
+        # Should have polled at least 3 times before the flag cleared
+        assert poll_count["n"] >= 3, (
+            f"Expected >= 3 polls, got {poll_count['n']}"
+        )
+
+    def test_deadline_exceeded_breaks_after_300ms(self, monkeypatch):
+        """When _is_in_audio_callback stays set (callback hung), the loop
+        breaks after the 300ms hard deadline."""
+        from voice_typer.server.recording import Recorder
+        import voice_typer.server.recording as rec_mod
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        r._recording_event.set()
+        r._effective_sr = 16000
+        r._stream = MagicMock()
+        r._buffer = [np.array([[1.0]], dtype=np.float32)]
+
+        # Flag stays set (callback never completes)
+        r._is_in_audio_callback.set()
+
+        # Use a monotonic counter that advances past the 300ms deadline.
+        # perf_counter is called in multiple places (stop_started, the
+        # backoff loop, stream_ms, concat_started), so we use a growing
+        # counter that returns increasing values.
+        counter = {"n": 0.0}
+
+        def fake_perf_counter():
+            val = counter["n"]
+            counter["n"] += 0.1  # advance by 100ms each call
+            return val
+
+        monkeypatch.setattr(rec_mod.time, "perf_counter", fake_perf_counter)
+
+        sleep_calls = []
+        monkeypatch.setattr(
+            rec_mod.time,
+            "sleep",
+            lambda s: sleep_calls.append(s),
+        )
+
+        # Should not raise, should complete (deadline breaks the loop)
+        r.stop()
+
+        # The loop should have broken due to deadline (remaining <= 0)
+        # Verify sleep was called at least once before the deadline
+        assert len(sleep_calls) >= 1, "Expected at least one sleep before deadline"
+
+    def test_user_stop_pending_flag_set_during_stop(self, monkeypatch):
+        """STREAM-FIX (Round 1): stop() must set _user_stop_pending before
+        stream.stop() so _stream_finished_callback doesn't warn."""
+        from voice_typer.server.recording import Recorder
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        r._recording_event.set()
+        r._effective_sr = 16000
+        r._stream = MagicMock()
+        r._buffer = [np.array([[1.0]], dtype=np.float32)]
+
+        # Capture the flag value at the time stream.stop() is called
+        flag_at_stop = {"value": None}
+        original_stop = r._stream.stop
+
+        def capturing_stop():
+            flag_at_stop["value"] = r._user_stop_pending
+            return original_stop()
+
+        r._stream.stop = capturing_stop
+
+        assert r._user_stop_pending is False  # initial state
+
+        r.stop()
+
+        assert flag_at_stop["value"] is True, (
+            "_user_stop_pending must be True when stream.stop() is called"
+        )
+        assert r._user_stop_pending is False, (
+            "_user_stop_pending must be cleared after stream.close()"
+        )
+
+
 class TestCachedResampling:
     """H15/M8: snapshot() triggers full resample on every call."""
 

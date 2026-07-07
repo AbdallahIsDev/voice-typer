@@ -318,6 +318,13 @@ class Recorder:
         # detect they're operating on an already-stopped stream and bail out
         # instead of racing with start()/stop().
         self._stop_generation: int = 0
+        # STREAM-FIX (Round 1): flag set by stop() BEFORE stream.stop() so
+        # _stream_finished_callback can distinguish "user pressed stop"
+        # (expected, no warning) from "device disconnected" (unexpected,
+        # warn). Previously the callback checked _recording_event, but
+        # stop() clears that flag BEFORE calling stream.stop() — so the
+        # callback always saw is_set()==False and warned on every stop.
+        self._user_stop_pending: bool = False
 
         # AUDIO-HOT: hot-plug device disconnect handling
         self._device_disconnected: bool = False
@@ -532,6 +539,11 @@ class Recorder:
         """
         if self._device_disconnected:
             return  # already handling disconnect via callback detection
+        # STREAM-FIX (Round 1): if stop() set this flag, the stream
+        # finished because the user pressed the hotkey — expected, no
+        # warning. The flag is cleared after stream.close() in stop().
+        if self._user_stop_pending:
+            return
         # If the stream stopped but we didn't call stop() ourselves,
         # treat it as an unexpected disconnect.
         if self._stream is not None and not self._recording_event.is_set():
@@ -677,7 +689,15 @@ class Recorder:
         self._vad_speech_threshold_db = noise_db + 18.0    # 18 dB above noise → speech
         self._vad_calibrated = True
 
-        log.info(
+        # VAD-FIX (Round 1): demote from INFO to DEBUG. The user reported
+        # this log line appearing even when mic quality / AI enhancements
+        # are disabled — it's diagnostic noise for non-debug users. The
+        # auto-calibration itself is cheap and runs unconditionally (the
+        # dB thresholds are used as a fallback when Silero VAD is
+        # unavailable), but the INFO log was spamming normal users.
+        # DEBUG level keeps it available for power users who enable
+        # debug logging without polluting the default log.
+        log.debug(
             "[RECORDING] VAD auto-calibrated: noise_floor=%.1f dBFS, "
             "silence_threshold=%.1f dBFS, speech_threshold=%.1f dBFS",
             noise_db, self._vad_silence_threshold_db, self._vad_speech_threshold_db,
@@ -1012,6 +1032,10 @@ class Recorder:
         # AUDIO-014: reset auto-calibration
         self._vad_calibration_rms_values = []
         self._vad_calibrated = False
+        # STREAM-FIX (Round 1): reset user-stop-pending flag for the new
+        # session so a stale True doesn't suppress a genuine disconnect
+        # warning in this session.
+        self._user_stop_pending = False
         # ADR 0007 §3.5: AGC reset deleted (method removed).
         # AUDIO-PRE: clear pre-roll buffer
         # SEC-audit-008: Zero the preroll buffer contents before clearing
@@ -1748,6 +1772,11 @@ class Recorder:
         # handlers from the audio callback know to bail out.
         self._stop_generation += 1
 
+        # STREAM-FIX (Round 1): mark that we're about to call stream.stop()
+        # intentionally, so _stream_finished_callback doesn't warn about
+        # an "unexpected" disconnect. Cleared after stream.close() below.
+        self._user_stop_pending = True
+
         # AUDIO-009/AUDIO-015: wait briefly for any in-flight audio
         # callback to complete before closing the stream. This prevents
         # PortAudio from calling the callback during/after stream.stop()
@@ -1786,6 +1815,11 @@ class Recorder:
                 time.sleep(min(_POLL_INTERVAL_S, remaining))
             self._stream.close()
             self._stream = None
+            # STREAM-FIX (Round 1): clear the user-stop-pending flag now
+            # that stream.close() has completed. Any future
+            # _stream_finished_callback invocation is now genuinely
+            # unexpected (device disconnect).
+            self._user_stop_pending = False
         stream_ms = (time.perf_counter() - stop_started) * 1000
 
         concat_started = time.perf_counter()
