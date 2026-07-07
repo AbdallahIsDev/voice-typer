@@ -492,7 +492,25 @@ export default function Home({
 			)}
 
 			{/* ── Hidden share image capture target ──────────────── */}
-			<div ref={imageRef} style={{ position: "fixed", left: -9999, top: 0 }}>
+			{/* EXPORT-FIX (Round 1): replaced `position:fixed; left:-9999`
+                            with a painted-but-hidden pattern. The old off-screen
+                            positioning caused Chromium's paint optimization to skip
+                            painting the element, so html-to-image captured a 0×0
+                            blank image. Using clip-path keeps the element painted
+                            (visible to the capture library) while hiding it from
+                            the user. */}
+			<div
+				ref={imageRef}
+				aria-hidden
+				style={{
+					position: "absolute",
+					top: 0,
+					left: 0,
+					zIndex: -100,
+					pointerEvents: "none",
+					clipPath: "inset(50% 50% 50% 50%)",
+				}}
+			>
 				{stats && cfg && (
 					<StatsShareImage stats={computeShareStats(stats, cfg.asr_backend)} />
 				)}

@@ -413,7 +413,20 @@ export default function DashboardPage({
 			</div>
 
 			{/* ── Hidden share image capture target ──────────────── */}
-			<div ref={imageRef} style={{ position: "fixed", left: -9999, top: 0 }}>
+			{/* EXPORT-FIX (Round 1): painted-but-hidden pattern —
+                            see Home.tsx for the full rationale. */}
+			<div
+				ref={imageRef}
+				aria-hidden
+				style={{
+					position: "absolute",
+					top: 0,
+					left: 0,
+					zIndex: -100,
+					pointerEvents: "none",
+					clipPath: "inset(50% 50% 50% 50%)",
+				}}
+			>
 				{data && configRaw && (
 					<StatsShareImage
 						stats={computeShareStats(

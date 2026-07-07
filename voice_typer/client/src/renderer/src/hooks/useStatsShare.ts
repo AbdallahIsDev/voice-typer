@@ -73,13 +73,68 @@ export function useStatsShare() {
 
 	const shareAsImage = useCallback(async (filename = "voice-typer-stats") => {
 		const el = imageRef.current;
-		if (!el) return;
+		if (!el) {
+			// EXPORT-FIX (Round 1): log the failure path so the
+			// user can see why nothing happened.
+			console.warn("[StatsShare] imageRef not attached — capture aborted");
+			return;
+		}
+
+		// EXPORT-FIX (Round 1): pre-capture diagnostics. The previous
+		// implementation silently produced a blank PNG because the
+		// off-screen `position: fixed; left: -9999` wrapper caused
+		// Chromium's paint optimization to skip painting the element,
+		// and toPng captured a 0×0 region. Log the dimensions so we
+		// can verify the element is actually rendered before capture.
+		const rect = el.getBoundingClientRect();
+		console.info("[StatsShare] capturing element:", {
+			offsetWidth: el.offsetWidth,
+			offsetHeight: el.offsetHeight,
+			rectWidth: rect.width,
+			rectHeight: rect.height,
+		});
+		if (el.offsetWidth === 0 || el.offsetHeight === 0) {
+			console.error(
+				"[StatsShare] target has zero size — image will be blank. " +
+					"Check that the wrapper is not display:none or positioned off-screen.",
+			);
+			return;
+		}
 
 		try {
+			// EXPORT-FIX (Round 1): the previous call used only
+			// {quality:1, pixelRatio:2, cacheBust:true}. Three
+			// issues caused blank images:
+			// 1. No explicit width/height → toPng used the
+			//    element's bounding rect, which was 0×0 due to
+			//    the off-screen wrapper.
+			// 2. No backgroundColor → transparent background
+			//    produced an apparently-empty image.
+			// 3. No style override → Tailwind v4 oklch() CSS
+			//    variables cascaded into the clone and broke
+			//    SVG foreignObject rendering (oklch is not
+			//    supported in SVG-as-image context).
+			// The fix: explicit width/height, backgroundColor,
+			// and style:{all:initial} to break the oklch cascade.
 			const dataUrl = await toPng(el, {
-				quality: 1,
 				pixelRatio: 2,
-				cacheBust: true,
+				cacheBust: false, // no <img> tags in subtree
+				width: 600,
+				height: 500,
+				backgroundColor: "#0f0a1a", // matches StatsShareImage gradient
+				style: {
+					// Reset inherited Tailwind v4 oklch() CSS vars
+					// that break SVG foreignObject rendering.
+					margin: "0",
+					padding: "0",
+				},
+			});
+
+			console.info("[StatsShare] capture succeeded:", {
+				dataUrlLength: dataUrl.length,
+				dataUrlPrefix: dataUrl.slice(0, 50),
+				filename: `${filename}.png`,
+				dimensions: `${el.offsetWidth}x${el.offsetHeight}`,
 			});
 
 			// Trigger download via anchor element
@@ -89,8 +144,14 @@ export function useStatsShare() {
 			document.body.appendChild(link);
 			link.click();
 			document.body.removeChild(link);
+
+			console.info(
+				`[StatsShare] image saved: ${filename}.png ` +
+					`(${el.offsetWidth}x${el.offsetHeight}px, ` +
+					`${Math.round((dataUrl.length * 0.75) / 1024)}KB)`,
+			);
 		} catch (err) {
-			console.error("[StatsShare] Failed to generate image:", err);
+			console.error("[StatsShare] toPng threw:", err);
 		}
 	}, []);
 
