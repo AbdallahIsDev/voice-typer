@@ -81,7 +81,7 @@ class HotkeyDispatcher:
                 self._hotkey_backend._tray = app.tray  # type: ignore[attr-defined]
             except (AttributeError, TypeError):
                 pass
-            self._hotkey_backend.start(app.toggle_dictation)
+            self._hotkey_backend.start(self._make_dictation_callback())
             # P1: Push-to-talk mode -- set release callback
             if app.config.recording_mode == "push_to_talk":
                 self._hotkey_backend.set_on_release(app._stop_dictation)
@@ -110,6 +110,45 @@ class HotkeyDispatcher:
         # Feature: Repaste hotkey
         if app.config.repaste_hotkey:
             self.register_repaste()
+
+    def _make_dictation_callback(self):
+        """Create a dictation hotkey callback that respects keyboard ownership.
+
+        HOTKEY-FIX-001 (Round 1): the dictation callback previously called
+        ``app.toggle_dictation`` directly with NO ownership check. This meant
+        that pressing any key during a hotkey capture session (e.g. re-assigning
+        the current hotkey, or capturing a new key like Tab) would immediately
+        trigger recording — because the OS-level listener sees the same keypress
+        the frontend capture handler sees, and there was no guard.
+
+        This mirrors the ESC callback's ownership check (ARCH-ESC-001 at line
+        ~142): if the frontend is in hotkey capture mode
+        (``is_hotkey_capture_active()`` returns True), the dictation callback
+        is a no-op. This fixes sub-tasks 2.4 (Race A) and 2.5 entirely.
+        """
+        def _dictation_callback() -> None:
+            if keyboard_ownership().is_hotkey_capture_active():
+                log.debug(
+                    "[HOTKEY] dictation ignored — frontend hotkey capture active"
+                )
+                return
+            self._app.toggle_dictation()
+        return _dictation_callback
+
+    def _make_repaste_callback(self):
+        """Create a repaste hotkey callback that respects keyboard ownership.
+
+        HOTKEY-FIX-001 (Round 1): same defense-in-depth as the dictation
+        callback. Prevents the repaste hotkey from firing during capture.
+        """
+        def _repaste_callback() -> None:
+            if keyboard_ownership().is_hotkey_capture_active():
+                log.debug(
+                    "[HOTKEY] repaste ignored — frontend hotkey capture active"
+                )
+                return
+            self._app.repaste_last()
+        return _repaste_callback
 
     def register_esc(self) -> None:
         """Register the ESC hotkey for cancelling dictation.
@@ -172,7 +211,7 @@ class HotkeyDispatcher:
         if self._app.config.repaste_hotkey:
             try:
                 self._repaste_backend = create_hotkey_backend(self._app.config.repaste_hotkey)
-                self._repaste_backend.start(self._app.repaste_last)
+                self._repaste_backend.start(self._make_repaste_callback())
                 log.info("[HOTKEY] Repaste hotkey registered: %s", self._app.config.repaste_hotkey)
             except Exception:
                 log.warning("[HOTKEY] Repaste hotkey registration failed")

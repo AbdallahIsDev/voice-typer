@@ -973,6 +973,61 @@ class TestHotkeyMapping:
         app._register_hotkey()
 
         assert app.hotkeys._esc_backend is not None
+    def test_dictation_callback_respects_hotkey_capture(self, app, monkeypatch):
+        """HOTKEY-FIX-001 (Round 1): the dictation hotkey callback must
+        be a no-op when the frontend is in hotkey capture mode (keyboard
+        ownership == "hotkey_capture"). This prevents sub-tasks 2.4 and
+        2.5 — pressing a key during hotkey capture immediately triggering
+        recording.
+        """
+        from voice_typer.server.keyboard_ownership import keyboard_ownership
+
+        # Build the callback via the dispatcher's helper
+        callback = app.hotkeys._make_dictation_callback()
+        assert callable(callback)
+
+        # Track toggle_dictation calls
+        toggle_called = {"n": 0}
+        original_toggle = app.toggle_dictation
+        monkeypatch.setattr(app, "toggle_dictation", lambda: toggle_called.__setitem__("n", toggle_called["n"] + 1))
+
+        # Case 1: ownership = normal → callback should fire toggle_dictation
+        keyboard_ownership().set_owner("normal", reason="test")
+        callback()
+        assert toggle_called["n"] == 1, "callback should fire when capture is NOT active"
+
+        # Case 2: ownership = hotkey_capture → callback should be a no-op
+        keyboard_ownership().set_owner("hotkey_capture", reason="test capture")
+        callback()
+        assert toggle_called["n"] == 1, "callback must NOT fire when capture IS active"
+
+        # Case 3: ownership back to normal → callback fires again
+        keyboard_ownership().set_owner("normal", reason="test done")
+        callback()
+        assert toggle_called["n"] == 2, "callback should fire again after capture ends"
+
+    def test_repaste_callback_respects_hotkey_capture(self, app, monkeypatch):
+        """HOTKEY-FIX-001 (Round 1): the repaste hotkey callback must
+        also be a no-op during hotkey capture (defense-in-depth)."""
+        from voice_typer.server.keyboard_ownership import keyboard_ownership
+
+        callback = app.hotkeys._make_repaste_callback()
+        assert callable(callback)
+
+        repaste_called = {"n": 0}
+        monkeypatch.setattr(app, "repaste_last", lambda: repaste_called.__setitem__("n", repaste_called["n"] + 1))
+
+        keyboard_ownership().set_owner("normal", reason="test")
+        callback()
+        assert repaste_called["n"] == 1
+
+        keyboard_ownership().set_owner("hotkey_capture", reason="test capture")
+        callback()
+        assert repaste_called["n"] == 1, "repaste must NOT fire during capture"
+
+        keyboard_ownership().set_owner("normal", reason="test done")
+        callback()
+        assert repaste_called["n"] == 2
 
     def test_register_hotkey_skips_esc_when_disabled(self, app, monkeypatch):
         """When esc_cancel_enabled is False, _register_hotkey should skip ESC registration."""
@@ -1316,9 +1371,15 @@ class TestHotkeyCallbackChain:
         expected_hotkey = app.config.hotkey
         assert expected_hotkey in captured_mapping
         callback = captured_mapping[expected_hotkey]
-        assert callback == app.toggle_dictation
+        # HOTKEY-FIX-001 (Round 1): the callback is now an ownership-checking
+        # wrapper (_dictation_callback) that calls app.toggle_dictation
+        # internally, not the raw bound method. Accept any callable and
+        # verify it fires toggle_dictation when ownership is "normal".
+        assert callable(callback)
 
-        # Simulate the hotkey being pressed
+        # Simulate the hotkey being pressed (ownership = normal → should fire)
+        from voice_typer.server.keyboard_ownership import keyboard_ownership
+        keyboard_ownership().set_owner("normal", reason="test")
         callback()
 
         from voice_typer.server.tray import AppState
