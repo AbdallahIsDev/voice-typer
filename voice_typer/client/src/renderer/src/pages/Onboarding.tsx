@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/select";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
+import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 
 interface StepInfo {
@@ -91,7 +92,7 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 				await call("onboarding_set_model", { model: selectedModel });
 			} else if (step?.step === 4) {
 				await call("onboarding_apply");
-				showSnack("Setup complete! Loading your model...", "success");
+				showSnack(t("onboarding.setupCompleteSnack"), "success");
 				// #8: wizard finished — hand control back to App.tsx so it can
 				// navigate to home and reload the config.
 				if (onComplete) onComplete();
@@ -101,7 +102,7 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 			setStep(newStep);
 		} catch (err) {
 			console.error("Failed to advance step:", err);
-			showSnack("Failed to save selection", "error");
+			showSnack(t("onboarding.saveFailedSnack"), "error");
 		}
 	}, [
 		call,
@@ -125,7 +126,7 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 	const handleSkip = useCallback(async () => {
 		try {
 			await call("onboarding_skip");
-			showSnack("Setup skipped — using defaults", "warning");
+			showSnack(t("onboarding.skippedSnack"), "warning");
 			// #8: wizard skipped — hand control back to App.tsx.
 			if (onComplete) onComplete();
 		} catch (err) {
@@ -151,7 +152,10 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 			<div className="mb-8 w-full">
 				<div className="mb-2 flex items-center justify-between text-xs text-(--text-muted)">
 					<span>
-						Step {step.step + 1} of {step.total_steps}
+						{t("onboarding.stepProgress", {
+							current: String(step.step + 1),
+							total: String(step.total_steps),
+						})}
 					</span>
 					<span>{step.step_name}</span>
 				</div>
@@ -168,24 +172,23 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 				{step.step === 0 && (
 					<>
 						<h1 className="mb-3 text-2xl font-bold text-(--text-primary)">
-							Welcome to Voice Typer
+							{t("onboarding.welcomeTitle")}
 						</h1>
 						<p className="mb-6 text-sm text-(--text-muted)">
-							Voice Typer is a premium offline voice-to-text utility that runs
-							in your system tray. Press a hotkey, speak, and your words appear
-							as text in any application. Let&apos;s set up a few things to get
-							you started.
+							{t("onboarding.welcomeDescription")}
 						</p>
 						<ul className="mb-6 space-y-2 text-sm text-(--text-secondary)">
 							<li className="flex items-center gap-2">
-								<span className="text-accent">1.</span> Choose your microphone
+								<span className="text-accent">1.</span>{" "}
+								{t("onboarding.step1Item")}
 							</li>
 							<li className="flex items-center gap-2">
-								<span className="text-accent">2.</span> Select a hotkey
+								<span className="text-accent">2.</span>{" "}
+								{t("onboarding.step2Item")}
 							</li>
 							<li className="flex items-center gap-2">
-								<span className="text-accent">3.</span> Pick a transcription
-								model
+								<span className="text-accent">3.</span>{" "}
+								{t("onboarding.step3Item")}
 							</li>
 						</ul>
 					</>
@@ -194,19 +197,18 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 				{step.step === 1 && (
 					<>
 						<h2 className="mb-3 text-lg font-semibold text-(--text-primary)">
-							Choose Your Microphone
+							{t("onboarding.micTitle")}
 						</h2>
 						<p className="mb-4 text-sm text-(--text-muted)">
-							Select the microphone you want to use for dictation. You can
-							change this later in Settings.
+							{t("onboarding.micDescription")}
 						</p>
 						{microphones.length > 0 ? (
 							<Select value={selectedMic} onValueChange={setSelectedMic}>
 								<SelectTrigger
 									className="w-full"
-									aria-label="Select microphone"
+									aria-label={t("onboarding.micSelectAria")}
 								>
-									<SelectValue placeholder="Select microphone" />
+									<SelectValue placeholder={t("onboarding.micSelectAria")} />
 								</SelectTrigger>
 								<SelectContent>
 									{microphones.map((mic) => (
@@ -218,7 +220,7 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 							</Select>
 						) : (
 							<p className="text-sm text-(--text-muted)">
-								No microphones detected. You can set one later in Settings.
+								{t("onboarding.noMics")}
 							</p>
 						)}
 					</>
@@ -227,15 +229,17 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 				{step.step === 2 && (
 					<>
 						<h2 className="mb-3 text-lg font-semibold text-(--text-primary)">
-							Choose Your Hotkey
+							{t("onboarding.hotkeyTitle")}
 						</h2>
 						<p className="mb-4 text-sm text-(--text-muted)">
-							Select the keyboard shortcut you&apos;ll use to start and stop
-							dictation. F2 is the default.
+							{t("onboarding.hotkeyDescription")}
 						</p>
 						<Select value={selectedHotkey} onValueChange={setSelectedHotkey}>
-							<SelectTrigger className="w-full" aria-label="Select hotkey">
-								<SelectValue placeholder="Select hotkey" />
+							<SelectTrigger
+								className="w-full"
+								aria-label={t("onboarding.hotkeySelectAria")}
+							>
+								<SelectValue placeholder={t("onboarding.hotkeySelectAria")} />
 							</SelectTrigger>
 							<SelectContent>
 								{hotkeyPresets.map((hk) => (
@@ -251,44 +255,47 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 				{step.step === 3 && (
 					<>
 						<h2 className="mb-3 text-lg font-semibold text-(--text-primary)">
-							Choose Your Model
+							{t("onboarding.modelTitle")}
 						</h2>
 						<p className="mb-4 text-sm text-(--text-muted)">
-							Pick a transcription model. Smaller models are faster; larger
-							models are more accurate. The model downloads in the background
-							after setup.
+							{t("onboarding.modelDescription")}
 						</p>
 						<div className="space-y-3">
-							{modelOptions.map((m) => (
-								<button
-									type="button"
-									key={m.name}
-									onClick={() => setSelectedModel(m.name)}
-									className={cn(
-										"w-full rounded-lg border p-4 text-left transition-colors",
-										selectedModel === m.name
-											? "border-accent bg-accent/10"
-											: "border-border hover:border-accent/50",
-									)}
-									aria-label={`Select model: ${m.name}`}
-									aria-pressed={selectedModel === m.name}
-								>
-									<div className="flex items-center justify-between">
-										<span className="text-sm font-medium text-(--text-primary)">
-											{m.name}
-										</span>
-										<span className="text-xs text-(--text-muted)">
-											{m.size}
-										</span>
-									</div>
-									<div className="mt-1 flex items-center justify-between">
-										<span className="text-xs text-(--text-muted)">
-											{m.description}
-										</span>
-										<span className="text-xs text-accent">{m.speed}</span>
-									</div>
-								</button>
-							))}
+							{modelOptions.map((m) => {
+								const handleModelSelect = () => setSelectedModel(m.name);
+								return (
+									<button
+										type="button"
+										key={m.name}
+										onClick={handleModelSelect}
+										className={cn(
+											"w-full rounded-lg border p-4 text-left transition-colors",
+											selectedModel === m.name
+												? "border-accent bg-accent/10"
+												: "border-border hover:border-accent/50",
+										)}
+										aria-label={t("onboarding.modelSelectAria", {
+											name: m.name,
+										})}
+										aria-pressed={selectedModel === m.name}
+									>
+										<div className="flex items-center justify-between">
+											<span className="text-sm font-medium text-(--text-primary)">
+												{m.name}
+											</span>
+											<span className="text-xs text-(--text-muted)">
+												{m.size}
+											</span>
+										</div>
+										<div className="mt-1 flex items-center justify-between">
+											<span className="text-xs text-(--text-muted)">
+												{m.description}
+											</span>
+											<span className="text-xs text-accent">{m.speed}</span>
+										</div>
+									</button>
+								);
+							})}
 						</div>
 					</>
 				)}
@@ -296,24 +303,24 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 				{step.step === 4 && (
 					<>
 						<h2 className="mb-3 text-lg font-semibold text-(--text-primary)">
-							You&apos;re All Set!
+							{t("onboarding.completeTitle")}
 						</h2>
 						<p className="mb-4 text-sm text-(--text-muted)">
-							Your Voice Typer is configured and ready. Press your hotkey (
-							{selectedHotkey.replace(/[<>]/g, "").toUpperCase()}) to start
-							dictating. The model will download and load in the background —
-							this may take a minute on first run.
+							{t("onboarding.completeDescription", {
+								hotkey: selectedHotkey.replace(/[<>]/g, "").toUpperCase(),
+							})}
 						</p>
 						<div className="rounded-lg bg-(--bg-subtle) p-4 text-xs text-(--text-muted)">
 							<p>
-								<strong>Microphone:</strong> {selectedMic || "Default"}
+								<strong>{t("onboarding.summaryMic")}</strong>{" "}
+								{selectedMic || t("onboarding.defaultMic")}
 							</p>
 							<p>
-								<strong>Hotkey:</strong>{" "}
+								<strong>{t("onboarding.summaryHotkey")}</strong>{" "}
 								{selectedHotkey.replace(/[<>]/g, "").toUpperCase()}
 							</p>
 							<p>
-								<strong>Model:</strong> {selectedModel}
+								<strong>{t("onboarding.summaryModel")}</strong> {selectedModel}
 							</p>
 						</div>
 					</>
@@ -323,8 +330,12 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 				<div className="mt-6 flex items-center justify-between">
 					<div>
 						{step.step > 0 && (
-							<Button variant="ghost" onClick={handlePrev} aria-label="Go back">
-								Back
+							<Button
+								variant="ghost"
+								onClick={handlePrev}
+								aria-label={t("onboarding.backAria")}
+							>
+								{t("onboarding.back")}
 							</Button>
 						)}
 					</div>
@@ -333,17 +344,23 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 							<Button
 								variant="ghost"
 								onClick={handleSkip}
-								aria-label="Skip onboarding"
+								aria-label={t("onboarding.skipAria")}
 							>
-								Skip
+								{t("onboarding.skip")}
 							</Button>
 						)}
 						<Button
 							variant="default"
 							onClick={handleNext}
-							aria-label={step.step === 4 ? "Get started" : "Continue"}
+							aria-label={
+								step.step === 4
+									? t("onboarding.getStartedAria")
+									: t("onboarding.continueAria")
+							}
 						>
-							{step.step === 4 ? "Get Started" : "Continue"}
+							{step.step === 4
+								? t("onboarding.getStarted")
+								: t("onboarding.continue")}
 						</Button>
 					</div>
 				</div>

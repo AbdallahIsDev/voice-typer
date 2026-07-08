@@ -19,6 +19,7 @@ import { TestReviewPanel } from "@/components/TestReviewPanel";
 import { Button } from "@/components/ui/button";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
+import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 import type { MicrophoneDevice, VoiceTyperConfig } from "@/types/config";
 
@@ -285,9 +286,9 @@ export default function MicrophonePage() {
 	const isSystemDefault = activeMicId === null;
 	const activeMicName =
 		activeMicId === null
-			? "System Default"
+			? t("microphone.systemDefault")
 			: (microphones.find((m) => (m.id ?? String(m.index)) === activeMicId)
-					?.name ?? "Unknown");
+					?.name ?? t("microphone.unknown"));
 	const otherMicrophones = microphones
 		.filter((mic) => (mic.id ?? String(mic.index)) !== activeMicId)
 		.sort((a, b) => (a.default ? -1 : b.default ? 1 : 0));
@@ -333,12 +334,12 @@ export default function MicrophonePage() {
 			call("level_monitor_start", { mic_id: micId }).catch(() => {});
 			const label =
 				micId === null
-					? "System Default"
+					? t("microphone.systemDefault")
 					: (microphones.find((m) => (m.id ?? String(m.index)) === micId)
-							?.name ?? "Microphone");
-			showSnack(`Using: ${label}`, "success");
+							?.name ?? t("microphone.microphone"));
+			showSnack(t("microphone.usingMic", { name: label }), "success");
 		} catch {
-			showSnack("Failed to set microphone", "error");
+			showSnack(t("microphone.setFailed"), "error");
 		}
 	};
 
@@ -389,10 +390,7 @@ export default function MicrophonePage() {
 			});
 
 			if (!result?.success) {
-				showSnack(
-					result?.message ?? "Failed to start microphone test",
-					"error",
-				);
+				showSnack(result?.message ?? t("microphone.startTestFailed"), "error");
 				return;
 			}
 
@@ -430,7 +428,7 @@ export default function MicrophonePage() {
 			elapsedTimerRef.current = elapsedInterval;
 		} catch (err) {
 			console.error("Failed to start microphone test:", err);
-			showSnack("Failed to start microphone test", "error");
+			showSnack(t("microphone.startTestFailed"), "error");
 		}
 	};
 
@@ -461,21 +459,23 @@ export default function MicrophonePage() {
 					setTestQuality(result.quality);
 				}
 				showSnack(
-					`${(result.duration_ms / 1000).toFixed(1)}s recorded`,
+					t("microphone.recorded", {
+						seconds: (result.duration_ms / 1000).toFixed(1),
+					}),
 					"success",
 				);
 			} else if (result?.success) {
-				let msg = "No audio detected.";
+				let msg = t("microphone.noAudio");
 				if (activeMicId !== null) {
-					msg += " Try the default microphone.";
+					msg += t("microphone.tryDefaultMic");
 				}
 				showSnack(msg, "warning");
 			} else {
-				showSnack(result?.message ?? "Test failed", "error");
+				showSnack(result?.message ?? t("microphone.testFailed"), "error");
 			}
 		} catch (err) {
 			console.error("Failed to stop microphone test:", err);
-			showSnack("Failed to stop microphone test", "error");
+			showSnack(t("microphone.stopTestFailed"), "error");
 		} finally {
 			stoppingRef.current = false;
 		}
@@ -516,7 +516,7 @@ export default function MicrophonePage() {
 				setPlayingOriginal(false);
 				playingRef.current = false;
 				audioRef.current = null;
-				showSnack("Could not play the test recording.", "error");
+				showSnack(t("microphone.playbackFailed"), "error");
 			};
 
 			audio.play().catch(() => {
@@ -524,13 +524,13 @@ export default function MicrophonePage() {
 				setPlayingOriginal(false);
 				playingRef.current = false;
 				audioRef.current = null;
-				showSnack("Playback failed. Try again.", "error");
+				showSnack(t("microphone.playbackRetryFailed"), "error");
 			});
 		} catch {
 			setPlayingEnhanced(false);
 			setPlayingOriginal(false);
 			playingRef.current = false;
-			showSnack("Failed to start playback.", "error");
+			showSnack(t("microphone.startPlaybackFailed"), "error");
 		}
 	};
 
@@ -557,8 +557,8 @@ export default function MicrophonePage() {
 	return (
 		<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
 			<PageHeading
-				title="Microphone"
-				description="Select and test your microphone"
+				title={t("microphone.microphone")}
+				description={t("microphone.description")}
 			/>
 
 			<div className="space-y-6">
@@ -583,13 +583,15 @@ export default function MicrophonePage() {
 								</p>
 								<p className="text-xs text-(--text-muted)">
 									{isSystemDefault
-										? "Operating system default input device"
-										: "Selected microphone"}
+										? t("microphone.systemDefaultDesc")
+										: t("microphone.selectedMicDesc")}
 								</p>
 							</div>
 						</div>
 						<span className="inline-flex items-center rounded-md px-2.5 py-0.5 text-[10px] font-semibold border border-primary/20 bg-primary/10 text-primary">
-							{testRunning ? "Recording..." : "Active"}
+							{testRunning
+								? t("microphone.recordingStatus")
+								: t("microphone.active")}
 						</span>
 					</div>
 
@@ -622,7 +624,7 @@ export default function MicrophonePage() {
 									strokeWidth={1.625}
 									className="h-4 w-4"
 								/>
-								Start Test
+								{t("microphone.startTest")}
 							</Button>
 						) : (
 							<Button
@@ -636,26 +638,31 @@ export default function MicrophonePage() {
 									strokeWidth={1.625}
 									className="h-4 w-4"
 								/>
-								Stop Test ({testCountdown}s)
+								{t("microphone.stopTest", { seconds: String(testCountdown) })}
 							</Button>
 						)}
 
 						<span className="text-xs text-(--text-muted) ml-auto">
 							{testRunning
-								? `Level: ${Math.round(level * 100)}%`
+								? t("microphone.level", {
+										percent: String(Math.round(level * 100)),
+									})
 								: testDurationMs > 0
-									? `Duration: ${(testDurationMs / 1000).toFixed(1)}s`
+									? t("microphone.duration", {
+											seconds: (testDurationMs / 1000).toFixed(1),
+										})
 									: micMonitoring
-										? `Level: ${Math.round(level * 100)}%`
-										: "Monitoring..."}
+										? t("microphone.level", {
+												percent: String(Math.round(level * 100)),
+											})
+										: t("microphone.monitoring")}
 						</span>
 					</div>
 
 					{/* Filter invalidation notice */}
 					{filtersSinceLastTest && filtersChangedSinceTest && !testRunning && (
 						<div className="mt-3 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-500">
-							⚠ Filter settings changed — previous test results no longer
-							reflect current settings. Run a new test.
+							{t("microphone.filtersChangedNotice")}
 						</div>
 					)}
 
@@ -701,20 +708,22 @@ export default function MicrophonePage() {
 							strokeWidth={1.625}
 							className="h-10 w-10 text-(--text-muted) opacity-30"
 						/>
-						<p className="text-sm text-(--text-muted)">No microphones found</p>
+						<p className="text-sm text-(--text-muted)">
+							{t("microphone.noMicrophonesFound")}
+						</p>
 						<p className="text-xs text-(--text-muted) opacity-70">
-							Connect a microphone and restart
+							{t("microphone.connectAndRestart")}
 						</p>
 					</div>
 				) : (
 					<div>
 						<p className="text-xs font-semibold capitalize tracking-wide text-(--text-muted) mb-2 px-1">
-							Other Microphones
+							{t("microphone.otherMicrophones")}
 						</p>
 						<div className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
 							{otherMicrophones.length === 0 ? (
 								<div className="px-3.5 py-3 text-xs text-(--text-muted)">
-									No other microphones available
+									{t("microphone.noOtherMicrophones")}
 								</div>
 							) : (
 								otherMicrophones.map((mic) => (

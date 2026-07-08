@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { SettingsSection } from "@/components/SettingsSection";
 import { Button } from "@/components/ui/button";
 import { usePython } from "@/hooks/usePython";
+import { t } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";
 
 // App version. The package.json is two directories above the
@@ -56,7 +57,7 @@ function StatusDot({ connected }: { connected: boolean }) {
 					(connected ? "bg-emerald-500" : "bg-destructive")
 				}
 			/>
-			{connected ? "Connected" : "Disconnected"}
+			{connected ? t("about.connected") : t("about.disconnected")}
 		</span>
 	);
 }
@@ -157,17 +158,22 @@ export default function AboutPage() {
 			const remote = data.tag_name.replace(/^v/, "");
 			setLatestVersion(remote);
 			if (remote === APP_VERSION) {
-				toast.success(`You're on the latest version (${APP_VERSION})`);
+				toast.success(t("about.onLatestVersion", { version: APP_VERSION }));
 			} else if (remote > APP_VERSION) {
-				toast.info(`New version available: ${remote}`);
+				toast.info(t("about.newVersionAvailable", { version: remote }));
 			} else {
 				toast.info(
-					`Installed version (${APP_VERSION}) is newer than latest release (${remote})`,
+					t("about.installedNewer", {
+						installed: APP_VERSION,
+						latest: remote,
+					}),
 				);
 			}
 		} catch (err) {
 			toast.error(
-				`Failed to check for updates: ${err instanceof Error ? err.message : "unknown error"}`,
+				t("about.updateCheckFailed", {
+					error: err instanceof Error ? err.message : "unknown error",
+				}),
 			);
 		} finally {
 			setCheckingUpdate(false);
@@ -176,14 +182,14 @@ export default function AboutPage() {
 
 	const asrBackend = config
 		? `${config.asr_backend} (${config.model_size})`
-		: "—";
-	const device = config?.device ?? "—";
-	const hotkey = config?.hotkey ?? "—";
-	const microphone = config?.microphone ?? "System Default";
+		: t("about.unknown");
+	const device = config?.device ?? t("about.unknown");
+	const hotkey = config?.hotkey ?? t("about.unknown");
+	const microphone = config?.microphone ?? t("microphone.systemDefault");
 
 	const backendStatus =
 		backendConnected === null ? (
-			<span className="text-(--text-muted)">Checking…</span>
+			<span className="text-(--text-muted)">{t("about.checking")}</span>
 		) : (
 			<StatusDot connected={backendConnected} />
 		);
@@ -194,80 +200,72 @@ export default function AboutPage() {
 				{/* Header */}
 				<div className="space-y-1 pb-5">
 					<h1 className="font-sans text-2xl font-semibold tracking-tight text-(--text-primary)">
-						About
+						{t("about.title")}
 					</h1>
 					<p className="text-sm text-(--text-muted)">
-						Diagnostic information for bug reports and support.
+						{t("about.description")}
 					</p>
 				</div>
 
 				{/* ── Diagnostics ───────────────────────────────────────── */}
 				<SettingsSection
-					title="Diagnostics"
-					description="Include this information when filing a bug report."
+					title={t("about.diagnosticsTitle")}
+					description={t("about.diagnosticsDescription")}
 				>
-					<Row label="App Version" value={`v${APP_VERSION}`} />
-					<Row label="Python Backend" value={backendStatus} />
-					<Row label="Config Directory" value={configDir} />
-					<Row label="ASR Backend" value={asrBackend} />
-					<Row label="Device" value={device} />
+					<Row
+						label={t("about.appVersion")}
+						value={t("about.versionValue", { version: APP_VERSION })}
+					/>
+					<Row label={t("about.pythonBackend")} value={backendStatus} />
+					<Row label={t("about.configDirectory")} value={configDir} />
+					<Row label={t("about.asrBackend")} value={asrBackend} />
+					<Row label={t("about.device")} value={device} />
 					{/* NEW-UX-038: show which device/compute_type the model
               actually loaded via. */}
-					<Row label="Loaded Via" value={loadedVia || "\u2014"} />
-					<Row label="Hotkey" value={hotkey} />
-					<Row label="Microphone" value={microphone} />
+					<Row
+						label={t("about.loadedVia")}
+						value={loadedVia || t("about.unknown")}
+					/>
+					<Row label={t("about.hotkey")} value={hotkey} />
+					<Row label={t("about.microphone")} value={microphone} />
 				</SettingsSection>
 
 				{/* ── Privacy ──────────────────────────────────────────── */}
 				{/* NEW-PRIV-004 / NEW-PRIV-009: expanded privacy disclosure. */}
 				<SettingsSection
-					title="Privacy"
-					description="How your audio and data are handled."
+					title={t("about.privacyTitle")}
+					description={t("about.privacyDescription")}
 				>
 					<div className="px-3.5 py-3.5 text-sm leading-relaxed text-(--text-muted) space-y-3">
 						<p>
 							<span className="font-medium text-(--text-primary)">
-								Audio processing.
+								{t("about.audioProcessingTitle")}
 							</span>{" "}
-							Voice Typer processes all audio locally on your device. No audio
-							leaves your machine unless you explicitly configure a cloud ASR
-							backend (OpenAI/Groq/Deepgram).
+							{t("about.audioProcessingDesc")}
 						</p>
 						<p>
 							<span className="font-medium text-(--text-primary)">
-								Model weights.
+								{t("about.modelWeightsTitle")}
 							</span>{" "}
-							ASR model weights (e.g. Whisper small.en, ~466 MB) are downloaded
-							from HuggingFace on first use. This download reveals your IP
-							address to HuggingFace (a US-headquartered third party). See
-							HuggingFace's privacy policy for details.
+							{t("about.modelWeightsDesc")}
 						</p>
 						<p>
 							<span className="font-medium text-(--text-primary)">
-								Cloud ASR.
+								{t("about.cloudAsrTitle")}
 							</span>{" "}
-							If you configure an OpenAI / Groq / Deepgram API key, audio is
-							streamed to that provider for transcription. The provider's
-							privacy policy applies to the audio sent. Voice Typer never
-							enables cloud ASR without your explicit opt-in.
+							{t("about.cloudAsrDesc")}
 						</p>
 						<p>
 							<span className="font-medium text-(--text-primary)">
-								Voice biometrics.
+								{t("about.voiceBiometricsTitle")}
 							</span>{" "}
-							Your voice recordings may be considered biometric data under
-							Illinois BIPA and GDPR Article 9 (special categories of personal
-							data). Voice Typer does not store raw audio after transcription
-							completes — only the transcribed text is kept in the local history
-							database.
+							{t("about.voiceBiometricsDesc")}
 						</p>
 						<p>
 							<span className="font-medium text-(--text-primary)">
-								Local data.
+								{t("about.localDataTitle")}
 							</span>{" "}
-							Configuration, vocabulary, templates, and history are stored in
-							your user profile directory ({configDir}). No telemetry, no
-							analytics, no crash reporting is sent anywhere.
+							{t("about.localDataDesc", { configDir })}
 						</p>
 					</div>
 					<div className="flex flex-wrap items-center gap-2 px-3.5 py-3.5 border-t border-border">
@@ -277,7 +275,7 @@ export default function AboutPage() {
 								target="_blank"
 								rel="noreferrer noopener"
 							>
-								Full Privacy Policy
+								{t("about.fullPrivacyPolicy")}
 							</a>
 						</Button>
 					</div>
@@ -286,18 +284,21 @@ export default function AboutPage() {
 				{/* ── Updates ──────────────────────────────────────────── */}
 				{/* NEW-UX-023: in-app "new version available" check. */}
 				<SettingsSection
-					title="Updates"
-					description="Check for newer versions of Voice Typer."
+					title={t("about.updatesTitle")}
+					description={t("about.updatesDescription")}
 				>
-					<Row label="Installed Version" value={`v${APP_VERSION}`} />
 					<Row
-						label="Latest Release"
+						label={t("about.installedVersion")}
+						value={t("about.versionValue", { version: APP_VERSION })}
+					/>
+					<Row
+						label={t("about.latestRelease")}
 						value={
 							latestVersion === null
-								? "Checking…"
+								? t("about.checking")
 								: latestVersion > APP_VERSION
-									? `v${latestVersion} (update available)`
-									: `v${latestVersion}`
+									? t("about.updateAvailable", { version: latestVersion })
+									: t("about.versionValue", { version: latestVersion })
 						}
 					/>
 					<div className="flex flex-wrap items-center gap-2 px-3.5 py-3.5 border-t border-border">
@@ -307,7 +308,9 @@ export default function AboutPage() {
 							onClick={handleManualCheck}
 							disabled={checkingUpdate}
 						>
-							{checkingUpdate ? "Checking…" : "Check for Updates"}
+							{checkingUpdate
+								? t("about.checking")
+								: t("about.checkForUpdates")}
 						</Button>
 						{latestVersion !== null && latestVersion > APP_VERSION && (
 							<Button asChild variant="default" size="sm">
@@ -316,13 +319,13 @@ export default function AboutPage() {
 									target="_blank"
 									rel="noreferrer noopener"
 								>
-									Download v{latestVersion}
+									{t("about.downloadVersion", { version: latestVersion })}
 								</a>
 							</Button>
 						)}
 						<Button asChild variant="ghost" size="sm">
 							<a href={CHANGELOG_URL} target="_blank" rel="noreferrer noopener">
-								View Changelog
+								{t("about.viewChangelog")}
 							</a>
 						</Button>
 					</div>
@@ -331,32 +334,50 @@ export default function AboutPage() {
 				{/* ── Help ─────────────────────────────────────────────── */}
 				{/* NEW-UX-021 / NEW-UX-040: expanded help section. */}
 				<SettingsSection
-					title="Help"
-					description="Keyboard shortcuts and documentation."
+					title={t("about.helpTitle")}
+					description={t("about.helpDescription")}
 				>
 					<Row
-						label="Start / Stop dictation"
-						value="F2 (or your configured hotkey)"
+						label={t("about.startStopDictation")}
+						value={t("about.startStopDictationValue")}
 					/>
-					<Row label="Cancel recording" value="Esc (if enabled in Settings)" />
 					<Row
-						label="Re-paste last transcription"
-						value="Ctrl+Alt+V (default)"
+						label={t("about.cancelRecording")}
+						value={t("about.cancelRecordingValue")}
 					/>
-					<Row label="Toggle sidebar" value="Ctrl+B" />
-					<Row label="Navigate fields" value="Tab / Shift+Tab" />
-					<Row label="Toggle switches" value="Space" />
-					<Row label="Close dialogs" value="Esc" />
-					<Row label="Open dropdowns" value="Enter or Space" />
+					<Row
+						label={t("about.repasteTranscription")}
+						value={t("about.repasteTranscriptionValue")}
+					/>
+					<Row
+						label={t("about.toggleSidebar")}
+						value={t("about.toggleSidebarValue")}
+					/>
+					<Row
+						label={t("about.navigateFields")}
+						value={t("about.navigateFieldsValue")}
+					/>
+					<Row
+						label={t("about.toggleSwitches")}
+						value={t("about.toggleSwitchesValue")}
+					/>
+					<Row
+						label={t("about.closeDialogs")}
+						value={t("about.closeDialogsValue")}
+					/>
+					<Row
+						label={t("about.openDropdowns")}
+						value={t("about.openDropdownsValue")}
+					/>
 					<div className="flex flex-wrap items-center gap-2 px-3.5 py-3.5 border-t border-border">
 						<Button asChild variant="outline" size="sm">
 							<a href={README_URL} target="_blank" rel="noreferrer noopener">
-								Documentation
+								{t("about.documentation")}
 							</a>
 						</Button>
 						<Button asChild variant="outline" size="sm">
 							<a href={CHANGELOG_URL} target="_blank" rel="noreferrer noopener">
-								Changelog
+								{t("about.changelog")}
 							</a>
 						</Button>
 					</div>
@@ -365,23 +386,23 @@ export default function AboutPage() {
 				{/* ── Resources ────────────────────────────────────────── */}
 				{/* NEW-UX-022: feedback channels. */}
 				<SettingsSection
-					title="Resources & Feedback"
-					description="Source code, issue tracker, and contribution guides."
+					title={t("about.resourcesTitle")}
+					description={t("about.resourcesDescription")}
 				>
 					<div className="flex flex-wrap items-center gap-2 px-3.5 py-3.5">
 						<Button asChild variant="outline" size="sm">
 							<a href={GITHUB_REPO} target="_blank" rel="noreferrer noopener">
-								GitHub Repository
+								{t("about.githubRepository")}
 							</a>
 						</Button>
 						<Button asChild variant="outline" size="sm">
 							<a href={GITHUB_ISSUES} target="_blank" rel="noreferrer noopener">
-								Report a Bug / Request a Feature
+								{t("about.reportBug")}
 							</a>
 						</Button>
 						<Button asChild variant="outline" size="sm">
 							<a href={SECURITY_URL} target="_blank" rel="noreferrer noopener">
-								Security Policy
+								{t("about.securityPolicy")}
 							</a>
 						</Button>
 						<Button asChild variant="outline" size="sm">
@@ -390,7 +411,7 @@ export default function AboutPage() {
 								target="_blank"
 								rel="noreferrer noopener"
 							>
-								Contributing
+								{t("about.contributing")}
 							</a>
 						</Button>
 					</div>

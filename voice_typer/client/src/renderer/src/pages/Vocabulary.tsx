@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/select";
 import { usePython } from "@/hooks/usePython";
 import { showUndoableToast, useSnackbar } from "@/hooks/useSnackbar";
+import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 import type { VocabularyData, VocabularyEntry } from "@/types/ipc";
 
@@ -44,33 +45,33 @@ const CATEGORY_LABELS: Record<
 	{ label: string; description: string; example: string }
 > = {
 	misspellings: {
-		label: "Misspellings",
-		description: "Single words the ASR gets wrong (spelling).",
+		label: t("vocabulary.category.misspellings"),
+		description: t("vocabulary.category.misspellingsDesc"),
 		example: "recieve \u2192 receive",
 	},
 	phrase_corrections: {
-		label: "Phrase Corrections",
-		description: "Multi-word phrases the ASR gets wrong.",
+		label: t("vocabulary.category.phraseCorrections"),
+		description: t("vocabulary.category.phraseCorrectionsDesc"),
 		example: "i am going to \u2192 I'm going to",
 	},
 	extra_word_patterns: {
-		label: "Extra Word Patterns",
-		description: "Words or patterns to remove from output.",
+		label: t("vocabulary.category.extraWordPatterns"),
+		description: t("vocabulary.category.extraWordPatternsDesc"),
 		example: "um, uh, like \u2192 (removed)",
 	},
 	technical_terms: {
-		label: "Technical Terms",
-		description: "Jargon, acronyms, product names from your field.",
+		label: t("vocabulary.category.technicalTerms"),
+		description: t("vocabulary.category.technicalTermsDesc"),
 		example: "kubernetes \u2192 Kubernetes",
 	},
 	names: {
-		label: "Names",
-		description: "People, places, and proper nouns the ASR mishears.",
+		label: t("vocabulary.category.names"),
+		description: t("vocabulary.category.namesDesc"),
 		example: "jon \u2192 John",
 	},
 	products: {
-		label: "Products",
-		description: "Brand and product names.",
+		label: t("vocabulary.category.products"),
+		description: t("vocabulary.category.productsDesc"),
 		example: "ipad \u2192 iPad",
 	},
 };
@@ -166,6 +167,22 @@ export default function VocabularyPage() {
 		useState<VocabularyEntry | null>(null);
 	const dialogRef = useRef<HTMLDivElement>(null);
 
+	const handleSearchChange = (value: string) => setSearchQuery(value);
+
+	const handleTriggerChange = (e: React.ChangeEvent<HTMLInputElement>) =>
+		setTrigger(e.target.value);
+
+	const handleReplacementChange = (e: React.ChangeEvent<HTMLInputElement>) =>
+		setReplacement(e.target.value);
+
+	const handleCloseDialog = () => setShowDialog(false);
+
+	const handleCancelDelete = () => setDeleteEntryTarget(null);
+
+	const handleBackdropClick = (e: React.MouseEvent) => {
+		if (e.target === e.currentTarget) setShowDialog(false);
+	};
+
 	const handleDialogKeyDown = useCallback((e: React.KeyboardEvent) => {
 		if (e.key === "Escape") {
 			setShowDialog(false);
@@ -200,7 +217,7 @@ export default function VocabularyPage() {
 				}));
 				const bridge = window.window_;
 				if (!bridge) {
-					toast.error("Export not available — please restart the app");
+					toast.error(t("vocabulary.exportNotAvailable"));
 					return;
 				}
 				const result = await bridge.exportVocabulary(
@@ -210,11 +227,11 @@ export default function VocabularyPage() {
 				if (result.success) {
 					const path = result.path ?? "";
 					const filename = path.split(/[\\/]/).pop() || "untitled";
-					toast.success(`${filename} saved successfully`);
+					toast.success(t("vocabulary.exportSaved", { filename }));
 				}
 			} catch (err) {
 				console.error("Vocabulary export failed:", err);
-				toast.error("Export failed");
+				toast.error(t("vocabulary.exportFailed"));
 			}
 		},
 		[call],
@@ -286,14 +303,15 @@ export default function VocabularyPage() {
 	};
 
 	const saveEntry = async () => {
-		const t = trigger.trim();
+		const trimmedTrigger = trigger.trim();
 		const r = replacement.trim();
-		if (!t || !r) {
-			showSnack("Please fill in both fields", "warning");
+		if (!trimmedTrigger || !r) {
+			showSnack(t("vocabulary.fillBothFields"), "warning");
 			return;
 		}
 		// NEW-UX-039: use the explicit category if the user picked one.
-		const resolvedCategory = category === "auto" ? detectCategory(t) : category;
+		const resolvedCategory =
+			category === "auto" ? detectCategory(trimmedTrigger) : category;
 		try {
 			let updated: VocabularyEntry[];
 			if (editingEntry) {
@@ -301,7 +319,7 @@ export default function VocabularyPage() {
 					e === editingEntry
 						? {
 								category: resolvedCategory as VocabularyEntry["category"],
-								original: t,
+								original: trimmedTrigger,
 								correction: r,
 							}
 						: e,
@@ -311,7 +329,7 @@ export default function VocabularyPage() {
 					...entries,
 					{
 						category: resolvedCategory as VocabularyEntry["category"],
-						original: t,
+						original: trimmedTrigger,
 						correction: r,
 					},
 				];
@@ -320,11 +338,19 @@ export default function VocabularyPage() {
 			setEntries(updated);
 			setShowDialog(false);
 			showSnack(
-				editingEntry ? `Updated: ${t} → ${r}` : `Added: ${t} → ${r}`,
+				editingEntry
+					? t("vocabulary.updatedEntry", {
+							original: trimmedTrigger,
+							correction: r,
+						})
+					: t("vocabulary.addedEntry", {
+							original: trimmedTrigger,
+							correction: r,
+						}),
 				"success",
 			);
 		} catch {
-			showSnack("Failed to save entry", "error");
+			showSnack(t("vocabulary.saveFailed"), "error");
 		}
 	};
 
@@ -342,9 +368,12 @@ export default function VocabularyPage() {
 			const updated = entries.filter((e) => e !== deleteEntryTarget);
 			await persistVocabulary(updated);
 			setEntries(updated);
-			showSnack(`Deleted: ${deleteEntryTarget.original}`, "warning");
+			showSnack(
+				t("vocabulary.deletedEntry", { name: deleteEntryTarget.original }),
+				"warning",
+			);
 		} catch {
-			showSnack("Failed to delete entry", "error");
+			showSnack(t("vocabulary.deleteFailed"), "error");
 		} finally {
 			setDeleteEntryTarget(null);
 		}
@@ -360,7 +389,7 @@ export default function VocabularyPage() {
 				await persistVocabulary(updated);
 				setEntries(updated);
 				showUndoableToast(
-					`Deleted: ${entry.original}`,
+					t("vocabulary.deletedEntry", { name: entry.original }),
 					async () => {
 						try {
 							const restored = [...entries];
@@ -374,15 +403,15 @@ export default function VocabularyPage() {
 							}
 							await persistVocabulary(restored);
 							setEntries(restored);
-							toast.success("Entry restored");
+							toast.success(t("vocabulary.entryRestored"));
 						} catch {
-							toast.error("Failed to restore entry");
+							toast.error(t("vocabulary.restoreFailed"));
 						}
 					},
 					{ undoLabel: "Undo", type: "warning", timeoutMs: 6000 },
 				);
 			} catch {
-				showSnack("Failed to delete entry", "error");
+				showSnack(t("vocabulary.deleteFailed"), "error");
 			}
 		},
 		[entries, persistVocabulary, showSnack],
@@ -402,8 +431,8 @@ export default function VocabularyPage() {
 		<>
 			<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
 				<PageHeading
-					title="Custom Vocabulary"
-					description="Add custom words and corrections to improve accuracy"
+					title={t("vocabulary.title")}
+					description={t("vocabulary.description")}
 				>
 					<div className="flex items-center gap-2">
 						<ExportFormatMenu
@@ -426,7 +455,7 @@ export default function VocabularyPage() {
 								strokeWidth={2}
 								className="h-4 w-4"
 							/>
-							Add Word
+							{t("vocabulary.addWord")}
 						</Button>
 					</div>
 				</PageHeading>
@@ -434,8 +463,8 @@ export default function VocabularyPage() {
 				{/* Search */}
 				<SearchField
 					value={searchQuery}
-					onChange={(value) => setSearchQuery(value)}
-					placeholder="Search vocabulary..."
+					onChange={handleSearchChange}
+					placeholder={t("vocabulary.searchPlaceholder")}
 				/>
 
 				{/* List */}
@@ -443,13 +472,16 @@ export default function VocabularyPage() {
 					{entries.length === 0 ? (
 						<EmptyState
 							icon={BookOpen02Icon}
-							title="No vocabulary entries yet"
-							description="Add words or phrases that Voice Typer should correct"
-							actionLabel="Add Your First Word"
+							title={t("vocabulary.emptyTitle")}
+							description={t("vocabulary.emptyDescription")}
+							actionLabel={t("vocabulary.addFirstWord")}
 							onAction={openAddDialog}
 						/>
 					) : filtered.length === 0 ? (
-						<EmptyState icon={BookOpen02Icon} title="No results found" />
+						<EmptyState
+							icon={BookOpen02Icon}
+							title={t("vocabulary.noResults")}
+						/>
 					) : (
 						<div className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
 							{filtered.map((entry) => (
@@ -474,8 +506,10 @@ export default function VocabularyPage() {
 											size="icon-xs"
 											onClick={() => openEditDialog(entry)}
 											className="text-(--text-muted) hover:text-accent"
-											title="Edit"
-											aria-label={`Edit: ${entry.original}`}
+											title={t("vocabulary.edit")}
+											aria-label={t("vocabulary.editAria", {
+												name: entry.original,
+											})}
 										>
 											<HugeiconsIcon
 												icon={PencilEdit02Icon}
@@ -488,8 +522,10 @@ export default function VocabularyPage() {
 											size="icon-xs"
 											onClick={() => instantDeleteEntry(entry)}
 											className="text-(--text-muted) hover:text-destructive"
-											title="Delete"
-											aria-label={`Delete: ${entry.original}`}
+											title={t("common.delete")}
+											aria-label={t("vocabulary.deleteAria", {
+												name: entry.original,
+											})}
 										>
 											<HugeiconsIcon
 												icon={Delete01Icon}
@@ -507,7 +543,12 @@ export default function VocabularyPage() {
 				{/* Count footer */}
 				{entries.length > 0 && !searchQuery.trim() && (
 					<p className="mt-3 text-[10px] text-(--text-muted) text-center opacity-50">
-						{entries.length} entr{entries.length === 1 ? "y" : "ies"}
+						{t(
+							entries.length === 1
+								? "vocabulary.entryCountSingular"
+								: "vocabulary.entryCountPlural",
+							{ count: String(entries.length) },
+						)}
 					</p>
 				)}
 
@@ -523,9 +564,7 @@ export default function VocabularyPage() {
 					aria-modal="true"
 					aria-labelledby="vocabulary-dialog-title"
 					className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-					onClick={(e) => {
-						if (e.target === e.currentTarget) setShowDialog(false);
-					}}
+					onClick={handleBackdropClick}
 					onKeyDown={handleDialogKeyDown}
 				>
 					<div
@@ -538,7 +577,9 @@ export default function VocabularyPage() {
 							id="vocabulary-dialog-title"
 							className="mb-5 text-lg font-semibold text-(--text-primary)"
 						>
-							{editingEntry ? "Edit Vocabulary Entry" : "Add Vocabulary Entry"}
+							{editingEntry
+								? t("vocabulary.editEntryTitle")
+								: t("vocabulary.addEntryTitle")}
 						</h2>
 
 						<div className="space-y-4">
@@ -547,21 +588,19 @@ export default function VocabularyPage() {
 									htmlFor="vocab-trigger"
 									className="mb-1.5 block text-sm font-medium text-(--text-primary)"
 								>
-									What you say
+									{t("vocabulary.whatYouSay")}
 								</label>
 								<Input
 									id="vocab-trigger"
 									value={trigger}
-									onChange={(e) => setTrigger(e.target.value)}
+									onChange={handleTriggerChange}
 									placeholder="treat three, mynameis"
 									className="w-full"
 									autoFocus
 								/>
 								{/* NEW-UX-026: help text explaining what to type. */}
 								<p className="mt-1.5 text-xs text-(--text-muted)">
-									Type the word(s) exactly as the ASR mishears them. Single
-									words \u2192 misspellings; multi-word phrases \u2192 phrase
-									corrections.
+									{t("vocabulary.triggerHelp")}
 								</p>
 							</div>
 
@@ -570,41 +609,39 @@ export default function VocabularyPage() {
 									htmlFor="vocab-replacement"
 									className="mb-1.5 block text-sm font-medium text-(--text-primary)"
 								>
-									What gets typed instead
+									{t("vocabulary.whatGetsTyped")}
 								</label>
 								<Input
 									id="vocab-replacement"
 									value={replacement}
-									onChange={(e) => setReplacement(e.target.value)}
+									onChange={handleReplacementChange}
 									placeholder="treat this, My Name Is"
 									className="w-full"
 								/>
 								{/* NEW-UX-026: help text for the replacement field. */}
 								<p className="mt-1.5 text-xs text-(--text-muted)">
-									The corrected text that will be pasted. Case matters \u2014
-									what you type here is exactly what gets output.
+									{t("vocabulary.replacementHelp")}
 								</p>
 							</div>
 
 							{/* NEW-UX-039: explicit category picker. */}
 							<div>
 								<span className="mb-1.5 block text-sm font-medium text-(--text-primary)">
-									Category
+									{t("vocabulary.categoryLabel")}
 								</span>
 								<Select value={category} onValueChange={setCategory}>
 									<SelectTrigger
 										className="w-full"
-										aria-label="Vocabulary category"
+										aria-label={t("vocabulary.categoryAria")}
 									>
 										<SelectValue />
 									</SelectTrigger>
 									<SelectContent>
 										<SelectItem value="auto">
 											<span className="flex flex-col">
-												<span>Auto-detect</span>
+												<span>{t("vocabulary.category.autoDetect")}</span>
 												<span className="text-xs text-(--text-muted)">
-													Single word \u2192 Misspellings, phrase \u2192 Phrase
-													Corrections
+													{t("vocabulary.category.autoDetectDesc")}
 												</span>
 											</span>
 										</SelectItem>
@@ -629,15 +666,15 @@ export default function VocabularyPage() {
 						</div>
 
 						<div className="mt-6 flex justify-end gap-3">
-							<Button variant="ghost" onClick={() => setShowDialog(false)}>
-								Cancel
+							<Button variant="ghost" onClick={handleCloseDialog}>
+								{t("common.cancel")}
 							</Button>
 							<Button
 								variant="default"
 								onClick={saveEntry}
 								disabled={!trigger.trim() || !replacement.trim()}
 							>
-								Save
+								{t("common.save")}
 							</Button>
 						</div>
 					</div>
@@ -647,11 +684,13 @@ export default function VocabularyPage() {
 			{/* #7: ConfirmDialog for entry deletion */}
 			<ConfirmDialog
 				open={deleteEntryTarget !== null}
-				title="Delete Vocabulary Entry"
-				message={`Are you sure you want to delete "${deleteEntryTarget?.original ?? ""}"? This action cannot be undone.`}
-				confirmLabel="Delete"
+				title={t("vocabulary.deleteEntryTitle")}
+				message={t("vocabulary.deleteEntryMessage", {
+					name: deleteEntryTarget?.original ?? "",
+				})}
+				confirmLabel={t("common.delete")}
 				onConfirm={confirmDeleteEntry}
-				onCancel={() => setDeleteEntryTarget(null)}
+				onCancel={handleCancelDelete}
 			/>
 		</>
 	);

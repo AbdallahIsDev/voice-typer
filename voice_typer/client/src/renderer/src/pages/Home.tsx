@@ -23,6 +23,7 @@ import { computeShareStats, useStatsShare } from "@/hooks/useStatsShare";
 // Removing these dead imports reduces the surface area of the legacy
 // sound-manager.ts and advances the single-sound-system consolidation
 // (Approach C from the sound investigation).
+import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 import type { VoiceTyperConfig } from "@/types/config";
 import type {
@@ -145,13 +146,15 @@ const STATUS_COLORS: Record<string, string> = {
 	error: "#FF3333",
 };
 
+// IMPL-C: status labels resolved via i18n so they honour the user's UI locale.
+// Resolved at module load (matching the existing pattern in GeneralSettingsSection).
 const STATUS_LABELS: Record<string, string> = {
-	idle: "READY",
-	recording: "RECORDING",
-	transcribing: "TRANSCRIBING",
-	loading: "LOADING",
-	cancelling: "CANCELLING",
-	error: "ERROR",
+	idle: t("home.ready"),
+	recording: t("home.recording"),
+	transcribing: t("home.transcribing"),
+	loading: t("home.loading"),
+	cancelling: t("home.cancelling"),
+	error: t("home.error"),
 };
 
 function statusKeyFor(state: RecordingState, hasError: boolean): string {
@@ -291,9 +294,8 @@ export default function Home({
 							// transcription of the user's lifetime (today is their
 							// first day using Voice Typer).
 							if (s && s.count === 1) {
-								toast.success("🎉 Your first dictation!", {
-									description:
-										"Welcome to Voice Typer. Press the hotkey anytime to dictate.",
+								toast.success(t("home.firstDictationTitle"), {
+									description: t("home.firstDictationDesc"),
 									duration: 6000,
 								});
 								localStorage.setItem("vt_first_recording_celebrated", "1");
@@ -367,7 +369,7 @@ export default function Home({
 	const isRecording = recordingState === "recording";
 	const key = statusKeyFor(recordingState, !!lastError);
 	const statusColor = STATUS_COLORS[key] ?? STATUS_COLORS.idle;
-	const statusLabel = STATUS_LABELS[key] ?? "READY";
+	const statusLabel = STATUS_LABELS[key] ?? t("home.ready");
 
 	return (
 		<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col items-center justify-center gap-5 px-6 py-4">
@@ -405,8 +407,12 @@ export default function Home({
 					type="button"
 					onClick={handleToggle}
 					disabled={toggling}
-					aria-label={isRecording ? "Stop dictation" : "Start dictation"}
-					title={isRecording ? "Stop dictation" : "Start dictation"}
+					aria-label={
+						isRecording ? t("home.stopDictation") : t("home.startDictation")
+					}
+					title={
+						isRecording ? t("home.stopDictation") : t("home.startDictation")
+					}
 					className={cn(
 						"press-scale relative z-10 flex h-21 w-21 items-center justify-center rounded-full",
 						"transition-all duration-200 ease-out",
@@ -434,11 +440,11 @@ export default function Home({
 			</div>
 
 			<p className="flex items-center gap-2 text-[13px] text-(--text-muted)">
-				<span>Press</span>
+				<span>{t("home.press")}</span>
 				<span className="inline-flex items-center justify-center rounded-md border border-border bg-(--bg-subtle) px-1.75 py-0.75 font-mono text-[11px] font-medium text-(--text-primary) shadow-[0_1px_3px_rgba(0,0,0,0.06),inset_0_1px_0_rgba(255,255,255,0.4)] dark:shadow-[0_1px_3px_rgba(0,0,0,0.15),inset_0_1px_0_rgba(255,255,255,0.06)] leading-none tracking-tight">
 					{hotkey}
 				</span>
-				<span>or click to dictate</span>
+				<span>{t("home.pressOrClick")}</span>
 			</p>
 
 			{lastText && (
@@ -453,7 +459,7 @@ export default function Home({
 				<div className="mt-4 w-full">
 					<div className="mb-3 flex items-center justify-between">
 						<span className="text-xs font-medium text-(--text-muted) capitalize tracking-wide">
-							Today's Stats
+							{t("home.todayStats")}
 						</span>
 						<div className="flex items-center gap-1">
 							<Button
@@ -468,7 +474,7 @@ export default function Home({
 									strokeWidth={2}
 									className="h-4 w-4"
 								/>
-								Share Stats
+								{t("home.shareStats")}
 							</Button>
 						</div>
 					</div>
@@ -485,7 +491,7 @@ export default function Home({
 			{!stats && initialLoading && (
 				<section
 					className="mt-4 w-full flex items-center justify-center py-6"
-					aria-label="Loading today's stats"
+					aria-label={t("home.loadingTodayStatsAria")}
 				>
 					<Spinner />
 				</section>
@@ -520,7 +526,7 @@ export default function Home({
 				<ActivityList
 					items={recent}
 					lineClamp={2}
-					title="Recent Activity"
+					title={t("home.recentActivity")}
 					showViewAll
 					onViewAll={() => onNavigate?.("history")}
 				/>
@@ -528,7 +534,7 @@ export default function Home({
 				initialLoading && (
 					<section
 						className="mt-4 w-full flex items-center justify-center py-6"
-						aria-label="Loading recent activity"
+						aria-label={t("home.loadingRecentAria")}
 					>
 						<Spinner />
 					</section>

@@ -18,6 +18,7 @@ import { StatsShareImage } from "@/components/StatsShareImage";
 import { Button } from "@/components/ui/button.tsx";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { computeShareStats, useStatsShare } from "@/hooks/useStatsShare";
+import { t } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { HistoryRecord, Page, TodayStats } from "@/types/ipc";
 
@@ -84,7 +85,15 @@ function dateKey(ts: string): string {
 
 /** Get day-of-week abbreviation for a date string. */
 function dayAbbr(dateStr: string): string {
-	const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+	const days = [
+		t("analytics.days.sun"),
+		t("analytics.days.mon"),
+		t("analytics.days.tue"),
+		t("analytics.days.wed"),
+		t("analytics.days.thu"),
+		t("analytics.days.fri"),
+		t("analytics.days.sat"),
+	];
 	try {
 		return days[new Date(dateStr).getDay()];
 	} catch {
@@ -98,8 +107,10 @@ function dayLabel(dateStr: string): string {
 		const today = new Date();
 		const yesterday = new Date(today);
 		yesterday.setDate(yesterday.getDate() - 1);
-		if (dateStr === today.toISOString().slice(0, 10)) return "Today";
-		if (dateStr === yesterday.toISOString().slice(0, 10)) return "Yesterday";
+		if (dateStr === today.toISOString().slice(0, 10))
+			return t("analytics.today");
+		if (dateStr === yesterday.toISOString().slice(0, 10))
+			return t("analytics.yesterday");
 		return dateStr.slice(5); // "MM-DD"
 	} catch {
 		return dateStr;
@@ -236,9 +247,9 @@ export default function DashboardPage({
 				totalChars,
 				totalDuration,
 				favoritesCount,
-				model: cfg?.model_size ?? "Unknown",
-				device: cfg?.device ?? "Unknown",
-				language: cfg?.language || "Auto",
+				model: cfg?.model_size ?? t("analytics.unknown"),
+				device: cfg?.device ?? t("analytics.unknown"),
+				language: cfg?.language || t("analytics.auto"),
 				dailyActivity,
 				currentStreak: streaks.current,
 				maxStreak: streaks.max,
@@ -293,17 +304,19 @@ export default function DashboardPage({
 	const d = data;
 	const maxCount = Math.max(1, ...d.dailyActivity.map((a) => a.count));
 
+	const handleShare = () => shareAsImage("voice-typer-stats");
+
 	return (
 		<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
 			<PageHeading
-				title="Analytics"
-				description="Your voice typing activity and usage insights."
+				title={t("analytics.title")}
+				description={t("analytics.description")}
 			>
 				{data && configRaw && data.todayCount > 0 && (
 					<Button
 						variant="outline"
 						size="sm"
-						onClick={() => shareAsImage("voice-typer-stats")}
+						onClick={handleShare}
 						// FIX: muted text/icon by default, white on hover —
 						// matches the muted style used by outline buttons
 						// elsewhere (History action row, Templates add, etc.).
@@ -314,7 +327,7 @@ export default function DashboardPage({
 							strokeWidth={1.625}
 							className="h-4 w-4 shrink-0"
 						/>
-						Share Stats
+						{t("home.shareStats")}
 					</Button>
 				)}
 			</PageHeading>
@@ -323,31 +336,35 @@ export default function DashboardPage({
 				{/* ── Today's Stats Grid ──────────────────────────────────── */}
 				<div className="grid grid-cols-4 gap-3">
 					<DashboardStatCard
-						label="Dictations Today"
+						label={t("analytics.dictationsToday")}
 						value={String(d.todayCount)}
 						icon={SpeechToTextIcon}
-						sublabel={`${d.todayChars.toLocaleString()} chars`}
+						sublabel={t("analytics.charsValue", {
+							count: d.todayChars.toLocaleString(),
+						})}
 					/>
 					<DashboardStatCard
-						label="Recording Time"
+						label={t("analytics.recordingTime")}
 						value={formatDuration(d.todayDuration)}
 						icon={Time02Icon}
-						sublabel="Today"
+						sublabel={t("analytics.today")}
 					/>
 					<DashboardStatCard
-						label="All-time Total"
+						label={t("analytics.allTimeTotal")}
 						value={compactNumber(d.totalCount)}
 						icon={File02Icon}
-						sublabel={`${d.totalChars.toLocaleString()} chars`}
+						sublabel={t("analytics.charsValue", {
+							count: d.totalChars.toLocaleString(),
+						})}
 					/>
 					<DashboardStatCard
-						label="Active Days"
+						label={t("analytics.activeDays")}
 						value={String(d.activeDays)}
 						icon={Calendar01Icon}
 						sublabel={
 							d.currentStreak > 0
-								? `${d.currentStreak}-day streak`
-								: "No streak yet"
+								? t("analytics.dayStreak", { count: String(d.currentStreak) })
+								: t("analytics.noStreak")
 						}
 					/>
 				</div>
@@ -357,10 +374,10 @@ export default function DashboardPage({
 					<div className="flex items-center justify-between mb-5">
 						<div className="space-y-0.5">
 							<h2 className="font-sans text-sm font-semibold text-(--text-primary)">
-								7-Day Activity
+								{t("analytics.sevenDayActivity")}
 							</h2>
 							<p className="text-xs text-(--text-muted)">
-								Transcriptions per day
+								{t("analytics.transcriptionsPerDay")}
 							</p>
 						</div>
 						<HugeiconsIcon
@@ -381,7 +398,17 @@ export default function DashboardPage({
 								<div
 									className="w-full max-w-10 rounded-sm bg-accent/60 transition-all duration-300"
 									style={{ height: `${barHeight(day.count, maxCount)}px` }}
-									title={`${day.label}: ${day.count} transcription${day.count !== 1 ? "s" : ""}`}
+									title={
+										day.count === 1
+											? t("analytics.dayCountTooltipSingular", {
+													label: day.label,
+													count: String(day.count),
+												})
+											: t("analytics.dayCountTooltipPlural", {
+													label: day.label,
+													count: String(day.count),
+												})
+									}
 								/>
 								<span className="text-[9px] text-(--text-muted) opacity-70">
 									{day.dayName}
@@ -393,28 +420,36 @@ export default function DashboardPage({
 
 				{/* ── Quick Stats Bar ──────────────────────────────────────── */}
 				<div className="grid grid-cols-3 gap-3">
-					<QuickInfoCard icon={AiBrain03Icon} label="Model" value={d.model} />
+					<QuickInfoCard
+						icon={AiBrain03Icon}
+						label={t("analytics.model")}
+						value={d.model}
+					/>
 					<QuickInfoCard
 						icon={LayoutGridIcon}
-						label="Device"
+						label={t("analytics.device")}
 						value={d.device.toUpperCase()}
 					/>
 					<QuickInfoCard
 						icon={Activity03Icon}
-						label="Language"
+						label={t("analytics.language")}
 						value={d.language}
 					/>
 				</div>
 
 				{/* Data path */}
 				<p className="text-[10px] text-(--text-muted) text-center pb-4">
-					Data stored in: ~/.voice-typer/
+					{t("analytics.dataPath")}
 				</p>
 			</div>
 
 			{/* ── Hidden share image capture target ──────────────── */}
-			{/* EXPORT-FIX (Round 1): painted-but-hidden pattern —
-                            see Home.tsx for the full rationale. */}
+			{/* EXPORT-FIX (Round 2): removed clipPath:inset(50%) —
+                            html-to-image copied it onto the cloned node and
+                            clipped the PNG to 0×0. See Home.tsx for full
+                            rationale. The toPng style override (clipPath:none)
+                            is the primary defense; removing clipPath here
+                            eliminates the footgun. */}
 			<div
 				ref={imageRef}
 				aria-hidden
@@ -424,7 +459,6 @@ export default function DashboardPage({
 					left: 0,
 					zIndex: -100,
 					pointerEvents: "none",
-					clipPath: "inset(50% 50% 50% 50%)",
 				}}
 			>
 				{data && configRaw && (

@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { usePython } from "@/hooks/usePython";
 import { showUndoableToast, useSnackbar } from "@/hooks/useSnackbar";
+import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 
 // NEW-UX-008: Templates are persisted by the Python backend to
@@ -291,10 +292,7 @@ export default function TemplatesPage() {
 
 	const saveTemplate = () => {
 		if (!trigger.trim() || !expansion.trim()) {
-			showSnack(
-				"Please fill in both trigger phrase and output text",
-				"warning",
-			);
+			showSnack(t("templates.fillBothFields"), "warning");
 			return;
 		}
 		try {
@@ -306,10 +304,16 @@ export default function TemplatesPage() {
 			};
 			if (editingTemplate) {
 				items[editingTemplate.index] = next;
-				showSnack(`Template updated: ${trigger.trim()}`, "success");
+				showSnack(
+					t("templates.updatedTemplate", { name: trigger.trim() }),
+					"success",
+				);
 			} else {
 				items.push(next);
-				showSnack(`Template added: ${trigger.trim()}`, "success");
+				showSnack(
+					t("templates.addedTemplate", { name: trigger.trim() }),
+					"success",
+				);
 			}
 			// #6: pass call so the backend is notified of add/edit
 			saveTemplates(items, call);
@@ -320,7 +324,7 @@ export default function TemplatesPage() {
 			loadRows();
 		} catch (err) {
 			console.error("Failed to save template", err);
-			showSnack("Failed to save template", "error");
+			showSnack(t("templates.saveFailed"), "error");
 		}
 	};
 
@@ -332,8 +336,8 @@ export default function TemplatesPage() {
 	// this function so the existing ConfirmDialog flow continues to
 	// work for users who prefer it; the dialog itself is triggered
 	// elsewhere (e.g. via the row's "Delete" context menu item).
-	const _requestDeleteTemplate = (t: TemplateRow) => {
-		setDeleteTarget(t);
+	const _requestDeleteTemplate = (tmpl: TemplateRow) => {
+		setDeleteTarget(tmpl);
 	};
 
 	// #6: Delete now passes call to saveTemplates so IPC notify happens
@@ -359,7 +363,7 @@ export default function TemplatesPage() {
 			// the deleted template within 6 seconds.
 			if (removed) {
 				showUndoableToast(
-					`Deleted: ${deleteTarget.trigger}`,
+					t("templates.deletedTemplate", { name: deleteTarget.trigger }),
 					() => {
 						// Undo: re-insert at the same index.
 						const current = loadTemplatesFromLocalStorage();
@@ -367,15 +371,18 @@ export default function TemplatesPage() {
 						saveTemplates(current, call);
 						loadRows();
 					},
-					{ undoLabel: "Undo", type: "warning", timeoutMs: 6000 },
+					{ undoLabel: t("common.undo"), type: "warning", timeoutMs: 6000 },
 				);
 			} else {
-				showSnack(`Deleted: ${deleteTarget.trigger}`, "warning");
+				showSnack(
+					t("templates.deletedTemplate", { name: deleteTarget.trigger }),
+					"warning",
+				);
 			}
 			loadRows();
 		} catch (err) {
 			console.error("Failed to delete template", err);
-			showSnack("Failed to delete template", "error");
+			showSnack(t("templates.deleteFailed"), "error");
 		} finally {
 			setDeleteTarget(null);
 		}
@@ -388,33 +395,53 @@ export default function TemplatesPage() {
 	// dialog).  Mouse clicks bypass the dialog and use the undoable
 	// toast instead, since the undo toast is faster and recoverable.
 	const instantDeleteTemplate = useCallback(
-		(t: TemplateRow) => {
+		(tmpl: TemplateRow) => {
 			try {
 				const items = loadTemplatesFromLocalStorage();
-				const removed = items.splice(t.index, 1)[0];
+				const removed = items.splice(tmpl.index, 1)[0];
 				saveTemplates(items, call);
 				if (removed) {
 					showUndoableToast(
-						`Deleted: ${t.trigger}`,
+						t("templates.deletedTemplate", { name: tmpl.trigger }),
 						() => {
 							const current = loadTemplatesFromLocalStorage();
-							current.splice(t.index, 0, removed);
+							current.splice(tmpl.index, 0, removed);
 							saveTemplates(current, call);
 							loadRows();
 						},
-						{ undoLabel: "Undo", type: "warning", timeoutMs: 6000 },
+						{ undoLabel: t("common.undo"), type: "warning", timeoutMs: 6000 },
 					);
 				} else {
-					showSnack(`Deleted: ${t.trigger}`, "warning");
+					showSnack(
+						t("templates.deletedTemplate", { name: tmpl.trigger }),
+						"warning",
+					);
 				}
 				loadRows();
 			} catch (err) {
 				console.error("Failed to delete template", err);
-				showSnack("Failed to delete template", "error");
+				showSnack(t("templates.deleteFailed"), "error");
 			}
 		},
 		[call, loadRows, showSnack],
 	);
+
+	const handleBackdropClick = (e: React.MouseEvent) => {
+		if (e.target === e.currentTarget) setShowDialog(false);
+	};
+
+	const handleTriggerChange = (e: React.ChangeEvent<HTMLInputElement>) =>
+		setTrigger(e.target.value);
+
+	const handleExpansionChange = (e: React.ChangeEvent<HTMLTextAreaElement>) =>
+		setExpansion(e.target.value);
+
+	const handleMatchModeChange = (v: string) =>
+		setMatchMode(v as "exact" | "contains");
+
+	const handleCloseDialog = () => setShowDialog(false);
+
+	const handleCancelDelete = () => setDeleteTarget(null);
 
 	if (loading) {
 		return (
@@ -428,14 +455,14 @@ export default function TemplatesPage() {
 		<>
 			<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
 				<PageHeading
-					title="Templates"
-					description="Create voice shortcuts that expand into full text"
+					title={t("templates.title")}
+					description={t("templates.description")}
 				>
 					<Button
 						variant="outline"
 						size="sm"
 						onClick={openAddDialog}
-						aria-label="Add new template"
+						aria-label={t("templates.addNewAria")}
 						// FIX: muted text/icon by default, white on hover —
 						// matches the muted style used by outline buttons
 						// elsewhere (History action row, Vocabulary add, etc.).
@@ -446,7 +473,7 @@ export default function TemplatesPage() {
 							strokeWidth={2}
 							className="h-4 w-4"
 						/>
-						Add Template
+						{t("templates.addTemplate")}
 					</Button>
 				</PageHeading>
 
@@ -454,73 +481,83 @@ export default function TemplatesPage() {
 					{templates.length === 0 ? (
 						<EmptyState
 							icon={File02Icon}
-							title="No templates yet"
-							description="Say a phrase to trigger a text expansion"
-							actionLabel="Create First Template"
+							title={t("templates.emptyTitle")}
+							description={t("templates.emptyDescription")}
+							actionLabel={t("templates.createFirst")}
 							onAction={openAddDialog}
 						/>
 					) : (
 						<div className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
-							{templates.map((t) => (
-								<div
-									key={t.index}
-									className="flex items-center gap-3 px-3.5 py-2.5"
-								>
-									<div className="min-w-0 flex-1">
-										<p className="text-sm font-semibold text-(--text-primary)">
-											{t.trigger}
-										</p>
-										<div className="mt-0.5 flex items-center gap-3">
-											<p className="max-w-75 truncate text-xs text-(--text-muted)">
-												{t.expansion}
+							{templates.map((row) => {
+								const handleEdit = () => openEditDialog(row);
+								const handleDelete = () => instantDeleteTemplate(row);
+								return (
+									<div
+										key={row.index}
+										className="flex items-center gap-3 px-3.5 py-2.5"
+									>
+										<div className="min-w-0 flex-1">
+											<p className="text-sm font-semibold text-(--text-primary)">
+												{row.trigger}
 											</p>
-											<span
-												className="text-[10px] text-(--text-muted) opacity-60"
-												// NEW-TS-019: show the actual variable names in
-												// a native tooltip so the user can see WHICH
-												// variables the template uses, not just the count.
-												title={
-													t.used_variables.length > 0
-														? `Variables: ${t.used_variables.join(", ")}`
-														: "No variables"
-												}
+											<div className="mt-0.5 flex items-center gap-3">
+												<p className="max-w-75 truncate text-xs text-(--text-muted)">
+													{row.expansion}
+												</p>
+												<span
+													className="text-[10px] text-(--text-muted) opacity-60"
+													// NEW-TS-019: show the actual variable names in
+													// a native tooltip so the user can see WHICH
+													// variables the template uses, not just the count.
+													title={
+														row.used_variables.length > 0
+															? t("templates.variablesTooltip", {
+																	vars: row.used_variables.join(", "),
+																})
+															: t("templates.noVariablesTooltip")
+													}
+												>
+													{row.variables}v &middot; {row.match_mode}
+												</span>
+											</div>
+										</div>
+										<div className="flex shrink-0 items-center gap-0.5">
+											<Button
+												variant="ghost"
+												size="icon-xs"
+												onClick={handleEdit}
+												className="text-(--text-muted) hover:text-(--text-secondary)"
+												title={t("templates.editTemplate")}
+												aria-label={t("templates.editAria", {
+													name: row.trigger,
+												})}
 											>
-												{t.variables}v &middot; {t.match_mode}
-											</span>
+												<HugeiconsIcon
+													icon={PencilEdit02Icon}
+													strokeWidth={2.5}
+													className="h-4 w-4"
+												/>
+											</Button>
+											<Button
+												variant="ghost"
+												size="icon-xs"
+												onClick={handleDelete}
+												className="text-(--text-muted) hover:text-destructive"
+												title={t("templates.deleteTemplate")}
+												aria-label={t("templates.deleteAria", {
+													name: row.trigger,
+												})}
+											>
+												<HugeiconsIcon
+													icon={Delete01Icon}
+													strokeWidth={2.5}
+													className="h-4 w-4"
+												/>
+											</Button>
 										</div>
 									</div>
-									<div className="flex shrink-0 items-center gap-0.5">
-										<Button
-											variant="ghost"
-											size="icon-xs"
-											onClick={() => openEditDialog(t)}
-											className="text-(--text-muted) hover:text-(--text-secondary)"
-											title="Edit template"
-											aria-label={`Edit template: ${t.trigger}`}
-										>
-											<HugeiconsIcon
-												icon={PencilEdit02Icon}
-												strokeWidth={2.5}
-												className="h-4 w-4"
-											/>
-										</Button>
-										<Button
-											variant="ghost"
-											size="icon-xs"
-											onClick={() => instantDeleteTemplate(t)}
-											className="text-(--text-muted) hover:text-destructive"
-											title="Delete template"
-											aria-label={`Delete template: ${t.trigger}`}
-										>
-											<HugeiconsIcon
-												icon={Delete01Icon}
-												strokeWidth={2.5}
-												className="h-4 w-4"
-											/>
-										</Button>
-									</div>
-								</div>
-							))}
+								);
+							})}
 						</div>
 					)}
 				</div>
@@ -537,9 +574,7 @@ export default function TemplatesPage() {
 					aria-modal="true"
 					aria-labelledby="template-dialog-title"
 					className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-					onClick={(e) => {
-						if (e.target === e.currentTarget) setShowDialog(false);
-					}}
+					onClick={handleBackdropClick}
 					onKeyDown={handleDialogKeyDown}
 				>
 					<div
@@ -552,7 +587,9 @@ export default function TemplatesPage() {
 							id="template-dialog-title"
 							className="mb-5 text-lg font-semibold text-(--text-primary)"
 						>
-							{editingTemplate ? "Edit Template" : "Add Template"}
+							{editingTemplate
+								? t("templates.editTitle")
+								: t("templates.addTitle")}
 						</h2>
 
 						<div className="space-y-4">
@@ -561,21 +598,19 @@ export default function TemplatesPage() {
 									htmlFor="template-trigger"
 									className="mb-1.5 block text-sm font-medium text-(--text-primary)"
 								>
-									Trigger phrase
+									{t("templates.triggerPhrase")}
 								</label>
 								<Input
 									id="template-trigger"
 									value={trigger}
-									onChange={(e) => setTrigger(e.target.value)}
+									onChange={handleTriggerChange}
 									placeholder="my email"
 									className="w-full"
 									autoFocus
 								/>
 								{/* NEW-UX-026: help text explaining what to type. */}
 								<p className="mt-1.5 text-xs text-(--text-muted)">
-									The phrase you'll say during dictation. When the ASR
-									transcribes this phrase, it's replaced by the output text.
-									Keep it short and distinctive to avoid false matches.
+									{t("templates.triggerHelp")}
 								</p>
 							</div>
 
@@ -584,12 +619,12 @@ export default function TemplatesPage() {
 									htmlFor="template-output"
 									className="mb-1.5 block text-sm font-medium text-(--text-primary)"
 								>
-									Output text
+									{t("templates.outputText")}
 								</label>
 								<textarea
 									id="template-output"
 									value={expansion}
-									onChange={(e) => setExpansion(e.target.value)}
+									onChange={handleExpansionChange}
 									placeholder="john.doe@example.com"
 									rows={5}
 									className={cn(
@@ -601,7 +636,7 @@ export default function TemplatesPage() {
 								/>
 								{/* NEW-UX-026: help text + variable list. */}
 								<p className="mt-1.5 text-xs text-(--text-muted)">
-									The text that replaces the trigger. Supports variables:
+									{t("templates.outputHelp")}
 									<code className="mx-1 rounded bg-(--bg-subtle) px-1">{`{today}`}</code>
 									<code className="mx-1 rounded bg-(--bg-subtle) px-1">{`{now}`}</code>
 									<code className="mx-1 rounded bg-(--bg-subtle) px-1">{`{clipboard}`}</code>
@@ -611,29 +646,30 @@ export default function TemplatesPage() {
 
 							<div>
 								<span className="mb-1.5 block text-sm font-medium text-(--text-primary)">
-									Match mode
+									{t("templates.matchMode")}
 								</span>
-								<Select
-									value={matchMode}
-									onValueChange={(v) => setMatchMode(v as "exact" | "contains")}
-								>
+								<Select value={matchMode} onValueChange={handleMatchModeChange}>
 									<SelectTrigger className="w-full">
 										<SelectValue />
 									</SelectTrigger>
 									<SelectContent>
-										<SelectItem value="exact">Exact match</SelectItem>
-										<SelectItem value="contains">Contains</SelectItem>
+										<SelectItem value="exact">
+											{t("templates.exactMatch")}
+										</SelectItem>
+										<SelectItem value="contains">
+											{t("templates.contains")}
+										</SelectItem>
 									</SelectContent>
 								</Select>
 							</div>
 						</div>
 
 						<div className="mt-6 flex justify-end gap-3">
-							<Button variant="ghost" onClick={() => setShowDialog(false)}>
-								Cancel
+							<Button variant="ghost" onClick={handleCloseDialog}>
+								{t("common.cancel")}
 							</Button>
 							<Button variant="default" onClick={saveTemplate}>
-								Save
+								{t("common.save")}
 							</Button>
 						</div>
 					</div>
@@ -643,11 +679,13 @@ export default function TemplatesPage() {
 			{/* #7: ConfirmDialog for template deletion */}
 			<ConfirmDialog
 				open={deleteTarget !== null}
-				title="Delete Template"
-				message={`Are you sure you want to delete "${deleteTarget?.trigger ?? ""}"? This action cannot be undone.`}
-				confirmLabel="Delete"
+				title={t("templates.deleteTitle")}
+				message={t("templates.deleteMessage", {
+					name: deleteTarget?.trigger ?? "",
+				})}
+				confirmLabel={t("common.delete")}
 				onConfirm={confirmDeleteTemplate}
-				onCancel={() => setDeleteTarget(null)}
+				onCancel={handleCancelDelete}
 			/>
 		</>
 	);
