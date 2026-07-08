@@ -127,6 +127,21 @@ export function useStatsShare() {
 					// that break SVG foreignObject rendering.
 					margin: "0",
 					padding: "0",
+					// EXPORT-FIX (Round 2): the wrapper div in
+					// Home.tsx/Dashboard.tsx uses
+					// clipPath:inset(50% 50% 50% 50%) to hide
+					// the off-screen capture target from the
+					// user. html-to-image copies that style onto
+					// the cloned node, clipping the rendered PNG
+					// to a 0×0 region → solid #0f0a1a rectangle
+					// with no stats content. Override it here so
+					// the captured clone is fully visible
+					// regardless of wrapper styling. Also reset
+					// opacity/visibility defensively in case a
+					// future wrapper uses those to hide.
+					clipPath: "none",
+					opacity: "1",
+					visibility: "visible",
 				},
 			});
 
