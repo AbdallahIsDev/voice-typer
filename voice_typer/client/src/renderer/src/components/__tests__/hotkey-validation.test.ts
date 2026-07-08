@@ -123,7 +123,11 @@ describe("validateHotkey — reserved shortcut rejection", () => {
 
 	it("does NOT reject non-reserved combos on the same platform", () => {
 		expect(validateHotkey("<ctrl>+<alt>+v", "win32").valid).toBe(true);
-		expect(validateHotkey("<cmd>+<shift>+v", "darwin").valid).toBe(true);
+		// HOTKEY-VALIDATION-002: Cmd+<letter> is blocked on macOS
+		// (even with other modifiers) because Cmd+Shift+V is
+		// "Paste and Match Style" in many apps. Use Cmd+F-key
+		// instead, which is allowed.
+		expect(validateHotkey("<cmd>+<f5>", "darwin").valid).toBe(true);
 		expect(validateHotkey("<super>+<space>", "linux").valid).toBe(true);
 	});
 });
@@ -185,11 +189,13 @@ describe("validateHotkey — partial-assign contract (Problem 2.2)", () => {
 		expect(result).not.toHaveProperty("partial");
 	});
 
-	it("accepts a valid combo (Shift+V — non-modifier terminator)", () => {
+	it("accepts a valid combo (Ctrl+Alt+V — non-modifier terminator)", () => {
 		// Counter-example: a combo that DOES end with a non-modifier
 		// is valid. This makes sure the "ends with modifier" check
-		// isn't over-rejecting.
-		const result = validateHotkey("<shift>+<v>", "win32");
+		// isn't over-rejecting. Uses Ctrl+Alt+V (not Shift+V) because
+		// pure Shift+<letter> is now correctly rejected (interferes
+		// with capitalization) — see HOTKEY-VALIDATION-002.
+		const result = validateHotkey("<ctrl>+<alt>+<v>", "win32");
 		expect(result.valid).toBe(true);
 	});
 
@@ -198,7 +204,13 @@ describe("validateHotkey — partial-assign contract (Problem 2.2)", () => {
 		// `partial` field. This locks the contract for the
 		// modifier-only-release-detection path that drove the
 		// original partial-assign bug.
+		// HOTKEY-VALIDATION-002: `<win>` and `<super>` are excluded
+		// on win32 because they are OS-shell-reserved (Win opens
+		// Start menu, Super opens Activities on Linux). They are
+		// still valid on darwin where the Win/Super key doesn't
+		// exist as a system modifier.
 		for (const mod of MODIFIER_KEYS_SHARED) {
+			if (mod === "win" || mod === "super") continue;
 			const result = validateHotkey(`<${mod}>`, "win32");
 			expect(result.valid).toBe(true);
 			expect(result).not.toHaveProperty("partial");
