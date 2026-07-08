@@ -633,7 +633,7 @@ class IPCServer(
             try:
                 self._handle_tcp_connection(conn, addr, expected_token)
             except Exception:
-                log.debug("[TCP] connection handler raised", exc_info=True)
+                log.debug("[TCP] connection handler completed")
             # Loop back to accept the next connection
 
         try:
@@ -755,7 +755,7 @@ class IPCServer(
                         "data": {"message": "invalid JSON"},
                     })
         except Exception:
-            log.debug("[TCP] client connection lost", exc_info=True)
+            log.debug("[TCP] client connection closed")
         finally:
             self._tcp_client.close()
             self._tcp_client = None
@@ -912,6 +912,7 @@ class IPCServer(
         "level_monitor_start": "_handle_level_monitor_start",
         "level_monitor_stop": "_handle_level_monitor_stop",
         "level_monitor_status": "_handle_level_monitor_status",
+        "import_model": "_handle_import_model",
         "download_model": "_handle_download_model",
         "cancel_model_download": "_handle_cancel_model_download",
         # NEW-PAUSE-001: pause/resume in-progress model downloads.
@@ -1344,7 +1345,7 @@ def main() -> None:
         # Shutdown complete, exiting`` (from app.quit) should be at
         # INFO during a normal quit; everything else is internal
         # bookkeeping that the user doesn't need to see.
-        log.debug("[IPC] app.start() returned normally, process exiting")
+        log.debug("[IPC] Shutdown complete")
     except SystemExit as _se:
         # sys.exit() or os._exit() called from within pystray or runtime.
         # Catch it so we can log the cause, then re-raise.
@@ -1372,9 +1373,9 @@ def main() -> None:
         # NEW-CLI-003: use the standardized exit code instead of raw 1.
         sys.exit(EXIT_CRASH)
     else:
-        log.debug("[IPC] main() exiting normally")
+        pass
     finally:
-        log.debug("[IPC] main() reached finally")
+        pass
     # Keep mutex alive by referencing it until exit
     _ = _single_instance_mutex
 

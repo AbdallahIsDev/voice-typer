@@ -86,11 +86,7 @@ def wrap_callback(fn: Callable[[], None]) -> Callable:
             # Shutdown complete, exiting`` during a normal quit; the
             # ``SystemExit(...) suppressing`` line is internal
             # bookkeeping that previously polluted INFO-level output.
-            log.debug(
-                "[TRAY] callback %r raised SystemExit(%s); suppressing "
-                "(tray.stop() already called, pystray loop will exit cleanly)",
-                getattr(fn, "__name__", "<lambda>"), _se.code,
-            )
+            log.debug("[TRAY] Quit handler completed, pystray loop will exit")
             # Do NOT re-raise — tray.stop() inside quit()/restart_app()
             # already broke the pystray event loop. Re-raising causes
             # pystray to print a confusing "error" traceback.

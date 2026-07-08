@@ -73,8 +73,6 @@ _TRAY_LABELS_EN: dict[str, str] = {
     "about": "About",  # kept for potential in-app use
     "diagnostics": "Diagnostics",  # kept for potential in-app use
     "recording_active": "Recording active",
-    "confirm_quit": "Quit while recording?",
-    "confirm_quit_message": "A recording is in progress. Are you sure you want to quit?",
     "update_available": "Update Available",
     "version": "version",
 }
@@ -90,8 +88,6 @@ _TRAY_LABELS_ES: dict[str, str] = {
     "about": "Acerca de",  # kept for potential in-app use
     "diagnostics": "Diagnósticos",  # kept for potential in-app use
     "recording_active": "Grabación activa",
-    "confirm_quit": "¿Salir mientras graba?",
-    "confirm_quit_message": "Hay una grabación en curso. ¿Está seguro de que quiere salir?",
     "update_available": "Actualización Disponible",
     "version": "versión",
 }
@@ -644,36 +640,14 @@ class TrayIcon:
     # any code that calls TrayIcon._wrap(fn) directly.
     _wrap = staticmethod(wrap_callback)
 
-    # ─── TRAY-003/028: Confirm quit while recording ─────────────────────
-
     def _confirm_quit_while_recording(self) -> None:
-        """TRAY-003/028: When quit is selected while recording, show a
-        confirmation dialog. If confirmed, stop recording then quit.
+        """Quit immediately, regardless of recording state.
+
+        The old confirmation dialog was removed because crash recovery
+        already protects in-flight transcriptions, and quit_app()
+        handles discarding active recordings and waiting for
+        transcription to finish (with timeout).
         """
-        if self._state == AppState.RECORDING:
-            # Try to show a confirmation dialog. On platforms where
-            # messageboxes are available, use them. Otherwise just quit.
-            try:
-                import tkinter as tk
-                from tkinter import messagebox
-                root = tk.Tk()
-                root.withdraw()
-                confirmed = messagebox.askyesno(
-                    _("confirm_quit"),
-                    _("confirm_quit_message"),
-                    icon='warning',
-                )
-                root.destroy()
-                if not confirmed:
-                    return
-            except Exception:
-                # If tkinter is unavailable, proceed with quit
-                log.info("[TRAY] Could not show confirmation dialog; proceeding with quit")
-            # Stop recording first if still active
-            try:
-                self._controller.toggle_dictation()
-            except Exception:
-                pass
         self._controller.quit_app()
 
     # ─── TRAY-015: Periodic update check ────────────────────────────────
