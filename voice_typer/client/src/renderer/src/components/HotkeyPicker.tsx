@@ -84,6 +84,15 @@ export function HotkeyPicker({
 	// updates these refs with the real callbacks after every render.
 	const handleKeyDownRef = useRef<(e: KeyboardEvent) => void>(() => {});
 	const handleKeyUpRef = useRef<(e: KeyboardEvent) => void>(() => {});
+	// ESC-CAPTURE-FIX: ref for cancelRecording so the backend-triggered
+	// hotkey_capture_cancel event handler can always call the latest
+	// version without depending on it in deps.
+	const cancelRecordingRef = useRef<() => void>(() => {});
+	// ESC-KEYUP-FIX: tracks whether ESC was pressed during the current
+	// capture session, so that handleKeyUp can exit on ESC release
+	// instead of on key-down. Set on keydown of ESC, cleared after
+	// the key-up handler processes the release.
+	const escPressedRef = useRef(false);
 	// HOTKEY-FIX-005: flag set when a non-modifier key is pressed during
 	// the current capture session.  Prevents ``handleKeyUp``'s modifier-only
 	// release detection from partially assigning a modifier when the full
@@ -115,6 +124,7 @@ export function HotkeyPicker({
 		onCaptureStartRef.current = onCaptureStart;
 		handleKeyDownRef.current = handleKeyDown;
 		handleKeyUpRef.current = handleKeyUp;
+		cancelRecordingRef.current = cancelRecording;
 	});
 
 	// ESC-FIX-003: always-attached keyboard listener — NEVER re-register,
@@ -129,6 +139,24 @@ export function HotkeyPicker({
 		return () => {
 			window.removeEventListener("keydown", onKeyDown, true);
 			window.removeEventListener("keyup", onKeyUp, true);
+		};
+	}, []);
+
+	// ESC-CAPTURE-FIX / ESC-KEYUP-FIX: listen for backend-triggered capture
+	// cancel events. The backend pushes ``hotkey_capture_cancel`` on ESC
+	// key-up (release) via its release callback (_on_esc_release). The
+	// DOM keyup handler above is a secondary path; the backend push is
+	// the reliable primary path across all Windows configurations.
+	// The guard in cancelRecording prevents duplicate onCaptureEnd calls
+	// when both paths fire.
+	useEffect(() => {
+		const unsubscribe = window.python?.onEvent?.((event) => {
+			if (event.type === "hotkey_capture_cancel") {
+				cancelRecordingRef.current?.();
+			}
+		});
+		return () => {
+			unsubscribe?.();
 		};
 	}, []);
 
@@ -148,27 +176,15 @@ export function HotkeyPicker({
 			if (!recordingRef.current) return;
 
 			if (e.key === "Escape") {
-				// ARCH-ESC-001: cancel hotkey capture on Escape. We call
-				// preventDefault() and stopPropagation() so no other
-				// listener (e.g. the App.tsx help-overlay handler, or
-				// any future document-level Escape handler) can
-				// interfere with the capture-mode cancel. The backend's
-				// ESC cancel hotkey is handled separately via the
-				// KeyboardOwnership singleton (see system_handlers.py).
+				// ESC-KEYUP-FIX: cancel hotkey capture on ESC RELEASE
+				// (key-up), not on key-down. The user presses ESC and
+				// releases it — cancel happens on release. This matches
+				// how regular key capture works (capture on key-up).
 				e.preventDefault();
 				e.stopPropagation();
-				// NB: sync the ref immediately so a second keydown arriving
-				// before React's re-render sees the correct state.
-				recordingRef.current = false;
-				setRecording(false);
-				setError(null);
-				modifierHeldRef.current.clear();
-				// HOTKEY-DEFER-001: clear any pending candidate so a
-				// stale keyUP after Esc doesn't commit a hotkey.
-				candidateRef.current = null;
-				// ESC-FIX-001 / 002: read from ref so we always call the
-				// latest onCaptureEnd without depending on it in deps.
-				onCaptureEndRef.current?.();
+				escPressedRef.current = true;
+				// Don't exit capture or call onCaptureEnd here.
+				// handleKeyUp will do that when ESC is released.
 				return;
 			}
 
@@ -264,6 +280,21 @@ export function HotkeyPicker({
 		(e: KeyboardEvent) => {
 			if (!recordingRef.current) return;
 
+			// ESC-KEYUP-FIX: if ESC was pressed during this capture session,
+			// exit capture mode on key-up (release). This matches how
+			// regular key capture works — assignment happens on key-up.
+			if (e.key === "Escape" && escPressedRef.current) {
+				escPressedRef.current = false;
+				recordingRef.current = false;
+				setRecording(false);
+				setError(null);
+				modifierHeldRef.current.clear();
+				nonModifierSeenRef.current = false;
+				candidateRef.current = null;
+				onCaptureEndRef.current?.();
+				return;
+			}
+
 			const modifierCode = MODIFIER_CODE_TO_PYNPUT[e.code];
 			if (modifierCode) {
 				// Modifier key release — update held set.
@@ -347,6 +378,7 @@ export function HotkeyPicker({
 		recordingRef.current = true;
 		setError(null);
 		modifierHeldRef.current.clear();
+		escPressedRef.current = false;
 		// HOTKEY-FIX-005: fresh capture session — reset the flag so
 		// modifier-only release detection works on the next attempt.
 		nonModifierSeenRef.current = false;
@@ -362,10 +394,17 @@ export function HotkeyPicker({
 	}, []); // ESC-FIX-002: empty deps — onCaptureStart read from ref
 
 	const cancelRecording = useCallback(() => {
+		// ESC-KEYUP-FIX: guard against duplicate onCaptureEnd calls.
+		// If the backend pushes a hotkey_capture_cancel event while
+		// the frontend has already exited capture via key-up handler,
+		// recordingRef.current is already false — skip the redundant
+		// IPC call that would log a duplicate "ESC cancel RESUMED".
+		if (!recordingRef.current) return;
 		setRecording(false);
 		recordingRef.current = false;
 		setError(null);
 		modifierHeldRef.current.clear();
+		escPressedRef.current = false;
 		nonModifierSeenRef.current = false;
 		// HOTKEY-DEFER-001: clear any pending candidate so a stale
 		// keyUP after cancel doesn't commit a hotkey.

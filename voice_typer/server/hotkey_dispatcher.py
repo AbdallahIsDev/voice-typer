@@ -156,11 +156,17 @@ class HotkeyDispatcher:
         ARCH-ESC-001: the ESC callback is wrapped to consult the
         KeyboardOwnership singleton. If the frontend is in hotkey
         capture mode (``is_hotkey_capture_active()`` returns True),
-        the ESC callback is a no-op — the frontend owns the keyboard
-        during capture. This is a defense-in-depth check on top of
-        ``app._esc_cancel_paused`` (which is now an alias for the same
-        state) and the recording controller's own
-        ``recorder.recording`` check.
+        the ESC callback defers to key-up instead of acting
+        immediately on key-down. This matches how regular hotkey
+        capture works (assignment happens on key-up / release).
+
+        ESC-KEYUP-FIX: when the user presses ESC during hotkey
+        capture, the key-down sets a pending flag and installs a
+        release callback on the ESC backend. The actual ownership
+        reset and ``hotkey_capture_cancel`` event are pushed on
+        key-up, when the user releases the finger. This eliminates
+        the "cancel on press" behavior the user reported as
+        feeling unresponsive.
         """
         # Stop any existing backend first
         if self._esc_backend:
@@ -169,19 +175,29 @@ class HotkeyDispatcher:
             except Exception:
                 pass
             self._esc_backend = None
+
+        # ESC-KEYUP-FIX: flag set on ESC key-down during capture,
+        # cleared after the release callback fires on key-up.
+        self._esc_pending_capture_exit = False
+
         try:
             self._esc_backend = create_hotkey_backend("<esc>")
 
             def _esc_callback() -> None:
-                # ARCH-ESC-001: centralized ownership check. The
-                # KeyboardOwnership singleton is the single source of
-                # truth for which subsystem owns the keyboard. If the
-                # frontend is capturing a hotkey, the ESC callback is
-                # a no-op — no matter what.
+                # ARCH-ESC-001: centralized ownership check.
                 if keyboard_ownership().is_hotkey_capture_active():
-                    log.debug(
-                        "[HOTKEY] ESC ignored — frontend hotkey capture active"
+                    log.info(
+                        "[HOTKEY] ESC pressed during hotkey capture "
+                        "— waiting for key-up"
                     )
+                    # ESC-KEYUP-FIX: set the pending flag and install
+                    # a release callback. The actual cancel happens on
+                    # key-up (release), not key-down (press).
+                    self._esc_pending_capture_exit = True
+                    if self._esc_backend is not None:
+                        self._esc_backend.set_on_release(
+                            self._on_esc_release
+                        )
                     return
                 self._app._cancel_dictation()
 
@@ -189,6 +205,45 @@ class HotkeyDispatcher:
             log.info("[HOTKEY] ESC cancel hotkey registered")
         except Exception:
             log.warning("[HOTKEY] ESC cancel hotkey registration failed")
+
+    def _on_esc_release(self) -> None:
+        """ESC-KEYUP-FIX: release callback fired on key-up.
+
+        Installed by ``_esc_callback`` when ``is_hotkey_capture_active()``
+        is True. On key-up, this resets keyboard ownership and pushes
+        ``hotkey_capture_cancel`` so the frontend exits capture mode.
+
+        The cancelRecording guard in HotkeyPicker.tsx
+        (``if (!recordingRef.current) return;``) prevents duplicate
+        ``onCaptureEnd`` calls when both this backend push AND the
+        frontend's own DOM key-up handler fire for the same ESC release.
+        """
+        if not self._esc_pending_capture_exit:
+            return
+        self._esc_pending_capture_exit = False
+
+        log.info(
+            "[HOTKEY] ESC released during hotkey capture "
+            "— canceling capture"
+        )
+
+        # Reset keyboard ownership so subsequent keys
+        # are no longer blocked by the capture check.
+        keyboard_ownership().set_owner(
+            "normal", reason="esc released during capture"
+        )
+
+        # Push an event so the frontend exits capture mode.
+        from voice_typer.server.ipc_server import _push_event_now
+        _push_event_now({"type": "hotkey_capture_cancel"})
+
+        # Reset the release callback so it doesn't fire again
+        # on the next ESC press during normal operation.
+        if self._esc_backend is not None:
+            try:
+                self._esc_backend.set_on_release(None)
+            except Exception:
+                pass
 
     def unregister_esc(self) -> None:
         """Unregister the ESC hotkey."""
