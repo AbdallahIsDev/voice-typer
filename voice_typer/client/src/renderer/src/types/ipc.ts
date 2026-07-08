@@ -105,6 +105,14 @@ export interface ConfigChangedEvent {
 	data: Record<string, unknown>;
 }
 
+/** Pushed when the backend detects Esc during hotkey capture mode.
+ *  The backend consumes the key at the OS level (RegisterHotKey), so the
+ *  DOM keydown event never reaches the renderer — this event tells the
+ *  HotkeyPicker to exit capture mode. */
+export interface HotkeyCaptureCancelEvent {
+	type: "hotkey_capture_cancel";
+}
+
 export type PythonPushEvent =
 	| StatusChangeEvent
 	| ErrorEvent
@@ -113,7 +121,8 @@ export type PythonPushEvent =
 	| RecordingStartedEvent
 	| RecordingStoppedEvent
 	| ModelLoadedEvent
-	| ConfigChangedEvent;
+	| ConfigChangedEvent
+	| HotkeyCaptureCancelEvent;
 
 // ── Request messages (sent via window.python.call) ────────────────
 
