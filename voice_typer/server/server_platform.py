@@ -362,18 +362,31 @@ _APP_AUTOSTART_TASK_NAME = f"VoiceTyperAutostart{_install_hash_suffix()}"
 
 
 def _enable_autostart_windows() -> bool:
-    """STARTUP-7: register app autostart via Task Scheduler (preferred)
-    or HKCU Run key (fallback). Task Scheduler logon triggers fire
-    earlier than Run keys, reducing the ~33 s pre-app delay.
+    """STARTUP-7: register app autostart via HKCU Run key (preferred)
+    or Task Scheduler (fallback).
+
+    AUTOSTART-UAC-FIX: The Run key is tried FIRST because it requires
+    NO admin elevation (HKCU is per-user, always writable). Task
+    Scheduler is tried only as a fallback because registering a
+    scheduled task may require UAC elevation if a previous task was
+    created by an admin install (locked task). The Run key fires
+    ~33 s after logon, which is soon enough for the autostart
+    launcher (which already has a --delay 30 internal delay).
     """
-    # Try Task Scheduler first (earlier, more predictable timing).
-    if _register_app_autostart_task():
-        # Clean up any stale Run-key entry from a previous install.
-        _unregister_app_autostart_runkey()
+    # Try HKCU Run key first (no admin elevation needed).
+    if _register_app_autostart_runkey():
+        # Clean up any stale Task Scheduler task from a previous install.
+        try:
+            _unregister_app_autostart_task()
+        except Exception:
+            pass
         return True
-    # Fall back to HKCU Run key if Task Scheduler is unavailable/locked.
-    log.warning("[CONFIG] Task Scheduler autostart failed; falling back to HKCU Run key")
-    return _register_app_autostart_runkey()
+    # Fall back to Task Scheduler if the Run key fails.
+    log.warning("[CONFIG] HKCU Run key autostart failed; trying Task Scheduler")
+    if _register_app_autostart_task():
+        return True
+    log.warning("[CONFIG] Both autostart mechanisms failed")
+    return False
 
 
 def _disable_autostart_windows() -> bool:

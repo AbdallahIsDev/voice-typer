@@ -176,8 +176,8 @@ class VoiceTyperApp:
 
         # Startup banner -- first visible log, before any subsystem init
         log.info(
-            "starting -- model=%s, hotkey=%s, mic=%s, sample_rate=%s",
-            self.config.model_size, self.config.hotkey,
+            "%s starting -- model=%s, hotkey=%s, mic=%s, sample_rate=%s",
+            APP_NAME, self.config.model_size, self.config.hotkey,
             self.config.microphone or "default", self.config.sample_rate,
         )
 
@@ -642,7 +642,7 @@ class VoiceTyperApp:
         so that a quit() call during startup doesn't proceed with model
         downloads or background loads after the app has begun shutdown.
         """
-        log.info("[STARTUP] _do_startup begin")
+        log.info("[STARTUP] Initializing: autostart, microphones, hotkey, model…")
 
         if self._shutting_down:
             log.info("[STARTUP] _shutting_down is set, aborting startup")
@@ -657,20 +657,47 @@ class VoiceTyperApp:
         # `onboarding_is_first_run` IPC route and route the user to
         # the wizard. The wizard's apply/skip handler flips the flag
         # to True and marks the .onboarding_complete marker.
+        #
+        # ONBOARDING-STALE-FIX: When config.json already exists on disk
+        # (the user has been using the app) but onboarding_completed is
+        # False and the .onboarding_complete marker is missing, we
+        # auto-heal the state. Without this fix, is_first_run() returns
+        # True on every restart, the frontend routes to the onboarding
+        # wizard, and the wizard's apply_settings() overwrites the
+        # user's custom hotkey, model, and microphone settings with
+        # onboarding defaults (<caps_lock>, small.en, None).
         if not self.config.onboarding_completed:
             try:
                 from voice_typer.server.onboarding import OnboardingController
                 onboarding = OnboardingController()
                 if onboarding.is_first_run():
-                    log.info(
-                        "[STARTUP] First run detected -- deferring to React "
-                        "onboarding wizard (config.onboarding_completed=False)"
-                    )
-                    # Persist the config file with onboarding_completed=False
-                    # so the frontend's `get_config` call sees the
-                    # first-run state. The wizard handles applying the
-                    # user's choices via `onboarding_apply`.
-                    self.config.save()
+                    # Check if config.json already exists on disk.
+                    # If it does, this is NOT a genuine first install
+                    # but a stale onboarding state where the marker was
+                    # lost/deleted and onboarding_completed was never
+                    # flipped to True. Auto-heal by marking onboarding
+                    # complete to prevent the wizard from showing on
+                    # every restart and overwriting the user's settings.
+                    config_file = _config_dir() / "config.json"
+                    if config_file.exists():
+                        log.info(
+                            "[STARTUP] Config file exists but onboarding "
+                            "flag is False and marker is missing -- "
+                            "fixing stale onboarding state to prevent "
+                            "wizard from overwriting user settings"
+                        )
+                        self.config.onboarding_completed = True
+                        onboarding.mark_complete()
+                        self.config.save()
+                    else:
+                        # Genuine first run -- no config.json exists yet.
+                        # Save the default config so the frontend can
+                        # detect first-run and show the wizard.
+                        log.info(
+                            "[STARTUP] First run detected -- deferring to React "
+                            "onboarding wizard (config.onboarding_completed=False)"
+                        )
+                        self.config.save()
             except Exception as e:
                 # ERR-010: previously this was log.debug, which is
                 # invisible at default log levels. If onboarding check
@@ -833,13 +860,13 @@ class VoiceTyperApp:
             self._start_accessibility_pulse(_has_accessibility)
 
         # 1. Sync autostart config with platform
-        log.info("[STARTUP] Step 1: sync autostart")
+        log.debug("[STARTUP] Syncing autostart")
         self._sync_autostart()
         self.tray.set_autostart_enabled(is_autostart_enabled())
 
         # RACE-020: check for shutdown after each major step
         if self._shutting_down:
-            log.info("[STARTUP] _shutting_down after autostart sync, aborting")
+            log.debug("[STARTUP] Interrupted after autostart sync")
             return
 
         # 1b. Sync the OS-level prewarm scheduled task.
@@ -880,21 +907,21 @@ class VoiceTyperApp:
         # fast and quick to fail.)
         self._ensure_desktop_shortcut()
 
-        log.info("[STARTUP] Step 1c/2: parallel prewarm + mic enumeration")
+        log.debug("[STARTUP] Running prewarm sync + mic enumeration")
         _startup_parallel_work()
 
         # RACE-020: check for shutdown after parallel work
         if self._shutting_down:
-            log.info("[STARTUP] _shutting_down after parallel work, aborting")
+            log.debug("[STARTUP] Interrupted before hotkey registration")
             return
 
         # 3. Register hotkey BEFORE model load so F2 works even if model fails
-        log.info("[STARTUP] Step 3: register hotkey")
+        log.debug("[STARTUP] Registering hotkey")
         self._register_hotkey()
 
         # RACE-020: check for shutdown after hotkey registration
         if self._shutting_down:
-            log.info("[STARTUP] _shutting_down after hotkey registration, aborting")
+            log.debug("[STARTUP] Interrupted after hotkey registration")
             return
 
         # Warmup handled synchronously in recording.py on first recording start.
@@ -914,12 +941,12 @@ class VoiceTyperApp:
         # reads/writes through to ``self.models._model_load_thread`` so
         # existing code that checks the thread (e.g. toggle_dictation)
         # keeps working.
-        log.info("[STARTUP] Step 4: create transcription engine (background)")
+        log.debug("[STARTUP] Loading model in background")
         self.models.start_background_load()
 
         # RACE-020: check for shutdown after background model load start
         if self._shutting_down:
-            log.info("[STARTUP] _shutting_down after model load start, aborting")
+            log.debug("[STARTUP] Interrupted after model load start")
             return
 
         # After restart: auto-open the Electron window so it appears fresh
@@ -941,7 +968,7 @@ class VoiceTyperApp:
             except Exception as e:
                 log.warning("[STARTUP] Failed to show bubble at startup: %s", e)
 
-        log.info("[STARTUP] initial setup complete -- model loading continues in background")
+        log.info("[STARTUP] Startup complete, model still loading in background")
 
     def _load_transcription_engine_background(self) -> None:
         """#2 (Round 9): delegate to ModelManager.load_background()."""
@@ -1437,7 +1464,10 @@ class VoiceTyperApp:
         so the Electron frontend knows to call ``app.quit()`` and shut
         down cleanly (instead of being left orphaned with no backend).
         """
-        log.info("[QUIT] Quitting %s...")
+        if self._shutting_down:
+            log.debug("[QUIT] Already shutting down, ignoring duplicate quit_app call")
+            return
+        log.info("[QUIT] Quitting %s", APP_NAME)
 
         # Item 12: If recording, discard the recording before quitting
         # so we don't leave the mic open or lose the in-flight audio.
@@ -1572,12 +1602,11 @@ class VoiceTyperApp:
         left open if quit() raced with the audio callback.
         """
         if self._shutting_down:
-            log.info("[SHUTDOWN] quit() already in progress, ignoring duplicate call")
+            log.debug("[SHUTDOWN] quit() already in progress, ignoring duplicate call")
             return
 
         is_main = threading.current_thread() is threading.main_thread()
-        log.info("[SHUTDOWN] Shutting down (quit() called from thread=%s, is_main=%s)",
-                 threading.current_thread().name, is_main)
+        log.info("[SHUTDOWN] Shutting down")
         self._shutting_down = True
         # RACE-020: also set the Event version so executor tasks can check it
         self._shutting_down_event.set()
@@ -1642,6 +1671,13 @@ class VoiceTyperApp:
 
         # ARCH-REFAC-003: access HotkeyDispatcher directly (was a
         # @property delegate previously).
+        _hk_info = (
+            f"dictation={self.hotkeys._hotkey_backend.hotkey_str if self.hotkeys._hotkey_backend else 'none'}, "
+            f"esc={self.hotkeys._esc_backend.hotkey_str if self.hotkeys._esc_backend else 'none'}, "
+            f"repaste={self.hotkeys._repaste_backend.hotkey_str if self.hotkeys._repaste_backend else 'none'}"
+        )
+        log.info("[HOTKEY] Stopping hotkey listeners (%s)", _hk_info)
+
         if self.hotkeys._hotkey_backend:
             self.hotkeys._hotkey_backend.stop()
 
@@ -1659,6 +1695,8 @@ class VoiceTyperApp:
             except Exception as e:
                 log.warning("[SHUTDOWN] repaste backend stop failed: %s", e)
 
+        log.info("[HOTKEY] All hotkey listeners stopped")
+
         # RELIABILITY-005: flush any pending crash-recovery writes
         # before the process exits, so the latest state is persisted.
         # Short timeout — if the disk is genuinely slow we'd rather
@@ -1669,6 +1707,19 @@ class VoiceTyperApp:
                 self._crash_recovery.shutdown()
             except Exception as e:
                 log.warning("[SHUTDOWN] crash recovery flush failed: %s", e)
+
+        # CRASH-SAFE-GAP-A: flush pending fire-and-forget history DB writes
+        # before the process exits. add_transcription() is fire-and-forget
+        # (enqueues the INSERT and returns immediately). If quit() exits
+        # without draining the queue, the writer thread (a daemon) is killed
+        # by the OS and any unprocessed INSERTs are silently lost. Flushing
+        # here ensures the writer drains its queue and commits all pending
+        # writes before the process terminates.
+        if self.history_db is not None:
+            try:
+                self.history_db.flush()
+            except Exception as e:
+                log.warning("[SHUTDOWN] history DB flush failed: %s", e)
 
         # PERF-NEW-001: stop the bubble level worker so it doesn't
         # try to push to a torn-down IPC server during shutdown.

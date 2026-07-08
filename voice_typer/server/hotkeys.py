@@ -721,7 +721,7 @@ class WindowsNativeHotkey(HotkeyBackend):
                   
                     self._user32.UnregisterHotKey(0, self._hotkey_id)
                     self._registered = False
-                    log.info("[HOTKEY] UnregisterHotKey done")
+                    log.debug("[HOTKEY] Unregistered %s", self.hotkey_str)
 
         # Also set GetAsyncKeyState argtypes for the polling fallback
         self._user32.GetAsyncKeyState.argtypes = [INT]
@@ -844,7 +844,30 @@ class WindowsNativeHotkey(HotkeyBackend):
             return
 
         vk = self._vk
-        was_pressed = False
+        # HOTKEY-DEFER-001 (Task 2.4): seed was_pressed from the current
+        # key state at registration time. If the hotkey's main key is
+        # currently held (e.g. the user just released it after capture
+        # and the IPC set_config reached the backend before the keyUP),
+        # the polling loop would otherwise see the still-held key as a
+        # fresh press on the first iteration and immediately fire the
+        # callback — starting recording without the user intending it.
+        # Seeding was_pressed=True when the key is already held makes
+        # the first iteration skip the "is_pressed and not was_pressed"
+        # branch, requiring a genuine release+repress cycle before the
+        # callback fires. This is defense-in-depth behind the frontend's
+        # deferred-assignment fix (HotkeyPicker.tsx candidateRef).
+        try:
+            _seed_state = self._user32.GetAsyncKeyState(vk)
+            _seed_mods = self._modifiers_pressed()
+            was_pressed = bool(_seed_state & 0x8000) and _seed_mods
+            if was_pressed:
+                log.info(
+                    "[HOTKEY] Backend registered while key VK=0x%X already held "
+                    "— suppressing first keydown to avoid capture-triggers-recording race",
+                    vk,
+                )
+        except Exception:
+            was_pressed = False
         log.info("[HOTKEY] Polling loop started for VK=0x%X modifiers=0x%X", vk, self._modifiers)
         # PLAT-PUMP: hoist the win32gui import OUT of the polling loop.
         # Pre-fix this ran ``import win32gui`` on every 1ms iteration,
@@ -1394,7 +1417,7 @@ class WindowsNativeHotkey(HotkeyBackend):
         """
         if self._stop_event.is_set():
             return  # Already stopped — idempotent
-        log.info("[HOTKEY] Stopping Windows native hotkey listener")
+        log.debug("[HOTKEY] Stopping %s listener", self.hotkey_str)
         self._stop_event.set()
         # PERF-NEW-016: skip the useless PostThreadMessageW call —
         # the polling loop checks _stop_event.is_set() every 100ms.

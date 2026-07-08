@@ -290,6 +290,37 @@ class Recorder:
         self._vad_calibration_rms_values: list[float] = []
         self._vad_calibrated: bool = False
 
+        # VAD-GATE (Task 4): gate ALL VAD processing on whether any audio
+        # enhancement is active. The user reported VAD auto-calibration
+        # and state-transition logs appearing even when "Microphone
+        # Quality / AI enhancements are disabled" (the "Off" audio preset
+        # sets every noise_filter_* to False and noise_suppression_method
+        # to "none"). The prior fix (VAD-FIX Round 1) only demoted the
+        # log level from INFO to DEBUG — it did NOT gate the processing
+        # itself, so users with DEBUG logging still saw the spam and the
+        # calibration/state-machine work still ran on every chunk.
+        #
+        # VAD is part of the audio enhancement pipeline. When the user
+        # explicitly disables ALL audio enhancements (Off preset), they
+        # are opting into raw recording — no filter chain, no VAD. The
+        # dead-air timeout (which depends on VAD state) is preserved via
+        # a lightweight RMS-based fallback in _update_dead_air_simple()
+        # so the user still gets the safety net against indefinitely
+        # long recordings.
+        # VAD-GATE (Task 4): _vad_enabled is a @property that reads the
+        # current config dynamically so preset changes are reflected immediately,
+        # even mid-session (see property definition below).
+        if not self._vad_enabled:
+            log.info(
+                "[RECORDING] VAD disabled — all audio enhancements off "
+                "(raw recording mode). Dead-air timeout still active via RMS fallback."
+            )
+
+        # VAD-GATE: simple RMS threshold for dead-air detection when VAD
+        # is disabled. -40 dBFS ≈ quiet room background; anything above
+        # counts as "speech" for the dead-air speech-detected flag.
+        self._vad_disabled_speech_threshold_db: float = -40.0
+
         # ADR 0007 §3.5: AGC instance variables deleted (replaced by
         # Compressor filter in the audio filter chain).
 
@@ -659,6 +690,74 @@ class Recorder:
 
     # ── AUDIO-014: VAD auto-calibration ─────────────────────────────────
 
+    @property
+    def _vad_enabled(self) -> bool:
+        """Whether VAD should run based on current audio enhancement state.
+
+        VAD-GATE (Task 4): This is a dynamic @property that re-evaluates from
+        the current config on every access. Unlike a cached bool, this ensures
+        that if the user changes the audio preset to "Off" while the Recorder
+        exists (or mid-session), the VAD gate immediately reflects the current
+        config state instead of using a stale value from __init__.
+        """
+        return self._compute_vad_enabled(self.config)
+
+    def _compute_vad_enabled(self, config: Any) -> bool:
+        """Compute whether VAD should run based on audio enhancement state.
+
+        VAD-GATE (Task 4): VAD is part of the audio enhancement pipeline.
+        When the user selects the "Off" audio preset (or manually disables
+        every noise filter), they are opting into raw recording. Running
+        VAD in that mode produces log spam and wastes CPU on a feature
+        the user explicitly turned off.
+
+        VAD is enabled when ANY of:
+        - Any noise filter toggle is True (highpass/gate/eq/compressor/limiter/notch)
+        - ``noise_suppression_method`` is not "none"
+
+        Note: ``use_silero_vad`` is intentionally NOT checked here — it controls
+        WHETHER to use the Silero ML model vs RMS thresholds when VAD IS enabled,
+        not whether VAD runs at all. Previously it was checked first and always
+        returned True (since use_silero_vad defaults to True), which defeated the
+        VAD-GATE and caused VAD auto-calibration and state-transition logs to appear
+        even when all audio enhancements were disabled (the "Off" preset).
+
+        When VAD is disabled, the dead-air timeout still works via a
+        lightweight RMS-based fallback (see ``_update_dead_air_simple``).
+        """
+        filter_flags = (
+            getattr(config, "noise_filter_highpass", False),
+            getattr(config, "noise_filter_gate", False),
+            getattr(config, "noise_filter_eq", False),
+            getattr(config, "noise_filter_compressor", False),
+            getattr(config, "noise_filter_limiter", False),
+            getattr(config, "noise_filter_notch", False),
+        )
+        if any(filter_flags):
+            return True
+        if str(getattr(config, "noise_suppression_method", "none")).lower() != "none":
+            return True
+        return False
+
+    def _update_dead_air_simple(self, chunk_rms_db: float) -> None:
+        """Lightweight dead-air update for when VAD is disabled.
+
+        VAD-GATE (Task 4): when the user disables all audio enhancements,
+        the full VAD state machine is skipped. This helper preserves the
+        dead-air timeout safety net (auto-stop after N seconds of silence
+        following speech) using a simple fixed RMS threshold, without
+        the calibration, hysteresis, or logging of the full VAD path.
+
+        Updates ``_dead_air_speech_detected`` and
+        ``_dead_air_silence_start`` in place; the existing dead-air
+        timeout check in the audio callback reads these flags unchanged.
+        """
+        if chunk_rms_db >= self._vad_disabled_speech_threshold_db:
+            self._dead_air_speech_detected = True
+            self._dead_air_silence_start = 0.0
+        elif self._dead_air_speech_detected and self._dead_air_silence_start == 0.0:
+            self._dead_air_silence_start = time.monotonic()
+
     def _vad_auto_calibrate(self, chunk_rms: float, chunk_duration: float) -> None:
         """Auto-calibrate VAD thresholds based on ambient noise floor.
 
@@ -666,6 +765,12 @@ class Recorder:
         recording, we collect RMS values to determine the ambient noise
         floor. Then we set speech/silence thresholds relative to it.
         """
+        # VAD-GATE (Task 4): skip calibration entirely when VAD is
+        # disabled. The prior fix only demoted the log level; this gate
+        # prevents the calibration work and the RMS-value list growth
+        # that would otherwise happen on every chunk in raw mode.
+        if not self._vad_enabled:
+            return
         if self._vad_calibrated:
             return
 
@@ -716,7 +821,21 @@ class Recorder:
         When Silero VAD is enabled and a probability is provided, uses the
         VAD probability for speech/silence determination instead of RMS dB.
         Falls back to RMS-based detection if vad_prob is None.
+
+        VAD-GATE (Task 4): returns ``VadState.UNKNOWN`` immediately when
+        VAD is disabled (all audio enhancements off). The caller's
+        silence-timer logic sees UNKNOWN and treats it as "not silence"
+        (no silence warnings, no VAD-based auto-stop). The dead-air
+        timeout is preserved via ``_update_dead_air_simple`` which the
+        caller invokes separately when VAD is disabled.
         """
+        # VAD-GATE (Task 4): skip the full state machine when VAD is
+        # disabled. Returning UNKNOWN (without updating any state or
+        # logging) means no silence warnings and no VAD-based auto-stop.
+        # The dead-air timeout still works because the caller invokes
+        # _update_dead_air_simple() on this same chunk.
+        if not self._vad_enabled:
+            return VadState.UNKNOWN
         if vad_prob is not None and self._use_silero_vad and self._silero_available:
             # Silero VAD path — use probability thresholds
             is_loud = vad_prob >= self._vad_speech_threshold
@@ -1093,7 +1212,7 @@ class Recorder:
                 # Create a new deque with larger maxlen and copy existing data
                 old_data = list(self._buffer)
                 self._buffer = collections.deque(old_data, maxlen=needed_chunks)
-                log.info(
+                log.debug(
                     "[RECORDING] Buffer sized for %ds max recording: %d chunks",
                     max_rec, needed_chunks,
                 )
@@ -1351,8 +1470,8 @@ class Recorder:
                     self._peak = chunk_peak
                 now = time.perf_counter()
                 if now - self._last_clip_log_time >= 1.0:
-                    log.warning(
-                        "[RECORDING] Clipping detected: peak=%.4f, count=%d chunks. Reduce mic gain.",
+                    log.debug(
+                        "[RECORDING] Clipping detected: peak=%.4f, count=%d chunks.",
                         chunk_peak, self._clip_count
                     )
                     self._last_clip_log_time = now
@@ -1384,8 +1503,10 @@ class Recorder:
             # AUDIO-013: compute Silero VAD probability if enabled.
             # This runs in the audio callback (~1ms for 512 samples on CPU)
             # and is only used when use_silero_vad=True in config.
+            # VAD-GATE: skip Silero inference when VAD is disabled (all audio
+            # enhancements off) to avoid wasting CPU.
             vad_prob = None
-            if self._use_silero_vad and self._silero_available:
+            if self._vad_enabled and self._use_silero_vad and self._silero_available:
                 try:
                     from voice_typer.server.vad import compute_vad_prob
                     # impl-vad-fix: Silero VAD only accepts {8000, 16000} Hz.
@@ -1423,6 +1544,14 @@ class Recorder:
             # Convert RMS to dBFS for VAD thresholds
             chunk_rms_db = 20.0 * math.log10(chunk_rms) if chunk_rms > 0 else -90.0
             vad_state = self._vad_update(chunk_rms_db, vad_prob=vad_prob)
+
+            # VAD-GATE (Task 4): when VAD is disabled (all audio
+            # enhancements off), _vad_update returns UNKNOWN and skips
+            # the dead-air logic that normally lives inside it. Use the
+            # lightweight RMS-based fallback so the dead-air timeout
+            # safety net still works in raw recording mode.
+            if not self._vad_enabled:
+                self._update_dead_air_simple(chunk_rms_db)
 
             # Use VAD state machine for silence detection
             # Voice detected by loudness → reset silence timer
@@ -1482,7 +1611,7 @@ class Recorder:
                     "Consider stopping recording."
                 )
             if chunk_count % TELEMETRY_LOG_INTERVAL == 0:
-                log.info(
+                log.debug(
                     "[RECORDING] Buffer telemetry: chunks=%d, buffer_count=%d",
                     chunk_count, buffer_len,
                 )
@@ -1750,7 +1879,7 @@ class Recorder:
                 for chunk in reversed(preroll_chunks):
                     mono_chunk = self._ensure_mono(chunk)
                     self._buffer.appendleft(mono_chunk.copy())
-                log.info(
+                log.debug(
                     "[RECORDING] Prepended %d pre-roll chunks (~%.1fs)",
                     len(preroll_chunks), len(preroll_chunks) * 512 / self._effective_sr,
                 )
@@ -1868,17 +1997,6 @@ class Recorder:
             # the same RMS/peak/silence_pct on the same audio array
             # (saves 1-3 ms + 3× 1.9 MB transient memory per dictation).
             self._last_audio_stats = (rms, peak, silence_pct)
-            log.info(
-                "[RECORDING] Audio captured: duration=%.1fs, effective_sr=%d, "
-                "samples=%d, RMS=%.6f, peak=%.6f, silence_pct=%.1f%%",
-                duration, effective_sr, len(audio), rms, peak, silence_pct,
-            )
-            if rms < 0.001:
-                log.warning(
-                    "[RECORDING] Near-silence detected! (RMS=%.6f) "
-                    "Microphone may not be capturing audio.",
-                    rms,
-                )
         else:
             self._last_rms = 0.0
             self._last_audio_stats = (0.0, 0.0, 0.0)
@@ -1902,11 +2020,22 @@ class Recorder:
         # 3. noisereduce is no longer a dependency.
 
         total_ms = (time.perf_counter() - stop_started) * 1000
-        log.info(
-            "[RECORDING] Stop timing: stream=%.1fms, concat=%.1fms, "
-            "stats=%.1fms, resample=%.1fms, post_capture=%.1fms, total=%.1fms",
-            stream_ms, concat_ms, stats_ms, resample_ms, post_capture_ms, total_ms,
-        )
+        if len(audio) > 0:
+            log.info(
+                "[RECORDING] Audio stopped: duration=%.1fs, sr=%d, samples=%d, "
+                "RMS=%.6f, peak=%.6f, silence=%.1f%% | "
+                "stream=%.0fms concat=%.0fms resample=%.0fms total=%.0fms",
+                duration, effective_sr, len(audio), rms, peak, silence_pct,
+                stream_ms, concat_ms, resample_ms, total_ms,
+            )
+            if rms < 0.001:
+                log.warning(
+                    "[RECORDING] Near-silence detected! (RMS=%.6f) "
+                    "Microphone may not be capturing audio.",
+                    rms,
+                )
+        else:
+            log.warning("[RECORDING] No audio data captured!")
 
         return audio
 
@@ -2187,6 +2316,15 @@ class Recorder:
     def discard(self) -> None:
         """Discard current recording without processing."""
         self._recording_event.clear()
+        # STREAM-FIX (Task 6): set _user_stop_pending before stream.stop()
+        # so the audio callback's early-return guard (line 574) suppresses
+        # the false "Stream finished unexpectedly" warning. The stop()
+        # path sets this flag (line 1887); discard() was missing it, so
+        # cancelling a recording via the Cancel button still fired the
+        # warning. This mirrors the stop() contract: any code path that
+        # intentionally stops the stream must set _user_stop_pending first
+        # so the callback knows the stream end is expected, not a crash.
+        self._user_stop_pending = True
         # ARCH-021: guard _effective_sr reset with the lock so a
         # concurrent snapshot() reader sees a consistent value.
         with self._lock:

@@ -340,11 +340,37 @@ def _validate_hotkey(value: object) -> Optional[str]:
         if r == normalized:
             return f"reserved by operating system ({platform})"
 
+    # HOTKEY-VALIDATION-002 (Task 2.2.5): single letter/digit rejection.
+    # The prior fix (HOTKEY-FIX-002) added letters and digits to the
+    # frontend KEY_CODE_TO_PYNPUT table so that combos like Alt+Q parse
+    # correctly, but forgot to add a validation rule preventing single
+    # letters/digits from being assigned as standalone hotkeys. A
+    # standalone <a> would trigger dictation every time the user types
+    # 'a' — clearly unusable. Reject any single-part hotkey that is a
+    # single alphanumeric character. Multi-key combos (Alt+Q, Ctrl+V)
+    # are NOT affected — they have 2+ parts and are checked by the
+    # rules below.
+    if len(parts) == 1:
+        sole = parts[0]
+        if len(sole) == 1 and sole.isalnum():
+            return (
+                f"single letters and digits can't be used as hotkeys — "
+                f"'{sole}' would interfere with typing"
+            )
+
     # Win+* / Super+* / Cmd+* blanket blocks for system shell shortcuts.
+    # HOTKEY-VALIDATION-002 (Task 2.2.5): the prior code blanket-blocked
+    # Super+anything on Linux, which incorrectly rejected <super>+<space>
+    # (a combo most Linux desktop environments allow reassigning). The
+    # blanket block now applies only on Windows (where the Win key is
+    # heavily reserved by the OS shell — Win+E, Win+L, Win+D, etc.). On
+    # Linux, Super combos are checked against the per-platform reserved
+    # list (_RESERVED_HOTKEYS["linux"] = Super+L, Super+D, Super+Tab) —
+    # all other Super combos are allowed.
     has_win = any(p in ("win", "super") for p in parts)
     has_cmd = any(p in ("cmd", "cmd_l", "cmd_r") for p in parts)
-    if has_win and platform in ("win32", "linux"):
-        return "Windows/Super key combinations are reserved by the OS shell"
+    if has_win and platform == "win32":
+        return "Windows key combinations are reserved by the OS shell"
     if has_cmd and platform == "darwin" and len(parts) > 1:
         # On macOS, Cmd+<letter> is heavily used by the system and apps.
         # Block Cmd+<letter> but allow Cmd+<F-key> and Cmd+<special-key>.

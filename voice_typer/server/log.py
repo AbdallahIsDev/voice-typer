@@ -228,7 +228,7 @@ class _ColorFormatter(logging.Formatter):
     }
 
     def format(self, record: logging.LogRecord) -> str:
-        ts = self.formatTime(record, "%I:%M:%S")
+        ts = self.formatTime(record, "%H:%M:%S")
         if ts[0] == "0":
             ts = ts[1:]
         msg = record.getMessage()
@@ -253,22 +253,35 @@ class _ColorFormatter(logging.Formatter):
 class _FileFormatter(logging.Formatter):
     """Clean plain-text formatter for the ``voice-typer.log`` file.
 
-    No ANSI escape codes, no session IDs, no redundant prefixes.
-    Every line is plain text that works in any editor or log viewer.
+    ANSI escape codes for WARN/ERROR/FATAL level lines so the file
+    renders with correct colors when viewed through ``tail -f``,
+    ``less -R``, or a terminal that interprets ANSI output.
+    WARN is yellow, ERROR is red (standard terminal conventions).
 
     Format::
 
         2026-06-28 18:36:22  INFO  [HOTKEY] RegisterHotKey succeeded
         2026-06-28 18:36:22  WARN  [ENV] Invalid value ...
-        2026-06-28 18:36:22  ERR   [RECORDING] Stream finished unexpectedly
+        2026-06-28 18:36:22  ERROR [RECORDING] Stream finished unexpectedly
 
     Level labels are aligned so lines scroll cleanly:
     - ``DEBUG``   (5 chars)
     - ``INFO``    (4 chars)
     - ``WARN``    (4 chars)
-    - ``ERR``     (3 chars)
+    - ``ERROR``   (5 chars)
     - ``FATAL``   (5 chars)
     """
+
+    # LOG-COLOR-FIX: WARN=38;5;214 (orange) originally quantized to
+    # bright-red on Windows conhost, making WARN look red and ERROR
+    # look yellow — the inversion reported by the user. Changed to
+    # 38;5;226 (pure yellow #FFFF00) which quantizes to bright-yellow
+    # slot 14, matching standard WARN=yellow / ERROR=red convention.
+    _LVL_COLOR = {
+        logging.WARNING: "38;5;226",   # pure yellow (#FFFF00)
+        logging.ERROR: "38;5;196",     # pure red (#FF0000)
+        logging.CRITICAL: "38;5;196;1",  # red bold
+    }
 
     _LVL_LABEL = {
         logging.DEBUG: "DEBUG",
@@ -279,9 +292,14 @@ class _FileFormatter(logging.Formatter):
     }
 
     def format(self, record: logging.LogRecord) -> str:
-        ts = self.formatTime(record, "%Y-%m-%d %H:%M:%S")
+        ts = self.formatTime(record, "%Y-%m-%d  %H:%M:%S")
         msg = record.getMessage()
         label = self._LVL_LABEL.get(record.levelno, "INFO ")
+        # Apply ANSI color for WARN/ERROR/FATAL levels; otherwise
+        # plain text (DEBUG/INFO).
+        if record.levelno >= logging.WARNING:
+            c = self._LVL_COLOR.get(record.levelno, "0")
+            return f"\033[{c}m{ts}  {label}  {msg}\033[0m"
         return f"{ts}  {label}  {msg}"
 
 

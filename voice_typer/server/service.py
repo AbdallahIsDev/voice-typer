@@ -1052,6 +1052,97 @@ class VoiceTyperService:
         from voice_typer.server.onboarding import OnboardingController
         return {"presets": OnboardingController.HOTKEY_PRESETS}
 
+    # ── Model import ──────────────────────────────────────────────────────
+
+    def import_model(self, dir_path: str) -> dict:
+        """Scan a directory for HuggingFace model cache folders and import
+        any recognized models into the app's HF cache.
+
+        Accepts a path to a directory that may contain
+        ``models--Org--RepoName`` subdirectories (the standard HuggingFace
+        hub cache layout).  Each subdirectory whose name matches a known
+        model in :data:`MODEL_REGISTRY` is copied into the app's HF cache
+        so the renderer reports it as "downloaded".
+
+        Returns:
+            dict with keys:
+              - ``success``: always True (errors are per-model, not fatal)
+              - ``imported``: list of model names that were successfully copied
+              - ``found``: list of model names that matched the registry
+              - ``errors``: list of ``{"model": str, "error": str}`` for failures
+        """
+        import os
+        import shutil
+        from voice_typer.server.config import _config_dir
+        from voice_typer.server.model_registry import MODEL_REGISTRY
+
+        cache_dir = _config_dir() / "huggingface" / "hub"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+        found_models: list[str] = []
+        imported_models: list[str] = []
+        errors: list[dict] = []
+
+        # Build a reverse mapping: ``models--Org--RepoName`` → model name
+        dir_to_model: dict[str, str] = {}
+        for model_name, meta in MODEL_REGISTRY.items():
+            expected = f"models--{meta.repo_id.replace('/', '--')}"
+            dir_to_model[expected] = model_name
+
+        # Collect all candidate subdirectories (one level deep + the
+        # selected dir itself if it's a model cache dir).
+        candidates: list[tuple[str, str]] = []  # (full_path, dir_name)
+
+        # Check if the selected directory itself is a model cache dir
+        base_name = os.path.basename(dir_path)
+        if base_name in dir_to_model:
+            candidates.append((dir_path, base_name))
+
+        # Scan one level deep for model cache subdirectories
+        try:
+            for entry in os.listdir(dir_path):
+                entry_path = os.path.join(dir_path, entry)
+                if os.path.isdir(entry_path) and entry in dir_to_model:
+                    candidates.append((entry_path, entry))
+        except PermissionError:
+            return {
+                "success": False,
+                "imported": [],
+                "found": [],
+                "errors": [{"model": "", "error": f"Permission denied reading {dir_path}"}],
+            }
+
+        # Import each candidate
+        for src_path, dir_name in candidates:
+            model_name = dir_to_model[dir_name]
+            found_models.append(model_name)
+            dest = cache_dir / dir_name
+            try:
+                if dest.exists():
+                    shutil.rmtree(dest)
+                shutil.copytree(src_path, dest, symlinks=True)
+                imported_models.append(model_name)
+            except Exception as exc:
+                errors.append({"model": model_name, "error": str(exc)})
+
+        # Invalidate the tray models cache so the next right-click
+        # reflects the newly-imported models.
+        if imported_models:
+            try:
+                from voice_typer.server.tray_models import (
+                    invalidate_model_availability_cache,
+                )
+                invalidate_model_availability_cache()
+            except Exception:
+                pass
+
+        return {
+            "success": True,
+            "imported": imported_models,
+            "found": found_models,
+            "errors": errors,
+        }
+
     # ── Download model (UX-005) ─────────────────────────────────────
 
     def cancel_model_download(self) -> dict:
