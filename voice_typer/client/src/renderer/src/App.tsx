@@ -233,6 +233,16 @@ export default function App() {
 		}
 	});
 
+	// ── Help overlay + sidebar toggle handlers ──────────────────────
+	const handleHelpBackdropClick = () => setShowHelpOverlay(false);
+	const handleHelpKeyDown = (e: React.KeyboardEvent) => {
+		if (e.key === "Escape") setShowHelpOverlay(false);
+	};
+	const handleHelpStopPropagation = (e: React.MouseEvent) => {
+		e.stopPropagation();
+	};
+	const handleToggleSidebar = () => setSidebarCollapsed((c) => !c);
+
 	// ── Page renderer ─────────────────────────────────────────────
 
 	// #8: Called by the Onboarding wizard after the user finishes (apply
@@ -315,7 +325,7 @@ export default function App() {
 				)}
 			>
 				<TitleBar
-					onToggleSidebar={() => setSidebarCollapsed((c) => !c)}
+					onToggleSidebar={handleToggleSidebar}
 					onGoBack={goBack}
 					onGoForward={goForward}
 					canGoBack={canGoBack}
@@ -398,10 +408,8 @@ export default function App() {
 				{showHelpOverlay && (
 					<div
 						className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-						onClick={() => setShowHelpOverlay(false)}
-						onKeyDown={(e) => {
-							if (e.key === "Escape") setShowHelpOverlay(false);
-						}}
+						onClick={handleHelpBackdropClick}
+						onKeyDown={handleHelpKeyDown}
 						role="dialog"
 						aria-modal="true"
 						aria-labelledby="help-overlay-title"
@@ -409,10 +417,8 @@ export default function App() {
 						<div
 							role="document"
 							className="animate-scale-in w-110 rounded-xl border border-border bg-(--bg) p-6 shadow-2xl"
-							onClick={(e) => e.stopPropagation()}
-							onKeyDown={(e) => {
-								if (e.key === "Escape") setShowHelpOverlay(false);
-							}}
+							onClick={handleHelpStopPropagation}
+							onKeyDown={handleHelpKeyDown}
 						>
 							<h2
 								id="help-overlay-title"
