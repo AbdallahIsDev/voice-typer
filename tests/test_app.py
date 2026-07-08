@@ -1568,6 +1568,74 @@ class TestTryLoadModel:
         # pyrefly: ignore [unnecessary-comparison]
         assert app.models._model_load_attempted is True
 
+    def test_try_load_spawns_background_prewarm_on_timeout(self, app, monkeypatch):
+        """Task 5: when wait_for_prewarm() times out, try_load() must
+        call spawn_background_prewarm(force=True) so the cache is warm
+        for the next app launch.
+
+        Without this, every subsequent launch in the same boot session
+        hits a cold cache (the current prewarm was preempted by the
+        app's disk I/O and never finished).
+        """
+        self._setup_registry(app)
+        app.tray = MagicMock()
+        app.models.transcriber.load = MagicMock()
+        app.models.transcriber.device_info = "cpu (int8)"
+        app.models.transcriber.loaded_via = "cpu/int8/small.en"
+
+        # Mock wait_for_prewarm to return False (timeout).
+        spawn_called = []
+        monkeypatch.setattr(
+            "voice_typer.server.prewarm.wait_for_prewarm",
+            lambda timeout_s=60.0: False,  # simulate timeout
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.prewarm.spawn_background_prewarm",
+            lambda force=True: spawn_called.append(force),
+        )
+
+        app._try_load_model()
+
+        assert spawn_called, (
+            "Task 5: try_load() must call spawn_background_prewarm() when "
+            "wait_for_prewarm() times out, so the cache is warm for the "
+            "next app launch"
+        )
+        assert spawn_called == [True], (
+            "Task 5: spawn_background_prewarm must be called with force=True "
+            "to bypass the boot-sentinel dedup (the current boot's prewarm "
+            "hasn't finished)"
+        )
+
+    def test_try_load_does_not_spawn_prewarm_when_finished(self, app, monkeypatch):
+        """Task 5: when wait_for_prewarm() returns True (prewarm finished
+        or wasn't running), try_load() must NOT spawn a background prewarm.
+
+        Only the timeout case triggers the re-spawn.
+        """
+        self._setup_registry(app)
+        app.tray = MagicMock()
+        app.models.transcriber.load = MagicMock()
+        app.models.transcriber.device_info = "cpu (int8)"
+        app.models.transcriber.loaded_via = "cpu/int8/small.en"
+
+        spawn_called = []
+        monkeypatch.setattr(
+            "voice_typer.server.prewarm.wait_for_prewarm",
+            lambda timeout_s=60.0: True,  # prewarm finished (or not running)
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.prewarm.spawn_background_prewarm",
+            lambda force=True: spawn_called.append(force),
+        )
+
+        app._try_load_model()
+
+        assert not spawn_called, (
+            "Task 5: spawn_background_prewarm must NOT be called when "
+            "wait_for_prewarm returned True (prewarm already finished)"
+        )
+
 
 class TestStreamingIntegration:
     def test_start_dictation_starts_streaming_session_when_enabled(self, app, monkeypatch):
