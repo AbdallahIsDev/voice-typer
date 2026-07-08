@@ -384,9 +384,65 @@ class ModelManager:
 
         ARCH-007/008: Delegates to AsrBackendRegistry.load_with_fallback()
         instead of calling self.transcriber.load() directly.
+
+        ADR-0009 Issue 4: waits for the prewarm process to finish before
+        loading the model. This prevents the app and prewarm from
+        fighting over disk I/O when the user logs in quickly (before
+        prewarm completes). If prewarm is running, waits up to 60s; if
+        prewarm already finished (sentinel exists) or never ran, loads
+        immediately. The wait is best-effort — if it times out, the
+        model loads anyway (cold, ~50s) rather than blocking forever.
+
+        Task 5: when wait_for_prewarm() times out (prewarm still running
+        after 60s), we MANDATORILY spawn a fresh background prewarm
+        subprocess with --force. The current boot's prewarm was preempted
+        by the app's disk I/O and may not have finished warming; without
+        a re-spawn, the NEXT app launch would also hit a cold cache. The
+        background prewarm runs detached so it doesn't delay the current
+        model load — it's for next time.
         """
         self._model_load_attempted = True
         try:
+            # ADR-0009 Issue 4: wait for prewarm to finish before loading
+            # the model. This prevents the app and prewarm from fighting
+            # over disk I/O when the user logs in quickly (before prewarm
+            # completes). Safe no-op if prewarm isn't running.
+            try:
+                from voice_typer.server.prewarm import (
+                    wait_for_prewarm,
+                    spawn_background_prewarm,
+                )
+                prewarm_finished = wait_for_prewarm(timeout_s=60.0)
+                # Task 5: if prewarm timed out (still running after 60s),
+                # the app's model load preempted it. Spawn a fresh
+                # background prewarm with --force so the cache is warm
+                # for the NEXT app launch. This is mandatory, not
+                # optional — without it, every subsequent launch in this
+                # boot session hits a cold cache.
+                if not prewarm_finished:
+                    log.info(
+                        "[MODEL] prewarm timed out — spawning background "
+                        "prewarm for next launch"
+                    )
+                    try:
+                        spawn_background_prewarm(force=True)
+                    except Exception as bg_exc:
+                        # Defensive: never let the background spawn
+                        # failure block model loading. It's an
+                        # optimization for next time, not a correctness
+                        # requirement.
+                        log.debug(
+                            "[MODEL] spawn_background_prewarm raised "
+                            "(non-fatal): %s", bg_exc,
+                        )
+            except Exception as prewarm_exc:
+                # Defensive: never let a prewarm-wait failure block model
+                # loading. The wait is an optimization, not a correctness
+                # requirement — if it fails, we load from disk as before.
+                log.debug(
+                    "[MODEL] wait_for_prewarm raised (non-fatal): %s", prewarm_exc,
+                )
+
             log.info(
                 "[MODEL] Loading model (backend=%s, size=%s, device=%s)...",
                 self._app.config.asr_backend,
