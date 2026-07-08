@@ -575,6 +575,9 @@ function sendToPython(msg: Record<string, unknown>): Promise<unknown> {
 			// TRAY-008: allow set_tray_locale so tray labels update when the
 			// user changes the UI language in Settings.
 			"set_tray_locale",
+			// MODEL-IMPORT: allow import_model so the Models page can scan
+			// and import pre-downloaded models from a local directory.
+			"import_model",
 		]);
 		const cmd = String(msg?.type ?? "").trim();
 		if (!ALLOWED_COMMANDS.has(cmd)) {
@@ -2051,6 +2054,21 @@ app.on("activate", () => {
 // dashboard over TCP — a clean, single-hop alternative to the Win32
 // EnumWindows focus hack in tray._bring_electron_to_front.  The tray
 // tries this first; the Win32 path remains as a fallback.
+// ── Model import folder picker (MODEL-IMPORT) ───────────────────
+// Opens a native folder-selection dialog so the user can pick a
+// directory containing HuggingFace model cache folders to import.
+
+ipcMain.handle("model:import-dialog", async () => {
+	const { canceled, filePaths } = await dialog.showOpenDialog({
+		title: "Select Model Folder",
+		properties: ["openDirectory"],
+	});
+	if (canceled || !filePaths || filePaths.length === 0) {
+		return { canceled: true };
+	}
+	return { canceled: false, path: filePaths[0] };
+});
+
 ipcMain.handle("window:show", () => {
 	showMainWindow();
 	return true;

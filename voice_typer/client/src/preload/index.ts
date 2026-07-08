@@ -117,6 +117,12 @@ contextBridge.exposeInMainWorld("window_", {
 			path?: string;
 			error?: string;
 		}>,
+	// MODEL-IMPORT: open a native folder picker for importing models.
+	openModelImportDialog: () =>
+		ipcRenderer.invoke("model:import-dialog") as Promise<{
+			canceled: boolean;
+			path?: string;
+		}>,
 	// UX-008: actually open the log folder in the OS file manager.
 	// Previously the Settings page just showed a snackbar saying
 	// "Log folder opened" without opening anything.
