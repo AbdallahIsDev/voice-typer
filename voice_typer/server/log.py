@@ -18,7 +18,7 @@ Components
 - :func:`reset` — test isolation
 - :class:`_SessionFilter` — injects ``session_id`` into log records
 - :class:`_ColorFormatter` — ANSI-coloured terminal formatter
-- :class:`_FileFormatter` — ANSI-coloured file formatter
+- :class:`_FileFormatter` — plain-text file formatter
 """
 
 from __future__ import annotations
@@ -253,10 +253,9 @@ class _ColorFormatter(logging.Formatter):
 class _FileFormatter(logging.Formatter):
     """Clean plain-text formatter for the ``voice-typer.log`` file.
 
-    ANSI escape codes for WARN/ERROR/FATAL level lines so the file
-    renders with correct colors when viewed through ``tail -f``,
-    ``less -R``, or a terminal that interprets ANSI output.
-    WARN is yellow, ERROR is red (standard terminal conventions).
+    The file always contains clean, plain text without any ANSI escape
+    codes.  If you need coloured log output, use the terminal stderr
+    stream (which uses ``_ColorFormatter``).
 
     Format::
 
@@ -272,17 +271,6 @@ class _FileFormatter(logging.Formatter):
     - ``FATAL``   (5 chars)
     """
 
-    # LOG-COLOR-FIX: WARN=38;5;214 (orange) originally quantized to
-    # bright-red on Windows conhost, making WARN look red and ERROR
-    # look yellow — the inversion reported by the user. Changed to
-    # 38;5;226 (pure yellow #FFFF00) which quantizes to bright-yellow
-    # slot 14, matching standard WARN=yellow / ERROR=red convention.
-    _LVL_COLOR = {
-        logging.WARNING: "38;5;226",   # pure yellow (#FFFF00)
-        logging.ERROR: "38;5;196",     # pure red (#FF0000)
-        logging.CRITICAL: "38;5;196;1",  # red bold
-    }
-
     _LVL_LABEL = {
         logging.DEBUG: "DEBUG",
         logging.INFO: "INFO ",
@@ -295,11 +283,6 @@ class _FileFormatter(logging.Formatter):
         ts = self.formatTime(record, "%Y-%m-%d  %H:%M:%S")
         msg = record.getMessage()
         label = self._LVL_LABEL.get(record.levelno, "INFO ")
-        # Apply ANSI color for WARN/ERROR/FATAL levels; otherwise
-        # plain text (DEBUG/INFO).
-        if record.levelno >= logging.WARNING:
-            c = self._LVL_COLOR.get(record.levelno, "0")
-            return f"\033[{c}m{ts}  {label}  {msg}\033[0m"
         return f"{ts}  {label}  {msg}"
 
 
@@ -357,7 +340,7 @@ def setup_logging(
 
     # HOTKEY-CRASH: use ``errors='backslashreplace'`` so Unicode
     # characters that can't be encoded in the system locale (cp1252
-    # on Windows, e.g. → → right arrow) are escaped as \uXXXX
+    # on Windows, e.g. → → right arrow) are escaped as \\uXXXX
     # instead of being silently replaced with the � replacement
     # character.  Without this, valuable diagnostic symbols like
     # arrows, em-dashes, and smart quotes become unreadable trash
