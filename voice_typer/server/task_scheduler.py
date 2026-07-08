@@ -71,7 +71,14 @@ _LOGON_DELAY = "PT0S"  # ISO 8601 duration: 0 seconds (fire at logon)
 # Electron, giving prewarm a head start on warming the OS file cache.
 # Coded as a CLI flag so platform.py can pass it without depending on
 # this module's internals.
-_APP_AUTOSTART_DELAY_SECONDS = 30
+#
+# ADR-0009 Issue 4: reduced from 30s to 15s. Combined with the prewarm
+# PID-file handshake in model_manager.try_load() (wait_for_prewarm()),
+# this gives prewarm a head start without wasting 15s when prewarm
+# finishes early. If the user logs in faster than prewarm can finish,
+# the app's model loader waits for prewarm to complete (up to 60s)
+# rather than fighting it for disk I/O.
+_APP_AUTOSTART_DELAY_SECONDS = 15
 
 
 # ─── Python interpreter resolution ──────────────────────────────────────
@@ -287,12 +294,55 @@ def _build_task_xml(python_exe: str, arguments: str | None = None) -> str:
     uri.text = f"{TASK_NAME}"
 
     # ── Triggers ──────────────────────────────────────────────────────
+    #
+    # ADR-0009 Issue 1 + Issue 2 (combined): emit a BootTrigger AND an
+    # EventTrigger (Event ID 12, "OS started"). This replaces the
+    # previous single LogonTrigger, which had two problems:
+    #
+    #   1. LogonTrigger fires only at user logon, not at system boot —
+    #      so prewarm couldn't start until the user typed their password.
+    #      BootTrigger fixes this by firing at system startup.
+    #
+    #   2. LogonTrigger with Hidden=true RE-FIRES on Windows session
+    #      unlock (known quirk), causing prewarm to spawn a new Python
+    #      process every time the user unlocked their screen. The
+    #      sentinel caught it, but the log showed a confusing "free RAM
+    #      < budget" message instead of "already ran". EventTrigger
+    #      (Event ID 12) fires ONLY on the actual OS-started event,
+    #      never on screen unlock.
+    #
+    # Event ID 12 fires on both cold boot AND Fast Startup (which skips
+    # BootTrigger), so the EventTrigger alone covers both cases. We keep
+    # BootTrigger as defense-in-depth: if Event ID 12 ever fails to
+    # fire on a specific Windows build (some kernel-event-channel
+    # configurations filter it), BootTrigger still covers cold boot.
+    # The sentinel in prewarm.run() prevents the rare double-fire if
+    # both triggers fire in the same boot session.
     triggers = ET.SubElement(root, "Triggers")
 
-    # Logon trigger (with delay)
-    logon = ET.SubElement(triggers, "LogonTrigger")
-    ET.SubElement(logon, "Enabled").text = "true"
-    ET.SubElement(logon, "Delay").text = _LOGON_DELAY
+    # Trigger 1: Boot — fires at system boot (cold boot + restart).
+    # Note: BootTrigger does NOT fire on Windows Fast Startup (which
+    # hibernates the kernel session rather than fully restarting). The
+    # EventTrigger below covers that case.
+    boot = ET.SubElement(triggers, "BootTrigger")
+    ET.SubElement(boot, "Enabled").text = "true"
+
+    # Trigger 2: Event — fires on Event ID 12 (Kernel-General, "OS
+    # started"). This fires once per boot, INCLUDING Fast Startup, and
+    # NEVER on screen unlock or session reconnect. The subscription
+    # XML is escaped because it lives inside the <Subscription> text
+    # node of the EventTrigger element.
+    event = ET.SubElement(triggers, "EventTrigger")
+    ET.SubElement(event, "Enabled").text = "true"
+    subscription = ET.SubElement(event, "Subscription")
+    subscription.text = (
+        "<QueryList><Query Id=\"0\" Path=\"System\">"
+        "<Select Path=\"System\">"
+        "*[System[Provider[@Name='Microsoft-Windows-Kernel-General'] "
+        "and (EventID=12)]]"
+        "</Select>"
+        "</Query></QueryList>"
+    )
 
     # PREWARM-001: The IdleTrigger that previously lived here fired every
     # time the system went idle for 15+ minutes, causing prewarm to run

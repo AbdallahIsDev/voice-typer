@@ -180,24 +180,58 @@ class TestUnsupportedPlatform:
 class TestTaskXml:
     """The generated XML is well-formed and contains required elements."""
 
-    def test_xml_contains_logon_trigger_only(self):
-        """PREWARM-001: only LogonTrigger, no IdleTrigger.
+    def test_xml_contains_boot_and_event_triggers_not_logon(self):
+        """ADR-0009 Issue 1 + Issue 2: BootTrigger + EventTrigger (Event ID 12).
 
-        Previously the task had BOTH a LogonTrigger and an IdleTrigger
-        (WaitTimeout PT15M). The IdleTrigger fired every time the system
-        went idle 15+ min, causing prewarm to run 5+ times per session.
-        After the first run the OS file cache is already warm; subsequent
-        runs are pure wasted I/O. Prewarm should run exactly once per
-        login/boot.
+        Previously the task had a single LogonTrigger (PREWARM-001 had
+        already removed the IdleTrigger). The ADR-0009 rewrite replaces
+        the LogonTrigger with a BootTrigger + EventTrigger pair:
 
-        Issue 2: the vestigial <IdleSettings> block (left behind when
-        the IdleTrigger was removed) was also deleted — it had no
-        scheduling effect but kept advertising an idle behavior the
-        task no longer had.
+          - BootTrigger fires at system boot (cold boot + restart).
+          - EventTrigger (Event ID 12, "OS started" from
+            Microsoft-Windows-Kernel-General) fires once per boot,
+            INCLUDING Fast Startup, and NEVER on screen unlock.
+
+        The old LogonTrigger had two problems:
+          1. It fired only at user logon, not at system boot — prewarm
+             couldn't start until the user typed their password.
+          2. With Hidden=true it RE-FIRED on Windows session unlock,
+             causing a confusing "free RAM < budget" log message every
+             time the user unlocked their screen.
+
+        Prewarm should run exactly once per boot, never on unlock.
         """
         # STARTUP-1: _build_task_xml now takes the pythonw path directly
         xml = task_scheduler._build_task_xml('C:\\path\\pythonw.exe')
-        assert "LogonTrigger" in xml
+        # ADR-0009 Issue 1: BootTrigger present (fires at system boot).
+        assert "BootTrigger" in xml, (
+            "ADR-0009 Issue 1 regression: BootTrigger is missing — "
+            "prewarm cannot fire at system boot"
+        )
+        # ADR-0009 Issue 2: EventTrigger with Event ID 12 present
+        # (fires once per boot including Fast Startup, never on unlock).
+        assert "EventTrigger" in xml, (
+            "ADR-0009 Issue 2 regression: EventTrigger is missing — "
+            "Fast Startup boots won't trigger prewarm"
+        )
+        assert "EventID=12" in xml, (
+            "ADR-0009 Issue 2 regression: EventTrigger must subscribe to "
+            "Event ID 12 (Microsoft-Windows-Kernel-General 'OS started')"
+        )
+        assert "Microsoft-Windows-Kernel-General" in xml, (
+            "ADR-0009 Issue 2 regression: EventTrigger subscription must "
+            "filter on the Microsoft-Windows-Kernel-General provider"
+        )
+        # ADR-0009 Issue 2: LogonTrigger MUST be absent — it re-fires on
+        # Windows session unlock, causing the confusing "free RAM < budget"
+        # log message the user reported.
+        assert "LogonTrigger" not in xml, (
+            "ADR-0009 Issue 2 regression: LogonTrigger is back — it "
+            "re-fires on Windows session unlock and produces the "
+            "confusing 'free RAM < budget' log message"
+        )
+        # PREWARM-001: IdleTrigger stays absent (it fired 5+ times per
+        # session, re-reading ~6 GB of already-cached files).
         assert "IdleTrigger" not in xml, (
             "PREWARM-001 regression: IdleTrigger is back, prewarm will "
             "run 5+ times per session again"
@@ -209,9 +243,6 @@ class TestTaskXml:
             "(no IdleTrigger) and misleads readers into thinking the task "
             "still has an idle behaviour"
         )
-        # STARTUP-2: logon delay is now PT0S (was PT45S) so prewarm fires
-        # at logon+0 — beats the app's cold imports.
-        assert "PT0S" in xml  # logon delay
 
     def test_xml_contains_hidden_and_background_settings(self):
         xml = task_scheduler._build_task_xml('C:\\path\\pythonw.exe')

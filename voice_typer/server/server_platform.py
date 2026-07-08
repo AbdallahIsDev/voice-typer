@@ -231,11 +231,18 @@ def _autostart_command() -> str:
     available so login doesn't flash a console.  Falls back to
     ``python.exe`` if ``pythonw.exe`` is absent.
 
-    STARTUP-2: also passes ``--delay 30`` so the launcher waits 30 s
-    before spawning Electron. This gives the prewarm task (which now
-    fires at logon+0 s) a head start on warming the OS file cache,
-    so the app's cold imports of torch/transformers hit RAM instead
-    of contending with prewarm on disk.
+    STARTUP-2: also passes ``--delay <N>`` so the launcher waits N
+    seconds before spawning Electron. This gives the prewarm task
+    (which now fires at logon+0 s) a head start on warming the OS file
+    cache, so the app's cold imports of torch/transformers hit RAM
+    instead of contending with prewarm on disk.
+
+    ADR-0009 Issue 4: the delay was reduced from 30s to 15s. Combined
+    with the prewarm PID-file handshake in model_manager.try_load()
+    (wait_for_prewarm()), this gives prewarm a head start without
+    wasting 15s when prewarm finishes early. If the user logs in
+    faster than prewarm can finish, the app's model loader waits for
+    prewarm to complete (up to 60s) rather than fighting it for disk.
 
     NEW-XPLAT-007: the result is properly quoted per the freedesktop
     Desktop Entry Spec's Exec-quoting rules so paths containing
@@ -243,16 +250,23 @@ def _autostart_command() -> str:
     ``/home/john doe/voice-typer``) survive XFCE's and KDE's
     .desktop file parsers without truncation.
     """
+    # ADR-0009 Issue 4: single source of truth for the delay value.
+    # Importing here (rather than at module top) avoids a circular
+    # import: task_scheduler imports voice_typer.server.platform_utils
+    # which is in this module's dependency graph.
+    from voice_typer.server.task_scheduler import _APP_AUTOSTART_DELAY_SECONDS
+    delay_str = str(_APP_AUTOSTART_DELAY_SECONDS)
+
     # The launcher lives next to this module (voice_typer/server/).
     launcher = Path(__file__).resolve().parent / "autostart_launcher.py"
     # Build the argument list, then quote each arg per the desktop spec.
     if sys.platform == "win32":
         pythonw = Path(sys.executable).parent / "pythonw.exe"
         python_bin = str(pythonw) if pythonw.exists() else sys.executable
-        args = [python_bin, str(launcher), "--hidden", "--delay", "30"]
+        args = [python_bin, str(launcher), "--hidden", "--delay", delay_str]
     else:
         # macOS / Linux: use the current interpreter.
-        args = [sys.executable, str(launcher), "--hidden"]
+        args = [sys.executable, str(launcher), "--hidden", "--delay", delay_str]
 
     # PLAT-VENV: When registering autostart, use the system Python
     # interpreter path instead of sys.executable if inside a virtualenv.
@@ -371,7 +385,7 @@ def _enable_autostart_windows() -> bool:
     scheduled task may require UAC elevation if a previous task was
     created by an admin install (locked task). The Run key fires
     ~33 s after logon, which is soon enough for the autostart
-    launcher (which already has a --delay 30 internal delay).
+    launcher (which has a --delay 15 internal delay).
     """
     # Try HKCU Run key first (no admin elevation needed).
     if _register_app_autostart_runkey():
@@ -407,12 +421,18 @@ def _is_autostart_windows() -> bool:
 def _app_autostart_command_and_args() -> tuple[str, str]:
     """Return (pythonw_path, arguments) for the app autostart task.
 
-    STARTUP-7: same launcher + --hidden + --delay 30 as the Run-key path,
+    STARTUP-7: same launcher + --hidden + --delay <N> as the Run-key path,
     but split into Command + Arguments for the Task Scheduler XML so we
     avoid the cmd.exe wrapper (mirrors the prewarm task fix from Round 8).
 
+    ADR-0009 Issue 4: the delay was reduced from 30s to 15s (see
+    _autostart_command() for the full rationale).
+
     PLAT-VENV: Uses system Python if running inside a virtualenv.
     """
+    from voice_typer.server.task_scheduler import _APP_AUTOSTART_DELAY_SECONDS
+    delay_str = str(_APP_AUTOSTART_DELAY_SECONDS)
+
     launcher = Path(__file__).resolve().parent / "autostart_launcher.py"
     pythonw = Path(sys.executable).parent / "pythonw.exe"
     python_bin = str(pythonw) if pythonw.exists() else sys.executable
@@ -424,7 +444,7 @@ def _app_autostart_command_and_args() -> tuple[str, str]:
         system_python = shutil.which(base_python)
         if system_python:
             python_bin = system_python
-    args = f'"{launcher}" --hidden --delay 30'
+    args = f'"{launcher}" --hidden --delay {delay_str}'
     return python_bin, args
 
 
@@ -433,8 +453,11 @@ def _build_app_autostart_task_xml() -> str:
 
     STARTUP-7: fires at logon with PT0S delay (Run keys fire ~33 s
     after logon; Task Scheduler logon triggers fire immediately).
-    The launcher's --delay 30 flag gives prewarm a head start on
+    The launcher's ``--delay <N>`` flag gives prewarm a head start on
     warming the OS file cache.
+
+    ADR-0009 Issue 4: the delay was reduced from 30s to 15s (see
+    _autostart_command() for the full rationale).
     """
     import xml.etree.ElementTree as ET
     python_exe, arguments = _app_autostart_command_and_args()
@@ -455,7 +478,7 @@ def _build_app_autostart_task_xml() -> str:
     triggers = ET.SubElement(root, "Triggers")
     logon = ET.SubElement(triggers, "LogonTrigger")
     ET.SubElement(logon, "Enabled").text = "true"
-    # PT0S: fire immediately at logon (launcher's --delay 30 handles
+    # PT0S: fire immediately at logon (launcher's --delay <N> handles
     # the prewarm head-start; no Task Scheduler delay needed).
     ET.SubElement(logon, "Delay").text = "PT0S"
 
