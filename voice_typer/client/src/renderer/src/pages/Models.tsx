@@ -2,6 +2,7 @@ import {
 	Alert02Icon,
 	Delete01Icon,
 	Download01Icon,
+	Folder02Icon,
 	PauseIcon,
 	PlayIcon,
 	Shield01Icon,
@@ -760,7 +761,42 @@ export default function ModelsPage() {
 		setBenchmarkResult(t("models.benchmarkNotImplemented"));
 	};
 
-	const allDownloaded = models.every((m) => m.downloaded);
+	const handleTogglePause = async () => {
+		try {
+			if (isPaused) {
+				await call("resume_model_download");
+			} else {
+				await call("pause_model_download");
+			}
+		} catch (err) {
+			showSnack(
+				isPaused
+					? t("models.snack.resumeFailed", {
+							error: formatErrorMessage(err),
+						})
+					: t("models.snack.pauseFailed", {
+							error: formatErrorMessage(err),
+						}),
+				"error",
+			);
+		}
+	};
+
+	const handleGrantConsent = () => setHuggingFaceConsent(true);
+
+	const handleCancelDownload = async () => {
+		try {
+			await call("cancel_model_download");
+			showSnack(t("models.snack.cancelled"), "warning");
+		} catch (err) {
+			showSnack(
+				t("models.snack.cancelFailed", {
+					error: formatErrorMessage(err),
+				}),
+				"error",
+			);
+		}
+	};
 
 	const getStatusBadge = (model: ModelInfo) => {
 		// UX-009: distinct colors per state so users can tell at a glance
@@ -791,6 +827,11 @@ export default function ModelsPage() {
 		};
 	};
 
+	// MODEL-IMPORT: state and handler for the Import Model button.
+	// Must be declared BEFORE the early return guard to avoid violating
+	// React's Rules of Hooks (hook count must be consistent across renders).
+	const [isImporting, setIsImporting] = useState(false);
+
 	if (!_cachedConfig && !config) {
 		return (
 			<div className="flex h-full items-center justify-center">
@@ -799,44 +840,84 @@ export default function ModelsPage() {
 		);
 	}
 
+	const handleImportModel = async () => {
+		const api = (
+			window as unknown as {
+				window_?: {
+					openModelImportDialog?: () => Promise<{
+						canceled: boolean;
+						path?: string;
+					}>;
+				};
+			}
+		).window_;
+		if (!api?.openModelImportDialog) {
+			showSnack("Import not available outside Electron", "warning");
+			return;
+		}
+		const result = await api.openModelImportDialog();
+		if (result.canceled || !result.path) return;
+
+		setIsImporting(true);
+		try {
+			const importResult = await call<{
+				success: boolean;
+				imported: string[];
+				found: string[];
+				errors: { model: string; error: string }[];
+			}>("import_model", { dir_path: result.path });
+
+			if (importResult.success && importResult.imported.length > 0) {
+				// Reload model status to reflect newly imported models
+				await loadConfig();
+				showSnack(
+					t("models.import.success", {
+						count: importResult.imported.length,
+						models: importResult.imported.join(", "),
+					}),
+					"success",
+				);
+			} else if (importResult.found.length === 0) {
+				showSnack(t("models.import.noModelsFound"), "warning");
+			} else {
+				showSnack(t("models.import.failedAll"), "error");
+			}
+
+			if (importResult.errors.length > 0) {
+				for (const err of importResult.errors) {
+					console.error("Import error for", err.model, ":", err.error);
+				}
+			}
+		} catch (err) {
+			showSnack(
+				t("models.import.failed", { error: formatErrorMessage(err) }),
+				"error",
+			);
+		} finally {
+			setIsImporting(false);
+		}
+	};
+
 	return (
 		<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
 			<PageHeading title={t("models.title")} description={t("models.subtitle")}>
 				<Button
 					variant="outline"
 					size="sm"
-					onClick={async () => {
-						// Download all non-downloaded models sequentially
-						const toDownload = models.filter(
-							(m) => !m.downloaded && !m.alwaysAvailable,
-						);
-						if (toDownload.length === 0) return;
-						for (const m of toDownload) {
-							await downloadModel(m);
-						}
-					}}
-					disabled={isDownloading || allDownloaded}
-					title={
-						allDownloaded ? t("models.allDownloaded") : t("models.downloadAll")
-					}
-					// FIX: muted text/icon by default, white on hover —
-					// matches the outline-button style used across other
-					// page headings (Templates add, Vocabulary add, etc.).
+					onClick={handleImportModel}
+					disabled={isImporting}
+					title={t("models.import.title")}
 					className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
-					aria-label={
-						allDownloaded ? t("models.allDownloaded") : t("models.downloadAll")
-					}
+					aria-label={t("models.import.title")}
 				>
 					<HugeiconsIcon
-						icon={Download01Icon}
+						icon={Folder02Icon}
 						strokeWidth={2}
 						className="h-4 w-4"
 					/>
-					{isDownloading
-						? t("models.downloading")
-						: allDownloaded
-							? t("models.allDownloaded")
-							: t("models.downloadAll")}
+					{isImporting
+						? t("models.import.importing")
+						: t("models.import.importModel")}
 				</Button>
 			</PageHeading>
 
@@ -865,7 +946,7 @@ export default function ModelsPage() {
 									<Button
 										variant="default"
 										size="sm"
-										onClick={() => setHuggingFaceConsent(true)}
+										onClick={handleGrantConsent}
 										aria-label={t("models.hfConsent.grantAria")}
 									>
 										{t("models.hfConsent.grant")}
@@ -918,30 +999,11 @@ export default function ModelsPage() {
 								)}
 							</p>
 							<div className="flex items-center gap-2 shrink-0">
-								{/* NEW-PAUSE-001: Pause/Resume button. */}
+								{/* NEW-PAUSE-001: Pause/Resume button. */}{" "}
 								<Button
 									variant="outline"
 									size="sm"
-									onClick={async () => {
-										try {
-											if (isPaused) {
-												await call("resume_model_download");
-											} else {
-												await call("pause_model_download");
-											}
-										} catch (err) {
-											showSnack(
-												isPaused
-													? t("models.snack.resumeFailed", {
-															error: formatErrorMessage(err),
-														})
-													: t("models.snack.pauseFailed", {
-															error: formatErrorMessage(err),
-														}),
-												"error",
-											);
-										}
-									}}
+									onClick={handleTogglePause}
 									aria-label={
 										isPaused
 											? t("models.download.resumeAria")
@@ -962,19 +1024,7 @@ export default function ModelsPage() {
 								<Button
 									variant="outline"
 									size="sm"
-									onClick={async () => {
-										try {
-											await call("cancel_model_download");
-											showSnack(t("models.snack.cancelled"), "warning");
-										} catch (err) {
-											showSnack(
-												t("models.snack.cancelFailed", {
-													error: formatErrorMessage(err),
-												}),
-												"error",
-											);
-										}
-									}}
+									onClick={handleCancelDownload}
 									aria-label={t("models.download.cancelAria")}
 									className="h-7 px-3 text-xs"
 								>
@@ -989,10 +1039,10 @@ export default function ModelsPage() {
 				<div className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
 					{models.map((model) => {
 						const badge = getStatusBadge(model);
-						// NEW-MODEL-001: look up rich metadata from the backend
-						// catalog.  Falls back to undefined when the backend
-						// hasn't sent the catalog yet (initial render).
 						const meta = modelCatalog[model.name];
+						const handleSelectThis = () => selectModel(model);
+						const handleDeleteThis = () => requestDeleteModel(model);
+						const handleDownloadThis = () => downloadModel(model);
 						return (
 							<div
 								key={model.name}
@@ -1060,7 +1110,7 @@ export default function ModelsPage() {
 											variant="outline"
 											size="sm"
 											className="gap-1"
-											onClick={() => downloadModel(model)}
+											onClick={handleDownloadThis}
 											disabled={isDownloading}
 											aria-label={t("models.download.depsAria", {
 												name: model.name,
@@ -1078,7 +1128,7 @@ export default function ModelsPage() {
 											variant={model.isActive ? "secondary" : "outline"}
 											size="sm"
 											className="gap-1"
-											onClick={() => selectModel(model)}
+											onClick={handleSelectThis}
 											disabled={
 												model.isActive ||
 												(!model.downloaded && !model.alwaysAvailable)
@@ -1101,7 +1151,7 @@ export default function ModelsPage() {
 										<Button
 											variant="ghost"
 											size="icon-xs"
-											onClick={() => requestDeleteModel(model)}
+											onClick={handleDeleteThis}
 											disabled={model.isActive}
 											className="text-(--text-muted) hover:text-destructive"
 											aria-label={t("models.card.deleteAria", {
@@ -1134,138 +1184,136 @@ export default function ModelsPage() {
 					</p>
 
 					<div className="space-y-4">
-						{CLOUD_PROVIDERS.map((provider) => (
-							<div
-								key={provider.key}
-								className="rounded-xl border border-border bg-(--bg-subtle) p-6"
-							>
-								<div className="flex items-center gap-2.5 mb-4">
-									<HugeiconsIcon
-										icon={Shield01Icon}
-										strokeWidth={2}
-										className="h-4 w-4 text-accent"
-									/>
-									<h3 className="text-base font-semibold text-(--text-primary)">
-										{t("models.cloud.providerSettings", {
-											provider: getProviderLabel(provider.key),
-										})}
-									</h3>
-								</div>
-								<div className="mb-4">
-									<label
-										htmlFor="api-key-input"
-										className="text-sm font-medium text-(--text-primary) mb-1.5 block"
-									>
-										{t("models.cloud.apiKey")}
-									</label>
-									<Input
-										id="api-key-input"
-										type="password"
-										value={apiKeys[provider.key] ?? ""}
-										onChange={(e) =>
-											setApiKeys((prev) => ({
-												...prev,
-												[provider.key]: e.target.value,
-											}))
-										}
-										placeholder={t("models.apiKeyPlaceholder")}
-										className="w-full max-w-md"
-									/>
-								</div>
-								<div className="flex items-center gap-3">
-									<Button
-										variant="default"
-										size="sm"
-										onClick={() => saveApiKey(provider.key)}
-										aria-label={t("models.cloud.saveKeyAria", {
-											provider: getProviderLabel(provider.key),
-										})}
-									>
-										{t("models.cloud.saveKey")}
-									</Button>
-									<Button
-										variant="outline"
-										size="sm"
-										className="gap-2"
-										onClick={() => testConnection(provider.key)}
-										aria-label={t("models.cloud.testConnectionAria", {
-											provider: getProviderLabel(provider.key),
-										})}
-									>
+						{CLOUD_PROVIDERS.map((provider) => {
+							const handleSaveApiKey = () => saveApiKey(provider.key);
+							const handleTestConnection = () => testConnection(provider.key);
+							const handleApiKeyInput = (
+								e: React.ChangeEvent<HTMLInputElement>,
+							) =>
+								setApiKeys((prev) => ({
+									...prev,
+									[provider.key]: e.target.value,
+								}));
+							const handleConsentChange = (checked: boolean) =>
+								setCloudConsent(provider.key, checked);
+							return (
+								<div
+									key={provider.key}
+									className="rounded-xl border border-border bg-(--bg-subtle) p-6"
+								>
+									<div className="flex items-center gap-2.5 mb-4">
 										<HugeiconsIcon
-											icon={SparklesIcon}
+											icon={Shield01Icon}
 											strokeWidth={2}
-											className="h-4 w-4"
+											className="h-4 w-4 text-accent"
 										/>
-										{t("models.cloud.testConnection")}
-									</Button>
-									{testResults[provider.key] && (
-										<span
-											className={cn(
-												"text-xs",
-												// I18N-FIX: use the status enum (not substring grep)
-												// so the color logic survives translation.
-												testResults[provider.key].status === "success"
-													? "text-primary"
-													: testResults[provider.key].status === "failure"
-														? "text-destructive"
-														: "text-[(--text-muted)]",
-											)}
+										<h3 className="text-base font-semibold text-(--text-primary)">
+											{t("models.cloud.providerSettings", {
+												provider: getProviderLabel(provider.key),
+											})}
+										</h3>
+									</div>
+									<div className="mb-4">
+										<label
+											htmlFor="api-key-input"
+											className="text-sm font-medium text-(--text-primary) mb-1.5 block"
 										>
-											{testResults[provider.key].message}
-										</span>
-									)}
-								</div>{" "}
-								{/* NEW-PRIV-006: per-provider consent toggle.  The
-                    backend CloudEngine refuses to transcribe without
-                    this — without this UI, a user who pastes a key
-                    would hit ConsentRequiredError at dictation time
-                    with no in-app explanation.  Shown only when an
-                    API key is present (no point without one). */}
-								{(apiKeys[provider.key] ||
-									config?.[consentKeyFor(provider.key)]) && (
-									<div className="mt-4 rounded-lg border border-border bg-(--bg) p-4">
-										<div className="flex items-start justify-between gap-4">
-											<div className="flex-1">
-												<h4 className="text-sm font-semibold text-(--text-primary)">
-													{t("models.cloud.consentTitle")}
-												</h4>
-												<p className="mt-1 text-xs leading-relaxed text-(--text-muted)">
-													{t("models.cloud.consentDescription", {
+											{t("models.cloud.apiKey")}
+										</label>
+										<Input
+											id="api-key-input"
+											type="password"
+											value={apiKeys[provider.key] ?? ""}
+											onChange={handleApiKeyInput}
+											placeholder={t("models.apiKeyPlaceholder")}
+											className="w-full max-w-md"
+										/>
+									</div>
+									<div className="flex items-center gap-3">
+										<Button
+											variant="default"
+											size="sm"
+											onClick={handleSaveApiKey}
+											aria-label={t("models.cloud.saveKeyAria", {
+												provider: getProviderLabel(provider.key),
+											})}
+										>
+											{t("models.cloud.saveKey")}
+										</Button>
+										<Button
+											variant="outline"
+											size="sm"
+											className="gap-2"
+											onClick={handleTestConnection}
+											aria-label={t("models.cloud.testConnectionAria", {
+												provider: getProviderLabel(provider.key),
+											})}
+										>
+											<HugeiconsIcon
+												icon={SparklesIcon}
+												strokeWidth={2}
+												className="h-4 w-4"
+											/>
+											{t("models.cloud.testConnection")}
+										</Button>
+										{testResults[provider.key] && (
+											<span
+												className={cn(
+													"text-xs",
+													testResults[provider.key].status === "success"
+														? "text-primary"
+														: testResults[provider.key].status === "failure"
+															? "text-destructive"
+															: "text-[(--text-muted)]",
+												)}
+											>
+												{testResults[provider.key].message}
+											</span>
+										)}
+									</div>{" "}
+									{(apiKeys[provider.key] ||
+										config?.[consentKeyFor(provider.key)]) && (
+										<div className="mt-4 rounded-lg border border-border bg-(--bg) p-4">
+											<div className="flex items-start justify-between gap-4">
+												<div className="flex-1">
+													<h4 className="text-sm font-semibold text-(--text-primary)">
+														{t("models.cloud.consentTitle")}
+													</h4>
+													<p className="mt-1 text-xs leading-relaxed text-(--text-muted)">
+														{t("models.cloud.consentDescription", {
+															provider: getProviderLabel(provider.key),
+														})}
+													</p>
+													<p className="mt-2 text-xs text-(--text-muted)">
+														{t("models.cloud.statusLabel")}{" "}
+														{config?.[consentKeyFor(provider.key)] ? (
+															<span className="font-medium text-emerald-500">
+																{t("models.cloud.consentGrantedStatus")}
+															</span>
+														) : (
+															<span className="font-medium text-amber-500">
+																{t("models.cloud.consentNotGrantedStatus")}
+															</span>
+														)}
+													</p>
+												</div>
+												<Switch
+													checked={
+														(config?.[consentKeyFor(provider.key)] as
+															| boolean
+															| undefined) ?? false
+													}
+													onCheckedChange={handleConsentChange}
+													aria-label={t("models.cloud.consentAria", {
 														provider: getProviderLabel(provider.key),
 													})}
-												</p>
-												<p className="mt-2 text-xs text-(--text-muted)">
-													{t("models.cloud.statusLabel")}{" "}
-													{config?.[consentKeyFor(provider.key)] ? (
-														<span className="font-medium text-emerald-500">
-															{t("models.cloud.consentGrantedStatus")}
-														</span>
-													) : (
-														<span className="font-medium text-amber-500">
-															{t("models.cloud.consentNotGrantedStatus")}
-														</span>
-													)}
-												</p>
+												/>
 											</div>
-											<Switch
-												checked={
-													(config?.[consentKeyFor(provider.key)] as
-														| boolean
-														| undefined) ?? false
-												}
-												onCheckedChange={(checked) =>
-													setCloudConsent(provider.key, checked)
-												}
-												aria-label={t("models.cloud.consentAria", {
-													provider: getProviderLabel(provider.key),
-												})}
-											/>
 										</div>
-									</div>
-								)}
-							</div>
-						))}
+									)}
+								</div>
+							);
+						})}
 					</div>
 				</div>
 
