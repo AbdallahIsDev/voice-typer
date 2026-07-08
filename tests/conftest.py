@@ -36,7 +36,9 @@ consistent and maintainable:
    fixtures should be justified with a comment explaining why.
 """
 
+from pathlib import Path
 import sys
+
 import pytest
 from unittest.mock import MagicMock
 
@@ -180,3 +182,36 @@ def mock_heavy_imports(monkeypatch, request):
         monkeypatch.setattr("voice_typer.server.app.atexit.register", lambda *a, **kw: None)
     except Exception:
         pass
+
+
+# ── Shared fixtures for domain-split test files ────────────────────────
+
+
+@pytest.fixture
+def tmp_config_dir(tmp_path, monkeypatch):
+    """Temporary config directory with _config_dir monkeypatched."""
+    monkeypatch.setattr(
+        "voice_typer.server.config._config_dir", lambda: tmp_path
+    )
+    return tmp_path
+
+
+@pytest.fixture
+def history_db(tmp_path, monkeypatch):
+    """Temporary HistoryDB backed by a SQLite file in tmp_path."""
+    from voice_typer.server.history_db import HistoryDB
+    monkeypatch.setattr(
+        "voice_typer.server.config._config_dir", lambda: tmp_path
+    )
+    db = HistoryDB(db_path=tmp_path / "history.db")
+    yield db
+    db.close()
+
+
+@pytest.fixture
+def templates_dir(tmp_path, monkeypatch):
+    """Temporary templates directory with _config_dir monkeypatched."""
+    monkeypatch.setattr(
+        "voice_typer.server.config._config_dir", lambda: tmp_path
+    )
+    return tmp_path

@@ -28,7 +28,7 @@ All unique test coverage from these scripts is already captured in the
 automated test suite under `tests/` — specifically in
 `test_e2e_smoke.py` (renamed from `test_round8_e2e.py`),
 `test_e2e_regression.py` (renamed from `test_round9_e2e.py`),
-`test_round13_ipc_regression.py`, and `test_new_dead_002_scripts.py`
+and `test_new_dead_002_scripts.py`. (The previous round-numbered test files have been renamed to domain-based names: `test_consent_and_privacy.py`, `test_platform_and_config.py`, `test_hotkeys.py`, `test_ux_components.py`, `test_electron_ipc_and_build.py`, `test_notifications.py`, `test_recording_and_audio.py`, `test_history_and_models.py`.)
 (which verifies these scripts parse and import correctly). The diagnostic
 scripts themselves are kept for manual troubleshooting when a developer
 needs to reproduce a specific hardware-dependent failure path
