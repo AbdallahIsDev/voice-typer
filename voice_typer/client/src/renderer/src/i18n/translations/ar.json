@@ -172,6 +172,8 @@
 		"apiUrlInfo": "رابط نقطة النهاية لخدمة نموذج لغة الذكاء الاصطناعي.",
 		"model": "النموذج",
 		"modelInfo": "نموذج الذكاء الاصطناعي المستخدم للتحسين (مثل gpt-4o-mini).",
+		"apiUrlPlaceholder": "https://api.openai.com/v1/chat/completions",
+		"modelPlaceholder": "gpt-4o-mini",
 		"preset": "الإعداد المسبق",
 		"presetInfo": "نمط الكتابة المراد تطبيقه — احترافي، غير رسمي، بريد إلكتروني، أو كود.",
 		"show": "إظهار",
@@ -557,12 +559,15 @@
 			"depsRequired": "التبعيات مطلوبة",
 			"available": "متاح"
 		},
-		"downloadAll": {
-			"alreadyDownloadedTitle": "تم تحميل جميع النماذج بالفعل",
-			"downloadAllTitle": "تحميل جميع النماذج",
-			"downloading": "جارٍ التحميل...",
-			"allDownloaded": "تم تحميل الكل",
-			"downloadAll": "تحميل الكل"
+		"import": {
+			"title": "استيراد نموذج",
+			"importModel": "استيراد نموذج",
+			"importing": "جارٍ الاستيراد...",
+			"success": "تم استيراد {count} نموذج: {models}",
+			"noModelsFound": "لم يتم العثور على مجلدات نموذج معروفة في هذا الدليل. حدد مجلد ذاكرة التخزين المؤقت لـ HuggingFace (يحتوي على مجلدات 'models--*').",
+			"failedAll": "فشل استيراد أي نموذج من هذا الدليل.",
+			"failed": "فشل استيراد النموذج: {error}",
+			"importModelAria": "استيراد نموذج من مجلد"
 		},
 		"hfConsent": {
 			"title": "موافقة تحميل HuggingFace مطلوبة",
@@ -647,8 +652,6 @@
 		"openaiWhisperApi": "واجهة OpenAI Whisper API",
 		"groqWhisperApi": "واجهة Groq Whisper API",
 		"deepgramApi": "واجهة Deepgram API",
-		"allDownloaded": "تم تحميل الكل",
-		"downloading": "جارٍ التحميل...",
 		"configureEngines": "تكوين محركات تحويل الكلام إلى نص"
 	},
 	"history": {

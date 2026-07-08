@@ -1,4 +1,11 @@
 {
+	"theme": {
+		"light": "Light",
+		"dark": "Dark",
+		"system": "System",
+		"switchTitle": "{mode} mode — click to switch",
+		"switchAriaLabel": "Current theme: {mode}. Click to switch."
+	},
 	"app": {
 		"name": "Voice Typer",
 		"startingBackend": "Starting Python backend…",
@@ -187,7 +194,9 @@
 			"thu": "Thu",
 			"fri": "Fri",
 			"sat": "Sat"
-		}
+		},
+		"unknown": "Unknown",
+		"auto": "Auto"
 	},
 	"about": {
 		"title": "About",
@@ -252,11 +261,18 @@
 		"onLatestVersion": "You're on the latest version ({version})",
 		"newVersionAvailable": "New version available: {version}",
 		"installedNewer": "Installed version ({installed}) is newer than latest release ({latest})",
-		"updateCheckFailed": "Failed to check for updates: {error}"
+		"updateCheckFailed": "Failed to check for updates: {error}",
+		"toggleSidebarValue": "Ctrl+B",
+		"navigateFieldsValue": "Tab / Shift+Tab",
+		"toggleSwitchesValue": "Space",
+		"closeDialogsValue": "Esc",
+		"openDropdownsValue": "Enter or Space"
 	},
 	"settings": {
 		"title": "Settings",
 		"searchPlaceholder": "Search settings…",
+		"noResultsTitle": "No results found",
+		"noResultsMessage": "Try a different search term or clear the filter to see all settings.",
 		"tabs": {
 			"appearance": "Appearance",
 			"general": "General",
@@ -393,8 +409,10 @@
 		"apiKeyInfo": "Your OpenAI-compatible API key for the polishing service.",
 		"apiUrl": "API URL",
 		"apiUrlInfo": "The endpoint URL for the AI language model service.",
+		"apiUrlPlaceholder": "https://api.openai.com/v1/chat/completions",
 		"model": "Model",
 		"modelInfo": "The AI model to use for polishing (e.g., gpt-4o-mini).",
+		"modelPlaceholder": "gpt-4o-mini",
 		"preset": "Preset",
 		"presetInfo": "The writing style to apply — professional, casual, email, or code.",
 		"show": "Show",
@@ -708,9 +726,15 @@
 		"delete": "Delete",
 		"use": "Use",
 		"providers": {
-			"openai": { "label": "OpenAI Whisper API" },
-			"groq": { "label": "Groq Whisper API" },
-			"deepgram": { "label": "Deepgram API" }
+			"openai": {
+				"label": "OpenAI Whisper API"
+			},
+			"groq": {
+				"label": "Groq Whisper API"
+			},
+			"deepgram": {
+				"label": "Deepgram API"
+			}
 		},
 		"errors": {
 			"unknown": "Unknown error"
@@ -757,12 +781,15 @@
 			"depsRequired": "Dependencies required",
 			"available": "Available"
 		},
-		"downloadAll": {
-			"alreadyDownloadedTitle": "All models already downloaded",
-			"downloadAllTitle": "Download all models",
-			"downloading": "Downloading...",
-			"allDownloaded": "All Downloaded",
-			"downloadAll": "Download All"
+		"import": {
+			"title": "Import Model",
+			"importModel": "Import Model",
+			"importing": "Importing...",
+			"success": "Imported {count} model(s): {models}",
+			"noModelsFound": "No recognized model folders found in that directory. Select the HuggingFace hub cache folder (contains 'models--*' directories).",
+			"failedAll": "Failed to import any models from that directory.",
+			"failed": "Failed to import model: {error}",
+			"importModelAria": "Import model from folder"
 		},
 		"hfConsent": {
 			"title": "HuggingFace download consent required",
@@ -857,8 +884,6 @@
 		"openaiWhisperApi": "OpenAI Whisper API",
 		"groqWhisperApi": "Groq Whisper API",
 		"deepgramApi": "Deepgram API",
-		"allDownloaded": "All Downloaded",
-		"downloading": "Downloading...",
 		"configureEngines": "Configure your speech-to-text engines"
 	},
 	"tooltips": {
@@ -935,5 +960,40 @@
 		"model": "Model",
 		"words": "Words",
 		"characters": "Characters"
+	},
+	"onboarding": {
+		"welcomeTitle": "Welcome to Voice Typer",
+		"welcomeDescription": "Voice Typer is a premium offline voice-to-text utility that runs in your system tray. Press a hotkey, speak, and your words appear as text in any application. Let's set up a few things to get you started.",
+		"step1Item": "Choose your microphone",
+		"step2Item": "Select a hotkey",
+		"step3Item": "Pick a transcription model",
+		"micTitle": "Choose Your Microphone",
+		"micDescription": "Select the microphone you want to use for dictation. You can change this later in Settings.",
+		"micSelectAria": "Select microphone",
+		"noMics": "No microphones detected. You can set one later in Settings.",
+		"hotkeyTitle": "Choose Your Hotkey",
+		"hotkeyDescription": "Select the keyboard shortcut you'll use to start and stop dictation. F2 is the default.",
+		"hotkeySelectAria": "Select hotkey",
+		"modelTitle": "Choose Your Model",
+		"modelDescription": "Pick a transcription model. Smaller models are faster; larger models are more accurate. The model downloads in the background after setup.",
+		"modelSelectAria": "Select model: {name}",
+		"completeTitle": "You're All Set!",
+		"completeDescription": "Your Voice Typer is configured and ready. Press your hotkey ({hotkey}) to start dictating. The model will download and load in the background — this may take a minute on first run.",
+		"summaryMic": "Microphone:",
+		"defaultMic": "Default",
+		"summaryHotkey": "Hotkey:",
+		"summaryModel": "Model:",
+		"backAria": "Go back",
+		"back": "Back",
+		"skipAria": "Skip onboarding",
+		"skip": "Skip",
+		"getStartedAria": "Get started",
+		"getStarted": "Get Started",
+		"continueAria": "Continue",
+		"continue": "Continue",
+		"setupCompleteSnack": "Setup complete! Loading your model...",
+		"saveFailedSnack": "Failed to save selection",
+		"skippedSnack": "Setup skipped — using defaults",
+		"stepProgress": "Step {current} of {total}"
 	}
 }

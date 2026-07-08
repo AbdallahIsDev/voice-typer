@@ -204,6 +204,8 @@
 		"apiUrlInfo": "The endpoint URL for the AI language model service.",
 		"model": "Modelo",
 		"modelInfo": "The AI model to use for polishing (e.g., gpt-4o-mini).",
+		"apiUrlPlaceholder": "https://api.openai.com/v1/chat/completions",
+		"modelPlaceholder": "gpt-4o-mini",
 		"preset": "Preset",
 		"presetInfo": "The writing style to apply — professional, casual, email, or code.",
 		"show": "Show",
@@ -503,13 +505,13 @@
 		"use": "Usar",
 		"providers": {
 			"openai": {
-				"label": "OpenAI Whisper API"
+				"label": "API de OpenAI Whisper"
 			},
 			"groq": {
-				"label": "Groq Whisper API"
+				"label": "API de Groq Whisper"
 			},
 			"deepgram": {
-				"label": "Deepgram API"
+				"label": "API de Deepgram"
 			}
 		},
 		"errors": {
@@ -557,12 +559,15 @@
 			"depsRequired": "Dependencias requeridas",
 			"available": "Disponible"
 		},
-		"downloadAll": {
-			"alreadyDownloadedTitle": "Todos los modelos ya están descargados",
-			"downloadAllTitle": "Descargar todos los modelos",
-			"downloading": "Descargando...",
-			"allDownloaded": "Todos Descargados",
-			"downloadAll": "Descargar Todo"
+		"import": {
+			"title": "Importar modelo",
+			"importModel": "Importar modelo",
+			"importing": "Importando...",
+			"success": "{count} modelo(s) importado(s): {models}",
+			"noModelsFound": "No se encontraron carpetas de modelo conocidas en ese directorio. Seleccione la carpeta de caché de HuggingFace (contiene directorios 'models--*').",
+			"failedAll": "No se pudo importar ningún modelo desde ese directorio.",
+			"failed": "Error al importar el modelo: {error}",
+			"importModelAria": "Importar modelo desde carpeta"
 		},
 		"hfConsent": {
 			"title": "Se requiere consentimiento de descarga de HuggingFace",
@@ -572,7 +577,7 @@
 			"blockedHint": "Las descargas de modelos están bloqueadas hasta que otorgues consentimiento."
 		},
 		"progress": {
-			"eta": "ETA {time}",
+			"eta": "Tiempo restante {time}",
 			"paused": "· Pausado"
 		},
 		"card": {
@@ -647,8 +652,6 @@
 		"openaiWhisperApi": "API de OpenAI Whisper",
 		"groqWhisperApi": "API de Groq Whisper",
 		"deepgramApi": "API de Deepgram",
-		"allDownloaded": "Todos Descargados",
-		"downloading": "Descargando...",
 		"configureEngines": "Configura tus motores de reconocimiento de voz"
 	},
 	"tooltips": {
@@ -875,7 +878,9 @@
 			"thu": "Jue",
 			"fri": "Vie",
 			"sat": "Sáb"
-		}
+		},
+		"unknown": "Desconocido",
+		"auto": "Auto"
 	},
 	"about": {
 		"title": "Acerca de",
@@ -940,6 +945,53 @@
 		"onLatestVersion": "Estás en la última versión ({version})",
 		"newVersionAvailable": "Nueva versión disponible: {version}",
 		"installedNewer": "La versión instalada ({installed}) es más reciente que la última versión publicada ({latest})",
-		"updateCheckFailed": "No se pudieron comprobar las actualizaciones: {error}"
+		"updateCheckFailed": "No se pudieron comprobar las actualizaciones: {error}",
+		"toggleSidebarValue": "Ctrl+B",
+		"navigateFieldsValue": "Tab / Mayús+Tab",
+		"toggleSwitchesValue": "Espacio",
+		"closeDialogsValue": "Esc",
+		"openDropdownsValue": "Enter o Espacio"
+	},
+	"onboarding": {
+		"welcomeTitle": "Bienvenido a Voice Typer",
+		"welcomeDescription": "Voice Typer es una utilidad premium sin conexión de voz a texto que se ejecuta en la bandeja del sistema. Presiona un atajo, habla y tus palabras aparecerán como texto en cualquier aplicación. Configuremos algunas cosas para empezar.",
+		"step1Item": "Elige tu micrófono",
+		"step2Item": "Selecciona un atajo",
+		"step3Item": "Elige un modelo de transcripción",
+		"micTitle": "Elige tu micrófono",
+		"micDescription": "Selecciona el micrófono que deseas usar para el dictado. Puedes cambiarlo más tarde en Configuración.",
+		"micSelectAria": "Seleccionar micrófono",
+		"noMics": "No se detectaron micrófonos. Puedes configurar uno más tarde en Configuración.",
+		"hotkeyTitle": "Elige tu atajo",
+		"hotkeyDescription": "Selecciona el atajo de teclado que usarás para iniciar y detener el dictado. F2 es el predeterminado.",
+		"hotkeySelectAria": "Seleccionar atajo",
+		"modelTitle": "Elige tu modelo",
+		"modelDescription": "Elige un modelo de transcripción. Los modelos más pequeños son más rápidos; los modelos más grandes son más precisos. El modelo se descarga en segundo plano después de la configuración.",
+		"modelSelectAria": "Seleccionar modelo: {name}",
+		"completeTitle": "¡Todo listo!",
+		"completeDescription": "Tu Voice Typer está configurado y listo. Presiona tu atajo ({hotkey}) para empezar a dictar. El modelo se descargará y cargará en segundo plano — esto puede tardar un minuto en el primer uso.",
+		"summaryMic": "Micrófono:",
+		"defaultMic": "Predeterminado",
+		"summaryHotkey": "Atajo:",
+		"summaryModel": "Modelo:",
+		"backAria": "Volver",
+		"back": "Atrás",
+		"skipAria": "Omitir configuración",
+		"skip": "Omitir",
+		"getStartedAria": "Comenzar",
+		"getStarted": "Comenzar",
+		"continueAria": "Continuar",
+		"continue": "Continuar",
+		"setupCompleteSnack": "¡Configuración completa! Cargando tu modelo...",
+		"saveFailedSnack": "Error al guardar la selección",
+		"skippedSnack": "Configuración omitida — usando valores predeterminados",
+		"stepProgress": "Paso {current} de {total}"
+	},
+	"theme": {
+		"light": "Claro",
+		"dark": "Oscuro",
+		"system": "Sistema",
+		"switchTitle": "Modo {mode} — haz clic para cambiar",
+		"switchAriaLabel": "Tema actual: {mode}. Haz clic para cambiar."
 	}
 }
