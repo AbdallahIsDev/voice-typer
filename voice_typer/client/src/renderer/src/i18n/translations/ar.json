@@ -943,6 +943,24 @@
 		"onLatestVersion": "أنت على أحدث إصدار ({version})",
 		"newVersionAvailable": "يتوفر إصدار جديد: {version}",
 		"installedNewer": "الإصدار المُثبَّت ({installed}) أحدث من أحدث إصدار منشور ({latest})",
-		"updateCheckFailed": "فشل التحقق من التحديثات: {error}"
+		"updateCheckFailed": "فشل التحقق من التحديثات: {error}",
+		"cacheTitle": "حالة الذاكرة المخبأة",
+		"cacheDescription": "الحالة الحالية لذاكرة المخبأة لنظام التشغيل للنموذج. يعمل التسخين المسبق عند التشغيل لإبقاء ملفات النموذج في الذاكرة لبدء سريع.",
+		"prewarmStatus": "حالة التسخين المسبق",
+		"lastRun": "آخر تشغيل",
+		"cacheHealth": "صحة الذاكرة المخبأة",
+		"prewarmElapsed": "المدة المنقضية",
+		"cacheHot": "ساخن",
+		"cachePartial": "جزئي",
+		"cacheCold": "بارد",
+		"cacheUnknown": "غير معروف",
+		"cacheRunning": "قيد التشغيل…",
+		"refreshCacheStatus": "تحديث",
+		"neverRun": "أبدًا",
+		"runPrewarmNow": "تشغيل التسخين المسبق الآن",
+		"prewarmStarting": "بدأ التسخين المسبق…",
+		"prewarmComplete": "اكتمل التسخين المسبق — تم تسخين الذاكرة المخبأة",
+		"prewarmFailed": "فشل تشغيل التسخين المسبق",
+		"prewarmAlreadyHot": "الذاكرة المخبأة ساخنة بالفعل — لا حاجة للتسخين المسبق"
 	}
 }

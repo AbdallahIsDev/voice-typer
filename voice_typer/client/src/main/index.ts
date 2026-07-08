@@ -529,6 +529,12 @@ function sendToPython(msg: Record<string, unknown>): Promise<unknown> {
 			"save_templates",
 			"get_volume_backend_status",
 			"get_model_status",
+			// ADR-0009 Issue 3: prewarm cache status (Hot/Partial/Cold,
+			// cache ratio, last-run timestamp) for the About page.
+			"get_prewarm_status",
+			// Task 3: manually trigger a prewarm run (force=True) from the
+			// About page's "Run Prewarm Now" button.
+			"run_prewarm",
 			"get_vocabulary",
 			"save_vocabulary",
 			"onboarding_is_first_run",

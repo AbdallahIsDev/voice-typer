@@ -353,7 +353,6 @@
 		"openaiWhisperApi": "API OpenAI Whisper",
 		"groqWhisperApi": "API Groq Whisper",
 		"deepgramApi": "API Deepgram",
-
 		"configureEngines": "Настройте ваши движки преобразования речи в текст"
 	},
 	"history": {
@@ -430,5 +429,25 @@
 		"openHelp": "Открыть эту справку",
 		"navBack": "Навигация назад / вперёд",
 		"closeHint": "Нажмите {key} или щёлкните снаружи, чтобы закрыть."
+	},
+	"about": {
+		"cacheTitle": "Состояние кэша",
+		"cacheDescription": "Живое состояние файлового кэша ОС для речевой модели. Предпрогрев запускается при загрузке, чтобы файлы модели оставались в RAM для быстрого запуска.",
+		"prewarmStatus": "Состояние предпрогрева",
+		"lastRun": "Последний запуск",
+		"cacheHealth": "Здоровье кэша",
+		"prewarmElapsed": "Продолжительность",
+		"cacheHot": "Горячий",
+		"cachePartial": "Частично",
+		"cacheCold": "Холодный",
+		"cacheUnknown": "Неизвестно",
+		"cacheRunning": "Выполняется…",
+		"refreshCacheStatus": "Обновить",
+		"neverRun": "Никогда",
+		"runPrewarmNow": "Запустить предпрогрев сейчас",
+		"prewarmStarting": "Предпрогрев запущен…",
+		"prewarmComplete": "Предпрогрев завершён — кэш разогрет",
+		"prewarmFailed": "Не удалось запустить предпрогрев",
+		"prewarmAlreadyHot": "Кэш уже горячий — предпрогрев не нужен"
 	}
 }

@@ -943,6 +943,24 @@
 		"onLatestVersion": "Vous utilisez la dernière version ({version})",
 		"newVersionAvailable": "Nouvelle version disponible : {version}",
 		"installedNewer": "La version installée ({installed}) est plus récente que la dernière publication ({latest})",
-		"updateCheckFailed": "Échec de la vérification des mises à jour : {error}"
+		"updateCheckFailed": "Échec de la vérification des mises à jour : {error}",
+		"cacheTitle": "État du cache",
+		"cacheDescription": "État en direct du cache de fichiers du système pour le modèle vocal. Le préchauffage s’exécute au démarrage pour garder les fichiers du modèle en RAM pour un lancement rapide.",
+		"prewarmStatus": "État du préchauffage",
+		"lastRun": "Dernière exécution",
+		"cacheHealth": "Santé du cache",
+		"prewarmElapsed": "Durée",
+		"cacheHot": "Chaud",
+		"cachePartial": "Partiel",
+		"cacheCold": "Froid",
+		"cacheUnknown": "Inconnu",
+		"cacheRunning": "En cours…",
+		"refreshCacheStatus": "Actualiser",
+		"neverRun": "Jamais",
+		"runPrewarmNow": "Lancer le préchauffage maintenant",
+		"prewarmStarting": "Préchauffage démarré…",
+		"prewarmComplete": "Préchauffage terminé — cache réchauffée",
+		"prewarmFailed": "Échec du démarrage du préchauffage",
+		"prewarmAlreadyHot": "Le cache est déjà chaud — préchauffage inutile"
 	}
 }

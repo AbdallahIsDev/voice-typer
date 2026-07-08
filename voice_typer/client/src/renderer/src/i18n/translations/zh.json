@@ -429,5 +429,25 @@
 		"openHelp": "打开此帮助叠加层",
 		"navBack": "向后 / 向前导航",
 		"closeHint": "按 {key} 或点击外部以关闭。"
+	},
+	"about": {
+		"cacheTitle": "缓存状态",
+		"cacheDescription": "语音模型的操作系统文件缓存实时状态。预热在开机时运行，将模型文件保留在 RAM 中以实现快速启动。",
+		"prewarmStatus": "预热状态",
+		"lastRun": "上次运行",
+		"cacheHealth": "缓存健康度",
+		"prewarmElapsed": "耗时",
+		"cacheHot": "热",
+		"cachePartial": "部分",
+		"cacheCold": "冷",
+		"cacheUnknown": "未知",
+		"cacheRunning": "运行中…",
+		"refreshCacheStatus": "刷新",
+		"neverRun": "从未",
+		"runPrewarmNow": "立即运行预热",
+		"prewarmStarting": "预热已开始…",
+		"prewarmComplete": "预热完成 — 缓存已加热",
+		"prewarmFailed": "预热启动失败",
+		"prewarmAlreadyHot": "缓存已是热状态 — 无需预热"
 	}
 }

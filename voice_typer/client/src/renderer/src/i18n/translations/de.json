@@ -652,7 +652,6 @@
 		"openaiWhisperApi": "OpenAI-Whisper-API",
 		"groqWhisperApi": "Groq-Whisper-API",
 		"deepgramApi": "Deepgram-API",
-
 		"configureEngines": "Konfigurieren Sie Ihre Spracherkennungs-Engines"
 	},
 	"history": {
@@ -944,6 +943,24 @@
 		"onLatestVersion": "Sie verwenden die neueste Version ({version})",
 		"newVersionAvailable": "Neue Version verfügbar: {version}",
 		"installedNewer": "Installierte Version ({installed}) ist neuer als die neueste Veröffentlichung ({latest})",
-		"updateCheckFailed": "Prüfung auf Aktualisierungen fehlgeschlagen: {error}"
+		"updateCheckFailed": "Prüfung auf Aktualisierungen fehlgeschlagen: {error}",
+		"cacheTitle": "Cache-Status",
+		"cacheDescription": "Live-Zustand des Dateicaches für das Sprachmodell. Prewarm läuft beim Booten, um die Modelldateien für einen schnellen Start im RAM zu halten.",
+		"prewarmStatus": "Prewarm-Status",
+		"lastRun": "Letzte Ausführung",
+		"cacheHealth": "Cache-Gesundheit",
+		"prewarmElapsed": "Dauer",
+		"cacheHot": "Heiß",
+		"cachePartial": "Teilweise",
+		"cacheCold": "Kalt",
+		"cacheUnknown": "Unbekannt",
+		"cacheRunning": "Läuft…",
+		"refreshCacheStatus": "Aktualisieren",
+		"neverRun": "Nie",
+		"runPrewarmNow": "Präwarming jetzt starten",
+		"prewarmStarting": "Präwarming gestartet…",
+		"prewarmComplete": "Präwarming abgeschlossen — Cache gewärmt",
+		"prewarmFailed": "Präwarming konnte nicht gestartet werden",
+		"prewarmAlreadyHot": "Cache ist bereits heiß — kein Präwarming nötig"
 	}
 }

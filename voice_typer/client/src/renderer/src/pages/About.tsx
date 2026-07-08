@@ -6,6 +6,18 @@ import { usePython } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";
 
+// ADR-0009 Issue 3: shape of the ``get_prewarm_status`` IPC response.
+// Mirrors the dict returned by voice_typer.server.prewarm.get_prewarm_status().
+interface PrewarmStatus {
+	last_run: string | null;
+	elapsed_s: number | null;
+	cache_ratio: number;
+	cache_label: "hot" | "partial" | "cold" | "unknown";
+	cached_bytes: number;
+	total_bytes: number;
+	prewarm_running: boolean;
+}
+
 // App version. The package.json is two directories above the
 // renderer src tree, and the alias `@/../package.json` does not
 // resolve cleanly under every TS config — fall back to a hardcoded
@@ -62,6 +74,69 @@ function StatusDot({ connected }: { connected: boolean }) {
 	);
 }
 
+// ADR-0009 Issue 3: badge for the prewarm cache status (Hot/Partial/Cold/Unknown).
+// Color-coded to match the StatusDot visual rhythm: green=hot, amber=partial,
+// red=cold, gray=unknown.
+function CacheStatusBadge({ label }: { label: PrewarmStatus["cache_label"] }) {
+	const colorClass =
+		label === "hot"
+			? "bg-emerald-500"
+			: label === "partial"
+				? "bg-amber-500"
+				: label === "cold"
+					? "bg-destructive"
+					: "bg-muted-foreground/40";
+	const textKey =
+		label === "hot"
+			? "about.cacheHot"
+			: label === "partial"
+				? "about.cachePartial"
+				: label === "cold"
+					? "about.cacheCold"
+					: "about.cacheUnknown";
+	return (
+		<span className="inline-flex items-center gap-1.5 text-(--text-primary)">
+			<span className={`size-1.5 rounded-full ${colorClass}`} />
+			{t(textKey)}
+		</span>
+	);
+}
+
+// ADR-0009 Issue 3: format a byte count as a human-readable string.
+// 0 → "0 MB"; 1750000000 → "1.7 GB". Used by the "Cache Health" row.
+// Task 7: exported for unit testing (formatBytes, formatRelativeTime,
+// CacheStatusBadge are otherwise module-private).
+export function formatBytes(bytes: number): string {
+	if (bytes <= 0) return "0 MB";
+	const gb = bytes / (1024 * 1024 * 1024);
+	if (gb >= 1) return `${gb.toFixed(1)} GB`;
+	const mb = bytes / (1024 * 1024);
+	return `${Math.round(mb)} MB`;
+}
+
+// ADR-0009 Issue 3: format an ISO timestamp as a relative "N hours ago" string.
+// Falls back to the raw ISO string for timestamps older than 7 days.
+// Task 7: exported for unit testing.
+export function formatRelativeTime(iso: string | null): string {
+	if (!iso) return t("about.neverRun");
+	try {
+		const then = new Date(iso).getTime();
+		if (Number.isNaN(then)) return iso;
+		const now = Date.now();
+		const diffMs = now - then;
+		const diffMin = Math.floor(diffMs / 60000);
+		const diffHr = Math.floor(diffMin / 60);
+		const diffDay = Math.floor(diffHr / 24);
+		if (diffMin < 1) return "<1 min ago";
+		if (diffMin < 60) return `${diffMin} min ago`;
+		if (diffHr < 24) return `${diffHr} h ago`;
+		if (diffDay < 7) return `${diffDay} d ago`;
+		return iso;
+	} catch {
+		return iso;
+	}
+}
+
 export default function AboutPage() {
 	const { call } = usePython();
 	const [config, setConfig] = useState<VoiceTyperConfig | null>(null);
@@ -76,6 +151,89 @@ export default function AboutPage() {
 	// NEW-UX-023: latest release from GitHub (null = not checked yet).
 	const [latestVersion, setLatestVersion] = useState<string | null>(null);
 	const [checkingUpdate, setCheckingUpdate] = useState(false);
+	// ADR-0009 Issue 3: prewarm cache status. null = not fetched yet.
+	// Refreshable via a button so the user can re-probe after manual
+	// prewarm runs or cache eviction.
+	const [prewarmStatus, setPrewarmStatus] = useState<PrewarmStatus | null>(
+		null,
+	);
+	const [prewarmLoading, setPrewarmLoading] = useState(false);
+	// Task 3: "Run Prewarm Now" button state. runPrewarmLoading is
+	// true while the run_prewarm IPC is in flight (spawn the
+	// subprocess). Once spawned, prewarmRunning (from
+	// get_prewarm_status) takes over as the progress indicator.
+	const [runPrewarmLoading, setRunPrewarmLoading] = useState(false);
+
+	const fetchPrewarmStatus = async () => {
+		setPrewarmLoading(true);
+		try {
+			const status = await call<PrewarmStatus>("get_prewarm_status");
+			setPrewarmStatus(status);
+		} catch {
+			// Best-effort: leave the previous status (or null) in place.
+			// The card renders an "Unknown" placeholder when null.
+		} finally {
+			setPrewarmLoading(false);
+		}
+	};
+
+	// Task 3: trigger a manual prewarm run. Spawns a detached
+	// subprocess (pythonw -m voice_typer.server.prewarm --force).
+	// After spawning, polls get_prewarm_status every 2s until
+	// prewarm_running flips to False, then refreshes the card and
+	// shows a completion toast.
+	const handleRunPrewarm = async () => {
+		// Guard: don't re-warm if already hot (button should be
+		// disabled, but defend in depth).
+		if (prewarmStatus?.cache_label === "hot") {
+			toast.info(t("about.prewarmAlreadyHot"));
+			return;
+		}
+		setRunPrewarmLoading(true);
+		try {
+			const result = await call<{ started: boolean }>("run_prewarm");
+			if (result?.started) {
+				toast.info(t("about.prewarmStarting"));
+				// Poll get_prewarm_status every 2s until
+				// prewarm_running flips to False. The
+				// prewarm subprocess takes ~20-50s on a
+				// warm disk, ~50s+ on a cold one.
+				const pollDeadline = Date.now() + 120_000; // 2 min cap
+				const poll = async () => {
+					while (Date.now() < pollDeadline) {
+						await new Promise((r) => setTimeout(r, 2000));
+						try {
+							const status = await call<PrewarmStatus>("get_prewarm_status");
+							setPrewarmStatus(status);
+							if (!status.prewarm_running) {
+								// Prewarm finished — show completion toast
+								// based on the new cache label.
+								if (status.cache_label === "hot") {
+									toast.success(t("about.prewarmComplete"));
+								} else {
+									toast.info(t("about.prewarmComplete"));
+								}
+								return;
+							}
+						} catch {
+							// Backend went away — stop polling.
+							return;
+						}
+					}
+					// Timed out — silent (the subprocess may still
+					// be running; the user can Refresh manually).
+				};
+				poll(); // fire-and-forget; don't block the UI
+			}
+		} catch (err) {
+			toast.error(
+				t("about.prewarmFailed") +
+					(err instanceof Error ? `: ${err.message}` : ""),
+			);
+		} finally {
+			setRunPrewarmLoading(false);
+		}
+	};
 
 	useEffect(() => {
 		let cancelled = false;
@@ -110,6 +268,16 @@ export default function AboutPage() {
 			} catch {
 				// intentionally leave config as null — diagnostics simply
 				// show "—" until the backend comes back online.
+			}
+
+			// ADR-0009 Issue 3: fetch prewarm cache status for the
+			// Cache Status card. Best-effort — failures leave the card
+			// in the "Unknown" placeholder state.
+			try {
+				const ps = await call<PrewarmStatus>("get_prewarm_status");
+				if (!cancelled) setPrewarmStatus(ps);
+			} catch {
+				// leave prewarmStatus as null; card renders "Unknown"
 			}
 		};
 
@@ -228,6 +396,95 @@ export default function AboutPage() {
 					/>
 					<Row label={t("about.hotkey")} value={hotkey} />
 					<Row label={t("about.microphone")} value={microphone} />
+				</SettingsSection>
+
+				{/* ── Cache Status (ADR-0009 Issue 3) ──────────────────── */}
+				<SettingsSection
+					title={t("about.cacheTitle")}
+					description={t("about.cacheDescription")}
+				>
+					<Row
+						label={t("about.prewarmStatus")}
+						value={
+							prewarmStatus?.prewarm_running ? (
+								<span className="inline-flex items-center gap-1.5 text-(--text-primary)">
+									<span className="size-1.5 animate-pulse rounded-full bg-sky-500" />
+									{t("about.cacheRunning")}
+								</span>
+							) : prewarmStatus ? (
+								<CacheStatusBadge label={prewarmStatus.cache_label} />
+							) : (
+								<span className="text-(--text-muted)">
+									{t("about.checking")}
+								</span>
+							)
+						}
+					/>
+					<Row
+						label={t("about.lastRun")}
+						value={
+							prewarmStatus?.last_run
+								? formatRelativeTime(prewarmStatus.last_run)
+								: prewarmStatus
+									? t("about.neverRun")
+									: t("about.checking")
+						}
+					/>
+					<Row
+						label={t("about.cacheHealth")}
+						value={
+							prewarmStatus && prewarmStatus.total_bytes > 0
+								? `${Math.round(
+										prewarmStatus.cache_ratio * 100,
+									)}% (${formatBytes(
+										prewarmStatus.cached_bytes,
+									)} / ${formatBytes(prewarmStatus.total_bytes)})`
+								: prewarmStatus
+									? `${Math.round(prewarmStatus.cache_ratio * 100)}%`
+									: t("about.checking")
+						}
+					/>
+					<Row
+						label={t("about.prewarmElapsed")}
+						value={
+							prewarmStatus?.elapsed_s !== null &&
+							prewarmStatus?.elapsed_s !== undefined
+								? `${prewarmStatus.elapsed_s.toFixed(1)}s`
+								: prewarmStatus
+									? t("about.unknown")
+									: t("about.checking")
+						}
+					/>
+					<div className="flex flex-wrap items-center gap-2 px-3.5 py-3.5 border-t border-border">
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={fetchPrewarmStatus}
+							disabled={prewarmLoading}
+						>
+							{prewarmLoading
+								? t("about.checking")
+								: t("about.refreshCacheStatus")}
+						</Button>
+						{/* Task 3: "Run Prewarm Now" button.
+                                                        Disabled when cache is Hot (no point re-warming),
+                                                        when prewarm is already running, or while the
+                                                        run_prewarm IPC is in flight. */}
+						<Button
+							variant="default"
+							size="sm"
+							onClick={handleRunPrewarm}
+							disabled={
+								prewarmStatus?.cache_label === "hot" ||
+								prewarmStatus?.prewarm_running === true ||
+								runPrewarmLoading
+							}
+						>
+							{prewarmStatus?.prewarm_running === true || runPrewarmLoading
+								? t("about.cacheRunning")
+								: t("about.runPrewarmNow")}
+						</Button>
+					</div>
 				</SettingsSection>
 
 				{/* ── Privacy ──────────────────────────────────────────── */}

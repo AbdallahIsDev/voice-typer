@@ -791,5 +791,25 @@
 		"exportNotAvailable": "निर्यात उपलब्ध नहीं — कृपया ऐप पुनर्प्रारंभ करें",
 		"exportSaved": "{filename} सफलतापूर्वक सहेजा गया",
 		"exportFailed": "निर्यात विफल"
+	},
+	"about": {
+		"cacheTitle": "कैच स्थिति",
+		"cacheDescription": "वॉयिस मॉडल के लिए ओवर फ़ाइल कैच की लाइव स्थिति। प्रीवार्म बूट पर चलता है ताकि मॉडल फ़ाइलें तेज शुरूआत के लिए RAM में रहें।",
+		"prewarmStatus": "प्रीवार्म स्थिति",
+		"lastRun": "अंतिम चलाना",
+		"cacheHealth": "कैच स्वास्थ्य",
+		"prewarmElapsed": "अवधि",
+		"cacheHot": "गर्म",
+		"cachePartial": "आंशिक",
+		"cacheCold": "ठंडा",
+		"cacheUnknown": "अज्ञात",
+		"cacheRunning": "चल रहा है…",
+		"refreshCacheStatus": "रिफ्रेश",
+		"neverRun": "कभी नहीं",
+		"runPrewarmNow": "अभी प्रीवार्म चलाएं",
+		"prewarmStarting": "प्रीवार्म शुरू हुआ…",
+		"prewarmComplete": "प्रीवार्म पूर्ण — कैच गर्म हो गया",
+		"prewarmFailed": "प्रीवार्म शुरू करने में विफल",
+		"prewarmAlreadyHot": "कैच पहले से गर्म है — प्रीवार्म की आवश्यकता नहीं"
 	}
 }
