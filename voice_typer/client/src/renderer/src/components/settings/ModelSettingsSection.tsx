@@ -69,7 +69,6 @@ const LLM_PRESET_OPTIONS = [
 	{ value: "email", labelKey: "settings.presetEmail" },
 	{ value: "code", labelKey: "settings.presetCode" },
 ] as const;
-
 export const ModelSettingsSection = memo(function ModelSettingsSection({
 	config,
 	updateConfig,
@@ -79,7 +78,33 @@ export const ModelSettingsSection = memo(function ModelSettingsSection({
 	// LLM API key visibility toggle (show/hide the password-style input).
 	const [llmKeyVisible, setLlmKeyVisible] = useState(false);
 
+	const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) =>
+		updateConfigDebounced("llm_api_key", e.target.value);
+
+	const handleToggleLlmKey = () => setLlmKeyVisible(!llmKeyVisible);
+
+	const handleApiUrlChange = (e: React.ChangeEvent<HTMLInputElement>) =>
+		updateConfigDebounced("llm_api_url", e.target.value);
+
+	const handleModelChange = (e: React.ChangeEvent<HTMLInputElement>) =>
+		updateConfigDebounced("llm_model", e.target.value);
+
 	if (!config) return <SettingsSkeleton rows={3} />;
+
+	// ── Inline handler extraction ─────────────────────────────────
+	const handleLanguageChange = (v: string) =>
+		updateConfig({ language: v === "auto" ? "" : v });
+	const handleAutoPunctuationChange = (checked: boolean) =>
+		updateConfig({ auto_punctuation: checked });
+	const handleTextCleanupChange = (checked: boolean) =>
+		updateConfig({ text_cleanup_enabled: checked });
+	const handleTextSnippetsChange = (checked: boolean) =>
+		updateConfig({ templates_enabled: checked });
+	const handleVocabularyChange = (checked: boolean) =>
+		updateConfig({ vocabulary_enabled: checked });
+	const handleLlmPolishChange = (checked: boolean) =>
+		updateConfig({ llm_polish: checked });
+	const handleLlmPresetChange = (v: string) => updateConfig({ llm_preset: v });
 
 	// UX-028: section-level visibility check for Post-Processing section.
 	const postProcessingTitle = t("settings.postProcessing");
@@ -130,9 +155,7 @@ export const ModelSettingsSection = memo(function ModelSettingsSection({
 					>
 						<Select
 							value={config.language || "auto"}
-							onValueChange={(v) =>
-								updateConfig({ language: v === "auto" ? "" : v })
-							}
+							onValueChange={handleLanguageChange}
 						>
 							<SelectTrigger
 								className="w-44"
@@ -156,9 +179,7 @@ export const ModelSettingsSection = memo(function ModelSettingsSection({
 					>
 						<Switch
 							checked={config.auto_punctuation ?? false}
-							onCheckedChange={(checked) =>
-								updateConfig({ auto_punctuation: checked })
-							}
+							onCheckedChange={handleAutoPunctuationChange}
 							aria-label={t("settings.autoPunctuation")}
 						/>
 					</SettingRow>
@@ -169,9 +190,7 @@ export const ModelSettingsSection = memo(function ModelSettingsSection({
 					>
 						<Switch
 							checked={config.text_cleanup_enabled}
-							onCheckedChange={(checked) =>
-								updateConfig({ text_cleanup_enabled: checked })
-							}
+							onCheckedChange={handleTextCleanupChange}
 							aria-label={t("settings.textCleanupLabel")}
 						/>
 					</SettingRow>
@@ -182,9 +201,7 @@ export const ModelSettingsSection = memo(function ModelSettingsSection({
 					>
 						<Switch
 							checked={config.templates_enabled ?? true}
-							onCheckedChange={(checked) =>
-								updateConfig({ templates_enabled: checked })
-							}
+							onCheckedChange={handleTextSnippetsChange}
 							aria-label={t("settings.textSnippets")}
 						/>
 					</SettingRow>
@@ -195,9 +212,7 @@ export const ModelSettingsSection = memo(function ModelSettingsSection({
 					>
 						<Switch
 							checked={config.vocabulary_enabled ?? true}
-							onCheckedChange={(checked) =>
-								updateConfig({ vocabulary_enabled: checked })
-							}
+							onCheckedChange={handleVocabularyChange}
 							aria-label={t("settings.vocabulary")}
 						/>
 					</SettingRow>
@@ -216,9 +231,7 @@ export const ModelSettingsSection = memo(function ModelSettingsSection({
 					>
 						<Switch
 							checked={config.llm_polish ?? false}
-							onCheckedChange={(checked) =>
-								updateConfig({ llm_polish: checked })
-							}
+							onCheckedChange={handleLlmPolishChange}
 							aria-label={t("settings.llmPolishing")}
 						/>
 					</SettingRow>
@@ -242,13 +255,11 @@ export const ModelSettingsSection = memo(function ModelSettingsSection({
 												? config.llm_api_key
 												: ""
 										}
-										onChange={(e) =>
-											updateConfigDebounced("llm_api_key", e.target.value)
-										}
+										onChange={handleApiKeyChange}
 										placeholder={
 											config.llm_api_key === "<redacted>"
 												? "•••••••• (configured)"
-												: ""
+												: t("settings.apiKeyPlaceholder")
 										}
 										className="w-56 pr-8"
 										aria-label={t("settings.apiKey")}
@@ -256,7 +267,7 @@ export const ModelSettingsSection = memo(function ModelSettingsSection({
 									<Button
 										variant="ghost"
 										size="xs"
-										onClick={() => setLlmKeyVisible(!llmKeyVisible)}
+										onClick={handleToggleLlmKey}
 										className="absolute right-1 top-1/2 -translate-y-1/2 text-xs"
 										aria-label={
 											llmKeyVisible ? t("settings.hide") : t("settings.show")
@@ -276,9 +287,8 @@ export const ModelSettingsSection = memo(function ModelSettingsSection({
 										config.llm_api_url ??
 										"https://api.openai.com/v1/chat/completions"
 									}
-									onChange={(e) =>
-										updateConfigDebounced("llm_api_url", e.target.value)
-									}
+									onChange={handleApiUrlChange}
+									placeholder={t("settings.apiUrlPlaceholder")}
 									className="w-64"
 									aria-label={t("settings.apiUrl")}
 								/>
@@ -290,9 +300,8 @@ export const ModelSettingsSection = memo(function ModelSettingsSection({
 							>
 								<Input
 									value={config.llm_model ?? "gpt-4o-mini"}
-									onChange={(e) =>
-										updateConfigDebounced("llm_model", e.target.value)
-									}
+									onChange={handleModelChange}
+									placeholder={t("settings.modelPlaceholder")}
 									className="w-44"
 									aria-label={t("settings.model")}
 								/>
@@ -304,7 +313,7 @@ export const ModelSettingsSection = memo(function ModelSettingsSection({
 							>
 								<Select
 									value={config.llm_preset ?? "professional"}
-									onValueChange={(v) => updateConfig({ llm_preset: v })}
+									onValueChange={handleLlmPresetChange}
 								>
 									<SelectTrigger
 										className="w-40"

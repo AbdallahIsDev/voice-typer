@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { usePython } from "@/hooks/usePython";
+import { t } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";
 import { SettingsSkeleton } from "./SettingsSkeleton";
 
@@ -69,47 +70,113 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 
 	if (!config) return <SettingsSkeleton rows={3} />;
 
+	// IMPL-C: resolve the translated search-visible labels once per render so
+	// the section-level isVisible check and the rendered SettingRow labels
+	// share the same strings.
+	const volumeBackendLabel = t("settings.audioEnhancement.volumeBackend");
+	const volumeBackendInfoSearch = t(
+		"settings.audioEnhancement.volumeBackendInfoSearch",
+	);
+	const autoDuckVolumeLabel = t("settings.audioEnhancement.autoDuckVolume");
+	const autoDuckVolumeInfoSearch = t(
+		"settings.audioEnhancement.autoDuckVolumeInfoSearch",
+	);
+	const duckLevelLabel = t("settings.audioEnhancement.duckLevel");
+	const duckLevelInfoSearch = t(
+		"settings.audioEnhancement.duckLevelInfoSearch",
+	);
+	const microphoneQualityLabel = t(
+		"settings.audioEnhancement.microphoneQuality",
+	);
+	const microphoneQualityInfoSearch = t(
+		"settings.audioEnhancement.microphoneQualityInfoSearch",
+	);
+	const highPassFilterLabel = t("settings.audioEnhancement.highPassFilter");
+	const highPassFilterInfoSearch = t(
+		"settings.audioEnhancement.highPassFilterInfoSearch",
+	);
+	const highPassCutoffLabel = t("settings.audioEnhancement.highPassCutoff");
+	const highPassCutoffInfoSearch = t(
+		"settings.audioEnhancement.highPassCutoffInfoSearch",
+	);
+	const noiseSuppressionLabel = t("settings.audioEnhancement.noiseSuppression");
+	const noiseSuppressionInfoSearch = t(
+		"settings.audioEnhancement.noiseSuppressionInfoSearch",
+	);
+	const noiseGateLabel = t("settings.audioEnhancement.noiseGate");
+	const noiseGateInfoSearch = t(
+		"settings.audioEnhancement.noiseGateInfoSearch",
+	);
+	const gateOpenThresholdLabel = t(
+		"settings.audioEnhancement.gateOpenThreshold",
+	);
+	const gateOpenThresholdInfoSearch = t(
+		"settings.audioEnhancement.gateOpenThresholdInfoSearch",
+	);
+	const gateCloseThresholdLabel = t(
+		"settings.audioEnhancement.gateCloseThreshold",
+	);
+	const gateCloseThresholdInfoSearch = t(
+		"settings.audioEnhancement.gateCloseThresholdInfoSearch",
+	);
+	const equalizerLabel = t("settings.audioEnhancement.equalizer");
+	const equalizerInfoSearch = t(
+		"settings.audioEnhancement.equalizerInfoSearch",
+	);
+	const eqLowLabel = t("settings.audioEnhancement.eqLow");
+	const eqLowInfoSearch = t("settings.audioEnhancement.eqLowInfoSearch");
+	const eqMidLabel = t("settings.audioEnhancement.eqMid");
+	const eqMidInfoSearch = t("settings.audioEnhancement.eqMidInfoSearch");
+	const eqHighLabel = t("settings.audioEnhancement.eqHigh");
+	const eqHighInfoSearch = t("settings.audioEnhancement.eqHighInfoSearch");
+	const compressorLabel = t("settings.audioEnhancement.compressor");
+	const compressorInfoSearch = t(
+		"settings.audioEnhancement.compressorInfoSearch",
+	);
+	const compressorThresholdLabel = t(
+		"settings.audioEnhancement.compressorThreshold",
+	);
+	const compressorThresholdInfoSearch = t(
+		"settings.audioEnhancement.compressorThresholdInfoSearch",
+	);
+	const compressorRatioLabel = t("settings.audioEnhancement.compressorRatio");
+	const compressorRatioInfoSearch = t(
+		"settings.audioEnhancement.compressorRatioInfoSearch",
+	);
+	const limiterLabel = t("settings.audioEnhancement.limiter");
+	const limiterInfoSearch = t("settings.audioEnhancement.limiterInfoSearch");
+	const limiterCeilingLabel = t("settings.audioEnhancement.limiterCeiling");
+	const limiterCeilingInfoSearch = t(
+		"settings.audioEnhancement.limiterCeilingInfoSearch",
+	);
+	const notchFilterLabel = t("settings.audioEnhancement.notchFilter");
+	const notchFilterInfoSearch = t(
+		"settings.audioEnhancement.notchFilterInfoSearch",
+	);
+
 	// UX-028: section-level visibility check for the Audio Enhancement section.
-	const audioSectionTitle = "Audio Enhancement";
+	const audioSectionTitle = t("settings.audioEnhancement.title");
 	const sectionItems = [
-		{ label: "Volume Backend", info: "The active audio control backend." },
-		{
-			label: "Auto Duck Volume",
-			info: "Reduce system volume during dictation.",
-		},
-		{ label: "Duck Level", info: "How quiet to make system audio." },
-		{
-			label: "Microphone Quality",
-			info: "Presets configure the entire filter chain.",
-		},
-		{ label: "High-Pass Filter", info: "Remove low-frequency rumble." },
-		{
-			label: "High-Pass Cutoff",
-			info: "Frequencies below this are attenuated.",
-		},
-		{ label: "Noise Suppression", info: "Neural network denoiser." },
-		{ label: "Noise Gate", info: "Silence audio below a threshold." },
-		{ label: "Gate Open Threshold", info: "Level above which the gate opens." },
-		{
-			label: "Gate Close Threshold",
-			info: "Level below which the gate closes.",
-		},
-		{ label: "Equalizer", info: "3-band EQ." },
-		{ label: "EQ — Low (bass)", info: "Boost/cut below 800Hz." },
-		{ label: "EQ — Mid (speech)", info: "Boost/cut 800Hz–5kHz." },
-		{ label: "EQ — High (treble)", info: "Boost/cut above 5kHz." },
-		{ label: "Compressor", info: "Evens out loud/quiet speech." },
-		{
-			label: "Compressor Threshold",
-			info: "Level above which compression starts.",
-		},
-		{ label: "Compressor Ratio", info: "How hard to compress." },
-		{ label: "Limiter", info: "Brick-wall ceiling to prevent clipping." },
-		{ label: "Limiter Ceiling", info: "Absolute maximum output level." },
-		{
-			label: "Notch Filter (hum)",
-			info: "Remove 50/60Hz electrical mains hum.",
-		},
+		{ label: volumeBackendLabel, info: volumeBackendInfoSearch },
+		{ label: autoDuckVolumeLabel, info: autoDuckVolumeInfoSearch },
+		{ label: duckLevelLabel, info: duckLevelInfoSearch },
+		{ label: microphoneQualityLabel, info: microphoneQualityInfoSearch },
+		{ label: highPassFilterLabel, info: highPassFilterInfoSearch },
+		{ label: highPassCutoffLabel, info: highPassCutoffInfoSearch },
+		{ label: noiseSuppressionLabel, info: noiseSuppressionInfoSearch },
+		{ label: noiseGateLabel, info: noiseGateInfoSearch },
+		{ label: gateOpenThresholdLabel, info: gateOpenThresholdInfoSearch },
+		{ label: gateCloseThresholdLabel, info: gateCloseThresholdInfoSearch },
+		{ label: equalizerLabel, info: equalizerInfoSearch },
+		{ label: eqLowLabel, info: eqLowInfoSearch },
+		{ label: eqMidLabel, info: eqMidInfoSearch },
+		{ label: eqHighLabel, info: eqHighInfoSearch },
+		{ label: compressorLabel, info: compressorInfoSearch },
+		{ label: compressorThresholdLabel, info: compressorThresholdInfoSearch },
+		{ label: compressorRatioLabel, info: compressorRatioInfoSearch },
+		{ label: limiterLabel, info: limiterInfoSearch },
+		{ label: limiterCeilingLabel, info: limiterCeilingInfoSearch },
+		{ label: notchFilterLabel, info: notchFilterInfoSearch },
 	];
 	if (
 		!sectionItems.some((item) =>
@@ -119,81 +186,128 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 		return null;
 	}
 
+	// ── Inline handler extraction ─────────────────────────────────
+	const handleAutoDuckChange = (checked: boolean) =>
+		updateConfig({ volume_duck_enabled: checked });
+	const handleDuckLevelChange = (v: number) =>
+		updateConfigDebounced("volume_duck_level", v);
+	const handleAudioPresetChange = (v: string) =>
+		updateConfig({ audio_preset: v as VoiceTyperConfig["audio_preset"] });
+	const handleHighPassToggle = (checked: boolean) =>
+		updateConfig({ noise_filter_highpass: checked });
+	const handleCutoffChange = (v: number) =>
+		updateConfigDebounced("noise_filter_highpass_cutoff_hz", v);
+	const handleNoiseMethodChange = (v: string) =>
+		updateConfig({
+			noise_suppression_method:
+				v as VoiceTyperConfig["noise_suppression_method"],
+		});
+	const handleGateToggle = (checked: boolean) =>
+		updateConfig({ noise_filter_gate: checked });
+	const handleGateOpenChange = (v: number) =>
+		updateConfigDebounced("noise_filter_gate_open_threshold_db", v);
+	const handleGateCloseChange = (v: number) =>
+		updateConfigDebounced("noise_filter_gate_close_threshold_db", v);
+	const handleEqToggle = (checked: boolean) =>
+		updateConfig({ noise_filter_eq: checked });
+	const handleEqLowChange = (v: number) =>
+		updateConfigDebounced("noise_filter_eq_low_db", v);
+	const handleEqMidChange = (v: number) =>
+		updateConfigDebounced("noise_filter_eq_mid_db", v);
+	const handleEqHighChange = (v: number) =>
+		updateConfigDebounced("noise_filter_eq_high_db", v);
+	const handleCompressorToggle = (checked: boolean) =>
+		updateConfig({ noise_filter_compressor: checked });
+	const handleCompressorThresholdChange = (v: number) =>
+		updateConfigDebounced("noise_filter_compressor_threshold_db", v);
+	const handleCompressorRatioChange = (v: number) =>
+		updateConfigDebounced("noise_filter_compressor_ratio", v);
+	const handleLimiterToggle = (checked: boolean) =>
+		updateConfig({ noise_filter_limiter: checked });
+	const handleLimiterCeilingChange = (v: number) =>
+		updateConfigDebounced("noise_filter_limiter_ceiling_db", v);
+	const handleNotchToggle = (checked: boolean) =>
+		updateConfig({ noise_filter_notch: checked });
+
 	return (
 		<SettingsSection
 			title={audioSectionTitle}
-			description="Volume ducking and noise filtering for cleaner dictation."
+			description={t("settings.audioEnhancement.description")}
 		>
 			<div className="animate-fade-in space-y-0 divide-y divide-border">
 				{/* ── Volume Backend status ── */}
 				<SettingRow
-					label="Volume Backend"
-					info="The active audio control backend. 'disabled' means ducking won't work on this platform — install the platform's optional dependency (pycaw on Windows, pyobjc on macOS)."
+					label={volumeBackendLabel}
+					info={t("settings.audioEnhancement.volumeBackendInfo")}
 				>
 					<span className="text-sm text-(--text-muted) tabular-nums">
 						{volumeBackend
 							? volumeBackend.available
 								? volumeBackend.name
-								: `${volumeBackend.name} (unavailable)`
-							: "Detecting…"}
+								: t("settings.audioEnhancement.unavailableSuffix", {
+										name: volumeBackend.name,
+									})
+							: t("settings.audioEnhancement.detecting")}
 					</span>
 				</SettingRow>
 
 				{/* ── Auto Duck Volume ── */}
 				<SettingRow
-					label="Auto Duck Volume"
-					info="Reduce system volume during dictation to prevent speaker bleed into the mic. Smart Duck is built-in: if no audio is playing, the volume won't change. Cross-platform — works on Windows, macOS, and Linux."
+					label={autoDuckVolumeLabel}
+					info={t("settings.audioEnhancement.autoDuckVolumeInfo")}
 				>
 					<Switch
 						checked={config.volume_duck_enabled ?? true}
-						onCheckedChange={(checked) =>
-							updateConfig({ volume_duck_enabled: checked })
-						}
-						aria-label="Auto Duck Volume"
+						onCheckedChange={handleAutoDuckChange}
+						aria-label={t("settings.audioEnhancement.autoDuckVolumeAria")}
 					/>
 				</SettingRow>
 				<SettingRow
-					label="Duck Level"
-					info="How quiet to make system audio. 25% = whisper-quiet, 50% = slight dip."
+					label={duckLevelLabel}
+					info={t("settings.audioEnhancement.duckLevelInfo")}
 				>
 					<RangeSlider
 						value={config.volume_duck_level ?? 0.2}
 						min={0}
 						max={0.5}
 						step={0.05}
-						onChange={(v) => updateConfigDebounced("volume_duck_level", v)}
-						ariaLabel="Duck Level"
+						onChange={handleDuckLevelChange}
+						ariaLabel={t("settings.audioEnhancement.duckLevelAria")}
 						suffix="%"
 					/>
 				</SettingRow>
 
 				{/* ── ADR 0007: Audio Preset ── */}
 				<SettingRow
-					label="Microphone Quality"
-					info="Presets configure the entire filter chain for common scenarios. Choose 'Custom' for advanced control of individual filters."
+					label={microphoneQualityLabel}
+					info={t("settings.audioEnhancement.microphoneQualityInfo")}
 				>
 					<Select
 						value={config.audio_preset ?? "auto"}
-						onValueChange={(v) =>
-							updateConfig({
-								audio_preset: v as VoiceTyperConfig["audio_preset"],
-							})
-						}
+						onValueChange={handleAudioPresetChange}
 					>
 						<SelectTrigger
 							className="w-48"
-							aria-label="Microphone Quality Preset"
+							aria-label={t("settings.audioEnhancement.microphoneQualityAria")}
 						>
 							<SelectValue />
 						</SelectTrigger>
 						<SelectContent>
-							<SelectItem value="auto">Auto (recommended)</SelectItem>
-							<SelectItem value="studio">Studio (clean environment)</SelectItem>
-							<SelectItem value="noisy_room">
-								Noisy Room (keyboard/fan/HVAC)
+							<SelectItem value="auto">
+								{t("settings.audioEnhancement.presetAuto")}
 							</SelectItem>
-							<SelectItem value="off">Off (raw audio)</SelectItem>
-							<SelectItem value="custom">Custom (advanced)</SelectItem>
+							<SelectItem value="studio">
+								{t("settings.audioEnhancement.presetStudio")}
+							</SelectItem>
+							<SelectItem value="noisy_room">
+								{t("settings.audioEnhancement.presetNoisyRoom")}
+							</SelectItem>
+							<SelectItem value="off">
+								{t("settings.audioEnhancement.presetOff")}
+							</SelectItem>
+							<SelectItem value="custom">
+								{t("settings.audioEnhancement.presetCustom")}
+							</SelectItem>
 						</SelectContent>
 					</Select>
 				</SettingRow>
@@ -202,51 +316,44 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 				{config.audio_preset === "custom" && (
 					<>
 						<SettingRow
-							label="High-Pass Filter"
-							info="Remove low-frequency rumble (HVAC, traffic) below the cutoff frequency."
+							label={highPassFilterLabel}
+							info={t("settings.audioEnhancement.highPassFilterInfo")}
 						>
 							<Switch
 								checked={config.noise_filter_highpass ?? true}
-								onCheckedChange={(checked) =>
-									updateConfig({ noise_filter_highpass: checked })
-								}
-								aria-label="High-Pass Filter"
+								onCheckedChange={handleHighPassToggle}
+								aria-label={t("settings.audioEnhancement.highPassFilterAria")}
 							/>
 						</SettingRow>
 						{(config.noise_filter_highpass ?? true) && (
 							<SettingRow
-								label="High-Pass Cutoff"
-								info="Frequencies below this are attenuated. 80Hz removes HVAC rumble. 100–150Hz also removes traffic."
+								label={highPassCutoffLabel}
+								info={t("settings.audioEnhancement.highPassCutoffInfo")}
 							>
 								<RangeSlider
 									value={config.noise_filter_highpass_cutoff_hz ?? 80}
 									min={20}
 									max={500}
 									step={10}
-									onChange={(v) =>
-										updateConfigDebounced("noise_filter_highpass_cutoff_hz", v)
-									}
-									ariaLabel="High-Pass Cutoff"
+									onChange={handleCutoffChange}
+									ariaLabel={t("settings.audioEnhancement.highPassCutoffAria")}
 									suffix="Hz"
 								/>
 							</SettingRow>
 						)}
 						<SettingRow
-							label="Noise Suppression"
-							info="Neural network denoiser. RNNoise (default, lightweight). DeepFilterNet (premium, better quality, requires torch). Speex (lightest CPU)."
+							label={noiseSuppressionLabel}
+							info={t("settings.audioEnhancement.noiseSuppressionInfo")}
 						>
 							<Select
 								value={config.noise_suppression_method ?? "rnnoise"}
-								onValueChange={(v) =>
-									updateConfig({
-										noise_suppression_method:
-											v as VoiceTyperConfig["noise_suppression_method"],
-									})
-								}
+								onValueChange={handleNoiseMethodChange}
 							>
 								<SelectTrigger
 									className="w-40"
-									aria-label="Noise Suppression Method"
+									aria-label={t(
+										"settings.audioEnhancement.noiseSuppressionAria",
+									)}
 								>
 									<SelectValue />
 								</SelectTrigger>
@@ -254,219 +361,194 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 									<SelectItem value="rnnoise">RNNoise</SelectItem>
 									<SelectItem value="deepfilternet">DeepFilterNet</SelectItem>
 									<SelectItem value="speex">Speex</SelectItem>
-									<SelectItem value="none">None</SelectItem>
+									<SelectItem value="none">
+										{t("settings.audioEnhancement.noneOption")}
+									</SelectItem>
 								</SelectContent>
 							</Select>
 						</SettingRow>
 						<SettingRow
-							label="Noise Gate"
-							info="Silence audio below a threshold to remove idle hiss. Uses OBS-style open/close thresholds with attack/hold/release."
+							label={noiseGateLabel}
+							info={t("settings.audioEnhancement.noiseGateInfo")}
 						>
 							<Switch
 								checked={config.noise_filter_gate ?? true}
-								onCheckedChange={(checked) =>
-									updateConfig({ noise_filter_gate: checked })
-								}
-								aria-label="Noise Gate"
+								onCheckedChange={handleGateToggle}
+								aria-label={t("settings.audioEnhancement.noiseGateAria")}
 							/>
 						</SettingRow>
 						{(config.noise_filter_gate ?? true) && (
 							<>
 								<SettingRow
-									label="Gate Open Threshold"
-									info="Level above which the gate opens (passes audio). -26dB is a good default for speech."
+									label={gateOpenThresholdLabel}
+									info={t("settings.audioEnhancement.gateOpenThresholdInfo")}
 								>
 									<RangeSlider
 										value={config.noise_filter_gate_open_threshold_db ?? -26}
 										min={-96}
 										max={0}
 										step={1}
-										onChange={(v) =>
-											updateConfigDebounced(
-												"noise_filter_gate_open_threshold_db",
-												v,
-											)
-										}
-										ariaLabel="Gate Open Threshold"
+										onChange={handleGateOpenChange}
+										ariaLabel={t(
+											"settings.audioEnhancement.gateOpenThresholdAria",
+										)}
 										suffix="dB"
 									/>
 								</SettingRow>
 								<SettingRow
-									label="Gate Close Threshold"
-									info="Level below which the gate closes (attenuates audio). Should be 5-10dB below open threshold."
+									label={gateCloseThresholdLabel}
+									info={t("settings.audioEnhancement.gateCloseThresholdInfo")}
 								>
 									<RangeSlider
 										value={config.noise_filter_gate_close_threshold_db ?? -32}
 										min={-96}
 										max={0}
 										step={1}
-										onChange={(v) =>
-											updateConfigDebounced(
-												"noise_filter_gate_close_threshold_db",
-												v,
-											)
-										}
-										ariaLabel="Gate Close Threshold"
+										onChange={handleGateCloseChange}
+										ariaLabel={t(
+											"settings.audioEnhancement.gateCloseThresholdAria",
+										)}
 										suffix="dB"
 									/>
 								</SettingRow>
 							</>
 						)}
 						<SettingRow
-							label="Equalizer"
-							info="3-band EQ: boost mid (speech intelligibility), cut low (rumble), slight high (presence). OBS-style crossover."
+							label={equalizerLabel}
+							info={t("settings.audioEnhancement.equalizerInfo")}
 						>
 							<Switch
 								checked={config.noise_filter_eq ?? true}
-								onCheckedChange={(checked) =>
-									updateConfig({ noise_filter_eq: checked })
-								}
-								aria-label="Equalizer"
+								onCheckedChange={handleEqToggle}
+								aria-label={t("settings.audioEnhancement.equalizerAria")}
 							/>
 						</SettingRow>
 						{(config.noise_filter_eq ?? true) && (
 							<>
 								<SettingRow
-									label="EQ — Low (bass)"
-									info="Boost/cut below 800Hz. -3dB removes rumble and proximity effect."
+									label={eqLowLabel}
+									info={t("settings.audioEnhancement.eqLowInfo")}
 								>
 									<RangeSlider
 										value={config.noise_filter_eq_low_db ?? -3}
 										min={-20}
 										max={20}
 										step={1}
-										onChange={(v) =>
-											updateConfigDebounced("noise_filter_eq_low_db", v)
-										}
-										ariaLabel="EQ Low"
+										onChange={handleEqLowChange}
+										ariaLabel={t("settings.audioEnhancement.eqLowAria")}
 										suffix="dB"
 									/>
 								</SettingRow>
 								<SettingRow
-									label="EQ — Mid (speech)"
-									info="Boost/cut 800Hz–5kHz (speech intelligibility band). +3dB improves consonant clarity."
+									label={eqMidLabel}
+									info={t("settings.audioEnhancement.eqMidInfo")}
 								>
 									<RangeSlider
 										value={config.noise_filter_eq_mid_db ?? 3}
 										min={-20}
 										max={20}
 										step={1}
-										onChange={(v) =>
-											updateConfigDebounced("noise_filter_eq_mid_db", v)
-										}
-										ariaLabel="EQ Mid"
+										onChange={handleEqMidChange}
+										ariaLabel={t("settings.audioEnhancement.eqMidAria")}
 										suffix="dB"
 									/>
 								</SettingRow>
 								<SettingRow
-									label="EQ — High (treble)"
-									info="Boost/cut above 5kHz. +2dB adds presence and brightness."
+									label={eqHighLabel}
+									info={t("settings.audioEnhancement.eqHighInfo")}
 								>
 									<RangeSlider
 										value={config.noise_filter_eq_high_db ?? 2}
 										min={-20}
 										max={20}
 										step={1}
-										onChange={(v) =>
-											updateConfigDebounced("noise_filter_eq_high_db", v)
-										}
-										ariaLabel="EQ High"
+										onChange={handleEqHighChange}
+										ariaLabel={t("settings.audioEnhancement.eqHighAria")}
 										suffix="dB"
 									/>
 								</SettingRow>
 							</>
 						)}
 						<SettingRow
-							label="Compressor"
-							info="Evens out loud/quiet speech for consistent ASR accuracy. OBS-style peak envelope with threshold/ratio/attack/release."
+							label={compressorLabel}
+							info={t("settings.audioEnhancement.compressorInfo")}
 						>
 							<Switch
 								checked={config.noise_filter_compressor ?? true}
-								onCheckedChange={(checked) =>
-									updateConfig({ noise_filter_compressor: checked })
-								}
-								aria-label="Compressor"
+								onCheckedChange={handleCompressorToggle}
+								aria-label={t("settings.audioEnhancement.compressorAria")}
 							/>
 						</SettingRow>
 						{(config.noise_filter_compressor ?? true) && (
 							<>
 								<SettingRow
-									label="Compressor Threshold"
-									info="Level above which compression starts. -18dB is a good default for speech."
+									label={compressorThresholdLabel}
+									info={t("settings.audioEnhancement.compressorThresholdInfo")}
 								>
 									<RangeSlider
 										value={config.noise_filter_compressor_threshold_db ?? -18}
 										min={-60}
 										max={0}
 										step={1}
-										onChange={(v) =>
-											updateConfigDebounced(
-												"noise_filter_compressor_threshold_db",
-												v,
-											)
-										}
-										ariaLabel="Compressor Threshold"
+										onChange={handleCompressorThresholdChange}
+										ariaLabel={t(
+											"settings.audioEnhancement.compressorThresholdAria",
+										)}
 										suffix="dB"
 									/>
 								</SettingRow>
 								<SettingRow
-									label="Compressor Ratio"
-									info="How hard to compress. 3:1 is gentle. 10:1 is aggressive (limiter-like)."
+									label={compressorRatioLabel}
+									info={t("settings.audioEnhancement.compressorRatioInfo")}
 								>
 									<RangeSlider
 										value={config.noise_filter_compressor_ratio ?? 3}
 										min={1}
 										max={32}
 										step={0.5}
-										onChange={(v) =>
-											updateConfigDebounced("noise_filter_compressor_ratio", v)
-										}
-										ariaLabel="Compressor Ratio"
+										onChange={handleCompressorRatioChange}
+										ariaLabel={t(
+											"settings.audioEnhancement.compressorRatioAria",
+										)}
 										suffix=":1"
 									/>
 								</SettingRow>
 							</>
 						)}
 						<SettingRow
-							label="Limiter"
-							info="Brick-wall ceiling to prevent clipping. Catches transient clicks/pops before they reach ASR."
+							label={limiterLabel}
+							info={t("settings.audioEnhancement.limiterInfo")}
 						>
 							<Switch
 								checked={config.noise_filter_limiter ?? true}
-								onCheckedChange={(checked) =>
-									updateConfig({ noise_filter_limiter: checked })
-								}
-								aria-label="Limiter"
+								onCheckedChange={handleLimiterToggle}
+								aria-label={t("settings.audioEnhancement.limiterAria")}
 							/>
 						</SettingRow>
 						{(config.noise_filter_limiter ?? true) && (
 							<SettingRow
-								label="Limiter Ceiling"
-								info="Absolute maximum output level. -6dB prevents clipping while allowing headroom."
+								label={limiterCeilingLabel}
+								info={t("settings.audioEnhancement.limiterCeilingInfo")}
 							>
 								<RangeSlider
 									value={config.noise_filter_limiter_ceiling_db ?? -6}
 									min={-60}
 									max={0}
 									step={1}
-									onChange={(v) =>
-										updateConfigDebounced("noise_filter_limiter_ceiling_db", v)
-									}
-									ariaLabel="Limiter Ceiling"
+									onChange={handleLimiterCeilingChange}
+									ariaLabel={t("settings.audioEnhancement.limiterCeilingAria")}
 									suffix="dB"
 								/>
 							</SettingRow>
 						)}
 						<SettingRow
-							label="Notch Filter (hum)"
-							info="Remove 50/60Hz electrical mains hum. Off by default — only enable if you hear a persistent low buzz."
+							label={notchFilterLabel}
+							info={t("settings.audioEnhancement.notchFilterInfo")}
 						>
 							<Switch
 								checked={config.noise_filter_notch ?? false}
-								onCheckedChange={(checked) =>
-									updateConfig({ noise_filter_notch: checked })
-								}
-								aria-label="Notch Filter"
+								onCheckedChange={handleNotchToggle}
+								aria-label={t("settings.audioEnhancement.notchFilterAria")}
 							/>
 						</SettingRow>
 					</>

@@ -240,7 +240,7 @@ export const SINGLE_KEY_PRESETS: { value: string; label: string }[] = [
  * desktop environments allow reassigning it), so it's still offered.
  */
 export const COMBO_PRESETS: { value: string; label: string }[] = [
-	{ value: "<ctrl>+<alt>+v", label: "Ctrl+Alt+V (default)" },
+	{ value: "<ctrl>+<alt>+v", label: "Ctrl+Alt+V" },
 	{ value: "<ctrl>+<shift>+v", label: "Ctrl+Shift+V" },
 	{ value: "<ctrl>+<alt>+r", label: "Ctrl+Alt+R" },
 	{ value: "<ctrl>+<shift>+r", label: "Ctrl+Shift+R" },

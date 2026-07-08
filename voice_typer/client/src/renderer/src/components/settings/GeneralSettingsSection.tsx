@@ -105,6 +105,30 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 		isVisible(item.label, item.info, overlaySectionTitle),
 	);
 
+	// ── Inline handler extraction ─────────────────────────────────
+	const handleAutostartChange = (checked: boolean) =>
+		updateConfig({ autostart: checked });
+	const handleNotificationsChange = (checked: boolean) =>
+		updateConfig({ show_notifications: checked });
+	const handleTrayClickChange = (v: string) =>
+		updateConfig({
+			tray_left_click_action: v as "open_app" | "toggle_dictation",
+		});
+	const handleBubbleBehaviorChange = (v: string) =>
+		updateConfig({
+			bubble_behavior: v as "show_on_record" | "always_visible",
+		});
+	const handleBubblePositionChange = (v: string) => {
+		updateConfig({ bubble_position: v as "top" | "bottom" });
+		window.bubble?.setPosition?.(v);
+	};
+	const handleBubbleStartupChange = (checked: boolean) =>
+		updateConfig({ bubble_show_on_startup: checked });
+	const handleDragToMoveChange = (checked: boolean) => {
+		updateConfig({ bubble_draggable: checked });
+		window.bubble?.setDraggable?.(checked);
+	};
+
 	return (
 		<>
 			{/* ── SECTION: General ──────────────────────────────────── */}
@@ -113,27 +137,32 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 					title={t("settings.general")}
 					description={t("settings.generalDescription")}
 				>
-					{isVisible(LAUNCH_AT_LOGIN_LABEL, LAUNCH_AT_LOGIN_INFO) && (
+					{isVisible(
+						LAUNCH_AT_LOGIN_LABEL,
+						LAUNCH_AT_LOGIN_INFO,
+						generalSectionTitle,
+					) && (
 						<SettingRow
 							label={LAUNCH_AT_LOGIN_LABEL}
 							info={LAUNCH_AT_LOGIN_INFO}
 						>
 							<Switch
 								checked={config.autostart}
-								onCheckedChange={(checked) =>
-									updateConfig({ autostart: checked })
-								}
+								onCheckedChange={handleAutostartChange}
 								aria-label={LAUNCH_AT_LOGIN_LABEL}
 							/>
 						</SettingRow>
 					)}
-
 					{/* UX-015: App Language selector — distinct from the spoken-language
 						selector in Post-Processing. This controls the Electron UI
 						language via the i18n framework. The choice is persisted to
 						localStorage so it survives restarts, and pushed to the
 						Python backend so the tray menu labels also switch language. */}
-					{isVisible(APP_LANGUAGE_LABEL, APP_LANGUAGE_INFO) && (
+					{isVisible(
+						APP_LANGUAGE_LABEL,
+						APP_LANGUAGE_INFO,
+						generalSectionTitle,
+					) && (
 						<SettingRow label={APP_LANGUAGE_LABEL} info={APP_LANGUAGE_INFO}>
 							<Select
 								value={getLocale()}
@@ -172,42 +201,34 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 							</Select>
 						</SettingRow>
 					)}
-
-					{isVisible(NOTIFICATIONS_LABEL, NOTIFICATIONS_INFO) && (
+					{isVisible(
+						NOTIFICATIONS_LABEL,
+						NOTIFICATIONS_INFO,
+						generalSectionTitle,
+					) && (
 						<SettingRow label={NOTIFICATIONS_LABEL} info={NOTIFICATIONS_INFO}>
 							<Switch
 								checked={config.show_notifications}
-								onCheckedChange={(checked) =>
-									updateConfig({ show_notifications: checked })
-								}
+								onCheckedChange={handleNotificationsChange}
 								aria-label={NOTIFICATIONS_LABEL}
 							/>
 						</SettingRow>
-					)}
-
-					{isVisible(TRAY_CLICK_LABEL, TRAY_CLICK_INFO) && (
+					)}{" "}
+					{isVisible(
+						TRAY_CLICK_LABEL,
+						TRAY_CLICK_INFO,
+						generalSectionTitle,
+					) && (
 						<SettingRow label={TRAY_CLICK_LABEL} info={TRAY_CLICK_INFO}>
-							<Select
+							<SegmentedControl
+								options={TRAY_CLICK_OPTIONS.map((opt) => ({
+									value: opt.value,
+									label: t(opt.labelKey),
+								}))}
 								value={config.tray_left_click_action ?? "open_app"}
-								onValueChange={(v) =>
-									updateConfig({
-										tray_left_click_action: v as
-											| "open_app"
-											| "toggle_dictation",
-									})
-								}
-							>
-								<SelectTrigger className="w-40" aria-label={TRAY_CLICK_LABEL}>
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									{TRAY_CLICK_OPTIONS.map((opt) => (
-										<SelectItem key={opt.value} value={opt.value}>
-											{t(opt.labelKey)}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
+								onChange={handleTrayClickChange}
+								ariaLabel={TRAY_CLICK_LABEL}
+							/>
 						</SettingRow>
 					)}
 				</SettingsSection>
@@ -224,28 +245,15 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 						label={t("settings.bubbleBehaviorLabel")}
 						info={t("settings.bubbleBehaviorInfo")}
 					>
-						<Select
+						<SegmentedControl
+							options={BUBBLE_BEHAVIOR_OPTIONS.map((opt) => ({
+								value: opt.value,
+								label: t(opt.labelKey),
+							}))}
 							value={config.bubble_behavior ?? "show_on_record"}
-							onValueChange={(v) => {
-								updateConfig({
-									bubble_behavior: v as "show_on_record" | "always_visible",
-								});
-							}}
-						>
-							<SelectTrigger
-								className="w-40"
-								aria-label={t("settings.bubbleBehaviorLabel")}
-							>
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								{BUBBLE_BEHAVIOR_OPTIONS.map((opt) => (
-									<SelectItem key={opt.value} value={opt.value}>
-										{t(opt.labelKey)}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
+							onChange={handleBubbleBehaviorChange}
+							ariaLabel={t("settings.bubbleBehaviorLabel")}
+						/>
 					</SettingRow>
 
 					<SettingRow
@@ -258,11 +266,7 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 								{ value: "bottom", label: t("settings.bubblePositionBottom") },
 							]}
 							value={config.bubble_position ?? "bottom"}
-							onChange={(v) => {
-								updateConfig({ bubble_position: v as "top" | "bottom" });
-								// Notify the main process immediately so the bubble repositions.
-								window.bubble?.setPosition?.(v);
-							}}
+							onChange={handleBubblePositionChange}
 							ariaLabel={t("settings.bubblePositionLabel")}
 						/>
 					</SettingRow>
@@ -276,9 +280,7 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 						>
 							<Switch
 								checked={config.bubble_show_on_startup ?? true}
-								onCheckedChange={(checked) =>
-									updateConfig({ bubble_show_on_startup: checked })
-								}
+								onCheckedChange={handleBubbleStartupChange}
 								aria-label={t("settings.showOnAppStartup")}
 							/>
 						</SettingRow>
@@ -290,11 +292,7 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 					>
 						<Switch
 							checked={config.bubble_draggable ?? true}
-							onCheckedChange={(checked) => {
-								updateConfig({ bubble_draggable: checked });
-								// Notify the main process immediately so the bubble responds.
-								window.bubble?.setDraggable?.(checked);
-							}}
+							onCheckedChange={handleDragToMoveChange}
 							aria-label={t("settings.dragToMove")}
 						/>
 					</SettingRow>

@@ -19,14 +19,15 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RangeSlider } from "@/components/RangeSlider";
 import { SettingRow } from "@/components/SettingRow";
 import { SettingsSection } from "@/components/SettingsSection";
+import { SegmentedControl } from "@/components/ui/segmented-control";
 import {
 	Select,
 	SelectContent,
 	SelectItem,
 	SelectTrigger,
-	SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { t } from "@/i18n/i18n";
 import {
 	applyThemeVars,
 	CUSTOM_COLOR_KEYS,
@@ -320,10 +321,12 @@ function getThemePreviewColors(
 	};
 }
 
-const _THEME_OPTIONS = [
-	{ value: "system", label: "System Default" },
-	{ value: "light", label: "Light" },
-	{ value: "dark", label: "Dark" },
+// IMPL-C: option value → i18n label key. Resolved at render time so the
+// labels honour the active UI locale.
+const _THEME_OPTION_KEYS = [
+	{ value: "system", labelKey: "settings.appearance.systemDefault" },
+	{ value: "light", labelKey: "settings.appearance.light" },
+	{ value: "dark", labelKey: "settings.appearance.dark" },
 ] as const;
 
 interface ThemeSettingsSectionProps extends SettingsSectionSharedProps {
@@ -515,33 +518,36 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 
 	if (!config) return <SettingsSkeleton rows={3} />;
 
+	// IMPL-C: resolve i18n keys once per render so the isVisible predicate
+	// and the rendered output share the same translated strings.
+	const colorSchemeLabel = t("settings.appearance.colorScheme");
+	const colorSchemeInfoSearch = t("settings.appearance.colorSchemeInfo");
+	const themePresetLabel = t("settings.appearance.themePreset");
+	const themePresetInfoSearch = t("settings.appearance.themePresetInfo");
+	const customThemeLabel = t("settings.appearance.customTheme");
+	const customThemeInfoSearch = t("settings.appearance.customThemeInfo");
+	const textSizeLabel = t("settings.appearance.textSize");
+	const textSizeInfoSearch = t("settings.appearance.textSizeInfo");
+	const themeOptions = _THEME_OPTION_KEYS.map((opt) => ({
+		value: opt.value,
+		label: t(opt.labelKey),
+	}));
+
 	// FIX (Task ID 6 / Settings Search): capture the section title in a
 	// local constant so the SAME value feeds both the
 	// ``<SettingsSection title="…">`` prop AND the ``isVisible(...)``
 	// predicate's new third argument. This lets the search match the
 	// section heading (e.g. typing "appearance" surfaces every row in
 	// this section even if the row's own label/info don't contain it).
-	const sectionTitle = "Appearance";
+	const sectionTitle = t("settings.appearance.title");
 
 	// UX-028: section-level visibility check — if no row matches the
 	// search filter, hide the entire section.
 	const sectionItems = [
-		{
-			label: "Color Scheme",
-			info: "Switch between light, dark, or follow your system setting.",
-		},
-		{
-			label: "Theme Preset",
-			info: "A built-in color scheme applied on top of your chosen mode.",
-		},
-		{
-			label: "Custom Theme",
-			info: "Create your own color scheme with the color picker.",
-		},
-		{
-			label: "Text Size",
-			info: "Adjust the UI text size for better readability.",
-		},
+		{ label: colorSchemeLabel, info: colorSchemeInfoSearch },
+		{ label: themePresetLabel, info: themePresetInfoSearch },
+		{ label: customThemeLabel, info: customThemeInfoSearch },
+		{ label: textSizeLabel, info: textSizeInfoSearch },
 	];
 	if (
 		!sectionItems.some((item) => isVisible(item.label, item.info, sectionTitle))
@@ -549,72 +555,112 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 		return null;
 	}
 
+	// ── Inline handler extraction ─────────────────────────────────
+	const handleColorSchemeChange = (v: string) => {
+		const m = v as VoiceTyperConfig["theme_mode"];
+		_handleThemeChange(m);
+	};
+	const handleThemePresetChange = (v: string) => {
+		const preset = v as VoiceTyperConfig["theme_preset"];
+		savedPresetRef.current = preset;
+		updateConfig({ theme_preset: preset });
+	};
+	const handleSelectOpenChange = (open: boolean) => {
+		if (open) {
+			userHoveredRef.current = false;
+		} else {
+			revertToSavedPreset();
+		}
+	};
+	const handleThemeHover = (themeId: string) => () => {
+		if (userHoveredRef.current) {
+			applyHoverPreview(themeId);
+		}
+	};
+	const handleCustomThemeToggle = (enabled: boolean) => {
+		if (enabled) {
+			const isDarkOn = document.documentElement.classList.contains("dark");
+			setCustomEditorMode(isDarkOn ? "dark" : "light");
+			const currentColors = getCurrentThemeColors(
+				config.theme_preset ?? "default",
+			);
+			setCustomDraft(currentColors);
+			_saveDraftToLS(currentColors);
+			updateConfig({ theme_preset: "custom", custom_theme: currentColors });
+		} else {
+			const fallback = lastNonCustomRef.current ?? "default";
+			savedPresetRef.current = fallback;
+			_clearDraftLS();
+			updateConfig({ theme_preset: fallback });
+		}
+	};
+	const handleSetLightMode = () => setCustomEditorMode("light");
+	const handleSetDarkMode = () => setCustomEditorMode("dark");
+	const handleColorInputChange =
+		(varName: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
+			handleCustomColorChange(customEditorMode, varName, e.target.value);
+	const handleHexInputChange =
+		(varName: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
+			const val = e.target.value;
+			if (/^#[0-9a-fA-F]{0,6}$/.test(val) || val === "#") {
+				handleCustomColorChange(customEditorMode, varName, val || "#000000");
+			}
+		};
+	const handleResetCustomColors = () => {
+		const defaults: CustomThemeData = {
+			light: { ...DEFAULT_CUSTOM_LIGHT },
+			dark: { ...DEFAULT_CUSTOM_DARK },
+		};
+		setCustomDraft(defaults);
+		_saveDraftToLS(defaults);
+		const isDark = document.documentElement.classList.contains("dark");
+		const modeVars = isDark ? defaults.dark : defaults.light;
+		const derived = deriveCustomVars(modeVars, isDark);
+		applyThemeVars("custom", isDark, derived);
+		_themeColorCache.delete("custom");
+		_themeColorCache.delete("default");
+		updateConfig({ custom_theme: defaults });
+	};
+	const handleTextSizeChange = (v: number) => updateConfig({ text_size: v });
+	const handleSelectMouseMove = () => {
+		userHoveredRef.current = true;
+	};
+
 	return (
 		<SettingsSection
 			title={sectionTitle}
-			description="Color scheme, theme preset, and text sizing."
+			description={t("settings.appearance.description")}
 		>
 			{/* ── Color Scheme (light / dark / system) ───────────── */}
-			{isVisible(
-				"Color Scheme",
-				"Switch between light, dark, or follow your system setting.",
-				sectionTitle,
-			) && (
+			{isVisible(colorSchemeLabel, colorSchemeInfoSearch, sectionTitle) && (
 				<SettingRow
-					label="Color Scheme"
-					info="Switch between light, dark, or follow your system setting."
+					label={colorSchemeLabel}
+					info={t("settings.appearance.colorSchemeInfo")}
 				>
-					<Select
+					<SegmentedControl
+						options={themeOptions}
 						value={themeModeProp ?? config.theme_mode}
-						onValueChange={(v) => {
-							const m = v as VoiceTyperConfig["theme_mode"];
-							_handleThemeChange(m);
-						}}
-					>
-						<SelectTrigger className="w-40" aria-label="Color Scheme">
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							{_THEME_OPTIONS.map((opt) => (
-								<SelectItem key={opt.value} value={opt.value}>
-									{opt.label}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
+						onChange={handleColorSchemeChange}
+						ariaLabel={t("settings.appearance.colorSchemeAria")}
+					/>
 				</SettingRow>
 			)}
 
 			{/* ── Theme Preset selector with hover preview ──────── */}
-			{isVisible(
-				"Theme Preset",
-				"A built-in color scheme applied on top of your chosen mode.",
-				sectionTitle,
-			) && (
+			{isVisible(themePresetLabel, themePresetInfoSearch, sectionTitle) && (
 				<SettingRow
-					label="Theme Preset"
-					info="Choose a built-in color scheme. Hover to preview, click to apply permanently."
+					label={themePresetLabel}
+					info={t("settings.appearance.themePresetInfoRendered")}
 				>
 					<Select
 						value={config.theme_preset ?? "default"}
-						onValueChange={(v) => {
-							const preset = v as VoiceTyperConfig["theme_preset"];
-							savedPresetRef.current = preset;
-							updateConfig({ theme_preset: preset });
-						}}
-						onOpenChange={(open) => {
-							if (open) {
-								// Reset the hover flag so the next open starts fresh —
-								// the spurious onMouseEnter from Radix mounting the
-								// portal under the cursor is ignored until the user
-								// actually moves the mouse.
-								userHoveredRef.current = false;
-							} else {
-								revertToSavedPreset();
-							}
-						}}
+						onValueChange={handleThemePresetChange}
+						onOpenChange={handleSelectOpenChange}
 					>
-						<SelectTrigger className="w-44" aria-label="Theme Preset">
+						<SelectTrigger
+							className="w-44"
+							aria-label={t("settings.appearance.themePresetAria")}
+						>
 							{(() => {
 								const currentId = config.theme_preset ?? "default";
 								const current =
@@ -645,13 +691,11 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 						<SelectContent
 							position="popper"
 							align="start"
-							onMouseMove={() => {
-								userHoveredRef.current = true;
-							}}
+							onMouseMove={handleSelectMouseMove}
 							onMouseLeave={revertToSavedPreset}
 						>
 							{/* Filter out 'custom' from the dropdown — custom is now
-								a toggle switch below this row. */}
+                                                                a toggle switch below this row. */}
 							{THEMES.filter((t) => t.id !== "custom").map((theme) => {
 								const isDark =
 									document.documentElement.classList.contains("dark");
@@ -664,19 +708,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 									<SelectItem
 										key={theme.id}
 										value={theme.id}
-										onMouseEnter={() => {
-											// Only apply the hover preview if the user has
-											// actually moved the mouse inside the content
-											// (see userHoveredRef docs above).  This prevents
-											// the spurious onMouseEnter fired when Radix
-											// mounts the portal under the cursor from
-											// applying the first theme as a "preview" and
-											// making it look like opening the dropdown
-											// changed the theme.
-											if (userHoveredRef.current) {
-												applyHoverPreview(theme.id);
-											}
-										}}
+										onMouseEnter={handleThemeHover(theme.id)}
 									>
 										<span className="flex items-center gap-2.5">
 											<span
@@ -700,48 +732,15 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
                                 When ON, theme_preset is forced to 'custom' and the color
                                 picker appears.  When OFF, the preset reverts to the
                                 previously-selected preset. */}
-			{isVisible(
-				"Custom Theme",
-				"Create your own color scheme with the color picker.",
-				sectionTitle,
-			) && (
+			{isVisible(customThemeLabel, customThemeInfoSearch, sectionTitle) && (
 				<SettingRow
-					label="Custom Theme"
-					info="Create your own color scheme — choose each color manually."
+					label={customThemeLabel}
+					info={t("settings.appearance.customThemeInfoRendered")}
 				>
 					<Switch
 						checked={config.theme_preset === "custom"}
-						onCheckedChange={(enabled) => {
-							if (enabled) {
-								// Switch ON → enable custom theme.
-								// Part C4: open the editor on the tab matching the
-								// user's current dark/light mode (was always "light").
-								const isDarkOn =
-									document.documentElement.classList.contains("dark");
-								setCustomEditorMode(isDarkOn ? "dark" : "light");
-								// Read the current applied theme colors from the DOM
-								// so the color picker starts with the active preset's
-								// colors instead of hardcoded defaults.
-								const currentColors = getCurrentThemeColors(
-									config.theme_preset ?? "default",
-								);
-								setCustomDraft(currentColors);
-								_saveDraftToLS(currentColors);
-								updateConfig({
-									theme_preset: "custom",
-									custom_theme: currentColors,
-								});
-							} else {
-								// Switch OFF → revert to last non-custom preset.
-								// Also clear the localStorage draft since the custom
-								// colors are no longer active.
-								const fallback = lastNonCustomRef.current ?? "default";
-								savedPresetRef.current = fallback;
-								_clearDraftLS();
-								updateConfig({ theme_preset: fallback });
-							}
-						}}
-						aria-label="Custom Theme"
+						onCheckedChange={handleCustomThemeToggle}
+						aria-label={t("settings.appearance.customThemeAria")}
 					/>
 				</SettingRow>
 			)}
@@ -754,25 +753,25 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 					<div className="mb-3 flex gap-1 rounded-lg bg-(--bg-subtle) p-0.5">
 						<button
 							type="button"
-							onClick={() => setCustomEditorMode("light")}
+							onClick={handleSetLightMode}
 							className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
 								customEditorMode === "light"
 									? "bg-(--bg) text-(--text-primary) shadow-xs"
 									: "text-(--text-muted) hover:text-(--text-primary)"
 							}`}
 						>
-							Light
+							{t("settings.appearance.light")}
 						</button>
 						<button
 							type="button"
-							onClick={() => setCustomEditorMode("dark")}
+							onClick={handleSetDarkMode}
 							className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
 								customEditorMode === "dark"
 									? "bg-(--bg) text-(--text-primary) shadow-xs"
 									: "text-(--text-muted) hover:text-(--text-primary)"
 							}`}
 						>
-							Dark
+							{t("settings.appearance.dark")}
 						</button>
 					</div>
 
@@ -793,15 +792,9 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 										<input
 											type="color"
 											value={currentHex}
-											onChange={(e) =>
-												handleCustomColorChange(
-													customEditorMode,
-													varName,
-													e.target.value,
-												)
-											}
+											onChange={handleColorInputChange(varName)}
 											className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-											aria-label={`${label} color`}
+											aria-label={t("settings.appearance.colorAria", { label })}
 										/>
 										<div
 											className="h-8 w-8 rounded-md border border-border shadow-xs"
@@ -819,19 +812,12 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 									<input
 										type="text"
 										value={currentHex}
-										onChange={(e) => {
-											const val = e.target.value;
-											if (/^#[0-9a-fA-F]{0,6}$/.test(val) || val === "#") {
-												handleCustomColorChange(
-													customEditorMode,
-													varName,
-													val || "#000000",
-												);
-											}
-										}}
+										onChange={handleHexInputChange(varName)}
 										className="w-18 shrink-0 rounded border border-border bg-(--bg-subtle) px-1.5 py-1 text-center text-[11px] font-mono text-(--text-primary) outline-none focus:border-ring focus:ring-1 focus:ring-ring"
 										spellCheck={false}
-										aria-label={`${label} hex value`}
+										aria-label={t("settings.appearance.hexValueAria", {
+											label,
+										})}
 									/>
 								</div>
 							);
@@ -839,60 +825,37 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 					</div>
 
 					{/* Reset to defaults.
-						Part C5: the previously-broken "#888" 3-digit hex in
-						DEFAULT_CUSTOM_DARK["--text-muted"] is now "#888888" (6-digit)
-						so the validator accepts the payload — no more "Failed to
-						save settings" toast.
-						Part C6: button is disabled while the draft already matches
-						the defaults (re-enables the moment the user edits a color). */}
+                                                Part C5: the previously-broken "#888" 3-digit hex in
+                                                DEFAULT_CUSTOM_DARK["--text-muted"] is now "#888888" (6-digit)
+                                                so the validator accepts the payload — no more "Failed to
+                                                save settings" toast.
+                                                Part C6: button is disabled while the draft already matches
+                                                the defaults (re-enables the moment the user edits a color). */}
 					<button
 						type="button"
 						disabled={customDraftIsDefault}
-						onClick={() => {
-							const defaults: CustomThemeData = {
-								light: { ...DEFAULT_CUSTOM_LIGHT },
-								dark: { ...DEFAULT_CUSTOM_DARK },
-							};
-							setCustomDraft(defaults);
-							_saveDraftToLS(defaults);
-							// Apply default preview
-							const isDark =
-								document.documentElement.classList.contains("dark");
-							const modeVars = isDark ? defaults.dark : defaults.light;
-							const derived = deriveCustomVars(modeVars, isDark);
-							applyThemeVars("custom", isDark, derived);
-							// Invalidate the colour cache so the next preset-swatch
-							// render re-reads from the (now-default) draft.
-							_themeColorCache.delete("custom");
-							_themeColorCache.delete("default");
-							// Save
-							updateConfig({ custom_theme: defaults });
-						}}
+						onClick={handleResetCustomColors}
 						className="mt-3 w-full rounded-lg border border-border px-3 py-2 text-xs text-(--text-muted) transition-colors hover:bg-(--surface-hover) hover:text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-(--text-muted)"
 					>
-						Reset to Default Colors
+						{t("settings.appearance.resetToDefaultColors")}
 					</button>
 				</div>
 			)}
 
 			{/* ── Text Size ──────────────────────────────────────── */}
-			{isVisible(
-				"Text Size",
-				"Adjust the UI text size for better readability.",
-				sectionTitle,
-			) && (
+			{isVisible(textSizeLabel, textSizeInfoSearch, sectionTitle) && (
 				<SettingRow
-					label="Text Size"
-					info="Adjust the UI text size for better readability. Default is 14px."
+					label={textSizeLabel}
+					info={t("settings.appearance.textSizeInfoRendered")}
 				>
 					<div className="flex items-center gap-3 w-44">
 						<RangeSlider
 							value={config.text_size ?? 14}
-							onChange={(v) => updateConfig({ text_size: v })}
+							onChange={handleTextSizeChange}
 							min={10}
 							max={20}
 							step={1}
-							ariaLabel="Text Size"
+							ariaLabel={t("settings.appearance.textSizeAria")}
 							suffix="px"
 							// UX (Task ID 5): defer the IPC write until the user releases
 							// the slider thumb.  Without this, each pixel of drag fires

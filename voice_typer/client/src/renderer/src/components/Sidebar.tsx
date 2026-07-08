@@ -15,27 +15,27 @@ import { APP_NAME } from "@/branding";
 import { Logo } from "@/components/Logo";
 import { ThemeSwitch } from "@/components/ThemeSwitch";
 import { Button } from "@/components/ui/button";
+import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { Page } from "@/types/ipc";
 
 interface NavItem {
 	id: Page;
-	label: string;
 	icon: IconSvgElement;
 }
 
 const NAV_ITEMS: NavItem[] = [
-	{ id: "home", label: "Home", icon: Home04Icon },
-	{ id: "history", label: "History", icon: HistoryIcon },
-	{ id: "analytics", label: "Analytics", icon: Analytics01Icon },
-	{ id: "templates", label: "Templates", icon: File02Icon },
-	{ id: "vocabulary", label: "Vocabulary", icon: BookOpen02Icon },
-	{ id: "models", label: "Models", icon: AiBrain03Icon },
-	{ id: "microphone", label: "Microphone", icon: Mic02Icon },
-	{ id: "settings", label: "Settings", icon: Settings03Icon },
+	{ id: "home", icon: Home04Icon },
+	{ id: "history", icon: HistoryIcon },
+	{ id: "analytics", icon: Analytics01Icon },
+	{ id: "templates", icon: File02Icon },
+	{ id: "vocabulary", icon: BookOpen02Icon },
+	{ id: "models", icon: AiBrain03Icon },
+	{ id: "microphone", icon: Mic02Icon },
+	{ id: "settings", icon: Settings03Icon },
 	// NEW-UX-009: About/Diagnostics page with version, config info, privacy, help.
-	{ id: "about", label: "About", icon: InformationCircleIcon },
+	{ id: "about", icon: InformationCircleIcon },
 ];
 
 interface SidebarProps {
@@ -93,11 +93,12 @@ export function Sidebar({
 				>
 					{NAV_ITEMS.map((item) => {
 						const isActive = currentPage === item.id;
+						const handleNav = () => onNavigate(item.id);
 						return (
 							<Button
 								key={item.id}
 								variant="ghost"
-								title={collapsed ? item.label : undefined}
+								title={collapsed ? t(`nav.${item.id}`) : undefined}
 								// NEW-A11Y-003: aria-current="page" tells screen readers
 								// which nav item represents the current page.
 								aria-current={isActive ? "page" : undefined}
@@ -109,7 +110,7 @@ export function Sidebar({
 										? "bg-white hover:bg-white border border-border dark:bg-(--bg) dark:hover:bg-(--bg) dark:border-black"
 										: "hover:bg-black/5 dark:hover:bg-white/5",
 								)}
-								onClick={() => onNavigate(item.id)}
+								onClick={handleNav}
 							>
 								<HugeiconsIcon
 									icon={item.icon}
@@ -125,7 +126,7 @@ export function Sidebar({
 											: "max-w-40 opacity-100 filter-none",
 									)}
 								>
-									{item.label}
+									{t(`nav.${item.id}`)}
 								</span>
 							</Button>
 						);

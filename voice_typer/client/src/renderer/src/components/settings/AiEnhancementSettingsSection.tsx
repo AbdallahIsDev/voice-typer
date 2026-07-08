@@ -28,6 +28,7 @@ import { RangeSlider } from "@/components/RangeSlider";
 import { SettingRow } from "@/components/SettingRow";
 import { SettingsSection } from "@/components/SettingsSection";
 import { Switch } from "@/components/ui/switch";
+import { t } from "@/i18n/i18n";
 import { SettingsSkeleton } from "./SettingsSkeleton";
 
 import type { SettingsSectionSharedProps } from "./types";
@@ -47,45 +48,74 @@ export const AiEnhancementSettingsSection = memo(
 		const aiMasterOn = config.ai_enhancement_enabled ?? false;
 		const vocabMasterOn = config.vocabulary_automation_enabled ?? false;
 
+		// IMPL-C: resolve i18n keys once per render so the isVisible predicate
+		// and the rendered output share the same translated strings.
+		const aiEnableLabel = t("settings.aiEnhancement.enable");
+		const aiEnableInfoSearch = t("settings.aiEnhancement.enableInfoSearch");
+		const aiFixGrammarLabel = t("settings.aiEnhancement.fixGrammar");
+		const aiFixGrammarInfoSearch = t(
+			"settings.aiEnhancement.fixGrammarInfoSearch",
+		);
+		const aiAutoPunctuateLabel = t("settings.aiEnhancement.autoPunctuate");
+		const aiAutoPunctuateInfoSearch = t(
+			"settings.aiEnhancement.autoPunctuateInfoSearch",
+		);
+		const aiAutoCapitalizeLabel = t("settings.aiEnhancement.autoCapitalize");
+		const aiAutoCapitalizeInfoSearch = t(
+			"settings.aiEnhancement.autoCapitalizeInfoSearch",
+		);
+
+		const vocabEnableLabel = t("settings.vocabAutomation.enable");
+		const vocabEnableInfoSearch = t(
+			"settings.vocabAutomation.enableInfoSearch",
+		);
+		const vocabSuggestLabel = t(
+			"settings.vocabAutomation.suggestBelowConfidence",
+		);
+		const vocabSuggestInfoSearch = t(
+			"settings.vocabAutomation.suggestBelowConfidenceInfoSearch",
+		);
+		const vocabAutoApplyLabel = t(
+			"settings.vocabAutomation.autoApplyConfidence",
+		);
+		const vocabAutoApplyInfoSearch = t(
+			"settings.vocabAutomation.autoApplyConfidenceInfoSearch",
+		);
+
+		// ── Inline handler extraction ─────────────────────────────────
+		const handleAiEnableChange = (checked: boolean) =>
+			updateConfig({ ai_enhancement_enabled: checked });
+		const handleFixGrammarChange = (checked: boolean) =>
+			updateConfig({ fix_grammar_basics: checked });
+		const handleAutoPunctuateChange = (checked: boolean) =>
+			updateConfig({ auto_punctuate: checked });
+		const handleAutoCapitalizeChange = (checked: boolean) =>
+			updateConfig({ auto_capitalize: checked });
+		const handleVocabEnableChange = (checked: boolean) =>
+			updateConfig({ vocabulary_automation_enabled: checked });
+		const handleSuggestConfidenceChange = (v: number) =>
+			updateConfigDebounced("vocabulary_auto_confidence_threshold", v);
+		const handleAutoApplyConfidenceChange = (v: number) =>
+			updateConfigDebounced("vocabulary_auto_apply_threshold", v);
+
 		// UX-028: section-level visibility check for AI Enhancement section.
-		const aiSectionTitle = "AI Enhancement";
+		const aiSectionTitle = t("settings.aiEnhancement.title");
 		const aiItems = [
-			{
-				label: "Enable AI Enhancement",
-				info: "Apply rule-based grammar fixes, auto-punctuation, and auto-capitalization.",
-			},
-			{
-				label: "Fix Grammar Basics",
-				info: "Capitalize the pronoun 'i', restore missing apostrophes.",
-			},
-			{
-				label: "Auto-Punctuate",
-				info: "Add a period at the end of sentences.",
-			},
-			{
-				label: "Auto-Capitalize",
-				info: "Capitalize the first letter of each sentence.",
-			},
+			{ label: aiEnableLabel, info: aiEnableInfoSearch },
+			{ label: aiFixGrammarLabel, info: aiFixGrammarInfoSearch },
+			{ label: aiAutoPunctuateLabel, info: aiAutoPunctuateInfoSearch },
+			{ label: aiAutoCapitalizeLabel, info: aiAutoCapitalizeInfoSearch },
 		];
 		const aiVisible = aiItems.some((item) =>
 			isVisible(item.label, item.info, aiSectionTitle),
 		);
 
 		// UX-028: section-level visibility check for Vocabulary Automation section.
-		const vocabSectionTitle = "Vocabulary Automation";
+		const vocabSectionTitle = t("settings.vocabAutomation.title");
 		const vocabItems = [
-			{
-				label: "Enable Vocabulary Automation",
-				info: "After each dictation, analyze low-confidence words.",
-			},
-			{
-				label: "Suggest-Below Confidence",
-				info: "Words transcribed with confidence below this threshold.",
-			},
-			{
-				label: "Auto-Apply Confidence",
-				info: "Suggestions with confidence at or above this threshold.",
-			},
+			{ label: vocabEnableLabel, info: vocabEnableInfoSearch },
+			{ label: vocabSuggestLabel, info: vocabSuggestInfoSearch },
+			{ label: vocabAutoApplyLabel, info: vocabAutoApplyInfoSearch },
 		];
 		const vocabVisible = vocabItems.some((item) =>
 			isVisible(item.label, item.info, vocabSectionTitle),
@@ -97,63 +127,55 @@ export const AiEnhancementSettingsSection = memo(
 				{aiVisible && (
 					<SettingsSection
 						title={aiSectionTitle}
-						description="Rule-based grammar, punctuation, and capitalization. Runs offline — no cloud API required."
+						description={t("settings.aiEnhancement.description")}
 					>
 						<div className="animate-fade-in space-y-0 divide-y divide-border">
 							{/* ── Master toggle ── */}
 							<SettingRow
-								label="Enable AI Enhancement"
-								info="Apply rule-based grammar fixes, auto-punctuation, and auto-capitalization to your transcriptions. Runs entirely on-device — no text is sent to any cloud API. Off by default; turn on to apply the three sub-features below."
+								label={aiEnableLabel}
+								info={t("settings.aiEnhancement.enableInfo")}
 							>
 								<Switch
 									checked={aiMasterOn}
-									onCheckedChange={(checked) =>
-										updateConfig({ ai_enhancement_enabled: checked })
-									}
-									aria-label="Enable AI Enhancement"
+									onCheckedChange={handleAiEnableChange}
+									aria-label={t("settings.aiEnhancement.enableAria")}
 								/>
 							</SettingRow>
 
 							{/* ── Sub-toggles (disabled when master is off) ── */}
 							<SettingRow
-								label="Fix Grammar Basics"
-								info="Capitalize the pronoun 'i', restore missing apostrophes in common contractions (dont → don't, cant → can't), and collapse double spaces."
+								label={aiFixGrammarLabel}
+								info={t("settings.aiEnhancement.fixGrammarInfo")}
 							>
 								<Switch
 									checked={config.fix_grammar_basics ?? true}
-									onCheckedChange={(checked) =>
-										updateConfig({ fix_grammar_basics: checked })
-									}
+									onCheckedChange={handleFixGrammarChange}
 									disabled={!aiMasterOn}
-									aria-label="Fix Grammar Basics"
+									aria-label={t("settings.aiEnhancement.fixGrammarAria")}
 								/>
 							</SettingRow>
 
 							<SettingRow
-								label="Auto-Punctuate"
-								info="Add a period at the end of sentences that don't already have terminal punctuation, and insert a comma at natural breath breaks (e.g. before 'and I', 'but you'). Skips URLs, file paths, and code."
+								label={aiAutoPunctuateLabel}
+								info={t("settings.aiEnhancement.autoPunctuateInfo")}
 							>
 								<Switch
 									checked={config.auto_punctuate ?? true}
-									onCheckedChange={(checked) =>
-										updateConfig({ auto_punctuate: checked })
-									}
+									onCheckedChange={handleAutoPunctuateChange}
 									disabled={!aiMasterOn}
-									aria-label="Auto-Punctuate"
+									aria-label={t("settings.aiEnhancement.autoPunctuateAria")}
 								/>
 							</SettingRow>
 
 							<SettingRow
-								label="Auto-Capitalize"
-								info="Capitalize the first letter of each sentence and a small set of proper nouns (weekday and month names, language names). Leaves URLs and existing capitalization untouched."
+								label={aiAutoCapitalizeLabel}
+								info={t("settings.aiEnhancement.autoCapitalizeInfo")}
 							>
 								<Switch
 									checked={config.auto_capitalize ?? true}
-									onCheckedChange={(checked) =>
-										updateConfig({ auto_capitalize: checked })
-									}
+									onCheckedChange={handleAutoCapitalizeChange}
 									disabled={!aiMasterOn}
-									aria-label="Auto-Capitalize"
+									aria-label={t("settings.aiEnhancement.autoCapitalizeAria")}
 								/>
 							</SettingRow>
 						</div>
@@ -164,42 +186,35 @@ export const AiEnhancementSettingsSection = memo(
 				{vocabVisible && (
 					<SettingsSection
 						title={vocabSectionTitle}
-						description="Suggest vocabulary corrections based on transcription confidence. Off by default — enable to start collecting suggestions."
+						description={t("settings.vocabAutomation.description")}
 					>
 						<div className="animate-fade-in space-y-0 divide-y divide-border">
 							{/* ── Master toggle ── */}
 							<SettingRow
-								label="Enable Vocabulary Automation"
-								info="After each dictation, analyze low-confidence words and suggest vocabulary corrections. Suggestions above the auto-apply threshold are added to your vocabulary automatically; the rest are queued for you to review on the Vocabulary page."
+								label={vocabEnableLabel}
+								info={t("settings.vocabAutomation.enableInfo")}
 							>
 								<Switch
 									checked={vocabMasterOn}
-									onCheckedChange={(checked) =>
-										updateConfig({
-											vocabulary_automation_enabled: checked,
-										})
-									}
-									aria-label="Enable Vocabulary Automation"
+									onCheckedChange={handleVocabEnableChange}
+									aria-label={t("settings.vocabAutomation.enableAria")}
 								/>
 							</SettingRow>
 
 							{/* ── Confidence threshold ── */}
 							<SettingRow
-								label="Suggest-Below Confidence"
-								info="Words transcribed with confidence below this threshold are flagged for review. 0.7 is a good default — lower values (e.g. 0.5) flag only very uncertain words; higher values (e.g. 0.85) flag more aggressively but may produce false positives."
+								label={vocabSuggestLabel}
+								info={t("settings.vocabAutomation.suggestBelowConfidenceInfo")}
 							>
 								<RangeSlider
 									value={config.vocabulary_auto_confidence_threshold ?? 0.7}
 									min={0}
 									max={1}
 									step={0.05}
-									onChange={(v) =>
-										updateConfigDebounced(
-											"vocabulary_auto_confidence_threshold",
-											v,
-										)
-									}
-									ariaLabel="Suggest-Below Confidence"
+									onChange={handleSuggestConfidenceChange}
+									ariaLabel={t(
+										"settings.vocabAutomation.suggestBelowConfidenceAria",
+									)}
 									disabled={!vocabMasterOn}
 									suffix=""
 								/>
@@ -207,18 +222,18 @@ export const AiEnhancementSettingsSection = memo(
 
 							{/* ── Auto-apply threshold ── */}
 							<SettingRow
-								label="Auto-Apply Confidence"
-								info="Suggestions with confidence at or above this threshold are added to your vocabulary without asking. 0.95 is conservative — only very high-confidence corrections are auto-applied. Set to 1.0 to disable auto-apply entirely (review every suggestion manually)."
+								label={vocabAutoApplyLabel}
+								info={t("settings.vocabAutomation.autoApplyConfidenceInfo")}
 							>
 								<RangeSlider
 									value={config.vocabulary_auto_apply_threshold ?? 0.95}
 									min={0}
 									max={1}
 									step={0.05}
-									onChange={(v) =>
-										updateConfigDebounced("vocabulary_auto_apply_threshold", v)
-									}
-									ariaLabel="Auto-Apply Confidence"
+									onChange={handleAutoApplyConfidenceChange}
+									ariaLabel={t(
+										"settings.vocabAutomation.autoApplyConfidenceAria",
+									)}
 									disabled={!vocabMasterOn}
 									suffix=""
 								/>

@@ -6,24 +6,25 @@ import {
 import type { IconSvgElement } from "@hugeicons/react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback } from "react";
+import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 import type { VoiceTyperConfig } from "@/types/config";
 
 const THEME_CYCLE: {
 	mode: VoiceTyperConfig["theme_mode"];
 	icon: IconSvgElement;
-	label: string;
+	labelKey: string;
 }[] = [
-	{ mode: "light", icon: Sun01Icon, label: "Light" },
-	{ mode: "dark", icon: Moon02Icon, label: "Dark" },
-	{ mode: "system", icon: ModernTvIcon, label: "System" },
+	{ mode: "light", icon: Sun01Icon, labelKey: "theme.light" },
+	{ mode: "dark", icon: Moon02Icon, labelKey: "theme.dark" },
+	{ mode: "system", icon: ModernTvIcon, labelKey: "theme.system" },
 ];
 
 /** Get the next mode in the cycle. Light → Dark → System → Light */
 function nextMode(
 	current: VoiceTyperConfig["theme_mode"],
 ): VoiceTyperConfig["theme_mode"] {
-	const idx = THEME_CYCLE.findIndex((t) => t.mode === current);
+	const idx = THEME_CYCLE.findIndex((item) => item.mode === current);
 	return THEME_CYCLE[(idx + 1) % THEME_CYCLE.length].mode;
 }
 
@@ -32,14 +33,14 @@ interface ThemeSwitchProps {
 	onThemeChange: (mode: VoiceTyperConfig["theme_mode"]) => void;
 	collapsed?: boolean;
 }
-
 export function ThemeSwitch({
 	themeMode,
 	onThemeChange,
 	collapsed = false,
 }: ThemeSwitchProps) {
 	const current =
-		THEME_CYCLE.find((t) => t.mode === themeMode) ?? THEME_CYCLE[0];
+		THEME_CYCLE.find((item) => item.mode === themeMode) ?? THEME_CYCLE[0];
+	const label = t(current.labelKey);
 
 	const handleClick = useCallback(() => {
 		onThemeChange(nextMode(themeMode));
@@ -54,8 +55,8 @@ export function ThemeSwitch({
 				"hover:bg-black/5 dark:hover:bg-white/10",
 				collapsed ? "h-7 w-7 justify-center gap-0" : "h-7 px-2.5 gap-2",
 			)}
-			title={`${current.label} mode — click to switch`}
-			aria-label={`Current theme: ${current.label}. Click to switch.`}
+			title={t("theme.switchTitle", { mode: label })}
+			aria-label={t("theme.switchAriaLabel", { mode: label })}
 		>
 			<HugeiconsIcon
 				icon={current.icon}
@@ -71,7 +72,7 @@ export function ThemeSwitch({
 						: "max-w-16 opacity-100",
 				)}
 			>
-				{current.label}
+				{label}
 			</span>
 		</button>
 	);

@@ -3,12 +3,11 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/ui/select";
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import {
 	COMBO_PRESETS,
@@ -90,6 +89,19 @@ export function HotkeyPicker({
 	// release detection from partially assigning a modifier when the full
 	// combination (e.g. Shift+Z) was rejected as invalid.
 	const nonModifierSeenRef = useRef(false);
+	// HOTKEY-DEFER-001 (Task 2.3/2.4): candidate hotkey captured on
+	// keyDOWN but NOT yet committed. The assignment is deferred to
+	// keyUP of the main key so the key is no longer physically held
+	// when the IPC set_config reaches the backend — this eliminates
+	// the race where the newly-registered backend sees the still-held
+	// key as a fresh press and immediately triggers recording.
+	// The candidate is { mods: Set<string>, mainKey: string } | null.
+	// null means no non-modifier key has been pressed yet in this
+	// capture session (modifier-only release detection handles that
+	// case separately in handleKeyUp).
+	const candidateRef = useRef<{ mods: Set<string>; mainKey: string } | null>(
+		null,
+	);
 
 	useEffect(() => {
 		recordingRef.current = recording;
@@ -130,6 +142,7 @@ export function HotkeyPicker({
 			}
 		};
 	}, []);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: mode and onChange ARE used inside the callback (mode is checked, onChange is called). Biome's heuristic incorrectly flags them as unnecessary. ESC-FIX-002: onCaptureEnd removed from deps → read from ref.
 	const handleKeyDown = useCallback(
 		(e: KeyboardEvent) => {
 			if (!recordingRef.current) return;
@@ -150,6 +163,9 @@ export function HotkeyPicker({
 				setRecording(false);
 				setError(null);
 				modifierHeldRef.current.clear();
+				// HOTKEY-DEFER-001: clear any pending candidate so a
+				// stale keyUP after Esc doesn't commit a hotkey.
+				candidateRef.current = null;
 				// ESC-FIX-001 / 002: read from ref so we always call the
 				// latest onCaptureEnd without depending on it in deps.
 				onCaptureEndRef.current?.();
@@ -174,41 +190,25 @@ export function HotkeyPicker({
 			nonModifierSeenRef.current = true;
 
 			const isModifier = e.code in MODIFIER_CODE_TO_PYNPUT;
-			if (mode === "single") {
-				if (isModifier) return;
-				// HOTKEY-FIX-002: use e.code (layout-independent) instead
-				// of e.key (layout-dependent) so the lookup works on
-				// AZERTY, Dvorak, etc. The KEY_CODE_TO_PYNPUT table now
-				// includes letters and digits (was missing in Round 0).
-				const pynputName = KEY_CODE_TO_PYNPUT[e.code];
-				if (!pynputName) {
-					setError(`Key "${e.key}" is not supported as a hotkey.`);
-					return;
-				}
-				const newHotkey = `<${pynputName}>`;
-				const validationError = validateHotkey(newHotkey, mode);
-				if (validationError) {
-					setError(validationError);
-					return;
-				}
-				onChange(newHotkey);
-				setError(null);
-				setRecording(false);
-				modifierHeldRef.current.clear();
-				onCaptureEndRef.current?.();
-				return;
-			}
-
 			if (isModifier) return;
 
+			// HOTKEY-FIX-002: use e.code (layout-independent) instead
+			// of e.key (layout-dependent) so the lookup works on
+			// AZERTY, Dvorak, etc. The KEY_CODE_TO_PYNPUT table now
+			// includes letters and digits (was missing in Round 0).
+			const pynputName = KEY_CODE_TO_PYNPUT[e.code];
+
+			// Build the held-modifiers list for BOTH single and combo
+			// modes. In single mode the dictation key ignores modifiers
+			// (a single key only), but we still need them for the error
+			// message so the user sees "Shift+Z is not supported"
+			// instead of just "Key 'Z' is not supported".
 			const mods: string[] = [];
 			if (e.ctrlKey) mods.push("ctrl");
 			if (e.shiftKey) mods.push("shift");
 			if (e.altKey) mods.push("alt");
 			if (e.metaKey) mods.push(IS_MAC ? "cmd" : "win");
 
-			// HOTKEY-FIX-002: use e.code (layout-independent).
-			const pynputName = KEY_CODE_TO_PYNPUT[e.code];
 			if (!pynputName) {
 				// HOTKEY-FIX-003 (Round 1): include held modifiers in
 				// the error message so the user sees the complete
@@ -216,6 +216,8 @@ export function HotkeyPicker({
 				// pressing Shift+Z showed "Key 'Z' is not supported" —
 				// dropping the Shift modifier entirely. Now it shows
 				// "Shift+Z is not supported" (or the full combo).
+				// This now applies to BOTH single and combo modes
+				// (Task 2.2 — previously single mode was missed).
 				const attemptedCombo =
 					mods.length > 0 ? `${mods.join("+")}+${e.key}` : e.key;
 				setError(
@@ -224,53 +226,117 @@ export function HotkeyPicker({
 				return;
 			}
 
-			const parts = [...mods, pynputName];
-			const newHotkey = parts.map((p) => `<${p}>`).join("+");
+			// HOTKEY-DEFER-001 (Task 2.3/2.4): capture the candidate but
+			// DON'T commit yet. The assignment is deferred to keyUP of
+			// this main key so the key is no longer physically held when
+			// the IPC set_config reaches the backend. This eliminates the
+			// race where the newly-registered backend's polling loop sees
+			// the still-held key as a fresh press and immediately fires
+			// the dictation callback.
+			//
+			// In single mode, mods are ignored at commit time (the
+			// dictation key is a single key only), but we store them so
+			// the error message at keyUP can still show the full combo
+			// if validation fails.
+			candidateRef.current = {
+				mods: new Set(mods),
+				mainKey: pynputName,
+			};
+			// Clear any prior error so the user sees the candidate is
+			// pending (the error from a previous failed attempt would
+			// otherwise stay visible during the new attempt).
+			setError(null);
+		},
+		[mode, onChange],
+	);
+
+	// HOTKEY-DEFER-001 (Task 2.3/2.4): commit the candidate on keyUP of the
+	// main key. This is the unified assignment path for ALL non-modifier
+	// keys (Tab, Caps Lock, Delete, Insert, Home, End, Page Up/Down, F-keys,
+	// letters, digits, etc.). Previously only modifiers (Ctrl/Shift/Alt/Cmd)
+	// used the keyUP assignment path; every other key was assigned on
+	// keyDOWN while still held, causing the capture-triggers-recording race.
+	//
+	// Modifier-only release detection (for <alt>, <ctrl>, <shift>, <cmd>/<win>
+	// as single-key triggers) is preserved below — it fires when the last
+	// held modifier is released and no non-modifier key was pressed.
+	const handleKeyUp = useCallback(
+		(e: KeyboardEvent) => {
+			if (!recordingRef.current) return;
+
+			const modifierCode = MODIFIER_CODE_TO_PYNPUT[e.code];
+			if (modifierCode) {
+				// Modifier key release — update held set.
+				modifierHeldRef.current.delete(modifierCode);
+				// Modifier-only release detection (single mode only):
+				// if the user pressed a modifier and released it without
+				// pressing any other key, treat that modifier alone as
+				// the chosen hotkey. The nonModifierSeenRef guard
+				// prevents partial assignment when a combination
+				// (Shift+Z) was rejected but the modifier release still
+				// fires.
+				if (
+					mode === "single" &&
+					modifierHeldRef.current.size === 0 &&
+					!nonModifierSeenRef.current &&
+					!candidateRef.current
+				) {
+					const newHotkey = `<${modifierCode}>`;
+					const validationError = validateHotkey(newHotkey, mode);
+					if (validationError) {
+						setError(validationError);
+						return;
+					}
+					onChange(newHotkey);
+					setError(null);
+					recordingRef.current = false;
+					setRecording(false);
+					candidateRef.current = null;
+					onCaptureEndRef.current?.();
+				}
+				return;
+			}
+
+			// Non-modifier key release — commit the candidate if one is
+			// pending. The candidate was captured on keyDOWN; this keyUP
+			// is the signal that the user has released the main key, so
+			// it's now safe to commit (the key is no longer physically
+			// held, eliminating the capture-triggers-recording race).
+			const candidate = candidateRef.current;
+			if (!candidate) return;
+			// Only commit on the keyUP of the main key that was pressed.
+			// Ignore keyUP of other non-modifier keys (e.g. if the user
+			// presses Tab then accidentally hits Space, the Space keyUP
+			// shouldn't commit the Tab candidate).
+			const pynputName = KEY_CODE_TO_PYNPUT[e.code];
+			if (pynputName !== candidate.mainKey) return;
+
+			// Build the hotkey string. In single mode, mods are ignored
+			// (dictation key is a single key only). In combo mode, mods
+			// are part of the hotkey.
+			let newHotkey: string;
+			if (mode === "single") {
+				newHotkey = `<${candidate.mainKey}>`;
+			} else {
+				const parts = [...candidate.mods, candidate.mainKey];
+				newHotkey = parts.map((p) => `<${p}>`).join("+");
+			}
+
 			const validationError = validateHotkey(newHotkey, mode);
 			if (validationError) {
 				setError(validationError);
+				candidateRef.current = null;
 				return;
 			}
 			onChange(newHotkey);
 			setError(null);
+			recordingRef.current = false;
 			setRecording(false);
 			modifierHeldRef.current.clear();
+			candidateRef.current = null;
 			onCaptureEndRef.current?.();
 		},
-		[mode, onChange], // ESC-FIX-002: onCaptureEnd removed from deps → read from ref
-	);
-
-	// Detect modifier-only release (single mode): if the user pressed a
-	// modifier and released it without pressing any other key, treat that
-	// as the chosen hotkey. This enables <alt>, <ctrl>, <shift>, <cmd>/<win>
-	// as single-key triggers.
-	const handleKeyUp = useCallback(
-		(e: KeyboardEvent) => {
-			if (!recordingRef.current) return;
-			if (mode !== "single") return;
-			const modifierCode = MODIFIER_CODE_TO_PYNPUT[e.code];
-			if (!modifierCode) return;
-
-			modifierHeldRef.current.delete(modifierCode);
-			// If this was the last held modifier and no non-modifier key was
-			// pressed during this capture session, treat the modifier alone
-			// as the hotkey.  The ``nonModifierSeenRef`` guard prevents
-			// partial assignment when a combination (Shift+Z) was rejected
-			// but the modifier release still fires (e.g. Shift keyup).
-			if (modifierHeldRef.current.size === 0 && !nonModifierSeenRef.current) {
-				const newHotkey = `<${modifierCode}>`;
-				const validationError = validateHotkey(newHotkey, mode);
-				if (validationError) {
-					setError(validationError);
-					return;
-				}
-				onChange(newHotkey);
-				setError(null);
-				setRecording(false);
-				onCaptureEndRef.current?.();
-			}
-		},
-		[mode, onChange], // ESC-FIX-002: onCaptureEnd removed from deps → read from ref
+		[mode, onChange],
 	);
 
 	const startRecording = useCallback(() => {
@@ -284,6 +350,9 @@ export function HotkeyPicker({
 		// HOTKEY-FIX-005: fresh capture session — reset the flag so
 		// modifier-only release detection works on the next attempt.
 		nonModifierSeenRef.current = false;
+		// HOTKEY-DEFER-001: clear any stale candidate from a previous
+		// capture session.
+		candidateRef.current = null;
 		// ESC-FIX-001/002: read from ref so we always call the latest
 		// onCaptureStart without depending on it in deps.
 		onCaptureStartRef.current?.();
@@ -298,6 +367,9 @@ export function HotkeyPicker({
 		setError(null);
 		modifierHeldRef.current.clear();
 		nonModifierSeenRef.current = false;
+		// HOTKEY-DEFER-001: clear any pending candidate so a stale
+		// keyUP after cancel doesn't commit a hotkey.
+		candidateRef.current = null;
 		if (timeoutRef.current) clearTimeout(timeoutRef.current);
 		// ESC-FIX-001/002: read from ref so we always call the latest
 		// onCaptureEnd without depending on it in deps.
@@ -312,14 +384,8 @@ export function HotkeyPicker({
 	// custom values and map them to a "__custom__" sentinel that
 	// displays the actual hotkey label, so the dropdown always shows
 	// something meaningful.
-	const _CUSTOM_SENTINEL = "__custom__";
 	const rawPresetValue = mode === "single" ? value.replace(/[<>]/g, "") : value;
 	const isPresetValue = presets.some((opt) => opt.value === rawPresetValue);
-	const presetValue = isPresetValue
-		? rawPresetValue
-		: value
-			? _CUSTOM_SENTINEL
-			: "";
 	const customLabel = value ? formatHotkeyLabel(value) : "";
 
 	return (
@@ -348,47 +414,76 @@ export function HotkeyPicker({
 					)}
 				</Button>
 
-				<Select
-					value={presetValue}
-					onValueChange={(v) => {
-						// HOTKEY-FIX-004: ignore the "__custom__"
-						// sentinel — it's display-only, not a real
-						// choice. The user picks it via the capture
-						// button instead.
-						if (v === _CUSTOM_SENTINEL) return;
-						const newValue = mode === "single" ? `<${v}>` : v;
-						const validationError = validateHotkey(newValue, mode);
-						if (validationError) {
-							setError(validationError);
-						} else {
-							setError(null);
-							onChange(newValue);
-						}
-					}}
-				>
-					<SelectTrigger
-						className="w-40"
-						aria-label={`Preset hotkeys \u2014 ${ariaLabel}`}
-					>
-						<SelectValue placeholder="Presets\u2026" />
-					</SelectTrigger>
-					<SelectContent>
+				<DropdownMenu>
+					<DropdownMenuTrigger asChild>
+						<Button
+							variant="outline"
+							size="sm"
+							className="w-40 justify-between font-mono"
+							aria-label={`Preset hotkeys \u2014 ${ariaLabel}`}
+						>
+							<span>
+								{(() => {
+									if (!value) return "Presets\u2026";
+									if (isPresetValue) {
+										const opt = presets.find((o) => o.value === rawPresetValue);
+										return opt?.label ?? formatHotkeyLabel(value);
+									}
+									return `Custom: ${customLabel}`;
+								})()}
+							</span>
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								strokeWidth="2"
+								strokeLinecap="round"
+								strokeLinejoin="round"
+								className="h-4 w-4 opacity-50"
+								aria-hidden="true"
+							>
+								<path d="m6 9 6 6 6-6" />
+							</svg>
+						</Button>
+					</DropdownMenuTrigger>
+					<DropdownMenuContent className="w-40" align="start">
 						{presets.map((opt) => (
-							<SelectItem key={opt.value} value={opt.value}>
+							<DropdownMenuItem
+								key={opt.value}
+								onSelect={() => {
+									const newValue =
+										mode === "single" ? `<${opt.value}>` : opt.value;
+									const validationError = validateHotkey(newValue, mode);
+									if (validationError) {
+										setError(validationError);
+									} else {
+										setError(null);
+										onChange(newValue);
+									}
+								}}
+							>
 								{opt.label}
-							</SelectItem>
+							</DropdownMenuItem>
 						))}
-						{/* HOTKEY-FIX-004: show "Custom: <hotkey>" when
-                                                    the current value is not a preset. This
-                                                    prevents the dropdown from appearing empty. */}
 						{!isPresetValue && value && (
-							<SelectItem value={_CUSTOM_SENTINEL}>
+							<DropdownMenuItem
+								disabled
+								className="text-(--text-muted) cursor-default"
+							>
 								Custom: {customLabel}
-							</SelectItem>
+							</DropdownMenuItem>
 						)}
-					</SelectContent>
-				</Select>
+					</DropdownMenuContent>
+				</DropdownMenu>
 			</div>
+			{recording && (
+				<p className="text-xs text-(--text-muted)" role="status">
+					Press a key to assign, or press Esc to cancel
+				</p>
+			)}
 			{error && (
 				<p className="text-xs text-destructive" role="alert">
 					{error}
