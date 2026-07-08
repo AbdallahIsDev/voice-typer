@@ -885,6 +885,14 @@ class IPCServer(
         "get_volume_backend_status": "_handle_get_volume_backend_status",
         "get_audio_status": "_handle_get_audio_status",
         "get_model_status": "_handle_get_model_status",
+        # ADR-0009 Issue 3: prewarm cache status (Hot/Partial/Cold label,
+        # cache ratio, last-run timestamp, elapsed seconds) for the About
+        # page's "Cache Status" card.
+        "get_prewarm_status": "_handle_get_prewarm_status",
+        # Task 3: manually trigger a prewarm run (force=True) from the
+        # About page's "Run Prewarm Now" button. Spawns a detached
+        # subprocess; the frontend polls get_prewarm_status to track it.
+        "run_prewarm": "_handle_run_prewarm",
         "get_vocabulary": "_handle_get_vocabulary",
         "save_vocabulary": "_handle_save_vocabulary",
         "get_templates": "_handle_get_templates",
