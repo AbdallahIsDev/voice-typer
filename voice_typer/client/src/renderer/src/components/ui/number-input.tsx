@@ -82,11 +82,24 @@ function NumberInput({
 		}
 	};
 
+	const handleIncrease = (e: React.MouseEvent) => {
+		e.preventDefault();
+		stepValue(1);
+	};
+
+	const handleDecrease = (e: React.MouseEvent) => {
+		e.preventDefault();
+		stepValue(-1);
+	};
+
+	const handleMouseEnter = () => setShowButtons(true);
+	const handleMouseLeave = () => setShowButtons(false);
+
 	return (
 		<fieldset
 			className="relative inline-flex items-center border-0 p-0 m-0"
-			onMouseEnter={() => setShowButtons(true)}
-			onMouseLeave={() => setShowButtons(false)}
+			onMouseEnter={handleMouseEnter}
+			onMouseLeave={handleMouseLeave}
 		>
 			<input
 				type="number"
@@ -119,10 +132,7 @@ function NumberInput({
 					type="button"
 					tabIndex={-1}
 					aria-label="Increase"
-					onClick={(e) => {
-						e.preventDefault();
-						stepValue(1);
-					}}
+					onClick={handleIncrease}
 					className="flex h-[9px] w-[14px] items-center justify-center rounded-[2px] text-(--text-muted) hover:text-(--text-primary) hover:bg-(--accent-soft) transition-colors"
 				>
 					<svg width="8" height="5" viewBox="0 0 8 5" fill="none" aria-hidden>
@@ -134,10 +144,7 @@ function NumberInput({
 					type="button"
 					tabIndex={-1}
 					aria-label="Decrease"
-					onClick={(e) => {
-						e.preventDefault();
-						stepValue(-1);
-					}}
+					onClick={handleDecrease}
 					className="flex h-[9px] w-[14px] items-center justify-center rounded-[2px] text-(--text-muted) hover:text-(--text-primary) hover:bg-(--accent-soft) transition-colors"
 				>
 					<svg width="8" height="5" viewBox="0 0 8 5" fill="none" aria-hidden>

@@ -61,7 +61,7 @@ describe("SegmentedControl (default variant)", () => {
 		expect(screen.getByText("Right")).toBeInTheDocument();
 	});
 
-	it("applies default variant class names (rounded-xl, border, p-1)", () => {
+	it("applies default variant class names (rounded-full, border, p-0.75)", () => {
 		render(
 			<SegmentedControl
 				options={TWO_OPTIONS}
@@ -72,9 +72,9 @@ describe("SegmentedControl (default variant)", () => {
 		);
 
 		const fieldset = screen.getByRole("radiogroup");
-		expect(fieldset.className).toContain("rounded-xl");
+		expect(fieldset.className).toContain("rounded-full");
 		expect(fieldset.className).toContain("border");
-		expect(fieldset.className).toContain("p-1");
+		expect(fieldset.className).toContain("p-0.75");
 	});
 
 	it("marks the active option as checked", () => {
@@ -168,7 +168,7 @@ describe("SegmentedControl (default variant)", () => {
 		expect(rightLabel?.className).toContain("text-(--text-muted)");
 	});
 
-	it("renders labels with text-sm", () => {
+	it("renders labels with text-[11px]", () => {
 		render(
 			<SegmentedControl
 				options={TWO_OPTIONS}
@@ -181,7 +181,7 @@ describe("SegmentedControl (default variant)", () => {
 		const radios = screen.getAllByRole("radio");
 		for (const radio of radios) {
 			const label = radio.closest("label");
-			expect(label?.className).toContain("text-sm");
+			expect(label?.className).toContain("text-[11px]");
 		}
 	});
 });
@@ -442,6 +442,6 @@ describe("SegmentedControl className prop", () => {
 
 		const group = screen.getByRole("radiogroup");
 		expect(group.className).toContain("w-full");
-		expect(group.className).toContain("rounded-xl");
+		expect(group.className).toContain("rounded-full");
 	});
 });

@@ -13,6 +13,11 @@ export function SearchField({
 	onChange,
 	placeholder = "Search...",
 }: SearchFieldProps) {
+	const handleChange = (e: React.ChangeEvent<HTMLInputElement>) =>
+		onChange(e.target.value);
+
+	const handleClear = () => onChange("");
+
 	return (
 		<div className="relative">
 			<HugeiconsIcon
@@ -22,14 +27,14 @@ export function SearchField({
 			/>
 			<Input
 				value={value}
-				onChange={(e) => onChange(e.target.value)}
+				onChange={handleChange}
 				placeholder={placeholder}
 				className="pl-9 rounded-xl bg-(--bg-subtle) border-border"
 			/>
 			{value && (
 				<button
 					type="button"
-					onClick={() => onChange("")}
+					onClick={handleClear}
 					aria-label="Clear search"
 					className="absolute right-3 top-1/2 -translate-y-1/2 text-(--text-muted) hover:text-(--text-primary)"
 				>

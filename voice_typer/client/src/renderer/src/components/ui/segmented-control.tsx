@@ -80,17 +80,31 @@ export function SegmentedControl<T extends string>({
 	);
 
 	// Re-measure when the active value or the container size changes.
+	const measureElement = useCallback(
+		(el: HTMLElement, container: HTMLElement) => {
+			const containerRect = container.getBoundingClientRect();
+			const elRect = el.getBoundingClientRect();
+			// BORDER-FIX: getBoundingClientRect() returns border-box coordinates,
+			// but CSS position:absolute inside position:relative is relative to
+			// the PADDING box (inside the border).  Since the container has
+			// `border border-border` (1 px), we must subtract the left border
+			// width so the indicator pill aligns pixel‑perfectly with the label.
+			// container.clientLeft returns the left border width in pixels.
+			const borderLeft = container.clientLeft || 0;
+			return {
+				left: elRect.left - containerRect.left - borderLeft,
+				width: elRect.width,
+			};
+		},
+		[],
+	);
+
 	const updateIndicator = useCallback(() => {
 		const el = labelRefs.current.get(value);
 		const container = containerRef.current;
 		if (!el || !container) return;
-		const containerRect = container.getBoundingClientRect();
-		const elRect = el.getBoundingClientRect();
-		setIndicatorStyle({
-			left: elRect.left - containerRect.left,
-			width: elRect.width,
-		});
-	}, [value]);
+		setIndicatorStyle(measureElement(el, container));
+	}, [value, measureElement]);
 
 	// Use a ResizeObserver so the indicator repositions on container resize.
 	const [resizeObserver] = useState(
@@ -116,7 +130,7 @@ export function SegmentedControl<T extends string>({
 			role="radiogroup"
 			aria-label={ariaLabel}
 			className={cn(
-				"relative inline-flex items-center rounded-xl border border-border bg-input p-1",
+				"relative inline-flex items-center rounded-full border border-border bg-input/50 p-0.75",
 				className,
 			)}
 		>
@@ -124,7 +138,7 @@ export function SegmentedControl<T extends string>({
 			{indicatorStyle && (
 				<div
 					className={cn(
-						"pointer-events-none absolute z-0 inset-y-1 rounded-lg transition-all duration-200 ease-out",
+						"pointer-events-none absolute z-0 inset-y-0.75 rounded-full transition-all duration-200 ease-out",
 						"bg-primary shadow-xs",
 						indicatorClassName,
 					)}
@@ -137,14 +151,30 @@ export function SegmentedControl<T extends string>({
 
 			{options.map((opt) => {
 				const active = opt.value === value;
+				const handleRadioChange = () => {
+					if (active) return;
+					onChange(opt.value);
+					// Schedule a measurement after the DOM updates.
+					// NOTE: we capture opt.value here (the clicked value, which
+					// will be the new active one after re-render) rather than
+					// relying on updateIndicator() which captures the stale
+					// `value` prop from its closure.
+					requestAnimationFrame(() => {
+						const el = labelRefs.current.get(opt.value);
+						const container = containerRef.current;
+						if (el && container) {
+							setIndicatorStyle(measureElement(el, container));
+						}
+					});
+				};
 				return (
 					<label
 						key={opt.value}
 						ref={getLabelRef(opt.value)}
 						className={cn(
-							"relative z-10 cursor-pointer font-medium outline-none transition-colors duration-150",
+							"relative z-10 cursor-pointer font-normal outline-none transition-colors duration-150",
 							"select-none whitespace-nowrap",
-							"rounded-lg px-4 py-1.5 text-sm",
+							"rounded-full px-2 py-1 text-[11px] tracking-wider",
 							labelClassName,
 							active && ["text-primary-foreground", activeClassName],
 							!active && "text-(--text-muted) hover:text-(--text-primary)",
@@ -154,13 +184,7 @@ export function SegmentedControl<T extends string>({
 							type="radio"
 							name={ariaLabel || "segmented-control"}
 							checked={active}
-							onChange={() => {
-								if (!active) {
-									onChange(opt.value);
-									// Schedule a measurement after the DOM updates.
-									requestAnimationFrame(() => updateIndicator());
-								}
-							}}
+							onChange={handleRadioChange}
 							className="sr-only"
 						/>
 						{opt.label}

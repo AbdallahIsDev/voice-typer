@@ -44,6 +44,10 @@ export class ErrorBoundary extends Component<
 		this.setState({ hasError: false, error: null });
 	};
 
+	handleReload = (): void => {
+		window.location.reload();
+	};
+
 	render(): ReactNode {
 		if (this.state.hasError) {
 			if (this.props.fallback) {
@@ -77,7 +81,7 @@ export class ErrorBoundary extends Component<
 						</button>
 						<button
 							type="button"
-							onClick={() => window.location.reload()}
+							onClick={this.handleReload}
 							className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--bg-card)"
 						>
 							Reload App

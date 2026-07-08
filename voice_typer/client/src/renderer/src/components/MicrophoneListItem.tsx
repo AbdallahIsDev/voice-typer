@@ -10,13 +10,14 @@ interface MicrophoneListItemProps {
 	/** Called when the user clicks "Use" */
 	onSelect: (micId: string) => void;
 }
-
 export function MicrophoneListItem({
 	mic,
 	isSystemDefault,
 	onSelect,
 }: MicrophoneListItemProps) {
 	const micId = mic.id ?? String(mic.index);
+
+	const handleSelect = () => onSelect(micId);
 
 	return (
 		<div className="flex items-center gap-3 px-3.5 py-2.5">
@@ -44,7 +45,7 @@ export function MicrophoneListItem({
 				variant="outline"
 				size="sm"
 				className="shrink-0 text-(--text-muted)"
-				onClick={() => onSelect(micId)}
+				onClick={handleSelect}
 			>
 				Use
 			</Button>

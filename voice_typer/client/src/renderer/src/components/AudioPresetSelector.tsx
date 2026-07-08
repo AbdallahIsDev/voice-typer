@@ -132,7 +132,6 @@ function SliderRow({
 		</div>
 	);
 }
-
 export function AudioPresetSelector({
 	preset,
 	config,
@@ -142,6 +141,42 @@ export function AudioPresetSelector({
 	onConfigChange,
 }: AudioPresetSelectorProps) {
 	const isCustom = preset === "custom";
+
+	const handlePresetChange = (v: string) => onPresetChange(v as AudioPreset);
+	const handleHighPassToggle = (v: boolean) =>
+		onConfigChange({ noise_filter_highpass: v });
+	const handleCutoffChange = (v: number) =>
+		onConfigChange({ noise_filter_highpass_cutoff_hz: v });
+	const handleNoiseMethodChange = (v: string) =>
+		onConfigChange({
+			noise_suppression_method:
+				v as VoiceTyperConfig["noise_suppression_method"],
+		});
+	const handleGateToggle = (v: boolean) =>
+		onConfigChange({ noise_filter_gate: v });
+	const handleGateOpenChange = (v: number) =>
+		onConfigChange({ noise_filter_gate_open_threshold_db: v });
+	const handleGateCloseChange = (v: number) =>
+		onConfigChange({ noise_filter_gate_close_threshold_db: v });
+	const handleEqToggle = (v: boolean) => onConfigChange({ noise_filter_eq: v });
+	const handleEqLowChange = (v: number) =>
+		onConfigChange({ noise_filter_eq_low_db: v });
+	const handleEqMidChange = (v: number) =>
+		onConfigChange({ noise_filter_eq_mid_db: v });
+	const handleEqHighChange = (v: number) =>
+		onConfigChange({ noise_filter_eq_high_db: v });
+	const handleCompressorToggle = (v: boolean) =>
+		onConfigChange({ noise_filter_compressor: v });
+	const handleCompressorThresholdChange = (v: number) =>
+		onConfigChange({ noise_filter_compressor_threshold_db: v });
+	const handleCompressorRatioChange = (v: number) =>
+		onConfigChange({ noise_filter_compressor_ratio: v });
+	const handleLimiterToggle = (v: boolean) =>
+		onConfigChange({ noise_filter_limiter: v });
+	const handleLimiterCeilingChange = (v: number) =>
+		onConfigChange({ noise_filter_limiter_ceiling_db: v });
+	const handleNotchToggle = (v: boolean) =>
+		onConfigChange({ noise_filter_notch: v });
 
 	return (
 		<div className="rounded-lg border border-border overflow-hidden">
@@ -172,10 +207,7 @@ export function AudioPresetSelector({
 						<p className="text-[10px] font-semibold uppercase tracking-wide text-(--text-muted)">
 							Microphone Quality
 						</p>
-						<Select
-							value={preset}
-							onValueChange={(v) => onPresetChange(v as AudioPreset)}
-						>
+						<Select value={preset} onValueChange={handlePresetChange}>
 							<SelectTrigger
 								className="w-full"
 								aria-label="Microphone Quality Preset"
@@ -203,7 +235,7 @@ export function AudioPresetSelector({
 								label="High-Pass Filter"
 								description="Remove low-frequency rumble (HVAC, traffic)."
 								checked={config.noise_filter_highpass ?? true}
-								onChange={(v) => onConfigChange({ noise_filter_highpass: v })}
+								onChange={handleHighPassToggle}
 								ariaLabel="High-Pass Filter"
 							/>
 							{(config.noise_filter_highpass ?? true) && (
@@ -215,9 +247,7 @@ export function AudioPresetSelector({
 									max={500}
 									step={10}
 									suffix="Hz"
-									onChange={(v) =>
-										onConfigChange({ noise_filter_highpass_cutoff_hz: v })
-									}
+									onChange={handleCutoffChange}
 									ariaLabel="High-Pass Cutoff"
 								/>
 							)}
@@ -234,12 +264,7 @@ export function AudioPresetSelector({
 								</div>
 								<Select
 									value={config.noise_suppression_method ?? "rnnoise"}
-									onValueChange={(v) =>
-										onConfigChange({
-											noise_suppression_method:
-												v as VoiceTyperConfig["noise_suppression_method"],
-										})
-									}
+									onValueChange={handleNoiseMethodChange}
 								>
 									<SelectTrigger
 										className="w-32"
@@ -260,7 +285,7 @@ export function AudioPresetSelector({
 								label="Noise Gate"
 								description="Silence audio below a threshold."
 								checked={config.noise_filter_gate ?? true}
-								onChange={(v) => onConfigChange({ noise_filter_gate: v })}
+								onChange={handleGateToggle}
 								ariaLabel="Noise Gate"
 							/>
 							{(config.noise_filter_gate ?? true) && (
@@ -273,11 +298,7 @@ export function AudioPresetSelector({
 										max={0}
 										step={1}
 										suffix="dB"
-										onChange={(v) =>
-											onConfigChange({
-												noise_filter_gate_open_threshold_db: v,
-											})
-										}
+										onChange={handleGateOpenChange}
 										ariaLabel="Gate Open Threshold"
 									/>
 									<SliderRow
@@ -288,11 +309,7 @@ export function AudioPresetSelector({
 										max={0}
 										step={1}
 										suffix="dB"
-										onChange={(v) =>
-											onConfigChange({
-												noise_filter_gate_close_threshold_db: v,
-											})
-										}
+										onChange={handleGateCloseChange}
 										ariaLabel="Gate Close Threshold"
 									/>
 								</>
@@ -302,7 +319,7 @@ export function AudioPresetSelector({
 								label="Equalizer"
 								description="3-band EQ for tone shaping."
 								checked={config.noise_filter_eq ?? true}
-								onChange={(v) => onConfigChange({ noise_filter_eq: v })}
+								onChange={handleEqToggle}
 								ariaLabel="Equalizer"
 							/>
 							{(config.noise_filter_eq ?? true) && (
@@ -315,9 +332,7 @@ export function AudioPresetSelector({
 										max={20}
 										step={1}
 										suffix="dB"
-										onChange={(v) =>
-											onConfigChange({ noise_filter_eq_low_db: v })
-										}
+										onChange={handleEqLowChange}
 										ariaLabel="EQ Low"
 									/>
 									<SliderRow
@@ -328,9 +343,7 @@ export function AudioPresetSelector({
 										max={20}
 										step={1}
 										suffix="dB"
-										onChange={(v) =>
-											onConfigChange({ noise_filter_eq_mid_db: v })
-										}
+										onChange={handleEqMidChange}
 										ariaLabel="EQ Mid"
 									/>
 									<SliderRow
@@ -341,9 +354,7 @@ export function AudioPresetSelector({
 										max={20}
 										step={1}
 										suffix="dB"
-										onChange={(v) =>
-											onConfigChange({ noise_filter_eq_high_db: v })
-										}
+										onChange={handleEqHighChange}
 										ariaLabel="EQ High"
 									/>
 								</>
@@ -353,7 +364,7 @@ export function AudioPresetSelector({
 								label="Compressor"
 								description="Even out loud/quiet speech."
 								checked={config.noise_filter_compressor ?? true}
-								onChange={(v) => onConfigChange({ noise_filter_compressor: v })}
+								onChange={handleCompressorToggle}
 								ariaLabel="Compressor"
 							/>
 							{(config.noise_filter_compressor ?? true) && (
@@ -366,11 +377,7 @@ export function AudioPresetSelector({
 										max={0}
 										step={1}
 										suffix="dB"
-										onChange={(v) =>
-											onConfigChange({
-												noise_filter_compressor_threshold_db: v,
-											})
-										}
+										onChange={handleCompressorThresholdChange}
 										ariaLabel="Compressor Threshold"
 									/>
 									<SliderRow
@@ -381,11 +388,7 @@ export function AudioPresetSelector({
 										max={32}
 										step={0.5}
 										suffix=":1"
-										onChange={(v) =>
-											onConfigChange({
-												noise_filter_compressor_ratio: v,
-											})
-										}
+										onChange={handleCompressorRatioChange}
 										ariaLabel="Compressor Ratio"
 									/>
 								</>
@@ -395,7 +398,7 @@ export function AudioPresetSelector({
 								label="Limiter"
 								description="Brick-wall ceiling to prevent clipping."
 								checked={config.noise_filter_limiter ?? true}
-								onChange={(v) => onConfigChange({ noise_filter_limiter: v })}
+								onChange={handleLimiterToggle}
 								ariaLabel="Limiter"
 							/>
 							{(config.noise_filter_limiter ?? true) && (
@@ -407,11 +410,7 @@ export function AudioPresetSelector({
 									max={0}
 									step={1}
 									suffix="dB"
-									onChange={(v) =>
-										onConfigChange({
-											noise_filter_limiter_ceiling_db: v,
-										})
-									}
+									onChange={handleLimiterCeilingChange}
 									ariaLabel="Limiter Ceiling"
 								/>
 							)}
@@ -420,7 +419,7 @@ export function AudioPresetSelector({
 								label="Notch Filter (hum)"
 								description="Remove 50/60Hz electrical mains hum."
 								checked={config.noise_filter_notch ?? false}
-								onChange={(v) => onConfigChange({ noise_filter_notch: v })}
+								onChange={handleNotchToggle}
 								ariaLabel="Notch Filter"
 							/>
 						</div>

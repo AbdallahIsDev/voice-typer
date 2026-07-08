@@ -7,7 +7,6 @@ interface ExportFormatMenuProps {
 	onExport: (format: "json" | "csv") => void | Promise<void>;
 	disabled?: boolean;
 }
-
 export default function ExportFormatMenu({
 	onExport,
 	disabled,
@@ -38,13 +37,25 @@ export default function ExportFormatMenu({
 		};
 	}, [show]);
 
+	const handleToggle = () => setShow((prev) => !prev);
+
+	const handleExportJson = () => {
+		setShow(false);
+		onExport("json");
+	};
+
+	const handleExportCsv = () => {
+		setShow(false);
+		onExport("csv");
+	};
+
 	return (
 		<div className="relative">
 			<Button
 				ref={btnRef}
 				variant="outline"
 				size="sm"
-				onClick={() => setShow((prev) => !prev)}
+				onClick={handleToggle}
 				disabled={disabled}
 				// FIX: match the muted-text / white-on-hover style of the
 				// sibling buttons in the same action row (Favorites, Clear
@@ -72,10 +83,7 @@ export default function ExportFormatMenu({
 					<button
 						type="button"
 						role="menuitem"
-						onClick={() => {
-							setShow(false);
-							onExport("json");
-						}}
+						onClick={handleExportJson}
 						className="w-full px-3 py-2 text-xs text-left text-(--text-primary) hover:bg-(--surface-hover) transition-colors"
 					>
 						Export as JSON
@@ -83,10 +91,7 @@ export default function ExportFormatMenu({
 					<button
 						type="button"
 						role="menuitem"
-						onClick={() => {
-							setShow(false);
-							onExport("csv");
-						}}
+						onClick={handleExportCsv}
 						className="w-full px-3 py-2 text-xs text-left text-(--text-primary) hover:bg-(--surface-hover) transition-colors"
 					>
 						Export as CSV

@@ -75,6 +75,10 @@ export default function ConfirmDialog({
 		[onCancel],
 	);
 
+	const handleBackdropClick = (e: React.MouseEvent) => {
+		if (e.target === e.currentTarget) onCancel();
+	};
+
 	if (!open) return null;
 
 	return (
@@ -85,9 +89,7 @@ export default function ConfirmDialog({
 			aria-labelledby="confirm-dialog-title"
 			aria-describedby="confirm-dialog-desc"
 			className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-			onClick={(e) => {
-				if (e.target === e.currentTarget) onCancel();
-			}}
+			onClick={handleBackdropClick}
 			onKeyDown={handleKeyDown}
 		>
 			<div
