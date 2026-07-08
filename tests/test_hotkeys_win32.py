@@ -555,9 +555,25 @@ class TestCapsLockSuppression:
         from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<caps_lock>")
-        # Caps Lock reported as pressed; GetKeyState returns 1 (toggled on).
+        # HOTKEY-DEFER-001: simulate a realistic keypress cycle. The
+        # polling loop now seeds was_pressed from the current key state
+        # at registration time (defense-in-depth against the
+        # capture-triggers-recording race). If we return 0x8000 from
+        # the very first GetAsyncKeyState call, the seeding sets
+        # was_pressed=True and the callback never fires (the key is
+        # treated as "already held"). To test the actual keypress→fire
+        # →suppress cycle, we return 0 (not pressed) for the first
+        # call (seeding), then 0x8000 (pressed) for subsequent calls.
+        import itertools
+        call_counter = itertools.count()
         def fake_get_async_key_state(vk):
-            return 0x8000 if vk == 0x14 else 0
+            if vk != 0x14:
+                return 0
+            # First call (seeding) returns "not pressed"; all subsequent
+            # calls return "pressed" to simulate the user pressing the key.
+            if next(call_counter) == 0:
+                return 0
+            return 0x8000
         mock_user32.GetAsyncKeyState.side_effect = fake_get_async_key_state
         mock_user32.GetKeyState.return_value = 1  # toggle bit set
 

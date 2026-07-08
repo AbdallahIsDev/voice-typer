@@ -60,6 +60,19 @@ ALLOWED_UNTRANSLATED = {
     "settings.audioEnhancement.limiterAria",    # "Limiter"
     # "Variables: {vars}" — "Variables" is identical in EN/ES (cognate).
     "templates.variablesTooltip",  # "Variables: {vars}"
+    # IMPL-C: keyboard shortcut values that are universal key-combo notation
+    # (no natural translation — "Ctrl+B", "Tab / Shift+Tab", "Esc" stay
+    # identical across locales that use the Latin keyboard layout).
+    "about.toggleSidebarValue",     # "Ctrl+B"
+    "about.navigateFieldsValue",    # "Tab / Shift+Tab"
+    "about.closeDialogsValue",      # "Esc"
+    # IMPL-C: "Auto" is a universal abbreviation for automatic mode — kept
+    # identical across Latin-script locales.
+    "analytics.auto",               # "Auto"
+    # Theme switch labels: "System" in German is the standard German word for
+    # the system-following theme mode — identical to English by coincidence,
+    # not a translation gap.
+    "theme.system",                 # "System"
 }
 
 # Pre-existing untranslated settings keys documented in the directive (§6).
@@ -164,11 +177,13 @@ PRE_EXISTING_UNTRANSLATED = {
     "models.benchmark.runAria",
     "models.benchmark.running",
     "models.benchmark.run",
-    "models.downloadAll.alreadyDownloadedTitle",
-    "models.downloadAll.downloadAllTitle",
-    "models.downloadAll.downloading",
-    "models.downloadAll.allDownloaded",
-    "models.downloadAll.downloadAll",
+    "models.import.title",
+    "models.import.importModel",
+    "models.import.importing",
+    "models.import.success",
+    "models.import.noModelsFound",
+    "models.import.failedAll",
+    "models.import.failed",
     "models.hfConsent.title",
     "models.hfConsent.description",
     "models.hfConsent.grantAria",

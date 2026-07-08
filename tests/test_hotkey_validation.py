@@ -67,15 +67,22 @@ ALLOWED_HOTKEYS = [
 
 # ── Blocked combinations ─────────────────────────────────────────────
 
-BLOCKED_HOTKEYS = [
-    # OS-reserved (Windows) — these are in the per-platform denylist.
-    # Note: <alt>+<shift> is Windows-only (language switching), so it's
-    # in a separate platform-conditional test below.
+# HOTKEY-VALIDATION-002 (Task 2.2.5): Win+<key> combos are Windows-only
+# reserved shortcuts. They are in a separate platform-conditional list
+# (WINDOWS_BLOCKED_HOTKEYS) so the test only expects them to be blocked
+# when running on Windows. On Linux, the "win" modifier name isn't used
+# (Linux uses "super"), and Super+<key> is handled by the per-platform
+# reserved list (Super+L, Super+D, Super+Tab). On macOS, the Win key
+# doesn't exist as a system modifier.
+WINDOWS_BLOCKED_HOTKEYS = [
     "<win>+<l>",
     "<win>+<e>",
     "<win>+<v>",
     "<win>+<d>",
     "<win>+<r>",
+]
+
+BLOCKED_HOTKEYS = [
     # Universal window-management shortcuts (blocked on ALL platforms).
     "<alt>+<tab>",
     "<alt>+<f4>",
@@ -159,6 +166,57 @@ class TestValidateHotkeyPlatformConditional:
         )
 
 
+class TestValidateHotkeyWindowsSpecific:
+    """Windows-specific blocks: Win+<key> is only blocked on Windows.
+
+    HOTKEY-VALIDATION-002 (Task 2.2.5): the prior code blanket-blocked
+    Win/Super+anything on BOTH Windows and Linux. This incorrectly rejected
+    <super>+<space> on Linux (a combo most Linux DEs allow reassigning).
+    The blanket block now applies only on Windows. On Linux, Super combos
+    are checked against the per-platform reserved list (Super+L, Super+D,
+    Super+Tab).
+    """
+
+    @pytest.mark.parametrize("hotkey", WINDOWS_BLOCKED_HOTKEYS)
+    def test_win_combos_blocked_on_windows(
+        self, hotkey: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Win+<key> combos are blocked on Windows (OS shell reserved)."""
+        import voice_typer.server.config_validators as cv
+        monkeypatch.setattr(cv._sys, "platform", "win32")
+        result = _validate_hotkey(hotkey)
+        assert result is not None, (
+            f"Expected {hotkey!r} to be blocked on Windows, but it was allowed"
+        )
+
+    def test_win_combo_allowed_on_linux(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Win+<key> is allowed on Linux (Win modifier isn't used on Linux)."""
+        import voice_typer.server.config_validators as cv
+        monkeypatch.setattr(cv._sys, "platform", "linux")
+        result = _validate_hotkey("<win>+<r>")
+        assert result is None, (
+            "<win>+<r> should be allowed on Linux (Win isn't a Linux modifier)"
+        )
+
+    def test_super_space_allowed_on_linux(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """<super>+<space> is allowed on Linux (not in the reserved list)."""
+        import voice_typer.server.config_validators as cv
+        monkeypatch.setattr(cv._sys, "platform", "linux")
+        result = _validate_hotkey("<super>+<space>")
+        assert result is None, (
+            "<super>+<space> should be allowed on Linux — most DEs allow reassigning it"
+        )
+
+    def test_super_l_blocked_on_linux(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """<super>+<l> is blocked on Linux (lock screen)."""
+        import voice_typer.server.config_validators as cv
+        monkeypatch.setattr(cv._sys, "platform", "linux")
+        result = _validate_hotkey("<super>+<l>")
+        assert result is not None, (
+            "<super>+<l> should be blocked on Linux (lock screen)"
+        )
+
+
 class TestValidateHotkeyEdgeCases:
     """Edge cases: empty, non-string, oversized, structural."""
 
@@ -180,6 +238,40 @@ class TestValidateHotkeyEdgeCases:
     def test_rejects_no_keys_after_parse(self) -> None:
         assert _validate_hotkey("<>+<>") is not None
         assert _validate_hotkey("++++") is not None
+
+
+class TestValidateHotkeySingleLetterRejection:
+    """HOTKEY-VALIDATION-002 (Task 2.2.5): single letters/digits can't be
+    standalone hotkeys — they'd interfere with normal typing. The prior fix
+    added letters/digits to KEY_CODE_TO_PYNPUT (so Alt+Q parses) but forgot
+    to add this validation rule, silently accepting <a>, <1>, etc.
+    """
+
+    @pytest.mark.parametrize("letter", list("abcdefghijklmnopqrstuvwxyz"))
+    def test_rejects_single_letter(self, letter: str) -> None:
+        result = _validate_hotkey(f"<{letter}>")
+        assert result is not None, (
+            f"Single letter <{letter}> should be rejected — it would interfere with typing"
+        )
+
+    @pytest.mark.parametrize("digit", list("0123456789"))
+    def test_rejects_single_digit(self, digit: str) -> None:
+        result = _validate_hotkey(f"<{digit}>")
+        assert result is not None, (
+            f"Single digit <{digit}> should be rejected — it would interfere with typing"
+        )
+
+    def test_allows_single_special_key(self) -> None:
+        """Non-letter, non-digit single keys are still valid (F-keys, Tab, etc.)."""
+        for key in ("<f2>", "<tab>", "<caps_lock>", "<space>", "<delete>"):
+            result = _validate_hotkey(key)
+            assert result is None, f"{key} should be allowed as a single key"
+
+    def test_allows_letter_in_combo(self) -> None:
+        """Letters ARE allowed when part of a combo (e.g. Alt+Q)."""
+        for hotkey in ("<alt>+<q>", "<ctrl>+<alt>+<u>", "<shift>+<f5>"):
+            result = _validate_hotkey(hotkey)
+            assert result is None, f"{hotkey} should be allowed (letter in combo is fine)"
 
 
 class TestReservedHotkeysTable:

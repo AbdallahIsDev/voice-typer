@@ -1,5 +1,5 @@
 """Model IPC handler mixin: download_model, cancel_model_download,
-test_llm_connection, delete_model.
+test_llm_connection, delete_model, import_model.
 
 ARCH-REFAC-002: extracted verbatim from ``voice_typer/server/ipc_server.py``.
 The methods are mixed into :class:`IPCServer` via multiple inheritance and
@@ -11,6 +11,9 @@ NEW-MODEL-001: added ``_handle_get_model_catalog`` to expose the full
 NEW-PAUSE-001: added ``_handle_pause_model_download`` and
 ``_handle_resume_model_download`` so the renderer can pause/resume
 in-progress downloads.
+
+MODEL-IMPORT: added ``_handle_import_model`` so the renderer can scan
+and import pre-downloaded models from a local directory.
 """
 
 from typing import Any
@@ -137,6 +140,35 @@ class ModelHandlersMixin:
             resp["data"] = result
         except Exception as e:
             log.error("[IPC] test_llm_connection failed: %s", e)
+            resp["type"] = "error"
+            resp["data"] = {"message": str(e)}
+        return resp
+
+    def _handle_import_model(self, data, resp) -> dict | None:
+        """Handle the ``import_model`` IPC command.
+
+        MODEL-IMPORT: scan a directory for HuggingFace model cache
+        folders and import any recognized models into the app's HF
+        cache.  ``data`` should contain ``{"dir_path": "..."}``.
+
+        Returns the result dict from ``self.service.import_model()``.
+        """
+        try:
+            dir_path = (data or {}).get("dir_path", "") if isinstance(data, dict) else ""
+            if not dir_path or not isinstance(dir_path, str):
+                resp["type"] = "error"
+                resp["data"] = {"message": "Missing 'dir_path' parameter"}
+            else:
+                import os
+                if not os.path.isdir(dir_path):
+                    resp["type"] = "error"
+                    resp["data"] = {"message": f"Directory not found: {dir_path}"}
+                else:
+                    result = self.service.import_model(dir_path)
+                    resp["type"] = "import_model_result"
+                    resp["data"] = result
+        except Exception as e:
+            log.error("[IPC] import_model failed: %s", e)
             resp["type"] = "error"
             resp["data"] = {"message": str(e)}
         return resp

@@ -331,30 +331,30 @@ class TestAppAutostartUsesTaskSchedulerLogonTrigger:
         assert "--hidden" in xml
         assert "--delay" in xml  # prewarm head start
 
-    def test_enable_autostart_windows_prefers_task_scheduler(self, monkeypatch):
-        """_enable_autostart_windows tries Task Scheduler first."""
+    def test_enable_autostart_windows_prefers_runkey(self, monkeypatch):
+        """_enable_autostart_windows tries HKCU Run key FIRST (no UAC needed)."""
         from voice_typer.server import server_platform as platform_mod
         monkeypatch.setattr(platform_mod.sys, "platform", "win32")
-        task_calls = []
         runkey_calls = []
-        monkeypatch.setattr(platform_mod, "_register_app_autostart_task", lambda: task_calls.append(1) or True)
-        monkeypatch.setattr(platform_mod, "_unregister_app_autostart_runkey", lambda: runkey_calls.append(1) or True)
-        monkeypatch.setattr(platform_mod, "_register_app_autostart_runkey", lambda: runkey_calls.append(2) or True)
+        task_calls = []
+        monkeypatch.setattr(platform_mod, "_register_app_autostart_runkey", lambda: runkey_calls.append(1) or True)
+        monkeypatch.setattr(platform_mod, "_unregister_app_autostart_task", lambda: task_calls.append(1) or True)
+        monkeypatch.setattr(platform_mod, "_register_app_autostart_task", lambda: task_calls.append(2) or True)
         assert platform_mod._enable_autostart_windows() is True
-        assert task_calls == [1], "Task Scheduler registration must be tried first"
-        # Run-key cleanup should be called (to remove stale entries)
-        assert 1 in runkey_calls, "Stale Run-key entry should be cleaned up"
+        assert runkey_calls == [1], "HKCU Run key registration must be tried first"
+        # Task Scheduler cleanup should be called (to remove stale entries)
+        assert 1 in task_calls, "Stale Task Scheduler entry should be cleaned up"
 
-    def test_enable_autostart_windows_falls_back_to_runkey(self, monkeypatch):
-        """_enable_autostart_windows falls back to Run key if Task Scheduler fails."""
+    def test_enable_autostart_windows_falls_back_to_task_scheduler(self, monkeypatch):
+        """_enable_autostart_windows falls back to Task Scheduler if HKCU Run key fails."""
         from voice_typer.server import server_platform as platform_mod
         monkeypatch.setattr(platform_mod.sys, "platform", "win32")
-        monkeypatch.setattr(platform_mod, "_register_app_autostart_task", lambda: False)
-        monkeypatch.setattr(platform_mod, "_unregister_app_autostart_runkey", lambda: True)
-        runkey_called = []
-        monkeypatch.setattr(platform_mod, "_register_app_autostart_runkey", lambda: runkey_called.append(1) or True)
+        monkeypatch.setattr(platform_mod, "_register_app_autostart_runkey", lambda: False)
+        monkeypatch.setattr(platform_mod, "_unregister_app_autostart_task", lambda: True)
+        task_called = []
+        monkeypatch.setattr(platform_mod, "_register_app_autostart_task", lambda: task_called.append(1) or True)
         assert platform_mod._enable_autostart_windows() is True
-        assert runkey_called == [1], "Must fall back to Run key when Task Scheduler fails"
+        assert task_called == [1], "Must fall back to Task Scheduler when HKCU Run key fails"
 
     def test_disable_autostart_windows_removes_both(self, monkeypatch):
         """_disable_autostart_windows removes from both Task Scheduler and Run key."""
