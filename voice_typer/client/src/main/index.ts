@@ -589,12 +589,19 @@ function sendToPython(msg: Record<string, unknown>): Promise<unknown> {
 		pendingRequests.set(id, { resolve, reject });
 		const line = `${JSON.stringify(msg)}\n`;
 		tcpSocket.write(line);
+		// 15s timeout for IPC calls — long enough for normal operations
+		// (transcription, config, status) but short enough that the UI
+		// doesn't hang forever if the backend is genuinely stuck.
+		// The socket close handler (SEC-022) rejects pending requests
+		// immediately if the connection drops, so the timeout only fires
+		// when the request is still genuinely pending.
 		setTimeout(() => {
 			if (pendingRequests.has(id)) {
 				pendingRequests.delete(id);
-				reject(new Error("Timeout"));
+				const cmd = String(msg?.type ?? "unknown").trim();
+				reject(new Error(`Timeout after 15s for command: ${cmd}`));
 			}
-		}, 5000);
+		}, 15000);
 	});
 }
 
@@ -698,8 +705,9 @@ function createMainWindow(forceShow = false) {
 	//   e.level, e.message, e.lineNumber, e.sourceId
 	// The old signature emitted a deprecation warning on every app start.
 	mainWindow.webContents.on("console-message", (e) => {
-		if (e.level >= 2) {
-			const tag = ["VRB", "INFO", "WARN", "ERROR"][e.level] ?? "LOG";
+		const level = Number(e.level);
+		if (level >= 2) {
+			const tag = ["VRB", "INFO", "WARN", "ERROR"][level] ?? "LOG";
 			console.warn(
 				`${ts()}  ${RENDERER_CLR}[${tag}]${RESET} ${cleanConsoleMsg(e.message)} (${e.sourceId}:${e.lineNumber})`,
 			);
@@ -852,8 +860,9 @@ function createBubbleWindow(): BrowserWindow {
 	});
 	// CONSOLE-FIX (Round 1): new Electron console-message signature.
 	win.webContents.on("console-message", (e) => {
-		if (e.level >= 2) {
-			const tag = ["VRB", "INFO", "WARN", "ERROR"][e.level] ?? "LOG";
+		const level = Number(e.level);
+		if (level >= 2) {
+			const tag = ["VRB", "INFO", "WARN", "ERROR"][level] ?? "LOG";
 			console.warn(
 				`${ts()}  ${BUBBLE_CLR}[BUBBLE] renderer ${tag}${RESET} ${cleanConsoleMsg(e.message)} (${e.sourceId}:${e.lineNumber})`,
 			);
@@ -1776,6 +1785,10 @@ app.whenReady().then(() => {
 	startPython();
 });
 
+// SEC-022: catch errors in the python-call handler so they are
+// returned as structured error responses instead of throwing an
+// unhandled exception that Electron logs as:
+//   "Error occurred in handler for 'python-call': Error: Timeout"
 ipcMain.handle("python-call", async (_event, msg) => {
 	if (!tcpSocket) {
 		if (pythonExitedEarly) {
@@ -1785,7 +1798,11 @@ ipcMain.handle("python-call", async (_event, msg) => {
 		}
 		return { _error: "Python backend is not connected" };
 	}
-	return await sendToPython(msg);
+	try {
+		return await sendToPython(msg);
+	} catch (err) {
+		return { _error: (err as Error).message };
+	}
 });
 
 // ── Window control IPC (used by the custom title bar) ──────────────
