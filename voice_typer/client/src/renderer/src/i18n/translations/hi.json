@@ -198,6 +198,8 @@
 		"apiUrlInfo": "AI भाषा मॉडल सेवा का एंडपॉइंट URL।",
 		"model": "मॉडल",
 		"modelInfo": "पॉलिशिंग के लिए उपयोग किया जाने वाला AI मॉडल (जैसे, gpt-4o-mini)।",
+		"apiUrlPlaceholder": "https://api.openai.com/v1/chat/completions",
+		"modelPlaceholder": "gpt-4o-mini",
 		"preset": "प्रीसेट",
 		"presetInfo": "लागू करने की लेखन शैली — पेशेवर, अनौपचारिक, ईमेल या कोड।",
 		"show": "दिखाएं",
@@ -557,12 +559,15 @@
 			"depsRequired": "निर्भरताएं आवश्यक हैं",
 			"available": "उपलब्ध"
 		},
-		"downloadAll": {
-			"alreadyDownloadedTitle": "All models already downloaded",
-			"downloadAllTitle": "Download all models",
-			"downloading": "डाउनलोड हो रहा है...",
-			"allDownloaded": "सभी डाउनलोड किए गए",
-			"downloadAll": "सभी डाउनलोड करें"
+		"import": {
+			"title": "मॉडल आयात करें",
+			"importModel": "मॉडल आयात करें",
+			"importing": "आयात हो रहा है...",
+			"success": "{count} मॉडल आयात किए गए: {models}",
+			"noModelsFound": "उस निर्देशिका में कोई ज्ञात मॉडल फ़ोल्डर नहीं मिला। HuggingFace कैश फ़ोल्डर चुनें ('models--*' निर्देशिकाएँ शामिल हैं)।",
+			"failedAll": "उस निर्देशिका से कोई मॉडल आयात करने में विफल।",
+			"failed": "मॉडल आयात करने में विफल: {error}",
+			"importModelAria": "फ़ोल्डर से मॉडल आयात करें"
 		},
 		"hfConsent": {
 			"title": "HuggingFace download consent required",
@@ -647,8 +652,6 @@
 		"openaiWhisperApi": "OpenAI Whisper API सेवा",
 		"groqWhisperApi": "Groq Whisper API सेवा",
 		"deepgramApi": "Deepgram API सेवा",
-		"allDownloaded": "सभी डाउनलोड किए गए",
-		"downloading": "डाउनलोड हो रहा है...",
 		"configureEngines": "अपने स्पीच-टू-टेक्स्ट इंजन कॉन्फ़िगर करें"
 	},
 	"tooltips": {

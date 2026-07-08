@@ -143,6 +143,8 @@
 		"apiUrlInfo": "URL конечной точки для службы языковой модели ИИ.",
 		"model": "Модель",
 		"modelInfo": "Модель ИИ для полировки (например, gpt-4o-mini).",
+		"apiUrlPlaceholder": "https://api.openai.com/v1/chat/completions",
+		"modelPlaceholder": "gpt-4o-mini",
 		"preset": "Пресет",
 		"presetInfo": "Применяемый стиль письма — профессиональный, повседневный, электронное письмо или код.",
 		"show": "Показать",
@@ -258,12 +260,15 @@
 			"depsRequired": "Требуются зависимости",
 			"available": "Доступен"
 		},
-		"downloadAll": {
-			"alreadyDownloadedTitle": "All models already downloaded",
-			"downloadAllTitle": "Download all models",
-			"downloading": "Загрузка...",
-			"allDownloaded": "Всё загружено",
-			"downloadAll": "Загрузить всё"
+		"import": {
+			"title": "Импорт модели",
+			"importModel": "Импорт модели",
+			"importing": "Импорт...",
+			"success": "Импортировано {count} модель(ей): {models}",
+			"noModelsFound": "В этом каталоге не найдено папок известных моделей. Выберите папку кэша HuggingFace (содержит каталоги 'models--*').",
+			"failedAll": "Не удалось импортировать модели из этого каталога.",
+			"failed": "Не удалось импортировать модель: {error}",
+			"importModelAria": "Импорт модели из папки"
 		},
 		"hfConsent": {
 			"title": "HuggingFace download consent required",
@@ -348,8 +353,7 @@
 		"openaiWhisperApi": "API OpenAI Whisper",
 		"groqWhisperApi": "API Groq Whisper",
 		"deepgramApi": "API Deepgram",
-		"allDownloaded": "Все скачаны",
-		"downloading": "Загрузка...",
+
 		"configureEngines": "Настройте ваши движки преобразования речи в текст"
 	},
 	"history": {

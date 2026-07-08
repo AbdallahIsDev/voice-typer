@@ -172,6 +172,8 @@
 		"apiUrlInfo": "L'URL de l'endpoint pour le service de modèle de langage IA.",
 		"model": "Modèle",
 		"modelInfo": "Le modèle d'IA à utiliser pour le polissage (par ex., gpt-4o-mini).",
+		"apiUrlPlaceholder": "https://api.openai.com/v1/chat/completions",
+		"modelPlaceholder": "gpt-4o-mini",
 		"preset": "Preset",
 		"presetInfo": "Le style d'écriture à appliquer — professionnel, décontracté, e-mail ou code.",
 		"show": "Afficher",
@@ -557,12 +559,15 @@
 			"depsRequired": "Dépendances requises",
 			"available": "Disponible"
 		},
-		"downloadAll": {
-			"alreadyDownloadedTitle": "All models already downloaded",
-			"downloadAllTitle": "Download all models",
-			"downloading": "Téléchargement...",
-			"allDownloaded": "Tout Téléchargé",
-			"downloadAll": "Tout Télécharger"
+		"import": {
+			"title": "Importer un modèle",
+			"importModel": "Importer un modèle",
+			"importing": "Importation...",
+			"success": "{count} modèle(s) importé(s) : {models}",
+			"noModelsFound": "Aucun dossier de modèle reconnu trouvé dans ce répertoire. Sélectionnez le dossier de cache HuggingFace (contient les répertoires 'models--*').",
+			"failedAll": "Impossible d'importer les modèles depuis ce répertoire.",
+			"failed": "Échec de l'importation du modèle : {error}",
+			"importModelAria": "Importer un modèle depuis un dossier"
 		},
 		"hfConsent": {
 			"title": "HuggingFace download consent required",
@@ -647,8 +652,6 @@
 		"openaiWhisperApi": "API OpenAI Whisper",
 		"groqWhisperApi": "API Groq Whisper",
 		"deepgramApi": "API Deepgram",
-		"allDownloaded": "Tout téléchargé",
-		"downloading": "Téléchargement...",
 		"configureEngines": "Configurez vos moteurs de reconnaissance vocale"
 	},
 	"history": {

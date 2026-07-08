@@ -143,6 +143,8 @@
 		"apiUrlInfo": "AI 语言模型服务的端点 URL。",
 		"model": "模型",
 		"modelInfo": "用于润色的 AI 模型（例如 gpt-4o-mini）。",
+		"apiUrlPlaceholder": "https://api.openai.com/v1/chat/completions",
+		"modelPlaceholder": "gpt-4o-mini",
 		"preset": "预设",
 		"presetInfo": "要应用的写作风格 — 专业、休闲、电子邮件或代码。",
 		"show": "显示",
@@ -258,12 +260,15 @@
 			"depsRequired": "需要依赖项",
 			"available": "可用"
 		},
-		"downloadAll": {
-			"alreadyDownloadedTitle": "All models already downloaded",
-			"downloadAllTitle": "Download all models",
-			"downloading": "下载中...",
-			"allDownloaded": "全部已下载",
-			"downloadAll": "全部下载"
+		"import": {
+			"title": "导入模型",
+			"importModel": "导入模型",
+			"importing": "导入中...",
+			"success": "已导入 {count} 个模型：{models}",
+			"noModelsFound": "在该目录中未找到已知的模型文件夹。请选择 HuggingFace 缓存文件夹（包含 'models--*' 目录）。",
+			"failedAll": "无法从该目录导入任何模型。",
+			"failed": "导入模型失败：{error}",
+			"importModelAria": "从文件夹导入模型"
 		},
 		"hfConsent": {
 			"title": "HuggingFace download consent required",
@@ -348,8 +353,6 @@
 		"openaiWhisperApi": "OpenAI Whisper API 接口",
 		"groqWhisperApi": "Groq Whisper API 接口",
 		"deepgramApi": "Deepgram API 接口",
-		"allDownloaded": "全部已下载",
-		"downloading": "下载中...",
 		"configureEngines": "配置您的语音转文字引擎"
 	},
 	"history": {
