@@ -1835,7 +1835,7 @@ class Recorder:
                 used_fallback = True
                 log.info(
                     "[RECORDING] Fallback succeeded with device [%s] %s",
-                  
+
                     candidate, dev_info_extra["name"],
                 )
                 break
@@ -2317,7 +2317,7 @@ class Recorder:
                 ratio = target_sr / effective_sr
                 new_len = int(len(audio) * ratio)
                 indices = np.linspace(0, len(audio) - 1, new_len)
-              
+
                 audio = np.interp(
                     indices, np.arange(len(audio)), audio,
                 ).astype(np.float32)

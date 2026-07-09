@@ -782,8 +782,8 @@ def _enable_autostart_macos() -> bool:
         os.chmod(log_dir, 0o700)
     except OSError:
         pass
-    import subprocess
     try:
+        import subprocess
         # NEW-XPLAT-005: previously ``launchctl load`` had no timeout,
         # so a hung launchd (rare but possible after a macOS upgrade
         # or in a stuck boot) would block this thread forever.  The
