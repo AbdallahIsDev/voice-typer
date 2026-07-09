@@ -860,6 +860,15 @@ def _read_process_cmdline_windows(pid: int) -> str | None:
     import ctypes
     from ctypes import wintypes
 
+    # Task 1: ULONG_PTR is not in Python's ctypes.wintypes module. The
+    # Windows SDK defines ULONG_PTR as UINT_PTR (pointer-sized unsigned
+    # int). In ctypes, wintypes.WPARAM IS defined as UINT_PTR, so it has
+    # the correct size (8 bytes on 64-bit, 4 bytes on 32-bit). Using
+    # c_size_t would also work but WPARAM is the semantically correct
+    # match for the SDK's ULONG_PTR type. (The previous code used
+    # wintypes.ULONG_PTR which doesn't exist, crashing on Windows.)
+    ULONG_PTR = wintypes.WPARAM
+
     kernel32 = ctypes.windll.kernel32
     ntdll = ctypes.windll.ntdll
 
@@ -876,14 +885,23 @@ def _read_process_cmdline_windows(pid: int) -> str | None:
         ]
 
     class ProcessBasicInformation(ctypes.Structure):
-        """NtQueryInformationProcess output for ProcessBasicInformation."""
+        """NtQueryInformationProcess output for ProcessBasicInformation.
+
+        Field types match the Windows SDK PROCESS_BASIC_INFORMATION:
+          ExitStatus              NTSTATUS (LONG)
+          PebBaseAddress          PPEB (pointer)
+          AffinityMask            ULONG_PTR
+          BasePriority            KPRIORITY (LONG)
+          UniqueProcessId         HANDLE_PTR (ULONG_PTR)
+          InheritedFromUniqueProcessId ULONG_PTR
+        """
         _fields_ = [
             ("ExitStatus", wintypes.LONG),        # NTSTATUS
             ("PebBaseAddress", wintypes.LPVOID),  # PEB* inside target's memory
-            ("AffinityMask", ctypes.c_size_t),
+            ("AffinityMask", ULONG_PTR),
             ("BasePriority", wintypes.LONG),
-            ("UniqueProcessId", ctypes.c_size_t),
-            ("InheritedFromUniqueProcessId", ctypes.c_size_t),
+            ("UniqueProcessId", ULONG_PTR),
+            ("InheritedFromUniqueProcessId", ULONG_PTR),
         ]
 
     # ── Function signatures (best practice: set argtypes/restype) ───
@@ -930,8 +948,10 @@ def _read_process_cmdline_windows(pid: int) -> str | None:
         # ── Step 2: Read PEB → ProcessParameters pointer ───────────
         # On 64-bit Windows, ProcessParameters is at PEB offset 0x20.
         # On 32-bit Windows, it's at PEB offset 0x10. We detect the
-        # pointer size via sizeof(c_size_t) (8 on 64-bit, 4 on 32-bit).
-        is_64bit = ctypes.sizeof(ctypes.c_size_t) == 8
+        # pointer size via sizeof(ULONG_PTR) (8 on 64-bit, 4 on 32-bit).
+        # These offsets are stable across Win10/Win11 — the PEB layout
+        # hasn't changed since Windows 7.
+        is_64bit = ctypes.sizeof(ULONG_PTR) == 8
         params_offset = 0x20 if is_64bit else 0x10
 
         params_ptr = wintypes.LPVOID()
