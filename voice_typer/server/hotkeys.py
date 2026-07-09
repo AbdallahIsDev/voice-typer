@@ -1548,16 +1548,86 @@ class _NativeBackendAdapter(HotkeyBackend):
     periodically attempts to swap back to the native backend; on
     success, the adapter swaps back and notifies the user.
 
-    State machine:
-        NATIVE → FALLING_BACK → FALLBACK → (NATIVE on recovery, or FAILED)
-        Any state → STOPPED on stop()
-
     GAP-2 (macOS Accessibility onboarding): when the native backend
     emits an ``ERROR:`` line classified as a permission issue, the
     adapter shows a tray notification and (on macOS) opens System
     Settings → Accessibility. A 60-second permission retry timer
     polls for the permission being granted and, on success, restarts
     the native backend.
+
+    State machine (5 states, 3 callback slots, 2 async timers):
+
+        States: NATIVE, FALLING_BACK, FALLBACK, FAILED, STOPPED
+        Callback slots (set on the native backend in __init__):
+            - native._on_error_callback            -> _on_native_error
+            - native._on_permanent_failure_callback-> _on_native_permanent_failure
+            - _on_release_callback                 -> set via set_on_release
+        Async timers:
+            - 300s native-retry timer  (_native_retry_timer, this class)
+            - 60s  permission-retry    (voice_typer.server.permissions,
+                                         max 5 attempts)
+
+        Quick diagram (omits self-loops, FAILED->STOPPED, and the
+        permission-grant recovery path; see the full table below):
+
+            NATIVE → FALLING_BACK → FALLBACK → (NATIVE on recovery, or FAILED)
+            Any state → STOPPED on stop()
+
+    State Transition Table:
+    ┌──────────────┬──────────────────────────────────────┬──────────────────┬───────────────────────────────────────┐
+    │ From         │ Event                                │ To               │ Side Effects                          │
+    ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
+    │ (init)       │ __init__                             │ NATIVE           │ Wire _on_error_callback &             │
+    │              │                                      │                  │ _on_permanent_failure_callback        │
+    │              │                                      │                  │ on native.                            │
+    ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
+    │ NATIVE       │ start() succeeds                     │ NATIVE           │ (self-loop; confirms state            │
+    │              │                                      │                  │ under swap_lock)                      │
+    ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
+    │ NATIVE       │ start() raises OR                    │ FALLING_BACK     │ Via _swap_to_legacy(): fire           │
+    │              │ _on_native_permanent_failure         │                  │ _on_release_callback, create &        │
+    │              │ (native's 5 retries exhausted)       │                  │ start legacy backend.                 │
+    ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
+    │ FALLING_BACK │ legacy backend starts                │ FALLBACK         │ Assign _legacy, show fallback         │
+    │              │ successfully                         │                  │ notification, schedule 300s           │
+    │              │                                      │                  │ native retry timer.                   │
+    ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
+    │ FALLING_BACK │ legacy create/start raises           │ FAILED           │ Log error, show failure               │
+    │              │                                      │                  │ notification.                         │
+    ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
+    │ FALLING_BACK │ stop() called during swap            │ STOPPED          │ Stop the just-created legacy          │
+    │              │                                      │                  │ backend, return.                      │
+    ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
+    │ FALLBACK     │ 300s native retry timer fires,       │ NATIVE           │ Stop legacy, stop+start native,       │
+    │              │ native restart succeeds              │                  │ set _on_release, show recovery        │
+    │              │                                      │                  │ notification, reset perm flag.        │
+    ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
+    │ FALLBACK     │ 300s timer fires, native fails,      │ FALLBACK         │ (self-loop) Stop old legacy,          │
+    │              │ legacy restarts                      │                  │ restart native (fails), new           │
+    │              │                                      │                  │ legacy, schedule 300s retry.          │
+    ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
+    │ FALLBACK     │ 300s timer fires, both native        │ FAILED           │ Log "both backends failed",           │
+    │              │ & legacy restart fail                │                  │ show failure notification.            │
+    ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
+    │ NATIVE,      │ 60s permission retry timer           │ NATIVE           │ Stop+start native, set                │
+    │ FALLBACK, or │ fires, native restart succeeds       │                  │ _on_release, reset perm flag.         │
+    │ FAILED       │                                      │                  │ NOTE: legacy NOT stopped when         │
+    │              │                                      │                  │ transitioning from FALLBACK.          │
+    ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
+    │ NATIVE,      │ stop() called                        │ STOPPED          │ Cancel 300s timer & 60s perm          │
+    │ FALLING_BACK,│                                      │                  │ retry, reset flag, stop legacy        │
+    │ FALLBACK, or │                                      │                  │ & native. Idempotent no-op if         │
+    │ FAILED       │                                      │                  │ already STOPPED.                      │
+    ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
+    │ STOPPED      │ (none - terminal state)              │ STOPPED          │ No transitions out; stop() is         │
+    │              │                                      │                  │ a no-op.                              │
+    └──────────────┴──────────────────────────────────────┴──────────────────┴───────────────────────────────────────┘
+
+    Key: STOPPED is terminal. FAILED is terminal except for stop() and the
+    60s permission-grant recovery path (which restarts native directly).
+    FALLING_BACK is a transient state held only while _swap_to_legacy() is
+    between acquiring the swap_lock to set the state and re-acquiring it to
+    install the legacy backend.
     """
 
     # State constants
