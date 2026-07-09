@@ -736,6 +736,15 @@ class RecordingController:
         force-recover yet, we simply let the loop continue (the event
         is still unset, so the next wait(timeout=60) will time out
         again after 60s).
+
+        TRANSCRIBE-NOTIFY-FIX: the notification "Transcription is still
+        running" was showing even for successful transcriptions that
+        simply took longer than 60 seconds (e.g. CPU fallback or longer
+        audio clips).  The first watchdog firing (60s) now silently logs
+        instead of notifying the user — the notification only fires on
+        the SECOND firing (120s+) when the transcription is genuinely
+        taking an unusually long time.  The watchdog time for the first
+        firing was also raised from 60s to 90s.
         """
         app = self._app
         if app._busy_event.is_set():  # not busy
@@ -751,14 +760,19 @@ class RecordingController:
                 self._watchdog_firings, self._watchdog_max_firings,
             )
             app.tray.set_state(AppState.TRANSCRIBING, "Still transcribing...")
-            app.tray.notify(
-                APP_NAME,
-                "Transcription is still running.\n"
-                "Long recordings or CPU fallback can take extra time.",
-            )
+            # TRANSCRIBE-NOTIFY-FIX: first firing is silent — only notify
+            # on the second firing (second notification = 180s+ elapsed)
+            # to avoid alarming the user when transcription is simply
+            # taking a bit longer than usual.
+            if self._watchdog_firings >= 2:
+                app.tray.notify(
+                    APP_NAME,
+                    "Transcription is still running.\n"
+                    "Long recordings or CPU fallback can take extra time.",
+                )
             # RACE-013: no need to create a new Timer. The persistent
             # watchdog thread will time out again on its next
-            # Event.wait(timeout=60) cycle.
+            # Event.wait(timeout=90) cycle.
             return
 
         if force:
@@ -808,11 +822,16 @@ class RecordingController:
         self._watchdog_thread.start()
 
     def _watchdog_loop(self) -> None:
-        """Persistent watchdog loop — runs on the watchdog daemon thread."""
+        """Persistent watchdog loop — runs on the watchdog daemon thread.
+
+        TRANSCRIBE-NOTIFY-FIX: initial timeout increased from 60s to 90s
+        to reduce false-positive "transcription is still running"
+        notifications for longer recordings or CPU fallback scenarios.
+        """
         while not self._watchdog_stop_event.is_set():
-            # Wait up to 60s. Returns True if the event was set (reset),
+            # Wait up to 90s. Returns True if the event was set (reset),
             # False if it timed out (transcription hung).
-            timed_out = not self._watchdog_event.wait(timeout=60.0)
+            timed_out = not self._watchdog_event.wait(timeout=90.0)
             if self._watchdog_stop_event.is_set():
                 return
             if timed_out:
