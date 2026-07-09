@@ -15,6 +15,11 @@
 // localStorage draft helpers) live here because no other section uses
 // them.
 
+import {
+	ModernTvIcon,
+	Moon02Icon,
+	Sun01Icon,
+} from "@hugeicons/core-free-icons";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RangeSlider } from "@/components/RangeSlider";
 import { SettingRow } from "@/components/SettingRow";
@@ -321,12 +326,18 @@ function getThemePreviewColors(
 	};
 }
 
-// IMPL-C: option value → i18n label key. Resolved at render time so the
-// labels honour the active UI locale.
+// IMPL-C: option value → icon + aria-label for the icon-only theme toggle.
+// The visible label is empty — only the icon is shown, matching the
+// ThemeSwitch in the sidebar.  The aria-label on the radiogroup and the
+// title on each option provide screen-reader context.
 const _THEME_OPTION_KEYS = [
-	{ value: "system", labelKey: "settings.appearance.systemDefault" },
-	{ value: "light", labelKey: "settings.appearance.light" },
-	{ value: "dark", labelKey: "settings.appearance.dark" },
+	{
+		value: "system",
+		icon: ModernTvIcon,
+		labelKey: "settings.appearance.systemDefault",
+	},
+	{ value: "light", icon: Sun01Icon, labelKey: "settings.appearance.light" },
+	{ value: "dark", icon: Moon02Icon, labelKey: "settings.appearance.dark" },
 ] as const;
 
 interface ThemeSettingsSectionProps extends SettingsSectionSharedProps {
@@ -530,7 +541,10 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 	const textSizeInfoSearch = t("settings.appearance.textSizeInfo");
 	const themeOptions = _THEME_OPTION_KEYS.map((opt) => ({
 		value: opt.value,
-		label: t(opt.labelKey),
+		// Icon-only toggle — no visible text, matching the sidebar ThemeSwitch.
+		label: "",
+		icon: opt.icon,
+		title: t(opt.labelKey),
 	}));
 
 	// FIX (Task ID 6 / Settings Search): capture the section title in a

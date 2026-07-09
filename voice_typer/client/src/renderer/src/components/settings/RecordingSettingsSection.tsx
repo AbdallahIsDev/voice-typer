@@ -1,12 +1,14 @@
 // RecordingSettingsSection — Recording section of the Settings page.
 //
-// Extracted from HotkeySettingsSection. Renders the "Recording"
-// SettingsSection block with Recording Mode, Auto-Stop, ESC to Cancel,
-// Auto-Paste, Sound Feedback, Re-Paste Key, Silence Warning,
-// Max Duration, and Dead-Air Timeout.
+// Renders the "Recording" SettingsSection block with Dictation Key,
+// Re-Paste Key, Recording Mode, Auto-Stop, ESC to Cancel, Auto-Paste,
+// Sound Feedback, Silence Warning, Max Duration, and Dead-Air Timeout.
+// The Dictation Key was moved here from the now-removed standalone
+// HotkeySettingsSection since it was the only setting in that section.
 
 import { memo, useCallback } from "react";
 import { HotkeyPicker } from "@/components/HotkeyPicker";
+import { getComboPresets } from "@/components/hotkey-utils";
 import { SettingRow } from "@/components/SettingRow";
 import { SettingsSection } from "@/components/SettingsSection";
 import { NumberInput } from "@/components/ui/number-input";
@@ -28,6 +30,15 @@ import { SettingsSkeleton } from "./SettingsSkeleton";
 
 import type { SettingsSectionSharedProps } from "./types";
 
+// Dictation key dropdown presets: single-key modifier-only options.
+// Wrapped in angle brackets to match the combo-mode hotkey format.
+const DICTATION_KEY_PRESETS = [
+	{ value: "<caps_lock>", label: "Caps Lock" },
+	{ value: "<shift>", label: "Shift" },
+	{ value: "<ctrl>", label: "Ctrl" },
+	{ value: "<alt>", label: "Alt" },
+];
+
 // IMPL-C: option label keys (translated at render time so the labels
 // honour the active UI locale).
 const AUTO_STOP_OPTION_KEYS = [
@@ -41,8 +52,8 @@ const RECORDING_MODE_OPTION_KEYS: {
 	value: "toggle" | "push_to_talk";
 	labelKey: string;
 }[] = [
-	{ value: "toggle", labelKey: "settings.hotkeySection.tapToRecord" },
 	{ value: "push_to_talk", labelKey: "settings.hotkeySection.pushToTalk" },
+	{ value: "toggle", labelKey: "settings.hotkeySection.tapToRecord" },
 ];
 
 export const RecordingSettingsSection = memo(function RecordingSettingsSection({
@@ -53,6 +64,23 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 }: SettingsSectionSharedProps) {
 	// ESC-FIX-002-LEGACY: useCallback calls MUST be before any early return
 	// per React's Rules of Hooks.
+	const handleDictationChange = useCallback(
+		(h: string) => updateConfig({ hotkey: h }),
+		[updateConfig],
+	);
+	const handleDictationCaptureStart = useCallback(() => {
+		void window.python?.call({
+			type: "set_esc_cancel_paused",
+			data: { paused: true },
+		});
+	}, []);
+	const handleDictationCaptureEnd = useCallback(() => {
+		void window.python?.call({
+			type: "set_esc_cancel_paused",
+			data: { paused: false },
+		});
+	}, []);
+
 	const handleRepasteChange = useCallback(
 		(h: string) => updateConfig({ repaste_hotkey: h }),
 		[updateConfig],
@@ -99,6 +127,10 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 	if (!config) return <SettingsSkeleton rows={3} />;
 
 	// IMPL-C: resolve translated labels/info/aria once per render.
+	const dictationKeyLabel = t("settings.hotkeySection.dictationKey");
+	const dictationKeyInfoSearch = t(
+		"settings.hotkeySection.dictationKeyInfoSearch",
+	);
 	const recordingModeLabel = t("settings.hotkeySection.recordingMode");
 	const recordingModeInfoSearch = t(
 		"settings.hotkeySection.recordingModeInfoSearch",
@@ -143,12 +175,13 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 	const recordingTitle = t("settings.hotkeySection.recordingTitle");
 
 	const recordingItems = [
+		{ label: dictationKeyLabel, info: dictationKeyInfoSearch },
+		{ label: repasteKeyLabel, info: repasteKeyInfoSearch },
 		{ label: recordingModeLabel, info: recordingModeInfoSearch },
 		{ label: autoStopLabel, info: autoStopInfoSearch },
 		{ label: escToCancelLabel, info: escToCancelInfoSearch },
 		{ label: autoPasteLabel, info: autoPasteInfoSearch },
 		{ label: soundFeedbackLabel, info: soundFeedbackInfoSearch },
-		{ label: repasteKeyLabel, info: repasteKeyInfoSearch },
 		{ label: silenceWarningLabel, info: silenceWarningInfoSearch },
 		{ label: maxDurationLabel, info: maxDurationInfoSearch },
 		{ label: deadAirTimeoutLabel, info: deadAirTimeoutInfoSearch },
@@ -166,6 +199,24 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 					description={t("settings.hotkeySection.recordingDescription")}
 				>
 					{/* ── Dropdowns ──────────────────────────────────────── */}
+					<SettingRow
+						label={dictationKeyLabel}
+						info={t("settings.hotkeySection.dictationKeyInfo")}
+					>
+						<HotkeyPicker
+							value={config.hotkey}
+							onChange={handleDictationChange}
+							mode="combo"
+							presets={DICTATION_KEY_PRESETS}
+							occupiedHotkeys={
+								config.repaste_hotkey ? [config.repaste_hotkey] : undefined
+							}
+							aria-label={t("settings.hotkeySection.dictationKeyAria")}
+							onCaptureStart={handleDictationCaptureStart}
+							onCaptureEnd={handleDictationCaptureEnd}
+						/>
+					</SettingRow>
+
 					<SettingRow
 						label={recordingModeLabel}
 						info={t("settings.hotkeySection.recordingModeInfo")}
@@ -186,7 +237,10 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 							value={String(config.silence_auto_stop_seconds ?? 60)}
 							onValueChange={handleAutoStopChange}
 						>
-							<SelectTrigger className="w-36" aria-label="Auto-Stop">
+							<SelectTrigger
+								className="w-36"
+								aria-label={t("settings.hotkeySection.autoStopAria")}
+							>
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
@@ -197,6 +251,22 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 								))}
 							</SelectContent>
 						</Select>
+					</SettingRow>
+
+					<SettingRow
+						label={repasteKeyLabel}
+						info={t("settings.hotkeySection.repasteKeyInfo")}
+					>
+						<HotkeyPicker
+							value={config.repaste_hotkey ?? "<ctrl>+<alt>+v"}
+							onChange={handleRepasteChange}
+							mode="combo"
+							presets={getComboPresets()}
+							occupiedHotkeys={config.hotkey ? [config.hotkey] : undefined}
+							aria-label={t("settings.hotkeySection.repasteKeyAria")}
+							onCaptureStart={handleRepasteCaptureStart}
+							onCaptureEnd={handleRepasteCaptureEnd}
+						/>
 					</SettingRow>
 
 					{/* ── Switches ───────────────────────────────────────── */}
@@ -233,21 +303,6 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 							checked={config.sound_feedback_enabled ?? true}
 							onCheckedChange={handleSoundFeedbackChange}
 							aria-label={t("settings.hotkeySection.soundFeedbackAria")}
-						/>
-					</SettingRow>
-
-					{/* ── Inputs ─────────────────────────────────────────── */}
-					<SettingRow
-						label={repasteKeyLabel}
-						info={t("settings.hotkeySection.repasteKeyInfo")}
-					>
-						<HotkeyPicker
-							value={config.repaste_hotkey ?? "<ctrl>+<alt>+v"}
-							onChange={handleRepasteChange}
-							mode="combo"
-							aria-label={t("settings.hotkeySection.repasteKeyAria")}
-							onCaptureStart={handleRepasteCaptureStart}
-							onCaptureEnd={handleRepasteCaptureEnd}
 						/>
 					</SettingRow>
 

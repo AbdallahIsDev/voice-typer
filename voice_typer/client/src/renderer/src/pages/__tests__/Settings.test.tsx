@@ -70,8 +70,11 @@ vi.mock("@hugeicons/core-free-icons", () => {
 		File02Icon: make("File02Icon"),
 		InformationCircleIcon: make("InformationCircleIcon"),
 		KeyboardIcon: make("KeyboardIcon"),
+		ModernTvIcon: make("ModernTvIcon"),
+		Moon02Icon: make("Moon02Icon"),
 		RefreshIcon: make("RefreshIcon"),
 		Search01Icon: make("Search01Icon"),
+		Sun01Icon: make("Sun01Icon"),
 		Tick02Icon: make("Tick02Icon"),
 		UnfoldMoreIcon: make("UnfoldMoreIcon"),
 	};

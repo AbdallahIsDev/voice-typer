@@ -1,3 +1,4 @@
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import { useCallback, useRef, useState } from "react";
 import { cn } from "#utils";
 
@@ -7,6 +8,14 @@ import { cn } from "#utils";
  * sliding accent bar.  Accepts any number of options — works well for 2–3
  * mode toggles (e.g. Toggle vs Push-to-Talk) as well as tab navigation
  * in pages like Settings with 6+ sections.
+ *
+ * Two variants:
+ * - ``"default"`` (``rounded-full`` pill container with a sliding accent
+ *   pill indicator).  Used for inline setting options (recording mode,
+ *   bubble position, tray click, etc.).
+ * - ``"tabs"`` (no container background/border, labels sit flush with
+ *   the page edge).  Used for page-level tab switches (Settings tabs).
+ *   The indicator becomes a bottom-aligned bar rather than a pill.
  *
  * The active indicator slides smoothly between options using CSS transforms
  * with a measured width/left approach for pixel-perfect alignment.
@@ -21,6 +30,12 @@ export interface SegmentedControlOption<T extends string> {
 	value: T;
 	/** Visible label. */
 	label: string;
+	/** Optional icon displayed before the label. When only icons are needed,
+	 *  set label={""} and provide the icon — the aria-label on the radiogroup
+	 *  and title on each option provide screen-reader context. */
+	icon?: IconSvgElement;
+	/** Optional title attribute shown on hover (tooltip). */
+	title?: string;
 }
 export interface SegmentedControlProps<T extends string> {
 	options: SegmentedControlOption<T>[];
@@ -28,6 +43,13 @@ export interface SegmentedControlProps<T extends string> {
 	value: T;
 	/** Called with the new value when the user clicks an option. */
 	onChange: (value: T) => void;
+	/**
+	 * ``"default"`` — pill-shaped container with bg/border/rounded.
+	 * ``"tabs"`` — no container background or border-radius. Use for
+	 * full-width page-level tab bars (e.g. Settings tabs).
+	 * @default "default"
+	 */
+	variant?: "default" | "tabs";
 	/** Optional ``aria-label`` for the radiogroup container. */
 	ariaLabel?: string;
 	/** Optional wrapper className. */
@@ -53,6 +75,7 @@ export function SegmentedControl<T extends string>({
 	options,
 	value,
 	onChange,
+	variant = "default",
 	ariaLabel,
 	className,
 	indicatorClassName,
@@ -130,7 +153,10 @@ export function SegmentedControl<T extends string>({
 			role="radiogroup"
 			aria-label={ariaLabel}
 			className={cn(
-				"relative inline-flex items-center rounded-full border border-border bg-input/50 p-0.75",
+				"relative inline-flex items-center",
+				variant === "default" &&
+					"rounded-full border border-border bg-input/50 p-0.75",
+				variant === "tabs" && "bg-transparent border-none rounded-none p-1",
 				className,
 			)}
 		>
@@ -138,8 +164,10 @@ export function SegmentedControl<T extends string>({
 			{indicatorStyle && (
 				<div
 					className={cn(
-						"pointer-events-none absolute z-0 inset-y-0.75 rounded-full transition-all duration-200 ease-out",
-						"bg-primary shadow-xs",
+						"pointer-events-none absolute z-0 transition-all duration-200 ease-out",
+						variant === "default" &&
+							"inset-y-0.75 rounded-full bg-primary shadow-xs",
+						variant === "tabs" && "inset-y-1 rounded-md bg-input",
 						indicatorClassName,
 					)}
 					style={{
@@ -171,12 +199,21 @@ export function SegmentedControl<T extends string>({
 					<label
 						key={opt.value}
 						ref={getLabelRef(opt.value)}
+						title={opt.title}
 						className={cn(
 							"relative z-10 cursor-pointer font-normal outline-none transition-colors duration-150",
-							"select-none whitespace-nowrap",
-							"rounded-full px-2 py-1 text-[11px] tracking-wider",
+							"select-none whitespace-nowrap inline-flex items-center justify-center",
+							variant === "default" &&
+								"rounded-full px-2 py-1 text-[11px] tracking-wider",
+							variant === "tabs" &&
+								"rounded-none px-3 py-2 text-[13px] font-medium",
 							labelClassName,
-							active && ["text-primary-foreground", activeClassName],
+							active && variant === "tabs" && "text-(--text-primary)",
+							active &&
+								variant !== "tabs" && [
+									"text-primary-foreground",
+									activeClassName,
+								],
 							!active && "text-(--text-muted) hover:text-(--text-primary)",
 						)}
 					>
@@ -187,6 +224,17 @@ export function SegmentedControl<T extends string>({
 							onChange={handleRadioChange}
 							className="sr-only"
 						/>
+						{opt.icon && (
+							<HugeiconsIcon
+								icon={opt.icon}
+								strokeWidth={2}
+								className={cn(
+									"h-4 w-4 shrink-0",
+									active ? "opacity-100" : "opacity-60",
+									opt.label && "-ml-0.5 mr-1",
+								)}
+							/>
+						)}
 						{opt.label}
 					</label>
 				);

@@ -33,13 +33,13 @@ import { SettingsSkeleton } from "./SettingsSkeleton";
 import type { SettingsSectionSharedProps } from "./types";
 
 const TRAY_CLICK_OPTIONS = [
-	{ value: "open_app", labelKey: "settings.trayClickOpenApp" },
 	{ value: "toggle_dictation", labelKey: "settings.trayClickToggleDictation" },
+	{ value: "open_app", labelKey: "settings.trayClickOpenApp" },
 ] as const;
 
 const BUBBLE_BEHAVIOR_OPTIONS = [
-	{ value: "show_on_record", labelKey: "settings.bubbleBehaviorShowOnRecord" },
 	{ value: "always_visible", labelKey: "settings.bubbleBehaviorAlwaysVisible" },
+	{ value: "show_on_record", labelKey: "settings.bubbleBehaviorShowOnRecord" },
 ] as const;
 
 // Locale selector options — derived from SUPPORTED_LOCALES so adding a

@@ -115,9 +115,27 @@ class ConfigHandlersMixin:
             # writes with this IPC-driven update. Without this
             # lock, half the fields could come from IPC and half
             # from the tkinter window, producing a torn config.
+            # AUDIO-PRESET-SAVE-FIX: run apply_config_side_effects INSIDE
+            # the config-mutation lock and save AFTER it, so that any
+            # side-effect mutations (e.g. noise_filter_* toggles from
+            # the audio preset) are persisted to disk.
+            #
+            # The previous order (save first, then apply side effects
+            # outside the lock) meant that when the user set
+            # ``audio_preset: "off"``, only the preset name was saved;
+            # the individual ``noise_filter_*`` toggles (set to False
+            # by ``_apply_audio_preset``) were NOT persisted. On
+            # restart, ``Config.load()`` found ``audio_preset: "off"``
+            # but the ``noise_filter_*`` fields were still at their
+            # default ``True`` values, so the filter chain was built
+            # with all filters ON — the preset appeared to reset to
+            # Auto even though the UI showed Off.
             with self.app._config_mutation_lock:
                 for k, v in validated.items():
                     setattr(self.app.config, k, v)
+                # Apply side effects inside the lock so Config
+                # mutations from the preset are visible to save().
+                self.service.apply_config_side_effects(data)
                 self.app.config.save()
             # ARCH-043: invalidate the tray menu cache so the next
             # menu build picks up the new config values (model size,
@@ -127,8 +145,6 @@ class ConfigHandlersMixin:
                 self.app.tray.invalidate_menu_cache()
             except Exception:
                 log.debug("[IPC] tray.invalidate_menu_cache failed", exc_info=True)
-            # ARCH-005: Delegate all side effects to the service layer
-            self.service.apply_config_side_effects(data)
 
             # Push a config_changed event so the renderer (App.tsx)
             # can update UI-local state (font-scale, theme, etc.)

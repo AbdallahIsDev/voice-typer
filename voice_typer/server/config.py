@@ -251,6 +251,88 @@ def _validate_path_safety(path: Path, parent: Path) -> Path:
     return resolved
 
 
+def _is_path_within(path: Path, root: Path) -> bool:
+    """RW-5: whether ``path`` is ``root`` itself or a descendant of it.
+
+    Cross-platform path-containment check used by
+    :func:`_validate_import_path`.  Both arguments are ``resolve()``-d
+    first so symlinks and ``..`` segments are canonicalized before
+    comparison.
+
+    On Windows and macOS the default filesystem is case-insensitive, so
+    the comparison lower-cases both sides on those platforms; on Linux
+    the comparison is case-sensitive (matching the filesystem).
+
+    Uses :func:`os.path.commonpath` to correctly respect directory
+    boundaries — ``/home/userX`` is NOT considered within
+    ``/home/user`` (a naive ``str.startswith`` would incorrectly accept
+    it).  ``commonpath`` also handles the root-directory edge case
+    (``/etc`` IS within ``/``).
+    """
+    import os.path
+    import sys
+    try:
+        p_resolved = str(path.resolve())
+        r_resolved = str(root.resolve())
+    except (OSError, RuntimeError):
+        # Path.resolve() can raise on some platforms if the path is
+        # not decodable; treat that as "not within".
+        return False
+    if sys.platform in ("win32", "darwin"):
+        p_resolved = p_resolved.lower()
+        r_resolved = r_resolved.lower()
+    try:
+        common = os.path.commonpath([p_resolved, r_resolved])
+    except ValueError:
+        # commonpath raises ValueError if the paths are on different
+        # drives (Windows) or if one is absolute and the other is not.
+        # Either way, ``path`` cannot be within ``root``.
+        return False
+    return common == r_resolved
+
+
+def _validate_import_path(dir_path: str) -> str:
+    """RW-5: validate that ``dir_path`` is within an allowed root.
+
+    Used by the ``import_model`` IPC handler to reject arbitrary
+    filesystem paths the user did not pick via the file chooser.
+
+    Allowed roots (the directory itself or a descendant):
+      - the user's home directory — covers ``~/Downloads``,
+        ``~/Documents``, the default HF cache at
+        ``~/.cache/huggingface/hub``, etc.
+      - the OS temp directory (``tempfile.gettempdir()``) — covers
+        ``/tmp``, ``%TEMP%``, etc.
+      - the app's own HF cache directory (``_config_dir() /
+        "huggingface" / "hub"``) — so re-importing from the app's
+        cache is allowed.
+      - ``$HF_HOME`` if set — some users point this at a custom
+        location (e.g. an external drive mounted under a non-home
+        path).
+
+    Returns the resolved path as a string.  Raises ``ValueError`` if
+    the path is outside all allowed roots.
+    """
+    import os
+    import tempfile
+    resolved = Path(dir_path).resolve()
+    allowed_roots = [
+        Path.home().resolve(),
+        Path(tempfile.gettempdir()).resolve(),
+        (_config_dir() / "huggingface" / "hub").resolve(),
+    ]
+    hf_home = os.environ.get("HF_HOME")
+    if hf_home:
+        allowed_roots.append(Path(hf_home).resolve())
+    for root in allowed_roots:
+        if _is_path_within(resolved, root):
+            return str(resolved)
+    raise ValueError(
+        f"Import path '{dir_path}' is outside the allowed roots "
+        f"(home directory, temp directory, or HF cache)."
+    )
+
+
 def _validate_systemroot() -> None:
     """SEC-audit-011: Validate the SystemRoot environment variable on Windows.
 
@@ -983,6 +1065,24 @@ class Config:
 
                 instance = cls(**data)
                 instance.last_load_warnings = load_warnings
+
+                # AUDIO-PRESET-LOAD-FIX: apply the audio preset's filter
+                # toggles on every load so that the individual
+                # ``noise_filter_*`` fields are always consistent with
+                # ``audio_preset``, even if the JSON is stale (e.g., the
+                # preset was saved but the side-effect toggles were not,
+                # a bug fixed in ``config_handlers.py``).  Without this,
+                # a config file with ``audio_preset: "off"`` but all
+                # ``noise_filter_highpass: True`` (the dataclass default)
+                # would build a filter chain with all filters ON on
+                # startup, making the preset appear to reset to Auto
+                # despite the UI showing Off.
+                try:
+                    from voice_typer.server.audio_presets import apply_preset
+                    apply_preset(instance.audio_preset, instance)
+                except Exception:
+                    log.debug("[CONFIG] apply_preset on load failed", exc_info=True)
+
                 return instance
             except json.JSONDecodeError as e:
                 log.error("[CONFIG] Config file corrupted: %s. Using defaults.", e)

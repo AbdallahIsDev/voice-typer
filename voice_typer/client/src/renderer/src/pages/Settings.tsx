@@ -15,9 +15,9 @@ import { Spinner } from "@/components/Spinner";
 import { AiEnhancementSettingsSection } from "@/components/settings/AiEnhancementSettingsSection";
 import { AudioSettingsSection } from "@/components/settings/AudioSettingsSection";
 import { GeneralSettingsSection } from "@/components/settings/GeneralSettingsSection";
-import { HotkeySettingsSection } from "@/components/settings/HotkeySettingsSection";
 import { ModelSettingsSection } from "@/components/settings/ModelSettingsSection";
 import { PrivacySettingsSection } from "@/components/settings/PrivacySettingsSection";
+import { RecordingSettingsSection } from "@/components/settings/RecordingSettingsSection";
 import { ThemeSettingsSection } from "@/components/settings/ThemeSettingsSection";
 import { Button } from "@/components/ui/button";
 import { SegmentedControl } from "@/components/ui/segmented-control";
@@ -227,7 +227,7 @@ export default function SettingsPage({
 	// depending on it in their useCallback deps.  Previously, both
 	// callbacks had `config` in their deps, which meant they were
 	// recreated on every config change — defeating the React.memo
-	// wrappers on child sections (HotkeySettingsSection,
+	// wrappers on child sections (RecordingSettingsSection,
 	// GeneralSettingsSection, etc.) and causing unnecessary
 	// re-renders across the entire Settings page on every keystroke.
 	// Now the callbacks have stable identity (empty deps) and read
@@ -345,7 +345,7 @@ export default function SettingsPage({
 			// updateConfigDebounced which is debounced).  This path is
 			// only hit by explicit toggle/select changes, so toasting
 			// here is appropriate.
-			showSnack("Saved", "success");
+			showSnack(t("settings.savedToast"), "success");
 
 			// Task 17-B-FIX-2: also surface the success state via the
 			// inline "Saved ✓" indicator (the accessible, full-opacity
@@ -377,7 +377,7 @@ export default function SettingsPage({
 			console.error("Failed to update config:", err);
 			await loadConfig();
 			// NEW-UX-014: also surface failures so the user knows.
-			showSnack("Failed to save setting", "error");
+			showSnack(t("settings.saveFailedToast"), "error");
 		} finally {
 			setSaving(false);
 			resolveAll();
@@ -536,13 +536,16 @@ export default function SettingsPage({
 		try {
 			const result = await window.window_?.openLogs?.();
 			if (result?.success) {
-				showSnack("Log folder opened", "success");
+				showSnack(t("settings.logFolderOpened"), "success");
 			} else {
-				showSnack(result?.error || "Could not open log folder", "error");
+				showSnack(
+					result?.error || t("settings.couldNotOpenLogFolder"),
+					"error",
+				);
 			}
 		} catch (err) {
 			console.error("Failed to open logs:", err);
-			showSnack("Could not open log folder", "error");
+			showSnack(t("settings.couldNotOpenLogFolder"), "error");
 		}
 	};
 
@@ -582,13 +585,13 @@ export default function SettingsPage({
 					safeDefaults[key] = value;
 				}
 				await updateConfig(safeDefaults as Partial<VoiceTyperConfig>);
-				showSnack("Settings reset to defaults", "success");
+				showSnack(t("settings.resetToDefaultsToast"), "success");
 			} else {
-				showSnack("Failed to fetch defaults from backend", "error");
+				showSnack(t("settings.fetchDefaultsFailed"), "error");
 			}
 		} catch (err) {
 			console.error("Failed to reset to defaults:", err);
-			showSnack("Failed to reset to defaults", "error");
+			showSnack(t("settings.resetFailed"), "error");
 		}
 	};
 
@@ -610,7 +613,7 @@ export default function SettingsPage({
 			<div className="flex h-full items-center justify-center">
 				<div className="space-y-2 text-center">
 					<Spinner size={24} className="mx-auto" />
-					<p className="text-sm text-(--text-muted)">Loading settings...</p>
+					<p className="text-sm text-(--text-muted)">{t("settings.loading")}</p>
 				</div>
 			</div>
 		);
@@ -644,32 +647,35 @@ export default function SettingsPage({
 
 	return (
 		<div className="min-h-full">
-			{/* Fixed settings tab navigation at the top of the viewport */}
-			<div className="sticky top-12 left-0 right-0 z-40 flex justify-center">
+			{/* Fixed settings tab navigation at the very top of the viewport.
+                            Uses variant="tabs" — no container background/border/rounded,
+                            full-width bar with content constrained to max-w-2xl. */}
+			<div className="sticky top-0 left-0 right-0 z-40 bg-(--bg-subtle) border-b border-border py-1.5">
 				<div className="mx-auto w-full max-w-2xl px-6">
+					{" "}
 					<SegmentedControl<SettingsTab>
+						variant="tabs"
 						options={[
-							{ value: "appearance", label: t("settings.tabs.appearance") },
 							{ value: "general", label: t("settings.tabs.general") },
 							{ value: "aiAudio", label: t("settings.tabs.aiAudio") },
+							{ value: "appearance", label: t("settings.tabs.appearance") },
 							{ value: "privacy", label: t("settings.tabs.privacy") },
 						]}
 						value={activeTab}
 						onChange={setActiveTab}
-						ariaLabel="Settings tabs"
-						indicatorClassName="bg-input"
-						activeClassName="text-(--text-primary)"
+						ariaLabel={t("settings.tabsAria")}
+						indicatorClassName="bg-black/[0.04] dark:bg-white/[0.08]"
 						labelClassName="flex-1 text-center"
 						className="w-full"
 					/>
 				</div>
 			</div>
 
-			<div className="mx-auto max-w-2xl space-y-8 px-6 pt-28 pb-6">
+			<div className="mx-auto max-w-2xl space-y-8 px-6 pt-6 pb-6">
 				{/* Header */}
 				<PageHeading
 					title={t("settings.title")}
-					description="Adjust Voice Typer to your preferences."
+					description={t("settings.description")}
 				/>
 
 				{/* UX-028: Settings search/filter — also auto-switches to the
@@ -701,7 +707,7 @@ export default function SettingsPage({
 							updateConfigDebounced={updateConfigDebounced}
 							isVisible={_filter_settings}
 						/>
-						<HotkeySettingsSection
+						<RecordingSettingsSection
 							config={config}
 							updateConfig={updateConfig}
 							updateConfigDebounced={updateConfigDebounced}
@@ -754,51 +760,55 @@ export default function SettingsPage({
                                                                                 - Report a Bug link
                                                                 And clarify the "View Logs" label. */}
 						{(_filter_settings(
-							"Troubleshooting",
-							"Diagnostic tools, help, and support.",
-							"Troubleshooting",
+							t("settings.troubleshooting.title"),
+							t("settings.troubleshooting.description"),
+							t("settings.troubleshooting.title"),
 						) ||
 							[
-								"Open Log Folder",
-								"Diagnostics",
-								"Help & FAQ",
-								"Report a Bug",
-								"Reset to Defaults",
+								t("settings.troubleshooting.openLogFolder"),
+								t("settings.troubleshooting.diagnostics"),
+								t("settings.troubleshooting.helpFaq"),
+								t("settings.troubleshooting.reportBug"),
+								t("settings.troubleshooting.resetToDefaults"),
 							].some((label) =>
-								_filter_settings(label, undefined, "Troubleshooting"),
+								_filter_settings(
+									label,
+									undefined,
+									t("settings.troubleshooting.title"),
+								),
 							)) && (
 							<SettingsSection
-								title="Troubleshooting"
-								description="Diagnostic tools, help, and support."
+								title={t("settings.troubleshooting.title")}
+								description={t("settings.troubleshooting.description")}
 							>
 								<div className="px-3.5 py-3.5 flex flex-wrap gap-3">
 									<Button
 										variant="outline"
 										className="gap-2"
 										onClick={viewLogs}
-										aria-label="Open log folder"
-										title="Open the folder containing the Python backend's log files"
+										aria-label={t("settings.troubleshooting.openLogFolderAria")}
+										title={t("settings.troubleshooting.openLogFolderHint")}
 									>
 										<HugeiconsIcon
 											icon={File02Icon}
 											strokeWidth={2}
 											className="h-4 w-4"
 										/>
-										Open Log Folder
+										{t("settings.troubleshooting.openLogFolder")}
 									</Button>
 									<Button
 										variant="outline"
 										className="gap-2"
 										onClick={() => onNavigate?.("about")}
-										aria-label="Open Diagnostics"
-										title="Open the About page with version, backend status, and config info"
+										aria-label={t("settings.troubleshooting.diagnosticsAria")}
+										title={t("settings.troubleshooting.diagnosticsHint")}
 									>
 										<HugeiconsIcon
 											icon={InformationCircleIcon}
 											strokeWidth={2}
 											className="h-4 w-4"
 										/>
-										Diagnostics
+										{t("settings.troubleshooting.diagnostics")}
 									</Button>
 									<Button
 										variant="outline"
@@ -810,15 +820,15 @@ export default function SettingsPage({
 												"noopener,noreferrer",
 											)
 										}
-										aria-label="Open documentation"
-										title="Open the project README in your browser"
+										aria-label={t("settings.troubleshooting.openDocsAria")}
+										title={t("settings.troubleshooting.openDocsHint")}
 									>
 										<HugeiconsIcon
 											icon={Book02Icon}
 											strokeWidth={2}
 											className="h-4 w-4"
 										/>
-										Help & FAQ
+										{t("settings.troubleshooting.helpFaq")}
 									</Button>
 									<Button
 										variant="outline"
@@ -830,29 +840,31 @@ export default function SettingsPage({
 												"noopener,noreferrer",
 											)
 										}
-										aria-label="Report a bug"
-										title="Open the GitHub issue tracker"
+										aria-label={t("settings.troubleshooting.reportBugAria")}
+										title={t("settings.troubleshooting.reportBugHint")}
 									>
 										<HugeiconsIcon
 											icon={Bug02Icon}
 											strokeWidth={2}
 											className="h-4 w-4"
 										/>
-										Report a Bug
+										{t("settings.troubleshooting.reportBug")}
 									</Button>
 									<Button
 										variant="destructive"
 										className="gap-2"
 										onClick={() => setShowResetDialog(true)}
-										aria-label="Reset to Defaults"
-										title="Reset all settings to their default values (cannot be undone)"
+										aria-label={t(
+											"settings.troubleshooting.resetToDefaultsAria",
+										)}
+										title={t("settings.troubleshooting.resetToDefaultsHint")}
 									>
 										<HugeiconsIcon
 											icon={RefreshIcon}
 											strokeWidth={2}
 											className="h-4 w-4"
 										/>
-										Reset to Defaults
+										{t("settings.troubleshooting.resetToDefaults")}
 									</Button>
 								</div>
 							</SettingsSection>
@@ -884,7 +896,7 @@ export default function SettingsPage({
 								className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400"
 								aria-hidden="true"
 							/>
-							Saving…
+							{t("settings.saving")}
 						</span>
 					) : saved ? (
 						<span className="inline-flex items-center gap-1 text-(--text-secondary) animate-fade-in">
@@ -894,11 +906,11 @@ export default function SettingsPage({
 								className="h-3 w-3 text-emerald-500"
 								aria-hidden="true"
 							/>
-							Saved
+							{t("settings.savedToast")}
 						</span>
 					) : (
 						<span className="inline-flex items-center gap-1 text-(--text-muted)">
-							All changes saved
+							{t("settings.allChangesSaved")}
 						</span>
 					)}
 				</p>
@@ -931,27 +943,26 @@ export default function SettingsPage({
 							id="reset-dialog-title"
 							className="text-lg font-semibold text-(--text-primary) mb-3"
 						>
-							Reset to Defaults
+							{t("settings.troubleshooting.resetToDefaults")}
 						</h2>
 						<p className="text-sm text-(--text-muted) mb-6">
-							Are you sure you want to reset all settings to their default
-							values? This cannot be undone.
+							{t("settings.troubleshooting.resetDialogMessage")}
 						</p>
 						<div className="flex justify-end gap-3">
 							<Button
 								variant="ghost"
 								onClick={() => setShowResetDialog(false)}
-								aria-label="Cancel reset"
+								aria-label={t("settings.troubleshooting.cancelResetAria")}
 							>
-								Cancel
+								{t("common.cancel")}
 							</Button>
 							<Button
 								variant="destructive"
 								onClick={resetToDefaults}
 								autoFocus
-								aria-label="Confirm reset to defaults"
+								aria-label={t("settings.troubleshooting.confirmResetAria")}
 							>
-								Reset to Defaults
+								{t("settings.troubleshooting.resetToDefaults")}
 							</Button>
 						</div>
 					</div>
