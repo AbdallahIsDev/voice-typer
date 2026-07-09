@@ -20,7 +20,10 @@ import socket
 import sys
 import threading
 import time
+import typing
 from collections import deque
+
+from voice_typer.server.keyboard_ownership import keyboard_ownership
 
 log = logging.getLogger("voice_typer.server.ipc_server")
 
@@ -760,6 +763,49 @@ class IPCServer(
             self._tcp_client.close()
             self._tcp_client = None
             log.info("[TCP] client disconnected")
+            # TASK-0010: if the frontend crashed mid-capture (before
+            # sending ``set_esc_cancel_paused: false``), the backend
+            # would otherwise be stuck in ``"hotkey_capture"`` state
+            # forever, suppressing all hotkey interactions until
+            # restart. Reset keyboard ownership so the next client
+            # reconnect starts clean. Skipped during server shutdown
+            # so an active recording isn't interrupted by teardown.
+            self._on_ipc_client_disconnect("IPC client disconnected")
+
+    def _on_ipc_client_disconnect(self, reason: str) -> None:
+        """Reset keyboard ownership when the IPC client disconnects.
+
+        TASK-0010 (backend ownership watchdog): if the frontend
+        crashes mid-capture (before sending
+        ``set_esc_cancel_paused: false``), the backend would
+        otherwise be stuck in ``"hotkey_capture"`` state forever,
+        suppressing all hotkey interactions until restart. Resetting
+        ownership here ensures the next client reconnect starts
+        clean.
+
+        Skipped during server shutdown (``self._running == False``)
+        so an active recording isn't interrupted by the teardown
+        sequence — we only want to fire on an *unexpected* client
+        disconnect, not on a planned stop().
+
+        The reset is idempotent: calling it when ownership is
+        already ``"normal"`` is a no-op. Safe to call from multiple
+        disconnect paths (TCP + stdin EOF) — the second call is a
+        no-op.
+        """
+        if not self._running:
+            # Server is shutting down (stop() was called). Don't
+            # reset ownership — a recording might be in progress
+            # and the teardown sequence will handle cleanup.
+            log.debug(
+                "[IPC] client disconnect during shutdown; "
+                "skipping keyboard ownership reset"
+            )
+            return
+        keyboard_ownership().reset()
+        log.info(
+            "[IPC] keyboard ownership reset to normal (%s)", reason
+        )
 
     # ── Tray state hook ─────────────────────────────────────────────────
 
@@ -820,6 +866,12 @@ class IPCServer(
                     }, _out=stdout)
         except OSError:
             pass  # stdin closed (e.g. during test teardown)
+        # TASK-0010: stdin EOF (or OSError on read) means the IPC
+        # client is gone. If we're still running, reset keyboard
+        # ownership so a crashed CLI client doesn't leave the
+        # backend stuck in ``"hotkey_capture"`` state. The helper
+        # is a no-op during shutdown (``self._running == False``).
+        self._on_ipc_client_disconnect("stdin EOF — IPC client disconnected")
 
     # ── Dispatcher ──────────────────────────────────────────────────────
 
@@ -1217,7 +1269,18 @@ def main() -> None:
         # Optional: register SIGUSR1 for on-demand thread dumps (POSIX only)
         import signal
         if hasattr(signal, 'SIGUSR1'):
-            signal.signal(signal.SIGUSR1, faulthandler.dump_traceback_later)
+            # TASK-14: ``faulthandler.dump_traceback_later`` has the
+            # signature ``(timeout: float, repeat: bool = False, ...)
+            # -> None`` and does NOT match the ``signal.signal`` handler
+            # protocol ``(signum: int, frame: FrameType | None) -> Any``.
+            # Passing it directly would crash with TypeError the first
+            # time the signal fires (missing ``timeout`` positional).
+            # Wrap it in a closure that calls ``dump_traceback_later``
+            # with a 1-second delay — the documented use case for
+            # on-demand thread dumps from SIGUSR1.
+            def _on_sigusr1(_signum: int, _frame: "typing.Any") -> None:
+                faulthandler.dump_traceback_later(timeout=1.0)
+            signal.signal(signal.SIGUSR1, _on_sigusr1)
     except Exception:
         pass  # Not available on all platforms
 
