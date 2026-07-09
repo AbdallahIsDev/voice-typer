@@ -1661,6 +1661,30 @@ def main() -> int:
     # Task 4: --status short-circuits before any warming work.
     if args.status:
         return _print_status()
+
+    # Task 3: --run is an alias for --force. --background spawns a
+    # detached subprocess and exits immediately (for automation scripts).
+    # --background without --run is a no-op (we warn and exit).
+    if args.background and not (args.run or args.force):
+        log.warning("[PREWARM] --background requires --run or --force — ignoring")
+        return EXIT_DISABLED
+
+    if args.run or args.force:
+        # --run and --force are equivalent — both bypass the guards.
+        if args.background:
+            # Task 3: spawn a detached subprocess and exit immediately.
+            # Uses spawn_background_prewarm() for consistent detachment
+            # behavior (CREATE_NO_WINDOW on Windows, start_new_session
+            # on POSIX). Prints the spawned PID so scripts can track it.
+            pid = spawn_background_prewarm(force=True)
+            if pid is not None:
+                print(f"prewarm spawned in background (pid={pid})")
+                return EXIT_OK
+            log.error("[PREWARM] --run --background: failed to spawn subprocess")
+            return EXIT_IMPORT_FAILED  # no better code for "spawn failed"
+        # --run without --background: run inline (same as --force).
+        return run(min_ram_mb=args.min_ram_mb, force=True, delay=args.delay)
+
     return run(min_ram_mb=args.min_ram_mb, force=args.force, delay=args.delay)
 
 
