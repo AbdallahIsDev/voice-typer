@@ -186,7 +186,8 @@
 		"presetProfessional": "Профессиональный",
 		"presetCasual": "Повседневный",
 		"presetEmail": "Письмо",
-		"presetCode": "Код"
+		"presetCode": "Код",
+		"allChangesSaved": "All changes saved"
 	},
 	"models": {
 		"title": "Модели",
@@ -413,7 +414,26 @@
 	"a11y": {
 		"skipToMain": "Перейти к основному содержимому",
 		"keyboardShortcuts": "Горячие клавиши",
-		"closeDialog": "Нажмите Esc или щёлкните снаружи, чтобы закрыть."
+		"closeDialog": "Нажмите Esc или щёлкните снаружи, чтобы закрыть.",
+		"toggleSidebar": "Переключить боковую панель",
+		"mainNavigation": "Основная навигация",
+		"goBack": "Назад",
+		"goForward": "Вперёд",
+		"recordingStarted": "Запись начата.",
+		"transcribingAudio": "Расшифровка аудио…",
+		"ready": "Готово.",
+		"errorOccurred": "Произошла ошибка.",
+		"loadingModel": "Загрузка модели…",
+		"cancelling": "Отмена…",
+		"moreInfo": "Больше информации",
+		"exportFormat": "Формат экспорта",
+		"clearSearch": "Очистить поиск",
+		"loading": "Загрузка",
+		"increase": "Увеличить",
+		"decrease": "Уменьшить",
+		"microphoneQualityPreset": "Предустановка качества микрофона",
+		"noiseSuppressionMethod": "Метод подавления шума",
+		"importNotAvailableOutsideElectron": "Импорт недоступен вне Electron"
 	},
 	"help": {
 		"title": "Горячие клавиши",
@@ -428,7 +448,8 @@
 		"activate": "Активировать активный элемент управления",
 		"openHelp": "Открыть эту справку",
 		"navBack": "Навигация назад / вперёд",
-		"closeHint": "Нажмите {key} или щёлкните снаружи, чтобы закрыть."
+		"closeHint": "Нажмите {key} или щёлкните снаружи, чтобы закрыть.",
+		"zoomTextSize": "Zoom text size"
 	},
 	"about": {
 		"cacheTitle": "Состояние кэша",
@@ -453,5 +474,62 @@
 		"prewarmLogNotFound": "Журнал предпрогрева не найден",
 		"prewarmLogOpened": "Журнал предпрогрева открыт",
 		"prewarmLogOpenFailed": "Не удалось открыть журнал предпрогрева"
+	},
+	"titleBar": {
+		"minimize": "Minimize",
+		"maximize": "Maximize",
+		"restore": "Restore",
+		"close": "Close",
+		"back": "Back (or mouse back button)",
+		"forward": "Forward (or mouse forward button)"
+	},
+	"bubble": {
+		"recordingIndicatorAria": "Voice Typer recording indicator"
+	},
+	"errorBoundary": {
+		"title": "Something went wrong",
+		"description": "The app encountered an unexpected error. Your data is safe.",
+		"unknownError": "Unknown error",
+		"tryAgain": "Try Again",
+		"reloadApp": "Reload App"
+	},
+	"hotkeyPicker": {
+		"pressAKey": "Press a key",
+		"none": "None",
+		"presets": "Presets…",
+		"customLabel": "{label}",
+		"cancelRecordingAria": "Cancel recording — {label}",
+		"recordNewAria": "Record new hotkey — {label}",
+		"presetHotkeysAria": "Preset hotkeys — {label}",
+		"assignHint": "Press a key to assign, or press Esc to cancel"
+	},
+	"activityList": {
+		"failedToCopy": "Failed to copy",
+		"viewAll": "View all",
+		"wordsCount": "{count} words",
+		"removeFromFavorites": "Remove from favorites",
+		"addToFavorites": "Add to favorites"
+	},
+	"exportFormat": {
+		"export": "Экспорт",
+		"json": "Экспорт как JSON",
+		"csv": "Экспорт как CSV"
+	},
+	"audioPreset": {
+		"highPassFilter": "Фильтр высоких частот",
+		"highPassCutoff": "Частота среза ВЧ",
+		"noiseGate": "Шумоподавитель",
+		"gateOpenThreshold": "Порог открытия",
+		"gateCloseThreshold": "Порог закрытия",
+		"equalizer": "Эквалайзер",
+		"eqLow": "ЭК — Низкие (бас)",
+		"eqMid": "ЭК — Средние (речь)",
+		"eqHigh": "ЭК — Высокие (верхние)",
+		"compressor": "Компрессор",
+		"compressorThreshold": "Порог компрессора",
+		"compressorRatio": "Соотношение компрессора",
+		"limiter": "Лимитер",
+		"limiterCeiling": "Потолок лимитера",
+		"notchFilter": "Режекторный фильтр (гул)"
 	}
 }

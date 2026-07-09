@@ -232,10 +232,10 @@
 			"hotkeyTitle": "Tastenkombination",
 			"hotkeyDescription": "Taste zum Starten und Stoppen des Diktats.",
 			"dictationKey": "Diktiertaste",
-			"dictationKeyInfo": "Die Tastaturtaste, die zum Starten und Stoppen der Aufnahme verwendet wird. Klicken Sie auf die Schaltfläche, um eine neue Taste aufzuzeichnen, oder wählen Sie aus der Voreinstellungsliste.",
+			"dictationKeyInfo": "Tastenkombination zum Starten und Stoppen des Diktats.",
 			"dictationKeyInfoSearch": "Die Tastaturtaste, die zum Starten und Stoppen der Aufnahme verwendet wird.",
 			"dictationKeyAria": "Diktiertaste",
-			"recordingTitle": "Aufnahme",
+			"recordingTitle": "Hotkeys & Aufnahme",
 			"recordingDescription": "Verhalten, Tastenkombinationen und Stille-Behandlung.",
 			"recordingMode": "Aufnahmemodus",
 			"recordingModeInfo": "Umschalten: Taste einmal drücken zum Starten und erneut zum Stoppen. Push-to-Talk: Taste beim Sprechen gedrückt halten.",
@@ -485,7 +485,8 @@
 			"cancelResetAria": "Zurücksetzen abbrechen",
 			"confirmResetAria": "Auf Standardwerte zurücksetzen bestätigen",
 			"resetDialogMessage": "Möchten Sie wirklich alle Einstellungen auf ihre Standardwerte zurücksetzen? Dies kann nicht rückgängig gemacht werden."
-		}
+		},
+		"allChangesSaved": "All changes saved"
 	},
 	"models": {
 		"title": "Modelle",
@@ -712,7 +713,26 @@
 	"a11y": {
 		"skipToMain": "Zum Hauptinhalt springen",
 		"keyboardShortcuts": "Tastaturkürzel",
-		"closeDialog": "Drücken Sie Esc oder klicken Sie außerhalb, um zu schließen."
+		"closeDialog": "Drücken Sie Esc oder klicken Sie außerhalb, um zu schließen.",
+		"toggleSidebar": "Seitenleiste umschalten",
+		"mainNavigation": "Hauptnavigation",
+		"goBack": "Zurück",
+		"goForward": "Vorwärts",
+		"recordingStarted": "Aufnahme gestartet.",
+		"transcribingAudio": "Audio wird transkribiert…",
+		"ready": "Bereit.",
+		"errorOccurred": "Fehler aufgetreten.",
+		"loadingModel": "Modell wird geladen…",
+		"cancelling": "Abbruch…",
+		"moreInfo": "Mehr Infos",
+		"exportFormat": "Exportformat",
+		"clearSearch": "Suche löschen",
+		"loading": "Laden",
+		"increase": "Erhöhen",
+		"decrease": "Verringern",
+		"microphoneQualityPreset": "Mikrofon-Qualitätsvoreinstellung",
+		"noiseSuppressionMethod": "Rauschunterdrückungsmethode",
+		"importNotAvailableOutsideElectron": "Import außerhalb von Electron nicht verfügbar"
 	},
 	"help": {
 		"title": "Tastaturkürzel",
@@ -727,7 +747,8 @@
 		"activate": "Fokussiertes Bedienelement aktivieren",
 		"openHelp": "Diese Hilfe öffnen",
 		"navBack": "Vorwärts / rückwärts navigieren",
-		"closeHint": "Drücken Sie {key} oder klicken Sie außerhalb, um zu schließen."
+		"closeHint": "Drücken Sie {key} oder klicken Sie außerhalb, um zu schließen.",
+		"zoomTextSize": "Zoom text size"
 	},
 	"common": {
 		"cancel": "Abbrechen",
@@ -966,5 +987,62 @@
 		"prewarmLogNotFound": "Kein Präwarming-Protokoll gefunden",
 		"prewarmLogOpened": "Präwarming-Protokoll geöffnet",
 		"prewarmLogOpenFailed": "Präwarming-Protokoll konnte nicht geöffnet werden"
+	},
+	"titleBar": {
+		"minimize": "Minimize",
+		"maximize": "Maximize",
+		"restore": "Restore",
+		"close": "Close",
+		"back": "Back (or mouse back button)",
+		"forward": "Forward (or mouse forward button)"
+	},
+	"bubble": {
+		"recordingIndicatorAria": "Voice Typer recording indicator"
+	},
+	"errorBoundary": {
+		"title": "Something went wrong",
+		"description": "The app encountered an unexpected error. Your data is safe.",
+		"unknownError": "Unknown error",
+		"tryAgain": "Try Again",
+		"reloadApp": "Reload App"
+	},
+	"hotkeyPicker": {
+		"pressAKey": "Press a key",
+		"none": "None",
+		"presets": "Presets…",
+		"customLabel": "{label}",
+		"cancelRecordingAria": "Cancel recording — {label}",
+		"recordNewAria": "Record new hotkey — {label}",
+		"presetHotkeysAria": "Preset hotkeys — {label}",
+		"assignHint": "Press a key to assign, or press Esc to cancel"
+	},
+	"activityList": {
+		"failedToCopy": "Failed to copy",
+		"viewAll": "View all",
+		"wordsCount": "{count} words",
+		"removeFromFavorites": "Remove from favorites",
+		"addToFavorites": "Add to favorites"
+	},
+	"exportFormat": {
+		"export": "Exportieren",
+		"json": "Als JSON exportieren",
+		"csv": "Als CSV exportieren"
+	},
+	"audioPreset": {
+		"highPassFilter": "Hochpassfilter",
+		"highPassCutoff": "Hochpass-Grenzfrequenz",
+		"noiseGate": "Noise-Gate",
+		"gateOpenThreshold": "Gate-Öffnungsschwellen",
+		"gateCloseThreshold": "Gate-Schließschwellen",
+		"equalizer": "Equalizer",
+		"eqLow": "EQ — Tiefe (Bass)",
+		"eqMid": "EQ — Mitten (Sprache)",
+		"eqHigh": "EQ — Höhen (Höhen)",
+		"compressor": "Kompressor",
+		"compressorThreshold": "Kompressor-Schwellen",
+		"compressorRatio": "Kompressor-Verhältnis",
+		"limiter": "Limiter",
+		"limiterCeiling": "Limiter-Decke",
+		"notchFilter": "Kerfilter (Brummen)"
 	}
 }

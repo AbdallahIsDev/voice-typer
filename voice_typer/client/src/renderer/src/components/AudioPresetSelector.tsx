@@ -9,6 +9,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { t } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";
 
 /**
@@ -210,7 +211,7 @@ export function AudioPresetSelector({
 						<Select value={preset} onValueChange={handlePresetChange}>
 							<SelectTrigger
 								className="w-full"
-								aria-label="Microphone Quality Preset"
+								aria-label={t("a11y.microphoneQualityPreset")}
 							>
 								<SelectValue />
 							</SelectTrigger>
@@ -236,7 +237,7 @@ export function AudioPresetSelector({
 								description="Remove low-frequency rumble (HVAC, traffic)."
 								checked={config.noise_filter_highpass ?? true}
 								onChange={handleHighPassToggle}
-								ariaLabel="High-Pass Filter"
+								ariaLabel={t("audioPreset.highPassFilter")}
 							/>
 							{(config.noise_filter_highpass ?? true) && (
 								<SliderRow
@@ -248,7 +249,7 @@ export function AudioPresetSelector({
 									step={10}
 									suffix="Hz"
 									onChange={handleCutoffChange}
-									ariaLabel="High-Pass Cutoff"
+									ariaLabel={t("audioPreset.highPassCutoff")}
 								/>
 							)}
 
@@ -268,7 +269,7 @@ export function AudioPresetSelector({
 								>
 									<SelectTrigger
 										className="w-32"
-										aria-label="Noise Suppression Method"
+										aria-label={t("a11y.noiseSuppressionMethod")}
 									>
 										<SelectValue />
 									</SelectTrigger>
@@ -286,7 +287,7 @@ export function AudioPresetSelector({
 								description="Silence audio below a threshold."
 								checked={config.noise_filter_gate ?? true}
 								onChange={handleGateToggle}
-								ariaLabel="Noise Gate"
+								ariaLabel={t("audioPreset.noiseGate")}
 							/>
 							{(config.noise_filter_gate ?? true) && (
 								<>
@@ -299,7 +300,7 @@ export function AudioPresetSelector({
 										step={1}
 										suffix="dB"
 										onChange={handleGateOpenChange}
-										ariaLabel="Gate Open Threshold"
+										ariaLabel={t("audioPreset.gateOpenThreshold")}
 									/>
 									<SliderRow
 										label="Gate Close Threshold"
@@ -310,7 +311,7 @@ export function AudioPresetSelector({
 										step={1}
 										suffix="dB"
 										onChange={handleGateCloseChange}
-										ariaLabel="Gate Close Threshold"
+										ariaLabel={t("audioPreset.gateCloseThreshold")}
 									/>
 								</>
 							)}
@@ -320,7 +321,7 @@ export function AudioPresetSelector({
 								description="3-band EQ for tone shaping."
 								checked={config.noise_filter_eq ?? true}
 								onChange={handleEqToggle}
-								ariaLabel="Equalizer"
+								ariaLabel={t("audioPreset.equalizer")}
 							/>
 							{(config.noise_filter_eq ?? true) && (
 								<>
@@ -333,7 +334,7 @@ export function AudioPresetSelector({
 										step={1}
 										suffix="dB"
 										onChange={handleEqLowChange}
-										ariaLabel="EQ Low"
+										ariaLabel={t("audioPreset.eqLow")}
 									/>
 									<SliderRow
 										label="EQ — Mid (speech)"
@@ -344,7 +345,7 @@ export function AudioPresetSelector({
 										step={1}
 										suffix="dB"
 										onChange={handleEqMidChange}
-										ariaLabel="EQ Mid"
+										ariaLabel={t("audioPreset.eqMid")}
 									/>
 									<SliderRow
 										label="EQ — High (treble)"
@@ -355,7 +356,7 @@ export function AudioPresetSelector({
 										step={1}
 										suffix="dB"
 										onChange={handleEqHighChange}
-										ariaLabel="EQ High"
+										ariaLabel={t("audioPreset.eqHigh")}
 									/>
 								</>
 							)}
@@ -365,7 +366,7 @@ export function AudioPresetSelector({
 								description="Even out loud/quiet speech."
 								checked={config.noise_filter_compressor ?? true}
 								onChange={handleCompressorToggle}
-								ariaLabel="Compressor"
+								ariaLabel={t("audioPreset.compressor")}
 							/>
 							{(config.noise_filter_compressor ?? true) && (
 								<>
@@ -378,7 +379,7 @@ export function AudioPresetSelector({
 										step={1}
 										suffix="dB"
 										onChange={handleCompressorThresholdChange}
-										ariaLabel="Compressor Threshold"
+										ariaLabel={t("audioPreset.compressorThreshold")}
 									/>
 									<SliderRow
 										label="Compressor Ratio"
@@ -389,7 +390,7 @@ export function AudioPresetSelector({
 										step={0.5}
 										suffix=":1"
 										onChange={handleCompressorRatioChange}
-										ariaLabel="Compressor Ratio"
+										ariaLabel={t("audioPreset.compressorRatio")}
 									/>
 								</>
 							)}
@@ -399,7 +400,7 @@ export function AudioPresetSelector({
 								description="Brick-wall ceiling to prevent clipping."
 								checked={config.noise_filter_limiter ?? true}
 								onChange={handleLimiterToggle}
-								ariaLabel="Limiter"
+								ariaLabel={t("audioPreset.limiter")}
 							/>
 							{(config.noise_filter_limiter ?? true) && (
 								<SliderRow
@@ -411,7 +412,7 @@ export function AudioPresetSelector({
 									step={1}
 									suffix="dB"
 									onChange={handleLimiterCeilingChange}
-									ariaLabel="Limiter Ceiling"
+									ariaLabel={t("audioPreset.limiterCeiling")}
 								/>
 							)}
 
@@ -420,7 +421,7 @@ export function AudioPresetSelector({
 								description="Remove 50/60Hz electrical mains hum."
 								checked={config.noise_filter_notch ?? false}
 								onChange={handleNotchToggle}
-								ariaLabel="Notch Filter"
+								ariaLabel={t("audioPreset.notchFilter")}
 							/>
 						</div>
 					)}

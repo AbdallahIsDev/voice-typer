@@ -232,10 +232,10 @@
 			"hotkeyTitle": "مفتاح الاختصار",
 			"hotkeyDescription": "مفتاح لبدء وإيقاف الإملاء.",
 			"dictationKey": "مفتاح الإملاء",
-			"dictationKeyInfo": "مفتاح لوحة المفاتيح المستخدم لبدء وإيقاف التسجيل. انقر على الزر لتسجيل مفتاح جديد، أو اختر من القائمة المسبقة.",
+			"dictationKeyInfo": "اختصار لوحة المفاتيح لبدء وإيقاف الإملاء.",
 			"dictationKeyInfoSearch": "مفتاح لوحة المفاتيح المستخدم لبدء وإيقاف التسجيل.",
 			"dictationKeyAria": "مفتاح الإملاء",
-			"recordingTitle": "التسجيل",
+			"recordingTitle": "المفاتيح والتسجيل",
 			"recordingDescription": "السلوك والاختصارات ومعالجة الصمت.",
 			"recordingMode": "وضع التسجيل",
 			"recordingModeInfo": "التبديل: اضغط المفتاح مرة لبدء التسجيل ومرة أخرى لإيقافه. الضغط للتحدث: استمر في الضغط على المفتاح أثناء التحدث.",
@@ -485,7 +485,8 @@
 			"cancelResetAria": "إلغاء إعادة التعيين",
 			"confirmResetAria": "تأكيد إعادة التعيين إلى الافتراضي",
 			"resetDialogMessage": "هل أنت متأكد أنك تريد إعادة تعيين جميع الإعدادات إلى قيمها الافتراضية؟ لا يمكن التراجع عن هذا الإجراء."
-		}
+		},
+		"allChangesSaved": "All changes saved"
 	},
 	"models": {
 		"title": "النماذج",
@@ -712,7 +713,26 @@
 	"a11y": {
 		"skipToMain": "تخطي إلى المحتوى الرئيسي",
 		"keyboardShortcuts": "اختصارات لوحة المفاتيح",
-		"closeDialog": "اضغط على Esc أو انقر خارجًا للإغلاق."
+		"closeDialog": "اضغط على Esc أو انقر خارجًا للإغلاق.",
+		"toggleSidebar": "تبديل الشريط الجانبي",
+		"mainNavigation": "التنقل الرئيسي",
+		"goBack": "العودة",
+		"goForward": "التقدم",
+		"recordingStarted": "بدأ التسجيل.",
+		"transcribingAudio": "جاري كتابة الصوت…",
+		"ready": "جاهز.",
+		"errorOccurred": "حدث خطأ.",
+		"loadingModel": "جاري تحميل النموذج…",
+		"cancelling": "جاري الإلغاء…",
+		"moreInfo": "مزيد من المعلومات",
+		"exportFormat": "تنسيق التصدير",
+		"clearSearch": "مسح البحث",
+		"loading": "جارٍ التحميل",
+		"increase": "زيادة",
+		"decrease": "تقليل",
+		"microphoneQualityPreset": "إعداد جودة الميكروفون",
+		"noiseSuppressionMethod": "طريقة قمع الضوضاء",
+		"importNotAvailableOutsideElectron": "الاستيراد غير متاح خارج Electron"
 	},
 	"help": {
 		"title": "اختصارات لوحة المفاتيح",
@@ -727,7 +747,8 @@
 		"activate": "تفعيل عنصر التحكم المركز",
 		"openHelp": "فتح هذه المساعدة",
 		"navBack": "التنقل للخلف / للأمام",
-		"closeHint": "اضغط {key} أو انقر خارجًا للإغلاق."
+		"closeHint": "اضغط {key} أو انقر خارجًا للإغلاق.",
+		"zoomTextSize": "Zoom text size"
 	},
 	"common": {
 		"cancel": "إلغاء",
@@ -966,5 +987,62 @@
 		"prewarmLogNotFound": "لا يوجد سجل تسخين مسبق",
 		"prewarmLogOpened": "تم فتح سجل التسخين المسبق",
 		"prewarmLogOpenFailed": "تعذر فتح سجل التسخين المسبق"
+	},
+	"titleBar": {
+		"minimize": "Minimize",
+		"maximize": "Maximize",
+		"restore": "Restore",
+		"close": "Close",
+		"back": "Back (or mouse back button)",
+		"forward": "Forward (or mouse forward button)"
+	},
+	"bubble": {
+		"recordingIndicatorAria": "Voice Typer recording indicator"
+	},
+	"errorBoundary": {
+		"title": "Something went wrong",
+		"description": "The app encountered an unexpected error. Your data is safe.",
+		"unknownError": "Unknown error",
+		"tryAgain": "Try Again",
+		"reloadApp": "Reload App"
+	},
+	"hotkeyPicker": {
+		"pressAKey": "Press a key",
+		"none": "None",
+		"presets": "Presets…",
+		"customLabel": "{label}",
+		"cancelRecordingAria": "Cancel recording — {label}",
+		"recordNewAria": "Record new hotkey — {label}",
+		"presetHotkeysAria": "Preset hotkeys — {label}",
+		"assignHint": "Press a key to assign, or press Esc to cancel"
+	},
+	"activityList": {
+		"failedToCopy": "Failed to copy",
+		"viewAll": "View all",
+		"wordsCount": "{count} words",
+		"removeFromFavorites": "Remove from favorites",
+		"addToFavorites": "Add to favorites"
+	},
+	"exportFormat": {
+		"export": "تصدير",
+		"json": "تصدير كـ JSON",
+		"csv": "تصدير كـ CSV"
+	},
+	"audioPreset": {
+		"highPassFilter": "فلتر المرور العالي",
+		"highPassCutoff": "تردد قطع المرور العالي",
+		"noiseGate": "بوابة الضوضاء",
+		"gateOpenThreshold": "عتبة فتح البوابة",
+		"gateCloseThreshold": "عتبة إغلاق البوابة",
+		"equalizer": "المعادِل",
+		"eqLow": "EQ — منخفض (جهير)",
+		"eqMid": "EQ — متوسط (كلام)",
+		"eqHigh": "EQ — مرتفع (طبقة حادة)",
+		"compressor": "الضاغط",
+		"compressorThreshold": "عتبة الضاغط",
+		"compressorRatio": "نسبة الضاغط",
+		"limiter": "المحدِّد",
+		"limiterCeiling": "سقف المحدِّد",
+		"notchFilter": "فلتر الشق (طنين)"
 	}
 }

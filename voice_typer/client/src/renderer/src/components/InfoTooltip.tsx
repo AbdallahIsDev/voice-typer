@@ -6,6 +6,7 @@ import {
 	TooltipProvider,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { t } from "@/i18n/i18n";
 
 interface InfoTooltipProps {
 	text: string;
@@ -19,7 +20,7 @@ export function InfoTooltip({ text }: InfoTooltipProps) {
 					<span
 						className="inline-flex size-4 items-center justify-center rounded-full text-(--text-muted) shrink-0"
 						role="img"
-						aria-label="More info"
+						aria-label={t("a11y.moreInfo")}
 					>
 						<svg
 							width="12"

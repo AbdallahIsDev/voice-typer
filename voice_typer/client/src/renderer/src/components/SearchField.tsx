@@ -1,6 +1,7 @@
-import { Delete01Icon, Search01Icon } from "@hugeicons/core-free-icons";
+import { Cancel01Icon, Search01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Input } from "@/components/ui/input";
+import { t } from "@/i18n/i18n";
 
 interface SearchFieldProps {
 	value: string;
@@ -35,11 +36,11 @@ export function SearchField({
 				<button
 					type="button"
 					onClick={handleClear}
-					aria-label="Clear search"
+					aria-label={t("a11y.clearSearch")}
 					className="absolute right-3 top-1/2 -translate-y-1/2 text-(--text-muted) hover:text-(--text-primary)"
 				>
 					<HugeiconsIcon
-						icon={Delete01Icon}
+						icon={Cancel01Icon}
 						strokeWidth={1.625}
 						className="h-4 w-4"
 					/>

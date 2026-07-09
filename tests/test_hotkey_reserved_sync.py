@@ -1,22 +1,21 @@
 """CI sync test for the shared reserved-hotkey table.
 
-HOTKEY-SHARED-001 (Task 1.4): the canonical reserved-shortcut table now
-lives in ``voice_typer/server/hotkey_reserved.json``. The backend
-(``config_validators.py``) loads it via ``json.load`` at module init.
-The frontend (``hotkey-validation.ts``) keeps its own TypeScript
-constants (for Vite type-safety and JSON-module compatibility), but
-this test verifies that the TS constants are BYTE-IDENTICAL to the
-JSON file.
+HOTKEY-SHARED-001 (Task 1.4): the canonical reserved-shortcut table lives
+in ``voice_typer/server/hotkey_reserved.json``.  The backend
+(``config_validators.py``) loads it via ``json.load`` at module init.  The
+frontend imports a COPY at
+``voice_typer/client/src/renderer/src/data/hotkey_reserved.json`` (the
+original @server Vite alias resolved outside the renderer root and crashed
+Vite's dev server during HMR on locale switch).
 
-This prevents the "MUST be kept in sync" duplication problem from
-recurring: if someone adds a shortcut to one side but not the other,
-this test fails loudly in CI.
-
-The test parses the TS file with a simple regex extractor (no TS
-compiler dependency) and compares the extracted values to the JSON.
-This is intentionally fragile — any formatting change that breaks the
-extraction will also fail the test, prompting the developer to update
-both sides.
+This test verifies that:
+1. The canonical JSON file exists, is parseable, and has correct structure.
+2. The CLIENT COPY is byte-identical to the server original (a CI gate
+   that prevents the two from drifting apart).
+3. The TS frontend file imports from the client copy and re-exports all
+   four data fields.
+4. The backend Python module loads the JSON and its in-memory structures
+   match the file content.
 """
 
 from __future__ import annotations
@@ -34,7 +33,18 @@ JSON_PATH = (
     / "server"
     / "hotkey_reserved.json"
 )
-# Path to the frontend TS file that mirrors the JSON.
+# Path to the client copy of the JSON (imported by hotkey-validation.ts).
+CLIENT_JSON_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "voice_typer"
+    / "client"
+    / "src"
+    / "renderer"
+    / "src"
+    / "data"
+    / "hotkey_reserved.json"
+)
+# Path to the frontend TS file that imports the JSON.
 TS_PATH = (
     Path(__file__).resolve().parent.parent
     / "voice_typer"
@@ -46,98 +56,19 @@ TS_PATH = (
     / "hotkey-validation.ts"
 )
 
+# The four fields that must be re-exported from the JSON import.
+_JSON_FIELDS = (
+    "universal_reserved",
+    "per_platform_reserved",
+    "blocked_ctrl_letters",
+    "modifiers",
+)
+
 
 def _load_json() -> dict:
     """Load the canonical reserved-hotkey JSON config."""
     with JSON_PATH.open("r", encoding="utf-8") as f:
         return json.load(f)
-
-
-def _strip_line_comments(text: str) -> str:
-    """Remove ``//`` line comments from TS source.
-
-    This is a simplified stripper that handles the common case of
-    ``// comment`` on its own line or trailing after a statement. It
-    does NOT handle ``/* */`` block comments or ``//`` inside string
-    literals — neither appears in the reserved-shortcut table.
-    """
-    lines = text.splitlines()
-    out: list[str] = []
-    for line in lines:
-        # Find // that's not inside a string. For the reserved-shortcut
-        # table, strings are always on their own line, so a simple
-        # check works: if the line contains //, strip from // onward.
-        # But we must NOT strip inside a string literal. The simplest
-        # heuristic: count double-quotes before //; if odd, // is inside
-        # a string. For our use case, the lines with // are pure
-        # comments (no string literals), so this is safe.
-        if "//" in line:
-            # Find the first // that's not inside a string.
-            in_string = False
-            for i, ch in enumerate(line):
-                if ch == '"':
-                    in_string = not in_string
-                elif ch == "/" and i + 1 < len(line) and line[i + 1] == "/" and not in_string:
-                    line = line[:i]
-                    break
-        out.append(line)
-    return "\n".join(out)
-
-
-def _extract_ts_array(ts_content: str, var_name: str) -> list[str]:
-    """Extract an array of string literals from a TS ``const`` declaration.
-
-    Looks for ``export const VAR_NAME: ... = [ "a", "b", ... ]`` and
-    returns ``["a", "b", ...]``. The extractor is intentionally strict
-    — it only matches double-quoted strings inside the array literal.
-    Handles the ``as const`` suffix used by some declarations.
-    Comments (``//``) inside the array body are stripped before
-    extraction so that strings mentioned in comments (e.g. ``"do NOT
-    add <super>+<space>"``) are not picked up.
-    """
-    # Match: export const VAR_NAME [optional type annotation] = [ ... ] [as const] ;
-    pattern = (
-        rf"export\s+const\s+{re.escape(var_name)}[^=]*?=\s*\[(.*?)\]"
-        rf"(?:\s+as\s+\w+)?\s*;"
-    )
-    m = re.search(pattern, ts_content, re.DOTALL)
-    if not m:
-        raise AssertionError(
-            f"Could not find `export const {var_name}` in {TS_PATH.name}. "
-            "The TS file structure has changed — update this test."
-        )
-    body = _strip_line_comments(m.group(1))
-    strings = re.findall(r'"([^"]*)"', body)
-    return strings
-
-
-def _extract_ts_record_keys(
-    ts_content: str, var_name: str
-) -> dict[str, list[str]]:
-    """Extract a Record<string, string[]> from a TS ``const`` declaration.
-
-    Looks for ``export const VAR_NAME: Record<...> = { key: [...], ... }``
-    and returns ``{key: [...], ...}``. Comments inside the record body
-    are stripped before extraction so that strings mentioned in comments
-    are not picked up.
-    """
-    pattern = (
-        rf"export\s+const\s+{re.escape(var_name)}[^=]*?=\s*\{{(.*?)\}}\s*;"
-    )
-    m = re.search(pattern, ts_content, re.DOTALL)
-    if not m:
-        raise AssertionError(
-            f"Could not find `export const {var_name}` in {TS_PATH.name}. "
-            "The TS file structure has changed — update this test."
-        )
-    body = _strip_line_comments(m.group(1))
-    result: dict[str, list[str]] = {}
-    key_pattern = r"(\w+)\s*:\s*\[(.*?)\]"
-    for km in re.finditer(key_pattern, body, re.DOTALL):
-        key = km.group(1)
-        arr_body = km.group(2)
-        result[key] = re.findall(r'"([^"]*)"', arr_body)
-    return result
 
 
 @pytest.fixture(scope="module")
@@ -152,69 +83,68 @@ def ts_content() -> str:
     return TS_PATH.read_text(encoding="utf-8")
 
 
-class TestReservedShortcutsSync:
-    """Verify the frontend TS constants match the canonical JSON file."""
+class TestClientCopyIsInSync:
+    """Verify the client copy of the JSON is byte-identical to the server original."""
 
-    def test_json_file_exists(self, json_data: dict) -> None:
-        """The JSON file exists and is parseable."""
-        assert isinstance(json_data, dict)
-        assert "universal_reserved" in json_data
-        assert "per_platform_reserved" in json_data
-        assert "blocked_ctrl_letters" in json_data
-        assert "modifiers" in json_data
+    def test_client_copy_matches_server_original(self) -> None:
+        """The client copy at data/hotkey_reserved.json must be
+        byte-identical to the server original.  If this fails, copy
+        with::
 
-    def test_universal_reserved_matches(self, json_data: dict, ts_content: str) -> None:
-        """UNIVERSAL_RESERVED_SHORTCUTS in TS matches JSON universal_reserved."""
-        ts_values = _extract_ts_array(ts_content, "UNIVERSAL_RESERVED_SHORTCUTS")
-        json_values = json_data["universal_reserved"]
-        assert set(ts_values) == set(json_values), (
-            f"UNIVERSAL_RESERVED_SHORTCUTS mismatch.\n"
-            f"  TS has:    {sorted(ts_values)}\n"
-            f"  JSON has:  {sorted(json_values)}\n"
-            f"Update voice_typer/server/hotkey_reserved.json AND/OR "
-            f"voice_typer/client/src/renderer/src/components/hotkey-validation.ts "
-            f"to keep them in sync."
+            cp voice_typer/server/hotkey_reserved.json \\
+               voice_typer/client/src/renderer/src/data/hotkey_reserved.json
+        """
+        import hashlib
+        server_bytes = JSON_PATH.read_bytes()
+        client_bytes = CLIENT_JSON_PATH.read_bytes()
+        assert server_bytes == client_bytes, (
+            "Client copy of hotkey_reserved.json differs from server "
+            "original. Run the copy command above to sync them."
+        )
+        # Double-check via hash for deterministic diagnostics
+        server_hash = hashlib.sha256(server_bytes).hexdigest()
+        client_hash = hashlib.sha256(client_bytes).hexdigest()
+        assert server_hash == client_hash, (
+            f"SHA256 mismatch: server={server_hash} client={client_hash}"
         )
 
-    def test_per_platform_reserved_matches(
-        self, json_data: dict, ts_content: str
-    ) -> None:
-        """RESERVED_SHORTCUTS in TS matches JSON per_platform_reserved."""
-        ts_values = _extract_ts_record_keys(ts_content, "RESERVED_SHORTCUTS")
-        json_values = json_data["per_platform_reserved"]
-        assert set(ts_values.keys()) == set(json_values.keys()), (
-            f"Platform keys mismatch.\n"
-            f"  TS has:    {sorted(ts_values.keys())}\n"
-            f"  JSON has:  {sorted(json_values.keys())}"
+
+class TestFrontendImportsFromJson:
+    """Verify the frontend TS file imports from the client copy and
+    re-exports all required fields."""
+
+    def test_ts_imports_from_client_copy(self, ts_content: str) -> None:
+        """The TS file must import from ../data/hotkey_reserved.json
+        (the client-side copy, not via @server alias which resolved
+        outside the renderer root and crashed Vite HMR)."""
+        assert "import hotkeyReserved from \"../data/hotkey_reserved.json\"" in ts_content or \
+               "import hotkeyReserved from '../data/hotkey_reserved.json'" in ts_content, (
+            "hotkey-validation.ts must import from ../data/hotkey_reserved.json "
+            "(client-side copy, not @server alias)"
         )
-        for platform in ts_values:
-            assert set(ts_values[platform]) == set(json_values[platform]), (
-                f"RESERVED_SHORTCUTS['{platform}'] mismatch.\n"
-                f"  TS has:    {sorted(ts_values[platform])}\n"
-                f"  JSON has:  {sorted(json_values[platform])}"
+
+    def test_ts_re_exports_all_fields(self, ts_content: str) -> None:
+        """The TS file must re-export all four data fields from the JSON."""
+        for field in _JSON_FIELDS:
+            # Expect: export const UNIVERSAL_RESERVED_SHORTCUTS = hotkeyReserved.universal_reserved
+            # The TS variable name is the field name converted to SCREAMING_SNAKE_CASE.
+            # Map JSON field names to their TS constant names.
+            _FIELD_TO_TS_VAR = {
+                "universal_reserved": "UNIVERSAL_RESERVED_SHORTCUTS",
+                "per_platform_reserved": "RESERVED_SHORTCUTS",
+                "blocked_ctrl_letters": "BLOCKED_CTRL_LETTERS",
+                "modifiers": "MODIFIER_KEYS_SHARED",
+            }
+            ts_var = _FIELD_TO_TS_VAR[field]
+            # The TS file has a type annotation between the name and `=`
+            # (e.g. ``export const UNIVERSAL_RESERVED_SHORTCUTS: readonly string[] =``).
+            # Just check that `export const {ts_var}` appears.
+            assert f"export const {ts_var}" in ts_content, (
+                f"hotkey-validation.ts must export const {ts_var} (for JSON field {field!r})"
             )
-
-    def test_blocked_ctrl_letters_matches(
-        self, json_data: dict, ts_content: str
-    ) -> None:
-        """BLOCKED_CTRL_LETTERS in TS matches JSON blocked_ctrl_letters."""
-        ts_values = _extract_ts_array(ts_content, "BLOCKED_CTRL_LETTERS")
-        json_values = json_data["blocked_ctrl_letters"]
-        assert set(ts_values) == set(json_values), (
-            f"BLOCKED_CTRL_LETTERS mismatch.\n"
-            f"  TS has:    {sorted(ts_values)}\n"
-            f"  JSON has:  {sorted(json_values)}"
-        )
-
-    def test_modifiers_matches(self, json_data: dict, ts_content: str) -> None:
-        """MODIFIER_KEYS_SHARED in TS matches JSON modifiers."""
-        ts_values = _extract_ts_array(ts_content, "MODIFIER_KEYS_SHARED")
-        json_values = json_data["modifiers"]
-        assert set(ts_values) == set(json_values), (
-            f"MODIFIER_KEYS_SHARED mismatch.\n"
-            f"  TS has:    {sorted(ts_values)}\n"
-            f"  JSON has:  {sorted(json_values)}"
-        )
+            assert f"hotkeyReserved.{field}" in ts_content, (
+                f"hotkey-validation.ts must reference hotkeyReserved.{field}"
+            )
 
 
 class TestBackendLoadsFromJson:
@@ -263,6 +193,12 @@ class TestBackendLoadsFromJson:
 
 class TestJsonStructure:
     """Verify the JSON file's structural invariants."""
+
+    def test_json_file_exists(self, json_data: dict) -> None:
+        """The JSON file exists and is parseable."""
+        assert isinstance(json_data, dict)
+        for field in _JSON_FIELDS:
+            assert field in json_data, f"JSON missing field {field!r}"
 
     def test_universal_reserved_is_non_empty(self, json_data: dict) -> None:
         assert len(json_data["universal_reserved"]) > 0

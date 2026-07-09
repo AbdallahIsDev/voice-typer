@@ -852,7 +852,7 @@ export default function ModelsPage() {
 			}
 		).window_;
 		if (!api?.openModelImportDialog) {
-			showSnack("Import not available outside Electron", "warning");
+			showSnack(t("a11y.importNotAvailableOutsideElectron"), "warning");
 			return;
 		}
 		const result = await api.openModelImportDialog();

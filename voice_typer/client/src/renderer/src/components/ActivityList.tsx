@@ -8,6 +8,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { t } from "@/i18n/i18n";
 import type { HistoryRecord } from "@/types/ipc";
 
 function formatTimestamp(ts: string): string {
@@ -36,7 +37,7 @@ interface ActivityListProps {
 export default function ActivityList({
 	items,
 	lineClamp = 2,
-	title = "Recent Activity",
+	title = t("home.recentActivity"),
 	showViewAll = false,
 	onViewAll,
 	onDelete,
@@ -55,12 +56,12 @@ export default function ActivityList({
 		try {
 			await navigator.clipboard.writeText(item.text);
 			setCopiedId(item.id);
-			toast.success("Copied to clipboard");
+			toast.success(t("history.copiedToClipboard"));
 			// NEW-TS-020: clear previous timeout before setting new one
 			if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
 			copyTimeoutRef.current = setTimeout(() => setCopiedId(null), 2000);
 		} catch {
-			toast.error("Failed to copy");
+			toast.error(t("activityList.failedToCopy"));
 		}
 	}, []);
 
@@ -94,7 +95,7 @@ export default function ActivityList({
 						size="xs"
 						className="text-[12px] font-semibold text-(--text-muted) hover:text-(--text-primary) p-0"
 					>
-						View all
+						{t("activityList.viewAll")}
 					</Button>
 				)}
 			</div>
@@ -122,7 +123,9 @@ export default function ActivityList({
 									{item.word_count != null && (
 										<>
 											<span className="mx-1">·</span>
-											{item.word_count} words
+											{t("activityList.wordsCount", {
+												count: String(item.word_count),
+											})}
 										</>
 									)}
 								</span>
@@ -136,13 +139,13 @@ export default function ActivityList({
 										className="shrink-0 text-(--text-muted) hover:text-amber-400"
 										title={
 											item.favorite
-												? "Remove from favorites"
-												: "Add to favorites"
+												? t("activityList.removeFromFavorites")
+												: t("activityList.addToFavorites")
 										}
 										aria-label={
 											item.favorite
-												? "Remove from favorites"
-												: "Add to favorites"
+												? t("activityList.removeFromFavorites")
+												: t("activityList.addToFavorites")
 										}
 									>
 										<HugeiconsIcon
@@ -157,8 +160,8 @@ export default function ActivityList({
 									size="icon-xs"
 									onClick={handleItemCopy}
 									className="shrink-0 text-(--text-muted) hover:text-(--text-primary)"
-									title="Copy text"
-									aria-label="Copy text"
+									title={t("history.copyText")}
+									aria-label={t("history.copyText")}
 								>
 									{copiedId === item.id ? (
 										<HugeiconsIcon
@@ -180,8 +183,8 @@ export default function ActivityList({
 										size="icon-xs"
 										onClick={handleItemDelete}
 										className="shrink-0 text-(--text-muted) hover:text-red-400"
-										title="Delete"
-										aria-label="Delete entry"
+										title={t("common.delete")}
+										aria-label={t("history.deleteEntry")}
 									>
 										<HugeiconsIcon
 											icon={Delete01Icon}

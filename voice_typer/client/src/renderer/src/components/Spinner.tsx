@@ -6,6 +6,8 @@
 // Usage: `<Spinner />` (default 16px), `<Spinner size={24} />` (24px),
 // `<Spinner className="border-current" />` (uses current text color).
 
+import { t } from "@/i18n/i18n";
+
 interface SpinnerProps {
 	/** Diameter in pixels. Default 16. */
 	size?: number;
@@ -24,7 +26,7 @@ export function Spinner({ size = 16, className = "" }: SpinnerProps) {
 					: `h-[${size}px] w-[${size}px]`;
 	return (
 		<output
-			aria-label="Loading"
+			aria-label={t("a11y.loading")}
 			className={`${sizeClass} animate-spin rounded-full border-2 border-accent border-t-transparent ${className}`}
 		/>
 	);

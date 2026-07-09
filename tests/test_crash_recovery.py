@@ -188,6 +188,116 @@ class TestCrashRecoveryAsyncWrites:
 # ── TEST-036: integration test for crash-recovery loop ────────────────
 
 
+class TestCrashRecoveryFlushTimeout:
+    """RW-4: ``flush(timeout=...)`` must actually enforce the timeout.
+
+    Previously ``flush()`` called ``Queue.join()``, which has no
+    ``timeout`` parameter in the stdlib — the ``timeout`` argument was
+    dead code.  If the worker stalled (disk full, NFS hang, fsync on a
+    dying SSD, antivirus lock on Windows), ``flush()`` blocked forever,
+    preventing clean shutdown.  The fix uses a sentinel + ``threading.Event``
+    pattern so the timeout is actually enforced.
+    """
+
+    def test_flush_returns_false_when_worker_stalled(self, cr):
+        """RW-4: ``flush(timeout=0.1)`` returns ``False`` when the worker
+        can't drain the queue within the timeout.
+
+        We patch ``_save_sync`` to sleep 0.5s per save and enqueue 5
+        saves — the worker needs ~2.5s to drain, so a 0.1s timeout must
+        fire and return ``False``.
+        """
+        import time
+        from unittest.mock import patch
+
+        # Each save takes 0.5s; 5 saves need ~2.5s to drain.
+        with patch.object(cr, "_save_sync", lambda: time.sleep(0.5)):
+            for _ in range(5):
+                cr._enqueue_save()
+            result = cr.flush(timeout=0.1)
+            assert result is False, (
+                "flush(timeout=0.1) must return False when the worker "
+                "is stalled and cannot drain the queue in time"
+            )
+            # The worker thread must survive the timeout — flush() just
+            # gives up waiting; it does NOT kill the worker.
+            assert cr._save_thread is not None
+            assert cr._save_thread.is_alive(), (
+                "worker thread must survive a flush timeout"
+            )
+
+    def test_flush_returns_true_when_queue_drains_quickly(self, cr):
+        """RW-4: ``flush(timeout=5.0)`` returns ``True`` when all saves
+        complete within the timeout (the normal case)."""
+        # Enqueue several saves via the public add() API.
+        for i in range(10):
+            cr.add(f"Entry {i}", pasted=False)
+        # 5s is plenty for 10 fast saves.
+        result = cr.flush(timeout=5.0)
+        assert result is True, (
+            "flush(timeout=5.0) must return True when the queue drains "
+            "quickly"
+        )
+        # Worker thread should still be alive and ready for more work.
+        assert cr._save_thread is not None
+        assert cr._save_thread.is_alive()
+
+    def test_flush_sentinel_not_processed_as_save(self, cr, recovery_dir):
+        """RW-4: the flush sentinel must NOT be processed as a real save
+        item — i.e., the worker must NOT call ``_save_sync()`` for it.
+
+        We count ``_save_sync`` calls; after 2 ``add()`` calls + 1
+        ``flush()``, exactly 2 saves should have been performed (one per
+        add).  A 3rd call would mean the sentinel was incorrectly
+        treated as a save.
+        """
+        from unittest.mock import patch
+
+        save_calls = []
+        original_save = cr._save_sync
+
+        def counting_save():
+            save_calls.append(1)
+            original_save()
+
+        with patch.object(cr, "_save_sync", counting_save):
+            cr.add("Entry 1", pasted=False)
+            cr.add("Entry 2", pasted=False)
+            assert cr.flush(timeout=5.0) is True
+            # flush() returns True only after the sentinel is processed,
+            # which happens AFTER both adds.  So save_calls is final.
+            assert len(save_calls) == 2, (
+                f"expected exactly 2 save calls (one per add), got "
+                f"{len(save_calls)}; the flush sentinel must not be "
+                f"processed as a save"
+            )
+
+    def test_flush_does_not_break_subsequent_saves(self, cr):
+        """RW-4: after a timed-out flush(), the worker must still process
+        new saves normally.  The sentinel left in the queue must not
+        corrupt subsequent operations."""
+        import time
+        from unittest.mock import patch
+
+        # First, trigger a timeout with a slow save.
+        with patch.object(cr, "_save_sync", lambda: time.sleep(0.3)):
+            cr._enqueue_save()
+            assert cr.flush(timeout=0.05) is False
+
+        # Now, with the original (fast) _save_sync restored, add more
+        # entries and flush — the worker should still be functioning.
+        cr.add("After timeout", pasted=False)
+        result = cr.flush(timeout=5.0)
+        assert result is True, (
+            "worker must still process saves normally after a flush timeout"
+        )
+        assert cr._save_thread is not None
+        assert cr._save_thread.is_alive()
+
+
+# ── TEST-036: integration test for crash-recovery loop ────────────────
+
+
 class TestCrashRecoveryIntegration:
     """TEST-036: full crash-recovery loop — simulate a crash mid-dictation
     and verify the next session's check_on_startup surfaces the unpasted

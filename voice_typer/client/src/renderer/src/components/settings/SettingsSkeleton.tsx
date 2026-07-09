@@ -7,6 +7,8 @@
  * state that matches the section's layout.
  */
 
+import { t } from "@/i18n/i18n";
+
 interface SettingsSkeletonProps {
 	/** Number of skeleton rows to render. Default 3. */
 	rows?: number;
@@ -19,7 +21,7 @@ export function SettingsSkeleton({
 	className = "",
 }: SettingsSkeletonProps) {
 	return (
-		<output className={`space-y-3 ${className}`} aria-label="Loading settings">
+		<output className={`space-y-3 ${className}`} aria-label={t("a11y.loading")}>
 			{Array.from({ length: rows }, (_, i) => (
 				<div
 					// biome-ignore lint/suspicious/noArrayIndexKey: skeleton rows are static and identical; index is the only stable key

@@ -2,6 +2,7 @@ import { Download01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { t } from "@/i18n/i18n";
 
 interface ExportFormatMenuProps {
 	onExport: (format: "json" | "csv") => void | Promise<void>;
@@ -71,13 +72,13 @@ export default function ExportFormatMenu({
 					strokeWidth={2}
 					className="h-4 w-4"
 				/>
-				Export
+				{t("exportFormat.export")}
 			</Button>
 			{show && (
 				<div
 					ref={menuRef}
 					role="menu"
-					aria-label="Export format"
+					aria-label={t("a11y.exportFormat")}
 					className="absolute right-0 top-full mt-1 z-10 w-30 rounded-xl border border-border bg-(--bg-subtle) shadow-lg overflow-hidden"
 				>
 					<button
@@ -86,7 +87,7 @@ export default function ExportFormatMenu({
 						onClick={handleExportJson}
 						className="w-full px-3 py-2 text-xs text-left text-(--text-primary) hover:bg-(--surface-hover) transition-colors"
 					>
-						Export as JSON
+						{t("exportFormat.json")}
 					</button>
 					<button
 						type="button"
@@ -94,7 +95,7 @@ export default function ExportFormatMenu({
 						onClick={handleExportCsv}
 						className="w-full px-3 py-2 text-xs text-left text-(--text-primary) hover:bg-(--surface-hover) transition-colors"
 					>
-						Export as CSV
+						{t("exportFormat.csv")}
 					</button>
 				</div>
 			)}

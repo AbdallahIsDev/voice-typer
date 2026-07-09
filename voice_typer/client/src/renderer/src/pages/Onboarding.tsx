@@ -313,7 +313,9 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 						<div className="rounded-lg bg-(--bg-subtle) p-4 text-xs text-(--text-muted)">
 							<p>
 								<strong>{t("onboarding.summaryMic")}</strong>{" "}
-								{selectedMic || t("onboarding.defaultMic")}
+								{microphones.find((m) => m.id === selectedMic)?.name ||
+									selectedMic ||
+									t("onboarding.defaultMic")}
 							</p>
 							<p>
 								<strong>{t("onboarding.summaryHotkey")}</strong>{" "}

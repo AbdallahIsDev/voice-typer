@@ -63,9 +63,9 @@ class TestRepasteKeySettingUsesHotkeyPicker:
     """The Re-Paste Key setting uses HotkeyPicker instead of free-text Input."""
 
     def test_settings_imports_hotkey_picker(self):
-        settings = _read("components/settings/HotkeySettingsSection.tsx")
-        assert "import { HotkeyPicker }" in settings
-        assert "@/components/HotkeyPicker" in settings
+        recording = _read("components/settings/RecordingSettingsSection.tsx")
+        assert "import { HotkeyPicker }" in recording
+        assert "@/components/HotkeyPicker" in recording
 
     def test_repaste_key_uses_hotkey_picker_combo_mode(self):
         recording = _read("components/settings/RecordingSettingsSection.tsx")
@@ -74,10 +74,10 @@ class TestRepasteKeySettingUsesHotkeyPicker:
         assert "repaste_hotkey" in recording
 
     def test_no_free_text_input_for_repaste(self):
-        settings = _read("components/settings/HotkeySettingsSection.tsx")
+        recording = _read("components/settings/RecordingSettingsSection.tsx")
         assert not re.search(
             r'<Input[^>]*value=\{config\.repaste_hotkey',
-            settings,
+            recording,
             re.DOTALL,
         )
 
@@ -85,9 +85,10 @@ class TestRepasteKeySettingUsesHotkeyPicker:
 class TestDictationKeySupportsExpandedPresets:
     """The Dictation Key selector supports more than just F2-F12."""
 
-    def test_dictation_key_uses_hotkey_picker_single_mode(self):
-        settings = _read("components/settings/HotkeySettingsSection.tsx")
-        assert 'mode="single"' in settings
+    def test_dictation_key_uses_hotkey_picker_combo_mode(self):
+        recording = _read("components/settings/RecordingSettingsSection.tsx")
+        assert 'mode="combo"' in recording
+        assert "DICTATION_KEY_PRESETS" in recording
 
     def test_single_key_presets_include_beyond_f12(self):
         utils = _read("components/hotkey-utils.ts")

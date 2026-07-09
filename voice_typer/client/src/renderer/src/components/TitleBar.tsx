@@ -1,6 +1,7 @@
 import { PanelLeftIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useState } from "react";
+import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 import type { WindowBridge } from "@/types/ipc";
 
@@ -27,7 +28,7 @@ function MinimizeIcon() {
 			aria-hidden
 			className="fill-current"
 		>
-			<title>Minimize</title>
+			<title>{t("titleBar.minimize")}</title>
 			<rect x="0" y="8" width="10" height="1" />
 		</svg>
 	);
@@ -43,7 +44,7 @@ function MaximizeIcon() {
 			className="stroke-current fill-none"
 			strokeWidth="1.25"
 		>
-			<title>Maximize</title>
+			<title>{t("titleBar.maximize")}</title>
 			<rect x="0.5" y="0.5" width="9" height="9" />
 		</svg>
 	);
@@ -59,7 +60,7 @@ function RestoreIcon() {
 			className="stroke-current fill-none"
 			strokeWidth="1.25"
 		>
-			<title>Restore</title>
+			<title>{t("titleBar.restore")}</title>
 			<path d="M3 0.5 H9.5 V7" />
 			<rect x="0.5" y="2.5" width="7" height="7" />
 		</svg>
@@ -76,7 +77,7 @@ function CloseIcon() {
 			className="stroke-current"
 			strokeWidth="1.25"
 		>
-			<title>Close</title>
+			<title>{t("titleBar.close")}</title>
 			<line x1="0.5" y1="0.5" x2="9.5" y2="9.5" />
 			<line x1="9.5" y1="0.5" x2="0.5" y2="9.5" />
 		</svg>
@@ -175,8 +176,8 @@ export function TitleBar({
 			<button
 				type="button"
 				onClick={onToggleSidebar}
-				aria-label="Toggle sidebar"
-				title="Toggle sidebar"
+				aria-label={t("a11y.toggleSidebar")}
+				title={t("a11y.toggleSidebar")}
 				className={cn(
 					"no-drag press-scale flex h-10 w-10 items-center justify-center",
 					"text-(--text-muted)",
@@ -196,8 +197,8 @@ export function TitleBar({
 				type="button"
 				onClick={onGoBack}
 				disabled={!canGoBack}
-				aria-label="Go back"
-				title="Back (or mouse back button)"
+				aria-label={t("a11y.goBack")}
+				title={t("titleBar.back")}
 				className={cn(
 					"no-drag press-scale flex h-8 w-8 items-center justify-center rounded",
 					"text-(--text-muted) transition-colors duration-75",
@@ -208,7 +209,7 @@ export function TitleBar({
 				)}
 			>
 				<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-					<title>Back</title>
+					<title>{t("titleBar.back")}</title>
 					<path
 						d="M10 12L6 8L10 4"
 						stroke="currentColor"
@@ -222,8 +223,8 @@ export function TitleBar({
 				type="button"
 				onClick={onGoForward}
 				disabled={!canGoForward}
-				aria-label="Go forward"
-				title="Forward (or mouse forward button)"
+				aria-label={t("a11y.goForward")}
+				title={t("titleBar.forward")}
 				className={cn(
 					"no-drag press-scale flex h-8 w-8 items-center justify-center rounded",
 					"text-(--text-muted) transition-colors duration-75",
@@ -234,7 +235,7 @@ export function TitleBar({
 				)}
 			>
 				<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-					<title>Forward</title>
+					<title>{t("titleBar.forward")}</title>
 					<path
 						d="M6 4L10 8L6 12"
 						stroke="currentColor"
@@ -247,16 +248,23 @@ export function TitleBar({
 
 			<div className="flex-1" />
 
-			<TitleBarButton onClick={handleMinimize} ariaLabel="Minimize">
+			<TitleBarButton
+				onClick={handleMinimize}
+				ariaLabel={t("titleBar.minimize")}
+			>
 				<MinimizeIcon />
 			</TitleBarButton>
 			<TitleBarButton
 				onClick={handleToggleMaximize}
-				ariaLabel={isMaximized ? "Restore" : "Maximize"}
+				ariaLabel={isMaximized ? t("titleBar.restore") : t("titleBar.maximize")}
 			>
 				{isMaximized ? <RestoreIcon /> : <MaximizeIcon />}
 			</TitleBarButton>
-			<TitleBarButton onClick={handleClose} ariaLabel="Close" variant="close">
+			<TitleBarButton
+				onClick={handleClose}
+				ariaLabel={t("titleBar.close")}
+				variant="close"
+			>
 				<CloseIcon />
 			</TitleBarButton>
 		</div>

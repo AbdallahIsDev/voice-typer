@@ -186,7 +186,8 @@
 		"presetProfessional": "专业",
 		"presetCasual": "休闲",
 		"presetEmail": "邮件",
-		"presetCode": "代码"
+		"presetCode": "代码",
+		"allChangesSaved": "All changes saved"
 	},
 	"models": {
 		"title": "模型",
@@ -413,7 +414,26 @@
 	"a11y": {
 		"skipToMain": "跳至主要内容",
 		"keyboardShortcuts": "键盘快捷键",
-		"closeDialog": "按 Esc 或点击外部以关闭。"
+		"closeDialog": "按 Esc 或点击外部以关闭。",
+		"toggleSidebar": "切换侧边栏",
+		"mainNavigation": "主导航",
+		"goBack": "返回",
+		"goForward": "前进",
+		"recordingStarted": "录音已开始。",
+		"transcribingAudio": "正在转写音频…",
+		"ready": "就绪。",
+		"errorOccurred": "发生了错误。",
+		"loadingModel": "正在加载模型…",
+		"cancelling": "正在取消…",
+		"moreInfo": "更多信息",
+		"exportFormat": "导出格式",
+		"clearSearch": "清除搜索",
+		"loading": "加载中",
+		"increase": "增加",
+		"decrease": "减少",
+		"microphoneQualityPreset": "麦克风质量预设",
+		"noiseSuppressionMethod": "降噪方法",
+		"importNotAvailableOutsideElectron": "在 Electron 外部不可用导入"
 	},
 	"help": {
 		"title": "键盘快捷键",
@@ -428,7 +448,8 @@
 		"activate": "激活聚焦的控件",
 		"openHelp": "打开此帮助叠加层",
 		"navBack": "向后 / 向前导航",
-		"closeHint": "按 {key} 或点击外部以关闭。"
+		"closeHint": "按 {key} 或点击外部以关闭。",
+		"zoomTextSize": "Zoom text size"
 	},
 	"about": {
 		"cacheTitle": "缓存状态",
@@ -453,5 +474,62 @@
 		"prewarmLogNotFound": "未找到预热日志",
 		"prewarmLogOpened": "已打开预热日志",
 		"prewarmLogOpenFailed": "无法打开预热日志"
+	},
+	"titleBar": {
+		"minimize": "Minimize",
+		"maximize": "Maximize",
+		"restore": "Restore",
+		"close": "Close",
+		"back": "Back (or mouse back button)",
+		"forward": "Forward (or mouse forward button)"
+	},
+	"bubble": {
+		"recordingIndicatorAria": "Voice Typer recording indicator"
+	},
+	"errorBoundary": {
+		"title": "Something went wrong",
+		"description": "The app encountered an unexpected error. Your data is safe.",
+		"unknownError": "Unknown error",
+		"tryAgain": "Try Again",
+		"reloadApp": "Reload App"
+	},
+	"hotkeyPicker": {
+		"pressAKey": "Press a key",
+		"none": "None",
+		"presets": "Presets…",
+		"customLabel": "{label}",
+		"cancelRecordingAria": "Cancel recording — {label}",
+		"recordNewAria": "Record new hotkey — {label}",
+		"presetHotkeysAria": "Preset hotkeys — {label}",
+		"assignHint": "Press a key to assign, or press Esc to cancel"
+	},
+	"activityList": {
+		"failedToCopy": "Failed to copy",
+		"viewAll": "View all",
+		"wordsCount": "{count} words",
+		"removeFromFavorites": "Remove from favorites",
+		"addToFavorites": "Add to favorites"
+	},
+	"exportFormat": {
+		"export": "导出",
+		"json": "导出为 JSON",
+		"csv": "导出为 CSV"
+	},
+	"audioPreset": {
+		"highPassFilter": "高通滤波器",
+		"highPassCutoff": "高通截止频率",
+		"noiseGate": "噪声门",
+		"gateOpenThreshold": "门开启阈值",
+		"gateCloseThreshold": "门关闭阈值",
+		"equalizer": "均衡器",
+		"eqLow": "EQ — 低频（低音）",
+		"eqMid": "EQ — 中频（语音）",
+		"eqHigh": "EQ — 高频（高音）",
+		"compressor": "压缩器",
+		"compressorThreshold": "压缩器阈值",
+		"compressorRatio": "压缩比",
+		"limiter": "限制器",
+		"limiterCeiling": "限制器上限",
+		"notchFilter": "陷波滤波器（嗡声）"
 	}
 }

@@ -65,7 +65,7 @@ export function Sidebar({
 			{/* Logo + Title */}
 			<div
 				className={cn(
-					"flex shrink-0 items-center gap-2.5 border-b border-border",
+					"flex shrink-0 items-center gap-2.5",
 					"transition-[padding] duration-200 ease-out",
 					collapsed ? "px-3 py-4" : "px-5 py-4",
 				)}
@@ -88,7 +88,7 @@ export function Sidebar({
 			{/* Navigation */}
 			<div className="flex-1 p-2">
 				<nav
-					aria-label="Main navigation"
+					aria-label={t("a11y.mainNavigation")}
 					className={cn("flex flex-col gap-px")}
 				>
 					{NAV_ITEMS.map((item) => {

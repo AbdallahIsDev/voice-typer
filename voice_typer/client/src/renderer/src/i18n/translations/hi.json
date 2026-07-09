@@ -232,10 +232,10 @@
 			"hotkeyTitle": "हॉटकी",
 			"hotkeyDescription": "डिक्टेशन शुरू और रोकने की कुंजी।",
 			"dictationKey": "डिक्टेशन कुंजी",
-			"dictationKeyInfo": "रिकॉर्डिंग शुरू और रोकने के लिए उपयोग की जाने वाली कीबोर्ड कुंजी। नई कुंजी रिकॉर्ड करने के लिए बटन पर क्लिक करें, या प्रीसेट सूची से चुनें।",
+			"dictationKeyInfo": "डिक्टेशन शुरू और रोकने के लिए कीबोर्ड शॉर्टकट।",
 			"dictationKeyInfoSearch": "रिकॉर्डिंग शुरू और रोकने के लिए उपयोग की जाने वाली कीबोर्ड कुंजी।",
 			"dictationKeyAria": "डिक्टेशन कुंजी",
-			"recordingTitle": "रिकॉर्डिंग",
+			"recordingTitle": "हॉटकी & रिकॉर्डिंग",
 			"recordingDescription": "व्यवहार, शॉर्टकट और मौन प्रबंधन।",
 			"recordingMode": "रिकॉर्डिंग मोड",
 			"recordingModeInfo": "टॉगल: शुरू करने के लिए कुंजी एक बार और रोकने के लिए फिर से दबाएँ। पुश-टू-टॉक: बोलते समय कुंजी दबाए रखें।",
@@ -485,7 +485,8 @@
 			"cancelResetAria": "रीसेट रद्द करें",
 			"confirmResetAria": "डिफ़ॉल्ट पर रीसेट की पुष्टि करें",
 			"resetDialogMessage": "क्या आप वाकई सभी सेटिंग्स को उनके डिफ़ॉल्ट मानों पर रीसेट करना चाहते हैं? इसे पूर्ववत नहीं किया जा सकता।"
-		}
+		},
+		"allChangesSaved": "All changes saved"
 	},
 	"models": {
 		"title": "मॉडल",
@@ -663,7 +664,26 @@
 	"a11y": {
 		"skipToMain": "मुख्य सामग्री पर जाएं",
 		"keyboardShortcuts": "कीबोर्ड शॉर्टकट",
-		"closeDialog": "बंद करने के लिए Esc दबाएं या बाहर क्लिक करें।"
+		"closeDialog": "बंद करने के लिए Esc दबाएं या बाहर क्लिक करें।",
+		"toggleSidebar": "साइडबार टॉगल करें",
+		"mainNavigation": "मुख्य नेविगेशन",
+		"goBack": "पीछे जाएँ",
+		"goForward": "आगे जाएँ",
+		"recordingStarted": "रिकॉर्डिंग शुरू हुई।",
+		"transcribingAudio": "ऑडियो लिखा जा रहा है…",
+		"ready": "तैयार।",
+		"errorOccurred": "त्रुटि हुई।",
+		"loadingModel": "मॉडल लोड हो रहा है…",
+		"cancelling": "रद्द हो रहा है…",
+		"moreInfo": "अधिक जानकारी",
+		"exportFormat": "निर्यात प्रारूप",
+		"clearSearch": "खोज साफ़ करें",
+		"loading": "लोड हो रहा है",
+		"increase": "बढ़ाएँ",
+		"decrease": "घटाएँ",
+		"microphoneQualityPreset": "माइक्रोफ़ोन गुणवत्ता प्रीसेट",
+		"noiseSuppressionMethod": "शोर दमन विधि",
+		"importNotAvailableOutsideElectron": "Electron के बाहर आयात उपलब्ध नहीं है"
 	},
 	"help": {
 		"title": "कीबोर्ड शॉर्टकट",
@@ -678,7 +698,8 @@
 		"activate": "फ़ोकस किए गए नियंत्रण को सक्रिय करें",
 		"openHelp": "यह सहायता ओवरले खोलें",
 		"navBack": "पीछे / आगे नेविगेट करें",
-		"closeHint": "बंद करने के लिए {key} दबाएं या बाहर क्लिक करें।"
+		"closeHint": "बंद करने के लिए {key} दबाएं या बाहर क्लिक करें।",
+		"zoomTextSize": "Zoom text size"
 	},
 	"history": {
 		"title": "इतिहास",
@@ -815,5 +836,62 @@
 		"prewarmLogNotFound": "कोई प्रीवार्म लॉग नहीं मिला",
 		"prewarmLogOpened": "प्रीवार्म लॉग खुला",
 		"prewarmLogOpenFailed": "प्रीवार्म लॉग नहीं खुल सका"
+	},
+	"titleBar": {
+		"minimize": "Minimize",
+		"maximize": "Maximize",
+		"restore": "Restore",
+		"close": "Close",
+		"back": "Back (or mouse back button)",
+		"forward": "Forward (or mouse forward button)"
+	},
+	"bubble": {
+		"recordingIndicatorAria": "Voice Typer recording indicator"
+	},
+	"errorBoundary": {
+		"title": "Something went wrong",
+		"description": "The app encountered an unexpected error. Your data is safe.",
+		"unknownError": "Unknown error",
+		"tryAgain": "Try Again",
+		"reloadApp": "Reload App"
+	},
+	"hotkeyPicker": {
+		"pressAKey": "Press a key",
+		"none": "None",
+		"presets": "Presets…",
+		"customLabel": "{label}",
+		"cancelRecordingAria": "Cancel recording — {label}",
+		"recordNewAria": "Record new hotkey — {label}",
+		"presetHotkeysAria": "Preset hotkeys — {label}",
+		"assignHint": "Press a key to assign, or press Esc to cancel"
+	},
+	"activityList": {
+		"failedToCopy": "Failed to copy",
+		"viewAll": "View all",
+		"wordsCount": "{count} words",
+		"removeFromFavorites": "Remove from favorites",
+		"addToFavorites": "Add to favorites"
+	},
+	"exportFormat": {
+		"export": "निर्यात",
+		"json": "JSON के रूप में निर्यात करें",
+		"csv": "CSV के रूप में निर्यात करें"
+	},
+	"audioPreset": {
+		"highPassFilter": "हाई-पास फ़िल्टर",
+		"highPassCutoff": "हाई-पास कटऑफ़",
+		"noiseGate": "शोर गेट",
+		"gateOpenThreshold": "गेट खुला सीमा",
+		"gateCloseThreshold": "गेट बंद सीमा",
+		"equalizer": "इक्वलाइज़र",
+		"eqLow": "EQ — लो (बास)",
+		"eqMid": "EQ — मिड (वाणी)",
+		"eqHigh": "EQ — हाई (ट्रेबल)",
+		"compressor": "कंप्रेसर",
+		"compressorThreshold": "कंप्रेसर सीमा",
+		"compressorRatio": "कंप्रेसर अनुपात",
+		"limiter": "लिमिटर",
+		"limiterCeiling": "लिमिटर छत",
+		"notchFilter": "नॉच फ़िल्टर (गुंजन)"
 	}
 }

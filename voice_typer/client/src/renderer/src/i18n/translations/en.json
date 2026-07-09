@@ -456,6 +456,7 @@
 		"resetToDefaultsToast": "Settings reset to defaults",
 		"fetchDefaultsFailed": "Failed to fetch defaults from backend",
 		"resetFailed": "Failed to reset to defaults",
+		"allChangesSaved": "All changes saved",
 		"tabsAria": "Settings tabs",
 		"appearance": {
 			"title": "Appearance",
@@ -486,10 +487,10 @@
 			"hotkeyTitle": "Hotkey",
 			"hotkeyDescription": "Key to start and stop dictation.",
 			"dictationKey": "Dictation Key",
-			"dictationKeyInfo": "The keyboard key used to start and stop recording. Click the button to record a new key, or pick from the preset list.",
+			"dictationKeyInfo": "Keyboard shortcut to start and stop dictation.",
 			"dictationKeyInfoSearch": "The keyboard key used to start and stop recording.",
 			"dictationKeyAria": "Dictation key",
-			"recordingTitle": "Recording",
+			"recordingTitle": "Hotkeys & Recording",
 			"recordingDescription": "Behavior, shortcuts, and silence handling.",
 			"recordingMode": "Recording Mode",
 			"recordingModeInfo": "Toggle: press the key once to start and again to stop. Push-to-talk: hold the key while speaking.",
@@ -917,7 +918,26 @@
 	"a11y": {
 		"skipToMain": "Skip to main content",
 		"keyboardShortcuts": "Keyboard Shortcuts",
-		"closeDialog": "Press Esc or click outside to close."
+		"closeDialog": "Press Esc or click outside to close.",
+		"toggleSidebar": "Toggle sidebar",
+		"mainNavigation": "Main navigation",
+		"goBack": "Go back",
+		"goForward": "Go forward",
+		"recordingStarted": "Recording started.",
+		"transcribingAudio": "Transcribing audio…",
+		"ready": "Ready.",
+		"errorOccurred": "Error occurred.",
+		"loadingModel": "Loading model…",
+		"cancelling": "Cancelling…",
+		"moreInfo": "More info",
+		"exportFormat": "Export format",
+		"clearSearch": "Clear search",
+		"loading": "Loading",
+		"increase": "Increase",
+		"decrease": "Decrease",
+		"microphoneQualityPreset": "Microphone Quality Preset",
+		"noiseSuppressionMethod": "Noise Suppression Method",
+		"importNotAvailableOutsideElectron": "Import not available outside Electron"
 	},
 	"help": {
 		"title": "Keyboard Shortcuts",
@@ -932,7 +952,8 @@
 		"activate": "Activate focused control",
 		"openHelp": "Open this help overlay",
 		"navBack": "Navigate back / forward",
-		"closeHint": "Press {key} or click outside to close."
+		"closeHint": "Press {key} or click outside to close.",
+		"zoomTextSize": "Zoom text size"
 	},
 	"history": {
 		"title": "History",
@@ -1017,5 +1038,62 @@
 		"saveFailedSnack": "Failed to save selection",
 		"skippedSnack": "Setup skipped — using defaults",
 		"stepProgress": "Step {current} of {total}"
+	},
+	"titleBar": {
+		"minimize": "Minimize",
+		"maximize": "Maximize",
+		"restore": "Restore",
+		"close": "Close",
+		"back": "Back (or mouse back button)",
+		"forward": "Forward (or mouse forward button)"
+	},
+	"bubble": {
+		"recordingIndicatorAria": "Voice Typer recording indicator"
+	},
+	"errorBoundary": {
+		"title": "Something went wrong",
+		"description": "The app encountered an unexpected error. Your data is safe.",
+		"unknownError": "Unknown error",
+		"tryAgain": "Try Again",
+		"reloadApp": "Reload App"
+	},
+	"hotkeyPicker": {
+		"pressAKey": "Press a key",
+		"none": "None",
+		"presets": "Presets…",
+		"customLabel": "{label}",
+		"cancelRecordingAria": "Cancel recording — {label}",
+		"recordNewAria": "Record new hotkey — {label}",
+		"presetHotkeysAria": "Preset hotkeys — {label}",
+		"assignHint": "Press a key to assign, or press Esc to cancel"
+	},
+	"activityList": {
+		"failedToCopy": "Failed to copy",
+		"viewAll": "View all",
+		"wordsCount": "{count} words",
+		"removeFromFavorites": "Remove from favorites",
+		"addToFavorites": "Add to favorites"
+	},
+	"exportFormat": {
+		"export": "Export",
+		"json": "Export as JSON",
+		"csv": "Export as CSV"
+	},
+	"audioPreset": {
+		"highPassFilter": "High-Pass Filter",
+		"highPassCutoff": "High-Pass Cutoff",
+		"noiseGate": "Noise Gate",
+		"gateOpenThreshold": "Gate Open Threshold",
+		"gateCloseThreshold": "Gate Close Threshold",
+		"equalizer": "Equalizer",
+		"eqLow": "EQ — Low (bass)",
+		"eqMid": "EQ — Mid (speech)",
+		"eqHigh": "EQ — High (treble)",
+		"compressor": "Compressor",
+		"compressorThreshold": "Compressor Threshold",
+		"compressorRatio": "Compressor Ratio",
+		"limiter": "Limiter",
+		"limiterCeiling": "Limiter Ceiling",
+		"notchFilter": "Notch Filter (hum)"
 	}
 }

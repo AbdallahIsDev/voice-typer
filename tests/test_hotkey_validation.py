@@ -36,15 +36,12 @@ ALLOWED_HOTKEYS = [
     "<alt>",
     "<shift>",
     "<f2>",
-    "<tab>",
     "<delete>",
     "<insert>",
     "<home>",
     "<end>",
     "<page_up>",
     "<page_down>",
-    "<space>",
-    "<enter>",
     # Alt+<letter> is allowed by default (denylist design).
     "<alt>+<q>",
     "<alt>+<r>",
@@ -55,12 +52,13 @@ ALLOWED_HOTKEYS = [
     # Ctrl+Alt+<key> is allowed.
     "<ctrl>+<alt>+<u>",
     "<ctrl>+<alt>+<v>",
+    # Ctrl+Q is now allowed (user choice — no longer in blocked list).
+    "<ctrl>+<q>",
     # Multi-key non-modifier combos are allowed.
     "<delete>+<end>",
     # F-key combos with modifiers are allowed.
     "<shift>+<f5>",
     "<ctrl>+<f1>",
-    "<shift>+<tab>",
     "<ctrl>+<alt>+<f2>",
 ]
 
@@ -83,11 +81,34 @@ WINDOWS_BLOCKED_HOTKEYS = [
 ]
 
 BLOCKED_HOTKEYS = [
-    # Universal window-management shortcuts (blocked on ALL platforms).
+    # Universal reserved shortcuts (blocked on ALL platforms).
     "<alt>+<tab>",
     "<alt>+<f4>",
     "<alt>+<esc>",
     "<alt>+<space>",
+    # Enter-based combos — interfere with typing, form submission,
+    # and messaging shortcuts.
+    "<enter>",
+    "<ctrl>+<enter>",
+    "<shift>+<enter>",
+    # Bare modifier keys — Win opens Start menu, Cmd is a system
+    # gesture on macOS. Blocked on all platforms.
+    "<win>",
+    "<cmd>",
+    # Tab navigation — interferes with keyboard navigation
+    # and tab switching in browsers/applications.
+    "<tab>",
+    "<shift>+<tab>",
+    "<ctrl>+<tab>",
+    "<ctrl>+<shift>+<tab>",
+    # Fullscreen / special behavior.
+    "<alt>+<enter>",
+    # Linux Super key alone (Activities overview / app launcher).
+    "<super>",
+    # Backspace would fire while deleting text during normal typing.
+    "<backspace>",
+    # Space alone would fire on every space bar press while typing.
+    "<space>",
     # Common Ctrl+<letter> app shortcuts.
     "<ctrl>+<c>",
     "<ctrl>+<v>",
@@ -114,7 +135,6 @@ BLOCKED_HOTKEYS = [
     "<ctrl>+<e>",
     "<ctrl>+<g>",
     "<ctrl>+<m>",
-    "<ctrl>+<q>",
     # Shift+<letter> (interferes with capitalization).
     "<shift>+<z>",
     "<shift>+<a>",
@@ -262,8 +282,8 @@ class TestValidateHotkeySingleLetterRejection:
         )
 
     def test_allows_single_special_key(self) -> None:
-        """Non-letter, non-digit single keys are still valid (F-keys, Tab, etc.)."""
-        for key in ("<f2>", "<tab>", "<caps_lock>", "<space>", "<delete>"):
+        """Non-letter, non-digit single keys are still valid (F-keys, Caps Lock, etc.)."""
+        for key in ("<f2>", "<caps_lock>", "<delete>", "<insert>", "<home>", "<end>"):
             result = _validate_hotkey(key)
             assert result is None, f"{key} should be allowed as a single key"
 

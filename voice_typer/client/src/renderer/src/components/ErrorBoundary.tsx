@@ -10,6 +10,7 @@
 // Usage: wrap the top-level <App /> in <ErrorBoundary> in main.tsx.
 
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { t } from "@/i18n/i18n";
 
 interface ErrorBoundaryProps {
 	children: ReactNode;
@@ -62,14 +63,14 @@ export class ErrorBoundary extends Component<
 				>
 					<div className="space-y-2">
 						<h1 className="text-2xl font-bold text-(--text-primary)">
-							Something went wrong
+							{t("errorBoundary.title")}
 						</h1>
 						<p className="text-sm text-(--text-muted)">
-							The app encountered an unexpected error. Your data is safe.
+							{t("errorBoundary.description")}
 						</p>
 					</div>
 					<pre className="max-w-2xl overflow-auto rounded-lg border border-border bg-(--bg-card) p-4 text-left text-xs text-(--text-muted)">
-						{this.state.error?.message ?? "Unknown error"}
+						{this.state.error?.message ?? t("errorBoundary.unknownError")}
 					</pre>
 					<div className="flex gap-2">
 						<button
@@ -77,14 +78,14 @@ export class ErrorBoundary extends Component<
 							onClick={this.handleReset}
 							className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
 						>
-							Try Again
+							{t("errorBoundary.tryAgain")}
 						</button>
 						<button
 							type="button"
 							onClick={this.handleReload}
 							className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--bg-card)"
 						>
-							Reload App
+							{t("errorBoundary.reloadApp")}
 						</button>
 					</div>
 				</div>

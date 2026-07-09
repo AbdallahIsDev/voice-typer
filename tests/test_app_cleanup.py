@@ -1,0 +1,507 @@
+"""RW-3: regression tests for shared cleanup between quit() and restart_app().
+
+These tests verify that ``restart_app()`` runs the SAME critical cleanup
+that ``quit()`` does — flushing ``history_db``, stopping the recorder /
+mic watcher, flushing crash recovery, clearing the backend PID file,
+etc.  Previously ``restart_app()`` did only a PARTIAL cleanup (cancel
+timers + stop hotkey backends + stop tray) and skipped the rest,
+silently losing pending DB writes and leaking PortAudio streams + the
+Win32 mutex on EVERY restart.
+
+The fix (RW-3) extracts the shared cleanup body into ``_do_cleanup()``
+so ``quit()``, ``restart_app()``, and ``_atexit_cleanup()`` all run the
+SAME audited shutdown path.  ``_do_cleanup()`` is idempotent (guarded
+by ``_cleanup_done``) so the atexit safety net can call it
+unconditionally without double-flushing.
+"""
+
+import pytest
+from unittest.mock import MagicMock
+
+
+# ── Fixtures ────────────────────────────────────────────────────────────
+#
+# These mirror the fixtures in tests/test_app.py but are kept local so
+# this file can run independently (and so a failure here doesn't depend
+# on test_app.py's fixture setup).  The autouse ``mock_heavy_imports``
+# fixture from tests/conftest.py applies, mocking sounddevice /
+# faster_whisper / pynput / pystray / PIL / pyperclip so the tests run
+# headless.
+
+
+@pytest.fixture
+def tmp_config_dir(tmp_path, monkeypatch):
+    """Point config to a temp directory (so PID file writes are isolated)."""
+    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+    monkeypatch.setattr("voice_typer.server.app._config_dir", lambda: tmp_path)
+    return tmp_path
+
+
+@pytest.fixture
+def app(tmp_config_dir, monkeypatch):
+    """Create a VoiceTyperApp with mocked dependencies for cleanup tests.
+
+    Minimal setup — we only need the app instance so we can mock its
+    cleanup collaborators (recorder, history_db, etc.) and call
+    ``restart_app()`` / ``quit()`` / ``_do_cleanup()`` on it.
+    """
+    monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
+    monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
+    monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
+    monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+
+    from voice_typer.server.app import VoiceTyperApp
+    instance = VoiceTyperApp()
+    instance.config.esc_cancel_enabled = False
+    instance.config.voice_biometric_consent = True
+    return instance
+
+
+def _stub_restart_environment(app, monkeypatch):
+    """Stub out the side-effects of restart_app() / quit() so they can
+    run in tests without spawning subprocesses, sleeping, or actually
+    exiting the pytest process.
+
+    Also installs MagicMock collaborators so the tests can assert that
+    cleanup methods (history_db.flush, recorder.stop, etc.) were called.
+    """
+    # Stub IPC push so restart_app / quit_app doesn't try to write to a
+    # real TCP socket.
+    monkeypatch.setattr(
+        "voice_typer.server.ipc_server._push_event_now",
+        lambda msg: None,
+    )
+    # Skip the 300ms pre-exit sleep in restart_app.
+    monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
+    # Mock sys.exit to raise SystemExit (which we catch in tests) rather
+    # than actually exiting the pytest process.
+    monkeypatch.setattr(
+        "voice_typer.server.app.sys.exit",
+        lambda code=0: (_ for _ in ()).throw(SystemExit(code)),
+    )
+    # Belt-and-suspenders: don't let os._exit kill the pytest process
+    # if a future regression reintroduces it.
+    monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+
+    # Mock the cleanup collaborators so we can assert they were called.
+    # recorder.recording=True so _do_cleanup calls recorder.stop().
+    app.recorder = MagicMock()
+    app.recorder.recording = True
+    # RecordingController._transcription_thread defaults to None, but
+    # set it explicitly so the join branch is skipped deterministically.
+    app.recording._transcription_thread = None
+    app.hotkeys._hotkey_backend = MagicMock()
+    app.hotkeys._esc_backend = MagicMock()
+    app.hotkeys._repaste_backend = MagicMock()
+    app._cancel_pending_timers = MagicMock()
+    app.tray = MagicMock()
+    app.history_db = MagicMock()
+    app._crash_recovery = MagicMock()
+
+
+# ── restart_app() must share cleanup with quit() ───────────────────────
+
+
+class TestRestartAppSharedCleanup:
+    """RW-3: restart_app() must run the same critical cleanup as quit().
+
+    Each test asserts that a specific cleanup operation — previously
+    SKIPPED by restart_app() — is now invoked via the shared
+    _do_cleanup() body.
+    """
+
+    def test_restart_app_flushes_history_db(self, app, monkeypatch):
+        """history_db.flush() must be called on restart so pending
+        fire-and-forget INSERTs are not silently lost when the daemon
+        writer thread is killed by sys.exit.
+
+        Regression: before RW-3, restart_app() skipped this call,
+        losing any transcription history writes that hadn't been
+        drained from the writer-thread queue at exit time.
+        """
+        _stub_restart_environment(app, monkeypatch)
+
+        try:
+            app.restart_app()
+        except SystemExit:
+            pass
+
+        app.history_db.flush.assert_called_once()
+
+    def test_restart_app_stops_recorder(self, app, monkeypatch):
+        """recorder.stop() (or discard() as fallback) must be called on
+        restart so the PortAudio stream is closed before the new
+        instance tries to claim the microphone.
+
+        Regression: before RW-3, restart_app() left the PortAudio
+        stream open, and on Windows the next instance could fail to
+        open the mic because the OS still considered it in use.
+        """
+        _stub_restart_environment(app, monkeypatch)
+
+        try:
+            app.restart_app()
+        except SystemExit:
+            pass
+
+        # _do_cleanup calls recorder.stop() when recorder.recording is
+        # truthy, falling back to recorder.discard() if stop() raises.
+        # Either path closes the PortAudio stream — assert at least one
+        # was invoked.
+        assert app.recorder.stop.called or app.recorder.discard.called, (
+            "restart_app must call recorder.stop() or recorder.discard() "
+            "to close the PortAudio stream before exiting"
+        )
+
+    def test_restart_app_clears_backend_pid_file(self, app, monkeypatch):
+        """_clear_backend_pid_file() must be called on restart so the
+        PID file doesn't claim a stale PID when the new instance starts.
+
+        Regression: before RW-3, restart_app() skipped this call,
+        leaving a stale backend.pid pointing at the dying process. The
+        next launch's _ensure_single_instance check would then think
+        the old instance was still alive (race during the kill window)
+        and refuse to start, stranding the user with no backend.
+        """
+        _stub_restart_environment(app, monkeypatch)
+        clear_calls = []
+        monkeypatch.setattr(
+            "voice_typer.server.app._clear_backend_pid_file",
+            lambda: clear_calls.append(True),
+        )
+
+        try:
+            app.restart_app()
+        except SystemExit:
+            pass
+
+        assert clear_calls == [True], (
+            "restart_app must call _clear_backend_pid_file() so the next "
+            "launch isn't falsely blocked by a stale PID file"
+        )
+
+    def test_restart_app_flushes_crash_recovery(self, app, monkeypatch):
+        """_crash_recovery.flush() + shutdown() must be called on
+        restart so the latest recovery state is persisted before the
+        process exits.
+
+        Regression: before RW-3, restart_app() skipped these calls,
+        losing the in-flight crash recovery snapshot. If the new
+        instance then crashed before writing its own snapshot, the
+        user could be presented with a stale "did you mean to paste
+        this?" recovery prompt on the next launch.
+        """
+        _stub_restart_environment(app, monkeypatch)
+
+        try:
+            app.restart_app()
+        except SystemExit:
+            pass
+
+        app._crash_recovery.flush.assert_called_once()
+        app._crash_recovery.shutdown.assert_called_once()
+
+    def test_restart_app_shuts_down_mic_watcher(self, app, monkeypatch):
+        """recorder.shutdown_mic_watcher() must be called on restart
+        so the OS-event device watcher daemon thread exits cleanly
+        before the process tears down.
+
+        Regression: before RW-3, restart_app() skipped this call. The
+        watcher thread is a daemon and would die on process exit
+        anyway, but explicit stop() avoids a 2s join race during GC
+        that could log spurious "device changed" events as the
+        process was dying.
+        """
+        _stub_restart_environment(app, monkeypatch)
+
+        try:
+            app.restart_app()
+        except SystemExit:
+            pass
+
+        app.recorder.shutdown_mic_watcher.assert_called_once()
+
+    def test_restart_app_stops_all_three_hotkey_backends(self, app, monkeypatch):
+        """Sanity: restart_app must still stop _hotkey_backend,
+        _esc_backend, and _repaste_backend (RELIABILITY-003) after the
+        RW-3 refactor extracts them into _do_cleanup()."""
+        _stub_restart_environment(app, monkeypatch)
+
+        try:
+            app.restart_app()
+        except SystemExit:
+            pass
+
+        app.hotkeys._hotkey_backend.stop.assert_called_once()
+        app.hotkeys._esc_backend.stop.assert_called_once()
+        app.hotkeys._repaste_backend.stop.assert_called_once()
+
+    def test_restart_app_calls_tray_stop(self, app, monkeypatch):
+        """Sanity: restart_app must still call tray.stop() (to break
+        the pystray loop) after the RW-3 refactor moves it into
+        _do_cleanup()."""
+        _stub_restart_environment(app, monkeypatch)
+
+        try:
+            app.restart_app()
+        except SystemExit:
+            pass
+
+        app.tray.stop.assert_called_once()
+
+    def test_restart_app_sets_shutting_down_before_cleanup(self, app, monkeypatch):
+        """RW-3: restart_app must set _shutting_down=True BEFORE calling
+        _do_cleanup(), so the atexit safety net's _shutting_down guard
+        short-circuits instead of double-cleaning up.
+
+        This invariant was already present pre-RW-3 (RELIABILITY-006);
+        the test guards against a future regression that reorders the
+        flag-set relative to the cleanup call.
+        """
+        _stub_restart_environment(app, monkeypatch)
+
+        # Capture the value of _shutting_down at the moment _do_cleanup
+        # is entered — it must already be True.
+        flag_values_at_cleanup_entry = []
+        original_do_cleanup = app._do_cleanup
+
+        def spy_do_cleanup():
+            flag_values_at_cleanup_entry.append(app._shutting_down)
+            return original_do_cleanup()
+
+        monkeypatch.setattr(app, "_do_cleanup", spy_do_cleanup)
+
+        try:
+            app.restart_app()
+        except SystemExit:
+            pass
+
+        assert flag_values_at_cleanup_entry == [True], (
+            "restart_app must set _shutting_down=True BEFORE calling "
+            "_do_cleanup(); got sequence: "
+            f"{flag_values_at_cleanup_entry}"
+        )
+
+
+# ── _do_cleanup() idempotency ──────────────────────────────────────────
+
+
+class TestDoCleanupIdempotency:
+    """RW-3: _do_cleanup() must be safe to call multiple times.
+
+    The _cleanup_done flag is the hard guarantee — once True, every
+    subsequent call returns immediately without re-running any cleanup
+    operation. This lets _atexit_cleanup() call _do_cleanup()
+    unconditionally without double-flushing history_db / double-stopping
+    the recorder / double-closing the Win32 mutex handle.
+    """
+
+    def test_do_cleanup_twice_does_not_crash(self, app, monkeypatch):
+        """Calling _do_cleanup() twice (e.g. once from quit() and once
+        from _atexit_cleanup) must not crash, and the second call must
+        be a true no-op — every cleanup collaborator is invoked
+        exactly ONCE, not twice."""
+        _stub_restart_environment(app, monkeypatch)
+
+        # First call runs the full cleanup body.
+        app._do_cleanup()
+        # Second call must be a no-op (guarded by _cleanup_done flag).
+        app._do_cleanup()
+
+        # Each collaborator must have been called exactly once,
+        # proving the second _do_cleanup() call was a no-op.
+        app.recorder.stop.assert_called_once()
+        app.recorder.shutdown_mic_watcher.assert_called_once()
+        app.history_db.flush.assert_called_once()
+        app._crash_recovery.flush.assert_called_once()
+        app._crash_recovery.shutdown.assert_called_once()
+        app.hotkeys._hotkey_backend.stop.assert_called_once()
+        app.tray.stop.assert_called_once()
+
+    def test_do_cleanup_idempotent_when_recorder_stop_raises(self, app, monkeypatch):
+        """Idempotency must hold even when an inner operation raises.
+
+        If recorder.stop() raises on the first call, _do_cleanup
+        catches it and continues. The _cleanup_done flag is set at the
+        TOP of _do_cleanup (before any operation), so a second call
+        is still a no-op — we don't retry the failed operation, and
+        we don't double-call any operation that already succeeded.
+        """
+        _stub_restart_environment(app, monkeypatch)
+        # Make recorder.stop() raise on every call.
+        app.recorder.stop.side_effect = RuntimeError("PortAudio already closed")
+
+        # First call: recorder.stop() raises, discard() is called as
+        # fallback (also raises — both are caught by try-except).
+        app.recorder.discard.side_effect = RuntimeError("already discarded")
+        # Must not propagate.
+        app._do_cleanup()
+
+        # Second call must be a no-op — recorder.stop/discard are NOT
+        # retried (would be called twice if _cleanup_done wasn't set).
+        app._do_cleanup()
+
+        app.recorder.stop.assert_called_once()
+        app.recorder.discard.assert_called_once()
+        # history_db.flush still ran exactly once on the first call,
+        # despite the recorder errors.
+        app.history_db.flush.assert_called_once()
+
+
+# ── _atexit_cleanup() safety net ───────────────────────────────────────
+
+
+class TestAtexitCleanupSafetyNet:
+    """RW-3: _atexit_cleanup() must delegate to _do_cleanup() so the
+    safety net runs the SAME audited path as quit()/restart_app().
+
+    The _shutting_down guard is preserved (early-return when
+    quit/restart already ran) to avoid spurious log noise on
+    intentional shutdowns. When the process is killed externally
+    (_shutting_down stays False), the safety net runs the FULL
+    _do_cleanup() body — flushing history_db, stopping the recorder,
+    clearing the PID file, etc.
+    """
+
+    def test_atexit_cleanup_after_quit_is_noop(self, app, monkeypatch):
+        """_atexit_cleanup() must early-return when _shutting_down is
+        already True (set by quit() or restart_app()), so it doesn't
+        double-call _do_cleanup().
+
+        The _cleanup_done flag inside _do_cleanup() would make a
+        second call a no-op anyway, but the early-return avoids the
+        spurious "[ATEXIT] Running emergency cleanup" log line on
+        every intentional shutdown.
+        """
+        _stub_restart_environment(app, monkeypatch)
+
+        # Simulate quit() having run: set the flag, run cleanup once.
+        app._shutting_down = True
+        app._do_cleanup()
+
+        # Now atexit fires — it should early-return without calling
+        # _do_cleanup() a second time.
+        app._atexit_cleanup()
+
+        # recorder.stop() called exactly once (from the explicit
+        # _do_cleanup() call, NOT from _atexit_cleanup).
+        app.recorder.stop.assert_called_once()
+        app.history_db.flush.assert_called_once()
+
+    def test_atexit_cleanup_runs_when_not_shutting_down(self, app, monkeypatch):
+        """_atexit_cleanup() must run _do_cleanup() when the process
+        is killed externally (_shutting_down stays False), so critical
+        cleanup (volume restore, hotkey release, DB flush, recorder
+        stop, PID file clear) happens even on a forced exit.
+
+        Regression: before RW-3, _atexit_cleanup() ran an ad-hoc
+        SUBSET of cleanup (volume restore + hotkey stop + crash
+        recovery flush) that diverged from quit(). It skipped
+        history_db.flush, recorder.stop, mic watcher shutdown, bubble
+        level worker stop, PID file clear, and mutex handle close —
+        leaking the same resources that the OLD restart_app() leaked.
+        """
+        _stub_restart_environment(app, monkeypatch)
+
+        # _shutting_down stays False — process was killed externally.
+        assert app._shutting_down is False
+
+        app._atexit_cleanup()
+
+        # The full _do_cleanup() body ran via _atexit_cleanup().
+        app.history_db.flush.assert_called_once()
+        app.recorder.stop.assert_called_once()
+        app.recorder.shutdown_mic_watcher.assert_called_once()
+        app._crash_recovery.flush.assert_called_once()
+        app._crash_recovery.shutdown.assert_called_once()
+        app.hotkeys._hotkey_backend.stop.assert_called_once()
+        app.tray.stop.assert_called_once()
+
+    def test_atexit_cleanup_never_raises(self, app, monkeypatch):
+        """_atexit_cleanup() must NEVER raise — even if _do_cleanup()
+        raises an unhandled exception. A raise out of an atexit handler
+        would mask the original exit cause and produce confusing
+        tracebacks in the user's log."""
+        _stub_restart_environment(app, monkeypatch)
+        # Force _do_cleanup to raise.
+        monkeypatch.setattr(
+            app, "_do_cleanup", lambda: (_ for _ in ()).throw(RuntimeError("boom"))
+        )
+
+        # Must not raise.
+        app._atexit_cleanup()
+
+
+# ── quit() still works after the refactor ──────────────────────────────
+
+
+class TestQuitAppUsesSharedCleanup:
+    """RW-3: quit() must use _do_cleanup() (the shared path) and still
+    exit via sys.exit(0). These are sanity tests guarding against a
+    future regression that removes the _do_cleanup() call from quit().
+    """
+
+    def test_quit_flushes_history_db(self, app, monkeypatch):
+        """Sanity: quit() (which already did this inline pre-RW-3) must
+        still flush history_db after the refactor extracts cleanup
+        into _do_cleanup()."""
+        _stub_restart_environment(app, monkeypatch)
+
+        try:
+            app.quit()
+        except SystemExit:
+            pass
+
+        app.history_db.flush.assert_called_once()
+
+    def test_quit_clears_backend_pid_file(self, app, monkeypatch):
+        """Sanity: quit() must still clear the backend PID file after
+        the refactor."""
+        _stub_restart_environment(app, monkeypatch)
+        clear_calls = []
+        monkeypatch.setattr(
+            "voice_typer.server.app._clear_backend_pid_file",
+            lambda: clear_calls.append(True),
+        )
+
+        try:
+            app.quit()
+        except SystemExit:
+            pass
+
+        assert clear_calls == [True]
+
+    def test_quit_stops_recorder(self, app, monkeypatch):
+        """Sanity: quit() must still call recorder.stop() (or
+        discard()) after the refactor."""
+        _stub_restart_environment(app, monkeypatch)
+
+        try:
+            app.quit()
+        except SystemExit:
+            pass
+
+        assert app.recorder.stop.called or app.recorder.discard.called
+
+    def test_quit_calls_do_cleanup(self, app, monkeypatch):
+        """Sanity: quit() must delegate to _do_cleanup() (rather than
+        inlining the cleanup body, which would re-introduce the
+        divergence bug that RW-3 fixes)."""
+        _stub_restart_environment(app, monkeypatch)
+        do_cleanup_calls = []
+        original = app._do_cleanup
+
+        def spy():
+            do_cleanup_calls.append(True)
+            return original()
+
+        monkeypatch.setattr(app, "_do_cleanup", spy)
+
+        try:
+            app.quit()
+        except SystemExit:
+            pass
+
+        assert do_cleanup_calls == [True], (
+            "quit() must call _do_cleanup() exactly once"
+        )

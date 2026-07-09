@@ -5,6 +5,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { t } from "@/i18n/i18n";
 
 // ── Constants ────────────────────────────────────────────────────
 
@@ -278,7 +279,7 @@ export function Bubble({ className: _className }: { className?: string }) {
 	return (
 		<output
 			aria-live="polite"
-			aria-label="Voice Typer recording indicator"
+			aria-label={t("bubble.recordingIndicatorAria")}
 			className={`
         inline-flex items-center justify-center
         ${animState === "enter" ? "animate-bubble-enter" : ""}

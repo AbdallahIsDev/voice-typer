@@ -1,6 +1,6 @@
 import * as React from "react";
-
 import { cn } from "#utils";
+import { t } from "@/i18n/i18n";
 
 interface NumberInputProps
 	extends Omit<
@@ -131,7 +131,7 @@ function NumberInput({
 				<button
 					type="button"
 					tabIndex={-1}
-					aria-label="Increase"
+					aria-label={t("a11y.increase")}
 					onClick={handleIncrease}
 					className="flex h-[9px] w-[14px] items-center justify-center rounded-[2px] text-(--text-muted) hover:text-(--text-primary) hover:bg-(--accent-soft) transition-colors"
 				>
@@ -143,7 +143,7 @@ function NumberInput({
 				<button
 					type="button"
 					tabIndex={-1}
-					aria-label="Decrease"
+					aria-label={t("a11y.decrease")}
 					onClick={handleDecrease}
 					className="flex h-[9px] w-[14px] items-center justify-center rounded-[2px] text-(--text-muted) hover:text-(--text-primary) hover:bg-(--accent-soft) transition-colors"
 				>

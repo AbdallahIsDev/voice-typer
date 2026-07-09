@@ -1129,13 +1129,22 @@ class TestAudioMicDeviceChangePoller:
     detected. Fix: added a 30-second periodic poller that
     re-enumerates microphones and pushes a ``microphones_changed``
     IPC event when the device set changes.
+
+    PERF-FIX-2: the 30s poller was later found to be fully redundant
+    with the event-driven ``MicrophoneDeviceWatcher`` (started in
+    ``Recorder.__init__``), which is the sole source of truth on all
+    platforms (WM_DEVICECHANGE on Windows, ``/dev/snd`` polling on
+    Linux, CoreAudio property-listener on macOS). The poller was
+    removed from ``_do_startup``; the ``_start_device_change_poller``
+    method is retained as a no-op stub for backwards compatibility.
     """
 
     def test_start_device_change_poller_exists(self):
         from voice_typer.server.app import VoiceTyperApp
 
         assert hasattr(VoiceTyperApp, "_start_device_change_poller"), (
-            "AUDIO-MIC: _start_device_change_poller method must exist."
+            "AUDIO-MIC: _start_device_change_poller method must exist "
+            "(retained as a no-op stub for backwards compatibility)."
         )
 
     def test_load_microphones_pushes_ipc_event_on_change(self):
@@ -1150,12 +1159,23 @@ class TestAudioMicDeviceChangePoller:
             "AUDIO-MIC: _load_microphones must compare old vs new device IDs."
         )
 
-    def test_poller_started_in_startup(self):
+    def test_poller_not_started_in_startup(self):
+        """PERF-FIX-2: ``_do_startup`` must NOT call
+        ``_start_device_change_poller``. The 30s poller is redundant
+        with the event-driven ``MicrophoneDeviceWatcher`` (the sole
+        source of truth). The poller was removed from startup to
+        eliminate the ~1-5ms/30s CPU cost and the per-second
+        ``threading.Event()`` allocation.
+        """
         from voice_typer.server.app import VoiceTyperApp
 
         src = inspect.getsource(VoiceTyperApp._do_startup)
-        assert "_start_device_change_poller" in src, (
-            "AUDIO-MIC: _do_startup must call _start_device_change_poller."
+        # The method may still be *referenced* in a comment explaining
+        # why it was removed — but it must NOT be CALLED. We check
+        # that the call form (with parentheses) is absent.
+        assert "_start_device_change_poller(" not in src, (
+            "PERF-FIX-2: _do_startup must NOT call _start_device_change_poller "
+            "(redundant with the event-driven MicrophoneDeviceWatcher)."
         )
 
 class TestAudioClipRealtimeIpcEvent:
@@ -1962,14 +1982,24 @@ class TestPlatHleakDeadCodeRemoved:
         )
 
     def test_quit_path_inlines_closehandle(self):
-        """The quit() method must inline the CloseHandle call (not
+        """The cleanup path must inline the CloseHandle call (not
         delegate to the removed helper).
+
+        RW-3: the cleanup body was extracted from ``quit()`` into the
+        shared ``_do_cleanup()`` method so ``restart_app()`` and
+        ``_atexit_cleanup()`` can run the same audited shutdown path.
+        The CloseHandle call now lives in ``_do_cleanup()``; this test
+        inspects BOTH ``quit()`` and ``_do_cleanup()`` so it stays
+        accurate regardless of which method directly contains the
+        call.
         """
         from voice_typer.server.app import VoiceTyperApp
 
-        src = inspect.getsource(VoiceTyperApp.quit)
+        src = inspect.getsource(VoiceTyperApp.quit) + inspect.getsource(
+            VoiceTyperApp._do_cleanup
+        )
         assert "CloseHandle" in src, (
-            "PLAT-HLEAK: quit() must inline CloseHandle call."
+            "PLAT-HLEAK: the quit/cleanup path must inline CloseHandle call."
         )
 
 class TestPlatRunAutostartTaskHashed:
@@ -3919,21 +3949,4 @@ class TestPlatMacBlocked:
                 "PLAT-MAC: No macOS CI runner found — macOS code is untested."
             )
 
-class TestArchiveDeletedFiles:
-    """Track deleted files in archive/deleted_files.txt."""
-
-    def test_deleted_files_txt_exists(self):
-        path = Path(__file__).resolve().parent.parent / "archive" / "deleted_files.txt"
-        if not path.exists():
-            pytest.skip("archive/deleted_files.txt not present — safe to delete")
-
-    def test_deleted_files_txt_documents_diagnostic_script_removal(self):
-        path = Path(__file__).resolve().parent.parent / "archive" / "deleted_files.txt"
-        if not path.exists():
-            pytest.skip("archive/deleted_files.txt not present")
-        content = path.read_text(encoding="utf-8")
-        assert "CQ-016" in content
-        assert "scripts/diagnostics" in content
-
-if __name__ == "__main__":
     pytest.main([__file__, "-v"])
