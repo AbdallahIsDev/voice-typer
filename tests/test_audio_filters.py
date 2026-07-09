@@ -188,8 +188,11 @@ class TestNoiseGate:
         audio = np.random.randn(1024).astype(np.float32) * 0.3
         g.process(audio, 16000)
         g.reset()
-        assert g._is_open is False
-        assert g._attenuation == 0.0
+        # Gate must start OPEN — starting closed would silence quiet speech.
+        assert g._is_open is True
+        assert g._attenuation == 1.0
+        assert g._level == 0.0
+        assert g._held_time == 0.0
 
 
 # ═══════════════════════════════════════════════════════════════════════════
