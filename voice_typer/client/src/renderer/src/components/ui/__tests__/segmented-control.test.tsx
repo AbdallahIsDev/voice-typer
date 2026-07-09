@@ -411,6 +411,111 @@ describe("SegmentedControl keyboard navigation", () => {
 	});
 });
 
+// ── Tabs variant ────────────────────────────────────────────────────────────
+
+describe("SegmentedControl tabs variant", () => {
+	it("renders with transparent background and no border-radius", () => {
+		render(
+			<SegmentedControl
+				variant="tabs"
+				options={FOUR_OPTIONS}
+				value="one"
+				onChange={() => {}}
+				ariaLabel="tabs-control"
+			/>,
+		);
+
+		const group = screen.getByRole("radiogroup");
+		expect(group.className).toContain("bg-transparent");
+		expect(group.className).toContain("border-none");
+		expect(group.className).toContain("rounded-none");
+		expect(group.className).not.toContain("rounded-full");
+		expect(group.className).not.toContain("bg-input/50");
+		expect(group.className).toContain("p-1");
+		expect(group.className).not.toContain("p-0.75");
+	});
+
+	it("labels have no rounded-full and use larger font", () => {
+		render(
+			<SegmentedControl
+				variant="tabs"
+				options={FOUR_OPTIONS}
+				value="one"
+				onChange={() => {}}
+				ariaLabel="tabs-control"
+			/>,
+		);
+
+		const radios = screen.getAllByRole("radio");
+		for (const radio of radios) {
+			const label = radio.closest("label");
+			expect(label?.className).toContain("rounded-none");
+			expect(label?.className).not.toContain("rounded-full");
+			expect(label?.className).toContain("text-[13px]");
+			expect(label?.className).toContain("font-medium");
+		}
+	});
+
+	it("active label uses text-(--text-primary) instead of text-primary-foreground", () => {
+		render(
+			<SegmentedControl
+				variant="tabs"
+				options={TWO_OPTIONS}
+				value="left"
+				onChange={() => {}}
+				ariaLabel="tabs-control"
+			/>,
+		);
+
+		const radios = screen.getAllByRole("radio");
+		const leftLabel = radios[0].closest("label");
+		const rightLabel = radios[1].closest("label");
+
+		expect(leftLabel?.className).toContain("text-(--text-primary)");
+		expect(rightLabel?.className).not.toContain("text-primary-foreground");
+	});
+
+	it("indicator has no rounded corners", async () => {
+		const { container } = render(
+			<SegmentedControl
+				variant="tabs"
+				options={TWO_OPTIONS}
+				value="left"
+				onChange={() => {}}
+				ariaLabel="tabs-control"
+			/>,
+		);
+
+		await waitFor(() => {
+			// The indicator is the absolute-positioned child of the container.
+			const indicator = container.querySelector(".absolute");
+			expect(indicator).toBeTruthy();
+			expect(indicator?.className).toContain("rounded-md");
+			expect(indicator?.className).not.toContain("rounded-full");
+			expect(indicator?.className).toContain("bg-input");
+			expect(indicator?.className).not.toContain("bg-(", "should not use CSS variable reference that breaks in tests");
+		});
+	});
+
+	it("onChange fires correctly in tabs variant", async () => {
+		const user = userEvent.setup();
+		const onChange = vi.fn();
+
+		render(
+			<SegmentedControl
+				variant="tabs"
+				options={TWO_OPTIONS}
+				value="left"
+				onChange={onChange}
+				ariaLabel="tabs-control"
+			/>,
+		);
+
+		await user.click(screen.getByText("Right"));
+		expect(onChange).toHaveBeenCalledWith("right");
+	});
+});
+
 // ── Extra className ──────────────────────────────────────────────────────────
 
 describe("SegmentedControl className prop", () => {

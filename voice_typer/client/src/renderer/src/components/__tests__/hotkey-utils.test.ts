@@ -99,14 +99,15 @@ describe("HotkeyPicker — reusable for both recording and paste shortcuts", () 
 	// here we just guard against regressions where the paste shortcut
 	// might be silently switched to a bespoke picker.
 	it("HotkeySettingsSection imports HotkeyPicker (shared component for both modes)", async () => {
+		// The RecordingSettingsSection now contains both the dictation key
+		// and re-paste key pickers (the standalone HotkeySettingsSection
+		// was removed since it only had one setting). We import the
+		// RecordingSettingsSection and confirm it resolves to a defined,
+		// renderable component.
 		const sectionMod = (await import(
-			"../settings/HotkeySettingsSection"
-		)) as typeof import("../settings/HotkeySettingsSection");
-		// HotkeySettingsSection is wrapped in React.memo, so the
-		// exported value is a MemoExoticComponent (typeof "object")
-		// rather than a plain function. We just assert it resolves
-		// to a defined, renderable component.
-		expect(sectionMod.HotkeySettingsSection).toBeTruthy();
+			"../settings/RecordingSettingsSection"
+		)) as typeof import("../settings/RecordingSettingsSection");
+		expect(sectionMod.RecordingSettingsSection).toBeTruthy();
 		// Re-import HotkeyPicker to confirm the symbol resolves; if
 		// either the section or the picker is renamed/removed, this
 		// throws and the test fails loudly.

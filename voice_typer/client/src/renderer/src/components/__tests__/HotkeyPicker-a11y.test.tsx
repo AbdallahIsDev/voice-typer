@@ -88,6 +88,7 @@ function renderPicker(
 		mode?: "single" | "combo";
 		ariaLabel?: string;
 		onChange?: (h: string) => void;
+		presets?: { value: string; label: string }[];
 	} = {},
 ) {
 	const props = {
@@ -95,6 +96,7 @@ function renderPicker(
 		onChange: overrides.onChange ?? vi.fn(),
 		mode: (overrides.mode ?? "single") as "single" | "combo",
 		"aria-label": overrides.ariaLabel ?? "Dictation key",
+		presets: overrides.presets,
 	};
 	return render(<HotkeyPicker {...props} />);
 }
@@ -126,7 +128,7 @@ describe("HotkeyPicker — Accessibility (ARIA runtime verification)", () => {
 		});
 
 		it("preset dropdown button has aria-label containing 'Preset hotkeys'", () => {
-			renderPicker();
+			renderPicker({ presets: [{ value: "<ctrl>+<alt>+v", label: "Ctrl+Alt+V" }] });
 			const presetBtn = screen.getByRole("button", {
 				name: /preset hotkeys/i,
 			});
@@ -269,7 +271,7 @@ describe("HotkeyPicker — Accessibility (ARIA runtime verification)", () => {
 
 		it("preset dropdown menu items have role='menuitem' and are keyboard-navigable via ArrowDown", async () => {
 			const user = userEvent.setup();
-			renderPicker();
+			renderPicker({ presets: [{ value: "<ctrl>+<alt>+v", label: "Ctrl+Alt+V" }] });
 
 			const presetTrigger = screen.getByRole("button", {
 				name: /preset hotkeys/i,

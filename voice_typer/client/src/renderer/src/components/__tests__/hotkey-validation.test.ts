@@ -146,8 +146,8 @@ describe("validateHotkey — modifier-only (single-key triggers)", () => {
 		expect(validateHotkey("<alt>", "win32").valid).toBe(true);
 	});
 
-	it("accepts Cmd alone on macOS", () => {
-		expect(validateHotkey("<cmd>", "darwin").valid).toBe(true);
+	it("rejects Cmd alone (universally reserved — conflicts with system shortcuts)", () => {
+		expect(validateHotkey("<cmd>", "darwin").valid).toBe(false);
 	});
 
 	it("accepts Caps Lock alone", () => {
@@ -224,7 +224,10 @@ describe("validateHotkey — partial-assign contract (Problem 2.2)", () => {
 		// still valid on darwin where the Win/Super key doesn't
 		// exist as a system modifier.
 		for (const mod of MODIFIER_KEYS_SHARED) {
-			if (mod === "win" || mod === "super") continue;
+			// HOTKEY-VALIDATION-002: `<win>`, `<super>`, and `<cmd>`
+			// are excluded on win32 because they're in
+			// UNIVERSAL_RESERVED_SHORTCUTS (system gestures).
+			if (mod === "win" || mod === "super" || mod === "cmd") continue;
 			const result = validateHotkey(`<${mod}>`, "win32");
 			expect(result.valid).toBe(true);
 			expect(result).not.toHaveProperty("partial");
