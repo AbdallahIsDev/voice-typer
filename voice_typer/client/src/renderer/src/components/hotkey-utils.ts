@@ -15,11 +15,20 @@
  * is the single source of truth for reserved-shortcut checking,
  * structural validation, and normalization.
  *
- * The preset lists (SINGLE_KEY_PRESETS, COMBO_PRESETS) are now
- * filtered through ``isReserved()`` at module load time, so any
- * preset that conflicts with an OS-reserved shortcut (e.g.
- * ``<cmd>+<space>`` on macOS) is automatically excluded from the
- * dropdown.
+ * ISSUE-8: the preset lists are now exposed via getter functions
+ * ``getSingleKeyPresets()`` and ``getComboPresets()`` that re-detect
+ * the platform on every call. The legacy module-level constants
+ * ``SINGLE_KEY_PRESETS`` and ``COMBO_PRESETS`` are kept as deprecated
+ * aliases (they snapshot the getter output at module load time) for
+ * backward compatibility with external consumers. New code should
+ * call the getters directly so the presets always reflect the current
+ * platform — handy in Electron where UA spoofing or headless mode can
+ * cause the initial ``navigator.userAgent`` detection to be wrong.
+ *
+ * The combo presets are filtered through ``isReserved()`` on every
+ * call, so any preset that conflicts with an OS-reserved shortcut
+ * (e.g. ``<cmd>+<space>`` on macOS) is automatically excluded from
+ * the dropdown.
  */
 
 import {
@@ -213,19 +222,41 @@ export const MODIFIER_CODE_TO_PYNPUT: Record<string, string> = {
  * architecture treats Caps Lock as the recommended default. Function
  * keys are still available via the custom capture button for users
  * who have a keyboard with dedicated function keys.
+ *
+ * ISSUE-8: this used to be a module-level constant computed once at
+ * import time. It's now a getter so the platform is re-detected on
+ * every call. The list is small (<5 entries) and the platform check
+ * is a single ``navigator.userAgent`` regex, so calling this on every
+ * render is cheap and avoids the staleness problem when the initial
+ * platform detection was wrong (Electron UA spoofing, headless mode).
  */
-export const SINGLE_KEY_PRESETS: { value: string; label: string }[] = [
-	// Safe single-key options only.
-	// Caps Lock: label is intentionally bare — no "recommended"
-	// or "requires OS remap" qualifier. The hotkey backend
-	// transparently handles the OS-level toggle suppression.
-	{ value: "caps_lock", label: "Caps Lock" },
-	{ value: "alt", label: "Alt" },
-	{ value: "ctrl", label: "Ctrl" },
-	// Fn is firmware-only on Windows/Linux (apps can't see it), so
-	// only offer it on macOS where the native backend can hook it.
-	...(IS_MAC ? [{ value: "fn", label: "Fn / Globe 🌐 (macOS only)" }] : []),
-];
+export function getSingleKeyPresets(): { value: string; label: string }[] {
+	// Re-detect platform on every call so the Fn option appears iff
+	// the CURRENT navigator.userAgent looks like macOS, not whatever
+	// was detected at module load time.
+	const isMac = detectPlatform() === "darwin";
+	return [
+		// Safe single-key options only.
+		// Caps Lock: label is intentionally bare — no "recommended"
+		// or "requires OS remap" qualifier. The hotkey backend
+		// transparently handles the OS-level toggle suppression.
+		{ value: "caps_lock", label: "Caps Lock" },
+		{ value: "alt", label: "Alt" },
+		{ value: "ctrl", label: "Ctrl" },
+		// Fn is firmware-only on Windows/Linux (apps can't see it), so
+		// only offer it on macOS where the native backend can hook it.
+		...(isMac ? [{ value: "fn", label: "Fn / Globe 🌐 (macOS only)" }] : []),
+	];
+}
+
+/**
+ * @deprecated Use ``getSingleKeyPresets()`` instead. This alias
+ * snapshots the getter output at module load time and will not reflect
+ * subsequent platform changes. Kept for backward compatibility with
+ * external consumers; new code should call the getter directly.
+ */
+export const SINGLE_KEY_PRESETS: { value: string; label: string }[] =
+	getSingleKeyPresets();
 
 /**
  * Combo presets — combos that work on all platforms (with platform-aware
@@ -238,32 +269,56 @@ export const SINGLE_KEY_PRESETS: { value: string; label: string }[] = [
  * the user shouldn't be able to pick a combo that will silently
  * break the OS. ``<super>+<space>`` on Linux is NOT reserved (most
  * desktop environments allow reassigning it), so it's still offered.
+ *
+ * ISSUE-8: this used to be a module-level constant filtered once at
+ * import time. It's now a getter so the platform is re-detected and
+ * ``isReserved()`` is re-evaluated on every call, which keeps the
+ * preset list fresh if the platform detection was wrong at module
+ * load (Electron UA spoofing, headless mode) or if the reserved
+ * list is ever updated dynamically in the future. The list is small
+ * (<10 entries) and the filter is O(n), so calling this on every
+ * render is cheap.
  */
-export const COMBO_PRESETS: { value: string; label: string }[] = [
-	{ value: "<ctrl>+<alt>+v", label: "Ctrl+Alt+V" },
-	{ value: "<ctrl>+<shift>+v", label: "Ctrl+Shift+V" },
-	{ value: "<ctrl>+<alt>+r", label: "Ctrl+Alt+R" },
-	{ value: "<ctrl>+<shift>+r", label: "Ctrl+Shift+R" },
-	{ value: "<ctrl>+<space>", label: "Ctrl+Space" },
-	{ value: "<alt>+<space>", label: "Alt+Space" },
-	...(IS_MAC
-		? [
-				{ value: "<cmd>+<shift>+v", label: "Cmd+Shift+V (macOS)" },
-				// HOTKEY-UNIFY-002: <cmd>+<space> (Spotlight) is now
-				// excluded — it's reserved by macOS and binding it as
-				// a dictation shortcut would silently break Spotlight.
-				// Users who really want it can still attempt the custom
-				// capture button, where validateHotkey() will reject it
-				// with a clear error message.
-			]
-		: []),
-	// Win+Space is intentionally NOT offered on Windows: it is reserved
-	// by the OS for the input-language switcher and binding it as a
-	// dictation/paste shortcut would silently break language switching.
-	// Users can still pick any combo via the custom capture button if
-	// they really want to override it.
-	...(IS_LINUX ? [{ value: "<super>+<space>", label: "Super+Space" }] : []),
-].filter((preset) => !isReserved(preset.value, PLATFORM));
+export function getComboPresets(): { value: string; label: string }[] {
+	// Re-detect platform on every call so the macOS/Linux-only branches
+	// and the reserved-shortcut filter always reflect the CURRENT
+	// navigator.userAgent, not whatever was detected at module load.
+	const platform = detectPlatform();
+	const isMac = platform === "darwin";
+	const isLinux = platform === "linux";
+	return [
+		{ value: "<ctrl>+<shift>+v", label: "Ctrl+Shift+V" },
+		{ value: "<ctrl>+<alt>+v", label: "Ctrl+Alt+V" },
+		{ value: "<ctrl>+<space>", label: "Ctrl+Space" },
+		...(isMac
+			? [
+					{ value: "<cmd>+<shift>+v", label: "Cmd+Shift+V (macOS)" },
+					// HOTKEY-UNIFY-002: <cmd>+<space> (Spotlight) is now
+					// excluded — it's reserved by macOS and binding it as
+					// a dictation shortcut would silently break Spotlight.
+					// Users who really want it can still attempt the custom
+					// capture button, where validateHotkey() will reject it
+					// with a clear error message.
+				]
+			: []),
+		// Win+Space is intentionally NOT offered on Windows: it is reserved
+		// by the OS for the input-language switcher and binding it as a
+		// dictation/paste shortcut would silently break language switching.
+		// Users can still pick any combo via the custom capture button if
+		// they really want to override it.
+		...(isLinux ? [{ value: "<super>+<space>", label: "Super+Space" }] : []),
+	].filter((preset) => !isReserved(preset.value, platform));
+}
+
+/**
+ * @deprecated Use ``getComboPresets()`` instead. This alias snapshots
+ * the getter output at module load time and will not reflect subsequent
+ * platform changes or reserved-list updates. Kept for backward
+ * compatibility with external consumers; new code should call the
+ * getter directly.
+ */
+export const COMBO_PRESETS: { value: string; label: string }[] =
+	getComboPresets();
 
 export function formatHotkeyLabel(hotkey: string): string {
 	if (!hotkey) return "None";
@@ -362,11 +417,21 @@ export function validateHotkey(
 		// Accept any single key (including modifiers and caps_lock)
 		return null;
 	}
-	// Combo mode: last part must be a non-modifier (already checked by
-	// the shared validator, but double-check here for clarity).
+	// Combo mode: HOTKEY-MULTIKEY-001 — pure-modifier combos (e.g.
+	// ``<ctrl>+<shift>``, ``<ctrl>+<alt>``) are now ALLOWED. The structural
+	// "must end with non-modifier" rule only applies to MIXED combos
+	// (modifiers + non-modifiers). The shared validator already enforces
+	// this; the redundant check below is kept only for mixed combos as
+	// a defense-in-depth guard.
 	const lastKey = parts[parts.length - 1];
-	if (MODIFIER_KEYS.includes(lastKey as (typeof MODIFIER_KEYS)[number])) {
-		return "Combo must end with a non-modifier key (e.g. Ctrl+Alt+V, not just Ctrl)";
+	const hasNonModifier = parts.some(
+		(p) => !MODIFIER_KEYS.includes(p as (typeof MODIFIER_KEYS)[number]),
+	);
+	if (
+		hasNonModifier &&
+		MODIFIER_KEYS.includes(lastKey as (typeof MODIFIER_KEYS)[number])
+	) {
+		return "Combo must end with a non-modifier key (e.g. Ctrl+Alt+V, not Ctrl+Alt+V+Shift)";
 	}
 	// Reject Fn in combos on non-macOS
 	if (!IS_MAC && parts.some((p) => p === "fn" || p === "globe")) {
