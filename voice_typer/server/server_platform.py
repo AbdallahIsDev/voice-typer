@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 from typing import Any, Optional
 
+from voice_typer.server import _paths
+
 log = logging.getLogger(__name__)
 
 SYSTEM = sys.platform  # "win32", "darwin", "linux"
@@ -768,15 +770,19 @@ def _enable_autostart_macos() -> bool:
     <key>WorkingDirectory</key>
     <string>{escape(working_dir)}</string>
     <key>StandardOutPath</key>
-    <string>{escape(str(Path.home() / ".voice-typer" / "autostart.log"))}</string>
+    <string>{escape(str(_paths.autostart_log()))}</string>
     <key>StandardErrorPath</key>
-    <string>{escape(str(Path.home() / ".voice-typer" / "autostart.log"))}</string>
+    <string>{escape(str(_paths.autostart_log()))}</string>
 </dict>
 </plist>"""
     plist_path.write_text(plist_content)
     plist_path.chmod(0o600)
     # NEW-PRIV-002: ensure the log directory exists with private perms
-    log_dir = Path.home() / ".voice-typer"
+    # RW-7: use _paths.config_dir() instead of Path.home() / ".voice-typer"
+    # so the plist's StandardOutPath/StandardErrorPath and the actual log
+    # directory on disk agree (and respect VOICE_TYPER_CONFIG_DIR /
+    # platform-specific paths).
+    log_dir = _paths.config_dir()
     log_dir.mkdir(parents=True, exist_ok=True)
     try:
         os.chmod(log_dir, 0o700)

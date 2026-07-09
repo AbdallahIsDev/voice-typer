@@ -57,6 +57,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from voice_typer.server import _paths
 from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
 
 log = logging.getLogger("voice_typer.autostart")
@@ -93,21 +94,40 @@ IPC_HOST = "127.0.0.1"
 IPC_PORT = 9876
 
 # Where to write the PID file (under the app's data dir).
+# RW-7: delegates to voice_typer.server._paths so the path respects the
+# platform-aware _config_dir() logic (Windows %APPDATA%, macOS
+# ~/Library/Application Support, Linux $XDG_DATA_HOME, the
+# VOICE_TYPER_CONFIG_DIR override, and the legacy ~/.voice-typer
+# migration check) instead of the previous hardcoded Path.home() /
+# ".voice-typer".
 def _config_dir() -> Path:
-    return Path.home() / ".voice-typer"
+    """Return the voice-typer data directory.
+
+    RW-7: thin wrapper around :func:`voice_typer.server._paths.config_dir`
+    kept for backwards compatibility — tests monkeypatch this name to
+    redirect PID-file writes to a tmp dir.
+    """
+    return _paths.config_dir()
 
 
 def _pid_file() -> Path:
+    """Return the path to the autostart launcher's PID file.
+
+    RW-7: derives from :func:`_config_dir` (not ``_paths.pid_file``
+    directly) so tests that monkeypatch this module's ``_config_dir``
+    continue to redirect the PID file as well.
+    """
     return _config_dir() / "autostart.pid"
 
 
 def _setup_logging() -> None:
     """Minimal logging to the app log file (no console — we run hidden)."""
-    try:
-        from voice_typer.server.config import _config_dir as _cfg
-        log_dir = _cfg()
-    except Exception:
-        log_dir = _config_dir()
+    # RW-7: _config_dir() already delegates to _paths.config_dir() which
+    # delegates to config._config_dir(). The previous try/except fallback
+    # to Path.home() / ".voice-typer" was needed when the local
+    # _config_dir() bypassed config.py; now that both go through the
+    # canonical resolution chain, the fallback is no longer needed.
+    log_dir = _config_dir()
     from voice_typer.server.log import setup_logging as _setup_logging_shared
     _setup_logging_shared(log_dir)
 

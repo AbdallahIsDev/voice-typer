@@ -666,7 +666,6 @@ class DictationPipeline:
             status = f"Done -- {len(text)} chars (in clipboard)"
 
         self._app.tray.set_state(AppState.IDLE, status)
-        self._app.tray.notify(APP_NAME, f"Transcribed {len(text)} characters")
         self._app._schedule_timer(
             3.0,
             lambda: self._app.tray.set_state(AppState.IDLE, f"Ready -- {self._device_info}"),

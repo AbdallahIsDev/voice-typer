@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import logging.handlers
 import os
 import random
 import subprocess
@@ -139,11 +140,13 @@ def _setup_logging() -> None:
     remains the complete record.
     """
     from voice_typer.server.log import setup_logging as _setup_logging_shared
-    log_dir = Path.home() / ".voice-typer"
+    from voice_typer.server import _paths
+    # RW-7: use the platform-aware config dir helper instead of the
+    # previous hardcoded Path.home() / ".voice-typer".
+    log_dir = _paths.config_dir()
     try:
         _setup_logging_shared(log_dir)
 
-        import logging.handlers
         prewarm_log = log_dir / "prewarm.log"
         prewarm_handler = logging.handlers.RotatingFileHandler(
             prewarm_log, maxBytes=1_000_000, backupCount=2,
@@ -478,7 +481,11 @@ def _resolve_hf_cache_dir() -> Path:
     # Path.home() — which may itself be wrong, but it's the best we can do.
     if primary_candidate is not None:
         return primary_candidate
-    return Path.home() / ".voice-typer" / "huggingface"
+    # RW-7: delegate to _paths.legacy_hf_cache_dir() so the literal
+    # Path.home() / ".voice-typer" lives in one canonical place (and
+    # the RW-7 regression test can allow it there rather than here).
+    from voice_typer.server import _paths
+    return _paths.legacy_hf_cache_dir()
 
 
 def _config_root() -> Path:
@@ -981,9 +988,16 @@ def _read_process_cmdline_windows(pid: int) -> str | None:
 
         params_ptr = wintypes.LPVOID()
         bytes_read = ctypes.c_size_t(0)
+        # PYREFLY-FIX: ctypes.cast(...).value returns Optional[int]; add an
+        # explicit None guard so the arithmetic is type-safe. If the cast
+        # somehow returns None (shouldn't happen for a valid PEB address,
+        # but pyrefly can't prove it), fall back to WMI.
+        peb_val = ctypes.cast(peb_addr, ctypes.c_void_p).value
+        if peb_val is None:
+            return _read_process_cmdline_windows_wmi(pid)  # fallback
         if not kernel32.ReadProcessMemory(
             handle,
-            ctypes.c_void_p(ctypes.cast(peb_addr, ctypes.c_void_p).value + params_offset),
+            ctypes.c_void_p(peb_val + params_offset),
             ctypes.byref(params_ptr),
             ctypes.sizeof(params_ptr),
             ctypes.byref(bytes_read),
@@ -997,9 +1011,12 @@ def _read_process_cmdline_windows(pid: int) -> str | None:
         # RTL_USER_PROCESS_PARAMETERS is 0x70 on 64-bit, 0x40 on 32-bit.
         cmd_offset = 0x70 if is_64bit else 0x40
         cmd_unicode = UnicodeString()
+        params_val = ctypes.cast(params_ptr, ctypes.c_void_p).value
+        if params_val is None:
+            return _read_process_cmdline_windows_wmi(pid)  # fallback
         if not kernel32.ReadProcessMemory(
             handle,
-            ctypes.c_void_p(ctypes.cast(params_ptr, ctypes.c_void_p).value + cmd_offset),
+            ctypes.c_void_p(params_val + cmd_offset),
             ctypes.byref(cmd_unicode),
             ctypes.sizeof(cmd_unicode),
             ctypes.byref(bytes_read),

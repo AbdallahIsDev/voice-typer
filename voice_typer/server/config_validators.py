@@ -305,15 +305,35 @@ def _platform_key() -> str:
 
 
 def _parse_hotkey_parts(hotkey: str) -> list[str]:
-    """Parse a hotkey string like ``"<ctrl>+<alt>+v"`` into ``["ctrl","alt","v"]``."""
-    if not hotkey:
+    """Parse a hotkey string like ``"<ctrl>+<alt>+v"`` into ``["ctrl","alt","v"]``.
+
+    RW-1 (Hotkey parser unification): this now delegates to the
+    canonical :func:`voice_typer.server.hotkey_spec.parse_hotkey` and
+    flattens the resulting :class:`HotkeySpec` (canonical modifiers
+    followed by non-modifier keys) back into a flat list of
+    lowercased tokens, preserving the original list-returning API.
+
+    Behavioural changes versus the prior strip-and-split implementation:
+
+    - Aliases are resolved (e.g. ``<control>`` → ``"ctrl"``,
+      ``<globe>`` → ``"fn"``, ``<altgr>`` → ``"alt_gr"``).
+    - Duplicate tokens are deduplicated (e.g. ``<ctrl>+<ctrl>+<v>``
+      → ``["ctrl", "v"]``).
+    - Modifiers are sorted alphabetically; non-modifier keys keep
+      their original order.
+
+    These changes are safe for the validator's consumers, which only
+    use ``len(parts)``, ``parts[0]``, ``any(p in ... for p in parts)``,
+    and ``[p for p in parts if p (not) in _HOTKEY_MODIFIERS]`` — all
+    of which are insensitive to ordering, dedup, and alias resolution
+    (every canonical modifier name is in ``_HOTKEY_MODIFIERS``).
+    """
+    from voice_typer.server.hotkey_spec import parse_hotkey
+
+    spec = parse_hotkey(hotkey)
+    if spec.is_empty:
         return []
-    parts: list[str] = []
-    for raw in hotkey.split("+"):
-        part = raw.replace("<", "").replace(">", "").strip().lower()
-        if part:
-            parts.append(part)
-    return parts
+    return list(spec.modifiers) + list(spec.keys)
 
 
 def _validate_hotkey(value: object) -> Optional[str]:
@@ -338,10 +358,13 @@ def _validate_hotkey(value: object) -> Optional[str]:
     if not parts:
         return "hotkey has no keys"
 
-    # Check the universal window-management denylist (applies to all platforms).
+    # Check the universal reserved denylist (applies to all platforms).
+    # Includes window-management shortcuts (Alt+Tab/F4/Esc/Space) and
+    # Enter-based combos (Enter, Ctrl+Enter, Shift+Enter) which
+    # interfere with typing, form submission, and messaging shortcuts.
     normalized = value.lower()
     if normalized in _UNIVERSAL_RESERVED_HOTKEYS:
-        return "reserved by operating system (window management)"
+        return "reserved — conflicts with operating system or common app shortcuts"
 
     # Check the per-platform denylist.
     platform = _platform_key()

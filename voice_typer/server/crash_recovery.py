@@ -150,6 +150,21 @@ class CrashRecovery:
             if item is None:
                 # Sentinel: stop signal
                 break
+            if isinstance(item, dict) and "flush_event" in item:
+                # RW-4: flush barrier sentinel.  All saves queued
+                # before this sentinel have now been processed, so
+                # signal the waiting flush() caller.  Do NOT treat
+                # this as a save — it is a barrier, not a snapshot
+                # request.  The worker continues running and remains
+                # ready for more items.
+                event = item.get("flush_event")
+                if event is not None:
+                    try:
+                        event.set()
+                    except Exception:
+                        pass
+                self._save_queue.task_done()
+                continue
             self._save_sync()
             self._save_queue.task_done()
 
@@ -167,15 +182,50 @@ class CrashRecovery:
         Useful at process shutdown (called from ``quit()`` /
         ``restart_app()``) to ensure the final state is persisted
         before the process exits.
+
+        RW-4: previously this called ``Queue.join()``, which has no
+        ``timeout`` parameter in the stdlib — if the worker stalled
+        (disk full, NFS hang, fsync on a dying SSD, antivirus lock
+        on Windows), ``flush()`` blocked forever, preventing clean
+        shutdown.  Now we enqueue a sentinel carrying a
+        ``threading.Event``; the worker sets the event when it
+        reaches the sentinel (meaning all prior saves are done).
+        We wait on the event with the timeout, so the timeout is
+        actually enforced.  The worker thread is NOT killed when
+        the timeout fires — it keeps running and will eventually
+        process the sentinel (the event.set() becomes a no-op).
         """
+        event = threading.Event()
+        sentinel = {"flush_event": event}
+        # Enqueue the sentinel.  If the queue is full (worker is way
+        # behind), try to make room by dropping the oldest pending
+        # item — matching the _enqueue_save strategy.  We call
+        # task_done() on the dropped item to keep the queue's
+        # unfinished_tasks counter consistent.
         try:
-            # Use a join-with-timeout pattern.  task_done() is called
-            # by the worker after each save, so join() returns when
-            # all queued items have been processed.
-            self._save_queue.join()
-            return True
-        except Exception:
+            self._save_queue.put_nowait(sentinel)
+        except queue.Full:
+            try:
+                self._save_queue.get_nowait()
+                self._save_queue.task_done()
+            except queue.Empty:
+                pass
+            try:
+                self._save_queue.put_nowait(sentinel)
+            except queue.Full:
+                log.warning(
+                    "[RECOVERY] flush: save queue full; cannot enqueue sentinel"
+                )
+                return False
+        completed = event.wait(timeout=timeout)
+        if not completed:
+            log.warning(
+                "[RECOVERY] flush timed out after %.2fs; "
+                "pending saves may be lost",
+                timeout,
+            )
             return False
+        return True
 
     def shutdown(self) -> None:
         """Signal the background save thread to stop.

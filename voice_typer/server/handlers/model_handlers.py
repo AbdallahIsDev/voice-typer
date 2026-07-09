@@ -152,21 +152,42 @@ class ModelHandlersMixin:
         cache.  ``data`` should contain ``{"dir_path": "..."}``.
 
         Returns the result dict from ``self.service.import_model()``.
+
+        RW-5: ``dir_path`` is validated to be within an allowed root
+        (home directory, OS temp dir, or HF cache) before being passed
+        to ``import_model``.  Without this check, an IPC payload could
+        request scanning — and copying into the app's HF cache — any
+        directory on the filesystem, including ones the user did not
+        pick via the file chooser.
         """
         try:
             dir_path = (data or {}).get("dir_path", "") if isinstance(data, dict) else ""
             if not dir_path or not isinstance(dir_path, str):
                 resp["type"] = "error"
                 resp["data"] = {"message": "Missing 'dir_path' parameter"}
+                return resp
+
+            # RW-5: validate dir_path is within an allowed root before
+            # passing it to import_model.  Resolve the path to an
+            # absolute, canonical form first so the validation is not
+            # bypassed by ``..`` sequences or relative paths.
+            try:
+                from voice_typer.server.config import _validate_import_path
+                dir_path = _validate_import_path(dir_path)
+            except ValueError as exc:
+                log.warning("[IPC] import_model path rejected: %s", exc)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(exc)}
+                return resp
+
+            import os
+            if not os.path.isdir(dir_path):
+                resp["type"] = "error"
+                resp["data"] = {"message": f"Directory not found: {dir_path}"}
             else:
-                import os
-                if not os.path.isdir(dir_path):
-                    resp["type"] = "error"
-                    resp["data"] = {"message": f"Directory not found: {dir_path}"}
-                else:
-                    result = self.service.import_model(dir_path)
-                    resp["type"] = "import_model_result"
-                    resp["data"] = result
+                result = self.service.import_model(dir_path)
+                resp["type"] = "import_model_result"
+                resp["data"] = result
         except Exception as e:
             log.error("[IPC] import_model failed: %s", e)
             resp["type"] = "error"

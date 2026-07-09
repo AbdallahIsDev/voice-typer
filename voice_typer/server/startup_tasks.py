@@ -34,6 +34,20 @@ from voice_typer.server.server_platform import create_launcher_shortcut
 log = logging.getLogger(__name__)
 
 
+# PERF-FIX-2: cache the macOS ApplicationServices framework handle at
+# module level instead of re-loading it every 60s in
+# ``_check_accessibility``. ``ctypes.cdll.LoadLibrary`` is not free
+# (it calls dlopen + resolves symbols), and the handle is safe to
+# share across threads (the underlying C function ``AXIsProcessTrusted``
+# is thread-safe). ``None`` means "not yet loaded" (or "load failed
+# permanently" — in which case the pulse re-attempts on the first call
+# of each process). The cache is best-effort: a permanent load failure
+# (non-macOS, missing framework) leaves this as ``None`` and the pulse
+# falls through to the "fail safe (assume not granted)" branch.
+_APP_SERVICES_LIB: Optional[Any] = None
+_APP_SERVICES_LIB_LOADED: bool = False
+
+
 def sync_autostart(app: Any) -> None:
     """Ensure ``config.autostart`` matches the actual platform autostart state."""
     # Look up the platform helpers from the app module at call time so
@@ -232,27 +246,62 @@ def start_accessibility_pulse(app: Any, initial_state: bool) -> None:
     Pre-fix: accessibility was checked once at startup. If the user
     granted permission after startup, the app never recovered until
     restart. With this pulse, the app detects the change within 60s.
+
+    PERF-FIX-2: two allocation patterns were cleaned up:
+
+    - ``threading.Event().wait(1.0)`` in the 60-iteration sleep loop
+      previously allocated a fresh ``Event`` object every second. We
+      now create a single ``Event`` once and reuse it for the lifetime
+      of the pulse thread.
+    - ``ctypes.cdll.LoadLibrary(".../ApplicationServices")`` was called
+      every 60s in ``_check_accessibility``. The handle is now cached
+      at module level (``_APP_SERVICES_LIB``) and reused for the
+      lifetime of the process — ``dlopen`` is idempotent on an already-
+      loaded framework but still does a symbol-table lookup, which is
+      wasted work on a 60s heartbeat.
     """
 
     def _check_accessibility() -> bool:
-        """Return True if Accessibility permission is granted."""
-        try:
-            import ctypes
+        """Return True if Accessibility permission is granted.
 
-            app_services = ctypes.cdll.LoadLibrary(
-                "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
-            )
-            return bool(app_services.AXIsProcessTrusted())
+        PERF-FIX-2: uses the module-level cached ApplicationServices
+        handle. The first call loads the framework; subsequent calls
+        reuse the cached handle. A permanent load failure leaves the
+        cache as ``None`` and this function returns False (fail safe).
+        """
+        global _APP_SERVICES_LIB, _APP_SERVICES_LIB_LOADED
+        if not _APP_SERVICES_LIB_LOADED:
+            try:
+                import ctypes
+
+                _APP_SERVICES_LIB = ctypes.cdll.LoadLibrary(
+                    "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
+                )
+            except Exception:
+                _APP_SERVICES_LIB = None
+            finally:
+                _APP_SERVICES_LIB_LOADED = True
+        if _APP_SERVICES_LIB is None:
+            return False  # fail safe (assume not granted)
+        try:
+            return bool(_APP_SERVICES_LIB.AXIsProcessTrusted())
         except Exception:
             return False  # fail safe (assume not granted)
 
     def _pulse_loop() -> None:
+        # PERF-FIX-2: allocate ONE Event for the lifetime of the pulse
+        # thread and reuse it. The previous code called
+        # ``threading.Event().wait(1.0)`` in a 60-iteration loop, which
+        # allocated a fresh Event object (and its underlying condition
+        # variable + lock) every second — ~3.6k allocations/hour per
+        # pulse thread.
+        sleep_event = threading.Event()
         last_state = initial_state
         while not app._shutting_down:
             for _ in range(60):
                 if app._shutting_down:
                     return
-                threading.Event().wait(1.0)
+                sleep_event.wait(1.0)
             if app._shutting_down:
                 return
             current = _check_accessibility()

@@ -46,6 +46,32 @@ def _apply_audio_preset(preset: str) -> dict:
     return get_preset_filters(normalized)
 
 
+def _find_symlink_in_tree(root):
+    """RW-5: return the path of the first symlink found under ``root``,
+    or ``None`` if there are none.
+
+    Used by :meth:`VoiceTyperService.import_model` to reject poisoned
+    model dirs that contain symlinks (e.g. a symlink to
+    ``~/.ssh/id_rsa``).  HuggingFace hub cache dirs never legitimately
+    contain symlinks at the *source* side — the hub uses symlinks
+    inside its own cache (``snapshots/<rev>/...`` → ``blobs/<hash>``),
+    but a user-supplied import directory is expected to contain real
+    files only.
+
+    ``os.walk`` with the default ``followlinks=False`` does NOT descend
+    into symlinked directories, but it DOES include them in
+    ``dirnames`` — so both symlinked files and symlinked directories
+    are detected by this check.
+    """
+    import os
+    for dirpath, dirnames, filenames in os.walk(root):
+        for name in list(dirnames) + list(filenames):
+            full = os.path.join(dirpath, name)
+            if os.path.islink(full):
+                return full
+    return None
+
+
 class VoiceTyperService:
     """Service facade over VoiceTyperApp.
 
@@ -1195,9 +1221,46 @@ class VoiceTyperService:
             found_models.append(model_name)
             dest = cache_dir / dir_name
             try:
+                # RW-5: refuse to import a model cache that contains
+                # symlinks.  ``shutil.copytree`` with ``symlinks=False``
+                # would *follow* any symlink in the source tree and copy
+                # the target's contents into the destination — so a
+                # poisoned model dir with a symlink to ``~/.ssh/id_rsa``
+                # would silently copy the SSH key into the app's HF
+                # cache.  Later, ``verify_model_integrity()`` follows
+                # symlinks via ``rglob("*")``, so the leak would persist
+                # and be readable by any code that walks the cache.
+                # HuggingFace hub cache dirs never legitimately contain
+                # symlinks at the *source* side (the hub's symlinks live
+                # inside its own cache, not in user-supplied import
+                # dirs), so rejecting up-front is safe.
+                symlink = _find_symlink_in_tree(src_path)
+                if symlink is not None:
+                    log.warning(
+                        "[SERVICE] import_model: refusing to import %s — "
+                        "symlink detected at %s (symlinks are not allowed "
+                        "in imported model cache dirs)",
+                        model_name, symlink,
+                    )
+                    errors.append({
+                        "model": model_name,
+                        "error": (
+                            f"Refusing to import model containing a symlink "
+                            f"({symlink}). Symlinks are not permitted in "
+                            f"imported model cache directories."
+                        ),
+                    })
+                    continue
                 if dest.exists():
                     shutil.rmtree(dest)
-                shutil.copytree(src_path, dest, symlinks=True)
+                # RW-5: symlinks=False as defense-in-depth.  The explicit
+                # check above is the primary gate; this ensures that even
+                # if a symlink slips through (e.g. a race condition where
+                # a symlink is created after the check), copytree will
+                # follow it rather than preserve it as a symlink in the
+                # destination cache.  Combined with the check above, this
+                # means symlinks are never silently preserved.
+                shutil.copytree(src_path, dest, symlinks=False)
                 imported_models.append(model_name)
             except Exception as exc:
                 errors.append({"model": model_name, "error": str(exc)})

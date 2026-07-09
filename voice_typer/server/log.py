@@ -351,16 +351,30 @@ def setup_logging(
     )
     handler.setFormatter(_FileFormatter())
 
+    # PII / API-key redaction — imported lazily to avoid circular imports
+    # and to keep the security module's import order clean.
+    # RW-6: the filter is attached to BOTH the ``voice_typer`` logger
+    # (so records logged directly to it are redacted before any handler
+    # sees them) AND to each handler (so records logged to *child*
+    # loggers like ``voice_typer.server.app`` — which do not trigger
+    # the parent logger's filters per Python's logging semantics — are
+    # also redacted).  Attaching to the handler is what makes the
+    # redaction actually fire for the vast majority of call sites,
+    # which use ``get_logger(__name__)`` and therefore log to
+    # ``voice_typer.server.<module>``.  The filter is idempotent
+    # (redacting an already-redacted message is a no-op), so
+    # double-filtering records that hit both the logger and handler
+    # filters is harmless.
+    from voice_typer.server.security import PIIRedactionFilter as _PIIRedactionFilter
+    _pii_filter = _PIIRedactionFilter()
+    handler.addFilter(_pii_filter)
+
     root = logging.getLogger("voice_typer")
     # Avoid duplicate handlers if setup is called multiple times.
     if not any(isinstance(h, logging.handlers.RotatingFileHandler) for h in root.handlers):
         root.addHandler(handler)
     root.addFilter(_SessionFilter())
-
-    # PII redaction — imported lazily to avoid circular imports
-    # and to keep the security module's import order clean.
-    from voice_typer.server.security import PIIRedactionFilter as _PIIRedactionFilter
-    root.addFilter(_PIIRedactionFilter())
+    root.addFilter(_pii_filter)
 
     root.setLevel(logging.DEBUG)
 
@@ -388,6 +402,9 @@ def setup_logging(
         stream = _FlushingStreamHandler()
         stream.setLevel(logging.DEBUG if debug else logging.INFO)
         stream.setFormatter(_ColorFormatter())
+        # RW-6: attach the same PII / API-key redaction filter to the
+        # console handler so secrets don't leak to the terminal either.
+        stream.addFilter(_pii_filter)
         # Avoid duplicate StreamHandlers if setup is called multiple times.
         # Use _FlushingStreamHandler as the dedup key so legacy tests that
         # check for "any StreamHandler" (isinstance check below) still pass.

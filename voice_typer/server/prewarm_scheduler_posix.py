@@ -26,6 +26,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from voice_typer.server import _paths
 from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
 
 log = logging.getLogger("voice_typer.prewarm_scheduler_posix")
@@ -67,7 +68,7 @@ def _build_macos_plist() -> str:
     args_xml = "\n".join(
         f"        <string>{escape(a)}</string>" for a in args
     )
-    log_path = Path.home() / ".voice-typer" / "prewarm-launchagent.log"
+    log_path = _paths.prewarm_launchagent_log()
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">

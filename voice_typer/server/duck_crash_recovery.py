@@ -36,7 +36,14 @@ class DuckCrashRecovery:
 
     def __init__(self, config_dir: Optional[Path] = None) -> None:
         if config_dir is None:
-            config_dir = Path.home() / ".voice-typer"
+            # RW-7: route through _paths.config_dir() so the default
+            # respects the platform-aware _config_dir() logic (Windows
+            # %APPDATA%, macOS ~/Library/Application Support, Linux
+            # $XDG_DATA_HOME, the VOICE_TYPER_CONFIG_DIR override, and
+            # the legacy ~/.voice-typer migration check) instead of the
+            # previous hardcoded Path.home() / ".voice-typer".
+            from voice_typer.server import _paths
+            config_dir = _paths.config_dir()
         self._path = config_dir / _DEFAULT_FILENAME
 
     @property

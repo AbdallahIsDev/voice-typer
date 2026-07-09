@@ -38,6 +38,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from voice_typer.server import _paths
 from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
 
 log = logging.getLogger("voice_typer.task_scheduler")
@@ -108,7 +109,10 @@ def _prewarm_command() -> str | None:
     code.
     """
     # Try pythonw.exe first (no console window).
-    venv_pythonw = Path.home() / ".voice-typer" / "venv" / "Scripts" / "pythonw.exe"
+    # RW-7: use _paths.venv_pythonw() so the venv path respects the
+    # platform-aware _config_dir() logic instead of the previous
+    # hardcoded Path.home() / ".voice-typer".
+    venv_pythonw = _paths.venv_pythonw()
     if venv_pythonw.exists():
         return str(venv_pythonw.resolve())
     # Fall back to pythonw.exe next to the current interpreter.
@@ -143,7 +147,9 @@ def _prewarm_pythonw() -> str | None:
     delay is handled in-process by prewarm's own ``--delay`` flag, avoiding
     a ``timeout.exe``/``cmd.exe`` dependency that would itself open a console.
     """
-    venv_pythonw = Path.home() / ".voice-typer" / "venv" / "Scripts" / "pythonw.exe"
+    # RW-7: use _paths.venv_pythonw() for the same reasons as
+    # _prewarm_command() — see the docstring there for details.
+    venv_pythonw = _paths.venv_pythonw()
     if venv_pythonw.exists():
         return str(venv_pythonw.resolve())
     # Fall back to pythonw.exe next to the current interpreter.
