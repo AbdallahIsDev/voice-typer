@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 // NEW-UX-015: ErrorBoundary catches render errors so a single bad
 // config or component crash doesn't white-screen the entire app.
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -77,6 +77,28 @@ export default function App() {
 	} = useTheme(call);
 	const { recordingState, connectionStatus, lastError, handleRetryConnection } =
 		useConnection({ call, currentPage, navigate });
+
+	// THEME-RESTART-FIX: re-trigger `reloadThemeFromConfig()` when the
+	// backend connection is established.  The initial `useEffect` inside
+	// `useTheme` fires on mount, but at that point the backend may not yet
+	// be connected — `call("get_config")` silently fails (the catch block
+	// is empty), so the theme stays at its initial state (system/default/
+	// null).  After a full Electron relaunch, the renderer mounts before
+	// the new Python backend is ready, causing the theme to appear to
+	// reset to default despite the config being correctly persisted to
+	// disk.  Re-fetching on every connect transition ensures the theme
+	// is always applied from the persisted config.
+	// THEME-RESTART-FIX-001: track the previous connection status so we
+	// only re-fetch on the *transition* from something-else → "connected",
+	// not on every render where connectionStatus == "connected".
+	const prevConnectionRef = useRef(connectionStatus);
+	useEffect(() => {
+		const prev = prevConnectionRef.current;
+		prevConnectionRef.current = connectionStatus;
+		if (prev !== "connected" && connectionStatus === "connected") {
+			reloadThemeFromConfig();
+		}
+	}, [connectionStatus, reloadThemeFromConfig]);
 
 	// ── Window maximize state (for removing border-radius when maximized) ──
 
@@ -318,7 +340,7 @@ export default function App() {
 				href="#main-content"
 				className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-100 focus:rounded-lg focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground"
 			>
-				Skip to main content
+				{t("a11y.skipToMain")}
 			</a>
 			<div
 				className={cn(
@@ -357,13 +379,10 @@ export default function App() {
 									<Spinner />
 									<div className="space-y-2">
 										<p className="text-sm font-medium text-(--text-primary)">
-											Starting Python backend…
+											{t("app.startingBackend")}
 										</p>
 										<p className="text-xs text-(--text-muted) max-w-md">
-											First launch can take 30–60 seconds while we download the
-											speech model (~466 MB for small.en). Subsequent launches
-											are much faster. You can close this window — dictation
-											will work from the system tray once ready.
+											{t("app.firstLaunchHint")}
 										</p>
 									</div>
 								</div>
@@ -388,14 +407,14 @@ export default function App() {
 							) : connectionStatus === "disconnected" ? (
 								<div className="flex h-full flex-col items-center justify-center gap-4">
 									<p className="text-sm text-destructive">
-										Lost connection to Python backend
+										{t("app.lostConnection")}
 									</p>
 									<Button
 										variant="outline"
 										size="sm"
 										onClick={handleRetryConnection}
 									>
-										Retry Connection
+										{t("app.retryConnection")}
 									</Button>
 								</div>
 							) : (
@@ -448,7 +467,10 @@ export default function App() {
 									},
 									{ keys: "Space", desc: t("help.toggle") },
 									{ keys: "Enter", desc: t("help.activate") },
-									{ keys: "Ctrl+Plus / Ctrl+Minus", desc: "Zoom text size" },
+									{
+										keys: "Ctrl+Plus / Ctrl+Minus",
+										desc: t("help.zoomTextSize"),
+									},
 									{ keys: "?", desc: t("help.openHelp") },
 									{
 										keys: "Alt+Left / Alt+Right",
@@ -478,12 +500,12 @@ export default function App() {
           don't know if recording started.  This aria-live region announces
           state transitions so screen reader users know what's happening. */}
 				<div aria-live="polite" className="sr-only">
-					{recordingState === "recording" ? "Recording started." : ""}
-					{recordingState === "transcribing" ? "Transcribing audio…" : ""}
-					{recordingState === "idle" ? "Ready." : ""}
-					{recordingState === "error" ? "Error occurred." : ""}
-					{recordingState === "loading" ? "Loading model…" : ""}
-					{recordingState === "cancelling" ? "Cancelling…" : ""}
+					{recordingState === "recording" ? t("a11y.recordingStarted") : ""}
+					{recordingState === "transcribing" ? t("a11y.transcribingAudio") : ""}
+					{recordingState === "idle" ? t("a11y.ready") : ""}
+					{recordingState === "error" ? t("a11y.errorOccurred") : ""}
+					{recordingState === "loading" ? t("a11y.loadingModel") : ""}
+					{recordingState === "cancelling" ? t("a11y.cancelling") : ""}
 				</div>
 			</div>
 		</ErrorBoundary>
