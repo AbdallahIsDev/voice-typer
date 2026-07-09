@@ -4,11 +4,27 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 log = logging.getLogger(__name__)
 
 SYSTEM = sys.platform  # "win32", "darwin", "linux"
+
+
+def _sd_dev_as_dict(dev: Any) -> "dict[str, Any] | None":
+    """Coerce a sounddevice device entry to a ``dict``.
+
+    TASK-14: ``sounddevice.query_devices()`` returns a ``DeviceList``
+    (a ``tuple`` subclass) whose entries are dicts at runtime, but the
+    package has no inline type annotations, so pyrefly treats the
+    elements as ``tuple[Unknown, ...] | dict[Unknown, Unknown] | str``.
+    Iterating and indexing through that union triggers a cascade of
+    ``bad-index`` / ``missing-attribute`` errors.  This helper performs
+    an explicit ``isinstance`` narrow so callers get a clean ``dict``.
+    """
+    if isinstance(dev, dict):
+        return dev
+    return None
 
 
 # ─── RDP / remote session detection ──────────────────────────────────
@@ -120,10 +136,14 @@ def list_microphones() -> list[dict]:
     """
     try:
         import sounddevice as sd
-        default_input = sd.query_devices(kind="input")
+        default_input_raw = sd.query_devices(kind="input")
+        default_input = _sd_dev_as_dict(default_input_raw)
         default_index = default_input["index"] if default_input else -1
         devices = []
-        for i, dev in enumerate(sd.query_devices()):
+        for i, dev_raw in enumerate(sd.query_devices()):
+            dev = _sd_dev_as_dict(dev_raw)
+            if dev is None:
+                continue
             if dev["max_input_channels"] <= 0:
                 continue
             if _is_non_mic_device(dev["name"]):
@@ -131,7 +151,9 @@ def list_microphones() -> list[dict]:
             host_api = ""
             try:
                 host_api_idx = dev.get("hostapi", 0)
-                host_api = sd.query_hostapis(host_api_idx)["name"]
+                host_api_raw = _sd_dev_as_dict(sd.query_hostapis(host_api_idx))
+                if host_api_raw is not None:
+                    host_api = host_api_raw.get("name", "")
             except Exception:
                 pass
             # AUDIO-BT: detect Bluetooth devices by name or sample rate.
@@ -760,8 +782,8 @@ def _enable_autostart_macos() -> bool:
         os.chmod(log_dir, 0o700)
     except OSError:
         pass
+    import subprocess
     try:
-        import subprocess
         # NEW-XPLAT-005: previously ``launchctl load`` had no timeout,
         # so a hung launchd (rare but possible after a macOS upgrade
         # or in a stuck boot) would block this thread forever.  The
@@ -808,10 +830,13 @@ def _disable_autostart_macos() -> bool:
 
 def _os_uid() -> int:
     """Return the current user's numeric uid (for launchctl bootout target)."""
-    try:
-        return os.getuid()
-    except (AttributeError, OSError):
-        return 501  # default first user on macOS
+    _getuid = getattr(os, "getuid", None)
+    if _getuid is not None:
+        try:
+            return int(_getuid())
+        except OSError:
+            pass
+    return 501  # default first user on macOS
 
 
 def _is_autostart_macos() -> bool:

@@ -218,7 +218,30 @@ baseline = "pyrefly-baseline.json"
 # These are never installed on the CI runner's platform, so pyrefly
 # reports missing-import. The stubs declare the import surface with
 # permissive types so type-checking proceeds on the real code paths.
-search-path = ["voice_typer/stubs"]
+#
+# TASK-13: extended `search-path` to also include the project venv's
+# site-packages. The directive reported 73 false-positive
+# `missing-import` (Class A) errors for third-party deps (numpy, torch,
+# scipy.signal, huggingface_hub, PIL, pynput.*, sounddevice, pyperclip,
+# transformers, psutil, faster_whisper, ctranslate2, pystray, win32gui,
+# win32com.client, qwen_asr). Those are NOT real code bugs — pyrefly
+# simply wasn't searching the venv. (On Windows pyrefly auto-queries the
+# interpreter for site-packages, but on the Linux CI runner the
+# interpreter query fails with EACCES on `/app/.venv/bin/python3`, so
+# pyrefly falls back to the bare config search path.)
+#
+# NOTE on key name: the task brief suggested `extra-paths`, but pyrefly
+# 1.x emits `WARN Extra keys found in config: extra-paths` and silently
+# ignores it. The valid key (per `pyrefly check --help` →
+# `--search-path`) is `search-path`. Verified empirically: adding the
+# venv to `search-path` drops missing-imports from 73 → 3 (win32gui,
+# win32com.client, qwen_asr — all platform-only / optional, already in
+# `pyrefly-baseline.json`). With the baseline applied, missing-imports
+# drop to 0.
+search-path = [
+    "voice_typer/stubs",
+    ".venv/lib/python3.12/site-packages",
+]
 
 # TEST-010: mutmut configuration for mutation testing.
 # To run mutation testing locally (expensive — don't run in CI):

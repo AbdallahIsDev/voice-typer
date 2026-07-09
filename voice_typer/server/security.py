@@ -14,6 +14,7 @@ import os
 import re
 import secrets
 from pathlib import Path
+from typing import Any
 
 log = logging.getLogger(__name__)
 
@@ -153,8 +154,16 @@ def redact_pii(text: str) -> str:
 # file is missing or unreadable (e.g. during unit tests in isolated envs).
 
 
-def _load_model_hashes() -> dict[str, dict[str, str]]:
-    """Load MODEL_HASHES from the companion JSON file, with hardcoded fallback."""
+def _load_model_hashes() -> "dict[str, dict[str, Any]]":
+    """Load MODEL_HASHES from the companion JSON file, with hardcoded fallback.
+
+    TASK-14: the value type is widened from ``dict[str, str]`` to
+    ``dict[str, Any]`` because each manifest entry mixes value kinds
+    (``"revision": "main"`` is a str, ``"files": {filename: hash}`` is
+    a nested dict).  The narrower annotation made
+    ``manifest.get("files", {})`` infer as ``str`` and broke the
+    downstream ``.items()`` call in both security.py and qwen_engine.py.
+    """
     json_path = Path(__file__).parent / "model_hashes.json"
     if json_path.exists():
         try:
@@ -183,7 +192,7 @@ def _load_model_hashes() -> dict[str, dict[str, str]]:
     }
 
 
-MODEL_HASHES: dict[str, dict[str, str]] = _load_model_hashes()
+MODEL_HASHES: "dict[str, dict[str, Any]]" = _load_model_hashes()
 
 
 def compute_file_sha256(path: Path) -> str:

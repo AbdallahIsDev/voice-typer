@@ -29,6 +29,13 @@ kAudioHardwareServiceDeviceProperty_VirtualMasterVolume: Any
 kAudioHardwareServiceDeviceProperty_VirtualMasterMute: Any
 kAudioHardwareServiceDeviceProperty_VirtualMasterBalance: Any
 
+# TASK-14: ``kAudioHardwarePropertyDevices`` is the system-level
+# selector used by ``microphone_watcher_coreaudio`` to subscribe to
+# device plug/unplug events.  Previously missing from this stub, which
+# made ``from CoreAudio import kAudioHardwarePropertyDevices`` raise
+# ``missing-module-attribute`` on the Linux CI runner.
+kAudioHardwarePropertyDevices: Any
+
 # AudioObject scopes (UInt32).
 kAudioObjectPropertyScopeGlobal: Any
 kAudioObjectPropertyScopeOutput: Any
@@ -69,6 +76,22 @@ def AudioObjectIsPropertySettable(
     inObjectID: Any,
     inAddress: Any,
     outIsSettable: Any,
+) -> int: ...
+# TASK-14: listener registration functions used by
+# ``microphone_watcher_coreaudio.py`` to subscribe to CoreAudio
+# property-change events.  Declared with permissive ``Any`` parameter
+# types to match the rest of this stub.
+def AudioObjectAddPropertyListener(
+    inObjectID: Any,
+    inAddress: Any,
+    inListener: Any,
+    inClientData: Any,
+) -> int: ...
+def AudioObjectRemovePropertyListener(
+    inObjectID: Any,
+    inAddress: Any,
+    inListener: Any,
+    inClientData: Any,
 ) -> int: ...
 
 __all__: list[str]

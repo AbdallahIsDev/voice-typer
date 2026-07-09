@@ -160,10 +160,22 @@ class ParakeetEngine:
             return
         try:
             import torch
-            from transformers import AutoModelForTDT, AutoProcessor
+            # TASK-14: ``AutoModelForTDT`` was added to transformers in
+            # 4.50 (our pyproject floor).  The venv on this runner has
+            # 4.44, so a static ``from transformers import AutoModelForTDT``
+            # trips pyrefly's missing-module-attribute even though the
+            # surrounding try/except ImportError is the runtime guard.
+            # Resolve via ``getattr`` so the static checker does not
+            # see the (possibly absent) attribute access.
+            import transformers
             cls._torch = torch
-            cls._AutoModelForTDT = AutoModelForTDT
-            cls._AutoProcessor = AutoProcessor
+            cls._AutoModelForTDT = getattr(transformers, "AutoModelForTDT", None)
+            cls._AutoProcessor = getattr(transformers, "AutoProcessor", None)
+            if cls._AutoModelForTDT is None or cls._AutoProcessor is None:
+                raise ImportError(
+                    "transformers package is missing AutoModelForTDT / "
+                    "AutoProcessor — install transformers>=4.50"
+                )
             cls._imports_loaded = True
         except ImportError:
             cls._imports_loaded = False

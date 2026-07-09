@@ -893,18 +893,24 @@ class NativeHotkeyRecorder:
         if backend is None:
             raise RuntimeError("Failed to create native backend for recording")
         self._backend = backend
+        # TASK-14: capture ``backend`` in a local so the
+        # ``recording_handler`` closure below does not need to re-read
+        # ``self._backend`` (which is ``Optional`` and could be reset to
+        # ``None`` by ``stop()`` on another thread).  ``backend`` is
+        # narrowed to non-None by the guard above, so attribute accesses
+        # on it type-check cleanly.
         # Override the line handler so events go to our queue instead of
         # the hotkey matcher.
         original_handler = backend._handle_line
 
         def recording_handler(line: str) -> None:
             if line == "READY":
-                self._backend._ready_event.set()
+                backend._ready_event.set()
                 return
             if line.startswith("ERROR:"):
-                self._backend._failed = True
-                self._backend._error_message = line[len("ERROR:"):]
-                self._backend._ready_event.set()
+                backend._failed = True
+                backend._error_message = line[len("ERROR:"):]
+                backend._ready_event.set()
                 with self._cond:
                     self._done = True
                     self._cond.notify_all()

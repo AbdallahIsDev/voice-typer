@@ -7,7 +7,7 @@ logic from the menu/callback logic.
 import sys
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
 from voice_typer.server.tray_types import AppState
 from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
@@ -26,6 +26,22 @@ def _get_pil_image():
     """
     from PIL import Image
     return Image
+
+
+def _pil_lanczos() -> int:
+    """Return the LANCZOS resampling filter across Pillow versions.
+
+    Pillow 9.1.0 (Mar 2022) moved ``LANCZOS`` from a module-level
+    integer to ``Image.Resampling.LANCZOS``.  Pillow 10+ removed the
+    module-level alias entirely.  Our pyproject allows Pillow >= 9.0, so
+    we resolve the constant at runtime via ``getattr`` (which also
+    sidesteps the type-stub difference between Pillow 9 and 10).
+    """
+    from PIL import Image
+    resampling = getattr(Image, "Resampling", None)
+    if resampling is not None:
+        return int(getattr(resampling, "LANCZOS", 1))
+    return int(getattr(Image, "LANCZOS", 1))
 
 # NEW-MEM-003 / NEW-PERF-005: _icon_cache is intentionally process-global.
 # It caches rendered PIL Images keyed by (AppState, size).  With 6
@@ -264,6 +280,18 @@ def _make_icon(state: AppState, size: int = 0):
     shape = _ICON_SHAPES.get(state, "circle")
 
     png_loaded = False
+    # TASK-14: initialize ``PilImg`` and ``colored`` to ``None`` BEFORE
+    # the try block so that the downstream code paths (the else branch
+    # and the Windows ICO re-encoding) cannot reference an unbound name
+    # if the try block exits early. The ``png_loaded`` flag governs
+    # whether we use ``colored`` from the try (PNG path) or replace it
+    # with the shape fallback, but pyrefly cannot prove that
+    # ``png_loaded=True`` implies ``colored is not None``.
+    # ``PilImg`` is the ``PIL.Image`` module itself (returned by
+    # ``_get_pil_image()``); ``Any`` reflects that there is no
+    # first-class ``ModuleType`` stub in scope.
+    PilImg: Optional[Any] = None
+    colored: Optional[Any] = None
     try:
         asset_dir = Path(__file__).resolve().parent / "assets"
         available = [16, 24, 32, 48, 64]
@@ -274,7 +302,13 @@ def _make_icon(state: AppState, size: int = 0):
         # NEW-MEM-004: use getchannel('A') instead of split()[3].
         colored.putalpha(mic_img.getchannel('A'))
         if colored.size != (size, size):
-            colored = colored.resize((size, size), PilImg.LANCZOS)
+            # TASK-14: PIL 9.1+ moved ``LANCZOS`` to
+            # ``Image.Resampling.LANCZOS``; the module-level alias is
+            # deprecated and removed from Pillow's type stubs in 10+.
+            # ``_pil_lanczos()`` resolves the constant at runtime via
+            # ``getattr`` so we work on Pillow >= 9.0 (the floor in
+            # pyproject.toml) without type-checker false positives.
+            colored = colored.resize((size, size), _pil_lanczos())
         png_loaded = True
     except Exception:
         pass
@@ -286,9 +320,12 @@ def _make_icon(state: AppState, size: int = 0):
         # TRAY-032: PNG loaded — overlay a small shape indicator
         # for color-blind accessibility (shape visible even if color
         # perception is impaired)
+        # ``colored`` is guaranteed non-None here because ``png_loaded``
+        # is set to True only after ``colored`` is assigned in the try.
+        assert colored is not None
         colored = _draw_shape_indicator(colored, shape, color)
 
-    if is_windows():
+    if is_windows() and PilImg is not None and colored is not None:
         # PLAT-024: Save as ICO format for Windows tray.
         # ICO supports multiple sizes (16, 32, 48, 256) and is the
         # native format for Windows tray icons — sharper than PNG on
@@ -302,5 +339,11 @@ def _make_icon(state: AppState, size: int = 0):
         except Exception:
             pass
 
+    # TASK-14: ``colored`` is guaranteed non-None at this point —
+    # either the try block produced a PIL image (and we asserted that
+    # above), or the ``not png_loaded`` branch assigned the shape
+    # fallback.  Assert once more so pyrefly narrows ``Optional[Any]``
+    # to ``Any`` for the cache assignment below.
+    assert colored is not None
     _icon_cache[cache_key] = colored
     return colored

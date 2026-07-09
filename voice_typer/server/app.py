@@ -12,7 +12,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 
@@ -53,6 +53,15 @@ from voice_typer.server.tray import AppState, TrayIcon
 from voice_typer.server.transcription import TranscriptionEngine
 from voice_typer.server.volume_ducker import VolumeDucker
 from voice_typer.server.waveform import WaveformBubble
+
+if TYPE_CHECKING:
+    # TASK-14: imported only for type annotations on ``_template_manager``
+    # and ``_vocabulary_manager`` (declared Optional so the eager-init
+    # ``= None`` fallback in __init__ type-checks).  The runtime imports
+    # remain inside the try/except in __init__ so a missing optional
+    # dependency does not break VoiceTyperApp construction.
+    from voice_typer.server.templates import TemplateManager
+    from voice_typer.server.vocabulary import VocabularyManager
 
 log = logging.getLogger("voice_typer")
 
@@ -318,6 +327,13 @@ class VoiceTyperApp:
         self._waveform_bubble = WaveformBubble()
         self._wire_waveform_bubble()
         self._last_transcription: str = ""  # For repaste
+        # TASK-14: declare ``_ipc_server`` upfront so VoiceTyperApp
+        # satisfies the ``AppProtocol`` structural type checked by
+        # ``providers.build_ipc_server``.  The attribute is set later
+        # by ``IPCServer.start()`` (``self.app._ipc_server = self``);
+        # initializing it to ``None`` here means pyrefly sees the
+        # attribute exists on every instance, satisfying the protocol.
+        self._ipc_server: Optional[Any] = None
         # ARCH-011: eager-init managers so config changes between
         # startup and first dictation are reflected.  Previously these
         # were lazy-init on first use, which meant a config change
@@ -325,6 +341,12 @@ class VoiceTyperApp:
         # was NOT picked up because the manager was created from stale
         # config.  Eager init ensures the managers see the config as
         # of __init__ time; reload() can be called later if needed.
+        # TASK-14: annotate as ``Optional`` so the ``= None`` fallback
+        # in the except branch below type-checks.  Without the
+        # annotation pyrefly infers ``TemplateManager`` from the
+        # try-block assignment and then rejects the ``None`` reset.
+        self._template_manager: "Optional[TemplateManager]" = None
+        self._vocabulary_manager: "Optional[VocabularyManager]" = None
         try:
             from voice_typer.server.templates import TemplateManager
             self._template_manager = TemplateManager()
@@ -1071,7 +1093,8 @@ class VoiceTyperApp:
             aq = self._audio_quality
             # Mirror analyze_chunk() without the numpy work — we
             # already have rms and peak from the AudioProcessor.
-            aq._rms_values.append(rms)
+            # 17-C-FIX-3: _rms_values was removed (write-only list);
+            # we no longer append to it here.
             aq._chunk_count += 1
             if peak > aq._peak:
                 aq._peak = peak

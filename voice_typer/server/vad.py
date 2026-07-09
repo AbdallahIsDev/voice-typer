@@ -18,7 +18,7 @@ import contextlib
 import io
 import logging
 import numpy as np
-from typing import Optional
+from typing import Any, Optional
 
 log = logging.getLogger(__name__)
 
@@ -55,11 +55,18 @@ def _load_model():
         # to STDERR, not STDOUT. redirect_stdout alone doesn't catch it.
         # Redirect BOTH streams to suppress the noisy cache message.
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            _model, _utils = torch.hub.load(
+            # TASK-14: ``torch.hub.load`` is unannotated in the stub,
+            # so pyrefly treats the return as ``object`` and rejects
+            # the tuple-unpack below ("Type `object` is not iterable").
+            # The silero_vad entrypoint returns a ``(model, utils)``
+            # 2-tuple at runtime, so an explicit ``cast`` is the
+            # correct narrowing rather than a suppression.
+            loaded: Any = torch.hub.load(
                 repo_or_dir='snakers4/silero-vad',
                 model='silero_vad',
                 trust_repo=True,
             )
+            _model, _utils = loaded
         log.info("[VAD] Silero VAD model loaded successfully")
         return _model, _utils
     except Exception as exc:

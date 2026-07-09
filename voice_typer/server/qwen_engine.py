@@ -306,8 +306,14 @@ class QwenEngine:
                 or "out of memory" in err_str
             ):
                 log.warning("[QWEN] CUDA error, retrying on CPU: %s", exc)
+                # TASK-14: initialize ``original_device`` BEFORE the try
+                # block so that the ``except`` handler below can always
+                # restore it. Without this, if the assignment of
+                # ``self.device = "cpu"`` raised, ``original_device``
+                # would be unbound and the recovery path itself would
+                # raise UnboundLocalError.
+                original_device = self.device
                 try:
-                    original_device = self.device
                     self.device = "cpu"
                     if self._model is not None:
                         try:
@@ -318,7 +324,7 @@ class QwenEngine:
                     return self.transcribe(audio, audio_stats=audio_stats)
                 except Exception as cpu_exc:
                     # Restore device on failure so the next attempt starts fresh
-                    self.device = original_device if 'original_device' in locals() else "cuda"
+                    self.device = original_device
                     log.error("[QWEN] CPU fallback also failed: %s", cpu_exc)
                     raise
             # Non-CUDA error: re-raise so caller can handle

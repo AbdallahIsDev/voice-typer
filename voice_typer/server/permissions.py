@@ -34,7 +34,7 @@ import shutil
 import subprocess
 import sys
 from enum import Enum
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
@@ -145,7 +145,12 @@ def request_keyboard_permission(
 PERMISSION_RETRY_INTERVAL_SECONDS = 60.0
 PERMISSION_RETRY_MAX_ATTEMPTS = 5
 
-_retry_timer: Optional["object"] = None  # threading.Timer, but type-ignored for older Pythons
+# TASK-14: ``Optional["object"]`` made the ``_retry_timer.cancel()``
+# call below raise ``Object of class `object` has no attribute `cancel```
+# because the ``object`` type has no ``cancel`` method.  Switch to ``Any``
+# to match the runtime ``threading.Timer`` type (which is fully dynamic
+# at the stub level — older Python's threading.Timer is not annotated).
+_retry_timer: "Optional[Any]" = None  # threading.Timer
 _retry_count = 0
 _retry_lock_used = False  # module-level guard against concurrent retries
 

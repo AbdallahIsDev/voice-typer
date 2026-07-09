@@ -309,7 +309,14 @@ def _warm_imports() -> None:
         log.info("[PREWARM] import torch: %.2fs", elapsed)
 
         t0 = time.perf_counter()
-        from transformers import AutoModelForTDT, AutoProcessor  # noqa: F401
+        import transformers  # noqa: F401  — import is the side effect we want
+        _auto_tdt = getattr(transformers, "AutoModelForTDT", None)
+        _auto_proc = getattr(transformers, "AutoProcessor", None)
+        if _auto_tdt is None or _auto_proc is None:
+            raise ImportError(
+                "transformers package is missing AutoModelForTDT / "
+                "AutoProcessor — install transformers>=4.50"
+            )
         elapsed = time.perf_counter() - t0
         log.info("[PREWARM] import transformers (AutoModelForTDT, AutoProcessor): %.2fs", elapsed)
     else:
@@ -873,10 +880,10 @@ def _read_process_cmdline_windows(pid: int) -> str | None:
         _fields_ = [
             ("ExitStatus", wintypes.LONG),        # NTSTATUS
             ("PebBaseAddress", wintypes.LPVOID),  # PEB* inside target's memory
-            ("AffinityMask", wintypes.ULONG_PTR),
+            ("AffinityMask", ctypes.c_size_t),
             ("BasePriority", wintypes.LONG),
-            ("UniqueProcessId", wintypes.ULONG_PTR),
-            ("InheritedFromUniqueProcessId", wintypes.ULONG_PTR),
+            ("UniqueProcessId", ctypes.c_size_t),
+            ("InheritedFromUniqueProcessId", ctypes.c_size_t),
         ]
 
     # ── Function signatures (best practice: set argtypes/restype) ───
@@ -923,8 +930,8 @@ def _read_process_cmdline_windows(pid: int) -> str | None:
         # ── Step 2: Read PEB → ProcessParameters pointer ───────────
         # On 64-bit Windows, ProcessParameters is at PEB offset 0x20.
         # On 32-bit Windows, it's at PEB offset 0x10. We detect the
-        # pointer size via sizeof(ULONG_PTR) (8 on 64-bit, 4 on 32-bit).
-        is_64bit = ctypes.sizeof(wintypes.ULONG_PTR) == 8
+        # pointer size via sizeof(c_size_t) (8 on 64-bit, 4 on 32-bit).
+        is_64bit = ctypes.sizeof(ctypes.c_size_t) == 8
         params_offset = 0x20 if is_64bit else 0x10
 
         params_ptr = wintypes.LPVOID()

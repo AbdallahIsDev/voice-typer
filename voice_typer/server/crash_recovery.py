@@ -382,7 +382,14 @@ class CrashRecovery:
                         sys_info.append(f"CUDA version: {torch.version.cuda}")
                         sys_info.append(f"GPU: {torch.cuda.get_device_name(0)}")
                         _gpu_props = torch.cuda.get_device_properties(0)
-                        _gpu_mem = _gpu_props.total_mem // 1048576
+                        # TASK-14: ``_CudaDeviceProperties`` is created
+                        # dynamically by torch (``_dummy_type`` when CUDA
+                        # is not compiled in), so its attribute surface
+                        # is invisible to pyrefly.  Use ``getattr`` to
+                        # read ``total_mem`` (bytes) without a static
+                        # ``missing-attribute`` error.
+                        _total_mem = getattr(_gpu_props, "total_mem", 0)
+                        _gpu_mem = _total_mem // 1048576
                         sys_info.append(f"GPU memory: {_gpu_mem} MB")
                 except ImportError:
                     sys_info.append("PyTorch not installed")

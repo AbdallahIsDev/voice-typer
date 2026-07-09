@@ -93,7 +93,16 @@ def _set_windows_process_metadata(app_name: str) -> None:
             shell32.SetCurrentProcessExplicitAppUserModelID.argtypes = [
                 wintypes.LPCWSTR
             ]
-            shell32.SetCurrentProcessExplicitAppUserModelID.restype = wintypes.HRESULT
+            # TASK-14: ``wintypes.HRESULT`` is only present in the
+            # typeshed stub when ``sys.version_info >= (3, 14)``.  On
+            # Python 3.12 (our baseline) pyrefly reports ``No attribute
+            # `HRESULT` in module `ctypes.wintypes``` because the
+            # alias is gated behind a version check.  Resolve via
+            # ``getattr`` — ``HRESULT`` is an alias for ``LONG`` so
+            # ``wintypes.LONG`` is a safe fallback.
+            shell32.SetCurrentProcessExplicitAppUserModelID.restype = getattr(
+                wintypes, "HRESULT", wintypes.LONG
+            )
             shell32.SetCurrentProcessExplicitAppUserModelID(
                 f"abdallahisdev.{app_name.replace(' ', '')}"
             )

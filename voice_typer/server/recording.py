@@ -1889,23 +1889,29 @@ class Recorder:
             # Warm up synchronously to avoid racing with stop()
             self.warm_up_resampler()
 
-    def stop(self) -> np.ndarray:
-        """Stop recording and return the complete audio array."""
-        if not self._recording_event.is_set():
-            return np.array([], dtype=np.float32)
+    def _teardown_stream(self) -> None:
+        """Stop + close the PortAudio stream, draining any in-flight callback.
 
-        stop_started = time.perf_counter()
-        self._recording_event.clear()
+        17-H-FIX-2: extracted from ``stop()`` so ``discard()`` shares the
+        same callback-drain contract. Without the poll, ``discard()``
+        could call ``stream.close()`` while the audio callback (firing
+        ~16×/s) was still running — risking use-after-free or deadlock
+        when ESC-cancel landed mid-callback.
 
-        # HOTKEY-CRASH: increment stop_generation so any stale disconnect
-        # handlers from the audio callback know to bail out.
-        self._stop_generation += 1
+        Behavior:
+          1. If ``self._stream`` is None, return immediately (idempotent).
+          2. Call ``stream.stop()`` to halt PortAudio's callback dispatch.
+          3. Poll ``_is_in_audio_callback`` for up to 300ms (5ms interval)
+             until the in-flight callback (if any) returns.
+          4. Call ``stream.close()`` to free PortAudio resources.
+          5. Set ``self._stream = None``.
 
-        # STREAM-FIX (Round 1): mark that we're about to call stream.stop()
-        # intentionally, so _stream_finished_callback doesn't warn about
-        # an "unexpected" disconnect. Cleared after stream.close() below.
-        self._user_stop_pending = True
-
+        Idempotent: safe to call when the stream is already None (e.g.
+        when ``discard()`` is invoked twice, or after ``stop()``).
+        """
+        if not self._stream:
+            return
+        self._stream.stop()
         # AUDIO-009/AUDIO-015: wait briefly for any in-flight audio
         # callback to complete before closing the stream. This prevents
         # PortAudio from calling the callback during/after stream.stop()
@@ -1932,23 +1938,44 @@ class Recorder:
         # callback genuinely runs past ``stream.stop()``, the poll loop
         # waits for it to finish (restoring the AUDIO-009/AUDIO-015
         # safety contract).
-        if self._stream:
-            self._stream.stop()
-            _BACKOFF_BUDGET_S = 0.300  # total worst-case wait, same as pre-fix
-            _POLL_INTERVAL_S = 0.005   # 5ms poll
-            _deadline = time.perf_counter() + _BACKOFF_BUDGET_S
-            while self._is_in_audio_callback.is_set():
-                remaining = _deadline - time.perf_counter()
-                if remaining <= 0:
-                    break
-                time.sleep(min(_POLL_INTERVAL_S, remaining))
-            self._stream.close()
-            self._stream = None
-            # STREAM-FIX (Round 1): clear the user-stop-pending flag now
-            # that stream.close() has completed. Any future
-            # _stream_finished_callback invocation is now genuinely
-            # unexpected (device disconnect).
-            self._user_stop_pending = False
+        _BACKOFF_BUDGET_S = 0.300  # total worst-case wait, same as pre-fix
+        _POLL_INTERVAL_S = 0.005   # 5ms poll
+        _deadline = time.perf_counter() + _BACKOFF_BUDGET_S
+        while self._is_in_audio_callback.is_set():
+            remaining = _deadline - time.perf_counter()
+            if remaining <= 0:
+                break
+            time.sleep(min(_POLL_INTERVAL_S, remaining))
+        self._stream.close()
+        self._stream = None
+
+    def stop(self) -> np.ndarray:
+        """Stop recording and return the complete audio array."""
+        if not self._recording_event.is_set():
+            return np.array([], dtype=np.float32)
+
+        stop_started = time.perf_counter()
+        self._recording_event.clear()
+
+        # HOTKEY-CRASH: increment stop_generation so any stale disconnect
+        # handlers from the audio callback know to bail out.
+        self._stop_generation += 1
+
+        # STREAM-FIX (Round 1): mark that we're about to call stream.stop()
+        # intentionally, so _stream_finished_callback doesn't warn about
+        # an "unexpected" disconnect. Cleared after stream.close() below.
+        self._user_stop_pending = True
+
+        # 17-H-FIX-2: drain callback + stop + close via _teardown_stream()
+        # (shared with discard()). The 300ms callback poll is preserved
+        # verbatim — see the helper's docstring/comments for the
+        # AUDIO-009/AUDIO-015 / PERF-FIX-002 history.
+        self._teardown_stream()
+        # STREAM-FIX (Round 1): clear the user-stop-pending flag now
+        # that stream.close() has completed. Any future
+        # _stream_finished_callback invocation is now genuinely
+        # unexpected (device disconnect).
+        self._user_stop_pending = False
         stream_ms = (time.perf_counter() - stop_started) * 1000
 
         concat_started = time.perf_counter()
@@ -1981,6 +2008,14 @@ class Recorder:
         stats_started = time.perf_counter()
         effective_sr = self._effective_sr
         duration = len(audio) / effective_sr if len(audio) > 0 else 0
+        # TASK-14: initialize ``rms``/``peak``/``silence_pct`` BEFORE
+        # the conditional below so the later ``log.info(... rms, peak,
+        # silence_pct, ...)`` call site (which is also gated by
+        # ``len(audio) > 0``) cannot reference an unbound name when
+        # pyrefly analyses control flow.
+        rms: float = 0.0
+        peak: float = 0.0
+        silence_pct: float = 0.0
         if len(audio) > 0:
             # AUDIO-NP: use np.dot for RMS in stop() too
             if audio.size:
@@ -2325,6 +2360,11 @@ class Recorder:
         # intentionally stops the stream must set _user_stop_pending first
         # so the callback knows the stream end is expected, not a crash.
         self._user_stop_pending = True
+        # 17-H-FIX-2: increment stop_generation for symmetry with stop()
+        # so any stale disconnect handler launched from the audio
+        # callback (during discard's stream.stop()) bails out instead of
+        # racing with the teardown — matching stop()'s HOTKEY-CRASH guard.
+        self._stop_generation += 1
         # ARCH-021: guard _effective_sr reset with the lock so a
         # concurrent snapshot() reader sees a consistent value.
         with self._lock:
@@ -2340,10 +2380,13 @@ class Recorder:
         # NEW-PERF-003: invalidate the no-resample cache too.
         self._cached_no_resample_len = -1
         self._cached_no_resample_arr = None
-        if self._stream:
-            self._stream.stop()
-            self._stream.close()
-            self._stream = None
+        # 17-H-FIX-2: drain callback + stop + close via _teardown_stream()
+        # (shared with stop()). The previous inline stream.stop()/close()
+        # here had NO _is_in_audio_callback poll, risking use-after-free
+        # or deadlock when ESC-cancel landed during a busy audio callback
+        # (which fires ~16×/s). The helper polls for up to 300ms before
+        # close() and is idempotent if the stream was already None.
+        self._teardown_stream()
         with self._lock:
             # SEC-audit-008: Zero the buffer contents before clearing to prevent
             # forensic recovery of audio data from process memory

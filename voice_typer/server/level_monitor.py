@@ -27,7 +27,7 @@ import threading
 import time
 import types
 
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -36,7 +36,12 @@ log = logging.getLogger(__name__)
 # ── Monitor session state ────────────────────────────────────────────
 
 _monitor_lock = threading.Lock()
-_monitor_stream: Optional[object] = None  # sounddevice.InputStream
+# TASK-14: ``Optional[object]`` made every downstream ``stream.stop()``
+# / ``stream.close()`` call raise ``Object of class `object` has no
+# attribute ...``.  ``Any`` matches the actual runtime type
+# (``sounddevice.InputStream``) which is too heavy to import here and
+# has no inline stubs.
+_monitor_stream: Optional[Any] = None  # sounddevice.InputStream
 _monitor_active: bool = False
 _monitor_level: float = 0.0   # smoothed RMS (0-1)
 _monitor_peak: float = 0.0    # smoothed peak (0-1)
@@ -47,7 +52,10 @@ _monitor_mic_id: Optional[str] = None  # device this stream is on
 # When set, audio from the callback is run through this processor's
 # process_chunk() before computing RMS/peak so the level bar reflects
 # the effect of noise filters in real-time.
-_level_processor: Optional[object] = None  # AudioProcessor instance
+# TASK-14: same as ``_monitor_stream`` — ``Optional[object]`` rejects
+# ``.process_chunk()`` / ``.cancel()`` calls below.  Use ``Any`` to
+# match the runtime ``AudioProcessor`` type.
+_level_processor: Optional[Any] = None  # AudioProcessor instance
 
 # ── Test recording state (uses the SAME stream) ─────────────────────
 
@@ -173,7 +181,13 @@ def start_monitoring(mic_id: Optional[str] = None) -> dict:
         else:
             old_stream = None
 
-    # Close old stream (if any) without holding the lock        if old_stream is not None:
+    # Close old stream (if any) without holding the lock.
+    # TASK-14: the ``if old_stream is not None`` guard was previously
+    # fused into the trailing comment, so it was never executed and
+    # pyrefly reported ``Object of class `NoneType` has no attribute
+    # `stop`/`close``` at the unconditional call sites below.  Split
+    # the guard onto its own line so it actually runs.
+    if old_stream is not None:
         try:
             old_stream.stop()
             old_stream.close()
@@ -191,10 +205,17 @@ def start_monitoring(mic_id: Optional[str] = None) -> dict:
 
         try:
             if device is None:
-                dev_info = sd.query_devices(kind="input")
+                dev_info_raw = sd.query_devices(kind="input")
             else:
-                dev_info = sd.query_devices(device)
-            native_rate = int(dev_info["default_samplerate"])
+                dev_info_raw = sd.query_devices(device)
+            # TASK-14: ``query_devices`` is overloaded to return either a
+            # ``dict`` (single device) or a ``DeviceList`` (tuple).  The
+            # ``default_samplerate`` key only exists on the dict form, so
+            # narrow before indexing.
+            if isinstance(dev_info_raw, dict):
+                native_rate = int(dev_info_raw["default_samplerate"])
+            else:
+                native_rate = 16000
         except Exception:
             native_rate = 16000
 
@@ -524,7 +545,12 @@ def stop_test_recording() -> dict:
     raw_rms = float(np.sqrt(np.mean(np.square(raw_audio.astype(np.float64)))))
     raw_peak = float(raw_abs.max())
     
-    quality = {
+    # TASK-14: annotate ``quality`` as ``dict[str, Any]`` so that
+    # downstream assignments like ``quality["detected_issues"] = [...str]``
+    # do not trigger bad-assignment.  Without the annotation pyrefly
+    # infers the dict's value type from the literal (str | bool | int |
+    # float) and then rejects the ``list[str]`` assignment below.
+    quality: "dict[str, Any]" = {
         "volume_level": "good" if raw_rms > 0.002 else ("low" if raw_rms > 0.0005 else "very_low"),
         "volume_rms": round(raw_rms, 6),
         "peak_level": round(raw_peak, 4),
