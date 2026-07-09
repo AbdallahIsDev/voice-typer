@@ -810,6 +810,10 @@
 		"prewarmStarting": "प्रीवार्म शुरू हुआ…",
 		"prewarmComplete": "प्रीवार्म पूर्ण — कैच गर्म हो गया",
 		"prewarmFailed": "प्रीवार्म शुरू करने में विफल",
-		"prewarmAlreadyHot": "कैच पहले से गर्म है — प्रीवार्म की आवश्यकता नहीं"
+		"prewarmAlreadyHot": "कैच पहले से गर्म है — प्रीवार्म की आवश्यकता नहीं",
+		"viewPrewarmLog": "प्रीवार्म लॉग देखें",
+		"prewarmLogNotFound": "कोई प्रीवार्म लॉग नहीं मिला",
+		"prewarmLogOpened": "प्रीवार्म लॉग खुला",
+		"prewarmLogOpenFailed": "प्रीवार्म लॉग नहीं खुल सका"
 	}
 }

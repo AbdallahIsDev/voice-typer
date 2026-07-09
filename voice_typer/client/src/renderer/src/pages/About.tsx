@@ -235,6 +235,32 @@ export default function AboutPage() {
 		}
 	};
 
+	// Task 2: open the prewarm log file in the OS default text editor.
+	// Calls the open_prewarm_log IPC handler which uses os.startfile
+	// (Windows), open (macOS), or xdg-open (Linux). Shows a toast
+	// if the log file doesn't exist or can't be opened.
+	const handleViewPrewarmLog = async () => {
+		try {
+			const result = await call<{
+				opened: boolean;
+				path?: string;
+				reason?: string;
+			}>("open_prewarm_log");
+			if (result?.opened) {
+				toast.success(t("about.prewarmLogOpened"));
+			} else if (result?.reason === "not_found") {
+				toast.info(t("about.prewarmLogNotFound"));
+			} else {
+				toast.error(t("about.prewarmLogOpenFailed"));
+			}
+		} catch (err) {
+			toast.error(
+				t("about.prewarmLogOpenFailed") +
+					(err instanceof Error ? `: ${err.message}` : ""),
+			);
+		}
+	};
+
 	useEffect(() => {
 		let cancelled = false;
 
@@ -483,6 +509,12 @@ export default function AboutPage() {
 							{prewarmStatus?.prewarm_running === true || runPrewarmLoading
 								? t("about.cacheRunning")
 								: t("about.runPrewarmNow")}
+						</Button>
+						{/* Task 2: "View prewarm log" button.
+                                                        Opens the prewarm log file in the OS default text
+                                                        editor. Shows a toast if the file doesn't exist. */}
+						<Button variant="ghost" size="sm" onClick={handleViewPrewarmLog}>
+							{t("about.viewPrewarmLog")}
 						</Button>
 					</div>
 				</SettingsSection>

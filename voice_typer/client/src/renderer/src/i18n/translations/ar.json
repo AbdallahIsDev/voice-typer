@@ -961,6 +961,10 @@
 		"prewarmStarting": "بدأ التسخين المسبق…",
 		"prewarmComplete": "اكتمل التسخين المسبق — تم تسخين الذاكرة المخبأة",
 		"prewarmFailed": "فشل تشغيل التسخين المسبق",
-		"prewarmAlreadyHot": "الذاكرة المخبأة ساخنة بالفعل — لا حاجة للتسخين المسبق"
+		"prewarmAlreadyHot": "الذاكرة المخبأة ساخنة بالفعل — لا حاجة للتسخين المسبق",
+		"viewPrewarmLog": "عرض سجل التسخين المسبق",
+		"prewarmLogNotFound": "لا يوجد سجل تسخين مسبق",
+		"prewarmLogOpened": "تم فتح سجل التسخين المسبق",
+		"prewarmLogOpenFailed": "تعذر فتح سجل التسخين المسبق"
 	}
 }

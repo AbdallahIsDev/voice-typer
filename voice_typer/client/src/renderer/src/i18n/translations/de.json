@@ -961,6 +961,10 @@
 		"prewarmStarting": "Präwarming gestartet…",
 		"prewarmComplete": "Präwarming abgeschlossen — Cache gewärmt",
 		"prewarmFailed": "Präwarming konnte nicht gestartet werden",
-		"prewarmAlreadyHot": "Cache ist bereits heiß — kein Präwarming nötig"
+		"prewarmAlreadyHot": "Cache ist bereits heiß — kein Präwarming nötig",
+		"viewPrewarmLog": "Präwarming-Protokoll anzeigen",
+		"prewarmLogNotFound": "Kein Präwarming-Protokoll gefunden",
+		"prewarmLogOpened": "Präwarming-Protokoll geöffnet",
+		"prewarmLogOpenFailed": "Präwarming-Protokoll konnte nicht geöffnet werden"
 	}
 }

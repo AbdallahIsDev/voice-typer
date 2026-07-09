@@ -945,6 +945,9 @@ class IPCServer(
         # About page's "Run Prewarm Now" button. Spawns a detached
         # subprocess; the frontend polls get_prewarm_status to track it.
         "run_prewarm": "_handle_run_prewarm",
+        # Task 2: open the prewarm log file in the OS default text editor
+        # from the About page's "View prewarm log" button.
+        "open_prewarm_log": "_handle_open_prewarm_log",
         "get_vocabulary": "_handle_get_vocabulary",
         "save_vocabulary": "_handle_save_vocabulary",
         "get_templates": "_handle_get_templates",

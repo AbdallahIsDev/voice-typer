@@ -535,6 +535,9 @@ function sendToPython(msg: Record<string, unknown>): Promise<unknown> {
 			// Task 3: manually trigger a prewarm run (force=True) from the
 			// About page's "Run Prewarm Now" button.
 			"run_prewarm",
+			// Task 2: open the prewarm log file in the OS default text
+			// editor from the About page's "View prewarm log" button.
+			"open_prewarm_log",
 			"get_vocabulary",
 			"save_vocabulary",
 			"onboarding_is_first_run",

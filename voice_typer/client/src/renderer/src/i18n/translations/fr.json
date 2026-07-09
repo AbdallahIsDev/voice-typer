@@ -961,6 +961,10 @@
 		"prewarmStarting": "Préchauffage démarré…",
 		"prewarmComplete": "Préchauffage terminé — cache réchauffée",
 		"prewarmFailed": "Échec du démarrage du préchauffage",
-		"prewarmAlreadyHot": "Le cache est déjà chaud — préchauffage inutile"
+		"prewarmAlreadyHot": "Le cache est déjà chaud — préchauffage inutile",
+		"viewPrewarmLog": "Voir le journal de préchauffage",
+		"prewarmLogNotFound": "Aucun journal de préchauffage trouvé",
+		"prewarmLogOpened": "Journal de préchauffage ouvert",
+		"prewarmLogOpenFailed": "Impossible d'ouvrir le journal de préchauffage"
 	}
 }

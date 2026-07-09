@@ -284,7 +284,11 @@
 		"prewarmStarting": "Prewarm started…",
 		"prewarmComplete": "Prewarm complete — cache warmed",
 		"prewarmFailed": "Prewarm failed to start",
-		"prewarmAlreadyHot": "Cache is already hot — no need to prewarm"
+		"prewarmAlreadyHot": "Cache is already hot — no need to prewarm",
+		"viewPrewarmLog": "View prewarm log",
+		"prewarmLogNotFound": "No prewarm log found",
+		"prewarmLogOpened": "Opened prewarm log",
+		"prewarmLogOpenFailed": "Could not open prewarm log"
 	},
 	"settings": {
 		"title": "Settings",

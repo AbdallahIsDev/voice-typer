@@ -970,7 +970,11 @@
 		"prewarmStarting": "Precalentamiento iniciado…",
 		"prewarmComplete": "Precalentamiento completado — caché calentada",
 		"prewarmFailed": "No se pudo iniciar el precalentamiento",
-		"prewarmAlreadyHot": "La caché ya está caliente — no es necesario precalentar"
+		"prewarmAlreadyHot": "La caché ya está caliente — no es necesario precalentar",
+		"viewPrewarmLog": "Ver registro de precalentamiento",
+		"prewarmLogNotFound": "No se encontró registro de precalentamiento",
+		"prewarmLogOpened": "Registro de precalentamiento abierto",
+		"prewarmLogOpenFailed": "No se pudo abrir el registro de precalentamiento"
 	},
 	"onboarding": {
 		"welcomeTitle": "Bienvenido a Voice Typer",

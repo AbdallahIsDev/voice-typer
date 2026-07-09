@@ -646,6 +646,145 @@ describe("About page — Run Prewarm Now button", () => {
 	});
 });
 
+// ─── View prewarm log button (Task 2) ─────────────────────────────────
+
+describe("About page — View prewarm log button", () => {
+	beforeEach(() => {
+		mockCall.mockReset();
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("renders the View prewarm log button", async () => {
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_status") {
+				return Promise.resolve({ status: "idle", config_dir: "/tmp" });
+			}
+			if (type === "get_config") {
+				return Promise.resolve({
+					asr_backend: "whisper",
+					model_size: "tiny.en",
+					device: "cpu",
+					hotkey: "F2",
+					microphone: null,
+				});
+			}
+			if (type === "get_prewarm_status") {
+				return Promise.resolve({
+					last_run: null,
+					elapsed_s: null,
+					cache_ratio: 0.0,
+					cache_label: "unknown",
+					cached_bytes: 0,
+					total_bytes: 0,
+					prewarm_running: false,
+				});
+			}
+			return Promise.resolve({});
+		});
+
+		const { default: AboutPage } = await import("@/pages/About");
+		render(<AboutPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("View prewarm log")).toBeTruthy();
+		});
+	});
+
+	it("calls open_prewarm_log IPC when clicked", async () => {
+		let openLogCallCount = 0;
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_status") {
+				return Promise.resolve({ status: "idle", config_dir: "/tmp" });
+			}
+			if (type === "get_config") {
+				return Promise.resolve({
+					asr_backend: "whisper",
+					model_size: "tiny.en",
+					device: "cpu",
+					hotkey: "F2",
+					microphone: null,
+				});
+			}
+			if (type === "get_prewarm_status") {
+				return Promise.resolve({
+					last_run: null,
+					elapsed_s: null,
+					cache_ratio: 0.0,
+					cache_label: "unknown",
+					cached_bytes: 0,
+					total_bytes: 0,
+					prewarm_running: false,
+				});
+			}
+			if (type === "open_prewarm_log") {
+				openLogCallCount++;
+				return Promise.resolve({ opened: true, path: "/tmp/voice-typer.log" });
+			}
+			return Promise.resolve({});
+		});
+
+		const { default: AboutPage } = await import("@/pages/About");
+		render(<AboutPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("View prewarm log")).toBeTruthy();
+		});
+
+		fireEvent.click(screen.getByText("View prewarm log"));
+
+		await waitFor(() => {
+			expect(openLogCallCount).toBe(1);
+		});
+	});
+
+	it("is always enabled (even when cache is hot)", async () => {
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_status") {
+				return Promise.resolve({ status: "idle", config_dir: "/tmp" });
+			}
+			if (type === "get_config") {
+				return Promise.resolve({
+					asr_backend: "whisper",
+					model_size: "tiny.en",
+					device: "cpu",
+					hotkey: "F2",
+					microphone: null,
+				});
+			}
+			if (type === "get_prewarm_status") {
+				return Promise.resolve({
+					last_run: "2026-07-08T13:48:49",
+					elapsed_s: 20.4,
+					cache_ratio: 1.0,
+					cache_label: "hot",
+					cached_bytes: 2400000000,
+					total_bytes: 2400000000,
+					prewarm_running: false,
+				});
+			}
+			return Promise.resolve({});
+		});
+
+		const { default: AboutPage } = await import("@/pages/About");
+		render(<AboutPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("View prewarm log")).toBeTruthy();
+		});
+
+		const button = screen
+			.getByText("View prewarm log")
+			.closest("button") as HTMLButtonElement;
+		expect(button).toBeTruthy();
+		// The log viewer is always enabled — the user may want to view
+		// the log even when the cache is hot.
+		expect(button?.disabled).toBe(false);
+	});
+});
+
 // ─── PrewarmStatus type shape ─────────────────────────────────────────
 
 describe("PrewarmStatus type matches Python get_prewarm_status()", () => {

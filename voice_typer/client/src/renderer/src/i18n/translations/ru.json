@@ -448,6 +448,10 @@
 		"prewarmStarting": "Предпрогрев запущен…",
 		"prewarmComplete": "Предпрогрев завершён — кэш разогрет",
 		"prewarmFailed": "Не удалось запустить предпрогрев",
-		"prewarmAlreadyHot": "Кэш уже горячий — предпрогрев не нужен"
+		"prewarmAlreadyHot": "Кэш уже горячий — предпрогрев не нужен",
+		"viewPrewarmLog": "Просмотреть журнал предпрогрева",
+		"prewarmLogNotFound": "Журнал предпрогрева не найден",
+		"prewarmLogOpened": "Журнал предпрогрева открыт",
+		"prewarmLogOpenFailed": "Не удалось открыть журнал предпрогрева"
 	}
 }

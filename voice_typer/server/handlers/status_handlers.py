@@ -210,3 +210,104 @@ class StatusHandlersMixin:
             resp["type"] = "error"
             resp["data"] = {"message": str(e)}
         return resp
+
+    def _handle_open_prewarm_log(self, data, resp) -> dict | None:
+        """Handle the ``open_prewarm_log`` IPC command.
+
+        Task 2: opens the dedicated prewarm log file in the OS default
+        text editor.  The file is ``prewarm.log`` (next to
+        ``voice-typer.log``) — it contains only ``[PREWARM]`` messages
+        via a logger-name filter applied by ``prewarm._setup_logging()``.
+
+        The main ``voice-typer.log`` also contains these messages
+        (it is the complete record).  This handler opens the filtered
+        copy so users see only prewarm-related output.
+
+        On Windows: ``os.startfile()`` opens with the default .log editor.
+        On macOS: ``open <path>`` (LaunchServices).
+        On Linux: ``xdg-open <path>`` (freedesktop default).
+
+        Returns ``{"opened": True, "path": "..."}`` on success,
+        ``{"opened": False, "path": "...", "reason": "not_found"}`` if
+        the log file doesn't exist yet, or an error response if the OS
+        can't open it.
+        """
+        import os
+        import subprocess
+        from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
+
+        try:
+            # The prewarm log lives in the app config dir. Use the same
+            # resolution as _setup_logging() in prewarm.py.
+            from voice_typer.server.config import _config_dir
+            log_dir = _config_dir()
+            log_file = log_dir / "prewarm.log"
+
+            if not log_file.exists():
+                # File doesn't exist yet (prewarm hasn't run this boot).
+                # Create it with a header so the user's editor opens
+                # successfully with context about why it's empty.
+                try:
+                    from datetime import datetime as _dt
+                    log_file.write_text(
+                        "# Prewarm log\n"
+                        "#\n"
+                        "# This file is created by the prewarm process\n"
+                        "# when it runs.  It will be empty until\n"
+                        "# prewarm executes (at boot, logon, or via\n"
+                        "# the Run Prewarm Now button).\n"
+                        "#\n"
+                        "# Placeholder created: "
+                        + _dt.now().strftime("%Y-%m-%d %H:%M:%S")
+                        + "\n",
+                        encoding="utf-8",
+                    )
+                except OSError:
+                    pass
+
+            if not log_file.exists():
+                resp["type"] = "prewarm_log"
+                resp["data"] = {
+                    "opened": False,
+                    "path": str(log_file),
+                    "reason": "not_found",
+                }
+                log.info("[IPC] open_prewarm_log: file not found at %s", log_file)
+                return resp
+
+            # Open with the OS default editor.
+            if is_windows():
+                os.startfile(str(log_file))  # type: ignore[attr-defined]
+            elif is_macos():
+                subprocess.Popen(
+                    ["open", str(log_file)],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+            elif is_linux():
+                subprocess.Popen(
+                    ["xdg-open", str(log_file)],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+            else:
+                # Unknown platform — try xdg-open as a last resort.
+                subprocess.Popen(
+                    ["xdg-open", str(log_file)],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+
+            log.info("[IPC] open_prewarm_log: opened %s", log_file)
+            resp["type"] = "prewarm_log"
+            resp["data"] = {"opened": True, "path": str(log_file)}
+        except FileNotFoundError as e:
+            log.error("[IPC] open_prewarm_log: editor not found: %s", e)
+            resp["type"] = "error"
+            resp["data"] = {"message": f"No editor available to open the log: {e}"}
+        except OSError as e:
+            log.error("[IPC] open_prewarm_log: open failed: %s", e)
+            resp["type"] = "error"
+            resp["data"] = {"message": f"Failed to open log: {e}"}
+        except Exception as e:
+            log.error("[IPC] open_prewarm_log failed: %s", e, exc_info=True)
+            resp["type"] = "error"
+            resp["data"] = {"message": str(e)}
+        return resp

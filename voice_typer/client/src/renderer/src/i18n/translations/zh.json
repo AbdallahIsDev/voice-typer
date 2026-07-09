@@ -448,6 +448,10 @@
 		"prewarmStarting": "预热已开始…",
 		"prewarmComplete": "预热完成 — 缓存已加热",
 		"prewarmFailed": "预热启动失败",
-		"prewarmAlreadyHot": "缓存已是热状态 — 无需预热"
+		"prewarmAlreadyHot": "缓存已是热状态 — 无需预热",
+		"viewPrewarmLog": "查看预热日志",
+		"prewarmLogNotFound": "未找到预热日志",
+		"prewarmLogOpened": "已打开预热日志",
+		"prewarmLogOpenFailed": "无法打开预热日志"
 	}
 }
