@@ -222,7 +222,14 @@ def _make_url_validator(*, allow_empty: bool = False, max_len: int = _MAX_STRING
 # as global hotkeys.  This is the backend mirror of the frontend
 # ``RESERVED_SHORTCUTS`` table in
 # ``voice_typer/client/src/renderer/src/components/hotkey-validation.ts``.
-# The two MUST be kept in sync — if you add a shortcut here, add it there.
+#
+# HOTKEY-SHARED-001 (Task 1.4): the reserved-shortcut tables are now loaded
+# from a single canonical JSON file at
+# ``voice_typer/server/hotkey_reserved.json``. Both the frontend (via Vite
+# JSON import) and the backend (via ``json.load``) consume the SAME file,
+# eliminating the "MUST be kept in sync" duplication problem. A CI test
+# (``tests/test_hotkey_reserved_sync.py``) verifies the two in-memory
+# structures are byte-identical.
 #
 # In addition to the per-platform explicit denylist, ``_validate_hotkey``
 # applies the following blanket rules (mirroring the frontend):
@@ -239,25 +246,37 @@ def _make_url_validator(*, allow_empty: bool = False, max_len: int = _MAX_STRING
 #
 # All other combinations (including Alt+<letter>) are allowed by default.
 # This is a denylist design, not a blanket rule design.
+import json as _json
 import sys as _sys
+from pathlib import Path as _Path
 
+# HOTKEY-SHARED-001: load the canonical reserved-shortcut table from the
+# JSON file. The file lives next to this module so the relative path is
+# stable regardless of the working directory.
+_RESERVED_DATA_PATH = _Path(__file__).resolve().parent / "hotkey_reserved.json"
+
+
+def _load_reserved_data() -> dict:
+    """Load and cache the reserved-hotkey JSON config.
+
+    Returns a dict with keys:
+        - ``universal_reserved``: list[str]
+        - ``per_platform_reserved``: dict[str, list[str]]
+        - ``blocked_ctrl_letters``: list[str]
+        - ``modifiers``: list[str]
+    """
+    with _RESERVED_DATA_PATH.open("r", encoding="utf-8") as f:
+        return _json.load(f)
+
+
+_RESERVED_DATA = _load_reserved_data()
+
+# Per-platform reserved shortcuts. Stored in the SAME format as user input
+# (angle brackets, lowercase) so we can compare directly with
+# ``value.lower()``. Built from the JSON file at module init.
 _RESERVED_HOTKEYS: dict[str, set[str]] = {
-    # Platform-specific reserved shortcuts.
-    # Stored in the SAME format as user input (angle brackets, lowercase)
-    # so we can compare directly with ``value.lower()``.
-    "win32": {
-        "<win>+<e>", "<win>+<v>", "<win>+<space>", "<win>+<d>", "<win>+<l>",
-        "<win>+<tab>", "<win>+<r>", "<win>+<i>", "<win>+<p>", "<win>+<m>",
-        "<alt>+<shift>",  # Windows language switching
-    },
-    "darwin": {
-        "<cmd>+<space>", "<cmd>+<q>", "<cmd>+<w>", "<cmd>+<h>", "<cmd>+<m>",
-        "<cmd>+<tab>", "<cmd>+<shift>+<3>", "<cmd>+<shift>+<4>", "<cmd>+<shift>+<5>",
-    },
-    "linux": {
-        "<super>+<l>", "<super>+<d>", "<super>+<tab>",
-        # NOTE: <super>+<space> is intentionally NOT reserved on Linux.
-    },
+    platform: set(entries)
+    for platform, entries in _RESERVED_DATA["per_platform_reserved"].items()
 }
 
 # Universal window-management shortcuts blocked on EVERY platform.
@@ -265,24 +284,15 @@ _RESERVED_HOTKEYS: dict[str, set[str]] = {
 # on Windows, macOS (with Alt=Option), and most Linux desktops.
 # Stored in the SAME format as user input (angle brackets, lowercase)
 # so we can compare directly with ``value.lower()``.
-_UNIVERSAL_RESERVED_HOTKEYS = frozenset({
-    "<alt>+<tab>", "<alt>+<f4>", "<alt>+<esc>", "<alt>+<space>",
-})
+_UNIVERSAL_RESERVED_HOTKEYS = frozenset(_RESERVED_DATA["universal_reserved"])
 
 # Common Ctrl+<letter> shortcuts that are universally expected by users
 # (Copy, Paste, Undo, Save, Select All, etc.).  Mirrors the frontend
 # behavior.  These are blocked regardless of platform.
-_BLOCKED_CTRL_LETTERS = frozenset({
-    "c", "v", "x", "z", "a", "s", "y", "w", "f", "p", "n", "o", "t",
-    "l", "r", "h", "j", "k", "b", "i", "u", "d", "e", "g", "m", "q",
-})
+_BLOCKED_CTRL_LETTERS = frozenset(_RESERVED_DATA["blocked_ctrl_letters"])
 
 # Modifier keys recognized in the hotkey string (pynput-style, lowercase).
-_HOTKEY_MODIFIERS = frozenset({
-    "ctrl", "ctrl_l", "ctrl_r", "shift", "shift_l", "shift_r",
-    "alt", "alt_l", "alt_r", "alt_gr", "cmd", "cmd_l", "cmd_r",
-    "win", "super", "fn", "globe",
-})
+_HOTKEY_MODIFIERS = frozenset(_RESERVED_DATA["modifiers"])
 
 
 def _platform_key() -> str:

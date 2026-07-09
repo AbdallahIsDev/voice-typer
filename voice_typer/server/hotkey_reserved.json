@@ -1,0 +1,58 @@
+{
+  "_comment": "Shared source of truth for reserved hotkey shortcuts. Consumed by BOTH the frontend (voice_typer/client/src/renderer/src/components/hotkey-validation.ts via Vite JSON import) AND the backend (voice_typer/server/config_validators.py via json.load). HOTKEY-SHARED-001 (Task 1.4): the previous architecture duplicated this table in two places (RESERVED_SHORTCUTS in hotkey-validation.ts and _RESERVED_HOTKEYS in config_validators.py) with no automated sync mechanism. A mismatch between the two silently accepted/rejected conflicting hotkeys. This JSON file is the single canonical source — both layers load it at module init. A CI test (tests/test_hotkey_reserved_sync.py) verifies the two in-memory structures are byte-identical.",
+  "_format": {
+    "universal_reserved": "Array of hotkey strings blocked on EVERY platform (window management: Alt+Tab, Alt+F4, Alt+Esc, Alt+Space). Stored lowercase with angle brackets, e.g. \"<alt>+<tab>\".",
+    "per_platform_reserved": "Object mapping platform key (win32/darwin/linux) to array of hotkey strings blocked on that platform only.",
+    "blocked_ctrl_letters": "Array of single lowercase letters blocked when the hotkey is PURE Ctrl+<letter> (no other modifier). Covers Copy/Paste/Undo/Save/Select All/etc.",
+    "modifiers": "Array of modifier key names recognized in hotkey strings (pynput-style, lowercase)."
+  },
+  "universal_reserved": [
+    "<alt>+<tab>",
+    "<alt>+<f4>",
+    "<alt>+<esc>",
+    "<alt>+<space>"
+  ],
+  "per_platform_reserved": {
+    "win32": [
+      "<win>+<e>",
+      "<win>+<v>",
+      "<win>+<space>",
+      "<win>+<d>",
+      "<win>+<l>",
+      "<win>+<tab>",
+      "<win>+<r>",
+      "<win>+<i>",
+      "<win>+<p>",
+      "<win>+<m>",
+      "<alt>+<shift>"
+    ],
+    "darwin": [
+      "<cmd>+<space>",
+      "<cmd>+<q>",
+      "<cmd>+<w>",
+      "<cmd>+<h>",
+      "<cmd>+<m>",
+      "<cmd>+<tab>",
+      "<cmd>+<shift>+<3>",
+      "<cmd>+<shift>+<4>",
+      "<cmd>+<shift>+<5>"
+    ],
+    "linux": [
+      "<super>+<l>",
+      "<super>+<d>",
+      "<super>+<tab>"
+    ]
+  },
+  "blocked_ctrl_letters": [
+    "c", "v", "x", "z", "a", "s", "y", "w", "f", "p", "n", "o", "t",
+    "l", "r", "h", "j", "k", "b", "i", "u", "d", "e", "g", "m", "q"
+  ],
+  "modifiers": [
+    "ctrl", "ctrl_l", "ctrl_r",
+    "shift", "shift_l", "shift_r",
+    "alt", "alt_l", "alt_r", "alt_gr",
+    "cmd", "cmd_l", "cmd_r",
+    "win", "super",
+    "fn", "globe"
+  ]
+}
