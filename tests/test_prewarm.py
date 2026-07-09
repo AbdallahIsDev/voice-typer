@@ -981,6 +981,139 @@ class TestCli:
         assert data["last_run"] == "2026-07-08T13:48:49"
         assert data["elapsed_s"] == 20.4
 
+    # Task 3: --run and --background flag tests.
+
+    def test_parse_args_run_flag(self):
+        """--run sets args.run=True."""
+        args = prewarm._parse_args(["--run"])
+        assert args.run is True
+
+    def test_parse_args_background_flag(self):
+        """--background sets args.background=True."""
+        args = prewarm._parse_args(["--background"])
+        assert args.background is True
+
+    def test_parse_args_run_with_background(self):
+        """--run --background sets both flags."""
+        args = prewarm._parse_args(["--run", "--background"])
+        assert args.run is True
+        assert args.background is True
+
+    def test_main_run_without_background_calls_run_with_force(self, monkeypatch):
+        """main() with --run (no --background) calls run(force=True) inline.
+
+        Task 3: --run is an alias for --force — both bypass the guards
+        and run the warming pipeline inline.
+        """
+        monkeypatch.setattr(prewarm, "_setup_logging", lambda: None)
+        monkeypatch.setattr(prewarm, "_already_warmed", lambda: False)
+        monkeypatch.setattr(prewarm, "_free_ram_mb", lambda: None)
+        monkeypatch.setattr(prewarm, "_lower_io_priority", lambda: None)
+        monkeypatch.setattr(prewarm, "_write_pid_file", lambda: None)
+        monkeypatch.setattr(prewarm, "_remove_pid_file", lambda: None)
+        monkeypatch.setattr(
+            prewarm, "_warm_imports",
+            MagicMock(side_effect=ImportError("no torch")),
+        )
+        monkeypatch.setattr(sys, "argv", ["prewarm", "--run"])
+
+        # --run should behave identically to --force.
+        assert prewarm.main() == prewarm.EXIT_IMPORT_FAILED
+
+    def test_main_run_background_spawns_subprocess(self, monkeypatch, capsys):
+        """main() with --run --background spawns a detached subprocess.
+
+        Task 3: --run --background should call spawn_background_prewarm()
+        and print the PID, then exit immediately without running the
+        warming pipeline inline.
+        """
+        spawn_called = []
+        monkeypatch.setattr(
+            prewarm, "spawn_background_prewarm",
+            lambda force=True: spawn_called.append(force) or 12345,
+        )
+        # run() must NOT be called — --background exits immediately.
+        def run_must_not_be_called(*a, **kw):
+            raise AssertionError(
+                "Task 3: --run --background must NOT call run() inline — "
+                "it spawns a detached subprocess and exits immediately."
+            )
+        monkeypatch.setattr(prewarm, "run", run_must_not_be_called)
+        monkeypatch.setattr(sys, "argv", ["prewarm", "--run", "--background"])
+
+        exit_code = prewarm.main()
+        assert exit_code == prewarm.EXIT_OK
+        assert spawn_called == [True], (
+            "spawn_background_prewarm must be called with force=True"
+        )
+        # The PID must be printed so scripts can track it.
+        output = capsys.readouterr().out
+        assert "12345" in output, (
+            "main() with --run --background must print the spawned PID"
+        )
+
+    def test_main_background_without_run_is_noop(self, monkeypatch):
+        """--background without --run or --force is a no-op (warns + exits).
+
+        Task 3: --background is only meaningful with --run or --force.
+        Without one of those, it should warn and return EXIT_DISABLED
+        rather than silently doing nothing.
+        """
+        # run() must NOT be called.
+        def run_must_not_be_called(*a, **kw):
+            raise AssertionError(
+                "Task 3: --background without --run must NOT call run()"
+            )
+        monkeypatch.setattr(prewarm, "run", run_must_not_be_called)
+        # spawn_background_prewarm must NOT be called.
+        def spawn_must_not_be_called(*a, **kw):
+            raise AssertionError(
+                "Task 3: --background without --run must NOT spawn a subprocess"
+            )
+        monkeypatch.setattr(
+            prewarm, "spawn_background_prewarm", spawn_must_not_be_called,
+        )
+        monkeypatch.setattr(sys, "argv", ["prewarm", "--background"])
+
+        exit_code = prewarm.main()
+        assert exit_code == prewarm.EXIT_DISABLED
+
+    def test_main_force_background_also_spawns(self, monkeypatch):
+        """--force --background also spawns a subprocess (force is equivalent to run).
+
+        Task 3: --run and --force are both valid triggers for --background.
+        """
+        spawn_called = []
+        monkeypatch.setattr(
+            prewarm, "spawn_background_prewarm",
+            lambda force=True: spawn_called.append(force) or 99,
+        )
+        monkeypatch.setattr(sys, "argv", ["prewarm", "--force", "--background"])
+
+        exit_code = prewarm.main()
+        assert exit_code == prewarm.EXIT_OK
+        assert spawn_called == [True]
+
+    def test_main_force_without_background_still_works(self, monkeypatch):
+        """--force without --background still runs inline (backward compat).
+
+        Task 3: --force is the legacy flag; it must still work exactly
+        as before (run inline, no subprocess).
+        """
+        monkeypatch.setattr(prewarm, "_setup_logging", lambda: None)
+        monkeypatch.setattr(prewarm, "_already_warmed", lambda: False)
+        monkeypatch.setattr(prewarm, "_free_ram_mb", lambda: None)
+        monkeypatch.setattr(prewarm, "_lower_io_priority", lambda: None)
+        monkeypatch.setattr(prewarm, "_write_pid_file", lambda: None)
+        monkeypatch.setattr(prewarm, "_remove_pid_file", lambda: None)
+        monkeypatch.setattr(
+            prewarm, "_warm_imports",
+            MagicMock(side_effect=ImportError("no torch")),
+        )
+        monkeypatch.setattr(sys, "argv", ["prewarm", "--force"])
+
+        assert prewarm.main() == prewarm.EXIT_IMPORT_FAILED
+
 
 # ─── STARTUP-4: active-model filter ─────────────────────────────────────
 

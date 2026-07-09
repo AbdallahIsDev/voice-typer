@@ -128,11 +128,36 @@ def _setup_logging() -> None:
     Uses the shared :func:`log.setup_logging` so the format is
     consistent with the main app.  Avoids importing app.py to keep
     prewarm's cold-start cost minimal.
+
+    Also writes to a dedicated ``prewarm.log`` (next to ``voice-typer.log``)
+    that contains only ``[PREWARM]`` messages via a logger-name filter.
+    The button in the About page opens this file so users can inspect
+    prewarm behaviour without scrolling through the main log.
+
+    Prewarm messages still flow to the shared ``voice-typer.log`` as well
+    (via the handler added by ``log.setup_logging``), so the main log
+    remains the complete record.
     """
     from voice_typer.server.log import setup_logging as _setup_logging_shared
     log_dir = Path.home() / ".voice-typer"
     try:
         _setup_logging_shared(log_dir)
+
+        import logging.handlers
+        prewarm_log = log_dir / "prewarm.log"
+        prewarm_handler = logging.handlers.RotatingFileHandler(
+            prewarm_log, maxBytes=1_000_000, backupCount=2,
+            encoding="utf-8", errors="backslashreplace",
+        )
+        prewarm_handler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s [%(levelname)s] %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            )
+        )
+        prewarm_handler.addFilter(logging.Filter("voice_typer.server.prewarm"))
+        prewarm_handler.setLevel(logging.DEBUG)
+        logging.getLogger("voice_typer").addHandler(prewarm_handler)
     except Exception:
         # Fall back to bare stderr so the script is still usable standalone.
         logging.basicConfig(
@@ -1571,6 +1596,26 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "Print the prewarm cache status (last run, cache ratio, "
             "Hot/Partial/Cold label, etc.) as JSON and exit. Does NOT "
             "run the warming pipeline."
+        ),
+    )
+    # Task 3: --run is a discoverable alias for --force. Both bypass
+    # the sentinel + RAM guards and run the warming pipeline inline.
+    # --run --background spawns a detached subprocess (matching
+    # spawn_background_prewarm) and exits immediately, printing the PID.
+    p.add_argument(
+        "--run", action="store_true",
+        help=(
+            "Run prewarm unconditionally (alias for --force). Combine "
+            "with --background to spawn a detached subprocess."
+        ),
+    )
+    p.add_argument(
+        "--background", action="store_true",
+        help=(
+            "With --run: spawn prewarm as a detached background subprocess "
+            "and exit immediately (prints the spawned PID). Without --run: "
+            "no effect. Useful for automation scripts that don't want to "
+            "block on the ~50s warming pipeline."
         ),
     )
     return p.parse_args(argv)
