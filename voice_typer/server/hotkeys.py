@@ -22,6 +22,7 @@ import time
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Optional
 from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
+from voice_typer.server.branding import APP_NAME
 
 log = logging.getLogger("voice_typer")
 
@@ -269,46 +270,88 @@ def _parse_hotkey_to_pynput(hotkey_str, Key, KeyCode):
     Handles composite hotkeys with modifiers (ctrl, alt, shift, cmd/win).
     Returns a tuple of (modifier_keys, target_key) for composite hotkeys,
     or a single Key/KeyCode for simple hotkeys.
-    """
-    parts = hotkey_str.strip("<>").split("+")
-    parts = [p.strip().strip("<>") for p in parts]
 
-    if len(parts) == 1:
-        clean = parts[0].lower()
-        if hasattr(Key, clean):
-            return getattr(Key, clean)
-        if clean.startswith("f") and clean[1:].isdigit():
-            fnum = int(clean[1:])
+    RW-1 (Hotkey parser unification): this now delegates to the
+    canonical :func:`voice_typer.server.hotkey_spec.parse_hotkey` for
+    tokenisation and alias resolution. The pynput-specific concerns
+    that remain in this function are:
+
+    - Modifier ``Key`` collapsing: canonical ``win`` / ``super`` /
+      ``cmd`` all map to ``Key.cmd`` (pynput does not distinguish —
+      it has ``Key.cmd`` / ``Key.cmd_l`` / ``Key.cmd_r`` but no
+      ``Key.win`` or ``Key.super``).
+    - ``Key`` / ``KeyCode`` conversion: pynput's ``Key`` enum (for
+      named keys like ``f2``, ``space``, ``enter``) and
+      ``KeyCode.from_char`` / ``from_vk`` (for letters, digits, and
+      function keys not in the enum).
+    """
+    from voice_typer.server.hotkey_spec import parse_hotkey
+
+    def _to_pynput_key(name: str):
+        """Convert a canonical key name to a pynput Key/KeyCode, or None."""
+        if hasattr(Key, name):
+            return getattr(Key, name)
+        if name.startswith("f") and name[1:].isdigit():
+            fnum = int(name[1:])
             if 1 <= fnum <= 24:
                 return KeyCode.from_vk(0x6F + fnum)
-        if len(clean) == 1:
-            return KeyCode.from_char(clean)
+        if len(name) == 1:
+            return KeyCode.from_char(name)
         return None
 
-    # Composite hotkey: return tuple of (modifiers_tuple, target_key)
-    modifier_keys = []
-    target = None
-    modifier_names = {
-        "ctrl": Key.ctrl, "alt": Key.alt, "shift": Key.shift,
-        "cmd": Key.cmd, "win": Key.cmd, "super": Key.cmd,
-    }
+    def _to_pynput_modifier(name: str):
+        """Convert a canonical modifier name to a pynput Key, or None.
 
-    for part in parts:
-        clean = part.lower()
-        if clean in modifier_names:
-            modifier_keys.append(modifier_names[clean])
-        elif target is None:
-            if hasattr(Key, clean):
-                target = getattr(Key, clean)
-            elif clean.startswith("f") and clean[1:].isdigit():
-                fnum = int(clean[1:])
-                if 1 <= fnum <= 24:
-                    target = KeyCode.from_vk(0x6F + fnum)
-            elif len(clean) == 1:
-                target = KeyCode.from_char(clean)
+        pynput collapses win/super/cmd → Key.cmd (no Key.win or
+        Key.super exists). alt_gr maps to Key.alt_gr when available
+        (platform-dependent), otherwise Key.alt_r, otherwise None.
+        fn maps to Key.fn when available (macOS only), otherwise None.
+        """
+        _CANONICAL_TO_PYNPUT = {
+            "ctrl": "ctrl",
+            "shift": "shift",
+            "alt": "alt",
+            # pynput collapses win/super → cmd (no Key.win / Key.super).
+            "cmd": "cmd",
+            "win": "cmd",
+            "super": "cmd",
+        }
+        attr = _CANONICAL_TO_PYNPUT.get(name)
+        if attr is not None and hasattr(Key, attr):
+            return getattr(Key, attr)
+        # alt_gr / fn: try the canonical name, fall back to None.
+        if name == "alt_gr":
+            for fallback in ("alt_gr", "alt_r"):
+                if hasattr(Key, fallback):
+                    return getattr(Key, fallback)
+        if name == "fn" and hasattr(Key, "fn"):
+            return getattr(Key, "fn")
+        return None
 
+    parsed = parse_hotkey(hotkey_str)
+    if parsed.is_empty:
+        return None
+
+    # Single-modifier special case (preserves the prior behaviour where
+    # a 1-part spec like ``<alt>`` returns ``Key.alt`` directly rather
+    # than ``(modifiers, target)``). For multi-modifier specs with no
+    # main key (e.g. ``<ctrl>+<shift>``), pynput cannot match without a
+    # target key — return None, matching the previous behaviour.
+    if not parsed.keys:
+        if len(parsed.modifiers) == 1:
+            mod_key = _to_pynput_modifier(parsed.modifiers[0])
+            return mod_key  # may be None if pynput lacks the attribute
+        return None
+
+    target = _to_pynput_key(parsed.keys[0])
     if target is None:
         return None
+
+    modifier_keys = []
+    for mod in parsed.modifiers:
+        mod_key = _to_pynput_modifier(mod)
+        if mod_key is not None:
+            modifier_keys.append(mod_key)
 
     if modifier_keys:
         return (tuple(modifier_keys), target)
@@ -345,6 +388,17 @@ _VK_RMENU = 0xA5     # Right Alt / AltGr
 _KEYEVENTF_KEYUP = 0x0002
 
 # Common virtual-key code mappings for function keys and printable keys.
+#
+# ISSUE-3 (Key-name maps): this table maps pynput-style lowercase names
+# to Win32 VK codes. It is ONE OF THREE independent key-name tables:
+#
+#   Frontend: KEY_CODE_TO_PYNPUT (hotkey-utils.ts) — e.code → pynput name
+#   Backend:  _VK_MAP (here) — pynput name → Win32 VK code
+#   Native:   _normalize_key_name (native_hotkeys.py) — pynput name →
+#             wire-protocol name (CapsLock, Space, MediaNext, etc.)
+#
+# All three must agree on the set of names ("f1", "space", "caps_lock",
+# "page_up", etc.). _normalize_key_name is the canonical transformer.
 #
 # PLAT-VKMAP: VK codes are mapped from US keyboard layout. Non-US keyboards
 # may differ for keys like ^/°/# (German, French, etc.). For example, on a
@@ -479,41 +533,55 @@ def parse_hotkey_to_win32(hotkey_str: str) -> Optional[tuple[Optional[int], int]
     ``parse_hotkey_to_vk`` still returns ``None`` for these specs (it
     returns ``parsed[0]`` which is ``None``), preserving the existing
     contract for callers that only care about the VK code.
-    """
-    _init_vk_map()
-    modifiers = 0
-    key_name = None
 
-    for raw_part in hotkey_str.split("+"):
-        part = raw_part.strip().strip("<>").lower()
-        if not part:
-            continue
-        if part in {"ctrl", "control"}:
-            modifiers |= _MOD_CONTROL
-            continue
-        if part == "alt":
-            modifiers |= _MOD_ALT
-            continue
-        if part == "shift":
-            modifiers |= _MOD_SHIFT
-            continue
-        if part in {"cmd", "win", "super"}:
-            modifiers |= _MOD_WIN
-            continue
-        # PLAT-ALTGR: Allow 'altgr' as a modifier in hotkey strings.
-        # Maps to _MOD_ALTGR for RegisterHotKey compatibility.
-        if part in {"altgr", "right_alt", "ralt"}:
-            modifiers |= _MOD_ALTGR
-            continue
-        # NEW-CQ-022: first non-modifier key wins. Subsequent non-modifier
-        # tokens are ignored (they're likely a typo or a multi-key combo
-        # that Win32 RegisterHotKey doesn't support).
-        if key_name is None:
-            key_name = part
-        else:
+    RW-1 (Hotkey parser unification): this now delegates to the
+    canonical :func:`voice_typer.server.hotkey_spec.parse_hotkey` for
+    tokenisation and alias resolution. The Win32-specific concerns
+    that remain in this function are:
+
+    - Modifier-bit collapsing: canonical ``win`` / ``super`` / ``cmd``
+      all map to ``_MOD_WIN`` (Windows does not distinguish between
+      them — ``RegisterHotKey`` uses a single bit). Canonical
+      ``alt_gr`` maps to ``_MOD_ALTGR``.
+    - VK-code lookup: ``_VK_MAP`` (and the ``MapVirtualKey`` fallback
+      for non-US layouts) translate the canonical key name to a
+      Windows virtual-key code.
+    """
+    from voice_typer.server.hotkey_spec import parse_hotkey
+
+    _init_vk_map()
+    parsed = parse_hotkey(hotkey_str)
+
+    # Map canonical modifier names to Win32 RegisterHotKey modifier bits.
+    # Win32 collapses win/super/cmd → _MOD_WIN (single bit).
+    _CANONICAL_TO_MODBIT = {
+        "ctrl": _MOD_CONTROL,
+        "shift": _MOD_SHIFT,
+        "alt": _MOD_ALT,
+        "alt_gr": _MOD_ALTGR,
+        "cmd": _MOD_WIN,
+        "win": _MOD_WIN,
+        "super": _MOD_WIN,
+        # 'fn' has no Win32 RegisterHotKey equivalent (firmware-only).
+        # It is silently ignored here — callers that care about Fn
+        # use the native_hotkeys backend instead.
+    }
+
+    modifiers = 0
+    for mod in parsed.modifiers:
+        bit = _CANONICAL_TO_MODBIT.get(mod, 0)
+        modifiers |= bit
+
+    key_name = parsed.main_key
+    # NEW-CQ-022: first non-modifier key wins. Subsequent non-modifier
+    # tokens are ignored (they're likely a typo or a multi-key combo
+    # that Win32 RegisterHotKey doesn't support). Emit a warning for
+    # each extra key, preserving the previous diagnostic behaviour.
+    if len(parsed.keys) > 1:
+        for extra in parsed.keys[1:]:
             log.warning(
                 "[HOTKEY] Ignoring extra key %r in hotkey %r (already have %r)",
-                part, hotkey_str, key_name,
+                extra, hotkey_str, key_name,
             )
 
     if key_name is None:
@@ -596,6 +664,24 @@ class WindowsNativeHotkey(HotkeyBackend):
         # The polling loop skips processing while this is set so the
         # synthetic events don't re-trigger the callback.
         self._caps_lock_suppressing: bool = False
+        # PERF-FIX-1: throttled IME composition check. The underlying
+        # ``_is_ime_composing()`` staticmethod makes 5 syscalls per call
+        # (GetForegroundWindow, ImmGetContext, ImmGetOpenStatus,
+        # ImmGetCompositionStringW, ImmReleaseContext). At the polling
+        # loop's 1ms cadence that's ~5000 syscalls/sec even when no key
+        # is pressed. The throttled wrapper
+        # ``_is_ime_composing_throttled()`` re-queries at most every
+        # 50ms (20 Hz) — IME state changes at human typing speed so
+        # 50ms latency is invisible to the user.
+        self._last_ime_check_time: float = 0.0
+        self._last_ime_composing: bool = False
+        # PERF-FIX-1: throttled non-modifier key scan.
+        # ``_any_non_modifier_key_pressed()`` calls GetAsyncKeyState for
+        # each VK in 0x08-0xFF (248 codes) — O(248) per iteration. The
+        # throttled wrapper re-scans at most every 50ms, reducing the
+        # idle-state syscall rate from ~248k/sec to ~5k/sec.
+        self._last_nonmod_check_time: float = 0.0
+        self._last_nonmod_pressed: bool = False
 
     def start(self, callback: Callable[[], None]) -> None:
         import ctypes
@@ -813,6 +899,25 @@ class WindowsNativeHotkey(HotkeyBackend):
         except Exception:
             return False
 
+    def _is_ime_composing_throttled(self) -> bool:
+        """PERF-FIX-1: throttled wrapper around ``_is_ime_composing()``.
+
+        The underlying staticmethod makes 5 syscalls per call (see
+        ``__init__`` for the rationale). The polling loop runs at 1ms
+        cadence, so calling it every iteration would be ~5000
+        syscalls/sec. This wrapper re-queries at most every 50ms (20 Hz)
+        and returns the cached result between queries.
+
+        50ms latency is invisible to the user because IME state changes
+        at human typing speed (each key press is ~50-150ms apart).
+        """
+        now = time.monotonic()
+        if now - self._last_ime_check_time < 0.05:
+            return self._last_ime_composing
+        self._last_ime_composing = self._is_ime_composing()
+        self._last_ime_check_time = now
+        return self._last_ime_composing
+
     def _run_polling_loop(self, callback):
         """GetAsyncKeyState polling fallback for hotkey detection.
 
@@ -887,8 +992,10 @@ class WindowsNativeHotkey(HotkeyBackend):
         # suppress the OS-level toggle. VK_CAPITAL = 0x14.
         is_caps_lock_hotkey = (vk == _VK_CAPITAL)
         while not self._stop_event.is_set():
-            # PLAT-020: suppress hotkey triggers during IME composition
-            if self._is_ime_composing():
+            # PLAT-020: suppress hotkey triggers during IME composition.
+            # PERF-FIX-1: use the throttled wrapper so we don't make 5
+            # syscalls per 1ms iteration.
+            if self._is_ime_composing_throttled():
                 was_pressed = False
                 if _pump_messages is not None:
                     try:
@@ -914,7 +1021,7 @@ class WindowsNativeHotkey(HotkeyBackend):
 
           
             state = self._user32.GetAsyncKeyState(vk)
-            is_pressed = bool(state & 0x8000) and self._modifiers_pressed()
+            is_pressed = bool(state & 0x8000) and self._modifiers_pressed() and not self._other_modifiers_pressed()
             if is_pressed and not was_pressed:
                 log.info("[HOTKEY FIRED] GetAsyncKeyState detected key-down")
                 try:
@@ -1082,14 +1189,21 @@ class WindowsNativeHotkey(HotkeyBackend):
             # PLAT-020: suppress hotkey triggers during IME composition.
             # Reset all per-cycle state so a stray IME composition doesn't
             # leak into the next press cycle.
-            if self._is_ime_composing():
+            # PERF-FIX-1: use the throttled wrapper so we don't make 5
+            # syscalls per 1ms iteration.
+            if self._is_ime_composing_throttled():
                 modifier_was_pressed = False
                 other_key_pressed = False
                 press_fired = False
                 self._kernel32.Sleep(50)
                 continue
 
-            is_held = any(self._key_pressed(vk) for vk in modifier_vks)
+            # FIX-MULTI-MOD: require ALL configured modifiers to be held
+            # simultaneously for multi-modifier combos like ``<ctrl>+<alt>``.
+            # Previously used ``any()``, which meant pressing EITHER Ctrl
+            # OR Alt alone would fire the hotkey — instead of requiring
+            # BOTH to be pressed together.
+            is_held = all(self._key_pressed(vk) for vk in modifier_vks)
 
             # ── Transition: not held → held (start of a new press cycle) ──
             if is_held and not modifier_was_pressed:
@@ -1135,8 +1249,31 @@ class WindowsNativeHotkey(HotkeyBackend):
             # pressed any non-modifier key while holding our modifier,
             # they were using a combo (e.g. Alt+C for copy) — we'll
             # suppress the fire on release.
+            #
+            # PERF-FIX-1: the scan is O(248) per iteration
+            # (GetAsyncKeyState for every VK in 0x08-0xFF). At the
+            # polling loop's 1ms cadence that's up to ~248k syscalls/sec
+            # while the modifier is held. The throttled wrapper
+            # ``_any_non_modifier_key_pressed_throttled()`` re-scans at
+            # most every 50ms (20 Hz), reducing the syscall rate to
+            # ~5k/sec. The throttle is safe because:
+            #   - the ``not other_key_pressed`` guard already ensures
+            #     the scan stops once a non-modifier key is detected;
+            #   - True results are NOT cached across releases (the
+            #     wrapper only caches False), so the next press cycle
+            #     always re-scans fresh;
+            #   - 50ms detection latency for non-modifier keys is
+            #     acceptable — typists press keys ≥50ms apart, and the
+            #     polling loop's 1ms cadence still gives ~1ms modifier
+            #     press/release latency (the scan throttle only affects
+            #     combo detection, not the hotkey fire itself).
+            # This scan is intentionally called every iteration while
+            # held (NOT just on the not-held→held transition) because
+            # the user can press a non-modifier key at any point during
+            # the hold, and we need to detect it before the release
+            # transition fires the callback.
             if is_held and not other_key_pressed:
-                if self._any_non_modifier_key_pressed(all_modifier_vks):
+                if self._any_non_modifier_key_pressed_throttled(all_modifier_vks):
                     other_key_pressed = True
                     log.debug(
                         "[HOTKEY] Non-modifier key pressed during modifier "
@@ -1251,6 +1388,18 @@ class WindowsNativeHotkey(HotkeyBackend):
         - Excludes 0xA0-0xA5 (LShift/RShift/LCtrl/RCtrl/LAlt/RAlt)
 
         Returns False on non-Windows or if no non-modifier key is held.
+
+        PERF-FIX-1: this scan is O(248) per iteration (one
+        ``GetAsyncKeyState`` per VK code). The modifier-only polling
+        loop runs at 1ms cadence, so calling this every iteration while
+        the modifier is held would be up to ~248k syscalls/sec. The
+        loop wraps this call in
+        ``_any_non_modifier_key_pressed_throttled()`` (see below) to
+        re-scan at most every 50ms. The scan itself is NOT moved to
+        the not-held→held transition because the user can press a
+        non-modifier key at any point during the hold, and we need to
+        detect it before the release transition fires the callback —
+        only the throttle (50ms re-scan cadence) is applied.
         """
         if not self._user32:
             return False
@@ -1269,6 +1418,55 @@ class WindowsNativeHotkey(HotkeyBackend):
                 # pressed" rather than crashing the polling loop.
                 return False
         return False
+
+    def _any_non_modifier_key_pressed_throttled(
+        self, modifier_vks: "frozenset[int]"
+    ) -> bool:
+        """PERF-FIX-1: throttled wrapper around
+        ``_any_non_modifier_key_pressed()``.
+
+        The underlying scan is O(248) per call (see the docstring on
+        ``_any_non_modifier_key_pressed`` for the rationale). The
+        modifier-only polling loop runs at 1ms cadence, so calling it
+        every iteration while the modifier is held would be up to
+        ~248k syscalls/sec. This wrapper re-scans at most every 50ms
+        (20 Hz), reducing the syscall rate to ~5k/sec.
+
+        Cache semantics:
+
+        - **False results are cached** for 50ms. Between scans the
+          wrapper returns the cached False without touching
+          ``GetAsyncKeyState``.
+        - **True results are NOT cached across releases.** The polling
+          loop stops calling this method once True is returned
+          (``other_key_pressed`` becomes True), then resets
+          ``other_key_pressed`` to False on modifier release. If we
+          cached True across that boundary, the next press cycle would
+          immediately see True (cache hit) and wrongly suppress the
+          fire. So when the underlying scan returns True, we update
+          the timestamp (so the next call within 50ms re-scans fresh)
+          but the cache check explicitly skips when the last result
+          was True.
+
+        50ms detection latency for non-modifier keys is acceptable:
+        typists press keys ≥50ms apart, and the polling loop's 1ms
+        cadence still gives ~1ms modifier press/release latency (the
+        scan throttle only affects combo detection, not the hotkey
+        fire itself).
+        """
+        now = time.monotonic()
+        # Only consult the cache when the last result was False. A
+        # cached True would leak into the next press cycle (see the
+        # docstring) — when the last result was True, always re-scan.
+        if (
+            not self._last_nonmod_pressed
+            and now - self._last_nonmod_check_time < 0.005
+        ):
+            return False
+        result = self._any_non_modifier_key_pressed(modifier_vks)
+        self._last_nonmod_pressed = result
+        self._last_nonmod_check_time = now
+        return result
 
     def _other_modifiers_pressed(self) -> bool:
         """Return True if any modifier OTHER than the configured one is held.
@@ -1971,7 +2169,7 @@ class _NativeBackendAdapter(HotkeyBackend):
         if tray is not None:
             try:
                 tray.notify(
-                    "Voice Typer: Compatibility mode",
+                    f"{APP_NAME}: Compatibility mode",
                     "Hotkey is running in compatibility mode (reduced features). "
                     "Restart the app for full functionality.",
                 )
@@ -1984,7 +2182,7 @@ class _NativeBackendAdapter(HotkeyBackend):
         if tray is not None:
             try:
                 tray.notify(
-                    "Voice Typer: Full mode restored",
+                    f"{APP_NAME}: Full mode restored",
                     "Hotkey is running in full mode.",
                 )
             except Exception:
@@ -1996,7 +2194,7 @@ class _NativeBackendAdapter(HotkeyBackend):
         if tray is not None:
             try:
                 tray.notify(
-                    "Voice Typer: Hotkey error",
+                    f"{APP_NAME}: Hotkey error",
                     "Hotkey is not working. Click to troubleshoot.",
                 )
             except Exception:

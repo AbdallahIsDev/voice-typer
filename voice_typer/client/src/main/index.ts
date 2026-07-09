@@ -278,6 +278,18 @@ let nextId = 1;
 let tcpBuffer = "";
 let pythonReady = false;
 let pythonExitedEarly = false;
+// RW-10: heartbeat interval handle.  Once the Python backend is
+// connected (TCP auth succeeded), we send a ``heartbeat`` IPC every
+// 5 seconds.  The backend's heartbeat-watchdog daemon thread calls
+// ``app.quit()`` if 3 consecutive heartbeats are missed (15s timeout)
+// so a crashed / force-killed Electron doesn't strand the backend
+// with the mic open, hotkeys registered, volume ducked, and the
+// single-instance mutex held.
+//
+// Cleared on TCP close, on stopPython(), and on relaunchApp() so a
+// dying socket doesn't keep queueing heartbeats onto a dead pipe.
+let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+const HEARTBEAT_INTERVAL_MS = 5000;
 // SEC-029: per-session nonce tagged onto every python-event so the
 // renderer can reject replayed frames from an unauthenticated TCP
 // attacker (SEC-018). Generated once at app.whenReady() time.
@@ -587,6 +599,12 @@ function sendToPython(msg: Record<string, unknown>): Promise<unknown> {
 			// MODEL-IMPORT: allow import_model so the Models page can scan
 			// and import pre-downloaded models from a local directory.
 			"import_model",
+			// RW-10: allow heartbeat so the main process can
+			// prove to the Python backend that Electron is
+			// still alive.  The backend's watchdog daemon
+			// thread calls app.quit() if 3 consecutive
+			// heartbeats are missed.
+			"heartbeat",
 		]);
 		const cmd = String(msg?.type ?? "").trim();
 		if (!ALLOWED_COMMANDS.has(cmd)) {
@@ -1231,6 +1249,21 @@ function tcpConnect(port: number) {
 				});
 			}
 			_hadConnectedBefore = true;
+			// RW-10: start the heartbeat interval now that the
+			// backend is connected.  Send an immediate heartbeat
+			// so the backend's watchdog arms quickly (otherwise
+			// the first 5s tick would be the only thing arming
+			// it, and a fast Electron crash in the first 5s
+			// would be undetected until 15s later).
+			if (heartbeatInterval) clearInterval(heartbeatInterval);
+			sendToPython({ type: "heartbeat" }).catch(() => {
+				/* best-effort — will retry on next tick */
+			});
+			heartbeatInterval = setInterval(() => {
+				sendToPython({ type: "heartbeat" }).catch(() => {
+					/* best-effort — close handler will clear the interval */
+				});
+			}, HEARTBEAT_INTERVAL_MS);
 		});
 
 		client.on("data", (chunk: Buffer) => {
@@ -1290,6 +1323,15 @@ function tcpConnect(port: number) {
 			if (tcpSocket === client) {
 				tcpSocket = null;
 				_tcpAuthed = false;
+			}
+			// RW-10: stop the heartbeat interval — the socket is
+			// dead, so further sendToPython() calls would just
+			// queue up rejected promises.  A fresh interval is
+			// started in the connect callback when the next
+			// retry succeeds.
+			if (heartbeatInterval) {
+				clearInterval(heartbeatInterval);
+				heartbeatInterval = null;
 			}
 			// SEC-022: reject all outstanding pendingRequests so the UI
 			// doesn't hang forever. Without this, every `await
@@ -1527,6 +1569,13 @@ function relaunchApp(): void {
 		_hadConnectedBefore = false;
 		_tcpRetryCount = 0;
 		_tcpRetryGeneration++;
+		// RW-10: clear the heartbeat interval — the next connect
+		// callback will start a fresh one when the new backend
+		// accepts our TCP connection.
+		if (heartbeatInterval) {
+			clearInterval(heartbeatInterval);
+			heartbeatInterval = null;
+		}
 
 		// Reject pending IPC, reload renderer, spawn fresh Python
 		for (const [id, entry] of pendingRequests) {
@@ -1568,6 +1617,13 @@ function relaunchApp(): void {
 	} catch {}
 	tcpSocket = null;
 	_tcpAuthed = false;
+	// RW-10: clear the heartbeat interval — process is exiting and
+	// we don't want the timer to fire sendToPython() against a
+	// dead socket during the brief exit window.
+	if (heartbeatInterval) {
+		clearInterval(heartbeatInterval);
+		heartbeatInterval = null;
+	}
 
 	// Reject pending IPC and spawn a brand new OS process
 	for (const [id, entry] of pendingRequests) {
@@ -1579,6 +1635,16 @@ function relaunchApp(): void {
 }
 
 function stopPython() {
+	// RW-10: stop the heartbeat interval first so we don't queue a
+	// heartbeat onto the dying socket while ``quit_app`` is in
+	// flight.  The interval is also cleared in the TCP close
+	// handler, but stopping it here avoids the race where the
+	// 5s tick fires between sendToPython("quit_app") and the
+	// socket actually closing.
+	if (heartbeatInterval) {
+		clearInterval(heartbeatInterval);
+		heartbeatInterval = null;
+	}
 	if (!pythonProcess) return;
 	sendToPython({ type: "quit_app" }).catch(() => {});
 	const killTimer = setTimeout(() => {
@@ -1599,8 +1665,15 @@ function broadcastMaximized(maximized: boolean) {
 // BRAND-METADATA: Set the AppUserModelID so Windows associates the
 // Electron process with Voice Typer (taskbar grouping, Task Manager,
 // Volume Mixer). This must be called before any windows are created.
+//
+// BRAND-FIX-001: previously set to "abdallahisdev.VoiceTyper" which caused
+// Windows notifications to display "Abdallah isdev.voice typer" as the
+// notification header instead of just "Voice Typer". On Windows, the
+// AppUserModelID is used as the notification title, NOT the `title`
+// parameter passed to the Notification constructor. Changed to match
+// the app name so notifications show "Voice Typer".
 try {
-	app.setAppUserModelId("abdallahisdev.VoiceTyper");
+	app.setAppUserModelId("VoiceTyper");
 } catch {
 	// Best-effort — only matters on Windows 7+.
 }

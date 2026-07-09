@@ -95,44 +95,56 @@ def parse_hotkey_spec(spec: str) -> Optional[dict]:
         - ``is_caps_lock``: True if main_key is "CapsLock"
 
     Returns None if the spec is empty or unparseable.
+
+    RW-1 (Hotkey parser unification): this now delegates to the
+    canonical :func:`voice_typer.server.hotkey_spec.parse_hotkey` for
+    tokenisation and alias resolution, then converts the resulting
+    :class:`HotkeySpec` to the dict format consumers expect.
+
+    Platform-specific modifier collapsing — preserved for backward
+    compatibility with the wire-protocol matching logic in this
+    module (``_on_modifier_event`` maps wire ``Cmd``/``Win``/``Super``
+    events to ``"cmd"``, and ``<cmd>`` is expected to match
+    ``MOD_DOWN:Win`` on Windows and ``MOD_DOWN:Super`` on Linux):
+
+    - Canonical ``"win"`` → ``"cmd"`` (this adapter collapses)
+    - Canonical ``"super"`` → ``"cmd"`` (this adapter collapses)
+    - Canonical ``"alt_gr"`` → ``"altgr"`` (wire-protocol name has
+      no underscore)
+
+    The canonical parser preserves the distinction; this adapter
+    collapses for platform-specific matching. The Win32 adapter
+    (``parse_hotkey_to_win32``) collapses ``win`` / ``super`` / ``cmd``
+    into ``_MOD_WIN`` for the same reason (Windows does not
+    distinguish).
     """
-    if not spec:
+    from voice_typer.server.hotkey_spec import parse_hotkey
+
+    parsed = parse_hotkey(spec)
+    if parsed.is_empty:
         return None
 
-    # Strip < > and split on +
-    cleaned = spec.strip().strip("<>")
-    parts = [p.strip().strip("<>").strip() for p in cleaned.split("+")]
-    parts = [p for p in parts if p]
-    if not parts:
-        return None
-
-    modifier_aliases = {
-        "ctrl": "ctrl", "control": "ctrl",
-        "shift": "shift",
-        "alt": "alt", "alt_l": "alt", "alt_r": "alt",
-        "altgr": "altgr", "right_alt": "altgr", "ralt": "altgr",
-        "cmd": "cmd", "cmd_l": "cmd", "cmd_r": "cmd",
-        "win": "cmd", "win_l": "cmd", "win_r": "cmd",
-        "super": "cmd", "super_l": "cmd", "super_r": "cmd",
-        "fn": "fn", "globe": "fn",
+    # Collapse canonical win/super → cmd for cross-platform wire matching.
+    # Map alt_gr → altgr (no underscore) for backward compat with the
+    # existing wire-protocol matching in this module.
+    _CANONICAL_TO_NATIVE = {
+        "win": "cmd",
+        "super": "cmd",
+        "alt_gr": "altgr",
     }
 
-    modifiers: set[str] = set()
-    main_key: Optional[str] = None
+    modifiers: set[str] = {_CANONICAL_TO_NATIVE.get(m, m) for m in parsed.modifiers}
 
-    for part in parts:
-        lower = part.lower()
-        if lower in modifier_aliases:
-            modifiers.add(modifier_aliases[lower])
-        else:
-            # Non-modifier token — only one allowed
-            if main_key is not None:
-                log.warning(
-                    "Hotkey spec %r has multiple non-modifier keys; using first",
-                    spec,
-                )
-                continue
-            main_key = _normalize_key_name(part)
+    # Non-modifier keys: only one allowed; extras ignored with a warning
+    # (preserves the previous first-match-wins behaviour).
+    main_key: Optional[str] = None
+    if parsed.keys:
+        main_key = _normalize_key_name(parsed.keys[0])
+        if len(parsed.keys) > 1:
+            log.warning(
+                "Hotkey spec %r has multiple non-modifier keys; using first",
+                spec,
+            )
 
     if not modifiers and main_key is None:
         return None
@@ -151,7 +163,20 @@ def parse_hotkey_spec(spec: str) -> Optional[dict]:
 
 
 def _normalize_key_name(token: str) -> str:
-    """Normalize a non-modifier key token to the wire-protocol name."""
+    """Normalize a non-modifier key token to the wire-protocol name.
+
+    ISSUE-3 (Key-name maps): this function is the canonical
+    name-to-name transformer for the THREE independent key-name tables:
+
+      Frontend: KEY_CODE_TO_PYNPUT (hotkey-utils.ts) — e.code → pynput
+      Backend:  _VK_MAP (hotkeys.py) — pynput name → Win32 VK code
+      Native:   _normalize_key_name (here) — pynput name → wire name
+
+    All three must agree on the set of names ("f1", "space",
+    "caps_lock", "page_up", etc.). This function is the one to update
+    when adding a new key name — then update the other two tables in
+    parallel so they stay in sync.
+    """
     t = token.lower().strip()
     # Function keys
     if t.startswith("f") and t[1:].isdigit():
@@ -643,20 +668,25 @@ class SubprocessHotkeyBackend(ABC):
                 self._fire_on_release()
             return
 
-        # Modifier-only hotkey (e.g. <alt>)
+        # Modifier-only hotkey (e.g. <alt>, or <ctrl>+<alt>)
         if parsed["is_modifier_only"]:
-            mod = next(iter(parsed["modifiers"]))  # the only modifier
-            if mod == "fn":
+            required = parsed["modifiers"]
+            if "fn" in required:
                 # Already handled by FN_DOWN/FN_UP above
                 return
-            canonical = _canonical_modifier_name_for_token(mod)
-            if canonical is None:
+            # Convert spec tokens to canonical modifier names
+            required_canonical = set()
+            for token in required:
+                c = _canonical_modifier_name_for_token(token)
+                if c is not None:
+                    required_canonical.add(c)
+            if not required_canonical:
                 return
             with self._match_lock:
                 held = set(self._held_modifiers)
                 fn_down = self._fn_down
-            # The hotkey is "this modifier and no others"
-            if held != {canonical}:
+            # The hotkey is "these exact modifiers and no others"
+            if held != required_canonical:
                 return
             if down:
                 self._fire_callback()
