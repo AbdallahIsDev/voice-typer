@@ -10,14 +10,34 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import {
-	COMBO_PRESETS,
 	formatHotkeyLabel,
+	getComboPresets,
+	getSingleKeyPresets,
 	IS_MAC,
 	KEY_CODE_TO_PYNPUT,
 	MODIFIER_CODE_TO_PYNPUT,
-	SINGLE_KEY_PRESETS,
 	validateHotkey,
 } from "./hotkey-utils";
+
+// HOTKEY-MULTIKEY-001: canonical modifier order. Modifiers are stored in
+// the session set in INSERTION order (the order the user pressed them),
+// but the captured hotkey must be IDENTICAL regardless of press order —
+// so we always emit modifiers in this canonical order before committing.
+// This satisfies the directive's requirement: "Whether the user releases
+// Ctrl first, Shift first, or any other key first, the final captured
+// shortcut should always be identical."
+//
+// Defined at module level so it's referentially stable across renders
+// (avoids stale-closure warnings in useCallback deps).
+const CANONICAL_MOD_ORDER = [
+	"ctrl",
+	"shift",
+	"alt",
+	"cmd",
+	"win",
+	"super",
+	"fn",
+] as const;
 
 interface HotkeyPickerProps {
 	value: string;
@@ -42,13 +62,57 @@ interface HotkeyPickerProps {
 }
 
 /**
- * NATIVE-001: updated to support modifier-only hotkeys (Alt, Ctrl, Shift,
- * Win/Cmd, Fn) as single-key triggers. The native backends support
- * modifier-only release detection, which pynput did not.
+ * NATIVE-001: supports modifier-only hotkeys (Alt, Ctrl, Shift, Win/Cmd,
+ * Fn) as single-key triggers via native backend modifier-only release
+ * detection.
  *
  * For the FN key on macOS: the browser doesn't fire keydown events for
  * Fn (it's a modifier the OS intercepts). Users on macOS who want Fn
  * must select it from the dropdown — capture won't work.
+ *
+ * HOTKEY-MULTIKEY-001 (Tasks 1.1 + 1.3): the capture flow has been
+ * redesigned to support true multi-key shortcuts. The previous
+ * architecture stored a single ``{ mods, mainKey }`` candidate which
+ * could only hold ONE non-modifier key; pressing a second non-modifier
+ * overwrote the first, making combos like ``Delete+End`` impossible.
+ *
+ * The new architecture accumulates the full set of pressed keys across
+ * the entire capture session:
+ *   - ``heldModifiersRef`` — modifiers currently held down.
+ *   - ``heldNonModifiersRef`` — non-modifier keys currently held down.
+ *   - ``sessionModifiersRef`` — every modifier held at ANY point in the
+ *     session (sticky: once added, stays until commit/cancel).
+ *   - ``sessionNonModifiersRef`` — every non-modifier pressed during the
+ *     session.
+ *
+ * The shortcut is committed when ALL pressed keys have been released
+ * (i.e. both ``held*`` sets are empty AND at least one key was pressed).
+ * Because we accumulate the session set rather than the currently-held
+ * set, the captured shortcut is identical regardless of release order
+ * (Ctrl→Shift release vs Shift→Ctrl release produce the same combo).
+ *
+ * HOTKEY-FULLMSG-001 (Task 1.1): error messages always reference the
+ * complete attempted shortcut, including all modifiers. Previously
+ * pressing ``Shift+Z`` in single mode showed ``"Single letters and
+ * digits can't be used as hotkeys — 'z' would interfere with typing"``
+ * (the Shift was dropped because the candidate was ``<z>`` without
+ * mods). The new architecture keeps the modifiers in the session set
+ * even in single mode, so the error can reference the full combo:
+ * ``"Shift+Z can't be used as a dictation key — it would interfere
+ * with typing. Use the re-paste key picker for combos."``.
+ *
+ * Preserved from prior architecture:
+ *   - HOTKEY-DEFER-001: commit on keyUP (not keyDOWN) — eliminates the
+ *     capture-triggers-recording race where the backend sees the still-
+ *     held key as a fresh press.
+ *   - ESC-KEYUP-FIX: ESC cancel fires on ESC release (key-up), not on
+ *     key-down. The frontend DOM keyup is a secondary path; the backend
+ *     push via ``hotkey_capture_cancel`` is the primary path.
+ *   - ESC-FIX-003: always-attached DOM listeners via refs (no
+ *     re-registration window).
+ *   - cancelRecording guard: prevents duplicate ``onCaptureEnd`` calls
+ *     when both backend push and frontend DOM keyup fire for the same
+ *     ESC release.
  */
 export function HotkeyPicker({
 	value,
@@ -62,7 +126,22 @@ export function HotkeyPicker({
 	const [recording, setRecording] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const modifierHeldRef = useRef<Set<string>>(new Set());
+	// HOTKEY-MULTIKEY-001: refs tracking the full set of pressed keys.
+	//   - heldModifiersRef / heldNonModifiersRef: keys currently held
+	//     down (used to detect "all keys released → commit").
+	//   - sessionModifiersRef / sessionNonModifiersRef: sticky sets
+	//     accumulated across the entire capture session. These drive
+	//     the final committed combo and the error message — even if
+	//     the user releases a modifier before releasing the main key,
+	//     the modifier is still part of the attempted shortcut.
+	const heldModifiersRef = useRef<Set<string>>(new Set());
+	const heldNonModifiersRef = useRef<Set<string>>(new Set());
+	const sessionModifiersRef = useRef<Set<string>>(new Set());
+	const sessionNonModifiersRef = useRef<Set<string>>(new Set());
+	// Tracks the human-readable label of an unsupported key that was
+	// pressed during the session, so the error message can include
+	// the full attempted combo (mods + the unsupported key).
+	const unsupportedComboRef = useRef<string | null>(null);
 	// Ref mirror of recording state so event handlers always read the
 	// latest value from a ref instead of relying on a re-created closure.
 	// This eliminates the stale-closure window where the handler could
@@ -93,24 +172,6 @@ export function HotkeyPicker({
 	// instead of on key-down. Set on keydown of ESC, cleared after
 	// the key-up handler processes the release.
 	const escPressedRef = useRef(false);
-	// HOTKEY-FIX-005: flag set when a non-modifier key is pressed during
-	// the current capture session.  Prevents ``handleKeyUp``'s modifier-only
-	// release detection from partially assigning a modifier when the full
-	// combination (e.g. Shift+Z) was rejected as invalid.
-	const nonModifierSeenRef = useRef(false);
-	// HOTKEY-DEFER-001 (Task 2.3/2.4): candidate hotkey captured on
-	// keyDOWN but NOT yet committed. The assignment is deferred to
-	// keyUP of the main key so the key is no longer physically held
-	// when the IPC set_config reaches the backend — this eliminates
-	// the race where the newly-registered backend sees the still-held
-	// key as a fresh press and immediately triggers recording.
-	// The candidate is { mods: Set<string>, mainKey: string } | null.
-	// null means no non-modifier key has been pressed yet in this
-	// capture session (modifier-only release detection handles that
-	// case separately in handleKeyUp).
-	const candidateRef = useRef<{ mods: Set<string>; mainKey: string } | null>(
-		null,
-	);
 
 	useEffect(() => {
 		recordingRef.current = recording;
@@ -170,7 +231,213 @@ export function HotkeyPicker({
 			}
 		};
 	}, []);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: mode and onChange ARE used inside the callback (mode is checked, onChange is called). Biome's heuristic incorrectly flags them as unnecessary. ESC-FIX-002: onCaptureEnd removed from deps → read from ref.
+
+	// ── Helpers (defined first; referenced by handleKeyDown / handleKeyUp) ──
+
+	// HOTKEY-MULTIKEY-001: snapshot the modifier state from the keyboard
+	// event (``e.ctrlKey/shiftKey/altKey/metaKey``) and convert to pynput
+	// modifier names. This is more reliable than tracking modifier key
+	// events themselves, because:
+	//   - On macOS, the Cmd key's e.code is ``MetaLeft``/``MetaRight`` and
+	//     maps to "cmd" — but if the user holds Cmd+Q, the Q keydown event
+	//     has ``e.metaKey=true`` which we read directly here.
+	//   - If the user pressed a modifier BEFORE entering capture mode (the
+	//     keydown event for the modifier itself was missed), we still see
+	//     the modifier via the ``e.*Key`` flag on the next non-modifier
+	//     keydown.
+	// The returned set is added to both ``heldModifiersRef`` and
+	// ``sessionModifiersRef`` so the modifier is "sticky" for the rest
+	// of the session (the user might release it before releasing the
+	// main key, but it's still part of the attempted shortcut).
+	const snapshotModifiers = useCallback((e: KeyboardEvent): Set<string> => {
+		const mods = new Set<string>();
+		if (e.ctrlKey) mods.add("ctrl");
+		if (e.shiftKey) mods.add("shift");
+		if (e.altKey) mods.add("alt");
+		if (e.metaKey) mods.add(IS_MAC ? "cmd" : "win");
+		return mods;
+	}, []);
+
+	// HOTKEY-MULTIKEY-001: return the session modifiers in canonical order.
+	const getCanonicalModifiers = useCallback((): string[] => {
+		return CANONICAL_MOD_ORDER.filter((m) =>
+			sessionModifiersRef.current.has(m),
+		);
+	}, []);
+
+	// HOTKEY-FULLMSG-001: build the full attempted-shortcut label for an
+	// error message. Combines session modifiers (canonical order), session
+	// non-modifiers (insertion order), and (optionally) an extra key label
+	// that isn't in the session sets (e.g. an unsupported key that was
+	// pressed but not added to the session because it has no pynput
+	// mapping).
+	const buildAttemptedComboLabel = useCallback(
+		(extraKeyLabel?: string): string => {
+			const parts: string[] = [];
+			// Modifiers in canonical order so the label is deterministic.
+			for (const m of CANONICAL_MOD_ORDER) {
+				if (sessionModifiersRef.current.has(m)) parts.push(m);
+			}
+			// Non-modifiers in insertion order.
+			for (const k of sessionNonModifiersRef.current) parts.push(k);
+			// Extra key (unsupported key with no pynput mapping).
+			if (extraKeyLabel) parts.push(extraKeyLabel);
+			if (parts.length === 0) return "";
+			// Use the shared label formatter so the error message
+			// matches the display format the user will see after
+			// a successful assignment.
+			const spec = parts.map((p) => `<${p}>`).join("+");
+			return formatHotkeyLabel(spec);
+		},
+		[],
+	);
+
+	// HOTKEY-MULTIKEY-001: reset all capture-session refs to their empty
+	// state. Called after a successful commit, after a cancel, or after
+	// an error to give the user a fresh attempt.
+	//
+	// NOTE: this does NOT touch the ``error`` state. The error must be
+	// cleared separately (via ``setError(null)``) when the user starts a
+	// new attempt or cancels — but it must NOT be cleared right after
+	// ``setError(msg)`` sets a validation error, or the user would never
+	// see the error. Callers that need to clear the error should do so
+	// explicitly.
+	const resetCaptureSession = useCallback(() => {
+		heldModifiersRef.current = new Set();
+		heldNonModifiersRef.current = new Set();
+		sessionModifiersRef.current = new Set();
+		sessionNonModifiersRef.current = new Set();
+		unsupportedComboRef.current = null;
+		escPressedRef.current = false;
+		if (timeoutRef.current) {
+			clearTimeout(timeoutRef.current);
+			timeoutRef.current = null;
+		}
+	}, []);
+
+	// HOTKEY-MULTIKEY-001: commit a modifier-only combo (e.g.
+	// ``<ctrl>+<shift>``, ``<alt>``). Called when the user released the
+	// last held modifier without pressing any non-modifier key.
+	const commitModifierOnlyCombo = useCallback(() => {
+		const mods = getCanonicalModifiers();
+		if (mods.length === 0) return;
+
+		// In single mode, only a SINGLE modifier is allowed (the dictation
+		// key is one key). If the user held 2+ modifiers, show an error
+		// referencing the full attempted combo and stay in capture mode.
+		if (mode === "single" && mods.length > 1) {
+			const label = formatHotkeyLabel(mods.map((m) => `<${m}>`).join("+"));
+			setError(
+				`"${label}" can't be used as a dictation key — dictation key must be a single key. Use the re-paste key picker for combos.`,
+			);
+			// Reset the session so the user can try again without the stale
+			// multi-modifier set blocking the next attempt.
+			sessionModifiersRef.current = new Set();
+			heldModifiersRef.current = new Set();
+			return;
+		}
+
+		const newHotkey = mods.map((m) => `<${m}>`).join("+");
+		const validationError = validateHotkey(newHotkey, mode);
+		if (validationError) {
+			setError(validationError);
+			resetCaptureSession();
+			return;
+		}
+		onChange(newHotkey);
+		resetCaptureSession();
+		setRecording(false);
+		recordingRef.current = false;
+		setError(null);
+		onCaptureEndRef.current?.();
+	}, [mode, onChange, resetCaptureSession, getCanonicalModifiers]);
+
+	// HOTKEY-MULTIKEY-001: commit the full combo when all non-modifier
+	// keys have been released. The committed combo includes every
+	// modifier and every non-modifier pressed during the session
+	// (release-order independent).
+	const commitFullCombo = useCallback(() => {
+		const mods = getCanonicalModifiers();
+		const keys = [...sessionNonModifiersRef.current];
+		const parts = [...mods, ...keys];
+
+		if (parts.length === 0) return;
+
+		// HOTKEY-FULLMSG-001 (Task 1.1): in single mode, if the user
+		// pressed modifiers alongside a non-modifier, the full combo
+		// is NOT a valid dictation key. Show an error referencing the
+		// FULL attempted combo (modifiers + non-modifiers), not just
+		// the non-modifier.
+		if (mode === "single" && parts.length > 1) {
+			const label = formatHotkeyLabel(parts.map((p) => `<${p}>`).join("+"));
+			setError(
+				`"${label}" can't be used as a dictation key — dictation key must be a single key. Use the re-paste key picker for combos.`,
+			);
+			resetCaptureSession();
+			return;
+		}
+
+		// Build the hotkey string. In single mode, parts.length === 1
+		// (we handled the >1 case above) so the hotkey is a single key.
+		// In combo mode, parts can be 1+ modifiers + 1+ non-modifiers.
+		const newHotkey = parts.map((p) => `<${p}>`).join("+");
+
+		const validationError = validateHotkey(newHotkey, mode);
+		if (validationError) {
+			// HOTKEY-FULLMSG-001: the validation error from the shared
+			// validator already references the full combo (e.g.
+			// "Shift+Z interferes with text capitalization"). We pass
+			// it through unchanged.
+			setError(validationError);
+			resetCaptureSession();
+			return;
+		}
+		onChange(newHotkey);
+		resetCaptureSession();
+		setRecording(false);
+		recordingRef.current = false;
+		setError(null);
+		onCaptureEndRef.current?.();
+	}, [mode, onChange, resetCaptureSession, getCanonicalModifiers]);
+
+	const cancelRecording = useCallback(() => {
+		// ESC-KEYUP-FIX: guard against duplicate onCaptureEnd calls.
+		// If the backend pushes a hotkey_capture_cancel event while
+		// the frontend has already exited capture via key-up handler,
+		// recordingRef.current is already false — skip the redundant
+		// IPC call that would log a duplicate "ESC cancel RESUMED".
+		if (!recordingRef.current) return;
+		setRecording(false);
+		recordingRef.current = false;
+		resetCaptureSession();
+		setError(null);
+		// ESC-FIX-001/002: read from ref so we always call the latest
+		// onCaptureEnd without depending on it in deps.
+		onCaptureEndRef.current?.();
+	}, [resetCaptureSession]); // ESC-FIX-002: onCaptureEnd read from ref
+
+	const startRecording = useCallback(() => {
+		setRecording(true);
+		// Sync the ref immediately alongside the state setter so the
+		// keydown handler sees recording=true even before React's
+		// re-render + effect cycle completes.
+		recordingRef.current = true;
+		resetCaptureSession();
+		setError(null);
+		// ESC-FIX-001/002: read from ref so we always call the latest
+		// onCaptureStart without depending on it in deps.
+		onCaptureStartRef.current?.();
+		// HOTKEY-FIX-003: No capture timeout — stay in capture mode
+		// indefinitely. Exit only when: user clicks outside, clicks
+		// the capture button again, or presses Esc.
+	}, [resetCaptureSession]);
+
+	// ── Keydown handler ───────────────────────────────────────────────
+	//
+	// HOTKEY-MULTIKEY-001: each pressed key is added to the appropriate
+	// ``held*`` set and the sticky ``session*`` set. No commit happens
+	// here — the candidate is finalized only when all keys are released
+	// (see keyUp handler).
 	const handleKeyDown = useCallback(
 		(e: KeyboardEvent) => {
 			if (!recordingRef.current) return;
@@ -191,22 +458,16 @@ export function HotkeyPicker({
 			e.preventDefault();
 			e.stopPropagation();
 
-			// Track held modifiers so we can detect "modifier-only" presses
-			// (user presses Alt alone and releases it without any other key).
+			// Detect modifier keys by e.code (layout-independent).
 			const modifierCode = MODIFIER_CODE_TO_PYNPUT[e.code];
 			if (modifierCode) {
-				modifierHeldRef.current.add(modifierCode);
+				// HOTKEY-MULTIKEY-001: accumulate the modifier into both
+				// the held set (for release detection) and the session
+				// set (for the final committed combo).
+				heldModifiersRef.current.add(modifierCode);
+				sessionModifiersRef.current.add(modifierCode);
 				return;
 			}
-
-			// HOTKEY-FIX-005: a non-modifier key was pressed — mark the flag
-			// so ``handleKeyUp``'s modifier-only release detection skips.
-			// This prevents partial modifier assignment when the combination
-			// is later rejected (e.g. Shift+Z where Z is unsupported).
-			nonModifierSeenRef.current = true;
-
-			const isModifier = e.code in MODIFIER_CODE_TO_PYNPUT;
-			if (isModifier) return;
 
 			// HOTKEY-FIX-002: use e.code (layout-independent) instead
 			// of e.key (layout-dependent) so the lookup works on
@@ -214,68 +475,67 @@ export function HotkeyPicker({
 			// includes letters and digits (was missing in Round 0).
 			const pynputName = KEY_CODE_TO_PYNPUT[e.code];
 
-			// Build the held-modifiers list for BOTH single and combo
-			// modes. In single mode the dictation key ignores modifiers
-			// (a single key only), but we still need them for the error
-			// message so the user sees "Shift+Z is not supported"
-			// instead of just "Key 'Z' is not supported".
-			const mods: string[] = [];
-			if (e.ctrlKey) mods.push("ctrl");
-			if (e.shiftKey) mods.push("shift");
-			if (e.altKey) mods.push("alt");
-			if (e.metaKey) mods.push(IS_MAC ? "cmd" : "win");
+			// Snapshot the currently-held modifiers from the event flags.
+			// Even if the user pressed the modifier BEFORE entering capture
+			// mode (so we never saw its keydown), the e.*Key flag tells us
+			// it's currently held.
+			const currentMods = snapshotModifiers(e);
+			for (const m of currentMods) {
+				heldModifiersRef.current.add(m);
+				sessionModifiersRef.current.add(m);
+			}
 
 			if (!pynputName) {
-				// HOTKEY-FIX-003 (Round 1): include held modifiers in
-				// the error message so the user sees the complete
-				// attempted shortcut, not just the final key. Previously
-				// pressing Shift+Z showed "Key 'Z' is not supported" —
+				// HOTKEY-FULLMSG-001 (Task 1.1): include held modifiers
+				// AND any non-modifier keys already pressed in this
+				// session in the error message, so the user sees the
+				// complete attempted shortcut. Previously pressing
+				// ``Shift+Z`` showed ``"Key 'Z' is not supported."`` —
 				// dropping the Shift modifier entirely. Now it shows
-				// "Shift+Z is not supported" (or the full combo).
-				// This now applies to BOTH single and combo modes
-				// (Task 2.2 — previously single mode was missed).
-				const attemptedCombo =
-					mods.length > 0 ? `${mods.join("+")}+${e.key}` : e.key;
+				// ``"Shift+Z is not supported. Try letters, numbers,
+				// F-keys, or Space."`` (or the full combo, including
+				// any previously-pressed keys like Delete in a
+				// ``Delete+Shift+Z`` attempt).
+				//
+				// Use e.key as the human-readable label for the
+				// unsupported key (it's layout-aware and gives the
+				// user a recognizable name like "Z" or "F13").
+				const attemptedCombo = buildAttemptedComboLabel(e.key);
+				unsupportedComboRef.current = attemptedCombo;
 				setError(
 					`"${attemptedCombo}" is not supported. Try letters, numbers, F-keys, or Space.`,
 				);
 				return;
 			}
 
-			// HOTKEY-DEFER-001 (Task 2.3/2.4): capture the candidate but
-			// DON'T commit yet. The assignment is deferred to keyUP of
-			// this main key so the key is no longer physically held when
-			// the IPC set_config reaches the backend. This eliminates the
-			// race where the newly-registered backend's polling loop sees
-			// the still-held key as a fresh press and immediately fires
-			// the dictation callback.
-			//
-			// In single mode, mods are ignored at commit time (the
-			// dictation key is a single key only), but we store them so
-			// the error message at keyUP can still show the full combo
-			// if validation fails.
-			candidateRef.current = {
-				mods: new Set(mods),
-				mainKey: pynputName,
-			};
+			// HOTKEY-MULTIKEY-001: add the non-modifier to both the held
+			// set (for release detection) and the session set (for the
+			// final committed combo). Multiple non-modifiers can now be
+			// accumulated — pressing Delete then End produces a
+			// ``<delete>+<end>`` combo, instead of End overwriting Delete.
+			heldNonModifiersRef.current.add(pynputName);
+			sessionNonModifiersRef.current.add(pynputName);
 			// Clear any prior error so the user sees the candidate is
 			// pending (the error from a previous failed attempt would
 			// otherwise stay visible during the new attempt).
 			setError(null);
+			unsupportedComboRef.current = null;
 		},
-		[mode, onChange],
+		[snapshotModifiers, buildAttemptedComboLabel],
 	);
 
-	// HOTKEY-DEFER-001 (Task 2.3/2.4): commit the candidate on keyUP of the
-	// main key. This is the unified assignment path for ALL non-modifier
-	// keys (Tab, Caps Lock, Delete, Insert, Home, End, Page Up/Down, F-keys,
-	// letters, digits, etc.). Previously only modifiers (Ctrl/Shift/Alt/Cmd)
-	// used the keyUP assignment path; every other key was assigned on
-	// keyDOWN while still held, causing the capture-triggers-recording race.
+	// ── Keyup handler ─────────────────────────────────────────────────
 	//
-	// Modifier-only release detection (for <alt>, <ctrl>, <shift>, <cmd>/<win>
-	// as single-key triggers) is preserved below — it fires when the last
-	// held modifier is released and no non-modifier key was pressed.
+	// HOTKEY-MULTIKEY-001: the shortcut is committed only when ALL pressed
+	// keys have been released. Because we accumulate the session set (not
+	// the held set), the captured combo is identical regardless of release
+	// order — Ctrl→Shift release produces the same combo as Shift→Ctrl
+	// release.
+	//
+	// HOTKEY-DEFER-001 (preserved): committing on keyUP (not keyDOWN)
+	// eliminates the capture-triggers-recording race where the newly-
+	// registered backend's polling loop sees the still-held key as a
+	// fresh press and immediately fires the dictation callback.
 	const handleKeyUp = useCallback(
 		(e: KeyboardEvent) => {
 			if (!recordingRef.current) return;
@@ -285,137 +545,80 @@ export function HotkeyPicker({
 			// regular key capture works — assignment happens on key-up.
 			if (e.key === "Escape" && escPressedRef.current) {
 				escPressedRef.current = false;
-				recordingRef.current = false;
-				setRecording(false);
-				setError(null);
-				modifierHeldRef.current.clear();
-				nonModifierSeenRef.current = false;
-				candidateRef.current = null;
-				onCaptureEndRef.current?.();
+				resetCaptureSession();
+				cancelRecording();
 				return;
 			}
 
 			const modifierCode = MODIFIER_CODE_TO_PYNPUT[e.code];
 			if (modifierCode) {
-				// Modifier key release — update held set.
-				modifierHeldRef.current.delete(modifierCode);
-				// Modifier-only release detection (single mode only):
-				// if the user pressed a modifier and released it without
-				// pressing any other key, treat that modifier alone as
-				// the chosen hotkey. The nonModifierSeenRef guard
-				// prevents partial assignment when a combination
-				// (Shift+Z) was rejected but the modifier release still
-				// fires.
+				// Modifier key release — remove from held set.
+				heldModifiersRef.current.delete(modifierCode);
+				// If no non-modifier was pressed AND all modifiers are
+				// released, this is the modifier-only release path:
+				// commit the modifier set as the hotkey. This is the
+				// unified path for both single-key (e.g. ``<alt>``) and
+				// modifier-combo (e.g. ``<ctrl>+<shift>``) hotkeys.
 				if (
-					mode === "single" &&
-					modifierHeldRef.current.size === 0 &&
-					!nonModifierSeenRef.current &&
-					!candidateRef.current
+					sessionNonModifiersRef.current.size === 0 &&
+					heldModifiersRef.current.size === 0 &&
+					sessionModifiersRef.current.size > 0
 				) {
-					const newHotkey = `<${modifierCode}>`;
-					const validationError = validateHotkey(newHotkey, mode);
-					if (validationError) {
-						setError(validationError);
-						return;
-					}
-					onChange(newHotkey);
-					setError(null);
-					recordingRef.current = false;
-					setRecording(false);
-					candidateRef.current = null;
-					onCaptureEndRef.current?.();
+					commitModifierOnlyCombo();
 				}
 				return;
 			}
 
-			// Non-modifier key release — commit the candidate if one is
-			// pending. The candidate was captured on keyDOWN; this keyUP
-			// is the signal that the user has released the main key, so
-			// it's now safe to commit (the key is no longer physically
-			// held, eliminating the capture-triggers-recording race).
-			const candidate = candidateRef.current;
-			if (!candidate) return;
-			// Only commit on the keyUP of the main key that was pressed.
-			// Ignore keyUP of other non-modifier keys (e.g. if the user
-			// presses Tab then accidentally hits Space, the Space keyUP
-			// shouldn't commit the Tab candidate).
+			// Non-modifier key release — remove from held set.
 			const pynputName = KEY_CODE_TO_PYNPUT[e.code];
-			if (pynputName !== candidate.mainKey) return;
-
-			// Build the hotkey string. In single mode, mods are ignored
-			// (dictation key is a single key only). In combo mode, mods
-			// are part of the hotkey.
-			let newHotkey: string;
-			if (mode === "single") {
-				newHotkey = `<${candidate.mainKey}>`;
-			} else {
-				const parts = [...candidate.mods, candidate.mainKey];
-				newHotkey = parts.map((p) => `<${p}>`).join("+");
+			if (pynputName) {
+				heldNonModifiersRef.current.delete(pynputName);
 			}
 
-			const validationError = validateHotkey(newHotkey, mode);
-			if (validationError) {
-				setError(validationError);
-				candidateRef.current = null;
+			// If an unsupported key was pressed during this session, keep
+			// the error visible and DO NOT commit. The user has released
+			// the unsupported key; we stay in capture mode so they can
+			// try a different combo without re-clicking the Record button.
+			if (unsupportedComboRef.current) {
+				// Clear the unsupported flag so the next combo attempt
+				// starts fresh, but keep the session sets (the user
+				// might still be holding modifiers from the same attempt).
+				unsupportedComboRef.current = null;
+				// Don't clear sessionNonModifiersRef here — it's empty
+				// anyway (the unsupported key was never added).
 				return;
 			}
-			onChange(newHotkey);
-			setError(null);
-			recordingRef.current = false;
-			setRecording(false);
-			modifierHeldRef.current.clear();
-			candidateRef.current = null;
-			onCaptureEndRef.current?.();
+
+			// HOTKEY-MULTIKEY-001: commit only when ALL non-modifier keys
+			// have been released. This makes the captured combo
+			// release-order independent: if the user holds Delete+End and
+			// releases End first, then Delete, the combo is committed on
+			// Delete release (the last held non-modifier) and includes
+			// both keys from the session set.
+			if (
+				heldNonModifiersRef.current.size === 0 &&
+				sessionNonModifiersRef.current.size > 0
+			) {
+				commitFullCombo();
+			}
 		},
-		[mode, onChange],
+		// commitModifierOnlyCombo / commitFullCombo / resetCaptureSession /
+		// cancelRecording are all stable (useCallback with stable deps)
+		// — including them here keeps the linter happy without re-creating
+		// handleKeyUp on every render.
+		[
+			commitModifierOnlyCombo,
+			commitFullCombo,
+			resetCaptureSession,
+			cancelRecording,
+		],
 	);
 
-	const startRecording = useCallback(() => {
-		setRecording(true);
-		// Sync the ref immediately alongside the state setter so the
-		// keydown handler sees recording=true even before React's
-		// re-render + effect cycle completes.
-		recordingRef.current = true;
-		setError(null);
-		modifierHeldRef.current.clear();
-		escPressedRef.current = false;
-		// HOTKEY-FIX-005: fresh capture session — reset the flag so
-		// modifier-only release detection works on the next attempt.
-		nonModifierSeenRef.current = false;
-		// HOTKEY-DEFER-001: clear any stale candidate from a previous
-		// capture session.
-		candidateRef.current = null;
-		// ESC-FIX-001/002: read from ref so we always call the latest
-		// onCaptureStart without depending on it in deps.
-		onCaptureStartRef.current?.();
-		// HOTKEY-FIX-003: No capture timeout — stay in capture mode
-		// indefinitely. Exit only when: user clicks outside, clicks
-		// the capture button again, or presses Esc.
-	}, []); // ESC-FIX-002: empty deps — onCaptureStart read from ref
-
-	const cancelRecording = useCallback(() => {
-		// ESC-KEYUP-FIX: guard against duplicate onCaptureEnd calls.
-		// If the backend pushes a hotkey_capture_cancel event while
-		// the frontend has already exited capture via key-up handler,
-		// recordingRef.current is already false — skip the redundant
-		// IPC call that would log a duplicate "ESC cancel RESUMED".
-		if (!recordingRef.current) return;
-		setRecording(false);
-		recordingRef.current = false;
-		setError(null);
-		modifierHeldRef.current.clear();
-		escPressedRef.current = false;
-		nonModifierSeenRef.current = false;
-		// HOTKEY-DEFER-001: clear any pending candidate so a stale
-		// keyUP after cancel doesn't commit a hotkey.
-		candidateRef.current = null;
-		if (timeoutRef.current) clearTimeout(timeoutRef.current);
-		// ESC-FIX-001/002: read from ref so we always call the latest
-		// onCaptureEnd without depending on it in deps.
-		onCaptureEndRef.current?.();
-	}, []); // ESC-FIX-002: empty deps — onCaptureEnd read from ref
-
-	const presets = mode === "single" ? SINGLE_KEY_PRESETS : COMBO_PRESETS;
+	// ISSUE-8: call the getters on every render so the preset list always
+	// reflects the CURRENT platform (in case navigator.userAgent was
+	// spoofed/wrong at module load, e.g. in headless Electron). The lists
+	// are small and the filter is O(n), so this is cheap.
+	const presets = mode === "single" ? getSingleKeyPresets() : getComboPresets();
 	// HOTKEY-FIX-004 (Round 1): "Custom" sentinel. When the current
 	// hotkey is not one of the preset values, the Select would render
 	// an empty trigger (Radix Select quirk: a non-empty value that

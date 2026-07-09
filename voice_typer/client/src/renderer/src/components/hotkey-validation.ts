@@ -329,14 +329,23 @@ export function validateHotkey(
 		}
 	}
 
-	// 5. Structural: combo must NOT end with a modifier.
-	if (parts.length >= 2) {
+	// 5. Structural: a combo that includes a NON-MODIFIER must NOT end with
+	//    a modifier (e.g. ``Ctrl+Alt+V`` is fine, ``Ctrl+V+Alt`` is not).
+	//    HOTKEY-MULTIKEY-001 (Task 1.3): pure-modifier combos (e.g.
+	//    ``Ctrl+Shift``, ``Ctrl+Alt``) are now ALLOWED — they're valid
+	//    modifier-only release triggers in the native backends. The
+	//    previous blanket rule "combo must not end with a modifier"
+	//    incorrectly rejected these, causing a frontend/backend mismatch
+	//    (the backend ``_validate_hotkey`` in config_validators.py has
+	//    never had this rule). Now we only reject combos that mix
+	//    modifiers AND non-modifiers but end with a modifier.
+	if (parts.length >= 2 && nonMods.length > 0) {
 		const lastKey = parts[parts.length - 1];
 		if (isModifier(lastKey)) {
 			return {
 				valid: false,
 				reason:
-					"Combo must end with a non-modifier key (e.g. Ctrl+Alt+V, not just Ctrl)",
+					"Combo must end with a non-modifier key (e.g. Ctrl+Alt+V, not Ctrl+Alt+V+Shift)",
 			};
 		}
 	}

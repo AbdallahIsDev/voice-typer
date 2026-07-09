@@ -161,14 +161,17 @@ describe("validateHotkey — modifier-only (single-key triggers)", () => {
 });
 
 describe("validateHotkey — partial-assign contract (Problem 2.2)", () => {
-	it("rejects Shift+Ctrl entirely (combo ends with modifier — no partial assign)", () => {
-		// This is the structural rule that prevents the partial-assign
-		// bug: a combo ending with a modifier is invalid as a whole.
-		// The function must NOT return a "partial" field that the
-		// caller could misinterpret as "assign just <shift>".
+	it("accepts Shift+Ctrl (pure-modifier combo — HOTKEY-MULTIKEY-001)", () => {
+		// HOTKEY-MULTIKEY-001 (Task 1.3): pure-modifier combos like
+		// ``<shift>+<ctrl>`` are now ALLOWED — they're valid modifier-only
+		// release triggers in the native backends. The previous rule
+		// "combo must not end with a modifier" incorrectly rejected these
+		// and caused a frontend/backend mismatch (the backend has never
+		// had this rule). The partial-assign contract still holds: the
+		// function must NOT return a "partial" field that the caller
+		// could misinterpret as "assign just <shift>".
 		const result = validateHotkey("<shift>+<ctrl>", "win32");
-		expect(result.valid).toBe(false);
-		expect(result.reason).toBeTruthy();
+		expect(result.valid).toBe(true);
 		// The contract: validateHotkey never returns a partial result.
 		// The `partial` field is typed as `never` on ValidationResult;
 		// we assert its absence here so a future refactor that adds
@@ -177,15 +180,26 @@ describe("validateHotkey — partial-assign contract (Problem 2.2)", () => {
 		expect(result).not.toHaveProperty("partial");
 	});
 
-	it("rejects Ctrl+Alt (combo ends with modifier — no partial assign)", () => {
+	it("accepts Ctrl+Alt (pure-modifier combo — HOTKEY-MULTIKEY-001)", () => {
 		const result = validateHotkey("<ctrl>+<alt>", "win32");
-		expect(result.valid).toBe(false);
+		expect(result.valid).toBe(true);
 		expect(result).not.toHaveProperty("partial");
 	});
 
-	it("rejects Shift+Alt+Cmd (multi-modifier combo — no partial assign)", () => {
+	it("accepts Shift+Alt+Cmd (multi-modifier combo on macOS — HOTKEY-MULTIKEY-001)", () => {
 		const result = validateHotkey("<shift>+<alt>+<cmd>", "darwin");
+		expect(result.valid).toBe(true);
+		expect(result).not.toHaveProperty("partial");
+	});
+
+	it("rejects mixed combo ending with modifier (Ctrl+V+Alt — partial-assign guard)", () => {
+		// HOTKEY-MULTIKEY-001: the structural rule still rejects combos
+		// that MIX modifiers AND non-modifiers but end with a modifier
+		// (e.g. ``<ctrl>+<v>+<alt>``). This is the partial-assign guard
+		// — the user almost certainly meant ``<ctrl>+<alt>+<v>``.
+		const result = validateHotkey("<ctrl>+<v>+<alt>", "win32");
 		expect(result.valid).toBe(false);
+		expect(result.reason).toBeTruthy();
 		expect(result).not.toHaveProperty("partial");
 	});
 
@@ -219,18 +233,18 @@ describe("validateHotkey — partial-assign contract (Problem 2.2)", () => {
 
 	it("never sets `partial` on any invalid result", () => {
 		// Sweep a representative set of invalid inputs: empty,
-		// reserved, and combo-ends-with-modifier. All inputs are
+		// reserved, and mixed-combo-ends-with-modifier. All inputs are
 		// invalid on win32 specifically (the platform passed below).
-		// Note: `<cmd>+<space>` is NOT invalid on win32 — Cmd is a
-		// macOS-only modifier and Windows doesn't reserve it — so we
-		// use `<shift>+<ctrl>` (combo ends with modifier) instead.
+		// HOTKEY-MULTIKEY-001: pure-modifier combos (``<shift>+<ctrl>``,
+		// ``<ctrl>+<alt>``) are now VALID, so they're removed from this
+		// list. We use ``<ctrl>+<v>+<alt>`` (mixed combo ending with
+		// modifier) as the structural-rule representative instead.
 		const invalidInputs = [
 			"",
 			"   ",
 			"<win>+e",
 			"<win>+v",
-			"<shift>+<ctrl>",
-			"<ctrl>+<alt>",
+			"<ctrl>+<v>+<alt>", // mixed combo ending with modifier
 			"+++",
 			"<>",
 		];
