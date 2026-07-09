@@ -13,13 +13,15 @@ Platform support
 - **Linux**: polls ``/dev/snd`` directory listings at a configurable
   interval (default 1s) — lighter than PortAudio's 30s cache and
   doesn't require ``pyinotify`` as a dependency.
-- **macOS**: polls ``sounddevice.query_devices()`` (which wraps
-  CoreAudio) at the configured interval. A property-listener
-  approach via ``AudioObjectAddPropertyListener`` would be more
-  elegant but requires a CFRunLoop on the watcher thread, which is
-  hard to test and to shut down cleanly. The polling approach is
-  consistent with the Linux implementation and degrades to the 30s
-  TTL cache if ``sounddevice``/PortAudio is unavailable.
+- **macOS**: prefers the event-driven CoreAudio property listener
+  in :mod:`voice_typer.server.microphone_watcher_coreaudio`
+  (``AudioObjectAddPropertyListener`` on
+  ``kAudioHardwarePropertyDevices`` with a CFRunLoop on the watcher
+  thread). Falls back to polling ``sounddevice.query_devices()``
+  (which wraps CoreAudio) at the configured interval if
+  ``pyobjc-framework-CoreAudio`` is not installed. The polling
+  approach degrades to the 30s TTL cache if
+  ``sounddevice``/PortAudio is unavailable.
 
 The watcher runs in a daemon thread and calls the registered
 invalidation callback when a device change is detected. The
@@ -32,7 +34,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 log = logging.getLogger(__name__)
 
@@ -70,6 +72,13 @@ class MicrophoneDeviceWatcher:
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._platform = self._detect_platform()
+        # Task 15: when on macOS and pyobjc is available, ``start()``
+        # delegates to a ``CoreAudioMicrophoneWatcher`` (event-driven,
+        # zero idle wakeups). Otherwise this stays ``None`` and the
+        # polling thread is used. The selection is at runtime, not
+        # import time, so importing this module never triggers a
+        # pyobjc import.
+        self._coreaudio_watcher: Optional[Any] = None
 
     # ── platform detection ────────────────────────────────────────────
 
@@ -102,8 +111,14 @@ class MicrophoneDeviceWatcher:
 
         Idempotent: calling ``start()`` twice does not spawn a second
         thread.
+
+        Task 15: on macOS, prefers the event-driven
+        ``CoreAudioMicrophoneWatcher`` (zero idle wakeups) and falls
+        back to the polling thread if pyobjc is unavailable. The
+        CoreAudio import happens here (not at module load) so this
+        module stays importable on non-macOS without pyobjc.
         """
-        if self._thread is not None:
+        if self._thread is not None or self._coreaudio_watcher is not None:
             return
         if self._platform not in ("windows", "linux", "macos"):
             log.debug(
@@ -112,6 +127,32 @@ class MicrophoneDeviceWatcher:
                 self._platform,
             )
             return
+
+        # Task 15: macOS — try the native CoreAudio watcher first.
+        if self._platform == "macos":
+            ca_watcher = self._try_create_coreaudio_watcher()
+            if ca_watcher is not None:
+                try:
+                    ca_watcher.start()
+                except Exception:
+                    # The CoreAudio watcher started but failed to
+                    # register its listener — fall back to polling.
+                    log.warning(
+                        "[MIC-WATCHER] CoreAudio watcher start failed, "
+                        "falling back to sounddevice polling",
+                        exc_info=True,
+                    )
+                    self._coreaudio_watcher = None
+                else:
+                    self._coreaudio_watcher = ca_watcher
+                    log.info(
+                        "[MIC-WATCHER] Using CoreAudio property-listener "
+                        "watcher (event-driven)"
+                    )
+                    return
+            # else: pyobjc unavailable — fall through to polling.
+
+        # Fallback: start the polling thread.
         self._stop_event.clear()
         self._thread = threading.Thread(
             target=self._run,
@@ -124,13 +165,74 @@ class MicrophoneDeviceWatcher:
             self._platform,
         )
 
+    def _try_create_coreaudio_watcher(self) -> Optional[Any]:
+        """Attempt to construct a ``CoreAudioMicrophoneWatcher``.
+
+        Returns ``None`` if pyobjc is unavailable (so the caller falls
+        back to polling). Returns the watcher instance (not yet
+        started) on success. Any non-ImportError exception is logged
+        and treated as "unavailable" — the polling watcher is the
+        safe default.
+        """
+        # Late import — runtime selection so this module never imports
+        # pyobjc at module load time (keeps Linux/Windows imports clean).
+        try:
+            from voice_typer.server.microphone_watcher_coreaudio import (
+                CoreAudioMicrophoneWatcher,
+            )
+        except ImportError:
+            log.debug(
+                "[MIC-WATCHER] microphone_watcher_coreaudio module "
+                "unavailable, falling back to sounddevice polling"
+            )
+            return None
+        try:
+            return CoreAudioMicrophoneWatcher(
+                self._on_change, poll_interval=self._poll_interval
+            )
+        except ImportError:
+            # _try_import_coreaudio raises ImportError on non-macOS or
+            # when pyobjc-framework-CoreAudio is missing — this is the
+            # expected "fall back to polling" signal.
+            log.debug(
+                "[MIC-WATCHER] CoreAudioMicrophoneWatcher unavailable "
+                "(pyobjc not installed or not on macOS), falling back "
+                "to sounddevice polling"
+            )
+            return None
+        except Exception:
+            log.warning(
+                "[MIC-WATCHER] CoreAudioMicrophoneWatcher construction "
+                "raised unexpectedly, falling back to sounddevice polling",
+                exc_info=True,
+            )
+            return None
+
     def stop(self) -> None:
         """Signal the watcher thread to stop and join it (timeout 2s).
 
         Idempotent: calling ``stop()`` twice is safe. After ``stop()``
         returns, the watcher can be ``start()``-ed again (the internal
         thread reference is cleared).
+
+        Task 15: if the CoreAudio watcher is active (macOS + pyobjc),
+        delegates to its ``stop()`` instead of the polling thread's
+        stop logic.
         """
+        # Task 15: stop the CoreAudio watcher first if it's active.
+        ca_watcher = self._coreaudio_watcher
+        if ca_watcher is not None:
+            try:
+                ca_watcher.stop()
+            except Exception:
+                log.warning(
+                    "[MIC-WATCHER] CoreAudio watcher stop failed",
+                    exc_info=True,
+                )
+            self._coreaudio_watcher = None
+            log.info("[MIC-WATCHER] Stopped CoreAudio watcher")
+            return
+
         if self._thread is None:
             return
         self._stop_event.set()
