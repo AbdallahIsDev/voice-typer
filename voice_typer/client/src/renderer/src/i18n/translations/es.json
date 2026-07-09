@@ -41,6 +41,8 @@
 	"settings": {
 		"title": "Configuración",
 		"searchPlaceholder": "Buscar configuración…",
+		"noResultsTitle": "Sin resultados",
+		"noResultsMessage": "Pruebe con otro término de búsqueda o borre el filtro para ver todos los ajustes.",
 		"tabs": {
 			"appearance": "Apariencia",
 			"general": "General",

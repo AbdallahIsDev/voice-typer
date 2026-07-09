@@ -25,7 +25,7 @@ locally.
 ### Common
 
 - **Python 3.10 or newer** (3.12 recommended; 3.13/3.14 are also
-  supported per `[tool.uv].supported-python-versions`). Install from
+  supported per `[tool.uv].environments`). Install from
   [python.org](https://python.org) or your OS package manager.
 - **Node.js 20 or newer** (matches the `"engines": {"node": ">=20"}`
   constraint in `voice_typer/client/package.json`). The recommended way
@@ -203,7 +203,6 @@ voice-typer/
 │       │       └── types/            # ipc.ts, config.ts, stats.ts
 │       ├── package.json              # scripts: dev, build, test, typecheck
 │       ├── biome.json                # formatter: tabs + double quotes
-│       ├── eslint.config.mjs
 │       └── electron-builder.yml
 │
 ├── tests/                            # pytest suite (1300+ tests)
@@ -264,7 +263,7 @@ pytest --cov=voice_typer --cov-report=html
 open htmlcov/index.html
 ```
 
-The `addopts` in `pyproject.toml` already include `-v --tb=short --cov=voice_typer --cov-fail-under=60`, so a bare `pytest` is enough for CI-equivalent output.
+The `addopts` in `pyproject.toml` already include `-v --tb=short --cov=voice_typer --cov-fail-under=65`, so a bare `pytest` is enough for CI-equivalent output.
 
 ### 4.2 Frontend tests
 
@@ -276,7 +275,7 @@ npm run test:watch     # vitest in watch mode during development
 
 # Lint + format + typecheck (run all three before pushing)
 npx biome check        # formatter (tabs + double quotes) + linter
-npm run lint           # eslint with --max-warnings=0
+npm run lint           # biome check (formatter + linter)
 npm run typecheck      # tsc --noEmit × 3 configs (root, web, node)
 npm run build          # electron-vite build (full production bundle)
 ```
@@ -425,8 +424,8 @@ subscription. See `docs/ARCHITECTURE.md` for the full diagram and
   `indentStyle: "tab"`, `quoteStyle: "double"`. Run
   `npx biome check --write` to auto-fix. The pre-commit hook runs
   `npx biome check` (no `--write`) and fails if files are dirty.
-- **Linter:** ESLint with `--max-warnings=0`. The config lives at
-  `voice_typer/client/eslint.config.mjs` (flat config, ESLint 9).
+- **Linter:** Biome (`biome check`). The config lives at
+  `voice_typer/client/biome.json`.
 - **Type checker:** `tsc --noEmit` across three configs (`tsconfig.json`,
   `tsconfig.web.json`, `tsconfig.node.json`). `npm run typecheck` runs
   all three; use `npm run typecheck:web` to scope to the renderer only.
@@ -486,7 +485,7 @@ write a draft ADR (`docs/adr/0000-template.md`) before changing code.
     listener (for tests that exercise the actual key dispatch path).
   - `@pytest.mark.real_pil` — use the real `PIL.ImageDraw` (for tests
     that render the tray icon bitmap).
-- **Coverage threshold:** 60 %, enforced by `--cov-fail-under=60` in
+- **Coverage threshold:** 65 %, enforced by `--cov-fail-under=65` in
   `pyproject.toml`. If your change drops coverage below 60 %, add
   tests or mark unreachable branches with `# pragma: no cover`.
 - **Property-based testing:** use `hypothesis` for parsers and pure
@@ -732,7 +731,7 @@ affected.">
 
 A maintainer will merge your PR once:
 
-- All CI checks pass (pytest, vitest, biome, eslint, tsc, ruff, mypy,
+- All CI checks pass (pytest, vitest, biome, tsc, ruff, mypy,
   pre-commit).
 - Coverage does not drop below 60 %.
 - No `SEC-*` control is bypassed without an ADR.

@@ -57,14 +57,18 @@ class AudioQualityAnalyzer:
     def __init__(self):
         self._clip_count: int = 0
         self._peak: float = 0.0
-        self._rms_values: list[float] = []
+        # 17-C-FIX-3: _rms_values was a write-only list — appended to on
+        # every audio chunk (via app.py:_on_audio_quality_chunk) but never
+        # read by any production code or test. analyze_full_audio()
+        # recomputes RMS from the full audio array. Removed to eliminate
+        # ~1-3 MB of wasted memory per 20-min recording + ~112K unnecessary
+        # list.append() calls on the audio hot path.
         self._chunk_count: int = 0
 
     def reset(self) -> None:
         """Reset analyzer state for a new recording session."""
         self._clip_count = 0
         self._peak = 0.0
-        self._rms_values = []
         self._chunk_count = 0
 
     def analyze_chunk(self, chunk: np.ndarray) -> Optional[str]:
@@ -77,7 +81,6 @@ class AudioQualityAnalyzer:
         rms = float(np.sqrt(np.mean(np.square(chunk), dtype=np.float64)))
         peak = float(np.max(np.abs(chunk)))
 
-        self._rms_values.append(rms)
         self._chunk_count += 1
 
         if peak > self._peak:

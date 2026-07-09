@@ -251,9 +251,11 @@ export default function App() {
 	const handleOnboardingComplete = useCallback(async () => {
 		navigate("home");
 		// Reload the config so theme/hotkey/mic/model selections take effect.
-		// The onboarding_apply IPC route doesn't reliably emit a
-		// config_changed event, so we explicitly re-fetch and re-apply
-		// the theme here.
+		// 17-H-FIX-1: onboarding_apply now emits a config_changed event
+		// (parity with set_config), so the hotkey re-registration and model
+		// reload happen server-side without restart. We still re-fetch here
+		// to refresh theme state in this already-mounted instance, but the
+		// bespoke re-fetch is no longer load-bearing.
 		try {
 			const cfg = await call<VoiceTyperConfig>("get_config");
 			if (cfg?.theme_mode) {

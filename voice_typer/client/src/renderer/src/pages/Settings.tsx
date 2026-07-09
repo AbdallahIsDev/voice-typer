@@ -4,6 +4,7 @@ import {
 	File02Icon,
 	InformationCircleIcon,
 	RefreshIcon,
+	Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -118,6 +119,17 @@ export default function SettingsPage({
 	const { call } = usePython();
 	const [config, setConfig] = useState<VoiceTyperConfig | null>(_cachedConfig);
 	const [saving, setSaving] = useState(false);
+	// Task 17-B-FIX-2: `saved` tracks the inline "Saved ✓" success
+	// indicator that appears for 2 seconds after a successful
+	// `set_config` roundtrip.  It replaces the previous invisible
+	// `text-[10px] text-(--text-muted)/40` "Auto-save" label, which
+	// violated WCAG 2.1 SC 1.4.4 (minimum 12px) and SC 1.4.3 (the /40
+	// opacity gave ~1.5:1 contrast — well below the 4.5:1 minimum) and
+	// had no success state at all.  The indicator is now `text-xs`
+	// (12px), full-opacity, and announced to screen readers via the
+	// surrounding `aria-live="polite"` region.
+	const [saved, setSaved] = useState(false);
+	const savedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const [showResetDialog, setShowResetDialog] = useState(false);
 	// UX-028: search/filter state for settings
 	const [settingsFilter, setSettingsFilter] = useState("");
@@ -334,6 +346,33 @@ export default function SettingsPage({
 			// only hit by explicit toggle/select changes, so toasting
 			// here is appropriate.
 			showSnack("Saved", "success");
+
+			// Task 17-B-FIX-2: also surface the success state via the
+			// inline "Saved ✓" indicator (the accessible, full-opacity
+			// 3-state indicator that replaces the previously invisible
+			// `text-[10px] text-(--text-muted)/40` "Auto-save" label).
+			// This fires on every successful flush — including debounced
+			// text-input saves — because the inline indicator is the
+			// primary feedback channel for those (toasts would be
+			// spammy for keystroke-driven saves).  We do NOT modify the
+			// existing showSnack calls above; toast frequency is a
+			// separate concern.
+			//
+			// `setSaved(true)` runs in the success branch of the
+			// try/catch, so the only path that flips `saved` on is the
+			// one where `set_config` resolved without throwing.  The
+			// `finally` block below runs `setSaving(false)` immediately
+			// after, so React 18 batches both updates into a single
+			// re-render where `saving=false` AND `saved=true` — the
+			// indicator swaps directly from "Saving…" to "Saved ✓".
+			if (savedTimeoutRef.current) {
+				clearTimeout(savedTimeoutRef.current);
+			}
+			setSaved(true);
+			savedTimeoutRef.current = setTimeout(() => {
+				setSaved(false);
+				savedTimeoutRef.current = null;
+			}, 2000);
 		} catch (err) {
 			console.error("Failed to update config:", err);
 			await loadConfig();
@@ -481,6 +520,13 @@ export default function SettingsPage({
 				void flushPendingUpdatesRef.current();
 			}
 			Object.values(debouncedTimers.current).forEach(clearTimeout);
+			// Task 17-B-FIX-2: clear the "Saved ✓" auto-hide timer
+			// so we don't fire a setState on an unmounted component
+			// if the user navigates away within the 2-second window.
+			if (savedTimeoutRef.current) {
+				clearTimeout(savedTimeoutRef.current);
+				savedTimeoutRef.current = null;
+			}
 		};
 	}, []);
 
@@ -599,7 +645,7 @@ export default function SettingsPage({
 	return (
 		<div className="min-h-full">
 			{/* Fixed settings tab navigation at the top of the viewport */}
-			<div className="fixed top-12 left-0 right-0 z-40 flex justify-center">
+			<div className="sticky top-12 left-0 right-0 z-40 flex justify-center">
 				<div className="mx-auto w-full max-w-2xl px-6">
 					<SegmentedControl<SettingsTab>
 						options={[
@@ -814,18 +860,46 @@ export default function SettingsPage({
 					</>
 				)}
 
-				{/* BUGFIX: replaced the fixed bottom-right banner with a subtle
-                                        header subtitle that's barely visible — shows "Auto-save" in
-                                        dim text only during the brief save operation, then fades to
-                                        invisible. The old design was distracting and always visible. */}
-				<p className="-mt-6 mb-0 text-[10px] text-(--text-muted)/40 text-right">
+				{/* Task 17-B-FIX-2: 3-state save indicator (replaces the
+                                        previously-invisible `text-[10px] text-(--text-muted)/40`
+                                        "Auto-save" label).
+                                                • saving  → "Saving…" with the existing amber pulse dot
+                                                • saved   → "Saved ✓" with a green Tick02Icon, shown for
+                                                                        2 s after a successful set_config roundtrip
+                                                • idle    → very dim "All changes saved"
+                                        WCAG 2.1 SC 1.4.4 (text resize): `text-xs` = 12px (was 10px).
+                                        WCAG 2.1 SC 1.4.3 (contrast): full opacity — no `/40` (was ~1.5:1).
+                                        WCAG 2.1 SC 4.1.3 (status messages): `aria-live="polite"` so
+                                        screen readers announce "Saving…" / "Saved" without stealing
+                                        focus.  `aria-atomic="true"` ensures the whole string is
+                                        announced on each change (not just the diff). */}
+				<p
+					className="-mt-6 mb-0 text-xs text-right"
+					aria-live="polite"
+					aria-atomic="true"
+				>
 					{saving ? (
-						<span className="inline-flex items-center gap-1">
-							<span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
-							Saving...
+						<span className="inline-flex items-center gap-1 text-(--text-secondary)">
+							<span
+								className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400"
+								aria-hidden="true"
+							/>
+							Saving…
+						</span>
+					) : saved ? (
+						<span className="inline-flex items-center gap-1 text-(--text-secondary) animate-fade-in">
+							<HugeiconsIcon
+								icon={Tick02Icon}
+								strokeWidth={2.5}
+								className="h-3 w-3 text-emerald-500"
+								aria-hidden="true"
+							/>
+							Saved
 						</span>
 					) : (
-						<span className="inline-flex items-center gap-1">Auto-save</span>
+						<span className="inline-flex items-center gap-1 text-(--text-muted)">
+							All changes saved
+						</span>
 					)}
 				</p>
 			</div>

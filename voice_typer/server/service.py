@@ -1024,14 +1024,91 @@ class VoiceTyperService:
         return {"ok": True}
 
     def onboarding_apply(self) -> dict:
-        """Apply onboarding settings and mark complete."""
+        """Apply onboarding settings and mark complete.
+
+        17-H-FIX-1: previously this only called ``ctrl.apply_settings``
+        (which does ``config.save()``) — it never invoked
+        ``apply_config_side_effects``, so the user's hotkey and model
+        choices made in the first-run wizard didn't take effect until
+        app restart. We now mirror the canonical ``set_config`` flow
+        in ``config_handlers.py``: hold the config-mutation lock,
+        invalidate the tray menu cache, re-register the dictation
+        hotkey via ``apply_config_side_effects``, optionally reload
+        the model, and push a ``config_changed`` event so the
+        renderer doesn't need its bespoke re-fetch in
+        ``handleOnboardingComplete``.
+        """
         ctrl = getattr(self, "_onboarding", None)
         if ctrl is None:
             return {"error": "Onboarding not started"}
+        app = self._app
         try:
-            ctrl.apply_settings(self._app.config)
-            self._app.config.onboarding_completed = True
-            self._app.config.save()
+            # Capture the previous model_size so we can skip the
+            # (potentially expensive) model reload when the user kept
+            # the default. Hotkey/mic changes are always safe to
+            # re-apply.
+            prev_model_size = getattr(app.config, "model_size", None)
+
+            # RACE-011: hold the app's config-mutation lock for the
+            # full apply+save sequence so a concurrent set_config /
+            # SettingsController.apply() can't interleave attribute
+            # writes with our onboarding update. Parity with
+            # config_handlers.py:_handle_set_config.
+            with app._config_mutation_lock:
+                ctrl.apply_settings(app.config)
+                app.config.onboarding_completed = True
+                app.config.save()
+
+            # Build the updates dict for apply_config_side_effects.
+            # Only include keys that were actually set by the wizard.
+            updates: dict = {
+                "hotkey": ctrl.selected_hotkey,
+                "model_size": ctrl.selected_model,
+            }
+            if ctrl.selected_microphone is not None:
+                updates["microphone"] = ctrl.selected_microphone
+
+            # ARCH-043: invalidate the tray menu cache so the next
+            # menu build picks up the new hotkey/model/mic.
+            try:
+                app.tray.invalidate_menu_cache()
+            except Exception:
+                log.debug("[SERVICE] tray.invalidate_menu_cache failed", exc_info=True)
+
+            # ARCH-005: re-register the dictation hotkey (and any
+            # other side effects keyed off the updates dict) so the
+            # user's choice takes effect immediately, without restart.
+            self.apply_config_side_effects(updates)
+
+            # 17-H-FIX-1: reload the model if the user picked a
+            # different one. ModelManager.change_model internally
+            # handles the case where the background loader hasn't
+            # finished yet — it queues the change via
+            # _pending_model_change (model_manager.py:456) and
+            # applies it on the next _start_dictation. If the loader
+            # HAS finished, the full unload/load cycle runs
+            # immediately.
+            new_model = ctrl.selected_model
+            if new_model != prev_model_size:
+                try:
+                    app.models.change_model(new_model)
+                except Exception as e:
+                    log.warning("[SERVICE] onboarding model change failed: %s", e)
+
+            # Push a config_changed event so the renderer (App.tsx)
+            # can update UI-local state (theme, font-scale, hotkey
+            # label, etc.) immediately instead of waiting for the
+            # next mount or issuing a bespoke get_config round-trip.
+            # Parity with set_config in config_handlers.py.
+            try:
+                from voice_typer.server.ipc_server import _push_event_now
+                _push_event_now({
+                    "type": "config_changed",
+                    "data": updates,
+                })
+            except Exception:
+                log.debug("[SERVICE] onboarding config_changed push failed", exc_info=True)
+
             return {"ok": True}
         except Exception as exc:
             return {"error": str(exc)}

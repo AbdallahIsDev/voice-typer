@@ -1,8 +1,11 @@
 """Tests for voice_typer.onboarding — OnboardingController wizard."""
 
 import json
+import sys
+import threading
 import pytest
 from pathlib import Path
+from unittest.mock import MagicMock
 
 
 @pytest.fixture
@@ -256,3 +259,221 @@ class TestOnboardingWizardE2E:
         from voice_typer.server.config import _default_hotkey_for_platform
         assert cfg.hotkey == _default_hotkey_for_platform()
         assert cfg.model_size == "small.en"  # default
+
+
+# ── 17-H-FIX-1: service-layer onboarding_apply side effects ────────────
+
+
+@pytest.fixture
+def app_with_service(tmp_path, monkeypatch):
+    """Build a real VoiceTyperApp + VoiceTyperService with mocked deps.
+
+    Mirrors the ``app`` fixture in tests/test_app.py: heavy imports
+    are mocked, pynput is forced as the hotkey backend, and autostart
+    helpers are stubbed so __init__ doesn't touch the OS.
+    """
+    # Point _config_dir at tmp_path so Config.save() is isolated.
+    monkeypatch.setattr(
+        "voice_typer.server.config._config_dir", lambda: tmp_path
+    )
+
+    # Mock heavy hardware/GUI deps (in addition to conftest's autouse
+    # mock_heavy_imports, which doesn't run for this module-scope
+    # override — be defensive and set them up explicitly here).
+    mock_sd = MagicMock()
+    mock_sd.query_devices.return_value = []
+    monkeypatch.setitem(sys.modules, "sounddevice", mock_sd)
+    monkeypatch.setitem(sys.modules, "faster_whisper", MagicMock())
+    monkeypatch.setitem(sys.modules, "faster_whisper.WhisperModel", MagicMock())
+    monkeypatch.setitem(sys.modules, "pynput", MagicMock())
+    monkeypatch.setitem(sys.modules, "pynput.keyboard", MagicMock())
+    monkeypatch.setitem(sys.modules, "pystray", MagicMock())
+    monkeypatch.setitem(sys.modules, "PIL", MagicMock())
+    monkeypatch.setitem(sys.modules, "PIL.Image", MagicMock())
+    monkeypatch.setitem(sys.modules, "PIL.ImageDraw", MagicMock())
+    monkeypatch.setitem(sys.modules, "pyperclip", MagicMock())
+
+    # Prevent the app's atexit handler from polluting test output.
+    monkeypatch.setattr(
+        "voice_typer.server.app.atexit.register", lambda *a, **kw: None
+    )
+
+    # Stub autostart helpers so __init__ doesn't touch the OS.
+    monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
+    monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
+    monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
+    monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+
+    # Force PynputHotkey backend so tests can assert hotkey_str
+    # without depending on native binaries. Patch BOTH app and
+    # hotkey_dispatcher namespaces (see TEST-033 / Round 11 fix in
+    # tests/test_app.py for why both are required).
+    from voice_typer.server.hotkeys import PynputHotkey
+    _force_pynput = lambda hotkey_str: PynputHotkey(hotkey_str)
+    monkeypatch.setattr(
+        "voice_typer.server.app.create_hotkey_backend", _force_pynput
+    )
+    monkeypatch.setattr(
+        "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
+        _force_pynput,
+    )
+
+    from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.service import VoiceTyperService
+
+    app = VoiceTyperApp()
+    # Deterministic test behavior: no ESC hotkey, opt into voice consent.
+    app.config.esc_cancel_enabled = False
+    app.config.voice_biometric_consent = True
+    # Mock the transcriber so ModelManager doesn't try to load a real model.
+    app.models.transcriber = MagicMock()
+    app.models.transcriber.is_loaded = True
+    app.models._sync_registry_from_fields()
+
+    service = VoiceTyperService(app)
+    return app, service
+
+
+@pytest.fixture
+def captured_events(monkeypatch):
+    """Capture all events pushed via _push_event_now."""
+    events: list[dict] = []
+    import voice_typer.server.ipc_server as ipc_mod
+    monkeypatch.setattr(
+        ipc_mod, "_push_event_now", lambda msg: events.append(msg) or True
+    )
+    return events
+
+
+class TestOnboardingApplySideEffects:
+    """17-H-FIX-1: onboarding_apply must re-register the hotkey and
+    push a config_changed event so the user's wizard choices take
+    effect immediately (without app restart).
+
+    Previously onboarding_apply only called config.save(), so the
+    hotkey/model/mic chosen in the first-run wizard were ignored
+    until the next app launch.
+    """
+
+    def test_hotkey_re_registered_without_restart(
+        self, app_with_service, captured_events
+    ):
+        """The dictation hotkey backend reflects the wizard's choice
+        immediately after onboarding_apply — no restart needed."""
+        app, service = app_with_service
+
+        # Wizard flow: start, pick a non-default hotkey, apply.
+        service.onboarding_start()
+        service.onboarding_set_hotkey("<f6>")
+        result = service.onboarding_apply()
+
+        assert result == {"ok": True}, f"onboarding_apply failed: {result}"
+
+        # The hotkey dispatcher should have a live backend whose
+        # hotkey_str matches the user's selection. Before 17-H-FIX-1,
+        # apply_config_side_effects was never called so the backend
+        # would still be None (or hold the default hotkey).
+        backend = app.hotkeys._hotkey_backend
+        assert backend is not None, (
+            "Hotkey backend was not registered by onboarding_apply — "
+            "apply_config_side_effects was not invoked"
+        )
+        assert backend.hotkey_str == "<f6>", (
+            f"Expected hotkey_str='<f6>' after onboarding_apply, "
+            f"got {backend.hotkey_str!r}"
+        )
+
+    def test_config_changed_event_pushed(
+        self, app_with_service, captured_events
+    ):
+        """onboarding_apply pushes a config_changed event so the
+        renderer can refresh UI-local state without a bespoke
+        get_config round-trip (parity with set_config)."""
+        app, service = app_with_service
+
+        service.onboarding_start()
+        service.onboarding_set_hotkey("<f6>")
+        service.onboarding_apply()
+
+        config_events = [
+            e for e in captured_events if e.get("type") == "config_changed"
+        ]
+        assert len(config_events) >= 1, (
+            f"Expected at least one config_changed event, got: {captured_events}"
+        )
+        # The event data must carry the wizard's hotkey choice so the
+        # renderer can update its hotkey label without re-fetching.
+        data = config_events[-1].get("data", {})
+        assert data.get("hotkey") == "<f6>", (
+            f"config_changed event data should include hotkey='<f6>', got: {data}"
+        )
+        assert "model_size" in data, (
+            "config_changed event data should include model_size"
+        )
+
+    def test_onboarding_completed_persisted(
+        self, app_with_service, captured_events
+    ):
+        """The existing onboarding_completed=True + config.save()
+        behavior must be preserved by the refactor."""
+        app, service = app_with_service
+
+        service.onboarding_start()
+        service.onboarding_set_hotkey("<f6>")
+        service.onboarding_apply()
+
+        assert app.config.onboarding_completed is True
+        assert app.config.hotkey == "<f6>"
+
+    def test_model_change_invoked_when_model_differs(
+        self, app_with_service, captured_events, monkeypatch
+    ):
+        """When the user picks a non-default model, onboarding_apply
+        must invoke ModelManager.change_model so the new model loads
+        immediately (or queues via _pending_model_change if the
+        background loader hasn't finished)."""
+        app, service = app_with_service
+
+        # Spy on change_model — don't actually run the unload/load
+        # cycle (which would try to load a real model in the test env).
+        change_model_calls: list[str] = []
+        monkeypatch.setattr(
+            app.models,
+            "change_model",
+            lambda model_size: change_model_calls.append(model_size),
+        )
+
+        service.onboarding_start()
+        service.onboarding_set_hotkey("<f6>")
+        service.onboarding_set_model("tiny.en")  # non-default
+        service.onboarding_apply()
+
+        assert change_model_calls == ["tiny.en"], (
+            f"Expected change_model('tiny.en'), got: {change_model_calls}"
+        )
+
+    def test_model_change_skipped_when_model_unchanged(
+        self, app_with_service, captured_events, monkeypatch
+    ):
+        """When the user keeps the default model, onboarding_apply
+        must NOT invoke change_model (avoids an expensive no-op
+        unload/load cycle)."""
+        app, service = app_with_service
+
+        change_model_calls: list[str] = []
+        monkeypatch.setattr(
+            app.models,
+            "change_model",
+            lambda model_size: change_model_calls.append(model_size),
+        )
+
+        service.onboarding_start()
+        service.onboarding_set_hotkey("<f6>")
+        # Don't call onboarding_set_model — OnboardingController's
+        # default is "small.en", which matches Config's default.
+        service.onboarding_apply()
+
+        assert change_model_calls == [], (
+            f"change_model should NOT be called when model is unchanged, "
+            f"got: {change_model_calls}"
+        )
