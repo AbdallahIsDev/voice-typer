@@ -252,3 +252,129 @@ class TestCrashRecoveryIntegration:
         assert result is None, (
             f"Expected None (no unpasted entries), got {result!r}"
         )
+
+
+# ─── Task 4: Prewarm health check in diagnostics bundle ────────────────
+
+
+class TestDiagnosticsPrewarmBundle:
+    """Task 4: the diagnostic bundle must include a prewarm.json with
+    the full prewarm status + sentinel/PID file contents.
+
+    This gives support engineers full prewarm context in bug reports
+    without asking the user to run `--status` manually.
+    """
+
+    def test_diagnostic_bundle_includes_prewarm_json(self, recovery_dir):
+        """The bundle zip contains a prewarm.json entry."""
+        import zipfile
+        from voice_typer.server.crash_recovery import CrashRecovery
+
+        cr = CrashRecovery(config_dir=recovery_dir)
+        bundle_path = cr.create_diagnostic_bundle()
+        assert bundle_path is not None
+
+        with zipfile.ZipFile(bundle_path, "r") as zf:
+            names = zf.namelist()
+            assert "prewarm.json" in names, (
+                "Task 4: diagnostic bundle must include prewarm.json"
+            )
+
+    def test_prewarm_json_contains_status_fields(self, recovery_dir):
+        """prewarm.json contains all get_prewarm_status() fields."""
+        import json
+        import zipfile
+        from voice_typer.server.crash_recovery import CrashRecovery
+
+        cr = CrashRecovery(config_dir=recovery_dir)
+        bundle_path = cr.create_diagnostic_bundle()
+        assert bundle_path is not None
+
+        with zipfile.ZipFile(bundle_path, "r") as zf:
+            prewarm_data = json.loads(zf.read("prewarm.json"))
+
+        # All get_prewarm_status() fields must be present.
+        for field in (
+            "last_run", "elapsed_s", "cache_ratio", "cache_label",
+            "cached_bytes", "total_bytes", "prewarm_running",
+        ):
+            assert field in prewarm_data, (
+                f"Task 4: prewarm.json must include '{field}'"
+            )
+
+    def test_prewarm_json_contains_sentinel_and_pid_paths(self, recovery_dir):
+        """prewarm.json includes sentinel_path and pid_file_path."""
+        import json
+        import zipfile
+        from voice_typer.server.crash_recovery import CrashRecovery
+
+        cr = CrashRecovery(config_dir=recovery_dir)
+        bundle_path = cr.create_diagnostic_bundle()
+
+        with zipfile.ZipFile(bundle_path, "r") as zf:
+            prewarm_data = json.loads(zf.read("prewarm.json"))
+
+        assert "sentinel_path" in prewarm_data
+        assert "pid_file_path" in prewarm_data
+        # The paths must be non-empty strings.
+        assert isinstance(prewarm_data["sentinel_path"], str)
+        assert len(prewarm_data["sentinel_path"]) > 0
+        assert isinstance(prewarm_data["pid_file_path"], str)
+        assert len(prewarm_data["pid_file_path"]) > 0
+
+    def test_prewarm_json_contains_sentinel_contents(self, recovery_dir):
+        """prewarm.json includes sentinel_contents (raw file contents or None)."""
+        import json
+        import zipfile
+        from voice_typer.server.crash_recovery import CrashRecovery
+        from voice_typer.server import prewarm
+
+        # Write a sentinel file so we can verify its contents are bundled.
+        sentinel = prewarm._sentinel_path()
+        sentinel.parent.mkdir(parents=True, exist_ok=True)
+        sentinel.write_text("1720000000\n20.4\n2026-07-08T13:48:49")
+
+        cr = CrashRecovery(config_dir=recovery_dir)
+        bundle_path = cr.create_diagnostic_bundle()
+
+        with zipfile.ZipFile(bundle_path, "r") as zf:
+            prewarm_data = json.loads(zf.read("prewarm.json"))
+
+        assert prewarm_data["sentinel_contents"] == "1720000000\n20.4\n2026-07-08T13:48:49"
+
+        # Cleanup.
+        sentinel.unlink(missing_ok=True)
+
+    def test_prewarm_json_includes_error_on_failure(self, recovery_dir, monkeypatch):
+        """If the prewarm probe raises, prewarm.json includes {"error": ...}.
+
+        Task 4: the prewarm probe must never abort the entire diagnostics
+        export. If it fails, the error is included so support engineers
+        know why prewarm data is missing.
+        """
+        import json
+        import zipfile
+        from voice_typer.server.crash_recovery import CrashRecovery
+
+        # Make get_prewarm_status raise.
+        def raising_status():
+            raise RuntimeError("sentinel corrupted")
+        monkeypatch.setattr(
+            "voice_typer.server.prewarm.get_prewarm_status",
+            raising_status,
+        )
+
+        cr = CrashRecovery(config_dir=recovery_dir)
+        bundle_path = cr.create_diagnostic_bundle()
+        assert bundle_path is not None, (
+            "Task 4: diagnostics export must NOT fail when the prewarm "
+            "probe raises — the error should be captured in prewarm.json"
+        )
+
+        with zipfile.ZipFile(bundle_path, "r") as zf:
+            prewarm_data = json.loads(zf.read("prewarm.json"))
+
+        assert "error" in prewarm_data, (
+            "Task 4: prewarm.json must include 'error' when the probe raises"
+        )
+        assert "sentinel corrupted" in prewarm_data["error"]

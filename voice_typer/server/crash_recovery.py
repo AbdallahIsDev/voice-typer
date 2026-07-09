@@ -417,6 +417,54 @@ class CrashRecovery:
                     )
                 zf.writestr("crash_recovery.json", entries_json)
 
+                # 6. Prewarm health check (Task 4)
+                # Bundles the full prewarm status + sentinel/PID file
+                # contents so support engineers can diagnose prewarm
+                # issues without asking the user to run --status manually.
+                try:
+                    from voice_typer.server.prewarm import (
+                        get_prewarm_status,
+                        _sentinel_path,
+                        _pid_file_path,
+                    )
+                    prewarm_data = get_prewarm_status()
+                    # Add the raw sentinel + PID file contents + paths
+                    # for full diagnostics.
+                    prewarm_data["sentinel_path"] = str(_sentinel_path())
+                    prewarm_data["pid_file_path"] = str(_pid_file_path())
+                    # Read sentinel file raw contents (if it exists).
+                    sentinel = _sentinel_path()
+                    if sentinel.exists():
+                        try:
+                            prewarm_data["sentinel_contents"] = sentinel.read_text()
+                        except OSError as e:
+                            prewarm_data["sentinel_contents"] = f"<read error: {e}>"
+                    else:
+                        prewarm_data["sentinel_contents"] = None
+                    # Read PID file raw contents (if it exists).
+                    pid_file = _pid_file_path()
+                    if pid_file.exists():
+                        try:
+                            prewarm_data["pid_file_contents"] = pid_file.read_text()
+                        except OSError as e:
+                            prewarm_data["pid_file_contents"] = f"<read error: {e}>"
+                    else:
+                        prewarm_data["pid_file_contents"] = None
+                    zf.writestr(
+                        "prewarm.json",
+                        _json.dumps(prewarm_data, indent=2, default=str),
+                    )
+                except Exception as prewarm_exc:
+                    # Defensive: never let a prewarm probe failure abort
+                    # the entire diagnostics export. Include the error
+                    # so support engineers know why prewarm data is missing.
+                    zf.writestr(
+                        "prewarm.json",
+                        _json.dumps(
+                            {"error": str(prewarm_exc)}, indent=2, default=str,
+                        ),
+                    )
+
             log.info("[RECOVERY] Diagnostic bundle created: %s", bundle_path)
             return str(bundle_path)
         except Exception as exc:
