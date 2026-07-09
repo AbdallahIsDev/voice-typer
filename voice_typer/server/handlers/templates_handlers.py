@@ -6,7 +6,10 @@ access ``self.app`` / ``self.service`` as before.
 """
 
 from typing import Any
-from voice_typer.server.ipc_server import log
+from voice_typer.server.ipc_server import (
+    log,
+    _validate_dict_payload,
+)
 
 
 class TemplatesHandlersMixin:
@@ -38,12 +41,14 @@ class TemplatesHandlersMixin:
     def _handle_save_templates(self, data, resp) -> dict | None:
         """Handle the ``save_templates`` IPC command."""
         try:
-            templates = (data or {}).get("templates", [])
-            if not isinstance(templates, list):
-                raise ValueError("templates must be a list")
-            self.service.save_templates(templates)
+            validated, error = _validate_dict_payload(data, {
+                "templates": {"type": list, "required": True},
+            })
+            if error:
+                return error
+            self.service.save_templates(validated["templates"])
             resp["type"] = "ack"
-            resp["data"] = {"saved": len(templates)}
+            resp["data"] = {"saved": len(validated["templates"])}
         except Exception as e:
             log.error("[IPC] save_templates failed: %s", e, exc_info=True)
             resp["type"] = "error"

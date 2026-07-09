@@ -63,6 +63,20 @@ export const IS_WIN = PLATFORM === "win32";
 export const IS_LINUX = PLATFORM === "linux";
 
 export const KEY_CODE_TO_PYNPUT: Record<string, string> = {
+	// ISSUE-3 (Key-name maps): this table maps Browser key codes
+	// (e.code) to pynput-style lowercase names. It is ONE OF THREE
+	// independent key-name tables that share a common vocabulary:
+	//
+	//   Frontend:  KEY_CODE_TO_PYNPUT (hotkey-utils.ts) — e.code → pynput
+	//   Backend:   _VK_MAP (hotkeys.py) — pynput name → Win32 VK code
+	//   Native:    _normalize_key_name (native_hotkeys.py) — pynput name →
+	//              wire-protocol name (CapsLock, Space, MediaNext, etc.)
+	//
+	// All three must agree on the set of names ("f1", "space",
+	// "caps_lock", "page_up", etc.). _normalize_key_name is the
+	// canonical name-to-name transformer — if you add a name here,
+	// add it there too so the native backends can recognize it.
+	//
 	// HOTKEY-FIX-002 (Round 1): letters and digits were missing from
 	// this table, so capturing combos like Alt+Q, Ctrl+Alt+V, or even
 	// the default repaste hotkey Ctrl+Alt+V would fail with "Key 'v'

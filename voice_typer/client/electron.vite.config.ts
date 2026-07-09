@@ -45,6 +45,10 @@ export default defineConfig({
 		resolve: {
 			alias: {
 				"@": resolve(__dirname, "src/renderer/src"),
+				// @server removed — resolved outside renderer root and
+				// crashed Vite HMR on locale switch. The JSON copy at
+				// src/renderer/src/data/ is imported with a project-relative
+				// path instead.
 				// NEW-TS-016: removed non-existent barrel file aliases
 				// (#components, #lib, #hooks). Code uses @/... instead.
 				"#ui": resolve(__dirname, "src/renderer/src/components/ui"),

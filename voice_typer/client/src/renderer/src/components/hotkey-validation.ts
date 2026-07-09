@@ -27,137 +27,34 @@
 /**
  * Reserved OS shortcuts that should never be assignable.
  *
- * Platform-specific:
- * - Windows: Win+E (Explorer), Win+V (clipboard history), Win+Space
- *   (input-language switch), Win+D (show desktop), Win+L (lock), etc.
- * - macOS: Cmd+Space (Spotlight), Cmd+Q (quit), Cmd+W (close window),
- *   Cmd+H (hide), Cmd+M (minimize), Cmd+Tab (app switcher),
- *   Cmd+Shift+3/4/5 (screenshots).
- * - Linux: Super+L (lock), Super+D (show desktop), Super+Tab (window
- *   switcher). NOTE: Super+Space is intentionally NOT reserved on
- *   Linux — most desktop environments allow it to be reassigned. See
- *   the existing invariant test "still offers <super>+<space> on Linux".
- *
- * Keys are stored lowercase; isReserved() lowercases both sides before
- * comparing so callers can pass either case.
+ * HOTKEY-SHARED-001: loaded from the canonical JSON file at
+ * ``voice_typer/server/hotkey_reserved.json``. A copy lives at
+ * ``voice_typer/client/src/renderer/src/data/hotkey_reserved.json``
+ * and is imported with a project-relative path so the import doesn't
+ * depend on a Vite alias that resolves outside the renderer root
+ * (which can crash Vite's dev server during HMR on locale switch).
+ * The sync test ``test_hotkey_reserved_sync.py`` verifies the copy
+ * matches the server original.
  */
-export const RESERVED_SHORTCUTS: Record<string, string[]> = {
-	win32: [
-		"<win>+<e>",
-		"<win>+<v>",
-		"<win>+<space>",
-		"<win>+<d>",
-		"<win>+<l>",
-		"<win>+<tab>",
-		"<win>+<r>",
-		"<win>+<i>",
-		"<win>+<p>",
-		"<win>+<m>",
-		"<alt>+<shift>",
-	],
-	darwin: [
-		"<cmd>+<space>",
-		"<cmd>+<q>",
-		"<cmd>+<w>",
-		"<cmd>+<h>",
-		"<cmd>+<m>",
-		"<cmd>+<tab>",
-		"<cmd>+<shift>+<3>",
-		"<cmd>+<shift>+<4>",
-		"<cmd>+<shift>+<5>",
-	],
-	linux: [
-		"<super>+<l>",
-		"<super>+<d>",
-		"<super>+<tab>",
-		// NOTE: <super>+<space> is intentionally NOT reserved on Linux
-		// — most desktop environments allow it to be reassigned. The
-		// existing invariant test "still offers <super>+<space> on Linux
-		// (Linux does not reserve it)" documents this. Do NOT add it
-		// here without updating that test.
-	],
-};
+
+import hotkeyReserved from "../data/hotkey_reserved.json";
+
+export const UNIVERSAL_RESERVED_SHORTCUTS: readonly string[] =
+	hotkeyReserved.universal_reserved;
+export const RESERVED_SHORTCUTS: Record<string, string[]> =
+	hotkeyReserved.per_platform_reserved as Record<string, string[]>;
+export const BLOCKED_CTRL_LETTERS: readonly string[] =
+	hotkeyReserved.blocked_ctrl_letters;
+export const MODIFIER_KEYS_SHARED: readonly string[] = hotkeyReserved.modifiers;
+
+const _MODIFIER_KEYS_SET = new Set(MODIFIER_KEYS_SHARED);
 
 /**
- * Universal window-management shortcuts blocked on EVERY platform.
- * Alt+Tab, Alt+F4, Alt+Esc, Alt+Space are OS-level window management
- * on Windows, macOS (with Alt=Option), and most Linux desktops.
- *
- * HOTKEY-VALIDATION-002 (Task 2.2.5): mirrors
- * ``_UNIVERSAL_RESERVED_HOTKEYS`` in config_validators.py. The prior
- * frontend validator was missing this entire list — only the
- * per-platform list was checked, so Alt+Tab/F4/Esc/Space were silently
- * accepted on platforms where they weren't also in the per-platform
- * list.
+ * Check if a part is a known modifier key.
  */
-export const UNIVERSAL_RESERVED_SHORTCUTS: string[] = [
-	"<alt>+<tab>",
-	"<alt>+<f4>",
-	"<alt>+<esc>",
-	"<alt>+<space>",
-];
-
-/**
- * Common Ctrl+<letter> shortcuts universally expected by users
- * (Copy, Paste, Undo, Save, Select All, etc.). Mirrors
- * ``_BLOCKED_CTRL_LETTERS`` in config_validators.py. Blocked
- * regardless of platform when the combo is PURE Ctrl+<letter>
- * (no other modifier present).
- */
-export const BLOCKED_CTRL_LETTERS: string[] = [
-	"c",
-	"v",
-	"x",
-	"z",
-	"a",
-	"s",
-	"y",
-	"w",
-	"f",
-	"p",
-	"n",
-	"o",
-	"t",
-	"l",
-	"r",
-	"h",
-	"j",
-	"k",
-	"b",
-	"i",
-	"u",
-	"d",
-	"e",
-	"g",
-	"m",
-	"q",
-];
-
-/**
- * Modifier keys that may appear as a prefix part of a combo, or alone
- * as a single-key trigger (modifier-only release detection in the
- * native backends). Mirrors MODIFIER_KEYS in hotkey-utils.ts so this
- * module stays self-contained (no circular import).
- */
-export const MODIFIER_KEYS_SHARED = [
-	"ctrl",
-	"ctrl_l",
-	"ctrl_r",
-	"shift",
-	"shift_l",
-	"shift_r",
-	"alt",
-	"alt_l",
-	"alt_r",
-	"alt_gr",
-	"cmd",
-	"cmd_l",
-	"cmd_r",
-	"win",
-	"super",
-	"fn",
-	"globe",
-] as const;
+function _isModifier(p: string): boolean {
+	return _MODIFIER_KEYS_SET.has(p);
+}
 
 export interface ValidationResult {
 	valid: boolean;
@@ -236,8 +133,9 @@ export function normalizeHotkey(hotkey: string): string {
  *
  * Rules (applied in order, short-circuiting on first failure):
  *  1. Non-empty: a blank hotkey is invalid.
- *  2. Reserved (universal): Alt+Tab, Alt+F4, Alt+Esc, Alt+Space are
- *     blocked on every platform (window management).
+ *  2. Reserved (universal): Alt+Tab, Alt+F4, Alt+Esc, Alt+Space,
+ *     Enter, Ctrl+Enter, Shift+Enter are blocked on every platform
+ *     (window management or typing interference).
  *  3. Reserved (per-platform): OS-reserved shortcuts (Win+E, Cmd+Space,
  *     Super+L, etc.) are rejected so the user can't silently break
  *     system shortcuts.
@@ -302,7 +200,8 @@ export function validateHotkey(
 	) {
 		return {
 			valid: false,
-			reason: "Reserved by operating system (window management)",
+			reason:
+				"Reserved — conflicts with operating system or common app shortcuts",
 		};
 	}
 
@@ -312,8 +211,7 @@ export function validateHotkey(
 	}
 
 	// Helper: classify parts.
-	const isModifier = (p: string): boolean =>
-		MODIFIER_KEYS_SHARED.includes(p as (typeof MODIFIER_KEYS_SHARED)[number]);
+	const isModifier = (p: string): boolean => _isModifier(p);
 	const nonMods = parts.filter((p) => !isModifier(p));
 
 	// 4. Single letter/digit rejection (HOTKEY-VALIDATION-002).

@@ -13,8 +13,11 @@ import logging
 import os
 import re
 import secrets
+import traceback as _traceback
 from pathlib import Path
 from typing import Any
+
+from voice_typer.server._secrets import redact_secret, redact_url
 
 log = logging.getLogger(__name__)
 
@@ -78,14 +81,63 @@ def consume_restart_token() -> None:
 # ─── SEC-009: PII Redaction Filter ──────────────────────────────────────
 
 
+def _redact_text(text: str) -> str:
+    """Apply PII + API-secret + URL-credential redaction to *text*.
+
+    RW-6: shared helper used by :class:`PIIRedactionFilter` for both
+    the formatted log message and the formatted traceback.  Order
+    matters:
+
+    1. PII patterns (email / phone / SSN / CC) are applied first so
+       the specific token names (``[EMAIL]``, ``[PHONE]``, …) appear
+       in the output rather than the more aggressive ``***`` mask
+       produced by :func:`redact_secret`.
+    2. :func:`redact_secret` is then applied to catch API keys and
+       bearer tokens (``Bearer …``, ``Token …``, ``sk-…``, 32+ char
+       bare tokens).  It is a no-op for strings shorter than 20
+       characters, so short log lines are untouched.
+    3. :func:`redact_url` strips ``user:pass@`` userinfo from URLs.
+       Gated on ``"@" in text`` so the comparatively expensive
+       :func:`urllib.parse.urlparse` call is skipped for the vast
+       majority of log records that contain no ``@``.
+
+    The redaction helpers are imported from :mod:`voice_typer.server._secrets`
+    so the secret-matching patterns stay defined in exactly one place
+    (no duplicated regexes).
+    """
+    for pattern, replacement in PIIRedactionFilter._PATTERNS:
+        text = pattern.sub(replacement, text)
+    text = redact_secret(text)
+    if "@" in text:
+        text = redact_url(text)
+    return text
+
+
 class PIIRedactionFilter(logging.Filter):
-    """Redact potential PII from log messages.
+    """Redact potential PII and API secrets from log messages.
 
     Patterns redacted:
-      - Email addresses
-      - Phone numbers (US-style)
-      - SSN-like patterns
-      - Credit-card-like patterns
+      - Email addresses → ``[EMAIL]``
+      - Phone numbers (US-style) → ``[PHONE]``
+      - SSN-like patterns → ``[SSN]``
+      - Credit-card-like patterns → ``[CC]``
+      - API keys / bearer tokens (``Bearer …``, ``Token …``, ``sk-…``,
+        32+ char bare tokens) → ``<prefix>***`` or ``***``
+        (via :func:`voice_typer.server._secrets.redact_secret`)
+      - URL-embedded credentials (``user:pass@host``) → credentials
+        stripped, host preserved
+        (via :func:`voice_typer.server._secrets.redact_url`)
+
+    RW-6: in addition to the formatted log message, the filter also
+    pre-formats and redacts the traceback when ``record.exc_info`` is
+    set.  The redacted text is cached on ``record.exc_text`` so any
+    subsequent :class:`logging.Formatter` that appends ``exc_text``
+    (including the default :meth:`logging.Formatter.format`) emits the
+    redacted version.  This catches exceptions whose ``str(exc)``
+    carries an API key — e.g. a ``requests.exceptions.ConnectionError``
+    whose message includes ``?key=sk-…`` — which would otherwise be
+    emitted verbatim by ``log.error("...: %s", exc,
+    exc_info=True)`` style call sites.
     """
 
     _PATTERNS: list[tuple[re.Pattern[str], str]] = [
@@ -101,10 +153,26 @@ class PIIRedactionFilter(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         msg = record.getMessage()
-        for pattern, replacement in self._PATTERNS:
-            msg = pattern.sub(replacement, msg)
+        msg = _redact_text(msg)
         record.msg = msg
         record.args = ()
+
+        # RW-6: pre-format and redact the traceback so exceptions
+        # whose ``str(exc)`` carries an API key don't leak the key via
+        # the formatted traceback.  ``record.exc_text`` is consulted
+        # by :meth:`logging.Formatter.format` (which only re-formats
+        # ``exc_info`` when ``exc_text`` is unset), so caching the
+        # redacted version here is sufficient — no Formatter subclass
+        # required.  ``record.exc_info`` itself is left intact for
+        # structured-logging consumers that introspect the actual
+        # exception object.
+        if record.exc_info:
+            try:
+                tb_text = "".join(_traceback.format_exception(*record.exc_info))
+            except Exception:
+                tb_text = ""
+            if tb_text:
+                record.exc_text = _redact_text(tb_text)
         return True
 
 

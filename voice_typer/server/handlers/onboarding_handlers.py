@@ -6,7 +6,7 @@ access ``self.app`` / ``self.service`` as before.
 """
 
 from typing import Any
-from voice_typer.server.ipc_server import log
+from voice_typer.server.ipc_server import log, _validate_dict_payload
 
 
 class OnboardingHandlersMixin:
@@ -86,8 +86,12 @@ class OnboardingHandlersMixin:
     def _handle_onboarding_set_microphone(self, data, resp) -> dict | None:
         """Handle the ``onboarding_set_microphone`` IPC command."""
         try:
-            mic_id = (data or {}).get("mic_id") if isinstance(data, dict) else None
-            result = self.service.onboarding_set_microphone(mic_id)
+            validated, error = _validate_dict_payload(data, {
+                "mic_id": {"type": str, "required": True},
+            })
+            if error:
+                return error
+            result = self.service.onboarding_set_microphone(validated["mic_id"])
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
         except Exception as e:
@@ -99,8 +103,12 @@ class OnboardingHandlersMixin:
     def _handle_onboarding_set_hotkey(self, data, resp) -> dict | None:
         """Handle the ``onboarding_set_hotkey`` IPC command."""
         try:
-            hotkey = (data or {}).get("hotkey", "<f2>") if isinstance(data, dict) else "<f2>"
-            result = self.service.onboarding_set_hotkey(hotkey)
+            validated, error = _validate_dict_payload(data, {
+                "hotkey": {"type": str, "required": False, "default": "<f2>"},
+            })
+            if error:
+                return error
+            result = self.service.onboarding_set_hotkey(validated["hotkey"])
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
         except Exception as e:
@@ -112,8 +120,12 @@ class OnboardingHandlersMixin:
     def _handle_onboarding_set_model(self, data, resp) -> dict | None:
         """Handle the ``onboarding_set_model`` IPC command."""
         try:
-            model = (data or {}).get("model", "small.en") if isinstance(data, dict) else "small.en"
-            result = self.service.onboarding_set_model(model)
+            validated, error = _validate_dict_payload(data, {
+                "model": {"type": str, "required": False, "default": "small.en"},
+            })
+            if error:
+                return error
+            result = self.service.onboarding_set_model(validated["model"])
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
         except Exception as e:

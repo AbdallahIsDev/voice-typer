@@ -13,6 +13,7 @@ Usage (stdin/stdout mode — ``voice-typer`` CLI)::
     python -m voice_typer.server.ipc_server
 """
 
+import hmac
 import json
 import logging
 import os
@@ -26,6 +27,99 @@ from collections import deque
 from voice_typer.server.keyboard_ownership import keyboard_ownership
 
 log = logging.getLogger("voice_typer.server.ipc_server")
+
+
+# PR-3-FINDING-3: shared IPC payload validation helper.
+#
+# Validates an IPC ``data`` argument against a declarative schema.
+# Returns ``(validated_dict, None)`` on success, or
+# ``(None, error_response_dict)`` on validation failure so the handler
+# can ``return resp`` immediately.
+#
+# Schema format::
+#
+#     schema = {
+#         "field_name": {
+#             "type": str,          # required: the expected Python type
+#             "required": True,     # field MUST be present in data
+#             "default": "val",    # optional default (only for
+#                                  #   required=False)
+#         }
+#     }
+#
+# Example::
+#
+#     validated, error = _validate_dict_payload(data, {
+#         "hotkey": {"type": str, "required": True},
+#         "model": {"type": str, "required": False, "default": "small.en"},
+#     })
+#     if error:
+#         return error
+
+def _validate_dict_payload(data, schema):
+    """Validate IPC ``data`` against a declarative *schema*.
+
+    Parameters
+    ----------
+    data : Any
+        The ``data`` field from the IPC message.
+    schema : dict[str, dict]
+        Mapping of field name → validation rules.  Each rule dict
+        supports:
+
+        - ``type`` (required): the expected Python type (e.g. ``str``,
+          ``list``).
+        - ``required`` (bool): if ``True``, the field MUST be present
+          in ``data``.  Mutually exclusive with ``default``.
+        - ``default``: default value when the field is absent.  Only
+          valid when ``required=False``.
+
+    Returns
+    -------
+    tuple[dict | None, dict | None]
+        ``(validated_dict, None)`` on success.
+        ``(None, error_response)`` on failure — the error_response
+        is a dict ready to be returned as ``resp`` from the handler.
+    """
+    if not isinstance(data, dict):
+        return None, {
+            "type": "error",
+            "data": {
+                "code": "invalid_payload",
+                "message": "data must be an object",
+            },
+        }
+
+    validated = {}
+    for field_name, rules in schema.items():
+        if field_name in data:
+            value = data[field_name]
+            expected_type = rules.get("type")
+            if expected_type is not None and not isinstance(value, expected_type):
+                return None, {
+                    "type": "error",
+                    "data": {
+                        "code": "invalid_field",
+                        "field": field_name,
+                        "message": f"'{field_name}' must be of type "
+                                   f"{expected_type.__name__}, got "
+                                   f"{type(value).__name__}",
+                    },
+                }
+            validated[field_name] = value
+        elif rules.get("required", False):
+            return None, {
+                "type": "error",
+                "data": {
+                    "code": "missing_field",
+                    "field": field_name,
+                    "message": f"Missing required field '{field_name}'",
+                },
+            }
+        elif "default" in rules:
+            validated[field_name] = rules["default"]
+
+    return validated, None
 
 
 def _pick_available_port(start: int = 9876, max_tries: int = 100) -> int:
@@ -80,6 +174,32 @@ _RATE_LIMIT_SUSTAINED = 60  # per second
 # we drop the client connection so the accept loop can pick up the
 # next reconnect.
 _TCP_WRITE_TIMEOUT_SECONDS = 2.0
+
+# ── RW-10: Electron-alive heartbeat ─────────────────────────────────────
+#
+# If Electron crashes or is force-killed, the Python backend keeps
+# running with the mic stream open, hotkeys registered, volume ducked,
+# and the single-instance mutex held.  The next launch hits
+# ``ERROR_ALREADY_EXISTS`` and surfaces "Only one instance can run",
+# forcing the user to manually kill ``python.exe``.
+#
+# The heartbeat mechanism works as follows:
+#   1. Electron connects via TCP and starts sending ``heartbeat`` IPC
+#      commands every 5 seconds (see ``client/src/main/index.ts``).
+#   2. The ``_handle_heartbeat`` handler updates
+#      ``self._last_heartbeat_at = time.monotonic()``.
+#   3. The ``_heartbeat_loop`` daemon thread wakes every 5 seconds and
+#      checks if more than 15 seconds (3 missed heartbeats) have
+#      elapsed since the last heartbeat.  If so, it calls
+#      ``self.app.quit()`` — which runs the shared ``_do_cleanup()``
+#      path from RW-3 (restores volume, flushes recovery, releases the
+#      mutex, closes PortAudio).
+#
+# The watchdog only fires AFTER the first heartbeat has been received,
+# so the backend doesn't exit prematurely during a slow Electron cold
+# start (10+ seconds for the torch import + window creation).
+_HEARTBEAT_INTERVAL_SECONDS = 5.0
+_HEARTBEAT_TIMEOUT_SECONDS = 15.0  # 3 missed heartbeats
 
 
 class _RateLimiter:
@@ -480,6 +600,19 @@ class IPCServer(
         # our callable without affecting other active servers.
         self._push_fn: "typing.Optional[typing.Callable[[dict], None]]" = None
 
+        # RW-10: heartbeat watchdog state.
+        #
+        # ``_last_heartbeat_at`` is ``None`` until Electron sends its
+        # first ``heartbeat`` IPC command.  The watchdog daemon thread
+        # started in ``start()`` refuses to fire ``app.quit()`` while
+        # this is ``None``, so the backend doesn't exit prematurely
+        # during a slow Electron cold start (10+ seconds for the torch
+        # import on first launch).  Once the first heartbeat lands,
+        # the timestamp is updated on every subsequent heartbeat.
+        self._last_heartbeat_at: float | None = None
+        self._heartbeat_thread: threading.Thread | None = None
+        self._heartbeat_stop_event = threading.Event()
+
     # ── Lifecycle ───────────────────────────────────────────────────────
 
     def start(self) -> None:
@@ -512,6 +645,18 @@ class IPCServer(
             daemon=True,
         )
         self._stdin_thread.start()
+        # RW-10: start the Electron-alive heartbeat watchdog.  Daemon
+        # thread so it doesn't block shutdown.  The thread refuses to
+        # fire ``app.quit()`` until the first heartbeat lands, so a
+        # slow Electron cold start (10+ seconds for torch import)
+        # doesn't trigger a false-positive exit.
+        self._heartbeat_stop_event.clear()
+        self._heartbeat_thread = threading.Thread(
+            target=self._heartbeat_loop,
+            name="heartbeat-watchdog",
+            daemon=True,
+        )
+        self._heartbeat_thread.start()
         log.info("[IPC] server started; push hook registered")
 
     def stop(self) -> None:
@@ -552,6 +697,13 @@ class IPCServer(
             except OSError:
                 pass
             self._tcp_server_socket = None
+        # RW-10: signal the heartbeat watchdog to exit.  The thread
+        # sleeps on ``_heartbeat_stop_event.wait(timeout=INTERVAL)``;
+        # setting the event wakes it immediately so it doesn't linger
+        # past shutdown.  (It's a daemon thread, so even if it lingered
+        # it wouldn't block process exit — but explicit shutdown is
+        # cleaner for test start/stop cycles.)
+        self._heartbeat_stop_event.set()
         # Keep the app-level reference so existing closures still
         # work after a stop+start cycle in tests.
 
@@ -653,55 +805,81 @@ class IPCServer(
 
         Extracted from _accept_tcp by NEW-IPC-001 so the accept loop
         can handle reconnections.
+
+        PR-3-FIX-1: the auth handshake is now performed OUTSIDE
+        ``self._lock`` to prevent a single-connection DoS. Previously,
+        a client that opened a TCP connection and sent nothing would
+        block the dispatcher thread AND hold ``self._lock``
+        indefinitely, freezing the entire IPC server (every ``push()``
+        event from any thread would block on the lock). Now the auth
+        read has a 5-second timeout and the lock is only acquired
+        after auth succeeds, to install the client and flush pending
+        events. The token comparison also uses ``hmac.compare_digest``
+        for constant-time comparison (consistent with
+        ``security.verify_restart_token``).
         """
+        # PR-3-FIX-1: set a read timeout BEFORE the auth readline so a
+        # malicious client that connects but sends nothing can't hold
+        # the thread indefinitely.
+        _TCP_AUTH_TIMEOUT_SECONDS = 5.0
+        try:
+            conn.settimeout(_TCP_AUTH_TIMEOUT_SECONDS)
+        except (OSError, AttributeError):
+            pass  # socket may be a mock in tests
+
+        # PR-3-FIX-1: perform the auth handshake OUTSIDE self._lock so
+        # a stalled auth read doesn't block push() events from other
+        # threads.
+        if expected_token:
+            auth_client = _TCPLineIO(conn)
+            try:
+                auth_line = auth_client.readline()
+                if not auth_line:
+                    log.warning("[TCP] client disconnected before sending auth")
+                    auth_client.close()
+                    return
+                auth_msg = json.loads(auth_line.strip())
+                # PR-3-FIX-1: use hmac.compare_digest for constant-time
+                # comparison (consistent with security.verify_restart_token).
+                # Check isinstance FIRST so .get() doesn't raise on
+                # non-dict JSON values (e.g. 42, [1,2,3], "hi").
+                token_valid = (
+                    isinstance(auth_msg, dict)
+                    and auth_msg.get("type") == "auth"
+                    and isinstance(auth_msg.get("token", ""), str)
+                    and hmac.compare_digest(auth_msg.get("token", ""), expected_token)
+                )
+                if not token_valid:
+                    log.warning("[TCP] auth failed — invalid token")
+                    try:
+                        auth_client.write(
+                            json.dumps({
+                                "type": "error",
+                                "data": {"message": "authentication failed"},
+                            }) + "\n"
+                        )
+                        auth_client.flush()
+                    except Exception:
+                        pass
+                    auth_client.close()
+                    return
+                log.info("[TCP] auth OK")
+            except json.JSONDecodeError:
+                log.warning("[TCP] auth failed — invalid JSON on first line")
+                auth_client.close()
+                return
+            except Exception:
+                log.warning("[TCP] auth handshake raised", exc_info=True)
+                auth_client.close()
+                return
+        else:
+            auth_client = _TCPLineIO(conn)
+
+        # PR-3-FIX-1: now acquire the lock ONLY for the post-auth setup
+        # (installing the client + flushing pending events). This is
+        # a short critical section that can't block on unbounded I/O.
         with self._lock:
-            self._tcp_client = _TCPLineIO(conn)
-            # SEC-018: authenticate the connection.  The first line
-            # from the client must be a JSON auth message with the
-            # correct session token.  If it doesn't match (or the
-            # token env var was set but no auth message arrives
-            # within the timeout), drop the connection.
-            if expected_token:
-                try:
-                    auth_line = self._tcp_client.readline()
-                    if not auth_line:
-                        log.warning("[TCP] client disconnected before sending auth")
-                        self._tcp_client.close()
-                        self._tcp_client = None
-                        return
-                    auth_msg = json.loads(auth_line.strip())
-                    if (
-                        not isinstance(auth_msg, dict)
-                        or auth_msg.get("type") != "auth"
-                        or auth_msg.get("token") != expected_token
-                    ):
-                        log.warning("[TCP] auth failed — invalid token")
-                        # Send an error response so the client knows
-                        # why it was dropped.
-                        try:
-                            self._tcp_client.write(
-                                json.dumps({
-                                    "type": "error",
-                                    "data": {"message": "authentication failed"},
-                                }) + "\n"
-                            )
-                            self._tcp_client.flush()
-                        except Exception:
-                            pass
-                        self._tcp_client.close()
-                        self._tcp_client = None
-                        return
-                    log.info("[TCP] auth OK")
-                except json.JSONDecodeError:
-                    log.warning("[TCP] auth failed — invalid JSON on first line")
-                    self._tcp_client.close()
-                    self._tcp_client = None
-                    return
-                except Exception:
-                    log.warning("[TCP] auth handshake raised", exc_info=True)
-                    self._tcp_client.close()
-                    self._tcp_client = None
-                    return
+            self._tcp_client = auth_client
 
             # Flush any push events queued before the client connected
             for p in self._pending_tcp:
@@ -803,9 +981,111 @@ class IPCServer(
             )
             return
         keyboard_ownership().reset()
+        # ISSUE-8: also clear the ESC-pending-capture-exit flag on the
+        # hotkey dispatcher. If the frontend crashed mid-capture (ESC
+        # pressed but not yet released), the flag would remain True and
+        # cause a spurious ``hotkey_capture_cancel`` event on the next
+        # ESC press after reconnect.
+        _hotkeys = getattr(self.app, "hotkeys", None)
+        if _hotkeys is not None:
+            try:
+                _hotkeys._esc_pending_capture_exit = False
+            except AttributeError:
+                pass
         log.info(
             "[IPC] keyboard ownership reset to normal (%s)", reason
         )
+
+    # ── Heartbeat watchdog (RW-10) ───────────────────────────────────────
+
+    def _heartbeat_loop(self) -> None:
+        """RW-10: daemon thread that watches for Electron heartbeat timeouts.
+
+        Wakes every ``_HEARTBEAT_INTERVAL_SECONDS`` (5s) and calls
+        :meth:`_check_heartbeat_timeout`.  When the timeout fires
+        (3 missed heartbeats = 15s without a heartbeat from Electron),
+        the loop returns — ``app.quit()`` has already been triggered,
+        which runs the shared ``_do_cleanup()`` path from RW-3
+        (restores volume, flushes recovery, releases the mutex, closes
+        PortAudio) and breaks the pystray loop so the process exits.
+
+        The thread is a daemon so it doesn't block shutdown.  ``stop()``
+        sets ``_heartbeat_stop_event`` to wake the thread immediately
+        on a planned shutdown.
+        """
+        while not self._heartbeat_stop_event.wait(_HEARTBEAT_INTERVAL_SECONDS):
+            if self._check_heartbeat_timeout():
+                return  # app.quit() was called; thread exits
+
+    def _check_heartbeat_timeout(self) -> bool:
+        """Return True and call ``app.quit()`` if the heartbeat is overdue.
+
+        RW-10: extracted as a separate method so tests can invoke it
+        directly without spinning up the daemon thread (and without
+        waiting 15 real seconds).
+
+        Returns ``True`` when ``app.quit()`` was called, ``False``
+        otherwise.  The ``False`` cases are:
+
+        - ``_last_heartbeat_at is None``: Electron has not yet sent
+          its first heartbeat.  The watchdog must NOT fire here, or a
+          slow Electron cold start (10+ seconds for the torch import)
+          would cause a false-positive exit.
+        - ``now - last <= _HEARTBEAT_TIMEOUT_SECONDS``: the most
+          recent heartbeat is fresh enough; Electron is still alive.
+
+        The ``True`` case calls ``self.app.quit()`` — which runs the
+        shared ``_do_cleanup()`` cleanup path (RW-3) so the mic
+        stream, hotkeys, volume duck, and single-instance mutex are
+        properly released before the process exits.  ``app.quit()``
+        also calls ``tray.stop()`` which breaks the pystray loop,
+        letting ``app.start()`` return and the process exit naturally
+        (quit() only calls ``sys.exit()`` from the main thread; from
+        a daemon thread it relies on tray.stop() to unwind the main
+        loop).
+        """
+        last = self._last_heartbeat_at
+        if last is None:
+            # No heartbeat yet — Electron hasn't connected.  Don't
+            # fire.  This is the critical guard that prevents a false
+            # positive during a slow Electron cold start.
+            return False
+        now = time.monotonic()
+        if now - last <= _HEARTBEAT_TIMEOUT_SECONDS:
+            return False
+        log.warning(
+            "[HEARTBEAT] No heartbeat from Electron in %.1fs (>%0.1fs) "
+            "— backend will quit (Electron likely crashed or was "
+            "force-killed)",
+            now - last,
+            _HEARTBEAT_TIMEOUT_SECONDS,
+        )
+        try:
+            self.app.quit()
+        except Exception:
+            log.exception(
+                "[HEARTBEAT] app.quit() raised during heartbeat timeout"
+            )
+        return True
+
+    def _handle_heartbeat(self, data, resp) -> dict:
+        """Handle the ``heartbeat`` IPC command (RW-10).
+
+        Electron's main process sends this every 5 seconds (see
+        ``client/src/main/index.ts``) once the TCP connection is
+        established.  The handler updates ``_last_heartbeat_at`` so
+        the :meth:`_heartbeat_loop` daemon thread knows Electron is
+        still alive.
+
+        The response is a trivial ``heartbeat_ack`` — Electron does
+        not act on it (the heartbeat is fire-and-forget), but
+        returning a well-formed response keeps the IPC dispatcher's
+        ``result.setdefault('data', {})`` path happy and lets
+        ``sendToPython()`` resolve its promise instead of timing out.
+        """
+        self._last_heartbeat_at = time.monotonic()
+        resp["type"] = "heartbeat_ack"
+        return resp
 
     # ── Tray state hook ─────────────────────────────────────────────────
 
@@ -1000,6 +1280,12 @@ class IPCServer(
         "get_vocabulary_suggestions": "_handle_get_vocabulary_suggestions",
         "apply_vocabulary_suggestion": "_handle_apply_vocabulary_suggestion",
         "dismiss_vocabulary_suggestion": "_handle_dismiss_vocabulary_suggestion",
+        # RW-10: Electron-alive heartbeat.  Electron's main process
+        # sends this every 5 seconds; the backend's heartbeat-watchdog
+        # daemon thread calls ``app.quit()`` if 3 consecutive heartbeats
+        # are missed (15s timeout) so a crashed/force-killed Electron
+        # doesn't strand the backend with the mic open + mutex held.
+        "heartbeat": "_handle_heartbeat",
     }
 
     def _handle_unknown_command(self, cmd, data, resp) -> dict | None:
@@ -1100,7 +1386,22 @@ class IPCServer(
             _is_shutting_down = getattr(self.app, "_shutting_down", False) is True
             msg_type = msg.get("type", "")
             # Allow critical shutdown events through; suppress others.
-            if _is_shutting_down and msg_type not in ("relaunch_electron", "quit_app"):
+            # PR-2-FIX-2: expanded allowlist to include content-bearing events
+            # that the user is waiting for. transcription_final carries the
+            # final transcription text — if it's suppressed during shutdown,
+            # the user sees no result on the Home page and perceives data loss
+            # (the data IS saved to history_db, but the UI never updates).
+            # transcription_partial and vocabulary_suggestion are similarly
+            # content-bearing. High-frequency events (bubble_level, audio_level)
+            # are still suppressed.
+            _shutdown_allowlist = (
+                "relaunch_electron",
+                "quit_app",
+                "transcription_final",
+                "transcription_partial",
+                "vocabulary_suggestion",
+            )
+            if _is_shutting_down and msg_type not in _shutdown_allowlist:
                 with self._lock:
                     if self._tcp_client is tcp_client:
                         try:

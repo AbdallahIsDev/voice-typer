@@ -8,11 +8,10 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 import {
 	formatHotkeyLabel,
-	getComboPresets,
-	getSingleKeyPresets,
 	IS_MAC,
 	KEY_CODE_TO_PYNPUT,
 	MODIFIER_CODE_TO_PYNPUT,
@@ -43,6 +42,13 @@ interface HotkeyPickerProps {
 	value: string;
 	onChange: (hotkey: string) => void;
 	mode: "single" | "combo";
+	/**
+	 * Optional preset options for the dropdown menu.
+	 * When provided, a dropdown is rendered so the user can pick from
+	 * these presets. When omitted or empty, no dropdown is shown and
+	 * only the capture button is available.
+	 */
+	presets?: { value: string; label: string }[];
 	className?: string;
 	"aria-label"?: string;
 	/**
@@ -59,6 +65,16 @@ interface HotkeyPickerProps {
 	 * hotkey in the backend.
 	 */
 	onCaptureEnd?: () => void;
+	/**
+	 * DUPLICATE-001: hotkey strings that are already occupied by other
+	 * settings. When the user tries to set this picker to a value that's
+	 * already in use, an error is shown and the change is rejected.
+	 * This prevents two settings from having the same hotkey.
+	 * Example: if the dictation key is set to "<shift>", passing
+	 * occupiedHotkeys={["<shift>"]} to the repaste key picker prevents
+	 * the user from also setting the repaste key to Shift.
+	 */
+	occupiedHotkeys?: string[];
 }
 
 /**
@@ -118,10 +134,12 @@ export function HotkeyPicker({
 	value,
 	onChange,
 	mode,
+	presets,
 	className,
 	"aria-label": ariaLabel = "Hotkey picker",
 	onCaptureStart,
 	onCaptureEnd,
+	occupiedHotkeys,
 }: HotkeyPickerProps) {
 	const [recording, setRecording] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -344,13 +362,31 @@ export function HotkeyPicker({
 			resetCaptureSession();
 			return;
 		}
+		// DUPLICATE-001: reject if another setting already uses this hotkey.
+		// Skip the check when the hotkey hasn't actually changed (the
+		// user is re-selecting the current value).
+		if (newHotkey !== value && occupiedHotkeys?.includes(newHotkey)) {
+			const label = formatHotkeyLabel(newHotkey);
+			setError(
+				`"${label}" is already in use by another setting. Each hotkey must be unique.`,
+			);
+			resetCaptureSession();
+			return;
+		}
 		onChange(newHotkey);
 		resetCaptureSession();
 		setRecording(false);
 		recordingRef.current = false;
 		setError(null);
 		onCaptureEndRef.current?.();
-	}, [mode, onChange, resetCaptureSession, getCanonicalModifiers]);
+	}, [
+		mode,
+		onChange,
+		resetCaptureSession,
+		getCanonicalModifiers,
+		occupiedHotkeys,
+		value,
+	]);
 
 	// HOTKEY-MULTIKEY-001: commit the full combo when all non-modifier
 	// keys have been released. The committed combo includes every
@@ -392,13 +428,31 @@ export function HotkeyPicker({
 			resetCaptureSession();
 			return;
 		}
+		// DUPLICATE-001: reject if another setting already uses this hotkey.
+		// Skip the check when the hotkey hasn't actually changed (the
+		// user is re-selecting the current value).
+		if (newHotkey !== value && occupiedHotkeys?.includes(newHotkey)) {
+			const label = formatHotkeyLabel(newHotkey);
+			setError(
+				`"${label}" is already in use by another setting. Each hotkey must be unique.`,
+			);
+			resetCaptureSession();
+			return;
+		}
 		onChange(newHotkey);
 		resetCaptureSession();
 		setRecording(false);
 		recordingRef.current = false;
 		setError(null);
 		onCaptureEndRef.current?.();
-	}, [mode, onChange, resetCaptureSession, getCanonicalModifiers]);
+	}, [
+		mode,
+		onChange,
+		resetCaptureSession,
+		getCanonicalModifiers,
+		occupiedHotkeys,
+		value,
+	]);
 
 	const cancelRecording = useCallback(() => {
 		// ESC-KEYUP-FIX: guard against duplicate onCaptureEnd calls.
@@ -614,11 +668,6 @@ export function HotkeyPicker({
 		],
 	);
 
-	// ISSUE-8: call the getters on every render so the preset list always
-	// reflects the CURRENT platform (in case navigator.userAgent was
-	// spoofed/wrong at module load, e.g. in headless Electron). The lists
-	// are small and the filter is O(n), so this is cheap.
-	const presets = mode === "single" ? getSingleKeyPresets() : getComboPresets();
 	// HOTKEY-FIX-004 (Round 1): "Custom" sentinel. When the current
 	// hotkey is not one of the preset values, the Select would render
 	// an empty trigger (Radix Select quirk: a non-empty value that
@@ -626,8 +675,15 @@ export function HotkeyPicker({
 	// custom values and map them to a "__custom__" sentinel that
 	// displays the actual hotkey label, so the dropdown always shows
 	// something meaningful.
+	//
+	// The presets are now passed in from the parent via the `presets`
+	// prop — no hard-coded preset logic in this component. If no
+	// presets are provided, the dropdown is not rendered at all.
+	const presetOptions = presets ?? [];
 	const rawPresetValue = mode === "single" ? value.replace(/[<>]/g, "") : value;
-	const isPresetValue = presets.some((opt) => opt.value === rawPresetValue);
+	const isPresetValue = presetOptions.some(
+		(opt) => opt.value === rawPresetValue,
+	);
 	const customLabel = value ? formatHotkeyLabel(value) : "";
 
 	return (
@@ -640,8 +696,8 @@ export function HotkeyPicker({
 					className={cn("gap-2 font-mono", className)}
 					aria-label={
 						recording
-							? `Cancel recording \u2014 ${ariaLabel}`
-							: `Record new hotkey \u2014 ${ariaLabel}`
+							? t("hotkeyPicker.cancelRecordingAria", { label: ariaLabel })
+							: t("hotkeyPicker.recordNewAria", { label: ariaLabel })
 					}
 				>
 					<HugeiconsIcon
@@ -650,80 +706,101 @@ export function HotkeyPicker({
 						className="h-4 w-4"
 					/>
 					{recording ? (
-						<span className="animate-pulse">Press a key</span>
+						<span className="animate-pulse">{t("hotkeyPicker.pressAKey")}</span>
 					) : (
-						<span>{formatHotkeyLabel(value) || "None"}</span>
+						<span>{formatHotkeyLabel(value) || t("hotkeyPicker.none")}</span>
 					)}
 				</Button>
 
-				<DropdownMenu>
-					<DropdownMenuTrigger asChild>
-						<Button
-							variant="outline"
-							size="sm"
-							className="w-40 justify-between font-mono"
-							aria-label={`Preset hotkeys \u2014 ${ariaLabel}`}
-						>
-							<span>
-								{(() => {
-									if (!value) return "Presets\u2026";
-									if (isPresetValue) {
-										const opt = presets.find((o) => o.value === rawPresetValue);
-										return opt?.label ?? formatHotkeyLabel(value);
-									}
-									return `Custom: ${customLabel}`;
-								})()}
-							</span>
-							<svg
-								xmlns="http://www.w3.org/2000/svg"
-								width="16"
-								height="16"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								strokeWidth="2"
-								strokeLinecap="round"
-								strokeLinejoin="round"
-								className="h-4 w-4 opacity-50"
-								aria-hidden="true"
+				{presetOptions.length > 0 && (
+					<DropdownMenu>
+						<DropdownMenuTrigger asChild>
+							<Button
+								variant="outline"
+								size="sm"
+								className="w-40 justify-between font-mono"
+								aria-label={t("hotkeyPicker.presetHotkeysAria", {
+									label: ariaLabel,
+								})}
 							>
-								<path d="m6 9 6 6 6-6" />
-							</svg>
-						</Button>
-					</DropdownMenuTrigger>
-					<DropdownMenuContent className="w-40" align="start">
-						{presets.map((opt) => (
-							<DropdownMenuItem
-								key={opt.value}
-								onSelect={() => {
-									const newValue =
-										mode === "single" ? `<${opt.value}>` : opt.value;
-									const validationError = validateHotkey(newValue, mode);
-									if (validationError) {
-										setError(validationError);
-									} else {
-										setError(null);
-										onChange(newValue);
-									}
-								}}
-							>
-								{opt.label}
-							</DropdownMenuItem>
-						))}
-						{!isPresetValue && value && (
-							<DropdownMenuItem
-								disabled
-								className="text-(--text-muted) cursor-default"
-							>
-								Custom: {customLabel}
-							</DropdownMenuItem>
-						)}
-					</DropdownMenuContent>
-				</DropdownMenu>
+								<span>
+									{(() => {
+										if (!value) return t("hotkeyPicker.presets");
+										if (isPresetValue) {
+											const opt = presetOptions.find(
+												(o) => o.value === rawPresetValue,
+											);
+											return opt?.label ?? formatHotkeyLabel(value);
+										}
+										return t("hotkeyPicker.customLabel", {
+											label: customLabel,
+										});
+									})()}
+								</span>
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									width="16"
+									height="16"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									strokeWidth="2"
+									strokeLinecap="round"
+									strokeLinejoin="round"
+									className="h-4 w-4 opacity-50"
+									aria-hidden="true"
+								>
+									<path d="m6 9 6 6 6-6" />
+								</svg>
+							</Button>
+						</DropdownMenuTrigger>
+						<DropdownMenuContent className="w-40" align="start">
+							{presetOptions.map((opt) => (
+								<DropdownMenuItem
+									key={opt.value}
+									onSelect={() => {
+										const newValue =
+											mode === "single" ? `<${opt.value}>` : opt.value;
+										// DUPLICATE-001: reject if another setting already uses this hotkey.
+										// Skip the check when the hotkey hasn't actually changed (the
+										// user is re-selecting the current value).
+										if (
+											newValue !== value &&
+											occupiedHotkeys?.includes(newValue)
+										) {
+											const label = formatHotkeyLabel(newValue);
+											setError(
+												`"${label}" is already in use by another setting. Each hotkey must be unique.`,
+											);
+											return;
+										}
+										const validationError = validateHotkey(newValue, mode);
+										if (validationError) {
+											setError(validationError);
+										} else {
+											setError(null);
+											onChange(newValue);
+										}
+									}}
+								>
+									{opt.label}
+								</DropdownMenuItem>
+							))}
+							{!isPresetValue && value && (
+								<DropdownMenuItem
+									disabled
+									className="text-(--text-muted) cursor-default"
+								>
+									{t("hotkeyPicker.customLabel", { label: customLabel })}
+								</DropdownMenuItem>
+							)}
+						</DropdownMenuContent>
+					</DropdownMenu>
+				)}
 			</div>
 			{recording && (
 				<p className="text-xs text-(--text-muted)" role="status">
-					Press a key to assign, or press Esc to cancel
+					{t("hotkeyPicker.assignHint")}
 				</p>
 			)}
 			{error && (
