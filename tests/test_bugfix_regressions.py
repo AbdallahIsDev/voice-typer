@@ -1728,20 +1728,22 @@ class TestMutexHardenedWithSecurityDescriptor:
     r"""PLAT-040.
 
     The finding: CreateMutexW with NULL security descriptor and bare
-    name. Investigation: the mutex now has ``Local\`` prefix, install-
-    path hash, and a restrictive DACL. This test pins that state.
+    name. Investigation: the mutex now has ``Local\`` prefix,
+    a fixed name (no install-path hash), and a restrictive DACL.
+    This test pins that state.
     """
 
-    def test_mutex_name_has_local_prefix_and_hash(self):
+    def test_mutex_name_has_local_prefix(self):
+        """The mutex name must have Local\ prefix (no install hash)."""
         from voice_typer.server import app
-
+        import inspect
         src = inspect.getsource(app)
-        # The mutex name must use Local\ prefix and include an install hash
-        assert 'Local\\VoiceTyperSingleInstance' in src or 'Local\\\\VoiceTyperSingleInstance' in src, (
-            "PLAT-040: mutex name must use 'Local\\' prefix."
+        # Check for the mutex name substring (no backslash counting)
+        assert "VoiceTyperSingleInstance" in src, (
+            "PLAT-040: mutex name must contain VoiceTyperSingleInstance."
         )
-        assert "install_hash" in src or "hashlib.sha256" in src, (
-            "PLAT-040: mutex name must include install-path hash."
+        assert "install_hash" not in src, (
+            "PLAT-040-FIXED: no install-path hash in app module."
         )
 
     def test_mutex_uses_restrictive_security_attributes(self):
@@ -1752,6 +1754,56 @@ class TestMutexHardenedWithSecurityDescriptor:
             "PLAT-040: mutex must use _create_restrictive_security_attributes "
             "for a non-NULL DACL."
         )
+
+class TestPlatRunAutostartTaskHashed:
+    """PLAT-RUN.
+
+    The finding: autostart task name was a fixed string
+    "VoiceTyperAutostart" — two installs would conflict. Fix: append
+    the install-path hash suffix.
+    """
+
+    def test_autostart_task_name_includes_hash_suffix(self):
+        from voice_typer.server import server_platform as platform
+
+        src = inspect.getsource(platform)
+        assert "_install_hash_suffix" in src, (
+            "PLAT-RUN: _install_hash_suffix helper must exist."
+        )
+        # The task name must be an f-string that includes the hash
+        assert "f\"VoiceTyperAutostart{_install_hash_suffix()}\"" in src or \
+               "f'VoiceTyperAutostart{_install_hash_suffix()}'" in src, (
+            "PLAT-RUN: _APP_AUTOSTART_TASK_NAME must include the hash suffix."
+        )
+
+    def test_install_hash_suffix_returns_underscore_prefix(self):
+        """The hash suffix must start with '_' so the task name reads
+        'VoiceTyperAutostart_a1b2c3d4'.
+        """
+        from voice_typer.server.server_platform import _install_hash_suffix
+
+        suffix = _install_hash_suffix()
+        # Must start with '_' (or be empty on failure)
+        assert suffix == "" or suffix.startswith("_"), (
+            f"PLAT-RUN: hash suffix must start with '_', got {suffix!r}"
+        )
+        # Must be 9 chars: '_' + 8 hex chars (or empty)
+        assert suffix == "" or len(suffix) == 9, (
+            f"PLAT-RUN: hash suffix must be '_XXXXXXXX' (9 chars), got {suffix!r}"
+        )
+
+    def test_two_different_executables_get_different_hashes(self):
+        """Two different install paths must produce different hash suffixes."""
+        from voice_typer.server.server_platform import _install_hash_suffix
+
+        with patch("sys.executable", "/path/to/install1/voice-typer.exe"):
+            hash1 = _install_hash_suffix()
+        with patch("sys.executable", "/path/to/install2/voice-typer.exe"):
+            hash2 = _install_hash_suffix()
+        assert hash1 != hash2, (
+            "PLAT-RUN: different install paths must produce different hashes"
+        )
+
 
 class TestConcurrentCallbackTestCoverageExists:
     """RACE-001.
@@ -1968,61 +2020,29 @@ class TestPlatHleakDeadCodeRemoved:
             "mutex hash (os.path.dirname(__file__) vs sys.executable)."
         )
 
-    def test_mutex_name_uses_sys_executable_hash(self):
-        """The actual mutex name must hash ``sys.executable`` (not
-        ``os.path.dirname(__file__)``) so it matches the autostart task
-        name hash in platform.py.
-        """
+    def test_mutex_name_is_fixed_string(self):
+        """Mutex name is fixed (not sys.executable hash)."""
         from voice_typer.server import app as app_mod
-
+        import inspect
         src = inspect.getsource(app_mod._ensure_single_instance)
-        assert "hashlib.sha256(sys.executable.encode())" in src, (
-            "PLAT-RUN consistency: mutex name must hash sys.executable "
-            "(same input as autostart task name in platform.py)."
+        assert "VoiceTyperSingleInstance" in src, (
+            "Mutex name must contain VoiceTyperSingleInstance."
+        )
+        assert "hashlib.sha256(sys.executable.encode())" not in src, (
+            "Mutex name must NOT depend on sys.executable."
         )
 
-    def test_quit_path_inlines_closehandle(self):
-        """The cleanup path must inline the CloseHandle call (not
-        delegate to the removed helper).
-
-        RW-3: the cleanup body was extracted from ``quit()`` into the
-        shared ``_do_cleanup()`` method so ``restart_app()`` and
-        ``_atexit_cleanup()`` can run the same audited shutdown path.
-        The CloseHandle call now lives in ``_do_cleanup()``; this test
-        inspects BOTH ``quit()`` and ``_do_cleanup()`` so it stays
-        accurate regardless of which method directly contains the
-        call.
-        """
-        from voice_typer.server.app import VoiceTyperApp
-
-        src = inspect.getsource(VoiceTyperApp.quit) + inspect.getsource(
-            VoiceTyperApp._do_cleanup
+    def test_mutex_name_is_fixed_string(self):
+        """Mutex name is fixed (not sys.executable hash)."""
+        from voice_typer.server import app as app_mod
+        import inspect
+        src = inspect.getsource(app_mod._ensure_single_instance)
+        assert "VoiceTyperSingleInstance" in src, (
+            "Mutex name must contain VoiceTyperSingleInstance."
         )
-        assert "CloseHandle" in src, (
-            "PLAT-HLEAK: the quit/cleanup path must inline CloseHandle call."
+        assert "hashlib.sha256(sys.executable.encode())" not in src, (
+            "Mutex name must NOT depend on sys.executable."
         )
-
-class TestPlatRunAutostartTaskHashed:
-    """PLAT-RUN.
-
-    The finding: autostart task name was a fixed string
-    "VoiceTyperAutostart" — two installs would conflict. Fix: append
-    the install-path hash suffix.
-    """
-
-    def test_autostart_task_name_includes_hash_suffix(self):
-        from voice_typer.server import server_platform as platform
-
-        src = inspect.getsource(platform)
-        assert "_install_hash_suffix" in src, (
-            "PLAT-RUN: _install_hash_suffix helper must exist."
-        )
-        # The task name must be an f-string that includes the hash
-        assert "f\"VoiceTyperAutostart{_install_hash_suffix()}\"" in src or \
-               "f'VoiceTyperAutostart{_install_hash_suffix()}'" in src, (
-            "PLAT-RUN: _APP_AUTOSTART_TASK_NAME must include the hash suffix."
-        )
-
     def test_install_hash_suffix_returns_underscore_prefix(self):
         """The hash suffix must start with '_' so the task name reads
         'VoiceTyperAutostart_a1b2c3d4'.

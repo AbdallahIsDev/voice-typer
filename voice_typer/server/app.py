@@ -2462,11 +2462,12 @@ def _ensure_single_instance(silent=False):
     # SEC-001: Create a SECURITY_ATTRIBUTES with a restrictive DACL that
     # only allows the current user to access the mutex. This prevents
     # other sessions/users from opening or manipulating our mutex.
-    # PLAT-RUN: Include the installation path hash in the mutex name
-    # so different installations don't conflict (e.g. stable vs dev).
-    import hashlib
-    install_hash = hashlib.sha256(sys.executable.encode()).hexdigest()[:8]
-    mutex_name = f"Local\\VoiceTyperSingleInstance_{install_hash}"
+    # PLAT-RUN-FIXED: The mutex name is now a fixed string so ALL
+    # VoiceTyper processes (regardless of Python executable) share the
+    # same mutex. Previously it included sys.executable hash, which let
+    # different Python executables (python.exe vs pythonw.exe, dev venv
+    # vs production install) run as separate instances.
+    mutex_name = "Local\\VoiceTyperSingleInstance"
 
     # Build a restrictive DACL for the mutex
     sa = _create_restrictive_security_attributes()
