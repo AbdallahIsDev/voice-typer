@@ -552,7 +552,24 @@ def launch() -> int:
         time.sleep(delay_seconds)
 
     # 1) App already running — wake it via single-instance lock.
-    if _is_port_open(IPC_HOST, IPC_PORT):
+    # Check if a VoiceTyper backend is already running via the
+    # backend PID file (authoritative) and port 9876 (belt-and-suspenders).
+    # Previously only checked port 9876, which is unreliable because the
+    # actual IPC port may be different (auto-incremented if 9876 was busy).
+    from voice_typer.server.app import _backend_pid_file, _is_pid_alive
+    pid_file = _backend_pid_file()
+    backend_running = False
+    if pid_file.exists():
+        try:
+            pid = int(pid_file.read_text().strip())
+            backend_running = _is_pid_alive(pid)
+        except (OSError, ValueError):
+            pass
+    if not backend_running:
+        # Fallback: check the default port as a quick heuristic
+        backend_running = _is_port_open(IPC_HOST, IPC_PORT)
+
+    if backend_running:
         log.info("[AUTOSTART] backend already running — focusing existing instance")
         _focus_running_app()
         time.sleep(0.5)
