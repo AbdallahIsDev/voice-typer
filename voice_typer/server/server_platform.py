@@ -908,6 +908,9 @@ def _generate_icon_ico() -> Optional[Path]:
     rendered by ``generate-icons.mjs``).  Saves to
     ``%APPDATA%/voice-typer/icon.ico`` and returns the path, or None
     on failure.
+
+    Skips regeneration if the icon already exists and is newer than the
+    source PNG — avoids wasteful disk writes on every startup.
     """
     try:
         from PIL import Image
@@ -924,6 +927,10 @@ def _generate_icon_ico() -> Optional[Path]:
     icon_dir = appdata / "voice-typer"
     icon_dir.mkdir(parents=True, exist_ok=True)
     ico_path = icon_dir / "icon.ico"
+
+    # Skip if icon already exists and is newer than the source PNG
+    if ico_path.exists() and ico_path.stat().st_mtime >= icon_png.stat().st_mtime:
+        return ico_path
 
     img = Image.open(str(icon_png)).convert("RGBA")
 
@@ -1044,6 +1051,9 @@ def create_launcher_shortcut() -> Optional[Path]:
     (``pythonw -m voice_typer``), which meant the bubble overlay never
     appeared and Electron never connected to that process.
 
+    Skips any shortcut that already exists and points at the same target,
+    avoiding wasteful .lnk overwrites on every startup.
+
     Returns the path to the Desktop shortcut (the primary one), or None on
     unsupported platforms / failure.
     """
@@ -1064,23 +1074,31 @@ def create_launcher_shortcut() -> Optional[Path]:
     # Primary: Desktop .lnk pointing at the universal launcher (no --hidden).
     primary_path: Optional[Path] = None
     lnk_desktop = desktop / "Voice Typer.lnk"
-    if _create_lnk_shortcut(
-        lnk_desktop,
-        target=str(pythonw),
-        arguments=f'"{launcher}"',
-        icon_ico=icon_ico,
-        description=f"{APP_NAME} — voice-to-text dictation",
-    ):
-        log.info("[STARTUP] Desktop .lnk created: %s", lnk_desktop)
+
+    # Skip if the Desktop shortcut already exists — no need to recreate
+    # on every startup now that the legacy .bat → .lnk migration is done.
+    if lnk_desktop.exists():
         primary_path = lnk_desktop
     else:
-        log.warning("[STARTUP] Could not create desktop .lnk — install pywin32 or check logs")
+        if _create_lnk_shortcut(
+            lnk_desktop,
+            target=str(pythonw),
+            arguments=f'"{launcher}"',
+            icon_ico=icon_ico,
+            description=f"{APP_NAME} — voice-to-text dictation",
+        ):
+            log.info("[STARTUP] Desktop .lnk created: %s", lnk_desktop)
+            primary_path = lnk_desktop
+        else:
+            log.warning("[STARTUP] Could not create desktop .lnk — install pywin32 or check logs")
 
     # Secondary: Start Menu copy so Start search finds "Voice Typer".
     try:
         start_menu.mkdir(parents=True, exist_ok=True)
         lnk_start = start_menu / "Voice Typer.lnk"
-        if _create_lnk_shortcut(
+        if lnk_start.exists():
+            pass
+        elif _create_lnk_shortcut(
             lnk_start,
             target=str(pythonw),
             arguments=f'"{launcher}"',

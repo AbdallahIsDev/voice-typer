@@ -151,7 +151,7 @@ class TestRecorderCallbackWithAudioProcessor:
             sample_rate=16000, microphone=None,
             silence_warning_seconds=20.0, stop_on_silence_seconds=120.0,
             # SIMPLIFY-001: single explicit field replaces the old 3-field split
-            max_recording_time_seconds=1200, device="cpu",
+            max_recording_time_seconds=900, device="cpu",
             use_silero_vad=False, vad_speech_threshold=0.5,
         )
         # ADR-0007: AudioProcessorConfig removed; build_chain reads
@@ -200,7 +200,7 @@ class TestRecorderCallbackWithAudioProcessor:
             sample_rate=16000, microphone=None,
             silence_warning_seconds=20.0, stop_on_silence_seconds=120.0,
             # SIMPLIFY-001: single explicit field replaces the old 3-field split
-            max_recording_time_seconds=1200, device="cpu",
+            max_recording_time_seconds=900, device="cpu",
             use_silero_vad=False, vad_speech_threshold=0.5,
         )
         # ADR-0007: AudioProcessorConfig removed; use noise_filter_* config.
@@ -244,7 +244,7 @@ class TestRecorderCallbackWithAudioProcessor:
             sample_rate=16000, microphone=None,
             silence_warning_seconds=20.0, stop_on_silence_seconds=120.0,
             # SIMPLIFY-001: single explicit field replaces the old 3-field split
-            max_recording_time_seconds=1200, device="cpu",
+            max_recording_time_seconds=900, device="cpu",
             use_silero_vad=False, vad_speech_threshold=0.5,
         )
         # ADR-0007: AudioProcessorConfig removed; use noise_filter_* config.
@@ -288,7 +288,7 @@ class TestRecorderCallbackWithAudioProcessor:
             sample_rate=16000, microphone=None,
             silence_warning_seconds=20.0, stop_on_silence_seconds=120.0,
             # SIMPLIFY-001: single explicit field replaces the old 3-field split
-            max_recording_time_seconds=1200, device="cpu",
+            max_recording_time_seconds=900, device="cpu",
             use_silero_vad=False, vad_speech_threshold=0.5,
         )
         # ADR-0007: AudioProcessorConfig removed; use noise_filter_* config.
@@ -334,7 +334,7 @@ class TestRecorderCallbackWithAudioProcessor:
             sample_rate=16000, microphone=None,
             silence_warning_seconds=20.0, stop_on_silence_seconds=120.0,
             # SIMPLIFY-001: single explicit field replaces the old 3-field split
-            max_recording_time_seconds=1200, device="cpu",
+            max_recording_time_seconds=900, device="cpu",
             use_silero_vad=False, vad_speech_threshold=0.5,
         )
         r = Recorder(config, audio_processor=None)
@@ -362,7 +362,7 @@ class TestRecorderCallbackWithAudioProcessor:
             sample_rate=16000, microphone=None,
             silence_warning_seconds=20.0, stop_on_silence_seconds=120.0,
             # SIMPLIFY-001: single explicit field replaces the old 3-field split
-            max_recording_time_seconds=1200, device="cpu",
+            max_recording_time_seconds=900, device="cpu",
             use_silero_vad=False, vad_speech_threshold=0.5,
         )
         # ADR-0007: AudioProcessorConfig removed; use noise_filter_* config.

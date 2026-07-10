@@ -158,7 +158,7 @@ class TestQwenIntegration:
     def test_real_qwen_transcribe(self):
         """Test with real Qwen model. Requires VOICE_TYPER_TEST_QWEN=1."""
         from voice_typer.server.qwen_engine import QwenEngine
-        model_path = os.environ.get("VOICE_TYPER_QWEN_PATH", "Qwen3-ASR-0.6B")
+        model_path = os.environ.get("VOICE_TYPER_QWEN_PATH", "Qwen3-ASR-1.7B")
         engine = QwenEngine(model_path=model_path)
         engine.load()
         assert engine.is_loaded

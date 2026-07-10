@@ -312,6 +312,73 @@ class TestAppStateTransitions:
         assert app._busy_event.is_set()
         app.tray.set_state.assert_called()
 
+    def test_stop_dictation_sets_bubble_transcribing_state(self, app):
+        """_stop_dictation must call bubble.set_state('transcribing').
+
+        NEW-BUBBLE-TRANSCRIBING: When recording stops, the bubble should
+        show "Transcribing…" text with animated dots instead of hiding
+        immediately. The bubble transitions:
+          recording → transcribing (on stop) → idle/hidden (on completion)
+        """
+        app._waveform_bubble = MagicMock()
+        app._waveform_bubble.visible = True
+        app.clipboard = MagicMock()
+        app.clipboard.copy = MagicMock(return_value=True)
+        app.models.transcriber = MagicMock()
+        app.models._sync_registry_from_fields()
+        app.models.transcriber.transcribe_with_fallback = MagicMock(return_value="test")
+        app.models.transcriber.device_info = "cpu (int8)"
+        app.recorder = MagicMock()
+        app.recorder.recording = True
+        app.recorder.stop = MagicMock(return_value=np.ones(16000, dtype=np.float32))
+        app.recorder.last_rms = 0.5
+
+        app._stop_dictation()
+
+        # Must set transcribing state instead of hiding
+        app._waveform_bubble.set_state.assert_called_once_with("transcribing")
+        # Must NOT hide the bubble (it stays visible during transcription)
+        app._waveform_bubble.hide.assert_not_called()
+
+        _wait_for_busy_clear(app)
+
+    def test_stop_dictation_calls_set_state_transcribing(self, app):
+        """_stop_dictation must call bubble.set_state('transcribing') during
+        the stop flow so the renderer can show the transcribing overlay."""
+        call_order = []
+
+        app._waveform_bubble = MagicMock()
+        original_set_state = app._waveform_bubble.set_state
+
+        def track_set_state(state):
+            call_order.append(('set_state', state))
+            return original_set_state(state) if hasattr(original_set_state, '__call__') else None
+        app._waveform_bubble.set_state = track_set_state
+
+        app.clipboard = MagicMock()
+        app.clipboard.copy = MagicMock(return_value=True)
+        app.models.transcriber = MagicMock()
+        app.models._sync_registry_from_fields()
+        app.models.transcriber.transcribe_with_fallback = MagicMock(return_value="test")
+        app.models.transcriber.device_info = "cpu (int8)"
+        app.recorder = MagicMock()
+        app.recorder.recording = True
+        app.recorder.stop = MagicMock(return_value=np.ones(16000, dtype=np.float32))
+        app.recorder.last_rms = 0.5
+
+        app._stop_dictation()
+
+        _wait_for_busy_clear(app)
+
+        # set_state('transcribing') should have been called
+        transcribing_calls = [
+            call for call in call_order
+            if call[0] == 'set_state' and call[1] == 'transcribing'
+        ]
+        assert len(transcribing_calls) >= 1, (
+            f"set_state('transcribing') must be called, call_order={call_order}"
+        )
+
     def test_force_recover_noop_when_not_busy(self, app):
         """_force_recover is a no-op if not busy."""
         app._busy_event.set()  # not busy
@@ -1947,7 +2014,7 @@ class TestTrayControllerProtocolCompliance:
     """Verify VoiceTyperApp implements all TrayController protocol methods."""
 
     # DEAD-008: toggle_autostart, set_notifications, set_silence_*,
-    # set_max_recording_seconds, create_desktop_shortcut removed
+    # set_max_recording_time_seconds, create_desktop_shortcut removed
     # from TrayController protocol — no caller existed.  The public
     # methods are now just the ones the tray menu actually invokes.
     REQUIRED_PUBLIC_METHODS = [

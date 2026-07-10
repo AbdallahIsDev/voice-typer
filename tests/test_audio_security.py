@@ -12,7 +12,7 @@ def test_buffer_zeroed_on_stop():
     config.silence_warning_seconds = 20.0
     config.stop_on_silence_seconds = 120.0
     # SIMPLIFY-001: single explicit field replaces the old 3-field split
-    config.max_recording_time_seconds = 1200
+    config.max_recording_time_seconds = 900
     config.device = "cpu"
     
     recorder = Recorder(config)

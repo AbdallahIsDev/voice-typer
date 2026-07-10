@@ -119,13 +119,11 @@ def ensure_desktop_shortcut(app: Any) -> None:
     except OSError:
         pass
 
-    # 2. Ensure the universal-launcher shortcut exists (always recreate
-    #    so old .lnk files pointing at the legacy -m voice_typer backend
-    #    get upgraded to the universal launcher).
+    # 2. Ensure the universal-launcher shortcut exists.
+    #    create_launcher_shortcut() skips .lnk files that already exist,
+    #    so this is a no-op on subsequent startups.
     try:
-        result = create_launcher_shortcut()
-        if result:
-            log.info("[STARTUP] Desktop shortcut synced: %s", result)
+        create_launcher_shortcut()
     except Exception as e:
         log.debug("[STARTUP] Desktop shortcut creation skipped: %s", e)
 

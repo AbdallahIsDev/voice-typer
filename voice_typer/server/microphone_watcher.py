@@ -626,6 +626,12 @@ class MicrophoneDeviceWatcher:
 
     # ── callback dispatch ─────────────────────────────────────────────
 
+    # MIC-WATCHER-DEDUP: debounce window.  Duplicate WM_DEVICECHANGE
+    # messages (especially DBT_DEVNODES_CHANGED, which fires 18+ times
+    # when a device driver re-enumerates) are suppressed within this
+    # window so the device cache is invalidated at most once per burst.
+    _DEBOUNCE_SECONDS = 0.5
+
     def _invoke_callback(self) -> None:
         """Call ``_on_change`` and swallow exceptions.
 
@@ -633,7 +639,26 @@ class MicrophoneDeviceWatcher:
         watcher thread — the next device change should still trigger
         an invalidation attempt. The 30s TTL cache is the ultimate
         backstop.
+
+        MIC-WATCHER-DEDUP: suppresses duplicate invocations within
+        ``_DEBOUNCE_SECONDS`` (0.5s) of the last callback.  This
+        prevents a burst of WM_DEVICECHANGE messages (e.g. 18
+        duplicates of DBT_DEVNODES_CHANGED in 1 second) from
+        invalidating the device cache 18 times in rapid succession.
         """
+        import time
+
+        now = time.monotonic()
+        last = getattr(self, "_last_callback_time", 0.0)
+        if now - last < self._DEBOUNCE_SECONDS:
+            log.debug(
+                "[MIC-WATCHER] Skipping duplicate invalidation "
+                "(%.0fms since last)",
+                (now - last) * 1000,
+            )
+            return
+        self._last_callback_time = now
+
         try:
             self._on_change()
         except Exception:

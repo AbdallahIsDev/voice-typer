@@ -148,7 +148,7 @@ class _MockController:
         pass
 
     # DEAD-008: toggle_autostart, set_notifications, set_silence_*,
-    # set_max_recording_seconds, create_desktop_shortcut removed from
+    # set_max_recording_time_seconds, create_desktop_shortcut removed from
     # TrayController protocol — no caller existed.
 
     def restart_app(self) -> None:
@@ -168,7 +168,7 @@ def tray():
         setattr(controller, method_name, MagicMock())
     t = TrayIcon(
         controller=controller,
-        config=SimpleNamespace(hotkey="<f2>", model_size="small.en", autostart=True, show_notifications=True, microphone=None, silence_warning_seconds=20.0, silence_auto_stop_seconds=120.0),
+        config=SimpleNamespace(hotkey="<f2>", model_size="small.en", autostart=True, show_notifications=True, microphone=None, silence_warning_seconds=20.0, stop_on_silence_seconds=120.0),
     )
     yield t
     with warnings.catch_warnings():
