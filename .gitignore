@@ -33,6 +33,7 @@ _cuda_test.py
 # Local editor/OS files
 .idea/
 .vscode/
+\#components/
 .DS_Store
 Thumbs.db
 artifacts/
