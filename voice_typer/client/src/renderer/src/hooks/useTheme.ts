@@ -9,6 +9,76 @@ import {
 } from "@/themes";
 import type { VoiceTyperConfig } from "@/types/config";
 
+// ─── localStorage cache keys for theme persistence ────────────────────
+// THEME-CACHE-FIX: persist the last-known theme state in localStorage so
+// the theme is restored immediately on remount (e.g. after a restart)
+// without waiting for the backend to connect.  The cache is updated every
+// time config is successfully loaded from the backend, and read on mount
+// in the ``useState`` initializers below.
+const LS_THEME_MODE = "voice-typer-theme-mode";
+const LS_THEME_PRESET = "voice-typer-theme-preset";
+const LS_CUSTOM_THEME = "voice-typer-custom-theme";
+const LS_TEXT_SIZE = "voice-typer-text-size";
+
+function readLsThemeMode(): VoiceTyperConfig["theme_mode"] {
+	try {
+		const v = localStorage.getItem(LS_THEME_MODE);
+		if (v === "light" || v === "dark" || v === "system") return v;
+	} catch {}
+	return "system";
+}
+
+function readLsThemePreset(): VoiceTyperConfig["theme_preset"] {
+	try {
+		const v = localStorage.getItem(LS_THEME_PRESET);
+		if (
+			v === "default" ||
+			v === "amoled" ||
+			v === "nord" ||
+			v === "dracula" ||
+			v === "sepia" ||
+			v === "solarized" ||
+			v === "monokai" ||
+			v === "ayu" ||
+			v === "github" ||
+			v === "catppuccin" ||
+			v === "tokyo-night" ||
+			v === "custom"
+		)
+			return v;
+	} catch {}
+	return "default";
+}
+
+function readLsCustomTheme(): CustomThemeData | null {
+	try {
+		const raw = localStorage.getItem(LS_CUSTOM_THEME);
+		if (raw) {
+			const parsed = JSON.parse(raw);
+			if (
+				parsed &&
+				typeof parsed === "object" &&
+				"light" in parsed &&
+				"dark" in parsed
+			) {
+				return parsed as CustomThemeData;
+			}
+		}
+	} catch {}
+	return null;
+}
+
+function readLsTextSize(): number {
+	try {
+		const v = localStorage.getItem(LS_TEXT_SIZE);
+		if (v) {
+			const n = Number.parseInt(v, 10);
+			if (Number.isFinite(n) && n >= 10 && n <= 20) return n;
+		}
+	} catch {}
+	return 14;
+}
+
 /**
  * Theme hook: manages the active theme mode (light/dark/system), preset,
  * custom colours, and text-size scaling.  Applies the theme to the
@@ -24,15 +94,21 @@ export function useTheme(
 	) => Promise<T>,
 ) {
 	const mergeConfig = useAppStore((s) => s.mergeConfig);
-	const [themeMode, setThemeMode] =
-		useState<VoiceTyperConfig["theme_mode"]>("system");
-	// Theme preset — a built-in colour-scheme layer on top of the current mode.
-	const [themePreset, setThemePreset] =
-		useState<VoiceTyperConfig["theme_preset"]>("default");
-	// Custom theme colours — used only when themePreset === 'custom'
-	const [customTheme, setCustomTheme] = useState<CustomThemeData | null>(null);
-	// PLAT-017: text size state for UI scaling. Fetched from config on mount.
-	const [textSize, setTextSize] = useState(14);
+
+	// THEME-CACHE-FIX: seed from localStorage so the theme is immediately
+	// restored on remount (e.g. after restart) without waiting for the
+	// backend.  ``reloadThemeFromConfig`` updates the cache after the
+	// backend connects.
+	const [themeMode, setThemeMode] = useState<VoiceTyperConfig["theme_mode"]>(
+		readLsThemeMode(),
+	);
+	const [themePreset, setThemePreset] = useState<
+		VoiceTyperConfig["theme_preset"]
+	>(readLsThemePreset());
+	const [customTheme, setCustomTheme] = useState<CustomThemeData | null>(
+		readLsCustomTheme(),
+	);
+	const [textSize, setTextSize] = useState(readLsTextSize());
 
 	// ── Theme detection & application ────────────────────────────
 
@@ -102,6 +178,9 @@ export function useTheme(
 			if (cfg?.custom_theme) setCustomTheme(cfg.custom_theme);
 			// PLAT-017: load text_size from config for UI scaling
 			if (cfg?.text_size) setTextSize(cfg.text_size);
+			// THEME-CACHE-FIX: localStorage is synced automatically by the
+			// useEffect below that watches themeMode/themePreset/customTheme/
+			// textSize — no explicit persist needed here.
 			// SOUND-FIX-REWRITE: sync the sound_feedback_enabled
 			// flag from config to localStorage on every config
 			// load.  Previously the localStorage flag was only
@@ -119,6 +198,28 @@ export function useTheme(
 	useEffect(() => {
 		reloadThemeFromConfig();
 	}, [reloadThemeFromConfig]);
+
+	// ── Sync theme state to localStorage on every change ────────────────
+	// THEME-CACHE-FIX: keep the localStorage cache in sync whenever the
+	// theme state changes (via handleThemeChange, setThemePreset,
+	// setCustomTheme, setTextSize, or config_changed events). This
+	// ensures the cache is always fresh regardless of how the theme was
+	// changed, so the next remount (e.g. after restart) immediately
+	// restores the last-known theme without waiting for the backend.
+	useEffect(() => {
+		try {
+			localStorage.setItem(LS_THEME_MODE, themeMode);
+			localStorage.setItem(LS_THEME_PRESET, themePreset);
+			if (customTheme) {
+				localStorage.setItem(LS_CUSTOM_THEME, JSON.stringify(customTheme));
+			} else {
+				localStorage.removeItem(LS_CUSTOM_THEME);
+			}
+			localStorage.setItem(LS_TEXT_SIZE, String(textSize));
+		} catch {
+			// localStorage may be unavailable
+		}
+	}, [themeMode, themePreset, customTheme, textSize]);
 
 	// ── Config changed push (live UI updates) ───────────────────────────
 	// When the Python backend processes a set_config command, it pushes a
