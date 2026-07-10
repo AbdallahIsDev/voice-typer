@@ -1213,8 +1213,7 @@ class TestModelLoadingQueue:
         schedules _start_dictation via a 0-delay timer."""
         app.tray = MagicMock()
         # Stub the engine init so the loader body doesn't do real work.
-        app._init_parakeet_engine = MagicMock()
-        app._init_qwen_engine = MagicMock()
+        app.models._ensure_engine = MagicMock()
         app._try_load_model = MagicMock()
         app._fallback_to_whisper = MagicMock()
 
@@ -1230,7 +1229,7 @@ class TestModelLoadingQueue:
         # Force the Whisper backend path (default) so it's a no-op with
         # _try_load_model mocked.
         app.config.asr_backend = "whisper"
-        app._load_transcription_engine_background()
+        app.models.load_background()
 
         # The pending dictation should have been cleared and a 0-delay
         # _start_dictation scheduled.
@@ -1241,7 +1240,7 @@ class TestModelLoadingQueue:
     def test_background_load_no_auto_start_when_not_pending(self, app):
         """If the user did NOT press F2 during load, nothing is scheduled."""
         app.tray = MagicMock()
-        app._init_parakeet_engine = MagicMock()
+        app.models._ensure_engine = MagicMock()
         app._try_load_model = MagicMock()
         app._fallback_to_whisper = MagicMock()
         app.models._pending_dictation = False
@@ -1250,7 +1249,7 @@ class TestModelLoadingQueue:
         app._schedule_timer = lambda delay, func: scheduled.append((delay, func))
 
         app.config.asr_backend = "whisper"
-        app._load_transcription_engine_background()
+        app.models.load_background()
 
         assert scheduled == [], "no pending dictation → nothing scheduled"
 
@@ -1258,10 +1257,10 @@ class TestModelLoadingQueue:
         """A crashing loader sets ERROR state but does not propagate."""
         from unittest.mock import MagicMock as _MM
         app.tray = MagicMock()
-        app._init_parakeet_engine = MagicMock()
+        app.models._ensure_engine = MagicMock()
         # ARCH-007: _load_transcription_engine_background now delegates
         # to AsrBackendRegistry.load_with_fallback. Mock it to raise.
-        app._sync_asr_registry = MagicMock()
+        app.models._sync_registry_from_fields = MagicMock()
         # ARCH-REFAC-003: assign to ModelManager._registry directly (was
         # a @property delegate on VoiceTyperApp).
         app.models._registry = MagicMock()
@@ -1272,7 +1271,7 @@ class TestModelLoadingQueue:
         app.config.asr_backend = "whisper"
 
         # Must not raise.
-        app._load_transcription_engine_background()
+        app.models.load_background()
 
         # Tray should show ERROR.
         states = [c.args[0] for c in app.tray.set_state.call_args_list]
@@ -1499,7 +1498,7 @@ class TestTryLoadModel:
 
     def _setup_registry(self, app):
         """Ensure the ASR registry exists and has the whisper backend registered."""
-        app._sync_asr_registry()
+        app.models._sync_registry_from_fields()
 
     def test_try_load_success_sets_idle_state(self, app):
         """On successful load, tray state should be IDLE with device info."""
@@ -1748,7 +1747,7 @@ class TestStartupResilience:
         # ARCH-007: model load now goes through _sync_asr_registry +
         # _asr_registry.load_with_fallback. Mock the registry so we
         # can track when model loading happens.
-        app._sync_asr_registry = MagicMock()
+        app.models._sync_registry_from_fields = MagicMock()
         # ARCH-REFAC-003: assign to ModelManager._registry directly (was
         # a @property delegate on VoiceTyperApp).
         app.models._registry = MagicMock()
@@ -1993,7 +1992,7 @@ class TestExternalCorrectionsWiring:
         app._sync_prewarm_task = MagicMock()
         # Prevent the background model loader from doing real work — we
         # only care that configure_corrections ran synchronously in Step 0.
-        app._load_transcription_engine_background = MagicMock()
+        app.models.load_background = MagicMock()
         app._do_startup()
         assert called_with.get("config_dir") == app.config.config_dir, (
             f"configure_corrections should receive config_dir={app.config.config_dir}, "

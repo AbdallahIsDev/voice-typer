@@ -45,3 +45,22 @@ class DictationHandlersMixin:
             resp["type"] = "error"
             resp["data"] = {"message": str(e)}
         return resp
+
+    def _handle_force_cancel_transcription(self, data, resp) -> dict | None:
+        """Handle the ``force_cancel_transcription`` IPC command (PR-2 Finding #3).
+
+        Calls ``service.force_cancel_transcription()`` which invokes
+        ``_force_recover_from_stuck_transcription(force=True)`` to
+        reset the busy flag and tray state.  Gives the user a manual
+        escape hatch when the automatic 3×90s watchdog timeout is too
+        slow.
+        """
+        try:
+            result = self.service.force_cancel_transcription()
+            resp["type"] = "force_cancel_transcription_result"
+            resp["data"] = result
+        except Exception as e:
+            log.error("[IPC] force_cancel_transcription failed: %s", e, exc_info=True)
+            resp["type"] = "error"
+            resp["data"] = {"message": str(e)}
+        return resp

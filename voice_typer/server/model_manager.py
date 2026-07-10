@@ -484,6 +484,8 @@ class ModelManager:
 
         ARCH-007: Uses the registry to unload/load instead of having
         three separate branches for parakeet/qwen/whisper.
+
+        LOG-001: logs every model change with old/new backend and model size.
         """
         # Determine backend from model name
         if model_size == "parakeet":
@@ -494,6 +496,11 @@ class ModelManager:
             new_backend = "whisper"
 
         old_backend = self._app.config.asr_backend
+        log.info(
+            "[MODEL] Changing model: %s (%s) → %s (%s)",
+            self._app.config.model_size, old_backend,
+            model_size, new_backend,
+        )
 
         self._app.config.asr_backend = new_backend
         self._app.config.model_size = model_size

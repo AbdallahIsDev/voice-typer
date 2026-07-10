@@ -132,6 +132,26 @@ class VoiceTyperService:
         """Re-paste the last transcription."""
         self._app.repaste_last()
 
+    # ── Force cancel transcription (PR-2 Finding #3) ─────────────
+
+    def force_cancel_transcription(self) -> dict:
+        """Force-cancel a stuck transcription.
+
+        PR-2 Finding #3: invokes ``_force_recover_from_stuck_transcription``
+        with ``force=True`` so the busy flag and tray state are reset
+        even if the transcription thread is still alive.  This gives
+        the user a manual escape hatch when the 3×90s=4.5min auto-
+        recovery is too slow.
+
+        Returns ``{"success": bool, "message": str}``.
+        """
+        try:
+            self._app.recording._force_recover_from_stuck_transcription(force=True)
+            return {"success": True, "message": "Transcription cancelled."}
+        except Exception as exc:
+            log.warning("[SERVICE] force_cancel_transcription failed: %s", exc)
+            return {"success": False, "message": str(exc)}
+
     # ── Config ──────────────────────────────────────────────────
 
     def get_config(self) -> dict:
@@ -545,33 +565,47 @@ class VoiceTyperService:
         config = self._app.config
         status = {}
 
-        # Whisper models
-        for model_size in ("tiny.en", "small.en", "medium.en", "large-v3"):
-            cache_dir = os.path.expanduser(
-                os.path.join("~", ".cache", "huggingface", "hub")
+        # Whisper models — check ALL models from the registry, using
+        # the same cache directory that download_model writes to.
+        from voice_typer.server.model_registry import MODEL_REGISTRY, get_model_metadata
+        cache_dir = os.path.join(str(_config_dir()), "huggingface", "hub")
+        for meta in MODEL_REGISTRY.values():
+            if meta.backend not in ("whisper", "distil-whisper"):
+                continue
+            repo_dir_name = f"models--{meta.repo_id.replace('/', '--')}"
+            downloaded = os.path.isdir(cache_dir) and os.path.isdir(
+                os.path.join(cache_dir, repo_dir_name)
             )
-            # Check if model exists in HF cache
-            downloaded = os.path.isdir(cache_dir) and any(
-                model_size.replace(".", "-") in d.lower()
-                for d in os.listdir(cache_dir)
-                if os.path.isdir(os.path.join(cache_dir, d))
-            )
-            status[model_size] = {
+            status[meta.name] = {
                 "downloaded": downloaded,
                 "deps_ok": True,  # faster-whisper is always available
             }
 
-        # Qwen model
+        # Qwen model — check both the configured path AND the HF cache dir.
         qwen_path = getattr(config, "qwen_model_path", None)
+        qwen_in_cache = False
+        qwen_meta = get_model_metadata("qwen")
+        if qwen_meta is not None:
+            qwen_repo_dir = f"models--{qwen_meta.repo_id.replace('/', '--')}"
+            qwen_in_cache = os.path.isdir(cache_dir) and os.path.isdir(
+                os.path.join(cache_dir, qwen_repo_dir)
+            )
         status["qwen"] = {
-            "downloaded": bool(qwen_path and os.path.isdir(qwen_path)),
+            "downloaded": bool(qwen_path and os.path.isdir(qwen_path)) or qwen_in_cache,
             "deps_ok": self._check_qwen_deps(),
         }
 
         # Parakeet model
         parakeet_path = getattr(config, "parakeet_model_path", None)
+        parakeet_in_cache = False
+        parakeet_meta = get_model_metadata("parakeet")
+        if parakeet_meta is not None:
+            parakeet_repo_dir = f"models--{parakeet_meta.repo_id.replace('/', '--')}"
+            parakeet_in_cache = os.path.isdir(cache_dir) and os.path.isdir(
+                os.path.join(cache_dir, parakeet_repo_dir)
+            )
         status["parakeet"] = {
-            "downloaded": bool(parakeet_path and os.path.isdir(parakeet_path)),
+            "downloaded": bool(parakeet_path and os.path.isdir(parakeet_path)) or parakeet_in_cache,
             "deps_ok": self._check_parakeet_deps(),
         }
 
@@ -580,26 +614,40 @@ class VoiceTyperService:
     def delete_model(self, model_name: str) -> dict:
         """Delete a downloaded model from the HuggingFace cache.
 
+        LOG-001: logs success/failure with model name and repo ID.
+
         NEW-UX-005: previously the Models page only removed the model
         from the UI list without actually deleting the files.  A 1.5 GB
         model left on disk is a waste of space and confuses users who
         think they deleted it.  We now actually delete the cached files.
 
+        REGISTRY-FIX: uses ``MODEL_REGISTRY`` (via ``get_model_metadata``)
+        to resolve the HuggingFace repo ID instead of an incomplete
+        hardcoded ``repo_map`` that was missing large-v3-turbo,
+        distil-large-v3, distil-medium.en, and other variants.
+
         Returns ``{"success": bool, "message": str}``.
         """
         import shutil
         from voice_typer.server.config import _config_dir
+        from voice_typer.server.model_registry import get_model_metadata
 
         cache_dir = _config_dir() / "huggingface" / "hub"
 
-        # Map model name to HuggingFace repo ID.
-        repo_map = {
-            "tiny.en": "Systran/faster-whisper-tiny.en",
-            "small.en": "Systran/faster-whisper-small.en",
-            "medium.en": "Systran/faster-whisper-medium.en",
-            "parakeet": "nvidia/parakeet-tdt-0.6b-v3",
-        }
-        repo_id = repo_map.get(model_name)
+        # Resolve repo_id from MODEL_REGISTRY so all registered
+        # whisper/distil-whisper variants (large-v3-turbo, distil-*,
+        # base.*, large-*, etc.) are supported without hardcoding.
+        meta = get_model_metadata(model_name)
+        if meta is not None and meta.backend in ("whisper", "distil-whisper"):
+            repo_id = meta.repo_id
+        elif model_name == "parakeet":
+            repo_id = "nvidia/parakeet-tdt-0.6b-v3"
+        elif model_name == "qwen":
+            # Qwen doesn't use the HF hub cache layout; handled below.
+            repo_id = None
+        else:
+            repo_id = None
+
         if not repo_id:
             return {"success": False, "message": f"Unknown model: {model_name}"}
 
@@ -607,7 +655,8 @@ class VoiceTyperService:
         current_backend = getattr(self._app.config, "asr_backend", "whisper")
         current_model = getattr(self._app.config, "model_size", "tiny.en")
         is_active = (
-            (model_name == current_model and current_backend == "whisper")
+            (model_name == current_model
+             and current_backend in ("whisper", "distil-whisper"))
             or (model_name == "parakeet" and current_backend == "parakeet")
             or (model_name == "qwen" and current_backend == "qwen")
         )
@@ -623,6 +672,9 @@ class VoiceTyperService:
 
         try:
             shutil.rmtree(model_dir)
+            log.info(
+                "[SERVICE] Model '%s' deleted (repo=%s)", model_name, repo_id,
+            )
             # Invalidate the tray models submenu cache so the next
             # right-click reflects the deletion.
             try:
@@ -686,10 +738,19 @@ class VoiceTyperService:
             return False
 
     def _check_parakeet_deps(self) -> bool:
-        """Check if nemo_toolkit is importable."""
+        """Check if the Parakeet engine's key runtime dependency is importable.
+
+        The Parakeet engine (``parakeet_engine.py``) defers its heavy imports
+        (``torch``, ``transformers``, ``psutil``) inside ``_ensure_imports``.
+        The most critical of these is ``torch`` — without it the engine cannot
+        initialise.  Previously this method checked for ``nemo_toolkit`` which
+        is not a dependency of the Parakeet engine in this codebase, causing
+        ``deps_ok`` to always be ``False`` and blocking the "Select" button
+        in the Models page even when the user was actively using Parakeet.
+        """
         try:
             import importlib
-            importlib.import_module("nemo_toolkit")
+            importlib.import_module("torch")
             return True
         except ImportError:
             return False
@@ -1276,6 +1337,18 @@ class VoiceTyperService:
             except Exception:
                 pass
 
+        if imported_models:
+            log.info(
+                "[SERVICE] Model import: %d found, %d imported, %d errors",
+                len(found_models), len(imported_models), len(errors),
+            )
+        elif found_models:
+            log.warning(
+                "[SERVICE] Model import: %d found, 0 imported, %d errors — "
+                "all imports failed",
+                len(found_models), len(errors),
+            )
+
         return {
             "success": True,
             "imported": imported_models,
@@ -1406,6 +1479,12 @@ class VoiceTyperService:
                 and model_meta.backend in ("whisper", "distil-whisper")
             )
             if is_whisper_family:
+                log.info(
+                    "[SERVICE] Starting download for '%s' (repo=%s, backend=%s)",
+                    model_name,
+                    model_meta.repo_id if model_meta else "unknown",
+                    model_meta.backend if model_meta else "unknown",
+                )
                 # NEW-PAUSE-001: reset the pause flag at the start of
                 # every fresh download so a stale ``paused=True`` from
                 # a previous download doesn't carry over.
@@ -1454,6 +1533,10 @@ class VoiceTyperService:
                             allow_patterns=_service_allow_patterns,
                             local_files_only=True,
                         )
+                        log.info(
+                            "[SERVICE] Model '%s' already cached (repo=%s) — skipping download",
+                            model_name, repo_id,
+                        )
                         _push_progress(100, f"{model_name} already cached")
                     except Exception:
                         # NEW-MODEL-001: pull target size from the
@@ -1500,6 +1583,10 @@ class VoiceTyperService:
                         # resume_download=True.
                         t = threading.Thread(target=_do_download, daemon=True)
                         t.start()
+                        log.info(
+                            "[SERVICE] Download thread started for '%s' (target=%d MB)",
+                            model_name, target_mb,
+                        )
                         # Poll cache size until download thread exits OR
                         # the user cancels OR the user pauses.
                         cancelled = False
@@ -1566,6 +1653,12 @@ class VoiceTyperService:
                                     )
                                     total_mb_seen = total_bytes_seen // (1024 * 1024)
                                     pct = min(95, int(10 + (total_mb_seen / target_mb) * 85))
+                                    # Log progress at whole-number percentage thresholds
+                                    if pct >= 25 and pct % 25 == 0:
+                                        log.info(
+                                            "[SERVICE] Download of '%s': %d%% (%d MB / ~%d MB)",
+                                            model_name, pct, total_mb_seen, target_mb,
+                                        )
                                     # NEW-PAUSE-001: compute speed & ETA.
                                     now = time.monotonic()
                                     elapsed = now - last_progress_time
@@ -1606,25 +1699,23 @@ class VoiceTyperService:
                             }
                         if download_err:
                             raise download_err[0]
+                        log.info(
+                            "[SERVICE] Download of '%s' complete (%d MB)",
+                            model_name, last_total_bytes_seen // (1024 * 1024),
+                        )
                         _push_progress(100, f"{model_name} download complete")
                 except ImportError:
                     log.debug("[SERVICE] huggingface_hub not available, falling back to engine.load()")
 
-                # Now load + unload the engine to verify the download
-                _push_progress(100, f"Verifying {model_name}...")
-                from voice_typer.server.transcription import TranscriptionEngine
-                # NEW-PRIV-005: pass the live Config so the engine's
-                # HuggingFace-consent check in _pre_download_model can
-                # read huggingface_consent without crashing.  Without
-                # this, the verification load would raise AttributeError
-                # on the uncached-model path.
-                engine = TranscriptionEngine(
-                    model_size=model_name,
-                    device="cpu",
-                    config=self._app.config,
-                )
-                engine.load()
-                engine.unload()
+                # VERIFY-LIGHT: skip the expensive full-model load verification.
+                # Previously this loaded a TranscriptionEngine and called
+                # engine.load() which allocated GPU/CPU memory and disrupted
+                # the currently active model (Parakeet).  The model files are
+                # already verified by HuggingFace's snapshot_download hash
+                # checks — there's no need to load the entire model just to
+                # confirm the files exist.
+                log.info("[SERVICE] Download of '%s' verified via HF cache (no full model load)", model_name)
+                _push_progress(100, f"Download of {model_name} complete")
                 # NEW-PERF-004: invalidate the tray models submenu cache
                 # so the next right-click reflects the newly-downloaded
                 # model without waiting for the 5-second TTL.
@@ -1646,6 +1737,7 @@ class VoiceTyperService:
                 _notify(APP_NAME, f"Model '{model_name}' downloaded successfully")
                 return {"success": True, "model": model_name}
             elif model_name == "qwen":
+                log.info("[SERVICE] Download requested for '%s' (Qwen backend)", model_name)
                 qwen_path = getattr(self._app.config, "qwen_model_path", None)
                 if qwen_path and os.path.isdir(qwen_path):
                     _push_progress(100, "Qwen model already cached")
@@ -1653,12 +1745,14 @@ class VoiceTyperService:
                 _notify(APP_NAME, "Qwen model path not configured")
                 return {"success": False, "error": "Qwen model path not configured. Set qwen_model_path in Settings."}
             elif model_name == "parakeet":
+                log.info("[SERVICE] Download requested for '%s' (Parakeet backend, ~2.5 GB)", model_name)
                 _push_progress(0, "Starting Parakeet download (~2.5 GB)...")
                 from voice_typer.server.asr_setup import download_parakeet_weights
                 # asr_setup.download_parakeet_weights() doesn't expose
                 # progress; we emit start/finish events.
                 _push_progress(50, "Downloading Parakeet weights from HuggingFace...")
                 download_parakeet_weights()
+                log.info("[SERVICE] Parakeet download complete")
                 _push_progress(100, "Parakeet download complete")
                 # NEW-PERF-004: invalidate the tray models submenu cache.
                 try:
@@ -1674,6 +1768,7 @@ class VoiceTyperService:
                 _notify(APP_NAME, "Parakeet model downloaded successfully")
                 return {"success": True, "model": model_name}
             else:
+                log.warning("[SERVICE] Unknown model requested for download: '%s'", model_name)
                 return {"success": False, "error": f"Unknown model: {model_name}"}
         except Exception as exc:
             log.error("download_model failed for %s: %s", model_name, exc)

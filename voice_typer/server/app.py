@@ -457,18 +457,6 @@ class VoiceTyperApp:
 
     # ── Model lifecycle methods (thin delegates to ModelManager) ──────
 
-    def _init_qwen_engine(self):
-        """#2: delegate to ModelManager._ensure_engine('qwen')."""
-        self.models._ensure_engine("qwen")
-
-    def _init_parakeet_engine(self):
-        """#2: delegate to ModelManager._ensure_engine('parakeet')."""
-        self.models._ensure_engine("parakeet")
-
-    def _sync_asr_registry(self):
-        """#2: delegate to ModelManager._sync_registry_from_fields()."""
-        self.models._sync_registry_from_fields()
-
     def _get_active_transcriber(self):
         """#2: delegate to ModelManager.active_transcriber()."""
         return self.models.active_transcriber()
@@ -1009,10 +997,6 @@ class VoiceTyperApp:
 
         log.info("[STARTUP] Startup complete, model still loading in background")
 
-    def _load_transcription_engine_background(self) -> None:
-        """#2 (Round 9): delegate to ModelManager.load_background()."""
-        self.models.load_background()
-
     def _sync_autostart(self) -> None:
         """Delegate to startup_tasks.sync_autostart (extracted for testability)."""
         from voice_typer.server.startup_tasks import sync_autostart
@@ -1214,9 +1198,16 @@ class VoiceTyperApp:
     def _cancel_streaming_session(self):
         """#2 (Round 9): delegate to RecordingController._cancel_streaming_session()."""
         self.recording._cancel_streaming_session()
-    def _force_recover_from_stuck_transcription(self):
-        """#2 (Round 9): delegate to RecordingController._force_recover_from_stuck_transcription()."""
-        self.recording._force_recover_from_stuck_transcription()
+    def _force_recover_from_stuck_transcription(self, force: bool = False):
+        """#2 (Round 9): delegate to RecordingController._force_recover_from_stuck_transcription().
+
+        PR-2 Finding #3: accepts an optional ``force`` parameter.  When
+        ``True``, the recovery proceeds even if the transcription worker
+        thread is still alive, providing a manual escape hatch for users
+        whose transcription is genuinely stuck.  The tray menu's "Cancel
+        Transcription" item calls this with ``force=True``.
+        """
+        self.recording._force_recover_from_stuck_transcription(force=force)
     # ─── Silence Detection Callbacks (H12) ────────────────────────────────
 
     def _on_silence_warning(self):

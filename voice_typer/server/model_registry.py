@@ -285,6 +285,43 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         speed_rating="fast",
         accuracy_rating="medium",
     ),
+
+    # ── Parakeet (by NVIDIA) ──────────────────────────────────────
+    # ARCH-007: added to registry so get_model_status() can resolve the
+    # repo_id and check HF cache download status. Previously the model
+    # was only hardcoded in service.py / tray_models.py, causing status
+    # checks to fail silently (returning downloaded=false even when the
+    # model was fully cached).
+    "parakeet": ModelMetadata(
+        name="parakeet",
+        download_size_mb=2500,
+        required_vram_mb=4096,
+        backend="parakeet",
+        multilingual=True,
+        supported_languages=None,
+        description="NVIDIA Parakeet TDT 0.6b — high-accuracy ASR model.",
+        repo_id="nvidia/parakeet-tdt-0.6b-v3",
+        speed_rating="fast",
+        accuracy_rating="high",
+    ),
+
+    # ── Qwen (by Alibaba) ─────────────────────────────────────────
+    # ARCH-007: added to registry for status consistency. Qwen uses a
+    # different download mechanism (auto-downloads from HuggingFace on
+    # first use), so repo_id is informational. The download status is
+    # checked via config.qwen_model_path or _check_qwen_deps().
+    "qwen": ModelMetadata(
+        name="qwen",
+        download_size_mb=0,  # auto-downloaded, size varies
+        required_vram_mb=4096,
+        backend="qwen",
+        multilingual=True,
+        supported_languages=None,
+        description="Alibaba Qwen — multilingual ASR. Auto-downloaded on first use.",
+        repo_id="Qwen/Qwen-Audio",
+        speed_rating="medium",
+        accuracy_rating="high",
+    ),
 }
 
 
