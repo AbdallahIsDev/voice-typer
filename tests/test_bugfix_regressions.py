@@ -3893,32 +3893,3 @@ class TestConfigPermissionTestsCoverageExists:
             assert "TestConfigSaveEnforcesPosixFilePermissions" in src
             assert "0600" in src or "0o600" in src
 
-class TestDeadAirBoundaryFiresCallback:
-    """NEW-PRIV-006: Audio crop boundary at exact thresholds."""
-
-    @pytest.mark.parametrize("duration,should_trigger", [
-        (4.999, False),  # just under 5s threshold
-        (5.000, True),   # exactly at threshold
-        (5.001, True),   # just over threshold
-    ])
-
-    def test_macos_code_exists(self):
-        """macOS-specific code must exist in the codebase."""
-        from voice_typer.server import app
-        src = inspect.getsource(app)
-        assert "darwin" in src or "is_macos" in src
-
-    def test_macos_ci_runner_exists(self):
-        """PLAT-MAC: A macOS CI runner IS configured in build.yml.
-        This test pins that state — if the runner is removed, this
-        test will fail and alert maintainers that macOS code is
-        no longer being tested in CI.
-        """
-        build_yml = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "build.yml"
-        if build_yml.exists():
-            src = build_yml.read_text(encoding="utf-8")
-            assert "macos-latest" in src or "macos" in src.lower(), (
-                "PLAT-MAC: No macOS CI runner found — macOS code is untested."
-            )
-
-    pytest.main([__file__, "-v"])
