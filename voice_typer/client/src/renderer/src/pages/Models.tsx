@@ -3,7 +3,6 @@ import {
 	Delete01Icon,
 	Download01Icon,
 	Folder02Icon,
-	PauseIcon,
 	PlayIcon,
 	Shield01Icon,
 	SparklesIcon,
@@ -11,12 +10,23 @@ import {
 	ZapIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useCallback, useEffect, useState } from "react";
+import type React from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import PageHeading from "@/components/PageHeading";
 import { Spinner } from "@/components/Spinner";
+import {
+	Accordion,
+	AccordionContent,
+	AccordionItem,
+	AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+	SegmentedControl,
+	type SegmentedControlOption,
+} from "@/components/ui/segmented-control";
 import { Switch } from "@/components/ui/switch";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
@@ -98,6 +108,14 @@ function getProviderLabel(providerKey: string): string {
 // models.  Translate it for display; pass through literal sizes like ~466MB.
 function formatModelSize(size: string): string {
 	return size === "Variable" ? t("models.variable") : size;
+}
+
+// VRAM formatting: show in GB when >= 1024 MB, otherwise in MB.
+function formatVram(mb: number): string {
+	if (mb >= 1024) {
+		return `${(mb / 1024).toFixed(1)}GB`;
+	}
+	return `${mb}MB`;
 }
 
 const INITIAL_MODELS: ModelInfo[] = [
@@ -183,41 +201,6 @@ const INITIAL_MODELS: ModelInfo[] = [
 // display.  Pure functions — no state, no IPC.  Exported indirectly
 // via closure when used in the JSX below.
 
-function formatBytes(bytes: number | null | undefined): string {
-	/** Format a byte count as "12.3 MB" / "1.5 GB" / "750 KB". */
-	if (bytes == null || bytes < 0 || !Number.isFinite(bytes)) return "—";
-	if (bytes < 1024) return `${bytes} B`;
-	const KB = 1024;
-	const MB = KB * 1024;
-	const GB = MB * 1024;
-	if (bytes < MB) return `${(bytes / KB).toFixed(1)} KB`;
-	if (bytes < GB) return `${(bytes / MB).toFixed(1)} MB`;
-	return `${(bytes / GB).toFixed(2)} GB`;
-}
-
-function formatSpeed(bps: number | null | undefined): string {
-	/** Format a bytes/sec rate as "1.2 MB/s" / "450 KB/s". */
-	if (bps == null || bps < 0 || !Number.isFinite(bps)) return "—";
-	const KB = 1024;
-	const MB = KB * 1024;
-	const GB = MB * 1024;
-	if (bps < KB) return `${bps.toFixed(0)} B/s`;
-	if (bps < MB) return `${(bps / KB).toFixed(0)} KB/s`;
-	if (bps < GB) return `${(bps / MB).toFixed(1)} MB/s`;
-	return `${(bps / GB).toFixed(2)} GB/s`;
-}
-
-function formatEta(seconds: number | null | undefined): string {
-	/** Format an ETA in seconds as "mm:ss" or "h:mm:ss" for >1h. */
-	if (seconds == null || seconds < 0 || !Number.isFinite(seconds)) return "—";
-	const s = Math.floor(seconds % 60);
-	const m = Math.floor((seconds / 60) % 60);
-	const h = Math.floor(seconds / 3600);
-	const pad = (n: number) => n.toString().padStart(2, "0");
-	if (h > 0) return `${h}:${pad(m)}:${pad(s)}`;
-	return `${pad(m)}:${pad(s)}`;
-}
-
 /**
  * UX-ERR-001: format an unknown caught value as a user-friendly string.
  *
@@ -249,16 +232,20 @@ function formatErrorMessage(err: unknown, fallback = "Unknown error"): string {
 	}
 	return fallback;
 }
-
 export default function ModelsPage() {
 	const { call } = usePython();
 	const { showSnack, Snackbar } = useSnackbar();
+	const [activeTab, setActiveTab] = useState<"local" | "cloud">("local");
+	const tabOptions: SegmentedControlOption<string>[] = [
+		{ value: "local", label: t("models.localModels") },
+		{ value: "cloud", label: t("models.cloudProviders") },
+	];
 	const [config, setConfig] = useState<VoiceTyperConfig | null>(_cachedConfig);
 	const [models, setModels] = useState<ModelInfo[]>(INITIAL_MODELS);
 	const [_initialLoading, setInitialLoading] = useState(true);
 	const [downloadProgress, setDownloadProgress] = useState(0);
 	const [downloadStatus, setDownloadStatus] = useState("");
-	const [isDownloading, setIsDownloading] = useState(false);
+	const [downloadingModel, setDownloadingModel] = useState<string | null>(null);
 	// NEW-PAUSE-001: pause/resume + rich progress fields.
 	const [isPaused, setIsPaused] = useState(false);
 	const [downloadedBytes, setDownloadedBytes] = useState<number | null>(null);
@@ -271,6 +258,10 @@ export default function ModelsPage() {
 	>({});
 	const [benchmarkResult, setBenchmarkResult] = useState("");
 	const [isBenchmarking, _setIsBenchmarking] = useState(false);
+	// Selecting state — disables the "Select" button immediately when clicked
+	// so the user gets instant feedback that a model change is in progress
+	// (the backend may take several seconds to unload + load the new model).
+	const [selectingModel, setSelectingModel] = useState<string | null>(null);
 
 	// #7: ConfirmDialog state for model deletion
 	const [deleteModelTarget, setDeleteModelTarget] = useState<ModelInfo | null>(
@@ -327,6 +318,18 @@ export default function ModelsPage() {
 						}),
 					);
 				}
+				// ARCH-007: ensure the currently active model is always reported
+				// as downloaded + depsOk regardless of what get_model_status
+				// returned. If a model is active, it's necessarily downloaded
+				// and its deps are OK — the backend may not correctly detect
+				// this for non-Whisper backends (Parakeet, Qwen) that aren't
+				// in the standard HF cache layout or use different import
+				// module names.
+				setModels((prev) =>
+					prev.map((m) =>
+						m.isActive ? { ...m, downloaded: true, depsOk: true } : m,
+					),
+				);
 			} catch (err) {
 				console.error("Failed to get model status:", err);
 			}
@@ -424,7 +427,7 @@ export default function ModelsPage() {
 	// Reset download state when the component unmounts or user navigates away
 	useEffect(() => {
 		return () => {
-			setIsDownloading(false);
+			setDownloadingModel(null);
 			setDownloadProgress(0);
 			setDownloadStatus("");
 			setDownloadedBytes(null);
@@ -467,20 +470,54 @@ export default function ModelsPage() {
 			return;
 		}
 
-		const updates: Partial<VoiceTyperConfig> = {};
-		if (model.backend === "whisper") {
-			updates.asr_backend = "whisper";
-			updates.model_size = model.name as VoiceTyperConfig["model_size"];
-		} else {
-			updates.asr_backend = model.backend as VoiceTyperConfig["asr_backend"];
-			updates.model_size = model.name as VoiceTyperConfig["model_size"];
-		}
+		setSelectingModel(model.name);
+		try {
+			const updates: Partial<VoiceTyperConfig> = {};
+			if (model.backend === "whisper") {
+				updates.asr_backend = "whisper";
+				updates.model_size = model.name as VoiceTyperConfig["model_size"];
+			} else {
+				updates.asr_backend = model.backend as VoiceTyperConfig["asr_backend"];
+				updates.model_size = model.name as VoiceTyperConfig["model_size"];
+			}
 
-		await updateConfig(updates);
-		setModels((prev) =>
-			prev.map((m) => ({ ...m, isActive: m.name === model.name })),
-		);
-		showSnack(t("models.snack.usingModel", { name: model.name }), "success");
+			await updateConfig(updates);
+			setModels((prev) =>
+				prev.map((m) => ({ ...m, isActive: m.name === model.name })),
+			);
+			// Refresh model download/deps status so the user can immediately
+			// see the correct state when switching back (e.g. Parakeet depsOk
+			// was updated by get_model_status on the previous page load, but
+			// after a model change the active-model override no longer applies).
+			try {
+				const status =
+					await call<Record<string, { downloaded: boolean; deps_ok: boolean }>>(
+						"get_model_status",
+					);
+				if (status && typeof status === "object") {
+					setModels((prev) =>
+						prev.map((m) => {
+							const s = status[m.name];
+							if (s) {
+								return { ...m, downloaded: s.downloaded, depsOk: s.deps_ok };
+							}
+							return m;
+						}),
+					);
+				}
+				// Force active model as downloaded + depsOk (defensive).
+				setModels((prev) =>
+					prev.map((m) =>
+						m.isActive ? { ...m, downloaded: true, depsOk: true } : m,
+					),
+				);
+			} catch (err) {
+				console.error("Failed to refresh model status:", err);
+			}
+			showSnack(t("models.snack.usingModel", { name: model.name }), "success");
+		} finally {
+			setSelectingModel(null);
+		}
 	};
 
 	const downloadModel = async (model: ModelInfo) => {
@@ -489,7 +526,7 @@ export default function ModelsPage() {
 		// The backend pushes `download_progress` events during the download
 		// (see usePythonEvent subscription above); we just initiate the call
 		// and update model state on success.
-		setIsDownloading(true);
+		setDownloadingModel(model.name);
 		resetProgress();
 		try {
 			const result = await call<{
@@ -498,11 +535,15 @@ export default function ModelsPage() {
 				message?: string;
 			}>("download_model", { model: model.name });
 			if (result.success) {
-				setModels((prev) =>
-					prev.map((m) =>
-						m.name === model.name ? { ...m, downloaded: true } : m,
-					),
-				);
+				setModels((prev) => {
+					// Auto-activate if no model is currently active (first run)
+					const anyActive = prev.some((m) => m.isActive);
+					return prev.map((m) =>
+						m.name === model.name
+							? { ...m, downloaded: true, isActive: !anyActive }
+							: m,
+					);
+				});
 				showSnack(
 					result.message || t("models.snack.downloaded", { name: model.name }),
 					"success",
@@ -522,7 +563,7 @@ export default function ModelsPage() {
 				"error",
 			);
 		} finally {
-			setIsDownloading(false);
+			setDownloadingModel(null);
 			// Keep the final progress/status visible briefly so the user
 			// sees the "complete" message; the next downloadModel() call
 			// will reset via resetProgress().
@@ -762,6 +803,9 @@ export default function ModelsPage() {
 	};
 
 	const handleTogglePause = async () => {
+		// Optimistically toggle isPaused so the button updates instantly.
+		// The backend will confirm via the download_progress push event.
+		setIsPaused((prev) => !prev);
 		try {
 			if (isPaused) {
 				await call("resume_model_download");
@@ -769,6 +813,8 @@ export default function ModelsPage() {
 				await call("pause_model_download");
 			}
 		} catch (err) {
+			// Revert the optimistic toggle on failure.
+			setIsPaused((prev) => !prev);
 			showSnack(
 				isPaused
 					? t("models.snack.resumeFailed", {
@@ -798,33 +844,66 @@ export default function ModelsPage() {
 		}
 	};
 
-	const getStatusBadge = (model: ModelInfo) => {
-		// UX-009: distinct colors per state so users can tell at a glance
-		// which models are active, downloaded, need deps, or available.
-		// I18N-FIX: labels are translated via the models.status.* keys.
-		if (model.isActive)
-			return {
-				label: t("models.status.active"),
-				bg: "color-mix(in srgb, #22c55e 15%, transparent)",
-				color: "#22c55e",
-			};
-		if (model.downloaded)
-			return {
-				label: t("models.status.downloaded"),
-				bg: "color-mix(in srgb, #3b82f6 15%, transparent)",
-				color: "#3b82f6",
-			};
+	// ── Model family grouping ──────────────────────────────────────────────
+	// Groups models by their backend family (Whisper, Qwen, Parakeet) so they
+	// render inside family cards with shared headers.
+	interface ModelFamily {
+		id: string;
+		name: string;
+		description: string | null;
+		variants: ModelInfo[];
+	}
+
+	function groupModelsByFamily(models: ModelInfo[]): ModelFamily[] {
+		const whisper = models.filter(
+			(m) => m.backend === "whisper" || m.backend === "distil-whisper",
+		);
+		const qwen = models.filter((m) => m.backend === "qwen");
+		const parakeet = models.filter((m) => m.backend === "parakeet");
+		const families: ModelFamily[] = [];
+		if (whisper.length > 0) {
+			families.push({
+				id: "whisper",
+				name: "Whisper",
+				description: `by OpenAI — ${whisper.length} variants available`,
+				variants: whisper,
+			});
+		}
+		if (qwen.length > 0) {
+			families.push({
+				id: "qwen",
+				name: "Qwen",
+				description: null,
+				variants: qwen,
+			});
+		}
+		if (parakeet.length > 0) {
+			families.push({
+				id: "parakeet",
+				name: "Parakeet",
+				description: "by NVIDIA",
+				variants: parakeet,
+			});
+		}
+		return families;
+	}
+
+	const getStatusBadge = (
+		model: ModelInfo,
+	): {
+		label: string;
+		bg: string;
+		color: string;
+	} | null => {
+		// "Active" and "Downloaded" badges removed per user request — only
+		// show the "Deps Required" badge when a model has missing deps.
 		if (!model.depsOk)
 			return {
 				label: t("models.status.depsRequired"),
 				bg: "color-mix(in srgb, #f59e0b 15%, transparent)",
 				color: "#f59e0b",
 			};
-		return {
-			label: t("models.status.available"),
-			bg: "color-mix(in srgb, var(--text-muted) 12%, transparent)",
-			color: "var(--text-muted)",
-		};
+		return null;
 	};
 
 	// MODEL-IMPORT: state and handler for the Import Model button.
@@ -872,7 +951,7 @@ export default function ModelsPage() {
 				await loadConfig();
 				showSnack(
 					t("models.import.success", {
-						count: importResult.imported.length,
+						count: String(importResult.imported.length),
 						models: importResult.imported.join(", "),
 					}),
 					"success",
@@ -898,467 +977,529 @@ export default function ModelsPage() {
 		}
 	};
 
+	const modelFamilies = groupModelsByFamily(models);
 	return (
-		<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
-			<PageHeading title={t("models.title")} description={t("models.subtitle")}>
-				<Button
-					variant="outline"
-					size="sm"
-					onClick={handleImportModel}
-					disabled={isImporting}
-					title={t("models.import.title")}
-					className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
-					aria-label={t("models.import.title")}
-				>
-					<HugeiconsIcon
-						icon={Folder02Icon}
-						strokeWidth={2}
-						className="h-4 w-4"
+		<>
+			{/* Fixed tab bar at the top */}
+
+			{/* Full-width sticky bar with background; inner wrapper centres the tab control */}
+			<div className="sticky left-0 right-0 top-0 z-50 ">
+				<div className="mx-auto w-full max-w-2xl px-6 py-1.5">
+					<SegmentedControl
+						variant="tabs"
+						options={tabOptions}
+						value={activeTab}
+						onChange={(v) => setActiveTab(v as "local" | "cloud")}
+						ariaLabel={t("models.title")}
+						indicatorClassName="bg-(--bg) border border-border/75"
+						labelClassName="flex-1 text-center"
+						className="bg-(--bg-subtle) rounded-lg w-full"
 					/>
-					{isImporting
-						? t("models.import.importing")
-						: t("models.import.importModel")}
-				</Button>
-			</PageHeading>
-
-			<div className="space-y-6">
-				{/* NEW-PRIV-005: HuggingFace consent banner.  Shown when the
-            user has at least one uncached model AND consent hasn't
-            been granted yet.  Explains why consent is needed (IP
-            exposure to a US-headquartered third party) and provides
-            a one-click grant button. */}
-				{config && !config.huggingface_consent && (
-					<div className="rounded-lg border border-amber-400/40 bg-amber-400/5 p-4">
-						<div className="flex items-start gap-3">
-							<HugeiconsIcon
-								icon={Alert02Icon}
-								strokeWidth={2}
-								className="mt-0.5 h-5 w-5 shrink-0 text-amber-500"
-							/>
-							<div className="flex-1">
-								<h3 className="text-sm font-semibold text-(--text-primary)">
-									{t("models.hfConsent.title")}
-								</h3>
-								<p className="mt-1 text-xs leading-relaxed text-(--text-muted)">
-									{t("models.hfConsent.description")}
-								</p>
-								<div className="mt-3 flex items-center gap-3">
-									<Button
-										variant="default"
-										size="sm"
-										onClick={handleGrantConsent}
-										aria-label={t("models.hfConsent.grantAria")}
-									>
-										{t("models.hfConsent.grant")}
-									</Button>
-									<span className="text-xs text-(--text-muted)">
-										{t("models.hfConsent.blockedHint")}
-									</span>
-								</div>
-							</div>
-						</div>
-					</div>
-				)}
-
-				{/* Download Progress */}
-				{isDownloading && (
-					<div className="space-y-2">
-						<div className="h-1.5 w-full rounded-full bg-border overflow-hidden">
-							<div
-								className={`h-full rounded-full transition-all duration-300 ${
-									isPaused ? "bg-amber-500" : "bg-accent"
-								}`}
-								style={{ width: `${downloadProgress}%` }}
-							/>
-						</div>
-						<div className="flex items-center justify-between gap-3">
-							<p className="text-xs text-(--text-muted) flex-1 min-w-0 truncate">
-								{downloadStatus}
-								{/* NEW-PAUSE-001: rich progress display —
-                                                                         downloaded / total · speed · ETA. */}
-								{downloadedBytes !== null && totalBytes !== null && (
-									<span className="ml-2 whitespace-nowrap">
-										· {formatBytes(downloadedBytes)} / {formatBytes(totalBytes)}
-									</span>
-								)}
-								{speedBps !== null && speedBps > 0 && (
-									<span className="ml-2 whitespace-nowrap">
-										· {formatSpeed(speedBps)}
-									</span>
-								)}
-								{etaSeconds !== null && etaSeconds > 0 && (
-									<span className="ml-2 whitespace-nowrap">
-										·{" "}
-										{t("models.progress.eta", { time: formatEta(etaSeconds) })}
-									</span>
-								)}
-								{isPaused && (
-									<span className="ml-2 text-amber-500 font-medium">
-										{t("models.progress.paused")}
-									</span>
-								)}
-							</p>
-							<div className="flex items-center gap-2 shrink-0">
-								{/* NEW-PAUSE-001: Pause/Resume button. */}{" "}
-								<Button
-									variant="outline"
-									size="sm"
-									onClick={handleTogglePause}
-									aria-label={
-										isPaused
-											? t("models.download.resumeAria")
-											: t("models.download.pauseAria")
-									}
-									className="h-7 gap-1 px-3 text-xs"
-								>
-									<HugeiconsIcon
-										icon={isPaused ? PlayIcon : PauseIcon}
-										strokeWidth={2}
-										className="h-3.5 w-3.5"
-									/>
-									{isPaused
-										? t("models.download.resume")
-										: t("models.download.pause")}
-								</Button>
-								{/* NEW-PRIV-011: Cancel button for in-progress downloads. */}
-								<Button
-									variant="outline"
-									size="sm"
-									onClick={handleCancelDownload}
-									aria-label={t("models.download.cancelAria")}
-									className="h-7 px-3 text-xs"
-								>
-									{t("models.download.cancel")}
-								</Button>
-							</div>
-						</div>
-					</div>
-				)}
-
-				{/* Model Cards */}
-				<div className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
-					{models.map((model) => {
-						const badge = getStatusBadge(model);
-						const meta = modelCatalog[model.name];
-						const handleSelectThis = () => selectModel(model);
-						const handleDeleteThis = () => requestDeleteModel(model);
-						const handleDownloadThis = () => downloadModel(model);
-						return (
-							<div
-								key={model.name}
-								className="flex items-center gap-3 px-3.5 py-2.5"
-							>
-								<div className="flex-1 min-w-0">
-									<div className="flex items-center gap-2">
-										<h3 className="text-sm font-semibold text-(--text-primary) truncate">
-											{model.name}
-										</h3>
-										<output
-											className="shrink-0 inline-flex items-center rounded-md px-2 py-0.5 text-[9px] font-semibold border"
-											aria-live="polite"
-											style={{
-												backgroundColor: badge.bg,
-												color: badge.color,
-												borderColor: `${badge.color}40`,
-											}}
-										>
-											{badge.label}
-										</output>
-									</div>
-									<p className="text-xs text-(--text-muted) mt-0.5">
-										{model.name === "parakeet"
-											? t("models.card.parakeetLabel")
-											: ""}
-										{t("models.card.size", {
-											size: formatModelSize(model.size),
-										})}
-										{/* NEW-MODEL-001: rich metadata badges from
-                                                                                         the backend's MODEL_REGISTRY.  Only shown
-                                                                                         when the catalog has loaded — keeps the
-                                                                                         card compact for backends like qwen /
-                                                                                         parakeet that aren't in the registry. */}
-										{meta && (
-											<span className="text-(--text-muted)">
-												{"  ·  "}
-												{t("models.card.vram", {
-													mb: String(meta.required_vram_mb),
-												})}
-												{"  ·  "}
-												{meta.multilingual
-													? t("models.card.multilingual")
-													: t("models.card.englishOnly")}
-												{"  ·  "}
-												{t("models.card.speedSuffix", {
-													rating: meta.speed_rating,
-												})}
-												{meta.is_distilled ? t("models.card.distilled") : ""}
-											</span>
-										)}
-									</p>
-									{/* NEW-MODEL-001: human-readable description from
-                                                                                 the registry.  Helps the user pick the right
-                                                                                 model without leaving the page. */}
-									{meta?.description && (
-										<p className="text-[10px] text-(--text-muted) mt-0.5 italic">
-											{meta.description}
-										</p>
-									)}
-								</div>
-								<div className="flex items-center gap-2 shrink-0">
-									{model.name === "parakeet" && !model.depsOk ? (
-										<Button
-											variant="outline"
-											size="sm"
-											className="gap-1"
-											onClick={handleDownloadThis}
-											disabled={isDownloading}
-											aria-label={t("models.download.depsAria", {
-												name: model.name,
-											})}
-										>
-											<HugeiconsIcon
-												icon={Download01Icon}
-												strokeWidth={2}
-												className="h-4 w-4"
-											/>
-											{t("models.download.deps")}
-										</Button>
-									) : (
-										<Button
-											variant={model.isActive ? "secondary" : "outline"}
-											size="sm"
-											className="gap-1"
-											onClick={handleSelectThis}
-											disabled={
-												model.isActive ||
-												(!model.downloaded && !model.alwaysAvailable)
-											}
-											aria-label={
-												model.isActive
-													? t("models.card.activeAria", { name: model.name })
-													: t("models.card.useAria", { name: model.name })
-											}
-										>
-											<HugeiconsIcon
-												icon={model.isActive ? Tick02Icon : PlayIcon}
-												strokeWidth={2}
-												className="h-4 w-4"
-											/>
-											{model.isActive ? t("models.active") : t("models.use")}
-										</Button>
-									)}
-									{!model.alwaysAvailable && (
-										<Button
-											variant="ghost"
-											size="icon-xs"
-											onClick={handleDeleteThis}
-											disabled={model.isActive}
-											className="text-(--text-muted) hover:text-destructive"
-											aria-label={t("models.card.deleteAria", {
-												name: model.name,
-											})}
-											title={t("models.card.deleteAria", {
-												name: model.name,
-											})}
-										>
-											<HugeiconsIcon
-												icon={Delete01Icon}
-												strokeWidth={2.5}
-												className="h-4 w-4"
-											/>
-										</Button>
-									)}
-								</div>
-							</div>
-						);
-					})}
-				</div>
-
-				{/* Cloud ASR Providers */}
-				<div className="space-y-4">
-					<h2 className="font-sans text-lg font-semibold text-(--text-primary)">
-						{t("models.cloudProviders")}
-					</h2>
-					<p className="text-sm text-(--text-muted) -mt-3">
-						{t("models.cloudProvidersDescription")}
-					</p>
-
-					<div className="space-y-4">
-						{CLOUD_PROVIDERS.map((provider) => {
-							const handleSaveApiKey = () => saveApiKey(provider.key);
-							const handleTestConnection = () => testConnection(provider.key);
-							const handleApiKeyInput = (
-								e: React.ChangeEvent<HTMLInputElement>,
-							) =>
-								setApiKeys((prev) => ({
-									...prev,
-									[provider.key]: e.target.value,
-								}));
-							const handleConsentChange = (checked: boolean) =>
-								setCloudConsent(provider.key, checked);
-							return (
-								<div
-									key={provider.key}
-									className="rounded-xl border border-border bg-(--bg-subtle) p-6"
-								>
-									<div className="flex items-center gap-2.5 mb-4">
-										<HugeiconsIcon
-											icon={Shield01Icon}
-											strokeWidth={2}
-											className="h-4 w-4 text-accent"
-										/>
-										<h3 className="text-base font-semibold text-(--text-primary)">
-											{t("models.cloud.providerSettings", {
-												provider: getProviderLabel(provider.key),
-											})}
-										</h3>
-									</div>
-									<div className="mb-4">
-										<label
-											htmlFor="api-key-input"
-											className="text-sm font-medium text-(--text-primary) mb-1.5 block"
-										>
-											{t("models.cloud.apiKey")}
-										</label>
-										<Input
-											id="api-key-input"
-											type="password"
-											value={apiKeys[provider.key] ?? ""}
-											onChange={handleApiKeyInput}
-											placeholder={t("models.apiKeyPlaceholder")}
-											className="w-full max-w-md"
-										/>
-									</div>
-									<div className="flex items-center gap-3">
-										<Button
-											variant="default"
-											size="sm"
-											onClick={handleSaveApiKey}
-											aria-label={t("models.cloud.saveKeyAria", {
-												provider: getProviderLabel(provider.key),
-											})}
-										>
-											{t("models.cloud.saveKey")}
-										</Button>
-										<Button
-											variant="outline"
-											size="sm"
-											className="gap-2"
-											onClick={handleTestConnection}
-											aria-label={t("models.cloud.testConnectionAria", {
-												provider: getProviderLabel(provider.key),
-											})}
-										>
-											<HugeiconsIcon
-												icon={SparklesIcon}
-												strokeWidth={2}
-												className="h-4 w-4"
-											/>
-											{t("models.cloud.testConnection")}
-										</Button>
-										{testResults[provider.key] && (
-											<span
-												className={cn(
-													"text-xs",
-													testResults[provider.key].status === "success"
-														? "text-primary"
-														: testResults[provider.key].status === "failure"
-															? "text-destructive"
-															: "text-[(--text-muted)]",
-												)}
-											>
-												{testResults[provider.key].message}
-											</span>
-										)}
-									</div>{" "}
-									{(apiKeys[provider.key] ||
-										config?.[consentKeyFor(provider.key)]) && (
-										<div className="mt-4 rounded-lg border border-border bg-(--bg) p-4">
-											<div className="flex items-start justify-between gap-4">
-												<div className="flex-1">
-													<h4 className="text-sm font-semibold text-(--text-primary)">
-														{t("models.cloud.consentTitle")}
-													</h4>
-													<p className="mt-1 text-xs leading-relaxed text-(--text-muted)">
-														{t("models.cloud.consentDescription", {
-															provider: getProviderLabel(provider.key),
-														})}
-													</p>
-													<p className="mt-2 text-xs text-(--text-muted)">
-														{t("models.cloud.statusLabel")}{" "}
-														{config?.[consentKeyFor(provider.key)] ? (
-															<span className="font-medium text-emerald-500">
-																{t("models.cloud.consentGrantedStatus")}
-															</span>
-														) : (
-															<span className="font-medium text-amber-500">
-																{t("models.cloud.consentNotGrantedStatus")}
-															</span>
-														)}
-													</p>
-												</div>
-												<Switch
-													checked={
-														(config?.[consentKeyFor(provider.key)] as
-															| boolean
-															| undefined) ?? false
-													}
-													onCheckedChange={handleConsentChange}
-													aria-label={t("models.cloud.consentAria", {
-														provider: getProviderLabel(provider.key),
-													})}
-												/>
-											</div>
-										</div>
-									)}
-								</div>
-							);
-						})}
-					</div>
-				</div>
-
-				{/* Model Benchmark */}
-				<div className="rounded-xl border border-border bg-(--bg-subtle) p-6">
-					<h2 className="font-sans text-lg font-semibold text-(--text-primary)">
-						{t("models.benchmark.title")}
-					</h2>
-					<p className="text-sm text-(--text-muted) mt-0.5 mb-4">
-						{t("models.benchmark.description")}
-					</p>
-					<Button
-						variant="default"
-						className="gap-2"
-						onClick={runBenchmark}
-						disabled={isBenchmarking}
-						aria-label={t("models.benchmark.runAria")}
-					>
-						<HugeiconsIcon icon={ZapIcon} strokeWidth={2} className="h-4 w-4" />
-						{isBenchmarking
-							? t("models.benchmark.running")
-							: t("models.benchmark.run")}
-					</Button>
-					{benchmarkResult && (
-						<p className="text-sm text-(--text-muted) mt-3">
-							{benchmarkResult}
-						</p>
-					)}
 				</div>
 			</div>
+			<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-[156px] pb-6">
+				<PageHeading
+					title={t("models.title")}
+					description={t("models.subtitle")}
+				>
+					<Button
+						variant="outline"
+						size="sm"
+						onClick={handleImportModel}
+						disabled={isImporting}
+						title={t("models.import.title")}
+						className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
+						aria-label={t("models.import.title")}
+					>
+						<HugeiconsIcon
+							icon={Folder02Icon}
+							strokeWidth={2}
+							className="h-4 w-4"
+						/>
+						{isImporting
+							? t("models.import.importing")
+							: t("models.import.importModel")}
+					</Button>
+				</PageHeading>
 
-			{/* Snackbar */}
-			<Snackbar />
+				<div className="space-y-6">
+					{activeTab === "local" ? (
+						<>
+							{/* NEW-PRIV-005: HuggingFace consent banner */}
+							{config && !config.huggingface_consent && (
+								<div className="rounded-lg border border-amber-400/40 bg-amber-400/5 p-4">
+									<div className="flex items-start gap-3">
+										<HugeiconsIcon
+											icon={Alert02Icon}
+											strokeWidth={2}
+											className="mt-0.5 h-5 w-5 shrink-0 text-amber-500"
+										/>
+										<div className="flex-1">
+											<h3 className="text-sm font-semibold text-(--text-primary)">
+												{t("models.hfConsent.title")}
+											</h3>
+											<p className="mt-1 text-xs leading-relaxed text-(--text-muted)">
+												{t("models.hfConsent.description")}
+											</p>
+											<div className="mt-3 flex items-center gap-3">
+												<Button
+													variant="default"
+													size="sm"
+													onClick={handleGrantConsent}
+													aria-label={t("models.hfConsent.grantAria")}
+												>
+													{t("models.hfConsent.grant")}
+												</Button>
+												<span className="text-xs text-(--text-muted)">
+													{t("models.hfConsent.blockedHint")}
+												</span>
+											</div>
+										</div>
+									</div>
+								</div>
+							)}
 
-			{/* #7: ConfirmDialog for model deletion */}
-			<ConfirmDialog
-				open={deleteModelTarget !== null}
-				title={t("models.deleteDialog.title")}
-				message={t("models.deleteDialog.message", {
-					name: deleteModelTarget?.name ?? "",
-				})}
-				confirmLabel={t("models.delete")}
-				onConfirm={confirmDeleteModel}
-				onCancel={() => setDeleteModelTarget(null)}
-			/>
-		</div>
+							{/* Model Cards — grouped by family using shadcn Accordion */}
+							<Accordion
+								type="multiple"
+								defaultValue={modelFamilies.map((f) => f.id)}
+								className="rounded-lg border border-border bg-(--bg-subtle)"
+							>
+								{modelFamilies.map((family) => (
+									<AccordionItem
+										key={family.id}
+										value={family.id}
+										className="border-border data-open:bg-transparent"
+									>
+										<AccordionTrigger className="px-3.5 py-2.5 text-sm font-semibold text-(--text-primary) hover:no-underline hover:bg-black/2 dark:hover:bg-white/5 data-open:bg-transparent">
+											{family.name}
+											{family.description && (
+												<span className="text-xs text-(--text-muted) font-normal ml-2">
+													{family.description}
+												</span>
+											)}
+										</AccordionTrigger>
+										<AccordionContent className="px-0 pb-0 divide-y divide-border">
+											{family.variants.map((model) => {
+												const badge = getStatusBadge(model);
+												const meta = modelCatalog[model.name];
+												const isSelectingThis = selectingModel === model.name;
+												const handleSelectThis = () => selectModel(model);
+												const handleDeleteThis = () =>
+													requestDeleteModel(model);
+												const handleDownloadThis = () => downloadModel(model);
+												const downloadingThis = downloadingModel === model.name;
+
+												return (
+													<Fragment key={model.name}>
+														<div className="flex items-center gap-3 px-0 py-2.5">
+															<div className="flex-1 min-w-0">
+																<div className="flex items-center gap-2">
+																	<h4 className="text-sm font-semibold text-(--text-primary) truncate">
+																		{model.name}
+																	</h4>
+																	{badge && (
+																		<output
+																			className="shrink-0 inline-flex items-center rounded-md px-2 py-0.5 text-[9px] font-semibold border"
+																			aria-live="polite"
+																			style={{
+																				backgroundColor: badge.bg,
+																				color: badge.color,
+																				borderColor: `${badge.color}40`,
+																			}}
+																		>
+																			{badge.label}
+																		</output>
+																	)}
+																</div>
+																<p className="text-xs text-(--text-muted) mt-0.5">
+																	{model.name === "parakeet"
+																		? t("models.card.parakeetLabel")
+																		: ""}
+																	{t("models.card.size", {
+																		size: formatModelSize(model.size),
+																	})}
+																	{meta && (
+																		<span className="text-(--text-muted)">
+																			{"  ·  "}{" "}
+																			{t("models.card.vram", {
+																				vram: formatVram(meta.required_vram_mb),
+																			})}
+																			{"  ·  "}
+																			{meta.multilingual
+																				? t("models.card.multilingual")
+																				: t("models.card.englishOnly")}
+																			{"  ·  "}
+																			{t("models.card.speedSuffix", {
+																				rating: meta.speed_rating,
+																			})}
+																			{meta.is_distilled
+																				? t("models.card.distilled")
+																				: ""}
+																		</span>
+																	)}
+																</p>
+															</div>
+															<div className="flex items-center gap-2 shrink-0">
+																{/* State-aware button */}
+																{model.isActive ? (
+																	<>
+																		<Button
+																			variant="secondary"
+																			size="sm"
+																			className="gap-1 cursor-default opacity-60"
+																			disabled
+																			aria-label={t("models.card.activeAria", {
+																				name: model.name,
+																			})}
+																		>
+																			<HugeiconsIcon
+																				icon={Tick02Icon}
+																				strokeWidth={2}
+																				className="h-4 w-4"
+																			/>
+																			{t("models.active")}
+																		</Button>
+																		{model.downloaded &&
+																			!model.alwaysAvailable && (
+																				<Button
+																					variant="ghost"
+																					size="icon-xs"
+																					onClick={handleDeleteThis}
+																					className="text-(--text-muted) hover:text-destructive"
+																					aria-label={t(
+																						"models.card.deleteAria",
+																						{
+																							name: model.name,
+																						},
+																					)}
+																					title={t("models.card.deleteAria", {
+																						name: model.name,
+																					})}
+																				>
+																					<HugeiconsIcon
+																						icon={Delete01Icon}
+																						strokeWidth={2.5}
+																						className="h-4 w-4"
+																					/>
+																				</Button>
+																			)}
+																	</>
+																) : !model.downloaded &&
+																	!model.alwaysAvailable ? (
+																	<Button
+																		variant="outline"
+																		size="sm"
+																		className="gap-1"
+																		onClick={handleDownloadThis}
+																		disabled={downloadingModel !== null}
+																		aria-label={t("models.card.downloadAria", {
+																			name: model.name,
+																		})}
+																	>
+																		<HugeiconsIcon
+																			icon={Download01Icon}
+																			strokeWidth={2}
+																			className="h-4 w-4"
+																		/>
+																		{downloadingThis
+																			? t("models.downloading")
+																			: t("models.downloadModel")}
+																	</Button>
+																) : (
+																	<>
+																		<Button
+																			variant={
+																				isSelectingThis
+																					? "secondary"
+																					: "outline"
+																			}
+																			size="sm"
+																			className="gap-1"
+																			onClick={handleSelectThis}
+																			disabled={isSelectingThis}
+																			aria-label={t("models.card.selectAria", {
+																				name: model.name,
+																			})}
+																		>
+																			{" "}
+																			<HugeiconsIcon
+																				icon={PlayIcon}
+																				strokeWidth={2}
+																				className={cn(
+																					"h-4 w-4",
+																					isSelectingThis && "animate-spin",
+																				)}
+																			/>
+																			{isSelectingThis
+																				? t("models.selecting")
+																				: t("models.select")}
+																		</Button>
+																		{model.downloaded &&
+																			!model.alwaysAvailable && (
+																				<Button
+																					variant="ghost"
+																					size="icon-xs"
+																					onClick={handleDeleteThis}
+																					className="text-(--text-muted) hover:text-destructive"
+																					aria-label={t(
+																						"models.card.deleteAria",
+																						{
+																							name: model.name,
+																						},
+																					)}
+																					title={t("models.card.deleteAria", {
+																						name: model.name,
+																					})}
+																				>
+																					<HugeiconsIcon
+																						icon={Delete01Icon}
+																						strokeWidth={2.5}
+																						className="h-4 w-4"
+																					/>
+																				</Button>
+																			)}
+																	</>
+																)}{" "}
+															</div>
+														</div>
+													</Fragment>
+												);
+											})}
+										</AccordionContent>
+									</AccordionItem>
+								))}
+							</Accordion>
+
+							{/* Model Benchmark */}
+							<div className="rounded-xl border border-border bg-(--bg-subtle) p-6">
+								<h2 className="font-sans text-lg font-semibold text-(--text-primary)">
+									{t("models.benchmark.title")}
+								</h2>
+								<p className="text-sm text-(--text-muted) mt-0.5 mb-4">
+									{t("models.benchmark.description")}
+								</p>
+								<Button
+									variant="default"
+									className="gap-2"
+									onClick={runBenchmark}
+									disabled={isBenchmarking}
+									aria-label={t("models.benchmark.runAria")}
+								>
+									<HugeiconsIcon
+										icon={ZapIcon}
+										strokeWidth={2}
+										className="h-4 w-4"
+									/>
+									{isBenchmarking
+										? t("models.benchmark.running")
+										: t("models.benchmark.run")}
+								</Button>
+								{benchmarkResult && (
+									<p className="text-sm text-(--text-muted) mt-3">
+										{benchmarkResult}
+									</p>
+								)}
+							</div>
+						</>
+					) : (
+						<>
+							{/* Cloud ASR Providers */}
+							<div className="space-y-4">
+								<h2 className="font-sans text-lg font-semibold text-(--text-primary)">
+									{t("models.cloudProviders")}
+								</h2>
+								<p className="text-sm text-(--text-muted) -mt-3">
+									{t("models.cloudProvidersDescription")}
+								</p>
+
+								<div className="space-y-4">
+									{CLOUD_PROVIDERS.map((provider) => {
+										const handleSaveApiKey = () => saveApiKey(provider.key);
+										const handleTestConnection = () =>
+											testConnection(provider.key);
+										const handleApiKeyInput = (
+											e: React.ChangeEvent<HTMLInputElement>,
+										) =>
+											setApiKeys((prev) => ({
+												...prev,
+												[provider.key]: e.target.value,
+											}));
+										const handleConsentChange = (checked: boolean) =>
+											setCloudConsent(provider.key, checked);
+										return (
+											<div
+												key={provider.key}
+												className="rounded-xl border border-border bg-(--bg-subtle) p-6"
+											>
+												<div className="flex items-center gap-2.5 mb-4">
+													<HugeiconsIcon
+														icon={Shield01Icon}
+														strokeWidth={2}
+														className="h-4 w-4 text-accent"
+													/>
+													<h3 className="text-base font-semibold text-(--text-primary)">
+														{t("models.cloud.providerSettings", {
+															provider: getProviderLabel(provider.key),
+														})}
+													</h3>
+												</div>
+												<div className="mb-4">
+													<label
+														htmlFor="api-key-input"
+														className="text-sm font-medium text-(--text-primary) mb-1.5 block"
+													>
+														{t("models.cloud.apiKey")}
+													</label>
+													<Input
+														id="api-key-input"
+														type="password"
+														value={apiKeys[provider.key] ?? ""}
+														onChange={handleApiKeyInput}
+														placeholder={t("models.apiKeyPlaceholder")}
+														className="w-full max-w-md"
+													/>
+												</div>
+												<div className="flex items-center gap-3">
+													<Button
+														variant="default"
+														size="sm"
+														onClick={handleSaveApiKey}
+														aria-label={t("models.cloud.saveKeyAria", {
+															provider: getProviderLabel(provider.key),
+														})}
+													>
+														{t("models.cloud.saveKey")}
+													</Button>
+													<Button
+														variant="outline"
+														size="sm"
+														className="gap-2"
+														onClick={handleTestConnection}
+														aria-label={t("models.cloud.testConnectionAria", {
+															provider: getProviderLabel(provider.key),
+														})}
+													>
+														<HugeiconsIcon
+															icon={SparklesIcon}
+															strokeWidth={2}
+															className="h-4 w-4"
+														/>
+														{t("models.cloud.testConnection")}
+													</Button>
+													{testResults[provider.key] && (
+														<span
+															className={cn(
+																"text-xs",
+																testResults[provider.key].status === "success"
+																	? "text-primary"
+																	: testResults[provider.key].status ===
+																			"failure"
+																		? "text-destructive"
+																		: "text-[(--text-muted)]",
+															)}
+														>
+															{testResults[provider.key].message}
+														</span>
+													)}
+												</div>{" "}
+												{(apiKeys[provider.key] ||
+													config?.[consentKeyFor(provider.key)]) && (
+													<div className="mt-4 rounded-lg border border-border bg-(--bg) p-4">
+														<div className="flex items-start justify-between gap-4">
+															<div className="flex-1">
+																<h4 className="text-sm font-semibold text-(--text-primary)">
+																	{t("models.cloud.consentTitle")}
+																</h4>
+																<p className="mt-1 text-xs leading-relaxed text-(--text-muted)">
+																	{t("models.cloud.consentDescription", {
+																		provider: getProviderLabel(provider.key),
+																	})}
+																</p>
+																<p className="mt-2 text-xs text-(--text-muted)">
+																	{t("models.cloud.statusLabel")}{" "}
+																	{config?.[consentKeyFor(provider.key)] ? (
+																		<span className="font-medium text-emerald-500">
+																			{t("models.cloud.consentGrantedStatus")}
+																		</span>
+																	) : (
+																		<span className="font-medium text-amber-500">
+																			{t(
+																				"models.cloud.consentNotGrantedStatus",
+																			)}
+																		</span>
+																	)}
+																</p>
+															</div>
+															<Switch
+																checked={
+																	(config?.[consentKeyFor(provider.key)] as
+																		| boolean
+																		| undefined) ?? false
+																}
+																onCheckedChange={handleConsentChange}
+																aria-label={t("models.cloud.consentAria", {
+																	provider: getProviderLabel(provider.key),
+																})}
+															/>
+														</div>
+													</div>
+												)}
+											</div>
+										);
+									})}
+								</div>
+							</div>
+
+							{/* Model Benchmark */}
+							<div className="rounded-xl border border-border bg-(--bg-subtle) p-6">
+								<h2 className="font-sans text-lg font-semibold text-(--text-primary)">
+									{t("models.benchmark.title")}
+								</h2>
+								<p className="text-sm text-(--text-muted) mt-0.5 mb-4">
+									{t("models.benchmark.description")}
+								</p>
+								<Button
+									variant="default"
+									className="gap-2"
+									onClick={runBenchmark}
+									disabled={isBenchmarking}
+									aria-label={t("models.benchmark.runAria")}
+								>
+									<HugeiconsIcon
+										icon={ZapIcon}
+										strokeWidth={2}
+										className="h-4 w-4"
+									/>
+									{isBenchmarking
+										? t("models.benchmark.running")
+										: t("models.benchmark.run")}
+								</Button>
+								{benchmarkResult && (
+									<p className="text-sm text-(--text-muted) mt-3">
+										{benchmarkResult}
+									</p>
+								)}
+							</div>
+						</>
+					)}
+				</div>
+
+				{/* Snackbar */}
+				<Snackbar />
+
+				{/* #7: ConfirmDialog for model deletion */}
+				<ConfirmDialog
+					open={deleteModelTarget !== null}
+					title={t("models.deleteDialog.title")}
+					message={t("models.deleteDialog.message", {
+						name: deleteModelTarget?.name ?? "",
+					})}
+					confirmLabel={t("models.delete")}
+					onConfirm={confirmDeleteModel}
+					onCancel={() => setDeleteModelTarget(null)}
+				/>
+			</div>
+		</>
 	);
 }
