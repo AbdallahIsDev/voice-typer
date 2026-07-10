@@ -9,6 +9,8 @@ import { t } from "@/i18n/i18n";
 
 // ── Constants ────────────────────────────────────────────────────
 
+type BubbleMode = "recording" | "transcribing" | "idle" | "fading";
+
 const DOT_COUNT = 7;
 const MIN_HEIGHT = 5; // px — resting bar height (was 4, bumped so bars are always subtly visible)
 // BUBBLE-FIX-5.1 (Round 0): reduced from 32 → 22 to fit inside the new h-6
@@ -37,6 +39,12 @@ function rmsToNorm(rms: number): number {
 	return Math.min(1, rms * 8);
 }
 
+/** Transcribing dots animation count. */
+const TRANSCRIBING_DOT_COUNT = 3;
+
+/** Duration (ms) for the transcribing content fade-out before bubble exits. */
+const FADEOUT_DURATION_MS = 150;
+
 // ── Custom hook: direct-DOM animation at 60fps ────────────────────
 // React state is intentionally NOT used for the per-frame bar heights.
 // Instead we grab a ref to each <span> and mutate style directly from
@@ -50,9 +58,8 @@ function useAudioLevels(dotRefs: React.RefObject<(HTMLSpanElement | null)[]>) {
 		const api = window.bubble;
 		if (!api) return;
 
-		// ── Level listener ──────────────────────────────────────────    // Asymmetric smoothing: fast attack (reacts the instant the user
-		// speaks), slower release (graceful decay back to rest).  This is
-		// what makes a visualizer feel "live" rather than laggy.
+		// Asymmetric smoothing: fast attack (reacts the instant the user
+		// speaks), slower release (graceful decay back to rest).
 		// BUGFIX 2026-06-25: increased attack weight from 0.7→0.8 so the
 		// first spoken syllable immediately pops the bars instead of a
 		// gradual fade-in. Increased release floor from 0.14→0.18 so the
@@ -61,39 +68,33 @@ function useAudioLevels(dotRefs: React.RefObject<(HTMLSpanElement | null)[]>) {
 			const norm = rmsToNorm(data.rms);
 			const cur = rawLevelRef.current;
 			if (norm > cur) {
-				rawLevelRef.current = cur * 0.2 + norm * 0.8; // fast attack (was 0.3/0.7)
+				rawLevelRef.current = cur * 0.2 + norm * 0.8;
 			} else {
-				rawLevelRef.current = cur * 0.82 + norm * 0.18; // slower release (was 0.86/0.14)
+				rawLevelRef.current = cur * 0.82 + norm * 0.18;
 			}
 		};
 
 		const off = api.onLevel(onLevel);
 
-		// ── Animation loop ───────────────────────────────────────────
+		// Animation loop at 60fps using requestAnimationFrame.
 		const animate = () => {
 			const dots = dotRefs.current;
 			if (!dots) return;
 
 			const level = rawLevelRef.current;
 
-			// Bar colour tracks the current theme so the direct-DOM
-			// mutations stay in sync with Tailwind's dark: variants.
 			const isDark = document.documentElement.classList.contains("dark");
-			const barColor = isDark ? "#fff" : "#18181b"; // zinc-900
+			const barColor = isDark ? "#fff" : "#18181b";
 
 			for (let i = 0; i < DOT_COUNT; i++) {
 				const el = dots[i];
 				if (!el) continue;
 				const weight = DOT_WEIGHTS[i] ?? 1;
-				// Target height = resting + (level × weight) × dynamic range.
-				// Loud voice → bars climb toward MAX; quiet/low → bars sit near MIN.
 				const target = MIN_HEIGHT + level * weight * (MAX_HEIGHT - MIN_HEIGHT);
-				// Ease the rendered bar toward the target so motion is smooth.
 				const cur = parseFloat(el.style.height) || MIN_HEIGHT;
 				const next = cur + (target - cur) * 0.36;
 				el.style.height = `${Math.max(MIN_HEIGHT, next)}px`;
 				el.style.backgroundColor = barColor;
-				// Opacity tracks level: dim at rest, fully visible when speaking.
 				el.style.opacity = `${0.35 + level * 0.65}`;
 			}
 
@@ -114,17 +115,13 @@ function useAudioLevels(dotRefs: React.RefObject<(HTMLSpanElement | null)[]>) {
 type AnimState = "enter" | "exit" | "";
 
 // ── Theme sync — keeps the bubble's <html> in sync with the main
-//    app's theme so Tailwind dark: variants resolve correctly. ───────
+//     app's theme so Tailwind dark: variants resolve correctly.
 
 function useThemeSync() {
 	useEffect(() => {
 		const prefersDark = window.matchMedia("(prefers-color-scheme: dark)");
 
 		const apply = () => {
-			// The bubble has no config of its own, so we follow the OS
-			// preference directly.  When the main app sets theme_mode to
-			// 'light' or 'dark', the OS-level nativeTheme was already
-			// changed by Electron, so prefers-color-scheme reflects it.
 			document.documentElement.classList.toggle("dark", prefersDark.matches);
 		};
 
@@ -140,21 +137,45 @@ export function Bubble({ className: _className }: { className?: string }) {
 	const dotRefs = useRef<(HTMLSpanElement | null)[]>([]);
 	const [animState, setAnimState] = useState<AnimState>("enter");
 	const [draggable, setDraggable] = useState(true);
+	const [mode, setMode] = useState<BubbleMode>("recording");
+	// Incremented on each hide request to force the exit effect to re-run
+	// even when mode doesn't change (e.g. recording → recording).
+	const [exitTick, setExitTick] = useState(0);
 
 	useThemeSync();
 	useAudioLevels(dotRefs);
 
-	// ── Enter / exit animation handlers ──────────────────────────────
+	// Enter / exit animation handlers
 	useEffect(() => {
 		const api = window.bubble;
 		if (!api) return;
 
 		const offShow = api.onShow(() => {
+			setExitTick(0); // Cancel any pending exit (e.g. during fade-out)
 			setAnimState("enter");
+			// BUBBLE-FIX: don't override transcribing/fading mode if a state
+			// change (set_state) arrived before our show() event. This prevents
+			// a race where the backend calls set_state("transcribing") and then
+			// show() is re-triggered, which would reset mode back to "recording".
+			setMode((prev) => {
+				if (prev === "transcribing" || prev === "fading") return prev;
+				return "recording";
+			});
 		});
 
 		const offHide = api.onHide(() => {
-			setAnimState("exit");
+			// Two-stage transition when leaving transcribing state:
+			// 1. First fade the transcribing content out smoothly
+			// 2. Then trigger the bubble exit animation
+			// This avoids the jarring instant-disappear of the text.
+			setMode((prev) => {
+				if (prev === "transcribing") {
+					return "fading";
+				}
+				return prev;
+			});
+			// Increment exitTick to force the exit effect below to re-run.
+			setExitTick((t) => t + 1);
 		});
 
 		return () => {
@@ -163,17 +184,34 @@ export function Bubble({ className: _className }: { className?: string }) {
 		};
 	}, []);
 
-	// ── Listen for draggable state ───────────────────────────────────
-	// NEW-DEAD-025: the initial state defaults to ``true`` (line 124).
-	// The main process sends ``bubble:draggable`` on every ``show()``
-	// call (main/index.ts:605), so the correct state is always pushed
-	// before the user sees the bubble.  The race window between mount
-	// and the first ``onDraggable`` callback is < 1 frame and the
-	// bubble is hidden by default, so the user never observes a stale
-	// ``true`` value.  If a future change makes the bubble visible on
-	// mount (e.g. ``bubble_show_on_startup``), we'd need to add an
-	// initial query — but the preload doesn't expose ``getDraggable()``
-	// and the show-time sync covers the current use case.
+	// Listen for state changes from Python backend.
+	// When recording stops, Python sends "transcribing" state so the
+	// bubble hides the visualizer and shows "Transcribing..." text with
+	// animated dots. When transcription completes, it sends "idle" (for
+	// always_visible mode) or hide() (which triggers exit animation).
+	useEffect(() => {
+		const api = window.bubble;
+		if (!api?.onSetState) return;
+
+		const off = api.onSetState((state) => {
+			setMode((prev) => {
+				// Ignore state changes while fading out (exit in progress)
+				if (prev === "fading") return prev;
+
+				if (state === "transcribing") {
+					return "transcribing";
+				} else if (state === "idle") {
+					return "idle";
+				} else if (state === "recording") {
+					return "recording";
+				}
+				return prev;
+			});
+		});
+		return off;
+	}, []);
+
+	// Listen for draggable state
 	useEffect(() => {
 		const api = window.bubble;
 		if (!api) return;
@@ -182,8 +220,7 @@ export function Bubble({ className: _className }: { className?: string }) {
 		return off;
 	}, []);
 
-	// NEW-A11Y-006: keyboard-based bubble repositioning.
-	// Arrow keys move the bubble by 10px (or 1px with Shift for fine control).
+	// Keyboard-based bubble repositioning (accessibility)
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
 			if (!draggable) return;
@@ -213,44 +250,50 @@ export function Bubble({ className: _className }: { className?: string }) {
 		return () => window.removeEventListener("keydown", handleKeyDown);
 	}, [draggable]);
 
-	// ── Auto-resize the BrowserWindow to fit the pill ──────────────
-	// The BrowserWindow starts at 74x27.  We measure the actual pill
-	// scroll dimensions after mount and after each show, then resize
-	// the OS window exactly to that size.  This eliminates the
-	// transparent dead zone that blocks clicks to underlying windows.
+	// Auto-resize BrowserWindow to fit the pill content exactly.
+	// This eliminates the transparent dead zone around the bubble.
 	const pillRef = useRef<HTMLDivElement>(null);
 
-	// BUBBLE-FIX-5.2 (Round 0): useLayoutEffect (not useEffect) so the
-	// resize IPC arrives at the main process BEFORE the browser paints.
-	// useEffect ran after paint, so the first frame of the enter
-	// animation showed the pill clipped to the 27px initial window —
-	// then 180ms later the window snapped to full size, causing the
-	// "cut-off then flash" artifact on every show.
-	//
-	// Also: run on BOTH "enter" (animation start) and "" (stable),
-	// not just "" — so the window is at full size for the entire
-	// 180ms enter animation, not just after it ends.
-	//
-	// Also: use offsetWidth/offsetHeight (layout box, transform-
-	// independent) instead of getBoundingClientRect() (visual box,
-	// affected by the scale(0.92) enter animation) so the measurement
-	// is correct even mid-enter-animation.
+	// BUBBLE-FIX-5.2: useLayoutEffect so resize IPC arrives before paint.
+	// useEffect ran after paint, causing "cut-off then flash" artifact.
 	useLayoutEffect(() => {
-		if (animState === "exit") return; // don't resize during exit
+		if (animState === "exit") return;
 		const el = pillRef.current;
 		if (!el) return;
-		// offsetWidth/offsetHeight are layout dimensions unaffected by
-		// CSS transform: scale(), so the measurement is correct even
-		// while the bubbleEnter animation is mid-flight.
 		const w = Math.ceil(el.offsetWidth);
 		const h = Math.ceil(el.offsetHeight);
-		// Add 1px safety margin so the window fully contains the pill.
 		window.bubble?.resizeTo?.(w + 1, h + 1);
 	}, [animState]);
 
-	// ── Animation-end callback ──────────────────────────────────────
-	// When the exit CSS transition completes, tell the main process
-	// it's safe to actually hide() the BrowserWindow.
+	// ── Fading → exit transition ───────────────────────────────
+	// When the transcribing content fade-out completes, trigger the
+	// bubble exit animation. This gives a smooth two-stage effect:
+	// text dissolves → bubble exits.
+	// For non-transcribing modes, exit is triggered immediately.
+	// Uses exitTick to guarantee re-run even when mode doesn't change.
+	const fadeOutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+	useEffect(() => {
+		if (exitTick === 0) return;
+
+		if (mode === "fading") {
+			fadeOutTimerRef.current = setTimeout(() => {
+				setAnimState("exit");
+			}, FADEOUT_DURATION_MS);
+		} else if (mode !== "transcribing") {
+			// Non-transcribing modes (recording, idle): exit immediately
+			setAnimState("exit");
+		}
+		return () => {
+			if (fadeOutTimerRef.current !== null) {
+				clearTimeout(fadeOutTimerRef.current);
+				fadeOutTimerRef.current = null;
+			}
+		};
+	}, [mode, exitTick]);
+
+	// Animation-end callback — when exit CSS transition completes,
+	// tell the main process it's safe to hide() the BrowserWindow.
 	const handleAnimEnd = useCallback(() => {
 		if (animState === "exit") {
 			setAnimState("");
@@ -260,21 +303,17 @@ export function Bubble({ className: _className }: { className?: string }) {
 		}
 	}, [animState]);
 
-	// ── Build bar spans ──────────────────────────────────────────────
+	// Build visualizer bar indices
 	const dots = Array.from({ length: DOT_COUNT }, (_, i) => i);
 
-	// ── Drag approach ──────────────────────────────────────────────
-	// We use the same CSS `-webkit-app-region: drag` / `no-drag` approach
-	// as the main window's custom title bar (TitleBar.tsx + .drag-region
-	// class in index.css).  This is stateless and handled at the
-	// Chromium/OS level, so it survives window hide/show cycles — unlike
-	// JavaScript pointer-capture which breaks after BrowserWindow.hide().
-	//
-	// The bubble window is transparent.  `-webkit-app-region: drag` only
-	// works on non-transparent pixels (OS-level hit-testing fails on
-	// transparent areas).  Therefore `drag-region` goes on the visible
-	// pill itself — the only opaque element in the window.  The visualizer
-	// bars are purely decorative (no user interaction).
+	// Build transcribing dot indices
+	const transcribingDots = Array.from(
+		{ length: TRANSCRIBING_DOT_COUNT },
+		(_, i) => i,
+	);
+
+	// Use the same CSS drag-region approach as the main window's
+	// custom title bar. Stateless, survives window hide/show cycles.
 
 	return (
 		<output
@@ -297,28 +336,57 @@ export function Bubble({ className: _className }: { className?: string }) {
           ${draggable ? "drag-region" : "no-drag"}
         `}
 			>
-				{/* ── Voice level visualiser ──────────────────────────── */}
-				{/* BUBBLE-FIX-4.2: fixed-height wrapper so the animated bar
-                                    heights (5px→22px) cannot resize the parent pill. Without
-                                    this, the pill grew on every beat, causing layout shift
-                                    and a flickering BrowserWindow resize.
-                                    BUBBLE-FIX-5.1 (Round 0): wrapper reduced from h-8 (32px)
-                                    to h-6 (24px) per user request — tighter, more compact
-                                    bubble. MAX_HEIGHT reduced to 22px to fit inside with
-                                    2px headroom. Use a literal Tailwind class so the JIT
-                                    compiler picks it up. */}
-				<div className="flex h-6 items-center gap-[3px]">
-					{dots.map((i) => (
-						<span
-							key={i}
-							ref={(el) => {
-								dotRefs.current[i] = el;
-							}}
-							className="inline-block w-[3px] rounded-full bg-zinc-900 dark:bg-white"
-							style={{ height: MIN_HEIGHT, opacity: 0.3 }}
-						/>
-					))}
-				</div>
+				{/* Transcribing state: hide visualizer, show "Transcribing..." text with animated dots */}
+				{/* Idle state: show nothing (pill stays visible for always_visible mode) */}
+				{/* Recording state (default): show the voice level visualiser bars */}
+
+				{mode === "transcribing" ? (
+					<div className="flex items-center gap-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300">
+						<span>{t("bubble.transcribingLabel")}</span>
+						{transcribingDots.map((i) => (
+							<span
+								key={i}
+								className="inline-block h-1 w-1 animate-bounce rounded-full bg-zinc-500 dark:bg-zinc-400"
+								style={{
+									animationDelay: `${i * 0.2}s`,
+									animationDuration: "1.2s",
+								}}
+							/>
+						))}
+					</div>
+				) : mode === "fading" ? (
+					<div
+						className="flex items-center gap-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300"
+						style={{
+							opacity: 0,
+							transform: "translateY(-4px)",
+							transition: `opacity ${FADEOUT_DURATION_MS}ms ease-out, transform ${FADEOUT_DURATION_MS}ms ease-out`,
+						}}
+					>
+						<span>{t("bubble.transcribingLabel")}</span>
+					</div>
+				) : mode === "idle" ? (
+					<div className="flex h-6 items-center" />
+				) : (
+					<>
+						{/* Recording mode: fixed-height wrapper so the animated bar
+                            heights (5px→22px) cannot resize the parent pill.
+                            Without this, the pill grew on every beat, causing layout
+                            shift and a flickering BrowserWindow resize. */}
+						<div className="flex h-6 items-center gap-[3px]">
+							{dots.map((i) => (
+								<span
+									key={i}
+									ref={(el) => {
+										dotRefs.current[i] = el;
+									}}
+									className="inline-block w-[3px] rounded-full bg-zinc-900 dark:bg-white"
+									style={{ height: MIN_HEIGHT, opacity: 0.3 }}
+								/>
+							))}
+						</div>
+					</>
+				)}
 			</div>
 		</output>
 	);

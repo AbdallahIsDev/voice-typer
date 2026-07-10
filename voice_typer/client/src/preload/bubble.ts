@@ -61,6 +61,14 @@ contextBridge.exposeInMainWorld("bubble", {
 			ipcRenderer.removeListener("bubble:hide", handler);
 		};
 	},
+	onSetState: (callback: (state: string) => void) => {
+		const handler = (_event: Electron.IpcRendererEvent, state: unknown) =>
+			callback(String(state));
+		ipcRenderer.on("bubble:set-state", handler);
+		return () => {
+			ipcRenderer.removeListener("bubble:set-state", handler);
+		};
+	},
 	onDraggable: (callback: (draggable: boolean) => void) => {
 		const handler = (_event: Electron.IpcRendererEvent, draggable: unknown) =>
 			callback(Boolean(draggable));

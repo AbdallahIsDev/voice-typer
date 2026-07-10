@@ -446,6 +446,12 @@ function handleMessage(msg: Record<string, unknown>) {
 				`${ts()}  ${BUBBLE_CLR}[BUBBLE] received bubble_hide from Python${RESET}`,
 			);
 			hideBubbleWindow();
+		} else if (msg.type === "bubble_set_state") {
+			const state = (msg.data as Record<string, unknown>)?.state as string;
+			console.warn(
+				`${ts()}  ${BUBBLE_CLR}[BUBBLE] received bubble_set_state: ${state}${RESET}`,
+			);
+			bubbleWindow?.webContents.send("bubble:set-state", state);
 		} else if (msg.type === "bubble_level") {
 			bubbleWindow?.webContents.send("bubble:level", msg.data);
 		} else if (msg.type === "show_window") {

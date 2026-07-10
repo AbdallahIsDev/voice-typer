@@ -438,20 +438,20 @@ class TestDispatchSetConfigAllowlist:
         assert real_config.autostart == original
 
     def test_rejects_int_field_with_bool_value(self, real_server, real_config):
-        """max_recording_seconds is an int; True must not silently become 1."""
-        original = real_config.max_recording_seconds
+        """max_recording_time_seconds is an int; True must not silently become 1."""
+        original = real_config.max_recording_time_seconds
         result = real_server._dispatch({
             "id": 1, "type": "set_config",
-            "data": {"max_recording_seconds": True},
+            "data": {"max_recording_time_seconds": True},
         })
         assert result["type"] == "error"
-        assert real_config.max_recording_seconds == original
+        assert real_config.max_recording_time_seconds == original
 
     def test_rejects_int_field_with_string_value(self, real_server, real_config):
         """Int field with a string value must be rejected (no silent coercion)."""
         result = real_server._dispatch({
             "id": 1, "type": "set_config",
-            "data": {"max_recording_seconds": "60"},
+            "data": {"max_recording_time_seconds": "60"},
         })
         assert result["type"] == "error"
 
@@ -482,27 +482,27 @@ class TestDispatchSetConfigAllowlist:
             "id": 1, "type": "set_config",
             "data": {"microphone": None},
         })
-        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
+        assert result["type"] == "ack"
         assert real_config.microphone is None
 
     def test_rejects_float_field_with_string_value(self, real_server, real_config):
-        """silence_auto_stop_seconds is a float; string must be rejected."""
-        original = real_config.silence_auto_stop_seconds
+        """stop_on_silence_seconds is a float; string must be rejected."""
+        original = real_config.stop_on_silence_seconds
         result = real_server._dispatch({
             "id": 1, "type": "set_config",
-            "data": {"silence_auto_stop_seconds": "120"},
+            "data": {"stop_on_silence_seconds": "120"},
         })
         assert result["type"] == "error"
-        assert real_config.silence_auto_stop_seconds == original
+        assert real_config.stop_on_silence_seconds == original
 
     def test_accepts_int_for_float_field(self, real_server, real_config):
         """Python int is a valid float value (numeric tower)."""
         result = real_server._dispatch({
             "id": 1, "type": "set_config",
-            "data": {"silence_auto_stop_seconds": 120},
+            "data": {"stop_on_silence_seconds": 120},
         })
-        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
-        assert real_config.silence_auto_stop_seconds == 120
+        assert result["type"] == "ack"
+        assert real_config.stop_on_silence_seconds == 120
 
     # ── Range validation ─────────────────────────────────────────────
 
@@ -520,17 +520,17 @@ class TestDispatchSetConfigAllowlist:
         })
         assert result["type"] == "error"
 
-    def test_rejects_negative_max_recording_seconds(self, real_server, real_config):
+    def test_rejects_negative_max_recording_time_seconds(self, real_server, real_config):
         result = real_server._dispatch({
             "id": 1, "type": "set_config",
-            "data": {"max_recording_seconds": -5},
+            "data": {"max_recording_time_seconds": -5},
         })
         assert result["type"] == "error"
 
-    def test_rejects_oversized_max_recording_seconds(self, real_server, real_config):
+    def test_rejects_oversized_max_recording_time_seconds(self, real_server, real_config):
         result = real_server._dispatch({
             "id": 1, "type": "set_config",
-            "data": {"max_recording_seconds": 10**9},
+            "data": {"max_recording_time_seconds": 10**9},
         })
         assert result["type"] == "error"
 

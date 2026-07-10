@@ -46,6 +46,13 @@ class WaveformBubble:
         self.on_show: Optional[Callable[[], None]] = None
         self.on_hide: Optional[Callable[[], None]] = None
         self.on_level: Optional[Callable[[float, float], None]] = None
+        # NEW-BUBBLE-TRANSCRIBING: ``on_set_state`` is called when the
+        # bubble should change its visual state (e.g. from "recording"
+        # visualizer to "transcribing" text).  The state string is one of:
+        #   "recording" — show waveform visualizer
+        #   "transcribing" — hide visualizer, show "Transcribing…" text
+        #   "idle" — hide everything (bubble visible but showing nothing)
+        self.on_set_state: Optional[Callable[[str], None]] = None
 
     # ── Visibility ───────────────────────────────────────────────────
 
@@ -81,6 +88,30 @@ class WaveformBubble:
                 cb()
             except Exception:
                 log.debug("[WAVEFORM] on_hide callback raised", exc_info=True)
+
+    # ── State change (e.g. recording → transcribing) ────────────
+
+    def set_state(self, state: str) -> None:
+        """Change the bubble's visual state.
+
+        States:
+          - ``"recording"`` — waveform visualizer active (default when shown)
+          - ``"transcribing"`` — hide visualizer, show "Transcribing…" text
+          - ``"idle"`` — bubble visible but showing nothing (no visualizer,
+            no text)
+
+        Called from ``RecordingController.stop()`` when recording ends and
+        transcription begins, and from ``DictationPipeline`` when
+transcription completes.
+        """
+        with self._lock:
+            cb = self.on_set_state
+        log.info("[WAVEFORM] Bubble state -> %s", state)
+        if cb is not None:
+            try:
+                cb(state)
+            except Exception:
+                log.debug("[WAVEFORM] on_set_state callback raised", exc_info=True)
 
     # ── Level reset (called when recording stops) ────────────────
 

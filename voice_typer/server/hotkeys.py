@@ -991,7 +991,27 @@ class WindowsNativeHotkey(HotkeyBackend):
         # FIX-HOTKEY-ARCHITECTURE: detect Caps Lock hotkeys so we can
         # suppress the OS-level toggle. VK_CAPITAL = 0x14.
         is_caps_lock_hotkey = (vk == _VK_CAPITAL)
+
+        # CAPS-LOCK-FIX: at registration time, if the hotkey is Caps Lock,
+        # force caps lock OFF to prevent the user from typing in ALL CAPS.
+        # This proactively handles the case where caps lock was ON before
+        # the app started or when the hotkey configuration changes.
+        if is_caps_lock_hotkey:
+            self._ensure_caps_lock_off()
+
+        # Iteration counter for periodic caps lock state checks (~200ms cadence).
+        _caps_check_iter = 0
+
         while not self._stop_event.is_set():
+
+            # CAPS-LOCK-FIX: periodically ensure caps lock stays OFF.
+            # The reactive suppression on key press can fail due to timing
+            # (OS toggles caps before we can undo it). A periodic ~200ms
+            # check catches any missed toggles and re-silences caps lock.
+            _caps_check_iter += 1
+            if is_caps_lock_hotkey and _caps_check_iter %% 200 == 0:
+                if not self._caps_lock_suppressing:
+                    self._ensure_caps_lock_off()
             # PLAT-020: suppress hotkey triggers during IME composition.
             # PERF-FIX-1: use the throttled wrapper so we don't make 5
             # syscalls per 1ms iteration.
@@ -1555,6 +1575,36 @@ class WindowsNativeHotkey(HotkeyBackend):
         except Exception:
             log.exception("[HOTKEY] Failed to suppress Caps Lock toggle")
             self._caps_lock_suppressing = False
+
+    def _ensure_caps_lock_off(self) -> None:
+        """Proactively ensure Caps Lock is OFF (not toggled).
+
+        CAPS-LOCK-FIX: unlike _suppress_caps_lock_toggle() which reacts to a
+        key press event, this method proactively checks the current caps lock
+        state and toggles it OFF if it is ON. It is called:
+        - At registration time (when the hotkey starts)
+        - Periodically every ~200ms while the polling loop runs
+
+        This is defense-in-depth against the caps lock toggle race where the
+        OS toggles caps ON before the reactive suppression can undo it.
+        The _caps_lock_suppressing flag is NOT set here because this method
+        is called outside of a key-press event context (no risk of feedback
+        loop with the polling loop).
+        """
+        if not self._user32:
+            return
+        try:
+            toggle_state = self._user32.GetKeyState(_VK_CAPITAL) & 0x1
+            if toggle_state:
+                self._user32.keybd_event(_VK_CAPITAL, 0x45, 0, 0)
+                self._user32.keybd_event(
+                    _VK_CAPITAL, 0x45, _KEYEVENTF_KEYUP, 0
+                )
+                log.info(
+                    "[HOTKEY] Proactive caps lock toggle-off (was ON, forced OFF)"
+                )
+        except Exception:
+            log.exception("[HOTKEY] Failed to force caps lock off")
 
     def _modifiers_pressed(self) -> bool:
         # PLAT-ALTGR: Detect AltGr (Right Alt + Ctrl simulated by Windows).

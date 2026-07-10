@@ -146,6 +146,115 @@ class TestWaveformBubbleThreadSafety:
         assert len(received) == 200
 
 
+# ── WaveformBubble.set_state (NEW-BUBBLE-TRANSCRIBING) ─────────────────
+
+
+class TestWaveformBubbleSetState:
+    """Test the ``set_state()`` method and ``on_set_state`` callback.
+
+    NEW-BUBBLE-TRANSCRIBING: ``set_state()`` is called from
+    ``RecordingController.stop()`` to switch the bubble from recording
+    visualizer to "Transcribing…" text, and from ``DictationPipeline``
+    when transcription completes (back to idle or hidden).
+    """
+
+    def test_set_state_fires_listener(self, bubble):
+        """set_state() must invoke the on_set_state callback with the state."""
+        states = []
+        bubble.on_set_state = lambda s: states.append(s)
+        bubble.set_state("transcribing")
+        assert states == ["transcribing"]
+
+    def test_set_state_idempotent(self, bubble):
+        """Calling set_state with the same state repeatedly fires callback each time."""
+        states = []
+        bubble.on_set_state = lambda s: states.append(s)
+        bubble.set_state("transcribing")
+        bubble.set_state("transcribing")
+        bubble.set_state("transcribing")
+        assert states == ["transcribing", "transcribing", "transcribing"]
+
+    def test_set_state_recording(self, bubble):
+        """set_state('recording') fires the callback with 'recording'."""
+        states = []
+        bubble.on_set_state = lambda s: states.append(s)
+        bubble.set_state("recording")
+        assert states == ["recording"]
+
+    def test_set_state_idle(self, bubble):
+        """set_state('idle') fires the callback with 'idle'."""
+        states = []
+        bubble.on_set_state = lambda s: states.append(s)
+        bubble.set_state("idle")
+        assert states == ["idle"]
+
+    def test_set_state_all_transitions(self, bubble):
+        """set_state works for all three recognised states."""
+        states = []
+        bubble.on_set_state = lambda s: states.append(s)
+        bubble.set_state("recording")
+        bubble.set_state("transcribing")
+        bubble.set_state("idle")
+        assert states == ["recording", "transcribing", "idle"]
+
+    def test_set_state_callback_swallows_exceptions(self, bubble):
+        """A crashing on_set_state callback must not propagate."""
+        def boom(state):
+            raise RuntimeError("on_set_state boom")
+        bubble.on_set_state = boom
+        # Must not raise
+        bubble.set_state("transcribing")
+
+    def test_set_state_noop_when_no_callback(self, bubble):
+        """set_state() must not crash when on_set_state is None."""
+        assert bubble.on_set_state is None
+        bubble.set_state("transcribing")  # Must not raise
+        bubble.set_state("recording")     # Must not raise
+        bubble.set_state("idle")          # Must not raise
+
+    def test_set_state_does_not_affect_visibility(self, bubble):
+        """set_state() must not change the bubble's visible property."""
+        assert bubble.visible is False
+        bubble.set_state("transcribing")
+        assert bubble.visible is False  # Still hidden
+        bubble.show()
+        assert bubble.visible is True
+        bubble.set_state("transcribing")
+        assert bubble.visible is True  # Still visible
+
+    def test_set_state_does_not_affect_levels(self, bubble):
+        """set_state() must not reset RMS/peak/is_speaking."""
+        bubble.update_level(0.2, 0.4)
+        assert bubble.rms_level > 0
+        assert bubble.peak_level > 0
+        assert bubble.is_speaking is True
+        bubble.set_state("transcribing")
+        # Levels should be preserved
+        assert bubble.rms_level > 0
+        assert bubble.peak_level > 0
+        assert bubble.is_speaking is True
+
+    def test_set_state_thread_safety(self, bubble):
+        """Concurrent set_state calls must not deadlock."""
+        errors = []
+
+        def worker():
+            try:
+                for _ in range(200):
+                    bubble.set_state("transcribing")
+                    bubble.set_state("recording")
+                    bubble.set_state("idle")
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=worker) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5)
+        assert errors == []
+
+
 # ── Module-level IPC push hook (regression: was app._ipc_server) ─────
 
 

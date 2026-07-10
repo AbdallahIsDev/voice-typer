@@ -187,6 +187,15 @@ class DictationPipeline:
 
         except Exception as e:
             log.exception("[TRANSCRIBE] Transcription FAILED (cycle=%s)", self._cycle_id)
+            # NEW-BUBBLE-TRANSCRIBING: Hide the bubble on transcription failure
+            # so the overlay doesn't stay stuck showing "Transcribing…".
+            try:
+                if self._app.config.bubble_behavior == 'always_visible':
+                    self._app._waveform_bubble.set_state("idle")
+                else:
+                    self._app._waveform_bubble.hide()
+            except Exception:
+                log.debug("[PIPELINE] bubble hide on error failed", exc_info=True)
             self._app.tray.set_state(AppState.ERROR, "Transcription failed")
             # ERR-005: do NOT leak raw exception text into tray
             # notifications — ctranslate2 / torch errors often contain
@@ -299,6 +308,15 @@ class DictationPipeline:
     def _handle_empty_transcription(self) -> None:
         """Step 2: Handle case where no speech was detected."""
         log.info("[TRANSCRIBE] No speech detected (cycle=%s)", self._cycle_id)
+        # NEW-BUBBLE-TRANSCRIBING: Hide the bubble since there's nothing to
+        # transcribe — no need to keep the overlay visible.
+        try:
+            if self._app.config.bubble_behavior == 'always_visible':
+                self._app._waveform_bubble.set_state("idle")
+            else:
+                self._app._waveform_bubble.hide()
+        except Exception:
+            log.debug("[PIPELINE] bubble hide/set idle on empty failed", exc_info=True)
         if self._recorded_rms < 0.005:
             self._app.tray.set_state(AppState.IDLE, "No speech -- check microphone")
             self._app.tray.notify(
@@ -640,6 +658,15 @@ class DictationPipeline:
                         recovery_path = None
             except Exception:
                 log.exception("[CLIPBOARD] Failed to write transcription to crash recovery")
+            # NEW-BUBBLE-TRANSCRIBING: Hide the bubble since the
+            # transcription is done (even though paste failed).
+            try:
+                if self._app.config.bubble_behavior == 'always_visible':
+                    self._app._waveform_bubble.set_state("idle")
+                else:
+                    self._app._waveform_bubble.hide()
+            except Exception:
+                log.debug("[PIPELINE] bubble hide on clipboard fail failed", exc_info=True)
             self._app.tray.set_state(AppState.IDLE, "Done -- clipboard unavailable")
             notice = (
                 "Transcription complete, but the clipboard was unavailable.\n"
@@ -669,6 +696,17 @@ class DictationPipeline:
             status = f"Done -- {len(text)} chars (pasted)"
         else:
             status = f"Done -- {len(text)} chars (in clipboard)"
+
+        # NEW-BUBBLE-TRANSCRIBING: Transcription + paste complete — hide the
+        # bubble (or set it to idle for always_visible mode) so the overlay
+        # doesn't persist on screen after the user has their result.
+        try:
+            if self._app.config.bubble_behavior == 'always_visible':
+                self._app._waveform_bubble.set_state("idle")
+            else:
+                self._app._waveform_bubble.hide()
+        except Exception:
+            log.debug("[PIPELINE] bubble hide/set idle failed", exc_info=True)
 
         self._app.tray.set_state(AppState.IDLE, status)
         self._app._schedule_timer(

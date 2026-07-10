@@ -629,9 +629,16 @@ class VoiceTyperApp:
             )
             self._bubble_level_worker.start()
 
+        def _push_bubble_set_state(state: str) -> None:
+            _push_event_now({
+                "type": "bubble_set_state",
+                "data": {"state": state},
+            })
+
         self._waveform_bubble.on_show = _push_bubble_show
         self._waveform_bubble.on_hide = _push_bubble_hide
         self._waveform_bubble.on_level = _push_bubble_level
+        self._waveform_bubble.on_set_state = _push_bubble_set_state
         log.info("[WAVEFORM] listeners wired on bubble coordinator")
 
     # ─── Startup ───────────────────────────────────────────────────────

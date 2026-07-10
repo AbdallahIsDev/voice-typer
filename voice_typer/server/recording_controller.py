@@ -365,16 +365,20 @@ class RecordingController:
 
         app._busy_event.clear()  # busy = True
 
-        # Detach the RMS callback and hide the bubble so the audio path
-        # cannot keep pushing levels after the stream is closed.
+        # Detach the RMS callback so the audio path cannot keep pushing
+        # levels after the stream is closed.
         app.recorder.on_rms_level = None
         # Push a final zero-level event so the renderer resets its animation
         # envelope. Without this, the dots stay frozen at their last active
         # height because rawLevelRef is never set back to 0.
         app._waveform_bubble.reset_level()
-        # Hide bubble unless always_visible mode (bubble stays on screen)
-        if app.config.bubble_behavior != 'always_visible':
-            app._waveform_bubble.hide()
+        # NEW-BUBBLE-TRANSCRIBING: Instead of hiding the bubble immediately,
+        # switch it to "transcribing" state so the user sees visual feedback
+        # that processing is in progress. The bubble shows "Transcribing…"
+        # text with an animated dots indicator. Once the transcription
+        # pipeline finishes (DictationPipeline._copy_and_paste), the bubble
+        # is hidden or set back to idle depending on bubble_behavior.
+        app._waveform_bubble.set_state("transcribing")
 
         try:
             audio = app.recorder.stop()
@@ -563,12 +567,15 @@ class RecordingController:
         except Exception:
             log.exception("[CANCEL] Failed to restore volume")
 
-        # Hide bubble unless always_visible mode
+        # Hide bubble unless always_visible mode (in which case set
+        # to idle so the visualizer bars don't stay frozen on screen)
         try:
             if app.config.bubble_behavior != 'always_visible':
                 app._waveform_bubble.hide()
+            else:
+                app._waveform_bubble.set_state("idle")
         except Exception:
-            log.exception("[CANCEL] Failed to hide bubble")
+            log.exception("[CANCEL] Failed to hide/set idle bubble")
 
         # ERR-023: tray state + busy flag MUST be cleared so the user
         # can press F2 again after a cancel.

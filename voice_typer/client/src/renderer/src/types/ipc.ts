@@ -340,6 +340,7 @@ export interface WindowBubble {
 	onLevel: (cb: (data: { rms: number; peak: number }) => void) => () => void;
 	onShow: (cb: () => void) => () => void;
 	onHide: (cb: () => void) => () => void;
+	onSetState: (cb: (state: string) => void) => () => void;
 	onDraggable: (cb: (draggable: boolean) => void) => () => void;
 	hideComplete: () => void;
 	// Auto-resize the BrowserWindow to exactly fit the pill content,
