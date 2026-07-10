@@ -145,6 +145,20 @@ class ConfigHandlersMixin:
                 self.app.tray.invalidate_menu_cache()
             except Exception:
                 log.debug("[IPC] tray.invalidate_menu_cache failed", exc_info=True)
+            # ARCH-007: also invalidate the tray models submenu's
+            # HF download cache so the next right-click reflects the
+            # current model download/active state immediately (rather
+            # than waiting for the 5-second TTL).
+            try:
+                from voice_typer.server.tray_models import (
+                    invalidate_model_availability_cache,
+                )
+                invalidate_model_availability_cache()
+            except Exception:
+                log.debug(
+                    "[IPC] invalidate_model_availability_cache failed",
+                    exc_info=True,
+                )
 
             # Push a config_changed event so the renderer (App.tsx)
             # can update UI-local state (font-scale, theme, etc.)

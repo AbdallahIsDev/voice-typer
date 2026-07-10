@@ -39,9 +39,11 @@ class ModelHandlersMixin:
         try:
             model_name = (data or {}).get("model", "") if isinstance(data, dict) else ""
             if not model_name:
+                log.warning("[IPC] download_model called without model name")
                 resp["type"] = "error"
                 resp["data"] = {"message": "Missing 'model' parameter"}
             else:
+                log.info("[IPC] download_model called for '%s'", model_name)
                 result = self.service.download_model(model_name)
                 resp["type"] = "download_model_result"
                 resp["data"] = result
@@ -55,6 +57,7 @@ class ModelHandlersMixin:
         """Handle the ``cancel_model_download`` IPC command."""
         # NEW-PRIV-011: cancel an in-progress HuggingFace download.
         try:
+            log.info("[IPC] cancel_model_download called")
             result = self.service.cancel_model_download()
             resp["type"] = "ack"
             resp["data"] = result
@@ -72,6 +75,7 @@ class ModelHandlersMixin:
         the download polling loop checks between iterations.
         """
         try:
+            log.info("[IPC] pause_model_download called")
             result = self.service.pause_model_download()
             resp["type"] = "ack"
             resp["data"] = result
@@ -88,6 +92,7 @@ class ModelHandlersMixin:
         module-level pause flag set by ``_handle_pause_model_download``.
         """
         try:
+            log.info("[IPC] resume_model_download called")
             result = self.service.resume_model_download()
             resp["type"] = "ack"
             resp["data"] = result
@@ -163,6 +168,7 @@ class ModelHandlersMixin:
         try:
             dir_path = (data or {}).get("dir_path", "") if isinstance(data, dict) else ""
             if not dir_path or not isinstance(dir_path, str):
+                log.warning("[IPC] import_model called without dir_path")
                 resp["type"] = "error"
                 resp["data"] = {"message": "Missing 'dir_path' parameter"}
                 return resp
@@ -182,9 +188,11 @@ class ModelHandlersMixin:
 
             import os
             if not os.path.isdir(dir_path):
+                log.warning("[IPC] import_model: directory not found: %s", dir_path)
                 resp["type"] = "error"
                 resp["data"] = {"message": f"Directory not found: {dir_path}"}
             else:
+                log.info("[IPC] import_model called for path: %s", dir_path)
                 result = self.service.import_model(dir_path)
                 resp["type"] = "import_model_result"
                 resp["data"] = result
@@ -201,9 +209,11 @@ class ModelHandlersMixin:
         try:
             model_name = (data or {}).get("model", "") if isinstance(data, dict) else ""
             if not model_name:
+                log.warning("[IPC] delete_model called without model name")
                 resp["type"] = "error"
                 resp["data"] = {"message": "Missing 'model' parameter"}
             else:
+                log.info("[IPC] delete_model called for '%s'", model_name)
                 result = self.service.delete_model(model_name)
                 resp["type"] = "delete_model_result"
                 resp["data"] = result
