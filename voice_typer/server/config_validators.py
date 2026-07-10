@@ -599,8 +599,6 @@ IPC_CONFIG_ALLOWLIST: dict = {
     "max_recording_seconds_gpu":  (int, _make_int_validator(lo=0, hi=86400)),
     "max_recording_seconds_cpu":  (int, _make_int_validator(lo=0, hi=86400)),
     "max_recording_seconds":      (int, _make_int_validator(lo=0, hi=86400)),
-    # AUDIO-DEAD: dead-air timeout — auto-stop after N seconds of silence following speech
-    "dead_air_timeout":           (float, _make_float_validator(lo=0.0, hi=600.0)),
     # AUDIO-014: configurable VAD/silence thresholds
     "silence_rms_threshold":      (float, _make_float_validator(lo=0.0, hi=1.0)),
     "silence_peak_threshold":     (float, _make_float_validator(lo=0.0, hi=1.0)),

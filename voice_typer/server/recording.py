@@ -72,11 +72,11 @@ _DEFAULT_VAD_HANGOVER_FRAMES = 15  # same as _VAD_SILENCE_FRAMES — configurabl
 # → AUDIO-PRE.
 
 
-# AUDIO-DEAD: dead-air timeout — auto-stop recording after N seconds
-# of continuous silence. Prevents indefinitely long recordings when the
-# user walks away from the mic. Configurable via config.dead_air_timeout
-# (0 = disabled). Default is 30 seconds of silence after speech was detected.
-_DEFAULT_DEAD_AIR_TIMEOUT = 30.0  # seconds of silence before auto-stop
+# NOTE: Dead-air timeout was REMOVED in RW-0.
+# Redundant with silence_auto_stop_seconds (auto-stop already resets on
+# speech). The _update_dead_air_simple() method was also removed along
+# with _dead_air_timeout / _dead_air_speech_detected / _dead_air_silence_start.
+# Do NOT re-add — it added no unique behavior.
 
 
 # AUDIO-002: XRUN rolling window parameters
@@ -302,24 +302,15 @@ class Recorder:
         #
         # VAD is part of the audio enhancement pipeline. When the user
         # explicitly disables ALL audio enhancements (Off preset), they
-        # are opting into raw recording — no filter chain, no VAD. The
-        # dead-air timeout (which depends on VAD state) is preserved via
-        # a lightweight RMS-based fallback in _update_dead_air_simple()
-        # so the user still gets the safety net against indefinitely
-        # long recordings.
+        # are opting into raw recording — no filter chain, no VAD.
         # VAD-GATE (Task 4): _vad_enabled is a @property that reads the
         # current config dynamically so preset changes are reflected immediately,
         # even mid-session (see property definition below).
         if not self._vad_enabled:
             log.info(
                 "[RECORDING] VAD disabled — all audio enhancements off "
-                "(raw recording mode). Dead-air timeout still active via RMS fallback."
+                "(raw recording mode)."
             )
-
-        # VAD-GATE: simple RMS threshold for dead-air detection when VAD
-        # is disabled. -40 dBFS ≈ quiet room background; anything above
-        # counts as "speech" for the dead-air speech-detected flag.
-        self._vad_disabled_speech_threshold_db: float = -40.0
 
         # ADR 0007 §3.5: AGC instance variables deleted (replaced by
         # Compressor filter in the audio filter chain).
@@ -366,14 +357,9 @@ class Recorder:
         self._device_check_interval: int = 500  # check every ~500 chunks (~32s at 16Hz)
         self._device_check_counter: int = 0
 
-        # AUDIO-DEAD: dead-air timeout — tracks continuous silence duration.
-        # After the user has spoken at least once (speech_detected=True),
-        # if silence persists for dead_air_timeout seconds, auto-stop.
-        self._dead_air_timeout: float = float(
-            config.dead_air_timeout if config.dead_air_timeout is not None else _DEFAULT_DEAD_AIR_TIMEOUT
-        )
-        self._dead_air_silence_start: float = 0.0  # timestamp when current silence began
-        self._dead_air_speech_detected: bool = False  # has speech been detected this session?
+        # NOTE (RW-0): dead_air_timeout / _dead_air_speech_detected /
+        # _dead_air_silence_start were REMOVED — redundant with
+        # silence_auto_stop_seconds. Do NOT re-add.
 
         # AUDIO-MIC: device list cache with timestamp
         self._device_list_cache: list[dict] | None = None
@@ -721,9 +707,6 @@ class Recorder:
         returned True (since use_silero_vad defaults to True), which defeated the
         VAD-GATE and caused VAD auto-calibration and state-transition logs to appear
         even when all audio enhancements were disabled (the "Off" preset).
-
-        When VAD is disabled, the dead-air timeout still works via a
-        lightweight RMS-based fallback (see ``_update_dead_air_simple``).
         """
         filter_flags = (
             getattr(config, "noise_filter_highpass", False),
@@ -738,25 +721,6 @@ class Recorder:
         if str(getattr(config, "noise_suppression_method", "none")).lower() != "none":
             return True
         return False
-
-    def _update_dead_air_simple(self, chunk_rms_db: float) -> None:
-        """Lightweight dead-air update for when VAD is disabled.
-
-        VAD-GATE (Task 4): when the user disables all audio enhancements,
-        the full VAD state machine is skipped. This helper preserves the
-        dead-air timeout safety net (auto-stop after N seconds of silence
-        following speech) using a simple fixed RMS threshold, without
-        the calibration, hysteresis, or logging of the full VAD path.
-
-        Updates ``_dead_air_speech_detected`` and
-        ``_dead_air_silence_start`` in place; the existing dead-air
-        timeout check in the audio callback reads these flags unchanged.
-        """
-        if chunk_rms_db >= self._vad_disabled_speech_threshold_db:
-            self._dead_air_speech_detected = True
-            self._dead_air_silence_start = 0.0
-        elif self._dead_air_speech_detected and self._dead_air_silence_start == 0.0:
-            self._dead_air_silence_start = time.monotonic()
 
     def _vad_auto_calibrate(self, chunk_rms: float, chunk_duration: float) -> None:
         """Auto-calibrate VAD thresholds based on ambient noise floor.
@@ -825,15 +789,11 @@ class Recorder:
         VAD-GATE (Task 4): returns ``VadState.UNKNOWN`` immediately when
         VAD is disabled (all audio enhancements off). The caller's
         silence-timer logic sees UNKNOWN and treats it as "not silence"
-        (no silence warnings, no VAD-based auto-stop). The dead-air
-        timeout is preserved via ``_update_dead_air_simple`` which the
-        caller invokes separately when VAD is disabled.
+        (no silence warnings, no VAD-based auto-stop).
         """
         # VAD-GATE (Task 4): skip the full state machine when VAD is
         # disabled. Returning UNKNOWN (without updating any state or
         # logging) means no silence warnings and no VAD-based auto-stop.
-        # The dead-air timeout still works because the caller invokes
-        # _update_dead_air_simple() on this same chunk.
         if not self._vad_enabled:
             return VadState.UNKNOWN
         if vad_prob is not None and self._use_silero_vad and self._silero_available:
@@ -882,13 +842,6 @@ class Recorder:
                 old_state.value, self._vad_state.value, chunk_rms_db,
                 self._vad_consecutive_speech_frames, self._vad_consecutive_silence_frames,
             )
-
-        # AUDIO-DEAD: track dead-air timeout
-        if self._vad_state == VadState.SPEECH:
-            self._dead_air_speech_detected = True
-            self._dead_air_silence_start = 0.0  # reset silence timer
-        elif self._vad_state == VadState.SILENCE and self._dead_air_silence_start == 0.0:
-            self._dead_air_silence_start = time.monotonic()
 
         return self._vad_state
 
@@ -1164,9 +1117,6 @@ class Recorder:
         self._preroll_buffer.clear()
         # AUDIO-HOT: reset disconnect state
         self._device_disconnected = False
-        # AUDIO-DEAD: reset dead-air tracking
-        self._dead_air_silence_start = 0.0
-        self._dead_air_speech_detected = False
         self._device_disconnect_retries = 0
         # PERF-011: reset frame-skip state
         self._previous_chunk_pending = False
@@ -1306,30 +1256,11 @@ class Recorder:
                 except Exception:
                     pass
 
-            # AUDIO-DEAD: check dead-air timeout — if the user has spoken
-            # at least once but silence has persisted for longer than the
-            # configured timeout, auto-stop the recording. This prevents
-            # indefinitely long recordings when the user walks away.
-            if (self._dead_air_timeout > 0
-                    and self._dead_air_speech_detected
-                    and self._dead_air_silence_start > 0.0):
-                silence_duration = time.monotonic() - self._dead_air_silence_start
-                if silence_duration >= self._dead_air_timeout:
-                    log.info(
-                        "[RECORDING] Dead-air timeout reached (%.1fs >= %.1fs) — auto-stopping",
-                        silence_duration, self._dead_air_timeout,
-                    )
-                    # Trigger auto-stop off the audio thread
-                    if self.on_silence_auto_stop is not None:
-                        try:
-                            threading.Thread(
-                                target=self.on_silence_auto_stop,
-                                name="dead-air-timeout",
-                                daemon=True,
-                            ).start()
-                        except Exception:
-                            pass
-                    return
+            # NOTE: Dead-air timeout was REMOVED in RW-0.
+            # Redundant with silence_auto_stop_seconds (auto-stop already resets on
+            # speech). The _update_dead_air_simple() method was also removed along
+            # with _dead_air_timeout / _dead_air_speech_detected / _dead_air_silence_start.
+            # Do NOT re-add — it added no unique behavior.
 
             # AUDIO-002: Check PortAudio status flags for XRUNs.
             # Use a rolling window of xrun timestamps to reduce log spam
@@ -1544,14 +1475,6 @@ class Recorder:
             # Convert RMS to dBFS for VAD thresholds
             chunk_rms_db = 20.0 * math.log10(chunk_rms) if chunk_rms > 0 else -90.0
             vad_state = self._vad_update(chunk_rms_db, vad_prob=vad_prob)
-
-            # VAD-GATE (Task 4): when VAD is disabled (all audio
-            # enhancements off), _vad_update returns UNKNOWN and skips
-            # the dead-air logic that normally lives inside it. Use the
-            # lightweight RMS-based fallback so the dead-air timeout
-            # safety net still works in raw recording mode.
-            if not self._vad_enabled:
-                self._update_dead_air_simple(chunk_rms_db)
 
             # Use VAD state machine for silence detection
             # Voice detected by loudness → reset silence timer

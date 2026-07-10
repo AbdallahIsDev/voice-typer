@@ -269,11 +269,7 @@
 			"silenceWarningAria": "ثواني تحذير الصمت",
 			"maxDuration": "المدة القصوى",
 			"maxDurationInfo": "أقصى مدة للتسجيل. عيّن 0 للتلقائي (يختلف حسب الجهاز).",
-			"maxDurationAria": "أقصى مدة تسجيل",
-			"deadAirTimeout": "مهلة الصمت",
-			"deadAirTimeoutInfo": "ثواني الصمت بعد اكتشاف الكلام قبل الإيقاف التلقائي. 0 = معطّل (لا يتوقف أبدًا عند الصمت).",
-			"deadAirTimeoutInfoSearch": "ثواني الصمت بعد اكتشاف الكلام قبل الإيقاف التلقائي.",
-			"deadAirTimeoutAria": "ثواني مهلة الصمت"
+			"maxDurationAria": "أقصى مدة تسجيل"
 		},
 		"audioEnhancement": {
 			"title": "تحسين الصوت",

@@ -524,11 +524,7 @@
 			"silenceWarningAria": "Silence Warning Seconds",
 			"maxDuration": "Max Duration",
 			"maxDurationInfo": "Maximum recording length. Set to 0 for automatic (varies by device).",
-			"maxDurationAria": "Max Recording Duration",
-			"deadAirTimeout": "Dead-Air Timeout",
-			"deadAirTimeoutInfo": "Seconds of silence after speech is detected before auto-stopping. 0 = disabled (never auto-stop on silence).",
-			"deadAirTimeoutInfoSearch": "Seconds of silence after speech is detected before auto-stopping.",
-			"deadAirTimeoutAria": "Dead-Air Timeout Seconds"
+			"maxDurationAria": "Max Recording Duration"
 		},
 		"audioEnhancement": {
 			"title": "Audio Enhancement",

@@ -269,11 +269,7 @@
 			"silenceWarningAria": "Stille-Warnung Sekunden",
 			"maxDuration": "Maximale Dauer",
 			"maxDurationInfo": "Maximale Aufnahmedauer. 0 für automatisch (variiert je nach Gerät).",
-			"maxDurationAria": "Maximale Aufnahmedauer",
-			"deadAirTimeout": "Stille-Zeitüberschreitung",
-			"deadAirTimeoutInfo": "Sekunden Stille nach erkannter Sprache, bevor automatisch gestoppt wird. 0 = deaktiviert (nie bei Stille stoppen).",
-			"deadAirTimeoutInfoSearch": "Sekunden Stille nach erkannter Sprache, bevor automatisch gestoppt wird.",
-			"deadAirTimeoutAria": "Stille-Zeitüberschreitung Sekunden"
+			"maxDurationAria": "Maximale Aufnahmedauer"
 		},
 		"audioEnhancement": {
 			"title": "Audioverbesserung",

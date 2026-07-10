@@ -269,11 +269,7 @@
 			"silenceWarningAria": "मौन चेतावनी सेकंड",
 			"maxDuration": "अधिकतम अवधि",
 			"maxDurationInfo": "अधिकतम रिकॉर्डिंग लंबाई। स्वचालित के लिए 0 सेट करें (डिवाइस पर निर्भर)।",
-			"maxDurationAria": "अधिकतम रिकॉर्डिंग अवधि",
-			"deadAirTimeout": "डेड-एयर टाइमआउट",
-			"deadAirTimeoutInfo": "वाणी का पता लगने के बाद स्वतः रोकने से पहले मौन के सेकंड। 0 = अक्षम (मौन पर कभी स्वतः न रोकें)।",
-			"deadAirTimeoutInfoSearch": "वाणी का पता लगने के बाद स्वतः रोकने से पहले मौन के सेकंड।",
-			"deadAirTimeoutAria": "डेड-एयर टाइमआउट सेकंड"
+			"maxDurationAria": "अधिकतम रिकॉर्डिंग अवधि"
 		},
 		"audioEnhancement": {
 			"title": "ऑडियो संवर्द्धन",

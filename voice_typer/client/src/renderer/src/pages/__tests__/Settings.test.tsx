@@ -193,7 +193,6 @@ const baseConfig: VoiceTyperConfig = {
 	max_recording_seconds: 60,
 	max_recording_seconds_gpu: 120,
 	max_recording_seconds_cpu: 60,
-	dead_air_timeout: 0,
 	volume_duck_enabled: false,
 	volume_duck_level: 0,
 	volume_duck_per_session: false,

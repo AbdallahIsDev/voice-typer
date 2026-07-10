@@ -755,11 +755,11 @@ class Config:
     max_recording_seconds_cpu: int = 600
     max_recording_seconds: int = 0  # 0 = use device-specific default (gpu/cpu)
 
-    # AUDIO-DEAD: dead-air timeout — auto-stop recording after N seconds
-    # of continuous silence following detected speech. Prevents
-    # indefinitely long recordings when the user walks away from the mic.
-    # 0 = disabled (no dead-air auto-stop). Default 30.0 seconds.
-    dead_air_timeout: float = 30.0
+    # NOTE: dead_air_timeout (float) was REMOVED in RW-0.
+    # It was redundant with silence_auto_stop_seconds — both called the same
+    # on_silence_auto_stop callback. Auto-stop already resets on every speech
+    # detection, so the "only after speech" condition dead air added was
+    # unnecessary. Do NOT re-add. See RecordingSettingsSection.tsx comment.
 
     # AUDIO-014: configurable VAD/silence thresholds (overridden by
     # auto-calibration at recording start). 0.0 = use built-in defaults.

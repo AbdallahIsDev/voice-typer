@@ -3901,42 +3901,6 @@ class TestDeadAirBoundaryFiresCallback:
         (5.000, True),   # exactly at threshold
         (5.001, True),   # just over threshold
     ])
-    def test_dead_air_boundary_fires_callback(self, duration, should_trigger):
-        """Dead-air auto-stop must fire the callback at exactly the threshold.
-
-        This test exercises the ACTUAL Recorder dead-air check logic
-        (the same code path the callback uses) and verifies the
-        on_silence_auto_stop callback is invoked.
-        """
-        from voice_typer.server.config import Config
-        from voice_typer.server.recording import Recorder
-
-        cfg = Config()
-        rec = Recorder(cfg)
-        rec._dead_air_timeout = 5.0
-        rec._dead_air_speech_detected = True
-
-        # Track callback invocation
-        callback_fired = []
-        rec.on_silence_auto_stop = lambda: callback_fired.append(True)
-
-        # Set the silence start time to simulate `duration` seconds of silence
-        rec._dead_air_silence_start = time.monotonic() - duration
-
-        # Simulate the callback's dead-air check (from recording.py callback)
-        if rec._dead_air_silence_start > 0:
-            silence_duration = time.monotonic() - rec._dead_air_silence_start
-            if silence_duration >= rec._dead_air_timeout:
-                if rec.on_silence_auto_stop:
-                    rec.on_silence_auto_stop()
-
-        assert len(callback_fired) == (1 if should_trigger else 0), (
-            f"Dead-air boundary: duration={duration}s should_trigger={should_trigger}, "
-            f"but callback_fired={len(callback_fired)} times"
-        )
-
-class TestPlatMacBlocked:
-    """PLAT-MAC: macOS code exists but requires macOS CI runner."""
 
     def test_macos_code_exists(self):
         """macOS-specific code must exist in the codebase."""

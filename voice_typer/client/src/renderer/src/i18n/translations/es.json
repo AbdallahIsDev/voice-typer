@@ -271,11 +271,7 @@
 			"silenceWarningAria": "Segundos de advertencia de silencio",
 			"maxDuration": "Duración máxima",
 			"maxDurationInfo": "Duración máxima de grabación. Establece 0 para automático (varía según el dispositivo).",
-			"maxDurationAria": "Duración máxima de grabación",
-			"deadAirTimeout": "Tiempo de espera por silencio",
-			"deadAirTimeoutInfo": "Segundos de silencio tras detectar habla antes de detener automáticamente. 0 = desactivado (nunca detener por silencio).",
-			"deadAirTimeoutInfoSearch": "Segundos de silencio tras detectar habla antes de detener automáticamente.",
-			"deadAirTimeoutAria": "Segundos de tiempo de espera por silencio"
+			"maxDurationAria": "Duración máxima de grabación"
 		},
 		"audioEnhancement": {
 			"title": "Mejora de audio",

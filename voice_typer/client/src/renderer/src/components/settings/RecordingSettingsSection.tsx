@@ -104,9 +104,6 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 	const handleMaxDurationChange = (e: React.ChangeEvent<HTMLInputElement>) =>
 		updateConfigDebounced("max_recording_seconds", Number(e.target.value));
 
-	const handleDeadAirTimeoutChange = (e: React.ChangeEvent<HTMLInputElement>) =>
-		updateConfigDebounced("dead_air_timeout", Number(e.target.value));
-
 	const handleRecordingModeChange = (v: string) =>
 		updateConfig({ recording_mode: v as "toggle" | "push_to_talk" });
 
@@ -153,11 +150,6 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 	);
 	const maxDurationLabel = t("settings.hotkeySection.maxDuration");
 	const maxDurationInfoSearch = t("settings.hotkeySection.maxDurationInfo");
-	const deadAirTimeoutLabel = t("settings.hotkeySection.deadAirTimeout");
-	const deadAirTimeoutInfoSearch = t(
-		"settings.hotkeySection.deadAirTimeoutInfoSearch",
-	);
-
 	const recordingModeOptions: SegmentedControlOption<
 		"toggle" | "push_to_talk"
 	>[] = RECORDING_MODE_OPTION_KEYS.map((opt) => ({
@@ -184,7 +176,6 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 		{ label: soundFeedbackLabel, info: soundFeedbackInfoSearch },
 		{ label: silenceWarningLabel, info: silenceWarningInfoSearch },
 		{ label: maxDurationLabel, info: maxDurationInfoSearch },
-		{ label: deadAirTimeoutLabel, info: deadAirTimeoutInfoSearch },
 	];
 	const recordingVisible = recordingItems.some((item) =>
 		isVisible(item.label, item.info, recordingTitle),
@@ -342,24 +333,10 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 						</div>
 					</SettingRow>
 
-					{/* AUDIO-DEAD: dead-air timeout — auto-stop after silence follows speech */}
-					<SettingRow
-						label={deadAirTimeoutLabel}
-						info={t("settings.hotkeySection.deadAirTimeoutInfo")}
-					>
-						<div className="flex items-center gap-2">
-							<NumberInput
-								min={0}
-								max={600}
-								step={5}
-								value={String(config.dead_air_timeout ?? 30)}
-								onChange={handleDeadAirTimeoutChange}
-								className="w-20 text-center"
-								aria-label={t("settings.hotkeySection.deadAirTimeoutAria")}
-							/>
-							<span className="text-sm text-(--text-muted)">sec</span>
-						</div>
-					</SettingRow>
+					{/* RW-0: dead_air_timeout setting REMOVED. It was redundant with
+					    silence_auto_stop_seconds — auto-stop already resets on every speech
+					    detection, so "silence after speech" needs no separate control.
+					    Do NOT re-add this setting. */}
 				</SettingsSection>
 			)}
 		</>
