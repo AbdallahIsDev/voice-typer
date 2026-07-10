@@ -601,7 +601,7 @@ class TrayIcon:
             # Invokes _force_recover_from_stuck_transcription(force=True)
             # via the app's delegate method.  Safe to call when
             # transcription is not stuck (no-op).
-            force_cancel_transcription=lambda: self._controller._force_recover_from_stuck_transcription(
+            force_cancel_transcription=lambda: self._controller.recording._force_recover_from_stuck_transcription(
                 force=True
             ),
             restart_app=self._controller.restart_app,

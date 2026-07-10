@@ -856,7 +856,10 @@ class VoiceTyperService:
         # Sync autostart if autostart setting changed
         if "autostart" in updates:
             try:
-                app._sync_autostart()
+                # RW-9 Phase 2: call controller directly (the
+                # ``app._sync_autostart`` facade is kept for test seams).
+                from voice_typer.server import startup_tasks
+                startup_tasks.sync_autostart(app)
             except Exception as e:
                 log.warning("Failed to sync autostart: %s", e)
 
@@ -864,16 +867,16 @@ class VoiceTyperService:
         if "esc_cancel_enabled" in updates:
             try:
                 if updates["esc_cancel_enabled"]:
-                    app._register_esc_hotkey()
+                    app.hotkeys.register_esc()
                 else:
-                    app._unregister_esc_hotkey()
+                    app.hotkeys.unregister_esc()
             except Exception as e:
                 log.warning("Failed to sync ESC hotkey: %s", e)
 
         # Register/unregister repaste hotkey
         if "repaste_hotkey" in updates or "repaste_enabled" in updates:
             try:
-                app._register_repaste_hotkey()
+                app.hotkeys.register_repaste()
             except Exception as e:
                 log.warning("Failed to sync repaste hotkey: %s", e)
 

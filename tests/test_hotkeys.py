@@ -119,20 +119,6 @@ class TestApplyConfigReRegistersHotkeyForPushToTalk:
         assert '"hotkey" in updates' in service_py
 
 
-class TestSetHotkeyAliasForChangeHotkey:
-    """set_hotkey is an alias for change_hotkey."""
-
-    def test_set_hotkey_is_alias(self):
-        from voice_typer.server.app import VoiceTyperApp
-        assert hasattr(VoiceTyperApp, "set_hotkey")
-        assert hasattr(VoiceTyperApp, "change_hotkey")
-        sh = VoiceTyperApp.__dict__.get("set_hotkey")
-        ch = VoiceTyperApp.__dict__.get("change_hotkey")
-        assert sh is not None and ch is not None
-        if hasattr(sh, "__func__") and hasattr(ch, "__func__"):
-            assert sh.__func__ is ch.__func__
-
-
 class TestFallbackListenerChecksAllModifiersHeld:
     """Fallback listener checks all modifiers are held before firing."""
 

@@ -109,6 +109,12 @@ class MockApp:
         # AttributeError.
         import threading
         self._config_mutation_lock = threading.RLock()
+        # RW-9 Phase 2: service.apply_config_side_effects now calls
+        # `app.hotkeys.register_esc()` / `unregister_esc()` /
+        # `register_repaste()` directly (instead of going through the
+        # `app._register_*_hotkey` delegates). Mock the dispatcher so
+        # the IPC handler doesn't AttributeError.
+        self.hotkeys = MagicMock()
 
     def toggle_dictation(self):
         self.toggle_called = True
@@ -253,8 +259,9 @@ class TestDispatchEscCancelLive:
 
     def test_enable_esc_cancel_calls_register_esc_hotkey(self, server, mock_app):
         """set_config with esc_cancel_enabled=true should call _register_esc_hotkey."""
-        mock_app._register_esc_hotkey = MagicMock()
-        mock_app._unregister_esc_hotkey = MagicMock()
+        # RW-9 Phase 2: service now calls `app.hotkeys.register_esc()` directly.
+        mock_app.hotkeys.register_esc = MagicMock()
+        mock_app.hotkeys.unregister_esc = MagicMock()
 
         result = server._dispatch({
             "id": 1,
@@ -262,13 +269,14 @@ class TestDispatchEscCancelLive:
             "data": {"esc_cancel_enabled": True},
         })
         assert result["type"] == "ack"  # NEW-IPC-015: may include data field
-        mock_app._register_esc_hotkey.assert_called_once()
-        mock_app._unregister_esc_hotkey.assert_not_called()
+        mock_app.hotkeys.register_esc.assert_called_once()
+        mock_app.hotkeys.unregister_esc.assert_not_called()
 
     def test_disable_esc_cancel_calls_unregister_esc_hotkey(self, server, mock_app):
         """set_config with esc_cancel_enabled=false should call _unregister_esc_hotkey."""
-        mock_app._register_esc_hotkey = MagicMock()
-        mock_app._unregister_esc_hotkey = MagicMock()
+        # RW-9 Phase 2: service now calls `app.hotkeys.unregister_esc()` directly.
+        mock_app.hotkeys.register_esc = MagicMock()
+        mock_app.hotkeys.unregister_esc = MagicMock()
 
         result = server._dispatch({
             "id": 1,
@@ -276,8 +284,8 @@ class TestDispatchEscCancelLive:
             "data": {"esc_cancel_enabled": False},
         })
         assert result["type"] == "ack"  # NEW-IPC-015: may include data field
-        mock_app._unregister_esc_hotkey.assert_called_once()
-        mock_app._register_esc_hotkey.assert_not_called()
+        mock_app.hotkeys.unregister_esc.assert_called_once()
+        mock_app.hotkeys.register_esc.assert_not_called()
 
     def test_enable_repaste_hotkey_calls_register_repaste_hotkey(self, server, mock_app):
         """set_config with repaste_hotkey should call _register_repaste_hotkey.
@@ -290,7 +298,8 @@ class TestDispatchEscCancelLive:
         and is also used by the passing sibling test
         test_side_effect_repaste_fires_on_repaste_hotkey.
         """
-        mock_app._register_repaste_hotkey = MagicMock()
+        # RW-9 Phase 2: service now calls `app.hotkeys.register_repaste()` directly.
+        mock_app.hotkeys.register_repaste = MagicMock()
 
         result = server._dispatch({
             "id": 1,
@@ -298,7 +307,7 @@ class TestDispatchEscCancelLive:
             "data": {"repaste_hotkey": "<ctrl>+<alt>+v"},
         })
         assert result["type"] == "ack"  # NEW-IPC-015: may include data field
-        mock_app._register_repaste_hotkey.assert_called_once()
+        mock_app.hotkeys.register_repaste.assert_called_once()
 
 
 # ── SEC-002: set_config allowlist + type/range validation ──────────────
@@ -327,12 +336,12 @@ class TestDispatchSetConfigAllowlist:
         """IPCServer backed by a MockApp carrying a real Config instance."""
         app = MockApp()
         app.config = real_config
-        # Pre-warm / autostart / hotkey side-effects: no-op by default
+        # Pre-warm / autostart / hotkey side-effects: no-op by default.
+        # RW-9 Phase 2: service.apply_config_side_effects now calls
+        # `startup_tasks.sync_autostart(app)` directly (not
+        # `app._sync_autostart()`); the MockApp's `hotkeys` MagicMock
+        # already stubs `register_esc/unregister_esc/register_repaste`.
         app._sync_prewarm_task = MagicMock()
-        app._sync_autostart = MagicMock()
-        app._register_esc_hotkey = MagicMock()
-        app._unregister_esc_hotkey = MagicMock()
-        app._register_repaste_hotkey = MagicMock()
         return IPCServer(app)
 
     # ── Allowlist boundary ───────────────────────────────────────────
@@ -694,13 +703,17 @@ class TestDispatchSetConfigAllowlist:
         real_server.app._sync_prewarm_task.assert_not_called()
         assert not hasattr(real_config, "fast_startup")  # field was removed
 
-    def test_side_effect_autostart_fires_on_autostart_change(self, real_server, real_config):
+    def test_side_effect_autostart_fires_on_autostart_change(self, real_server, real_config, monkeypatch):
+        # RW-9 Phase 2: service now calls `startup_tasks.sync_autostart(app)` directly.
+        from voice_typer.server import startup_tasks
+        sync_autostart_mock = MagicMock()
+        monkeypatch.setattr(startup_tasks, "sync_autostart", sync_autostart_mock)
         result = real_server._dispatch({
             "id": 1, "type": "set_config",
             "data": {"autostart": False},
         })
         assert result["type"] == "ack"  # NEW-IPC-015: may include data field
-        real_server.app._sync_autostart.assert_called_once()
+        sync_autostart_mock.assert_called_once()
 
     def test_side_effect_esc_hotkey_fires_on_esc_cancel_enabled(self, real_server, real_config):
         real_config.esc_cancel_enabled = False
@@ -709,7 +722,8 @@ class TestDispatchSetConfigAllowlist:
             "data": {"esc_cancel_enabled": True},
         })
         assert result["type"] == "ack"  # NEW-IPC-015: may include data field
-        real_server.app._register_esc_hotkey.assert_called_once()
+        # RW-9 Phase 2: service now calls `app.hotkeys.register_esc()` directly.
+        real_server.app.hotkeys.register_esc.assert_called_once()
 
     def test_side_effect_repaste_fires_on_repaste_hotkey(self, real_server, real_config):
         result = real_server._dispatch({
@@ -717,7 +731,8 @@ class TestDispatchSetConfigAllowlist:
             "data": {"repaste_hotkey": "<ctrl>+<alt>+v"},
         })
         assert result["type"] == "ack"  # NEW-IPC-015: may include data field
-        real_server.app._register_repaste_hotkey.assert_called_once()
+        # RW-9 Phase 2: service now calls `app.hotkeys.register_repaste()` directly.
+        real_server.app.hotkeys.register_repaste.assert_called_once()
 
 
 class TestDispatchGetHistory:
