@@ -107,7 +107,7 @@ export function Sidebar({
 									"transition-all duration-200 ease-out",
 									collapsed ? "px-2" : "px-3",
 									isActive
-										? "bg-white hover:bg-white border border-border dark:bg-(--bg) dark:hover:bg-(--bg) dark:border-black"
+										? "bg-(--bg) hover:bg-(--bg) border border-border dark:bg-(--bg) dark:hover:bg-(--bg)"
 										: "hover:bg-black/5 dark:hover:bg-white/5",
 								)}
 								onClick={handleNav}

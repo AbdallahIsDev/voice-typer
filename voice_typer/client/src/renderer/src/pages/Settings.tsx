@@ -664,7 +664,7 @@ export default function SettingsPage({
 						value={activeTab}
 						onChange={setActiveTab}
 						ariaLabel={t("settings.tabsAria")}
-						indicatorClassName="bg-black/[0.04] dark:bg-white/[0.08]"
+						indicatorClassName="bg-input/50"
 						labelClassName="flex-1 text-center"
 						className="w-full"
 					/>
