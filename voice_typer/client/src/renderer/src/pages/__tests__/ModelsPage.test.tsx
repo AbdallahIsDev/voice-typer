@@ -51,6 +51,8 @@ vi.mock("@hugeicons/core-free-icons", () => {
 	const make = (name: string) => ({ name });
 	return {
 		Alert02Icon: make("Alert02Icon"),
+		ArrowDown01Icon: make("ArrowDown01Icon"),
+		ArrowUp01Icon: make("ArrowUp01Icon"),
 		Delete01Icon: make("Delete01Icon"),
 		Download01Icon: make("Download01Icon"),
 		Folder02Icon: make("Folder02Icon"),

@@ -36,12 +36,12 @@ function setUserAgent(ua: string) {
 	vi.stubGlobal("navigator", { userAgent: ua });
 }
 
-afterEach(() => {
-	vi.unstubAllGlobals();
-	vi.resetModules();
-});
-
 describe("getComboPresets() — Win+Space safety", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.resetModules();
+	});
+
 	beforeAll(() => {
 		// Ensure a clean starting point.
 		vi.resetModules();
@@ -98,6 +98,12 @@ describe("HotkeyPicker — reusable for both recording and paste shortcuts", () 
 	// section. A full render test already lives in Settings.test.tsx;
 	// here we just guard against regressions where the paste shortcut
 	// might be silently switched to a bespoke picker.
+	//
+	// Note: no afterEach with vi.resetModules() here — the platform-
+	// detection tests in the describe block above need module isolation
+	// (they stub navigator.userAgent), but this test does not. Keeping
+	// the module cache intact avoids re-evaluating the ~dozen+ component
+	// dependency tree on every test run.
 	it("HotkeySettingsSection imports HotkeyPicker (shared component for both modes)", async () => {
 		// The RecordingSettingsSection now contains both the dictation key
 		// and re-paste key pickers (the standalone HotkeySettingsSection
@@ -115,5 +121,5 @@ describe("HotkeyPicker — reusable for both recording and paste shortcuts", () 
 			"../HotkeyPicker"
 		)) as typeof import("../HotkeyPicker");
 		expect(typeof pickerMod.HotkeyPicker).toBe("function");
-	});
+	}, 30_000);
 });

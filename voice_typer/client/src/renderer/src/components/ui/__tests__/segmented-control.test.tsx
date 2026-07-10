@@ -493,7 +493,9 @@ describe("SegmentedControl tabs variant", () => {
 			expect(indicator?.className).toContain("rounded-md");
 			expect(indicator?.className).not.toContain("rounded-full");
 			expect(indicator?.className).toContain("bg-input");
-			expect(indicator?.className).not.toContain("bg-(", "should not use CSS variable reference that breaks in tests");
+			expect(indicator?.className).not.toContain("bg-(");
+			expect(indicator?.className).not.toContain("bg-black");
+			expect(indicator?.className).not.toContain("dark:bg-white");
 		});
 	});
 
