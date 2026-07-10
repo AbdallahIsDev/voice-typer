@@ -317,10 +317,10 @@ export function validateHotkey(
 		);
 		if (modifiersNonShift.length === 0) {
 			for (const nm of nonMods) {
-				if (nm.length === 1 && /^[a-z]$/.test(nm)) {
+				if (nm.length === 1 && /^[a-z0-9]$/.test(nm)) {
 					return {
 						valid: false,
-						reason: `Shift+${nm.toUpperCase()} interferes with text capitalization`,
+						reason: `Shift+${nm.toUpperCase()} interferes with text capitalization or symbol input`,
 					};
 				}
 			}

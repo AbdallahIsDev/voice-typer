@@ -444,8 +444,8 @@ def _validate_hotkey(value: object) -> Optional[str]:
         if not modifiers_non_shift:
             # Pure Shift+<key> — apply the letter block.
             for nm in non_mods:
-                if len(nm) == 1 and nm.isalpha():
-                    return f"Shift+{nm.upper()} interferes with text capitalization"
+                if len(nm) == 1 and (nm.isalpha() or nm.isdigit()):
+                    return f"Shift+{nm.upper()} interferes with text capitalization or symbol input"
 
     return None
 

@@ -186,6 +186,8 @@ export const MODIFIER_KEYS = [
 	"win",
 	"fn",
 	"globe",
+	"caps_lock",
+	"capslock",
 ] as const;
 
 export const MODIFIER_CODE_TO_PYNPUT: Record<string, string> = {
