@@ -217,15 +217,20 @@ class DictationPipeline:
             # RACE-016: wrap daemon thread finally block with
             # try/except to prevent exceptions during shutdown.
             try:
-                if hasattr(self._app, '_recording_controller') and self._app._recording_controller is not None:
-                    self._app._recording_controller._reset_watchdog()
-                    self._app._recording_controller._stop_watchdog_thread()
+                # RW-9 Phase 2: fixed typo — was `_recording_controller`
+                # (doesn't exist on VoiceTyperApp). The attribute is `recording`
+                # (a RecordingController). Previously the watchdog reset never
+                # fired from this finally block — see worklog.md bug note.
+                recording = getattr(self._app, 'recording', None)
+                if recording is not None:
+                    recording._reset_watchdog()
+                    recording._stop_watchdog_thread()
             except Exception:
                 pass
             try:
-                session = self._app._get_streaming_session()
+                session = self._app.recording.get_streaming_session()
                 if session is not None and not self._app.recorder.recording:
-                    self._app._set_streaming_session(None)
+                    self._app.recording.set_streaming_session(None)
             except Exception:
                 log.debug("[TRANSCRIBE] finally: session cleanup failed", exc_info=True)
             try:
@@ -263,13 +268,13 @@ class DictationPipeline:
 
     def _transcribe(self) -> str:
         """Step 1: Get transcription via streaming finalize or direct."""
-        session = self._app._get_streaming_session()
+        session = self._app.recording.get_streaming_session()
         if session is not None:
             log.info("[STREAMING] Finalizing streaming transcript (cycle=%s)", self._cycle_id)
             text = session.finalize(self._audio)
-            self._app._set_streaming_session(None)
+            self._app.recording.set_streaming_session(None)
         else:
-            active = self._app._get_active_transcriber()
+            active = self._app.models.active_transcriber()
             # NEW-PERF-010: pass the pre-computed audio stats so the
             # transcription engine doesn't recompute RMS/peak/silence_pct
             # on the same audio array (saves 1-3 ms + 3× 1.9 MB transient
@@ -284,7 +289,7 @@ class DictationPipeline:
                 # updated).  Fall back to the old signature.
                 text = active.transcribe_with_fallback(self._audio)
 
-        active = self._app._get_active_transcriber()
+        active = self._app.models.active_transcriber()
         self._device_info = (
             active.device_info if active is not None and hasattr(active, "device_info")
             else "Parakeet ASR"

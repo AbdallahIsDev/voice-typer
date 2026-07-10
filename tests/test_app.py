@@ -1743,7 +1743,10 @@ class TestStartupResilience:
         def track_model_load(*args, **kwargs):
             call_order.append("model")
 
-        app._register_hotkey = track_register_hotkey
+        # RW-9 Phase 2: production callers now invoke ``app.hotkeys.register()``
+        # directly (the ``app._register_hotkey`` facade is no longer in the
+        # hot path). Monkeypatch the real call site.
+        app.hotkeys.register = track_register_hotkey
         # ARCH-007: model load now goes through _sync_asr_registry +
         # _asr_registry.load_with_fallback. Mock the registry so we
         # can track when model loading happens.
@@ -1773,7 +1776,9 @@ class TestStartupResilience:
         app._sync_autostart = MagicMock()
         app._sync_prewarm_task = MagicMock()
         app._load_microphones = MagicMock()
-        app._register_hotkey = MagicMock()
+        # RW-9 Phase 2: production callers invoke ``app.hotkeys.register()``
+        # directly — monkeypatch the real call site (not the delegate).
+        app.hotkeys.register = MagicMock()
         # _try_load_model runs inside the background loader thread; make it
         # raise to simulate a model-load failure.  The loader catches it.
         app._try_load_model = MagicMock(side_effect=RuntimeError("OOM"))
@@ -1789,7 +1794,7 @@ class TestStartupResilience:
             assert not load_thread.is_alive(), "loader thread hung"
 
         # Hotkey should still have been registered
-        app._register_hotkey.assert_called_once()
+        app.hotkeys.register.assert_called_once()
 
     def test_start_dictation_retries_model_load(self, app):
         """When model not loaded, _start_dictation should try loading it."""
@@ -1980,13 +1985,22 @@ class TestExternalCorrectionsWiring:
     """Verify configure_corrections is called at startup."""
 
     def test_configure_corrections_called_at_startup(self, app, monkeypatch):
-        """_do_startup should call configure_corrections with config_dir."""
+        """StartupSequence.run should call configure_corrections with config_dir.
+
+        RW-9 Phase 5: the call moved from ``VoiceTyperApp._do_startup`` to
+        ``StartupSequence.run`` (in ``startup_sequence.py``). The monkeypatch
+        target must follow the call site — patch the name in
+        ``startup_sequence``'s namespace, not ``app``'s.
+        """
         called_with = {}
 
         def spy(config_dir=None, corrections_path=None):
             called_with["config_dir"] = config_dir
 
-        # Patch the name in app's namespace (from X import Y creates local ref)
+        # Patch the name in startup_sequence's namespace (RW-9 Phase 5 moved
+        # the call there). Also patch app's namespace for backwards compat
+        # in case any other code path still reaches it via app.configure_corrections.
+        monkeypatch.setattr("voice_typer.server.startup_sequence.configure_corrections", spy)
         monkeypatch.setattr("voice_typer.server.app.configure_corrections", spy)
         app._settings_window = None
         app._sync_prewarm_task = MagicMock()

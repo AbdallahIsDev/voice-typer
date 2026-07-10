@@ -614,17 +614,23 @@ class TestVadStderrRedirect:
 
 
 class TestMacOSAccessibilityCheck:
-    """macOS accessibility permission check exists in the startup path."""
+    """macOS accessibility permission check exists in the startup path.
+
+    RW-9 Phase 5: the body of ``_do_startup`` was extracted into
+    :class:`voice_typer.server.startup_sequence.StartupSequence`. The
+    macOS accessibility check now lives in ``StartupSequence.run``, so
+    these source-string checks are retargeted there. Intent unchanged.
+    """
 
     def test_accessibility_check_in_startup_source(self):
-        from voice_typer.server import app as app_module
-        src = inspect.getsource(app_module.VoiceTyperApp._do_startup)
+        from voice_typer.server.startup_sequence import StartupSequence
+        src = inspect.getsource(StartupSequence.run)
         has_macos_guard = "darwin" in src or "is_macos()" in src
         assert has_macos_guard and "accessibility" in src.lower()
 
     def test_accessibility_check_notifies_on_missing(self):
-        from voice_typer.server import app as app_module
-        src = inspect.getsource(app_module.VoiceTyperApp._do_startup)
+        from voice_typer.server.startup_sequence import StartupSequence
+        src = inspect.getsource(StartupSequence.run)
         assert "tray.notify" in src
 
 

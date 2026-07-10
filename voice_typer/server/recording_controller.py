@@ -45,7 +45,7 @@ class RecordingController:
     - Update ``app.tray`` state during recording
     - Call ``app._schedule_timer`` / ``app._cancel_pending_timers``
     - Call ``app.models.ensure_active_engine_loaded()`` / ``app._fallback_to_whisper()``
-    - Call ``app._get_active_transcriber()``
+    - Call ``app.models.active_transcriber()``
     - Call ``app._duck_volume()`` / ``app._restore_volume()``
     - Call ``app._waveform_bubble`` show/hide/reset_level
     - Call ``app._audio_quality.reset()`` / ``app._finalize_audio_quality_report()``
@@ -140,7 +140,7 @@ class RecordingController:
         app._cycle_counter += 1
         app._cycle_id = f"#{app._cycle_counter}"
 
-        active = app._get_active_transcriber()
+        active = app.models.active_transcriber()
         model_loaded = active is not None and active.is_loaded
         log.info(
             "[HOTKEY FIRED] toggle_dictation called "
@@ -243,13 +243,13 @@ class RecordingController:
         # Lazy-init engines if backend was changed via Electron UI after startup.
         # #2 (Round 9): ModelManager handles the lazy-init + registry sync.
         app.models.ensure_active_engine_loaded()
-        active = app._get_active_transcriber()
+        active = app.models.active_transcriber()
 
         if active is None or not getattr(active, 'is_loaded', False):
             # No engine loaded -- try to load whisper as a fallback
             log.warning("[DICTATION] No loaded engine found, lazy-loading Whisper as fallback")
             app._fallback_to_whisper(notify_on_failure=True)
-            active = app._get_active_transcriber()
+            active = app.models.active_transcriber()
             if active is None or not getattr(active, 'is_loaded', False):
                 log.error("[DICTATION] Whisper fallback also failed, cannot record")
                 app._schedule_timer(
@@ -674,7 +674,7 @@ class RecordingController:
 
         # Streaming requires transcribe_words (word-level timestamps).
         # Only Whisper supports this; skip for Parakeet/Qwen.
-        active = app._get_active_transcriber()
+        active = app.models.active_transcriber()
         if active is not None:
             log.info(
                 "[STREAMING] Checking transcriber: %s has transcribe_words=%s",
@@ -694,7 +694,7 @@ class RecordingController:
         try:
             session = StreamingTranscriptionSession(
                 recorder=app.recorder,
-                transcriber=app._get_active_transcriber(),
+                transcriber=app.models.active_transcriber(),
                 config=self._streaming_config(),
                 sample_rate=app.config.sample_rate,
             )

@@ -47,7 +47,7 @@ from voice_typer.server.log import (
     close_devnull_files as _close_devnull_files,
     register_devnull_file as _register_devnull_file,
 )
-from voice_typer.server.streaming import StreamingConfig, StreamingTranscriptionSession
+from voice_typer.server.streaming import StreamingTranscriptionSession  # noqa: F401  (re-exported for tests/test_app.py monkeypatch)
 from voice_typer.server.text_cleanup import clean_transcribed_text, configure_corrections
 from voice_typer.server.tray import AppState, TrayIcon
 from voice_typer.server.transcription import TranscriptionEngine
@@ -458,7 +458,12 @@ class VoiceTyperApp:
     # ── Model lifecycle methods (thin delegates to ModelManager) ──────
 
     def _get_active_transcriber(self):
-        """#2: delegate to ModelManager.active_transcriber()."""
+        """Test seam — kept for monkeypatch compatibility.
+
+        RW-9 Phase 2: production callers invoke ``self.models.active_transcriber()``
+        directly (recording_controller.py + dictation_pipeline.py).
+        This delegate remains for tests that monkeypatch it.
+        """
         return self.models.active_transcriber()
 
     # ─── Timer Tracking (P1) ─────────────────────────────────────────
@@ -509,11 +514,21 @@ class VoiceTyperApp:
     # ─── Thread-Safe Streaming Session Access (P2) ───────────────────
 
     def _get_streaming_session(self):
-        """#2 (Round 9): delegate to RecordingController.get_streaming_session()."""
+        """Test seam — kept for monkeypatch compatibility.
+
+        RW-9 Phase 2: production callers invoke ``self.recording.get_streaming_session()``
+        directly (dictation_pipeline.py + _do_cleanup). This delegate
+        remains for tests that monkeypatch it.
+        """
         return self.recording.get_streaming_session()
 
     def _set_streaming_session(self, session_or_none):
-        """#2 (Round 9): delegate to RecordingController.set_streaming_session()."""
+        """Test seam — kept for monkeypatch compatibility.
+
+        RW-9 Phase 2: production callers invoke ``self.recording.set_streaming_session(...)``
+        directly (dictation_pipeline.py + _do_cleanup). This delegate
+        remains for tests that monkeypatch it.
+        """
         self.recording.set_streaming_session(session_or_none)
 
     # ─── Waveform Bubble (IPC push) ───────────────────────────────────
@@ -653,370 +668,62 @@ class VoiceTyperApp:
         log.info("[TRAY] Entering tray event loop on main thread")
         self.tray.run()
 
-    def _do_startup(self):
+    def _do_startup(self) -> None:
         """Background work: sync autostart, load mics, load model, register hotkey.
 
-        RACE-020: checks ``self._shutting_down`` between each major step
-        so that a quit() call during startup doesn't proceed with model
-        downloads or background loads after the app has begun shutdown.
+        RW-9 Phase 5: the body of this method (~340 lines) was extracted
+        into :class:`voice_typer.server.startup_sequence.StartupSequence`
+        to reduce the god-class size of ``VoiceTyperApp``.  The phase
+        ordering, RACE-020 shutdown gates, parallel executor semantics,
+        and onboarding auto-heal logic are all preserved verbatim — see
+        the docstring on ``StartupSequence.run`` for the full rationale.
+
+        Tests that call ``app._do_startup()`` directly still work; tests
+        that monkeypatch delegate methods like ``app._sync_autostart``
+        must now monkeypatch the controller instead (e.g.
+        ``monkeypatch.setattr(startup_tasks, "sync_autostart", ...)``
+        or ``app.hotkeys.register = MagicMock()``).
         """
-        log.info("[STARTUP] Initializing: autostart, microphones, hotkey, model…")
-
-        if self._shutting_down:
-            log.info("[STARTUP] _shutting_down is set, aborting startup")
-            return
-
-        # #8: Onboarding wizard — detect first run and let the React UI
-        # show the wizard. Previously this auto-applied defaults and
-        # marked onboarding complete, which prevented the wizard from
-        # ever appearing (the 275-line Onboarding.tsx was dead code).
-        # Now we just save the config with onboarding_completed=False
-        # so the frontend can detect first-run via the
-        # `onboarding_is_first_run` IPC route and route the user to
-        # the wizard. The wizard's apply/skip handler flips the flag
-        # to True and marks the .onboarding_complete marker.
-        #
-        # ONBOARDING-STALE-FIX: When config.json already exists on disk
-        # (the user has been using the app) but onboarding_completed is
-        # False and the .onboarding_complete marker is missing, we
-        # auto-heal the state. Without this fix, is_first_run() returns
-        # True on every restart, the frontend routes to the onboarding
-        # wizard, and the wizard's apply_settings() overwrites the
-        # user's custom hotkey, model, and microphone settings with
-        # onboarding defaults (<caps_lock>, small.en, None).
-        if not self.config.onboarding_completed:
-            try:
-                from voice_typer.server.onboarding import OnboardingController
-                onboarding = OnboardingController()
-                if onboarding.is_first_run():
-                    # Check if config.json already exists on disk.
-                    # If it does, this is NOT a genuine first install
-                    # but a stale onboarding state where the marker was
-                    # lost/deleted and onboarding_completed was never
-                    # flipped to True. Auto-heal by marking onboarding
-                    # complete to prevent the wizard from showing on
-                    # every restart and overwriting the user's settings.
-                    config_file = _config_dir() / "config.json"
-                    if config_file.exists():
-                        log.info(
-                            "[STARTUP] Config file exists but onboarding "
-                            "flag is False and marker is missing -- "
-                            "fixing stale onboarding state to prevent "
-                            "wizard from overwriting user settings"
-                        )
-                        self.config.onboarding_completed = True
-                        onboarding.mark_complete()
-                        self.config.save()
-                    else:
-                        # Genuine first run -- no config.json exists yet.
-                        # Save the default config so the frontend can
-                        # detect first-run and show the wizard.
-                        log.info(
-                            "[STARTUP] First run detected -- deferring to React "
-                            "onboarding wizard (config.onboarding_completed=False)"
-                        )
-                        self.config.save()
-            except Exception as e:
-                # ERR-010: previously this was log.debug, which is
-                # invisible at default log levels. If onboarding check
-                # persistently fails the user is stuck on first-run
-                # forever with no indication of why. Promote to
-                # log.exception and notify the tray; after N consecutive
-                # failures we mark onboarding completed with a failure
-                # flag so the app remains usable.
-                log.exception("[STARTUP] Onboarding check failed: %s", e)
-                try:
-                    self._onboarding_fail_count = getattr(
-                        self, "_onboarding_fail_count", 0
-                    ) + 1
-                    if self._onboarding_fail_count >= 3:
-                        self.config.onboarding_completed = True
-                        self.config.onboarding_failed = True
-                        try:
-                            self.config.save()
-                        except Exception:
-                            log.exception("[STARTUP] Could not save onboarding_failed flag")
-                        # NEW-UX-018: critical — bypass show_notifications toggle.
-                        try:
-                            self.tray.notify_safety(
-                                APP_NAME,
-                                "Onboarding setup kept failing. The app will "
-                                "start with default settings. Open Settings to "
-                                "configure manually.",
-                            )
-                        except Exception:
-                            pass
-                    elif self.config.show_notifications:
-                        try:
-                            self.tray.notify(
-                                APP_NAME,
-                                "Onboarding setup failed; will retry on next start.",
-                            )
-                        except Exception:
-                            pass
-                except Exception:
-                    log.exception("[STARTUP] Onboarding failure-handler itself failed")
-
-        # Load external text corrections (if available) before any transcription
-        # ARCH-004: surface load errors to the user via tray notification
-        # so they know why their corrections aren't taking effect.
-        try:
-            err = configure_corrections(config_dir=self.config.config_dir)
-            if err is not None:
-                # NEW-UX-018: critical — bypass toggle (broken corrections file).
-                try:
-                    self.tray.notify_safety(
-                        f"{APP_NAME} — Corrections Error",
-                        f"{err}\nCorrections will use built-in defaults. "
-                        f"Fix the file and restart.",
-                    )
-                except Exception:
-                    log.debug("[STARTUP] Could not show corrections error notification")
-        except Exception:
-            log.debug("[STARTUP] External corrections load failed, using built-in defaults")
-
-        # P2: Crash recovery -- check for unpasted transcriptions
-        if self.config.crash_recovery_enabled:
-            try:
-                unpasted = self._crash_recovery.check_on_startup()
-                if unpasted:
-                    log.info("[STARTUP] Found %d unpasted transcriptions from previous session", len(unpasted))
-                    # NEW-UX-018: critical — bypass toggle (recovered user data).
-                    self.tray.notify_safety(
-                        APP_NAME,
-                        f"Recovered {len(unpasted)} transcription(s) from last session. Open History to view.",
-                    )
-            except Exception:
-                log.debug("[STARTUP] Crash recovery check failed")
-
-        # DEAD-012: apply history retention policy at startup.
-        # Previously the config keys were saved but never read.
-        try:
-            self.history_db.apply_retention(
-                retention_days=self.config.history_retention_days,
-                max_entries=self.config.history_max_entries,
-                retention_count=self.config.history_retention_count,
-            )
-        except Exception:
-            log.debug("[STARTUP] History retention apply failed")
-
-        # PLAT-WAYLAND / XPLAT-004: Warn if running on Wayland and
-        # suggest wtype/ydotool as fallback for global hotkeys.
-        if is_linux() and os.environ.get("XDG_SESSION_TYPE") == "wayland":
-            if not self.config.wayland_warned:
-                log.warning("[STARTUP] Wayland detected -- global hotkeys may not work")
-                # XPLAT-004: check if wtype or ydotool is available as a fallback
-                import shutil
-                wtype_available = shutil.which("wtype") is not None
-                ydotool_available = shutil.which("ydotool") is not None
-                if not wtype_available and not ydotool_available:
-                    log.warning(
-                        "[STARTUP] Neither wtype nor ydotool found. "
-                        "Install one for hotkey support on Wayland: "
-                        "'sudo apt install wtype' or 'sudo apt install ydotool'"
-                    )
-                    # NEW-UX-018: critical — bypass toggle (hotkeys broken).
-                    self.tray.notify_safety(
-                        f"{APP_NAME} — Wayland Hotkeys",
-                        "Global hotkeys may not work on Wayland. "
-                        "Install 'wtype' or 'ydotool' for hotkey support, "
-                        "or use the tray menu's Toggle Dictation option.",
-                    )
-                else:
-                    log.info(
-                        "[STARTUP] Wayland hotkey fallback available: %s",
-                        "wtype" if wtype_available else "ydotool",
-                    )
-                self.config.wayland_warned = True
-                self.config.save()
-
-        # XPLAT-002 / PLAT-030: macOS accessibility permission check.
-        # On macOS, global hotkeys require Accessibility permission.
-        # The app can't request it directly, but we can detect it's
-        # missing and notify the user.
-        _has_accessibility = False
-        if is_macos():
-            try:
-                import subprocess as _sp
-                # PLAT-030: Use AXIsProcessTrusted() via ctypes for the
-                # definitive check.  AXIsProcessTrusted() is the official
-                # API — it returns True iff the process has Accessibility
-                # permission.  We load it from ApplicationServices.framework
-                # via ctypes (no PyObjC dependency required).
-                try:
-                    import ctypes
-                    app_services = ctypes.cdll.LoadLibrary(
-                        "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
-                    )
-                    _has_accessibility = bool(app_services.AXIsProcessTrusted())
-                except Exception:
-                    # Fallback: osascript check (less reliable but works
-                    # even if ctypes loading fails)
-                    result = _sp.run(
-                        ["osascript", "-e",
-                         'tell application "System Events" to keystroke " "'],
-                        capture_output=True, text=True, timeout=3,
-                    )
-                    _has_accessibility = result.returncode == 0
-
-                if not _has_accessibility:
-                    log.warning("[STARTUP] macOS Accessibility permission not granted")
-                    # NEW-UX-018: critical — bypass toggle (hotkeys broken).
-                    self.tray.notify_safety(
-                        f"{APP_NAME} — Accessibility Permission",
-                        "Global hotkeys require Accessibility permission. "
-                        "Open System Settings \u2192 Privacy & Security \u2192 Accessibility "
-                        f"and add {APP_NAME} (or Terminal).",
-                    )
-            except Exception:
-                log.debug("[STARTUP] macOS accessibility check failed")
-
-            # PLAT-009: Start a periodic accessibility health monitor.
-            # If the user grants permission AFTER startup, the app will
-            # detect it within 60 seconds and clear the warning. If the
-            # user revokes permission mid-session, the app will re-warn.
-            self._start_accessibility_pulse(_has_accessibility)
-
-        # 1. Sync autostart config with platform
-        log.debug("[STARTUP] Syncing autostart")
-        self._sync_autostart()
-        self.tray.set_autostart_enabled(is_autostart_enabled())
-
-        # RACE-020: check for shutdown after each major step
-        if self._shutting_down:
-            log.debug("[STARTUP] Interrupted after autostart sync")
-            return
-
-        # 1b. Sync the OS-level prewarm scheduled task.
-        #     fast_startup is always enabled; the prewarm task is registered
-        #     at startup so the OS file cache is kept warm.  Cheap (a single
-        #     schtasks /Query) and self-healing: if the user deleted the task
-        #     or moved machines, it gets re-registered.
-        #
-        # PERF-NEW-030: prewarm sync + mic enumeration are independent
-        # I/O-bound tasks. Run them in parallel on a ThreadPoolExecutor
-        # so the total startup time is max(t_prewarm, t_mics) instead
-        # of t_prewarm + t_mics.
-        import concurrent.futures
-
-        # RACE-020: pass the shutdown event to executor tasks so they
-        # can abort early if the app is quitting during startup.
-        _shutdown_event = self._shutting_down_event if hasattr(self, '_shutting_down_event') else None
-
-        def _startup_parallel_work() -> None:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-                prewarm_future = pool.submit(self._sync_prewarm_task, _shutdown_event)
-                mic_future = pool.submit(self._load_microphones, _shutdown_event)
-                # RACE-020: reduced timeout from 30s to 10s so a stuck
-                # task doesn't block the entire startup sequence.
-                for label, fut in [("prewarm", prewarm_future), ("mic", mic_future)]:
-                    try:
-                        fut.result(timeout=10)
-                    except Exception as exc:
-                        log.warning("[STARTUP] %s task failed: %s", label, exc)
-            # PERF-FIX-2: the 30s ``sd.query_devices()`` device-change
-            # poller (``_start_device_change_poller``) was removed from
-            # startup because it is fully redundant with the
-            # event-driven ``MicrophoneDeviceWatcher`` started in
-            # ``Recorder.__init__`` (WM_DEVICECHANGE on Windows,
-            # ``/dev/snd`` polling on Linux, CoreAudio property-listener
-            # on macOS). The watcher is the sole source of truth; the
-            # 30s poller was a defence-in-depth fallback that cost
-            # ~1-5ms of CPU every 30s and allocated a fresh
-            # ``threading.Event()`` object every second. The
-            # ``_start_device_change_poller`` method on this class is
-            # retained as a no-op stub for backwards compatibility
-            # with tests that assert its existence.
-
-        # 1b. Create desktop launcher shortcut on first run (if absent)
-        # (Run before parallel work so the shortcut exists before mic
-        # enumeration — they're independent but shortcut creation is
-        # fast and quick to fail.)
-        self._ensure_desktop_shortcut()
-
-        log.debug("[STARTUP] Running prewarm sync + mic enumeration")
-        _startup_parallel_work()
-
-        # RACE-020: check for shutdown after parallel work
-        if self._shutting_down:
-            log.debug("[STARTUP] Interrupted before hotkey registration")
-            return
-
-        # 3. Register hotkey BEFORE model load so F2 works even if model fails
-        log.debug("[STARTUP] Registering hotkey")
-        self._register_hotkey()
-
-        # RACE-020: check for shutdown after hotkey registration
-        if self._shutting_down:
-            log.debug("[STARTUP] Interrupted after hotkey registration")
-            return
-
-        # Warmup handled synchronously in recording.py on first recording start.
-
-        # 4. Create transcription engine and load model -- IN THE BACKGROUND.
-        #
-        # The model load is the dominant cost on a cold boot (~30-45s the
-        # first time after Windows starts, dominated by reading ~6 GB of
-        # torch + model-weight files off disk).  Running it in a daemon
-        # thread lets the app reach "Ready" (well, "Loading model…") within
-        # ~1s of launch; the user sees the tray icon, can open settings,
-        # and -- if they press F2 before the load finishes -- gets queued
-        # and auto-started once it completes.  See toggle_dictation().
-        #
-        # #2 (Round 9): ModelManager owns the load thread now; the
-        # ``self._model_load_thread`` property delegate on VoiceTyperApp
-        # reads/writes through to ``self.models._model_load_thread`` so
-        # existing code that checks the thread (e.g. toggle_dictation)
-        # keeps working.
-        log.debug("[STARTUP] Loading model in background")
-        self.models.start_background_load()
-
-        # RACE-020: check for shutdown after background model load start
-        if self._shutting_down:
-            log.debug("[STARTUP] Interrupted after model load start")
-            return
-
-        # After restart: auto-open the Electron window so it appears fresh
-        # once the new instance is fully ready.  The VOICE_TYPER_RESTART
-        # env var is set by restart_app() before launching the new process.
-        if os.environ.get("VOICE_TYPER_RESTART"):
-            log.info("[STARTUP] Restart detected -- opening Electron window")
-            try:
-                self.tray.open_electron_window()
-            except Exception as e:
-                log.warning("[STARTUP] Failed to open Electron window after restart: %s", e)
-
-        # Show the bubble at startup if always_visible mode is enabled AND
-        # bubble_show_on_startup is True (user's preference in Settings).
-        if self.config.bubble_behavior == 'always_visible' and self.config.bubble_show_on_startup:
-            try:
-                self._waveform_bubble.show()
-                log.info("[STARTUP] Bubble shown at startup (always_visible mode)")
-            except Exception as e:
-                log.warning("[STARTUP] Failed to show bubble at startup: %s", e)
-
-        log.info("[STARTUP] Startup complete, model still loading in background")
+        from voice_typer.server.startup_sequence import StartupSequence
+        StartupSequence(self).run()
 
     def _sync_autostart(self) -> None:
-        """Delegate to startup_tasks.sync_autostart (extracted for testability)."""
+        """Test seam — kept for monkeypatch compatibility.
+
+        RW-9 Phase 2: production callers (``_do_startup`` via
+        ``startup_tasks.sync_autostart(self)``) invoke the controller
+        directly. This delegate remains so existing tests that do
+        ``monkeypatch.setattr(app, "_sync_autostart", ...)`` keep working.
+        """
         from voice_typer.server.startup_tasks import sync_autostart
 
         sync_autostart(self)
 
     def _sync_prewarm_task(self, shutdown_event=None) -> None:
-        """Delegate to startup_tasks.sync_prewarm_task (extracted for testability)."""
+        """Test seam — kept for monkeypatch compatibility.
+
+        RW-9 Phase 2: production callers invoke ``startup_tasks.sync_prewarm_task``
+        directly. This delegate remains for tests that monkeypatch it.
+        """
         from voice_typer.server.startup_tasks import sync_prewarm_task
 
         sync_prewarm_task(self, shutdown_event)
 
     def _ensure_desktop_shortcut(self) -> None:
-        """Delegate to startup_tasks.ensure_desktop_shortcut (extracted for testability)."""
+        """Test seam — kept for monkeypatch compatibility.
+
+        RW-9 Phase 2: production callers invoke ``startup_tasks.ensure_desktop_shortcut``
+        directly. This delegate remains for tests that monkeypatch it.
+        """
         from voice_typer.server.startup_tasks import ensure_desktop_shortcut
 
         ensure_desktop_shortcut(self)
 
     def _load_microphones(self, shutdown_event=None) -> None:
-        """Delegate to startup_tasks.load_microphones (extracted for testability).
+        """Test seam — kept for monkeypatch compatibility.
+
+        RW-9 Phase 2: production callers invoke ``startup_tasks.load_microphones``
+        directly. This delegate remains for tests that monkeypatch it.
 
         The extracted function compares old_ids vs new_ids (the cached
         device-id set vs the freshly enumerated one) and pushes a
@@ -1028,14 +735,12 @@ class VoiceTyperApp:
 
         load_microphones(self, shutdown_event)
 
-    def _start_device_change_poller(self) -> None:
-        """Delegate to startup_tasks.start_device_change_poller (extracted for testability)."""
-        from voice_typer.server.startup_tasks import start_device_change_poller
-
-        start_device_change_poller(self)
-
     def _start_accessibility_pulse(self, initial_state: bool) -> None:
-        """Delegate to startup_tasks.start_accessibility_pulse (extracted for testability)."""
+        """Test seam — kept for monkeypatch compatibility.
+
+        RW-9 Phase 2: production callers invoke ``startup_tasks.start_accessibility_pulse``
+        directly. This delegate remains for tests that monkeypatch it.
+        """
         from voice_typer.server.startup_tasks import start_accessibility_pulse
 
         start_accessibility_pulse(self, initial_state)
@@ -1051,16 +756,32 @@ class VoiceTyperApp:
     # ─── Hotkey ────────────────────────────────────────────────────────
 
     def _register_hotkey(self):
-        """#2 (Round 9): delegate to HotkeyDispatcher.register()."""
+        """Test seam — kept for monkeypatch compatibility.
+
+        RW-9 Phase 2: production callers invoke ``self.hotkeys.register()``
+        directly. This delegate remains for tests that monkeypatch it.
+        """
         self.hotkeys.register()
     def _register_esc_hotkey(self):
-        """#2 (Round 9): delegate to HotkeyDispatcher.register_esc()."""
+        """Test seam — kept for monkeypatch compatibility.
+
+        RW-9 Phase 2: production callers invoke ``self.hotkeys.register_esc()``
+        directly. This delegate remains for tests that monkeypatch it.
+        """
         self.hotkeys.register_esc()
     def _unregister_esc_hotkey(self):
-        """#2 (Round 9): delegate to HotkeyDispatcher.unregister_esc()."""
+        """Test seam — kept for monkeypatch compatibility.
+
+        RW-9 Phase 2: production callers invoke ``self.hotkeys.unregister_esc()``
+        directly. This delegate remains for tests that monkeypatch it.
+        """
         self.hotkeys.unregister_esc()
     def _register_repaste_hotkey(self):
-        """#2 (Round 9): delegate to HotkeyDispatcher.register_repaste()."""
+        """Test seam — kept for monkeypatch compatibility.
+
+        RW-9 Phase 2: production callers invoke ``self.hotkeys.register_repaste()``
+        directly. This delegate remains for tests that monkeypatch it.
+        """
         self.hotkeys.register_repaste()
     # ─── Dictation ─────────────────────────────────────────────────────
 
@@ -1071,7 +792,17 @@ class VoiceTyperApp:
         """#2 (Round 9): delegate to RecordingController.start()."""
         self.recording.start()
     def _on_recorder_rms(self, rms: float, peak: float, audio_chunk=None) -> None:
-        """#2 (Round 9): delegate to RecordingController.on_recorder_rms()."""
+        """DEAD — pinned by test_e2e_smoke + test_waveform_bubble signature checks.
+
+        RW-9 Phase 1: this 3-line delegate has no production callers (the
+        RecordingController wires ``on_recorder_rms`` directly via
+        ``self._app._on_recorder_rms`` in ``recording.py:1621``).  Kept as a
+        thin facade because two tests assert
+        ``inspect.signature(VoiceTyperApp._on_recorder_rms)`` contains the
+        ``audio_chunk`` parameter — see ``test_e2e_smoke.py:113`` and
+        ``test_waveform_bubble.py:512``.  Delete those signature checks
+        before removing this method.
+        """
         self.recording.on_recorder_rms(rms, peak, audio_chunk=audio_chunk)
     def _on_audio_quality_chunk(self, rms: float, peak: float) -> None:
         """Per-chunk quality callback wired to AudioProcessor.
@@ -1186,20 +917,15 @@ class VoiceTyperApp:
         """
         self.recording.stop()
 
-    def _streaming_enabled(self) -> bool:
-        """#2 (Round 9): delegate to RecordingController._streaming_enabled()."""
-        return self.recording._streaming_enabled()
-    def _streaming_config(self) -> StreamingConfig:
-        """#2 (Round 9): delegate to RecordingController._streaming_config()."""
-        return self.recording._streaming_config()
-    def _start_streaming_session_if_enabled(self):
-        """#2 (Round 9): delegate to RecordingController._start_streaming_session_if_enabled()."""
-        self.recording._start_streaming_session_if_enabled()
     def _cancel_streaming_session(self):
         """#2 (Round 9): delegate to RecordingController._cancel_streaming_session()."""
         self.recording._cancel_streaming_session()
     def _force_recover_from_stuck_transcription(self, force: bool = False):
-        """#2 (Round 9): delegate to RecordingController._force_recover_from_stuck_transcription().
+        """Test seam — kept for monkeypatch compatibility.
+
+        RW-9 Phase 2: production callers (tray.py force-cancel menu item)
+        invoke ``self.recording._force_recover_from_stuck_transcription(force=...)``
+        directly. This delegate remains for tests that monkeypatch it.
 
         PR-2 Finding #3: accepts an optional ``force`` parameter.  When
         ``True``, the recovery proceeds even if the transcription worker
@@ -1208,17 +934,6 @@ class VoiceTyperApp:
         Transcription" item calls this with ``force=True``.
         """
         self.recording._force_recover_from_stuck_transcription(force=force)
-    # ─── Silence Detection Callbacks (H12) ────────────────────────────────
-
-    def _on_silence_warning(self):
-        """#2 (Round 9): delegate to RecordingController.on_silence_warning()."""
-        self.recording.on_silence_warning()
-    def _on_silence_auto_stop(self):
-        """#2 (Round 9): delegate to RecordingController.on_silence_auto_stop()."""
-        self.recording.on_silence_auto_stop()
-    def _on_max_duration_auto_stop(self):
-        """#2 (Round 9): delegate to RecordingController.on_max_duration_auto_stop()."""
-        self.recording.on_max_duration_auto_stop()
     # ─── Settings / Microphone ─────────────────────────────────────────
 
     def repaste_last(self) -> None:
@@ -1297,9 +1012,6 @@ class VoiceTyperApp:
             log.warning("[UNDO] Failed: %s", e)
             self.tray.notify(APP_NAME, f"Undo failed: {e}")
 
-    def _on_xrun_threshold(self, count: int) -> None:
-        """#2 (Round 9): delegate to RecordingController.on_xrun_threshold()."""
-        self.recording.on_xrun_threshold(count)
     def _cancel_dictation(self):
         """#2 (Round 9): delegate to RecordingController.cancel().
 
@@ -1461,10 +1173,8 @@ class VoiceTyperApp:
         self._change_model(model)
 
     def change_hotkey(self, hotkey: str) -> None:
-        """TrayController protocol: change hotkey. NEW-DEAD-022: set_hotkey is an alias."""
+        """TrayController protocol: change hotkey."""
         self._restart_hotkey(hotkey)
-
-    set_hotkey = change_hotkey
 
     def open_settings(self) -> None:
         """TrayController protocol: open settings window."""
@@ -1704,8 +1414,9 @@ class VoiceTyperApp:
         # Instead, just signal the cancel event; the daemon thread will die
         # when the process exits.
         try:
-            session = self._get_streaming_session()
-            self._set_streaming_session(None)
+            # RW-9 Phase 2: call RecordingController directly.
+            session = self.recording.get_streaming_session()
+            self.recording.set_streaming_session(None)
             if session is not None:
                 session._cancel_event.set()
         except Exception:
