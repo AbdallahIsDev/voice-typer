@@ -41,7 +41,7 @@ const DICTATION_KEY_PRESETS = [
 
 // IMPL-C: option label keys (translated at render time so the labels
 // honour the active UI locale).
-const AUTO_STOP_OPTION_KEYS = [
+const STOP_ON_SILENCE_OPTION_KEYS = [
 	{ value: 60, labelKey: "settings.hotkeySection.minutes1" },
 	{ value: 120, labelKey: "settings.hotkeySection.minutes2" },
 	{ value: 180, labelKey: "settings.hotkeySection.minutes3" },
@@ -101,14 +101,16 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 	const handleSilenceWarningChange = (e: React.ChangeEvent<HTMLInputElement>) =>
 		updateConfigDebounced("silence_warning_seconds", Number(e.target.value));
 
-	const handleMaxDurationChange = (e: React.ChangeEvent<HTMLInputElement>) =>
-		updateConfigDebounced("max_recording_seconds", Number(e.target.value));
+	const handleMaxRecordingTimeChange = (
+		e: React.ChangeEvent<HTMLInputElement>,
+	) =>
+		updateConfigDebounced("max_recording_time_seconds", Number(e.target.value));
 
 	const handleRecordingModeChange = (v: string) =>
 		updateConfig({ recording_mode: v as "toggle" | "push_to_talk" });
 
-	const handleAutoStopChange = (v: string) =>
-		updateConfig({ silence_auto_stop_seconds: Number(v) });
+	const handleStopOnSilenceChange = (v: string) =>
+		updateConfig({ stop_on_silence_seconds: Number(v) });
 
 	const handleEscCancelChange = (checked: boolean) =>
 		updateConfig({ esc_cancel_enabled: checked });
@@ -132,8 +134,10 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 	const recordingModeInfoSearch = t(
 		"settings.hotkeySection.recordingModeInfoSearch",
 	);
-	const autoStopLabel = t("settings.hotkeySection.autoStop");
-	const autoStopInfoSearch = t("settings.hotkeySection.autoStopInfo");
+	const stopOnSilenceLabel = t("settings.hotkeySection.stopOnSilence");
+	const stopOnSilenceInfoSearch = t(
+		"settings.hotkeySection.stopOnSilenceInfoSearch",
+	);
 	const escToCancelLabel = t("settings.hotkeySection.escToCancel");
 	const escToCancelInfoSearch = t("settings.hotkeySection.escToCancelInfo");
 	const autoPasteLabel = t("settings.hotkeySection.autoPaste");
@@ -148,15 +152,17 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 	const silenceWarningInfoSearch = t(
 		"settings.hotkeySection.silenceWarningInfo",
 	);
-	const maxDurationLabel = t("settings.hotkeySection.maxDuration");
-	const maxDurationInfoSearch = t("settings.hotkeySection.maxDurationInfo");
+	const maxRecordingTimeLabel = t("settings.hotkeySection.maxRecordingTime");
+	const maxRecordingTimeInfoSearch = t(
+		"settings.hotkeySection.maxRecordingTimeInfoSearch",
+	);
 	const recordingModeOptions: SegmentedControlOption<
 		"toggle" | "push_to_talk"
 	>[] = RECORDING_MODE_OPTION_KEYS.map((opt) => ({
 		value: opt.value,
 		label: t(opt.labelKey),
 	}));
-	const autoStopOptions = AUTO_STOP_OPTION_KEYS.map((opt) => ({
+	const autoStopOptions = STOP_ON_SILENCE_OPTION_KEYS.map((opt) => ({
 		value: opt.value,
 		label: t(opt.labelKey),
 	}));
@@ -170,12 +176,12 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 		{ label: dictationKeyLabel, info: dictationKeyInfoSearch },
 		{ label: repasteKeyLabel, info: repasteKeyInfoSearch },
 		{ label: recordingModeLabel, info: recordingModeInfoSearch },
-		{ label: autoStopLabel, info: autoStopInfoSearch },
+		{ label: stopOnSilenceLabel, info: stopOnSilenceInfoSearch },
 		{ label: escToCancelLabel, info: escToCancelInfoSearch },
 		{ label: autoPasteLabel, info: autoPasteInfoSearch },
 		{ label: soundFeedbackLabel, info: soundFeedbackInfoSearch },
 		{ label: silenceWarningLabel, info: silenceWarningInfoSearch },
-		{ label: maxDurationLabel, info: maxDurationInfoSearch },
+		{ label: maxRecordingTimeLabel, info: maxRecordingTimeInfoSearch },
 	];
 	const recordingVisible = recordingItems.some((item) =>
 		isVisible(item.label, item.info, recordingTitle),
@@ -221,16 +227,16 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 					</SettingRow>
 
 					<SettingRow
-						label={autoStopLabel}
-						info={t("settings.hotkeySection.autoStopInfo")}
+						label={stopOnSilenceLabel}
+						info={t("settings.hotkeySection.stopOnSilenceInfo")}
 					>
 						<Select
-							value={String(config.silence_auto_stop_seconds ?? 60)}
-							onValueChange={handleAutoStopChange}
+							value={String(config.stop_on_silence_seconds ?? 60)}
+							onValueChange={handleStopOnSilenceChange}
 						>
 							<SelectTrigger
 								className="w-36"
-								aria-label={t("settings.hotkeySection.autoStopAria")}
+								aria-label={t("settings.hotkeySection.stopOnSilenceAria")}
 							>
 								<SelectValue />
 							</SelectTrigger>
@@ -316,25 +322,25 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 					</SettingRow>
 
 					<SettingRow
-						label={maxDurationLabel}
-						info={t("settings.hotkeySection.maxDurationInfo")}
+						label={maxRecordingTimeLabel}
+						info={t("settings.hotkeySection.maxRecordingTimeInfo")}
 					>
 						<div className="flex items-center gap-2">
 							<NumberInput
-								min={0}
-								max={7200}
+								min={300}
+								max={3600}
 								step={1}
-								value={String(config.max_recording_seconds)}
-								onChange={handleMaxDurationChange}
+								value={String(config.max_recording_time_seconds)}
+								onChange={handleMaxRecordingTimeChange}
 								className="w-20 text-center"
-								aria-label={t("settings.hotkeySection.maxDurationAria")}
+								aria-label={t("settings.hotkeySection.maxRecordingTimeAria")}
 							/>
 							<span className="text-sm text-(--text-muted)">sec</span>
 						</div>
 					</SettingRow>
 
 					{/* RW-0: dead_air_timeout setting REMOVED. It was redundant with
-					    silence_auto_stop_seconds — auto-stop already resets on every speech
+					    stop_on_silence_seconds — auto-stop already resets on every speech
 					    detection, so "silence after speech" needs no separate control.
 					    Do NOT re-add this setting. */}
 				</SettingsSection>

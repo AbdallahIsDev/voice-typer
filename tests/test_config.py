@@ -400,9 +400,9 @@ class TestH1NonNumericFieldValidation:
         """H12 config fields should have correct defaults."""
         c = Config()
         assert c.silence_warning_seconds == 20.0
-        assert c.silence_auto_stop_seconds == 120.0
-        assert c.max_recording_seconds_gpu == 1200
-        assert c.max_recording_seconds_cpu == 600
+        assert c.stop_on_silence_seconds == 120.0
+        # SIMPLIFY-001: single explicit field replaces the old 3-field split
+        assert c.max_recording_time_seconds == 1200
 
     def test_startup6_int_field_not_treated_as_bool(self, tmp_path, monkeypatch, caplog):
         """STARTUP-6: volume_duck_smart_poll_interval_ms (int) must NOT be

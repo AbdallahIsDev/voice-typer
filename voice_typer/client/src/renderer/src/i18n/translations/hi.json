@@ -243,9 +243,6 @@
 			"recordingModeAria": "रिकॉर्डिंग मोड",
 			"tapToRecord": "रिकॉर्ड करने के लिए टैप",
 			"pushToTalk": "पुश-टू-टॉक",
-			"autoStop": "स्वतः रोकें",
-			"autoStopInfo": "इतने सेकंड के मौन के बाद स्वतः रिकॉर्डिंग रोकें।",
-			"autoStopAria": "स्वतः रोकें",
 			"minutes1": "1 मिनट",
 			"minutes2": "2 मिनट",
 			"minutes3": "3 मिनट",
@@ -267,9 +264,13 @@
 			"silenceWarning": "मौन चेतावनी",
 			"silenceWarningInfo": "माइक्रोफ़ोन समस्याओं को पकड़ने में मदद के लिए चेतावनी दिखाने से पहले मौन के सेकंड।",
 			"silenceWarningAria": "मौन चेतावनी सेकंड",
-			"maxDuration": "अधिकतम अवधि",
-			"maxDurationInfo": "अधिकतम रिकॉर्डिंग लंबाई। स्वचालित के लिए 0 सेट करें (डिवाइस पर निर्भर)।",
-			"maxDurationAria": "अधिकतम रिकॉर्डिंग अवधि"
+			"maxRecordingTime": "अधिकतम अवधि",
+			"maxRecordingTimeInfo": "सेकंड में अधिकतम रिकॉर्डिंग समय (300–3600).",
+			"maxRecordingTimeInfoSearch": "सेकंड में अधिकतम रिकॉर्डिंग समय.",
+			"maxRecordingTimeAria": "अधिकतम रिकॉर्डिंग अवधि",
+			"stopOnSilence": "स्वतः रोकें",
+			"stopOnSilenceInfo": "इतने सेकंड के मौन के बाद स्वतः रिकॉर्डिंग रोकें।",
+			"stopOnSilenceAria": "स्वतः रोकें"
 		},
 		"audioEnhancement": {
 			"title": "ऑडियो संवर्द्धन",

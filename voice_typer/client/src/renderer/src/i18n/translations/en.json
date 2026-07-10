@@ -498,9 +498,6 @@
 			"recordingModeAria": "Recording Mode",
 			"tapToRecord": "Tap to Record",
 			"pushToTalk": "Push to Talk",
-			"autoStop": "Auto-Stop",
-			"autoStopInfo": "Automatically stop recording after this many seconds of silence.",
-			"autoStopAria": "Auto-Stop",
 			"minutes1": "1 minute",
 			"minutes2": "2 minutes",
 			"minutes3": "3 minutes",
@@ -522,9 +519,13 @@
 			"silenceWarning": "Silence Warning",
 			"silenceWarningInfo": "Seconds of silence before showing a warning to help catch microphone issues.",
 			"silenceWarningAria": "Silence Warning Seconds",
-			"maxDuration": "Max Duration",
-			"maxDurationInfo": "Maximum recording length. Set to 0 for automatic (varies by device).",
-			"maxDurationAria": "Max Recording Duration"
+			"maxRecordingTime": "Max Recording Time",
+			"maxRecordingTimeInfo": "Maximum recording time limit in seconds (300–3600).",
+			"maxRecordingTimeInfoSearch": "Maximum recording time limit in seconds.",
+			"maxRecordingTimeAria": "Max Recording Time Seconds",
+			"stopOnSilence": "Stop on Silence",
+			"stopOnSilenceInfo": "Automatically stop recording after this many seconds of silence.",
+			"stopOnSilenceAria": "Stop on Silence Seconds"
 		},
 		"audioEnhancement": {
 			"title": "Audio Enhancement",

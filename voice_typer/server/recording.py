@@ -73,7 +73,7 @@ _DEFAULT_VAD_HANGOVER_FRAMES = 15  # same as _VAD_SILENCE_FRAMES — configurabl
 
 
 # NOTE: Dead-air timeout was REMOVED in RW-0.
-# Redundant with silence_auto_stop_seconds (auto-stop already resets on
+# Redundant with stop_on_silence_seconds (auto-stop already resets on
 # speech). The _update_dead_air_simple() method was also removed along
 # with _dead_air_timeout / _dead_air_speech_detected / _dead_air_silence_start.
 # Do NOT re-add — it added no unique behavior.
@@ -116,7 +116,7 @@ def _secure_clear_array(arr: np.ndarray) -> None:
         pass  # best-effort; some array types may not support fill
 
 # PERF-NEW-018: MAX_BUFFER_CHUNKS is now dynamically adjusted in
-# start() based on max_recording_seconds.  The default below is a
+# start() based on max_recording_time_seconds.  The default below is a
 # safe ceiling (30K chunks * 1024 samples/chunk / 16kHz ≈ 30 min).
 # For longer recordings, start() increases the deque maxlen.
 DEFAULT_MAX_BUFFER_CHUNKS = 30000
@@ -359,7 +359,7 @@ class Recorder:
 
         # NOTE (RW-0): dead_air_timeout / _dead_air_speech_detected /
         # _dead_air_silence_start were REMOVED — redundant with
-        # silence_auto_stop_seconds. Do NOT re-add.
+        # stop_on_silence_seconds. Do NOT re-add.
 
         # AUDIO-MIC: device list cache with timestamp
         self._device_list_cache: list[dict] | None = None
@@ -1136,24 +1136,17 @@ class Recorder:
         # PERF-NEW-006: cache config values at start() time so the
         # audio callback doesn't do 5x getattr per iteration.
         self._cached_silence_warning = getattr(self.config, 'silence_warning_seconds', 20.0)
-        self._cached_silence_auto_stop = getattr(self.config, 'silence_auto_stop_seconds', 120.0)
-        self._cached_max_recording = getattr(self.config, 'max_recording_seconds', 0)
-        self._cached_device = str(getattr(self.config, 'device', 'cuda'))
-        try:
-            max_rec_raw = int(self._cached_max_recording)
-        except (TypeError, ValueError):
-            max_rec_raw = 0
-        if max_rec_raw == 0:
-            if self._cached_device == 'cuda':
-                self._cached_max_recording = getattr(self.config, 'max_recording_seconds_gpu', 1200)
-            else:
-                self._cached_max_recording = getattr(self.config, 'max_recording_seconds_cpu', 600)
+        self._cached_stop_on_silence = getattr(self.config, 'stop_on_silence_seconds', 120.0)
+        # SIMPLIFY-001: single explicit field replaces the old 3-field split
+        # (max_recording_time_seconds_gpu, max_recording_time_seconds_cpu,
+        # and max_recording_time_seconds=0 auto-selection). Always defaults to 1200.
+        self._cached_max_recording_time = int(getattr(self.config, 'max_recording_time_seconds', 1200))
 
-        # PERF-NEW-018: dynamically size the buffer based on max_recording_seconds.
+        # PERF-NEW-018: dynamically size the buffer based on max_recording_time_seconds.
         # At 16kHz with 1024-sample chunks, each chunk = 64ms.  For a 30-min
         # recording: 1800s / 0.064s ≈ 28125 chunks.  For 1 hour: 56250.
         try:
-            max_rec = int(self._cached_max_recording)
+            max_rec = int(self._cached_max_recording_time)
         except (TypeError, ValueError):
             max_rec = 0
         if max_rec > 0:
@@ -1257,7 +1250,7 @@ class Recorder:
                     pass
 
             # NOTE: Dead-air timeout was REMOVED in RW-0.
-            # Redundant with silence_auto_stop_seconds (auto-stop already resets on
+            # Redundant with stop_on_silence_seconds (auto-stop already resets on
             # speech). The _update_dead_air_simple() method was also removed along
             # with _dead_air_timeout / _dead_air_speech_detected / _dead_air_silence_start.
             # Do NOT re-add — it added no unique behavior.
@@ -1491,7 +1484,7 @@ class Recorder:
 
             # Use cached config values (PERF-NEW-006)
             silence_warning_seconds = self._cached_silence_warning
-            silence_auto_stop_seconds = self._cached_silence_auto_stop
+            stop_on_silence_seconds = self._cached_stop_on_silence
 
             # H12a: Repeating silence warnings with exponential backoff
             if self._silence_timer >= silence_warning_seconds:
@@ -1511,7 +1504,7 @@ class Recorder:
                         except Exception:
                             pass
 
-            if self._silence_timer >= silence_auto_stop_seconds:
+            if self._silence_timer >= stop_on_silence_seconds:
                 if silence_auto_stop_cb is not None:
                     try:
                         silence_auto_stop_cb()
@@ -1520,8 +1513,8 @@ class Recorder:
 
             # H12b: Maximum recording duration auto-stop
             recording_duration = time.perf_counter() - recording_start
-            max_recording_seconds = self._cached_max_recording
-            if recording_duration >= max_recording_seconds:
+            max_recording_time_seconds = self._cached_max_recording_time
+            if recording_duration >= max_recording_time_seconds:
                 if max_duration_cb is not None:
                     try:
                         max_duration_cb()

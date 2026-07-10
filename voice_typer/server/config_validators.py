@@ -80,7 +80,7 @@ def _is_str(v: object) -> TypeGuard[str]:
 
 def _is_int_not_bool(v: object) -> TypeGuard[int]:
     # bool is a subclass of int in Python; reject it explicitly so that
-    # ``max_recording_seconds=True`` doesn't silently become 1.
+    # ``max_recording_time_seconds=True`` doesn't silently become 1.
     return isinstance(v, int) and not isinstance(v, bool)
 
 
@@ -595,10 +595,8 @@ IPC_CONFIG_ALLOWLIST: dict = {
 
     # ── Silent mic disconnection (H12) ────────────────────────────────
     "silence_warning_seconds":    (float, _make_float_validator(lo=0.0, hi=600.0)),
-    "silence_auto_stop_seconds":  (float, _make_float_validator(lo=0.0, hi=3600.0)),
-    "max_recording_seconds_gpu":  (int, _make_int_validator(lo=0, hi=86400)),
-    "max_recording_seconds_cpu":  (int, _make_int_validator(lo=0, hi=86400)),
-    "max_recording_seconds":      (int, _make_int_validator(lo=0, hi=86400)),
+    "stop_on_silence_seconds":      (float, _make_float_validator(lo=0.0, hi=3600.0)),
+    "max_recording_time_seconds":      (int, _make_int_validator(lo=300, hi=3600)),
     # AUDIO-014: configurable VAD/silence thresholds
     "silence_rms_threshold":      (float, _make_float_validator(lo=0.0, hi=1.0)),
     "silence_peak_threshold":     (float, _make_float_validator(lo=0.0, hi=1.0)),

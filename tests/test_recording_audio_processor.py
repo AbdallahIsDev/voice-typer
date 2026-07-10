@@ -149,9 +149,9 @@ class TestRecorderCallbackWithAudioProcessor:
 
         config = MagicMock(
             sample_rate=16000, microphone=None,
-            silence_warning_seconds=20.0, silence_auto_stop_seconds=120.0,
-            max_recording_seconds=0, device="cpu",
-            max_recording_seconds_cpu=600, max_recording_seconds_gpu=1200,
+            silence_warning_seconds=20.0, stop_on_silence_seconds=120.0,
+            # SIMPLIFY-001: single explicit field replaces the old 3-field split
+            max_recording_time_seconds=1200, device="cpu",
             use_silero_vad=False, vad_speech_threshold=0.5,
         )
         # ADR-0007: AudioProcessorConfig removed; build_chain reads
@@ -198,9 +198,9 @@ class TestRecorderCallbackWithAudioProcessor:
 
         config = MagicMock(
             sample_rate=16000, microphone=None,
-            silence_warning_seconds=20.0, silence_auto_stop_seconds=120.0,
-            max_recording_seconds=0, device="cpu",
-            max_recording_seconds_cpu=600, max_recording_seconds_gpu=1200,
+            silence_warning_seconds=20.0, stop_on_silence_seconds=120.0,
+            # SIMPLIFY-001: single explicit field replaces the old 3-field split
+            max_recording_time_seconds=1200, device="cpu",
             use_silero_vad=False, vad_speech_threshold=0.5,
         )
         # ADR-0007: AudioProcessorConfig removed; use noise_filter_* config.
@@ -242,9 +242,9 @@ class TestRecorderCallbackWithAudioProcessor:
 
         config = MagicMock(
             sample_rate=16000, microphone=None,
-            silence_warning_seconds=20.0, silence_auto_stop_seconds=120.0,
-            max_recording_seconds=0, device="cpu",
-            max_recording_seconds_cpu=600, max_recording_seconds_gpu=1200,
+            silence_warning_seconds=20.0, stop_on_silence_seconds=120.0,
+            # SIMPLIFY-001: single explicit field replaces the old 3-field split
+            max_recording_time_seconds=1200, device="cpu",
             use_silero_vad=False, vad_speech_threshold=0.5,
         )
         # ADR-0007: AudioProcessorConfig removed; use noise_filter_* config.
@@ -286,9 +286,9 @@ class TestRecorderCallbackWithAudioProcessor:
 
         config = MagicMock(
             sample_rate=16000, microphone=None,
-            silence_warning_seconds=20.0, silence_auto_stop_seconds=120.0,
-            max_recording_seconds=0, device="cpu",
-            max_recording_seconds_cpu=600, max_recording_seconds_gpu=1200,
+            silence_warning_seconds=20.0, stop_on_silence_seconds=120.0,
+            # SIMPLIFY-001: single explicit field replaces the old 3-field split
+            max_recording_time_seconds=1200, device="cpu",
             use_silero_vad=False, vad_speech_threshold=0.5,
         )
         # ADR-0007: AudioProcessorConfig removed; use noise_filter_* config.
@@ -332,9 +332,9 @@ class TestRecorderCallbackWithAudioProcessor:
 
         config = MagicMock(
             sample_rate=16000, microphone=None,
-            silence_warning_seconds=20.0, silence_auto_stop_seconds=120.0,
-            max_recording_seconds=0, device="cpu",
-            max_recording_seconds_cpu=600, max_recording_seconds_gpu=1200,
+            silence_warning_seconds=20.0, stop_on_silence_seconds=120.0,
+            # SIMPLIFY-001: single explicit field replaces the old 3-field split
+            max_recording_time_seconds=1200, device="cpu",
             use_silero_vad=False, vad_speech_threshold=0.5,
         )
         r = Recorder(config, audio_processor=None)
@@ -360,9 +360,9 @@ class TestRecorderCallbackWithAudioProcessor:
 
         config = MagicMock(
             sample_rate=16000, microphone=None,
-            silence_warning_seconds=20.0, silence_auto_stop_seconds=120.0,
-            max_recording_seconds=0, device="cpu",
-            max_recording_seconds_cpu=600, max_recording_seconds_gpu=1200,
+            silence_warning_seconds=20.0, stop_on_silence_seconds=120.0,
+            # SIMPLIFY-001: single explicit field replaces the old 3-field split
+            max_recording_time_seconds=1200, device="cpu",
             use_silero_vad=False, vad_speech_threshold=0.5,
         )
         # ADR-0007: AudioProcessorConfig removed; use noise_filter_* config.

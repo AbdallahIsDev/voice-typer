@@ -189,10 +189,9 @@ const baseConfig: VoiceTyperConfig = {
 	text_size: 14,
 	wayland_warned: false,
 	silence_warning_seconds: 0,
-	silence_auto_stop_seconds: 0,
-	max_recording_seconds: 60,
-	max_recording_seconds_gpu: 120,
-	max_recording_seconds_cpu: 60,
+	stop_on_silence_seconds: 0,
+	// SIMPLIFY-001: single explicit field replaces the old 3-field split
+	max_recording_time_seconds: 1200,
 	volume_duck_enabled: false,
 	volume_duck_level: 0,
 	volume_duck_per_session: false,

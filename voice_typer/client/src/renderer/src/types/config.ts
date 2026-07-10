@@ -136,11 +136,12 @@ export interface VoiceTyperConfig {
 
 	// Silence / max recording
 	silence_warning_seconds: number;
-	silence_auto_stop_seconds: number;
-	max_recording_seconds: number;
-	max_recording_seconds_gpu: number;
-	max_recording_seconds_cpu: number;
-	// RW-0: dead_air_timeout REMOVED — redundant with silence_auto_stop_seconds.
+	stop_on_silence_seconds: number;
+	// SIMPLIFY-001: single explicit field replaces the old 3-field split
+	// (max_recording_time_seconds_gpu, max_recording_time_seconds_cpu, and
+	// max_recording_time_seconds=0 auto-selection). Now always a concrete value.
+	max_recording_time_seconds: number;
+	// RW-0: dead_air_timeout REMOVED — redundant with stop_on_silence_seconds.
 
 	// Volume ducking
 	volume_duck_enabled: boolean;

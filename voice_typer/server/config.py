@@ -750,13 +750,16 @@ class Config:
 
     # Silent mic disconnection (H12)
     silence_warning_seconds: float = 20.0
-    silence_auto_stop_seconds: float = 120.0
-    max_recording_seconds_gpu: int = 1200
-    max_recording_seconds_cpu: int = 600
-    max_recording_seconds: int = 0  # 0 = use device-specific default (gpu/cpu)
+    stop_on_silence_seconds: float = 120.0
+    # RW-0 / SIMPLIFY-001: single explicit field replaces the previous 3-field split
+    # (max_recording_time_seconds_gpu, max_recording_time_seconds_cpu, and
+    # max_recording_time_seconds=0). The old GPU/CPU auto-selection was invisible
+    # to users and the "0 = automatic" convention was user-hostile. Now the field
+    # is always a concrete value with min 300 (5 min) / max 3600 (60 min).
+    max_recording_time_seconds: int = 1200  # 20 minutes
 
     # NOTE: dead_air_timeout (float) was REMOVED in RW-0.
-    # It was redundant with silence_auto_stop_seconds — both called the same
+    # It was redundant with stop_on_silence_seconds — both called the same
     # on_silence_auto_stop callback. Auto-stop already resets on every speech
     # detection, so the "only after speech" condition dead air added was
     # unnecessary. Do NOT re-add. See RecordingSettingsSection.tsx comment.
@@ -965,9 +968,9 @@ class Config:
             try:
                 # SEC-002 / SEC-audit-011: use _secure_read_text to prevent
                 # symlink-TOCTOU attacks when reading config.json
-                raw = _secure_read_text(config_file)
-                data = json.loads(raw)
-                data = {k: v for k, v in data.items() if k in cls.__dataclass_fields__}
+                raw_text = _secure_read_text(config_file)
+                parsed = json.loads(raw_text)
+                data = {k: v for k, v in parsed.items() if k in cls.__dataclass_fields__}
 
                 # M3: Schema versioning and migration
                 loaded_version = data.get("schema_version", 0)
@@ -977,6 +980,7 @@ class Config:
                         data = migrator(data)
                 data["schema_version"] = _CURRENT_SCHEMA_VERSION
 
+                # Config fields were renamed (no migration needed):
                 data["streaming_left_overlap_seconds"] = max(
                     float(data.get("streaming_left_overlap_seconds", 3.0)),
                     3.0,
@@ -1007,6 +1011,16 @@ class Config:
                         "(%.1f); clamping overlap to chunk/3", left_overlap, chunk,
                     )
                     data["streaming_left_overlap_seconds"] = chunk / 3.0
+                # SIMPLIFY-001: clamp max_recording_time_seconds to valid range [300, 3600]
+                # to handle old config files that had 0 = auto-select (which is now invalid).
+                max_rec = int(data.get("max_recording_time_seconds", 1200))
+                if max_rec < 300 or max_rec > 3600:
+                    log.warning(
+                        "[CONFIG] max_recording_time_seconds=%d outside valid range [300, 3600], "
+                        "resetting to 1200", max_rec,
+                    )
+                    data["max_recording_time_seconds"] = 1200
+
                 if data.get("model_size") not in ALLOWED_USER_MODELS:
                     data["model_size"] = "small.en"
 

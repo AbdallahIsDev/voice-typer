@@ -243,9 +243,6 @@
 			"recordingModeAria": "وضع التسجيل",
 			"tapToRecord": "النقر للتسجيل",
 			"pushToTalk": "الضغط للتحدث",
-			"autoStop": "الإيقاف التلقائي",
-			"autoStopInfo": "أوقف التسجيل تلقائيًا بعد هذا العدد من الثواني من الصمت.",
-			"autoStopAria": "الإيقاف التلقائي",
 			"minutes1": "دقيقة واحدة",
 			"minutes2": "دقيقتان",
 			"minutes3": "3 دقائق",
@@ -267,9 +264,13 @@
 			"silenceWarning": "تحذير الصمت",
 			"silenceWarningInfo": "ثواني الصمت قبل إظهار تحذير للمساعدة في اكتشاف مشاكل الميكروفون.",
 			"silenceWarningAria": "ثواني تحذير الصمت",
-			"maxDuration": "المدة القصوى",
-			"maxDurationInfo": "أقصى مدة للتسجيل. عيّن 0 للتلقائي (يختلف حسب الجهاز).",
-			"maxDurationAria": "أقصى مدة تسجيل"
+			"maxRecordingTime": "المدة القصوى",
+			"maxRecordingTimeInfo": "الحد الأقصى لمدة التسجيل بالثواني (300–3600).",
+			"maxRecordingTimeInfoSearch": "الحد الأقصى لمدة التسجيل بالثواني.",
+			"maxRecordingTimeAria": "أقصى مدة تسجيل",
+			"stopOnSilence": "الإيقاف التلقائي",
+			"stopOnSilenceInfo": "أوقف التسجيل تلقائيًا بعد هذا العدد من الثواني من الصمت.",
+			"stopOnSilenceAria": "الإيقاف التلقائي"
 		},
 		"audioEnhancement": {
 			"title": "تحسين الصوت",
