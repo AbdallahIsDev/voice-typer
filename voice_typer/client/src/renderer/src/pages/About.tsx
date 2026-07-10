@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { SettingsSection } from "@/components/SettingsSection";
+import { SettingsSection } from "@/components/common/SettingsSection";
 import { Button } from "@/components/ui/button";
 import { usePython } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";

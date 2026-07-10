@@ -6,16 +6,16 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import PageHeading from "@/components/common/PageHeading";
+import { LevelBar } from "@/components/feedback/LevelBar";
+import { LiveQualityFeedback } from "@/components/feedback/LiveQualityFeedback";
+import { Spinner } from "@/components/feedback/Spinner";
 import {
 	type AudioPreset,
 	AudioPresetSelector,
-} from "@/components/AudioPresetSelector";
-import { LevelBar } from "@/components/LevelBar";
-import { LiveQualityFeedback } from "@/components/LiveQualityFeedback";
-import { MicrophoneListItem } from "@/components/MicrophoneListItem";
-import PageHeading from "@/components/PageHeading";
-import { Spinner } from "@/components/Spinner";
-import { TestReviewPanel } from "@/components/TestReviewPanel";
+} from "@/components/microphone/AudioPresetSelector";
+import { MicrophoneListItem } from "@/components/microphone/MicrophoneListItem";
+import { TestReviewPanel } from "@/components/microphone/TestReviewPanel";
 import { Button } from "@/components/ui/button";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";

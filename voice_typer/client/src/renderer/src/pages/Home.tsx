@@ -2,10 +2,10 @@ import { Mic02Icon, Share08Icon, StopIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import ActivityList from "@/components/ActivityList";
-import { Spinner } from "@/components/Spinner";
-import StatCards from "@/components/StatCards";
-import { StatsShareImage } from "@/components/StatsShareImage";
+import ActivityList from "@/components/dashboard/ActivityList";
+import StatCards from "@/components/dashboard/StatCards";
+import { StatsShareImage } from "@/components/dashboard/StatsShareImage";
+import { Spinner } from "@/components/feedback/Spinner";
 import { Button } from "@/components/ui/button";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 // SOUND-FIX-004: sound feedback logic moved to App-level hook so cues

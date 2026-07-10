@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Spinner } from "@/components/Spinner";
+import { Spinner } from "@/components/feedback/Spinner";
 import { Button } from "@/components/ui/button";
 import {
 	Select,

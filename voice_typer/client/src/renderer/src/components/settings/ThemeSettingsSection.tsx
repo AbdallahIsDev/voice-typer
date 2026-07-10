@@ -21,9 +21,10 @@ import {
 	Sun01Icon,
 } from "@hugeicons/core-free-icons";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RangeSlider } from "@/components/RangeSlider";
-import { SettingRow } from "@/components/SettingRow";
-import { SettingsSection } from "@/components/SettingsSection";
+import { RangeSlider } from "@/components/common/RangeSlider";
+import { SettingRow } from "@/components/common/SettingRow";
+import { SettingsSection } from "@/components/common/SettingsSection";
+import { Input } from "@/components/ui/input";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import {
 	Select,
@@ -803,11 +804,11 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 									className="flex items-center gap-2.5 rounded-lg border border-border bg-(--bg) p-2"
 								>
 									<div className="relative shrink-0">
-										<input
+										<Input
 											type="color"
 											value={currentHex}
 											onChange={handleColorInputChange(varName)}
-											className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+											className="absolute inset-0 h-full w-full cursor-pointer opacity-0 p-0 border-none"
 											aria-label={t("settings.appearance.colorAria", { label })}
 										/>
 										<div
@@ -823,11 +824,11 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 											{description}
 										</p>
 									</div>
-									<input
+									<Input
 										type="text"
 										value={currentHex}
 										onChange={handleHexInputChange(varName)}
-										className="w-18 shrink-0 rounded border border-border bg-(--bg-subtle) px-1.5 py-1 text-center text-[11px] font-mono text-(--text-primary) outline-none focus:border-ring focus:ring-1 focus:ring-ring"
+										className="w-18 shrink-0 text-center text-[11px] font-mono text-(--text-primary)"
 										spellCheck={false}
 										aria-label={t("settings.appearance.hexValueAria", {
 											label,

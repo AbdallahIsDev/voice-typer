@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 
 interface RangeSliderProps {
@@ -44,13 +45,15 @@ export function RangeSlider({
 	deferApply = false,
 }: RangeSliderProps) {
 	// Local "display" value used while `deferApply` is on.  During a drag
-	// the native input moves the thumb on its own (its own internal state),
+	// the shadcn Slider moves the thumb on its own (its own internal state),
 	// but our React `value` prop is the *committed* value — so if we don't
 	// shadow it with a local state, the thumb snaps back to the last
 	// committed value on every re-render.  The local state lets the thumb
 	// follow the drag while the real `onChange` is deferred to pointer-up.
 	const [displayValue, setDisplayValue] = useState(value);
 	const dirtyRef = useRef(false);
+	// Track whether a drag is in progress to defer the commit until release.
+	const isDraggingRef = useRef(false);
 
 	// Sync local display state when the external committed value changes
 	// (e.g. config reload, Ctrl+Plus keyboard shortcut, parent prop update).
@@ -63,6 +66,7 @@ export function RangeSlider({
 	const commit = () => {
 		if (!dirtyRef.current) return;
 		dirtyRef.current = false;
+		isDraggingRef.current = false;
 		if (displayValue !== value) {
 			onChange(displayValue);
 		}
@@ -70,39 +74,38 @@ export function RangeSlider({
 
 	const renderedValue = deferApply ? displayValue : value;
 
-	const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-		const next = Number(e.target.value);
+	const handleValueChange = (vals: number[]) => {
+		const next = vals[0];
 		if (deferApply) {
 			dirtyRef.current = true;
+			isDraggingRef.current = true;
 			setDisplayValue(next);
 		} else {
 			onChange(next);
 		}
 	};
 
-	const commitProps = deferApply
-		? {
-				onPointerUp: commit,
-				onMouseUp: commit,
-				onKeyUp: commit,
-				onTouchEnd: commit,
-				onBlur: commit,
-			}
-		: {};
+	const handleCommit = () => {
+		if (deferApply && isDraggingRef.current) {
+			commit();
+		}
+	};
 
 	return (
 		<div className={cn("flex items-center gap-2", className)}>
-			<input
-				type="range"
+			<Slider
+				value={[renderedValue]}
+				onValueChange={handleValueChange}
+				onPointerUp={handleCommit}
+				onBlur={handleCommit}
 				min={min}
 				max={max}
 				step={step}
-				value={renderedValue}
-				onChange={handleChange}
-				className="w-24"
 				aria-label={ariaLabel}
 				disabled={disabled}
-				{...commitProps}
+				className="w-24 py-3"
+				trackClassName="h-2"
+				thumbClassName="w-6 bg-white shadow-md border-0"
 			/>
 			<span className="text-sm text-(--text-muted) w-14 tabular-nums">
 				{renderedValue}

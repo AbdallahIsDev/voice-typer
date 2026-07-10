@@ -7,11 +7,11 @@
 // HotkeySettingsSection since it was the only setting in that section.
 
 import { memo, useCallback } from "react";
-import { HotkeyPicker } from "@/components/HotkeyPicker";
-import { getComboPresets } from "@/components/hotkey-utils";
-import { SettingRow } from "@/components/SettingRow";
-import { SettingsSection } from "@/components/SettingsSection";
-import { NumberInput } from "@/components/ui/number-input";
+import { SettingRow } from "@/components/common/SettingRow";
+import { SettingsSection } from "@/components/common/SettingsSection";
+import { HotkeyPicker } from "@/components/hotkey/HotkeyPicker";
+import { getComboPresets } from "@/components/hotkey/hotkey-utils";
+import { NumberInputStepper } from "@/components/ui/number-input-stepper";
 import {
 	SegmentedControl,
 	type SegmentedControlOption,
@@ -104,7 +104,10 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 	const handleMaxRecordingTimeChange = (
 		e: React.ChangeEvent<HTMLInputElement>,
 	) =>
-		updateConfigDebounced("max_recording_time_seconds", Number(e.target.value));
+		updateConfigDebounced(
+			"max_recording_time_seconds",
+			Number(e.target.value) * 60,
+		);
 
 	const handleRecordingModeChange = (v: string) =>
 		updateConfig({ recording_mode: v as "toggle" | "push_to_talk" });
@@ -155,6 +158,9 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 	const maxRecordingTimeLabel = t("settings.hotkeySection.maxRecordingTime");
 	const maxRecordingTimeInfoSearch = t(
 		"settings.hotkeySection.maxRecordingTimeInfoSearch",
+	);
+	const maxRecordingMinutes = Math.round(
+		config.max_recording_time_seconds / 60,
 	);
 	const recordingModeOptions: SegmentedControlOption<
 		"toggle" | "push_to_talk"
@@ -308,7 +314,7 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 						info={t("settings.hotkeySection.silenceWarningInfo")}
 					>
 						<div className="flex items-center gap-2">
-							<NumberInput
+							<NumberInputStepper
 								min={3}
 								max={30}
 								step={1}
@@ -316,8 +322,14 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 								onChange={handleSilenceWarningChange}
 								className="w-20 text-center"
 								aria-label={t("settings.hotkeySection.silenceWarningAria")}
+								aria-invalid={
+									config.silence_warning_seconds < 3 ||
+									config.silence_warning_seconds > 30
+										? true
+										: undefined
+								}
 							/>
-							<span className="text-sm text-(--text-muted)">sec</span>
+							<span className="text-sm text-(--text-muted)">s</span>
 						</div>
 					</SettingRow>
 
@@ -326,16 +338,21 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 						info={t("settings.hotkeySection.maxRecordingTimeInfo")}
 					>
 						<div className="flex items-center gap-2">
-							<NumberInput
-								min={300}
-								max={3600}
+							<NumberInputStepper
+								min={5}
+								max={60}
 								step={1}
-								value={String(config.max_recording_time_seconds)}
+								value={String(maxRecordingMinutes)}
 								onChange={handleMaxRecordingTimeChange}
 								className="w-20 text-center"
 								aria-label={t("settings.hotkeySection.maxRecordingTimeAria")}
+								aria-invalid={
+									maxRecordingMinutes < 5 || maxRecordingMinutes > 60
+										? true
+										: undefined
+								}
 							/>
-							<span className="text-sm text-(--text-muted)">sec</span>
+							<span className="text-sm text-(--text-muted)">min</span>
 						</div>
 					</SettingRow>
 

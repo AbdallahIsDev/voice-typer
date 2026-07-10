@@ -17,8 +17,8 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { memo } from "react";
-import { SettingRow } from "@/components/SettingRow";
-import { SettingsSection } from "@/components/SettingsSection";
+import { SettingRow } from "@/components/common/SettingRow";
+import { SettingsSection } from "@/components/common/SettingsSection";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { usePython } from "@/hooks/usePython";

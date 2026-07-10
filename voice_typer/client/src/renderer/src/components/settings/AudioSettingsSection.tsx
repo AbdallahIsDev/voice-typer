@@ -10,9 +10,9 @@
 // parent doesn't need to know about it).
 
 import { memo, useCallback, useEffect, useState } from "react";
-import { RangeSlider } from "@/components/RangeSlider";
-import { SettingRow } from "@/components/SettingRow";
-import { SettingsSection } from "@/components/SettingsSection";
+import { RangeSlider } from "@/components/common/RangeSlider";
+import { SettingRow } from "@/components/common/SettingRow";
+import { SettingsSection } from "@/components/common/SettingsSection";
 import {
 	Select,
 	SelectContent,

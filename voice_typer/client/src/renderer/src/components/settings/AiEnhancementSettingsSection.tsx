@@ -24,9 +24,9 @@
 // SettingRow children.
 
 import { memo } from "react";
-import { RangeSlider } from "@/components/RangeSlider";
-import { SettingRow } from "@/components/SettingRow";
-import { SettingsSection } from "@/components/SettingsSection";
+import { RangeSlider } from "@/components/common/RangeSlider";
+import { SettingRow } from "@/components/common/SettingRow";
+import { SettingsSection } from "@/components/common/SettingsSection";
 import { Switch } from "@/components/ui/switch";
 import { t } from "@/i18n/i18n";
 import { SettingsSkeleton } from "./SettingsSkeleton";

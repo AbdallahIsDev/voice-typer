@@ -3,7 +3,7 @@ interface LogoProps {
 	className?: string;
 }
 
-import { APP_NAME } from "./../branding";
+import { APP_NAME } from "@/branding";
 
 export function Logo({ size = 20, className }: LogoProps) {
 	return (

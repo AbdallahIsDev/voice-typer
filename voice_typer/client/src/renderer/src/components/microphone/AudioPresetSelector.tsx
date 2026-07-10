@@ -1,6 +1,6 @@
 import { FilterIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { RangeSlider } from "@/components/RangeSlider";
+import { RangeSlider } from "@/components/common/RangeSlider";
 import {
 	Select,
 	SelectContent,

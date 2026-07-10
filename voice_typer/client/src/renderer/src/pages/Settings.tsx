@@ -8,10 +8,10 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import PageHeading from "@/components/PageHeading";
-import { SearchField } from "@/components/SearchField";
-import { SettingsSection } from "@/components/SettingsSection";
-import { Spinner } from "@/components/Spinner";
+import PageHeading from "@/components/common/PageHeading";
+import { SearchField } from "@/components/common/SearchField";
+import { SettingsSection } from "@/components/common/SettingsSection";
+import { Spinner } from "@/components/feedback/Spinner";
 import { AiEnhancementSettingsSection } from "@/components/settings/AiEnhancementSettingsSection";
 import { AudioSettingsSection } from "@/components/settings/AudioSettingsSection";
 import { GeneralSettingsSection } from "@/components/settings/GeneralSettingsSection";

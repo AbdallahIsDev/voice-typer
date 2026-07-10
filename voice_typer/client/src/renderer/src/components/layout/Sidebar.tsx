@@ -12,8 +12,8 @@ import {
 import type { IconSvgElement } from "@hugeicons/react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { APP_NAME } from "@/branding";
-import { Logo } from "@/components/Logo";
-import { ThemeSwitch } from "@/components/ThemeSwitch";
+import { Logo } from "@/components/layout/Logo";
+import { ThemeSwitch } from "@/components/layout/ThemeSwitch";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";

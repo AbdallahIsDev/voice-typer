@@ -128,7 +128,9 @@ describe("HotkeyPicker — Accessibility (ARIA runtime verification)", () => {
 		});
 
 		it("preset dropdown button has aria-label containing 'Preset hotkeys'", () => {
-			renderPicker({ presets: [{ value: "<ctrl>+<alt>+v", label: "Ctrl+Alt+V" }] });
+			renderPicker({
+				presets: [{ value: "<ctrl>+<alt>+v", label: "Ctrl+Alt+V" }],
+			});
 			const presetBtn = screen.getByRole("button", {
 				name: /preset hotkeys/i,
 			});
@@ -271,7 +273,9 @@ describe("HotkeyPicker — Accessibility (ARIA runtime verification)", () => {
 
 		it("preset dropdown menu items have role='menuitem' and are keyboard-navigable via ArrowDown", async () => {
 			const user = userEvent.setup();
-			renderPicker({ presets: [{ value: "<ctrl>+<alt>+v", label: "Ctrl+Alt+V" }] });
+			renderPicker({
+				presets: [{ value: "<ctrl>+<alt>+v", label: "Ctrl+Alt+V" }],
+			});
 
 			const presetTrigger = screen.getByRole("button", {
 				name: /preset hotkeys/i,

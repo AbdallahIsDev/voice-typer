@@ -6,10 +6,10 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import ConfirmDialog from "@/components/ConfirmDialog";
-import { EmptyState } from "@/components/EmptyState";
-import PageHeading from "@/components/PageHeading";
-import { Spinner } from "@/components/Spinner";
+import ConfirmDialog from "@/components/common/ConfirmDialog";
+import PageHeading from "@/components/common/PageHeading";
+import { EmptyState } from "@/components/feedback/EmptyState";
+import { Spinner } from "@/components/feedback/Spinner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {

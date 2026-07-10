@@ -9,8 +9,8 @@
 // (no search-filter hide-when-empty wrapper, matching the original).
 
 import { memo, useState } from "react";
-import { SettingRow } from "@/components/SettingRow";
-import { SettingsSection } from "@/components/SettingsSection";
+import { SettingRow } from "@/components/common/SettingRow";
+import { SettingsSection } from "@/components/common/SettingsSection";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {

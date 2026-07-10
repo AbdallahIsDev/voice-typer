@@ -12,9 +12,10 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import type React from "react";
 import { Fragment, useCallback, useEffect, useState } from "react";
-import ConfirmDialog from "@/components/ConfirmDialog";
-import PageHeading from "@/components/PageHeading";
-import { Spinner } from "@/components/Spinner";
+import ConfirmDialog from "@/components/common/ConfirmDialog";
+import PageHeading from "@/components/common/PageHeading";
+import { Spinner } from "@/components/feedback/Spinner";
+import { DownloadProgressBar } from "@/components/models/DownloadProgressBar";
 import {
 	Accordion,
 	AccordionContent,

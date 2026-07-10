@@ -9,8 +9,8 @@
 // level "hide if no items match" check for the General section.
 
 import { memo } from "react";
-import { SettingRow } from "@/components/SettingRow";
-import { SettingsSection } from "@/components/SettingsSection";
+import { SettingRow } from "@/components/common/SettingRow";
+import { SettingsSection } from "@/components/common/SettingsSection";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import {
 	Select,

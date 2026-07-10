@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 // NEW-UX-015: ErrorBoundary catches render errors so a single bad
 // config or component crash doesn't white-screen the entire app.
-import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { Sidebar } from "@/components/Sidebar";
-import { Spinner } from "@/components/Spinner";
-import { TitleBar } from "@/components/TitleBar";
+import { ErrorBoundary } from "@/components/feedback/ErrorBoundary";
+import { Spinner } from "@/components/feedback/Spinner";
+import { Sidebar } from "@/components/layout/Sidebar";
+import { TitleBar } from "@/components/layout/TitleBar";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { useConnection } from "@/hooks/useConnection";

@@ -7,12 +7,12 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import ConfirmDialog from "@/components/ConfirmDialog";
-import { EmptyState } from "@/components/EmptyState";
-import ExportFormatMenu from "@/components/ExportFormatMenu";
-import PageHeading from "@/components/PageHeading";
-import { SearchField } from "@/components/SearchField";
-import { Spinner } from "@/components/Spinner";
+import ConfirmDialog from "@/components/common/ConfirmDialog";
+import ExportFormatMenu from "@/components/common/ExportFormatMenu";
+import PageHeading from "@/components/common/PageHeading";
+import { SearchField } from "@/components/common/SearchField";
+import { EmptyState } from "@/components/feedback/EmptyState";
+import { Spinner } from "@/components/feedback/Spinner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {

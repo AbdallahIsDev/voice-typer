@@ -37,7 +37,7 @@
  * matches the server original.
  */
 
-import hotkeyReserved from "../data/hotkey_reserved.json";
+import hotkeyReserved from "../../data/hotkey_reserved.json";
 
 export const UNIVERSAL_RESERVED_SHORTCUTS: readonly string[] =
 	hotkeyReserved.universal_reserved;

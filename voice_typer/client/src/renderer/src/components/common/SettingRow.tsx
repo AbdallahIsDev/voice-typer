@@ -1,9 +1,9 @@
-// src/renderer/src/components/SettingRow.tsx
+// src/renderer/src/components/common/SettingRow.tsx
 
 import type { ReactNode } from "react";
 import { useId } from "react";
+import { InfoTooltip } from "@/components/feedback/InfoTooltip";
 import { cn } from "@/lib/utils";
-import { InfoTooltip } from "./InfoTooltip";
 
 interface SettingRowProps {
 	label: string;

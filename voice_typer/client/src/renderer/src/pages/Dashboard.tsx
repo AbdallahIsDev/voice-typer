@@ -10,11 +10,11 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { DashboardStatCard } from "@/components/DashboardStatCard";
-import PageHeading from "@/components/PageHeading";
-import { QuickInfoCard } from "@/components/QuickInfoCard";
-import { Spinner } from "@/components/Spinner";
-import { StatsShareImage } from "@/components/StatsShareImage";
+import PageHeading from "@/components/common/PageHeading";
+import { DashboardStatCard } from "@/components/dashboard/DashboardStatCard";
+import { QuickInfoCard } from "@/components/dashboard/QuickInfoCard";
+import { StatsShareImage } from "@/components/dashboard/StatsShareImage";
+import { Spinner } from "@/components/feedback/Spinner";
 import { Button } from "@/components/ui/button.tsx";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { computeShareStats, useStatsShare } from "@/hooks/useStatsShare";
