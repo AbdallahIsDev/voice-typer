@@ -1135,17 +1135,8 @@ class TestAudioMicDeviceChangePoller:
     ``Recorder.__init__``), which is the sole source of truth on all
     platforms (WM_DEVICECHANGE on Windows, ``/dev/snd`` polling on
     Linux, CoreAudio property-listener on macOS). The poller was
-    removed from ``_do_startup``; the ``_start_device_change_poller``
-    method is retained as a no-op stub for backwards compatibility.
+    removed from ``_do_startup`` (now ``StartupSequence.run``).
     """
-
-    def test_start_device_change_poller_exists(self):
-        from voice_typer.server.app import VoiceTyperApp
-
-        assert hasattr(VoiceTyperApp, "_start_device_change_poller"), (
-            "AUDIO-MIC: _start_device_change_poller method must exist "
-            "(retained as a no-op stub for backwards compatibility)."
-        )
 
     def test_load_microphones_pushes_ipc_event_on_change(self):
         from voice_typer.server.app import VoiceTyperApp
@@ -1160,21 +1151,18 @@ class TestAudioMicDeviceChangePoller:
         )
 
     def test_poller_not_started_in_startup(self):
-        """PERF-FIX-2: ``_do_startup`` must NOT call
+        """PERF-FIX-2: ``StartupSequence.run`` must NOT call
         ``_start_device_change_poller``. The 30s poller is redundant
         with the event-driven ``MicrophoneDeviceWatcher`` (the sole
         source of truth). The poller was removed from startup to
         eliminate the ~1-5ms/30s CPU cost and the per-second
         ``threading.Event()`` allocation.
         """
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.startup_sequence import StartupSequence
 
-        src = inspect.getsource(VoiceTyperApp._do_startup)
-        # The method may still be *referenced* in a comment explaining
-        # why it was removed — but it must NOT be CALLED. We check
-        # that the call form (with parentheses) is absent.
+        src = inspect.getsource(StartupSequence.run)
         assert "_start_device_change_poller(" not in src, (
-            "PERF-FIX-2: _do_startup must NOT call _start_device_change_poller "
+            "PERF-FIX-2: StartupSequence.run must NOT call _start_device_change_poller "
             "(redundant with the event-driven MicrophoneDeviceWatcher)."
         )
 
@@ -3449,10 +3437,10 @@ class TestAccessibilityPulseReCheckExists:
         assert hasattr(VoiceTyperApp, "_start_accessibility_pulse")
 
     def test_pulse_called_on_macos(self):
-        """Source must call _start_accessibility_pulse after the a11y check."""
-        from voice_typer.server.app import VoiceTyperApp
-        src = inspect.getsource(VoiceTyperApp._do_startup)
-        assert "_start_accessibility_pulse" in src
+        """Source must call start_accessibility_pulse after the a11y check."""
+        from voice_typer.server.startup_sequence import StartupSequence
+        src = inspect.getsource(StartupSequence.run)
+        assert "start_accessibility_pulse" in src
 
 class TestTrayIconHasAccessibleName:
     """PLAT-010: title serves as accessible name (pystray limitation)."""
