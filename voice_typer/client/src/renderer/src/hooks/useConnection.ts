@@ -157,6 +157,12 @@ export function useConnection({
 	]);
 
 	// Periodic health check while connected
+	// PR-1: use ``get_status`` (lightweight — returns only state +
+	// xrun counter) instead of ``get_config`` (serializes the entire
+	// config dict).  The RW-10 heartbeat (5s backend→frontend check)
+	// detects Electron crashes; this 60s renderer→backend check
+	// detects backend crashes.  Together they provide bidirectional
+	// crash detection without config serialization churn.
 	useEffect(() => {
 		if (connectionStatus !== "connected") return;
 
@@ -164,7 +170,7 @@ export function useConnection({
 
 		const interval = setInterval(async () => {
 			try {
-				await call("get_config");
+				await call("get_status");
 			} catch {
 				if (!cancelled) setConnectionStatus("disconnected");
 			}

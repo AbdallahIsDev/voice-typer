@@ -569,6 +569,10 @@ function sendToPython(msg: Record<string, unknown>): Promise<unknown> {
 			// NEW-PRIV-011: allow cancel_model_download so the renderer can
 			// cancel an in-progress HuggingFace download.
 			"cancel_model_download",
+			// NEW-PAUSE-001: allow pause/resume so the renderer can pause
+			// and resume in-progress model downloads from the Models page.
+			"pause_model_download",
+			"resume_model_download",
 			// NEW-DEAD-015: allow test_llm_connection so the renderer can
 			// wire up a "Test connection" button on the Settings page.
 			"test_llm_connection",
@@ -615,20 +619,18 @@ function sendToPython(msg: Record<string, unknown>): Promise<unknown> {
 		(msg as Record<string, unknown>).id = id;
 		pendingRequests.set(id, { resolve, reject });
 		const line = `${JSON.stringify(msg)}\n`;
-		tcpSocket.write(line);
-		// 15s timeout for IPC calls — long enough for normal operations
-		// (transcription, config, status) but short enough that the UI
-		// doesn't hang forever if the backend is genuinely stuck.
-		// The socket close handler (SEC-022) rejects pending requests
-		// immediately if the connection drops, so the timeout only fires
-		// when the request is still genuinely pending.
+		tcpSocket.write(line); // 120s timeout for IPC calls  increased from 15s so model downloads
+		// (which block the IPC dispatch loop for their entire duration) don't
+		// trigger a false-positive timeout.  The Python-side heartbeat watchdog
+		// was increased from 15s to 120s (ipc_server.py) for the same reason —
+		// both timeouts must be in sync.
 		setTimeout(() => {
 			if (pendingRequests.has(id)) {
 				pendingRequests.delete(id);
 				const cmd = String(msg?.type ?? "unknown").trim();
-				reject(new Error(`Timeout after 15s for command: ${cmd}`));
+				reject(new Error(`Timeout after 120s for command: ${cmd}`));
 			}
-		}, 15000);
+		}, 120000);
 	});
 }
 

@@ -199,7 +199,7 @@ _TCP_WRITE_TIMEOUT_SECONDS = 2.0
 # so the backend doesn't exit prematurely during a slow Electron cold
 # start (10+ seconds for the torch import + window creation).
 _HEARTBEAT_INTERVAL_SECONDS = 5.0
-_HEARTBEAT_TIMEOUT_SECONDS = 15.0  # 3 missed heartbeats
+_HEARTBEAT_TIMEOUT_SECONDS = 120.0  # 24 missed heartbeats — increased from 15s so model downloads (which block the IPC dispatch loop) don't trigger a false-positive shutdown
 
 
 class _RateLimiter:
@@ -1280,6 +1280,11 @@ class IPCServer(
         "get_vocabulary_suggestions": "_handle_get_vocabulary_suggestions",
         "apply_vocabulary_suggestion": "_handle_apply_vocabulary_suggestion",
         "dismiss_vocabulary_suggestion": "_handle_dismiss_vocabulary_suggestion",
+        # PR-2 Finding #3: force-cancel a stuck transcription.  Invokes
+        # ``_force_recover_from_stuck_transcription(force=True)`` to reset
+        # the busy flag and tray state immediately, bypassing the normal
+        # 3×90s watchdog timeout.
+        "force_cancel_transcription": "_handle_force_cancel_transcription",
         # RW-10: Electron-alive heartbeat.  Electron's main process
         # sends this every 5 seconds; the backend's heartbeat-watchdog
         # daemon thread calls ``app.quit()`` if 3 consecutive heartbeats
