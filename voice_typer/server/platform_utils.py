@@ -87,24 +87,23 @@ def _set_windows_process_metadata(app_name: str) -> None:
 
         # 2. Set the AppUserModelID so Windows identifies this process
         #    as belonging to Voice Typer.  Must match the Electron side
-        #    (``abdallahisdev.VoiceTyper`` in index.ts) for consistency.
+        #    (``VoiceTyper`` in index.ts) for consistency.
         try:
             shell32 = ctypes.windll.shell32
             shell32.SetCurrentProcessExplicitAppUserModelID.argtypes = [
                 wintypes.LPCWSTR
             ]
             # TASK-14: ``wintypes.HRESULT`` is only present in the
-            # typeshed stub when ``sys.version_info >= (3, 14)``.  On
-            # Python 3.12 (our baseline) pyrefly reports ``No attribute
-            # `HRESULT` in module `ctypes.wintypes``` because the
-            # alias is gated behind a version check.  Resolve via
-            # ``getattr`` — ``HRESULT`` is an alias for ``LONG`` so
-            # ``wintypes.LONG`` is a safe fallback.
+            # typeshed stub when ``sys.version_info >= (3, 14)``.
             shell32.SetCurrentProcessExplicitAppUserModelID.restype = getattr(
                 wintypes, "HRESULT", wintypes.LONG
             )
+            # BRAND-FIX-001: use just the app name (no "abdallahisdev." prefix)
+            # so Windows notifications show "VoiceTyper" as the title instead
+            # of "abdallahisdev.VoiceTyper".  Matches the Electron side's
+            # ``app.setAppUserModelId("VoiceTyper")`` in index.ts.
             shell32.SetCurrentProcessExplicitAppUserModelID(
-                f"abdallahisdev.{app_name.replace(' ', '')}"
+                app_name.replace(' ', '')
             )
         except Exception:
             pass  # Best-effort — requires Windows 7+ with shell32
