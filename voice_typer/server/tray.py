@@ -75,6 +75,7 @@ _TRAY_LABELS_EN: dict[str, str] = {
     "recording_active": "Recording active",
     "update_available": "Update Available",
     "version": "version",
+    "force_cancel_transcription": "Cancel Transcription",
 }
 
 # TRAY-008: Spanish translations (proof of concept for tray i18n).
@@ -90,6 +91,7 @@ _TRAY_LABELS_ES: dict[str, str] = {
     "recording_active": "Grabación activa",
     "update_available": "Actualización Disponible",
     "version": "versión",
+    "force_cancel_transcription": "Cancelar Transcripción",
 }
 
 # TRAY-008: locale → label dict. Add new locales here.
@@ -538,8 +540,31 @@ class TrayIcon:
         _open()
 
     def invalidate_menu_cache(self) -> None:
-        """Mark the menu cache as stale so it rebuilds on next right-click."""
+        """Mark the menu cache as stale so it rebuilds on next right-click.
+
+        ARCH-049: on Windows, pystray's ``_on_notify`` displays the menu via
+        ``TrackPopupMenuEx`` with the STORED ``HMENU`` handle — it does NOT
+        re-call the ``_build_menu`` callback on subsequent right-clicks because
+        ``_update_menu()`` is only called during icon creation.  We must force
+        pystray to rebuild its Win32 menu handle by calling
+        ``_icon._update_menu()`` here, which triggers the ``_build_menu``
+        callback and reads the latest config values.
+
+        Thread safety: ``_update_menu()`` calls ``DestroyMenu`` /
+        ``CreatePopupMenu`` / ``InsertMenuItem`` — all Win32 API calls that
+        are thread-safe.  The old handle is destroyed and replaced atomically
+        (CPython GIL protects the tuple assignment).  A concurrent right-click
+        during the brief rebuild window simply shows the previous menu or
+        nothing — the user can right-click again.
+        """
         self._menu_cache_valid = False
+        # ARCH-049: force pystray to rebuild its Win32 menu handle so the
+        # next right-click reflects the current config state.
+        if self._icon is not None:
+            try:
+                self._icon._update_menu()
+            except Exception:
+                log.debug("[TRAY] _icon._update_menu() failed", exc_info=True)
 
 
     def _build_menu(self) -> tuple:
@@ -572,6 +597,13 @@ class TrayIcon:
             hotkey=self._hotkey or getattr(self._config, "hotkey", "<f2>") or "<f2>",
             toggle_dictation=self._controller.toggle_dictation,
             open_app=self.open_electron_window,
+            # PR-2 Finding #3: manual escape hatch for stuck transcription.
+            # Invokes _force_recover_from_stuck_transcription(force=True)
+            # via the app's delegate method.  Safe to call when
+            # transcription is not stuck (no-op).
+            force_cancel_transcription=lambda: self._controller._force_recover_from_stuck_transcription(
+                force=True
+            ),
             restart_app=self._controller.restart_app,
             quit_app=self._confirm_quit_while_recording,
             build_models_submenu=self._build_models_submenu,

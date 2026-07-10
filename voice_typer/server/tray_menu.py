@@ -98,6 +98,7 @@ def build_menu(
     hotkey: str,
     toggle_dictation: Callable[[], None],
     open_app: Callable[[], None],
+    force_cancel_transcription: Callable[[], None] | None = None,
     restart_app: Callable[[], None],
     quit_app: Callable[[], None],
     build_models_submenu: Callable[[], list],
@@ -135,6 +136,11 @@ def build_menu(
         No-arg callbacks for each menu action. They will be wrapped
         with wrap_callback() so pystray's (icon, item) invocation
         convention doesn't break them.
+    force_cancel_transcription : Callable, optional
+        PR-2 Finding #3: force-cancel a stuck transcription.  Invokes
+        ``_force_recover_from_stuck_transcription(force=True)`` to
+        reset busy flag and tray state immediately.  Safe to call
+        when transcription is not stuck (no-op).
     build_models_submenu : Callable[[], list]
         Returns the list of MenuItem for the Models submenu. Delegated
         to the caller because it depends on TrayIcon's controller +
@@ -166,6 +172,15 @@ def build_menu(
             default=dictation_default,
         )
     )
+
+    # PR-2 Finding #3: Force-cancel stuck transcription (manual escape hatch)
+    if force_cancel_transcription is not None:
+        items.append(
+            pystray.MenuItem(
+                localize("force_cancel_transcription"),
+                wrap_callback(force_cancel_transcription),
+            )
+        )
 
     items.append(pystray.Menu.SEPARATOR)
 
