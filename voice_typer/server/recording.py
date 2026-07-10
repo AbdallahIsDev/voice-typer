@@ -1136,11 +1136,11 @@ class Recorder:
         # PERF-NEW-006: cache config values at start() time so the
         # audio callback doesn't do 5x getattr per iteration.
         self._cached_silence_warning = getattr(self.config, 'silence_warning_seconds', 20.0)
-        self._cached_stop_on_silence = getattr(self.config, 'stop_on_silence_seconds', 120.0)
+        self._cached_stop_on_silence = getattr(self.config, 'stop_on_silence_seconds', 60.0)
         # SIMPLIFY-001: single explicit field replaces the old 3-field split
         # (max_recording_time_seconds_gpu, max_recording_time_seconds_cpu,
-        # and max_recording_time_seconds=0 auto-selection). Always defaults to 1200.
-        self._cached_max_recording_time = int(getattr(self.config, 'max_recording_time_seconds', 1200))
+        # and max_recording_time_seconds=0 auto-selection). Always defaults to 900.
+        self._cached_max_recording_time = int(getattr(self.config, 'max_recording_time_seconds', 900))
 
         # PERF-NEW-018: dynamically size the buffer based on max_recording_time_seconds.
         # At 16kHz with 1024-sample chunks, each chunk = 64ms.  For a 30-min

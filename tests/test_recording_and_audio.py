@@ -279,7 +279,7 @@ class TestAudioCallbackPreStartGuard:
         recorder._clip_count = 0
         recorder._peak = 0.0
         recorder._last_clip_log_time = 0.0
-        recorder._cached_max_recording = 0
+        recorder._cached_max_recording_time = 0
 
         assert not recorder._recording_event.is_set()
 

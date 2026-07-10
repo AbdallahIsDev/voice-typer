@@ -185,7 +185,7 @@ for every setting. Key categories:
 | Category | Settings |
 |---|---|
 | Hotkey | `hotkey`, `recording_mode`, `push_to_talk_hotkey`, `repaste_hotkey` |
-| Recording | `microphone`, `sample_rate`, `silence_warning_seconds`, `silence_auto_stop_seconds`, `max_recording_seconds` |
+| Recording | `microphone`, `sample_rate`, `silence_warning_seconds`, `stop_on_silence_seconds`, `max_recording_time_seconds` |
 | Transcription | `model_size`, `language`, `device`, `beam_size`, `streaming_transcription` |
 | Behavior | `autostart`, `paste_on_stop`, `show_notifications`, `text_cleanup_enabled` |
 | ASR backend | `asr_backend` (whisper/qwen/parakeet), `qwen_model_path`, `parakeet_model_path` |

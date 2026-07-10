@@ -103,7 +103,7 @@ Application configuration with type-safe access and atomic persistence.
 | `paste_enabled` | `bool` | `True` | Whether to auto-paste transcribed text. |
 | `log_transcriptions` | `bool` | `False` | Whether to log transcription text (privacy-sensitive). |
 | `silence_warning_seconds` | `float` | `10.0` | Seconds of silence before warning. |
-| `silence_auto_stop_seconds` | `float` | `30.0` | Seconds of silence before auto-stop. |
+| `stop_on_silence_seconds` | `float` | `60.0` | Seconds of silence before auto-stop. |
 | `clipboard_clear_delay_seconds` | `float` | `5.0` | Seconds before clearing clipboard after paste. |
 | `check_updates` | `bool` | `True` | Whether to check for updates periodically. |
 

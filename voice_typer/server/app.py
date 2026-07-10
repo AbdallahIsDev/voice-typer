@@ -1353,8 +1353,8 @@ class VoiceTyperApp:
     #   - create_desktop_shortcut
     #   - set_notifications (use _set_notifications directly)
     #   - set_silence_warning_seconds (use set_config via IPC)
-    #   - set_silence_auto_stop_seconds (use set_config via IPC)
-    #   - set_max_recording_seconds (use set_config via IPC)
+    #   - set_stop_on_silence_seconds (use set_config via IPC)
+    #   - set_max_recording_time_seconds (use set_config via IPC)
     # The corresponding TrayController Protocol entries were also removed.
 
     # ─── Shutdown ──────────────────────────────────────────────────────

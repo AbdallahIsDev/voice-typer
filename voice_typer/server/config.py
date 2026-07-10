@@ -750,13 +750,13 @@ class Config:
 
     # Silent mic disconnection (H12)
     silence_warning_seconds: float = 20.0
-    stop_on_silence_seconds: float = 120.0
+    stop_on_silence_seconds: float = 60.0
     # RW-0 / SIMPLIFY-001: single explicit field replaces the previous 3-field split
     # (max_recording_time_seconds_gpu, max_recording_time_seconds_cpu, and
     # max_recording_time_seconds=0). The old GPU/CPU auto-selection was invisible
     # to users and the "0 = automatic" convention was user-hostile. Now the field
     # is always a concrete value with min 300 (5 min) / max 3600 (60 min).
-    max_recording_time_seconds: int = 1200  # 20 minutes
+    max_recording_time_seconds: int = 900  # 15 minutes
 
     # NOTE: dead_air_timeout (float) was REMOVED in RW-0.
     # It was redundant with stop_on_silence_seconds — both called the same
@@ -1013,13 +1013,13 @@ class Config:
                     data["streaming_left_overlap_seconds"] = chunk / 3.0
                 # SIMPLIFY-001: clamp max_recording_time_seconds to valid range [300, 3600]
                 # to handle old config files that had 0 = auto-select (which is now invalid).
-                max_rec = int(data.get("max_recording_time_seconds", 1200))
+                max_rec = int(data.get("max_recording_time_seconds", 900))
                 if max_rec < 300 or max_rec > 3600:
                     log.warning(
                         "[CONFIG] max_recording_time_seconds=%d outside valid range [300, 3600], "
-                        "resetting to 1200", max_rec,
+                        "resetting to 900", max_rec,
                     )
-                    data["max_recording_time_seconds"] = 1200
+                    data["max_recording_time_seconds"] = 900
 
                 if data.get("model_size") not in ALLOWED_USER_MODELS:
                     data["model_size"] = "small.en"
