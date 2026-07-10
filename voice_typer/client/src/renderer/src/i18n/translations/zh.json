@@ -205,6 +205,10 @@
 		"delete": "删除",
 		"description": "配置您的语音转文本引擎",
 		"use": "使用",
+		"select": "选择",
+		"downloadModel": "下载",
+		"downloading": "下载中…",
+		"selecting": "选择中…",
 		"providers": {
 			"openai": {
 				"label": "OpenAI Whisper API"
@@ -285,13 +289,15 @@
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
 			"size": "Size: {size}",
-			"vram": "VRAM: ~{mb} MB",
+			"vram": "VRAM: ~{vram}",
 			"multilingual": "Multilingual",
 			"englishOnly": "English only",
 			"speedSuffix": "{rating} speed",
 			"distilled": "  ·  distilled",
 			"activeAria": "Active: {name}",
 			"useAria": "Use {name}",
+			"downloadAria": "下载 {name}",
+			"selectAria": "选择 {name}",
 			"deleteAria": "Delete {name}"
 		},
 		"cloud": {

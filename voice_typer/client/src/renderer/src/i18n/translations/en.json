@@ -748,6 +748,10 @@
 		"active": "Active",
 		"delete": "Delete",
 		"use": "Use",
+		"select": "Select",
+		"downloadModel": "Download",
+		"downloading": "Downloading…",
+		"selecting": "Selecting…",
 		"providers": {
 			"openai": {
 				"label": "OpenAI Whisper API"
@@ -838,13 +842,15 @@
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
 			"size": "Size: {size}",
-			"vram": "VRAM: ~{mb} MB",
+			"vram": "VRAM: ~{vram}",
 			"multilingual": "Multilingual",
 			"englishOnly": "English only",
 			"speedSuffix": "{rating} speed",
 			"distilled": "  ·  distilled",
 			"activeAria": "Active: {name}",
 			"useAria": "Use {name}",
+			"downloadAria": "Download {name}",
+			"selectAria": "Select {name}",
 			"deleteAria": "Delete {name}"
 		},
 		"cloud": {

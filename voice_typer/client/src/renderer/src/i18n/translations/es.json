@@ -506,6 +506,10 @@
 		"delete": "Eliminar",
 		"description": "Configura tus motores de reconocimiento de voz",
 		"use": "Usar",
+		"select": "Seleccionar",
+		"downloadModel": "Descargar",
+		"downloading": "Descargando…",
+		"selecting": "Seleccionando…",
 		"providers": {
 			"openai": {
 				"label": "API de OpenAI Whisper"
@@ -586,13 +590,15 @@
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
 			"size": "Tamaño: {size}",
-			"vram": "VRAM: ~{mb} MB",
+			"vram": "VRAM: ~{vram}",
 			"multilingual": "Multilingüe",
 			"englishOnly": "Solo inglés",
 			"speedSuffix": "{rating} velocidad",
 			"distilled": "  ·  destilado",
 			"activeAria": "Activo: {name}",
 			"useAria": "Usar {name}",
+			"downloadAria": "Descargar {name}",
+			"selectAria": "Seleccionar {name}",
 			"deleteAria": "Eliminar {name}"
 		},
 		"cloud": {

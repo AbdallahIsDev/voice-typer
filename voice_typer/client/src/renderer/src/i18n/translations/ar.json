@@ -504,6 +504,10 @@
 		"delete": "حذف",
 		"description": "تكوين محركات تحويل الكلام إلى نص",
 		"use": "استخدام",
+		"select": "تحديد",
+		"downloadModel": "تنزيل",
+		"downloading": "جارٍ التنزيل…",
+		"selecting": "جارٍ التحديد…",
 		"providers": {
 			"openai": {
 				"label": "OpenAI Whisper API"
@@ -584,13 +588,15 @@
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
 			"size": "الحجم: {size}",
-			"vram": "VRAM: ~{mb} ميجابايت",
+			"vram": "VRAM: ~{vram}",
 			"multilingual": "متعدد اللغات",
 			"englishOnly": "الإنجليزية فقط",
 			"speedSuffix": "{rating} سرعة",
 			"distilled": "  ·  مُقطّر",
 			"activeAria": "نشط: {name}",
 			"useAria": "استخدام {name}",
+			"downloadAria": "تنزيل {name}",
+			"selectAria": "تحديد {name}",
 			"deleteAria": "حذف {name}"
 		},
 		"cloud": {

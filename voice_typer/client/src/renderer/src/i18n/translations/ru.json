@@ -205,6 +205,10 @@
 		"delete": "Удалить",
 		"description": "Настройте движки преобразования речи в текст",
 		"use": "Использовать",
+		"select": "Выбрать",
+		"downloadModel": "Скачать",
+		"downloading": "Загрузка…",
+		"selecting": "Выбор…",
 		"providers": {
 			"openai": {
 				"label": "OpenAI Whisper API"
@@ -285,13 +289,15 @@
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
 			"size": "Size: {size}",
-			"vram": "VRAM: ~{mb} MB",
+			"vram": "VRAM: ~{vram}",
 			"multilingual": "Multilingual",
 			"englishOnly": "English only",
 			"speedSuffix": "{rating} speed",
 			"distilled": "  ·  distilled",
 			"activeAria": "Active: {name}",
 			"useAria": "Use {name}",
+			"downloadAria": "Скачать {name}",
+			"selectAria": "Выбрать {name}",
 			"deleteAria": "Delete {name}"
 		},
 		"cloud": {

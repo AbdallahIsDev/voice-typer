@@ -504,6 +504,10 @@
 		"delete": "Löschen",
 		"description": "Konfigurieren Sie Ihre Spracherkennungs-Engines",
 		"use": "Verwenden",
+		"select": "Auswählen",
+		"downloadModel": "Herunterladen",
+		"downloading": "Wird heruntergeladen…",
+		"selecting": "Wird ausgewählt…",
 		"providers": {
 			"openai": {
 				"label": "OpenAI Whisper API"
@@ -584,13 +588,15 @@
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
 			"size": "Size: {size}",
-			"vram": "VRAM: ~{mb} MB",
+			"vram": "VRAM: ~{vram}",
 			"multilingual": "Multilingual",
 			"englishOnly": "English only",
 			"speedSuffix": "{rating} speed",
 			"distilled": "  ·  distilled",
 			"activeAria": "Active: {name}",
 			"useAria": "Use {name}",
+			"downloadAria": "{name} herunterladen",
+			"selectAria": "{name} auswählen",
 			"deleteAria": "Delete {name}"
 		},
 		"cloud": {

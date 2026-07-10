@@ -504,6 +504,10 @@
 		"delete": "हटाएं",
 		"description": "अपने स्पीच-टू-टेक्स्ट इंजन कॉन्फ़िगर करें",
 		"use": "उपयोग करें",
+		"select": "चुनें",
+		"downloadModel": "डाउनलोड करें",
+		"downloading": "डाउनलोड हो रहा है…",
+		"selecting": "चुना जा रहा है…",
 		"providers": {
 			"openai": {
 				"label": "OpenAI Whisper API"
@@ -584,13 +588,15 @@
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
 			"size": "Size: {size}",
-			"vram": "VRAM: ~{mb} MB",
+			"vram": "VRAM: ~{vram}",
 			"multilingual": "Multilingual",
 			"englishOnly": "English only",
 			"speedSuffix": "{rating} speed",
 			"distilled": "  ·  distilled",
 			"activeAria": "Active: {name}",
 			"useAria": "Use {name}",
+			"downloadAria": "{name} डाउनलोड करें",
+			"selectAria": "{name} चुनें",
 			"deleteAria": "Delete {name}"
 		},
 		"cloud": {
