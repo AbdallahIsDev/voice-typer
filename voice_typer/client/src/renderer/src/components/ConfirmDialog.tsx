@@ -1,6 +1,14 @@
-import { useCallback, useEffect, useRef } from "react";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { useCallback, useRef } from "react";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface ConfirmDialogProps {
 	open: boolean;
@@ -23,111 +31,48 @@ export default function ConfirmDialog({
 	onConfirm,
 	onCancel,
 }: ConfirmDialogProps) {
-	const dialogRef = useRef<HTMLDivElement>(null);
-	const cancelRef = useRef<HTMLButtonElement>(null);
+	const dismissedByButton = useRef(false);
 
-	// Auto-focus the cancel button on open so Enter doesn't accidentally confirm
-	useEffect(() => {
-		if (open) {
-			// Small delay to let the portal mount
-			const timer = setTimeout(() => {
-				cancelRef.current?.focus();
-			}, 50);
-			return () => clearTimeout(timer);
-		}
-	}, [open]);
+	const handleCancel = useCallback(() => {
+		dismissedByButton.current = true;
+		onCancel();
+	}, [onCancel]);
 
-	// #9: Focus trap — Tab / Shift+Tab cycles within the dialog
-	const handleKeyDown = useCallback(
-		(e: React.KeyboardEvent) => {
-			if (e.key === "Escape") {
-				e.preventDefault();
-				onCancel();
-				return;
+	const handleConfirm = useCallback(() => {
+		dismissedByButton.current = true;
+		onConfirm();
+	}, [onConfirm]);
+
+	const handleOpenChange = useCallback(
+		(isOpen: boolean) => {
+			if (!isOpen && !dismissedByButton.current) {
+				onCancel(); // Escape key or backdrop click
 			}
-			if (e.key !== "Tab") return;
-
-			const dialog = dialogRef.current;
-			if (!dialog) return;
-
-			const focusable = dialog.querySelectorAll<HTMLElement>(
-				'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-			);
-			if (focusable.length === 0) return;
-
-			const first = focusable[0];
-			const last = focusable[focusable.length - 1];
-
-			if (e.shiftKey) {
-				// Shift+Tab: if on first element, wrap to last
-				if (document.activeElement === first) {
-					e.preventDefault();
-					last.focus();
-				}
-			} else {
-				// Tab: if on last element, wrap to first
-				if (document.activeElement === last) {
-					e.preventDefault();
-					first.focus();
-				}
-			}
+			dismissedByButton.current = false;
 		},
 		[onCancel],
 	);
 
-	const handleBackdropClick = (e: React.MouseEvent) => {
-		if (e.target === e.currentTarget) onCancel();
-	};
-
-	if (!open) return null;
-
 	return (
-		<div
-			ref={dialogRef}
-			role="dialog"
-			aria-modal="true"
-			aria-labelledby="confirm-dialog-title"
-			aria-describedby="confirm-dialog-desc"
-			className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-			onClick={handleBackdropClick}
-			onKeyDown={handleKeyDown}
-		>
-			<div
-				className={cn(
-					"animate-scale-in w-96 rounded-xl border border-border",
-					"bg-(--bg) p-6",
-				)}
-			>
-				<h2
-					id="confirm-dialog-title"
-					className="mb-2 text-lg font-semibold text-(--text-primary)"
-				>
-					{title}
-				</h2>
-				<p
-					id="confirm-dialog-desc"
-					className="mb-5 text-sm text-(--text-muted)"
-				>
-					{message}
-				</p>
-				<div className="flex justify-end gap-3">
-					<Button
-						variant="ghost"
-						onClick={onCancel}
-						ref={cancelRef}
-						aria-label={cancelLabel}
-					>
+		<AlertDialog open={open} onOpenChange={handleOpenChange}>
+			<AlertDialogContent onInteractOutside={handleCancel}>
+				<AlertDialogHeader>
+					<AlertDialogTitle>{title}</AlertDialogTitle>
+					<AlertDialogDescription>{message}</AlertDialogDescription>
+				</AlertDialogHeader>
+				<AlertDialogFooter>
+					<AlertDialogCancel onClick={handleCancel} aria-label={cancelLabel}>
 						{cancelLabel}
-					</Button>
-					<Button
+					</AlertDialogCancel>
+					<AlertDialogAction
 						variant={variant === "destructive" ? "destructive" : "default"}
-						onClick={onConfirm}
+						onClick={handleConfirm}
 						aria-label={confirmLabel}
 					>
 						{confirmLabel}
-					</Button>
-				</div>
-			</div>
-		</div>
+					</AlertDialogAction>
+				</AlertDialogFooter>
+			</AlertDialogContent>
+		</AlertDialog>
 	);
 }
