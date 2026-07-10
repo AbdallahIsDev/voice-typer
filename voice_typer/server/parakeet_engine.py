@@ -92,7 +92,7 @@ _PARAKEET_REVISION = _MODEL_HASHES.get(_PARAKERT_MODEL_ID, {}).get("revision", "
 _CHUNK_SECONDS = 25
 _CHUNK_OVERLAP_SECONDS = 3
 
-# NEW-CQ-030: Maximum words to skip at a chunk boundary.
+# NEW-CQ-030 / RW-T1: Maximum words to skip at a chunk boundary.
 #
 # Previously the merge step used ``skip = int(len(words) * 0.12)`` which
 # silently dropped words at every boundary — for a 25-word chunk that's
@@ -101,6 +101,14 @@ _CHUNK_OVERLAP_SECONDS = 3
 # ratio-based skip is unsafe.  Cap the skip to at most this many words
 # AND only after we've checked for an actual word-level overlap with the
 # previous chunk's tail (see ``_merge_chunks``).
+#
+# RW-T1 (2025): the previous "allowance" of 1 word per boundary even when
+# no overlap was detected silently dropped up to 14 legitimate words per
+# 5-minute recording (one per chunk boundary).  The allowance is now 0 —
+# boundary hallucinations like "Thanks." at chunk starts are already
+# filtered upstream by ``should_reject_low_audio_hallucination`` in
+# ``_transcribe_segment``.  This constant now bounds only *true* overlap
+# duplicate runs that are actually found in the previous chunk's tail.
 _MAX_BOUNDARY_SKIP_WORDS = 2
 # Number of trailing words of the previous chunk to compare against the
 # leading words of the new chunk when detecting true overlap duplicates.
@@ -420,10 +428,15 @@ class ParakeetEngine:
                 return_tensors="pt",
             )
             inputs.to(device=self._model.device, dtype=self._model.dtype)
+            # RW-T1: do NOT pass max_new_tokens — the previous cap of 256
+            # silently truncated dense 25s chunks (Parakeet TDT emits
+            # ~5-12 tokens/sec including duration tokens; dense speech at
+            # 200+ WPM can need 250-300+ tokens).  Let the model use its
+            # default ``generation_config.max_length`` (4096 for Parakeet
+            # TDT v3) and emit EOS when speech ends — same as Whisper.
             output = self._model.generate(
                 **inputs,
                 return_dict_in_generate=True,
-                max_new_tokens=256,
             )
             text = self._processor.decode(
                 output.sequences,
@@ -482,7 +495,7 @@ class ParakeetEngine:
         in the new chunk, those leading words duplicate the previous
         chunk's tail and must be skipped.
 
-        NEW-CQ-030: The old implementation used a fixed ratio
+        NEW-CQ-030 / RW-T1: The old implementation used a fixed ratio
         ``skip = int(len(words) * 0.12)`` which dropped words at every
         boundary regardless of whether they were actually overlap
         duplicates — for a 25-word chunk that's 3 dropped words.  This
@@ -497,9 +510,13 @@ class ParakeetEngine:
         2. Find the longest leading run of the new chunk whose words
            also appear (in order) in the previous chunk's tail window.
            That run is a true overlap duplicate and is skipped.
-        3. If no overlap duplicate is detected, skip at most 1 word
-           (a small allowance for boundary hallucinations, far smaller
-           than the old 12% ratio).
+        3. RW-T1: If no overlap duplicate is detected, return 0 — do
+           NOT drop legitimate words.  The previous "allowance" of 1
+           word per boundary silently dropped up to 14 words per
+           5-minute recording (one per chunk boundary) even when the
+           model did not re-transcribe any overlap text.  Boundary
+           hallucinations are already filtered upstream by
+           ``should_reject_low_audio_hallucination``.
         4. Total skip is capped at ``_MAX_BOUNDARY_SKIP_WORDS`` (2).
         """
         if len(texts) <= 1:
@@ -533,9 +550,8 @@ class ParakeetEngine:
         ``_OVERLAP_DEDUP_WINDOW`` words on the new side, is at most
         ``_MAX_BOUNDARY_SKIP_WORDS`` long, and ends within the trailing
         ``_OVERLAP_DEDUP_WINDOW + _MAX_BOUNDARY_SKIP_WORDS`` words of the
-        previous chunk.  If no match is found, we still skip up to 1
-        word as a small allowance for boundary hallucinations (much
-        smaller than the old 12% ratio).
+        previous chunk.  If no match is found, return 0 (do not drop
+        legitimate words).
         """
         if not prev_words or not new_words:
             return 0
@@ -579,11 +595,14 @@ class ParakeetEngine:
         if best > 0:
             return best
 
-        # No true overlap detected.  Allow a single-word skip as a small
-        # allowance for boundary hallucinations (e.g. "Thanks." appearing
-        # at the very start of a chunk).  This is bounded and never
-        # scales with chunk length, unlike the old ratio-based skip.
-        return 1 if len(new_words) > 1 else 0
+        # No true overlap detected.  Return 0 — do NOT drop legitimate
+        # words.  The previous "allowance" of 1 word per boundary silently
+        # dropped up to 14 words per 5-minute recording (one per chunk
+        # boundary) even when the model did not re-transcribe any overlap
+        # text.  Boundary hallucinations like "Thanks." at chunk starts
+        # are already filtered upstream by `should_reject_low_audio_hallucination`
+        # in `_transcribe_segment`.
+        return 0
 
     def transcribe_with_fallback(self, audio: np.ndarray,
             audio_stats: "tuple[float, float, float] | None" = None,
@@ -659,10 +678,12 @@ class ParakeetEngine:
                 return_tensors="pt",
             )
             inputs.to(device=self._model.device, dtype=self._model.dtype)
+            # RW-T1: do NOT pass max_new_tokens — same fix as the GPU path
+            # in ``_transcribe_segment``.  The previous cap of 256 silently
+            # truncated dense 25s chunks in the CPU fallback path too.
             output = self._model.generate(
                 **inputs,
                 return_dict_in_generate=True,
-                max_new_tokens=256,
             )
             text = self._processor.decode(
                 output.sequences,

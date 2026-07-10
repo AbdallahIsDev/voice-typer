@@ -15,7 +15,7 @@ import os
 import sys
 import threading
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -39,6 +39,15 @@ _QWEN_ALLOWED_BASENAMES = {
     "model.safetensors.index.json", "tokenizer.model",
     "vocab.json", "merges.txt", "vocab.txt",
 }
+
+# RW-T1: Qwen3-ASR is Whisper-based and natively handles 30 s segments.
+# Longer recordings are split into overlapping chunks for safety
+# (memory, attention matrix size, and to bound per-call latency).
+# 3 s overlap provides boundary context. Merge uses simple
+# concatenation — Whisper-style models generally do not re-transcribe
+# overlap text the way TDT models do, so overlap dedup is unnecessary.
+_QWEN_CHUNK_SECONDS = 30
+_QWEN_CHUNK_OVERLAP_SECONDS = 3
 
 
 class QwenEngine:
@@ -198,7 +207,18 @@ class QwenEngine:
         PERF-STATS: ``audio_stats`` is an optional pre-computed
         ``(rms, peak, silence_pct)`` tuple from ``Recorder.stop()``.
         When provided, the engine skips its own RMS computation in
-        hallucination detection.
+        hallucination detection.  Note: ``audio_stats`` is only
+        meaningful for the non-chunked path (audio <=
+        ``_QWEN_CHUNK_SECONDS``); chunked audio computes per-chunk
+        RMS inline.
+
+        RW-T1: For audio longer than ``_QWEN_CHUNK_SECONDS`` (30 s),
+        split into overlapping chunks (30 s chunk + 3 s overlap) and
+        merge results with simple concatenation.  Previously the
+        entire multi-minute audio array was passed in one
+        ``model.transcribe()`` call, risking OOM or silent
+        truncation.  Each chunk's text is run through the shared
+        hallucination filter using that chunk's own RMS.
         """
         with self._lock:
             if self._model is None:
@@ -214,6 +234,17 @@ class QwenEngine:
 
             # Qwen transcribe() expects (np.ndarray, sample_rate) tuples
             sample_rate = 16000
+            duration = len(audio) / sample_rate
+
+            if duration > _QWEN_CHUNK_SECONDS:
+                # RW-T1: chunk long audio to bound per-call latency and
+                # GPU memory.  ``audio_stats`` describes the whole-audio
+                # RMS, so per-chunk RMS is computed inline in the helper.
+                return self._transcribe_chunked(model, audio, sample_rate)
+
+            # Non-chunked path (audio <= _QWEN_CHUNK_SECONDS): single call
+            # with the existing hallucination check using ``audio_stats``
+            # if provided, else computing RMS from the audio array.
             result = model.transcribe(
                 (audio, sample_rate),
                 language=self.language,
@@ -245,6 +276,85 @@ class QwenEngine:
             return text
         finally:
             self._inference_event.clear()
+
+    def _transcribe_chunked(
+        self,
+        model: Any,
+        audio: np.ndarray,
+        sample_rate: int,
+    ) -> str:
+        """RW-T1: transcribe long audio by splitting into overlapping chunks.
+
+        Each chunk's text is run through the shared hallucination filter
+        using that chunk's own RMS (``audio_stats`` from the caller is
+        NOT used here — it describes the whole-audio RMS, not per-chunk).
+        Surviving chunk texts are joined with simple concatenation:
+        Whisper-style models generally do not re-transcribe overlap text
+        the way TDT models do, so overlap dedup is unnecessary.
+        """
+        duration = len(audio) / sample_rate
+        log.info("[QWEN] Splitting %.1fs audio into chunks", duration)
+        chunks = self._split_audio(
+            audio, _QWEN_CHUNK_SECONDS, _QWEN_CHUNK_OVERLAP_SECONDS,
+        )
+        results: list[str] = []
+        for i, chunk in enumerate(chunks):
+            log.info(
+                "[QWEN] Transcribing chunk %d/%d (%.1fs)",
+                i + 1, len(chunks), len(chunk) / sample_rate,
+            )
+            chunk_result = model.transcribe(
+                (chunk, sample_rate),
+                language=self.language,
+            )
+            if not chunk_result:
+                continue
+            text = (
+                chunk_result[0].text
+                if hasattr(chunk_result[0], "text")
+                else str(chunk_result[0])
+            )
+            text = text.strip()
+            if not text:
+                continue
+            # Per-chunk hallucination filter using the chunk's own RMS.
+            rms = float(np.sqrt(np.mean(np.square(chunk), dtype=np.float64)))
+            if should_reject_low_audio_hallucination(text, rms):
+                # SEC-009: Use PII-safe logging helper instead of raw text
+                log_hallucination_rejection(
+                    "[QWEN]", text,
+                    reason="hallucination",
+                    log_transcriptions=False,
+                )
+                continue  # skip this chunk's text, don't append
+            results.append(text)
+        if not results:
+            return ""
+        return " ".join(results).strip()
+
+    @staticmethod
+    def _split_audio(
+        audio: np.ndarray, chunk_sec: float, overlap_sec: float,
+    ) -> list[np.ndarray]:
+        """Split audio into overlapping chunks (mirrors ParakeetEngine._split_audio).
+
+        Used by ``_transcribe_chunked`` to bound per-call audio length so
+        the Whisper-style attention matrix and GPU memory footprint stay
+        predictable for multi-minute recordings.
+        """
+        sr = 16000
+        chunk_len = int(chunk_sec * sr)
+        overlap_len = int(overlap_sec * sr)
+        step = chunk_len - overlap_len
+        chunks: list[np.ndarray] = []
+        start = 0
+        while start < len(audio):
+            end = min(start + chunk_len, len(audio))
+            chunks.append(audio[start:end])
+            if end == len(audio):
+                break
+            start += step
+        return chunks
 
     def transcribe_batch(self, audio_chunks: list[np.ndarray]) -> list[str]:
         """PERF-009: Batch transcription API for multiple audio chunks.

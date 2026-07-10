@@ -494,7 +494,7 @@ if __name__ == "__main__":
 
 # === Source: tests/test_new_cq030_parakeet_merge.py ===
 
-"""Regression tests for NEW-CQ-030: parakeet_engine._merge_chunks.
+"""Regression tests for NEW-CQ-030 / RW-T1: parakeet_engine._merge_chunks.
 
 Old behaviour skipped ``int(len(words) * 0.12)`` words at every chunk
 boundary — silently dropping up to 3 legitimate words per 25-word chunk
@@ -504,8 +504,9 @@ New behaviour:
 - Skips at most ``_MAX_BOUNDARY_SKIP_WORDS`` (2) words at a boundary.
 - Only skips a multi-word run when those words actually appear at the
   tail of the previous chunk (true overlap duplicate).
-- Falls back to skipping at most 1 word as a small allowance for
-  boundary hallucinations when no overlap duplicate is detected.
+- RW-T1: When no overlap duplicate is detected, skip is 0 — no words
+  from the new chunk's head are dropped.  Boundary hallucinations are
+  filtered upstream by ``should_reject_low_audio_hallucination``.
 - Never scales skip with chunk length.
 """
 
@@ -523,23 +524,24 @@ class TestMergeChunksRegression:
         """Two chunks with no shared boundary words must NOT lose words
         via the old 12% ratio.  Previously this dropped 3 words from a
         25-word second chunk.
+
+        RW-T1: with the allowance removed, NO words from chunk_b's head
+        may be dropped.
         """
         chunk_a = "the quick brown fox jumps over the lazy dog"
         chunk_b = "and now for something completely different here we go now"
         result = engine_no_model._merge_chunks([chunk_a, chunk_b])
         # All of chunk_a must appear.
         assert chunk_a in result
-        # At most 1 word from chunk_b's head may be dropped (allowance).
+        # RW-T1: no words from chunk_b's head may be dropped.
         b_words = chunk_b.split()
         # Find where chunk_b content starts in result.
         result_words = result.split()
-        # Last len(chunk_a) words should be the start of chunk_b minus at
-        # most 1 allowance word.
-        # Easier: ensure every word of chunk_b except possibly the first
-        # is present in order.
+        # Last len(chunk_a) words should be the start of chunk_b (no
+        # allowance skip with the RW-T1 fix).
+        # Easier: ensure every word of chunk_b is present in order.
         b_idx = 0
-        skip_first = 1  # at most one allowance skip
-        b_to_find = b_words[skip_first:] if len(b_words) > 1 else b_words
+        b_to_find = b_words
         result_idx = 0
         while b_idx < len(b_to_find) and result_idx < len(result_words):
             if result_words[result_idx] == b_to_find[b_idx]:
@@ -579,11 +581,11 @@ class TestMergeChunksRegression:
         chunk_b = " ".join(f"w{i}" for i in range(50))
         result = engine_no_model._merge_chunks([chunk_a, chunk_b])
         result_words = result.split()
-        # chunk_a contributes 5 words; chunk_b contributes at least 49
-        # (allowance skip of 1).
-        assert len(result_words) >= 5 + 49, (
+        # chunk_a contributes 5 words; chunk_b contributes 50 words
+        # (RW-T1: no allowance skip when no overlap is detected).
+        assert len(result_words) >= 5 + 50, (
             f"Too many words lost: result has {len(result_words)} words, "
-            f"expected at least 54. Result: {result!r}"
+            f"expected at least 55. Result: {result!r}"
         )
 
     def test_punctuation_insensitive_overlap(self, engine_no_model):
@@ -628,12 +630,20 @@ class TestComputeOverlapSkip:
     """Direct unit tests for the helper that decides how many leading
     words of a new chunk to skip."""
 
-    def test_no_overlap_returns_allowance_one(self, engine_no_model):
+    def test_no_overlap_returns_zero_skip(self, engine_no_model):
+        """When no overlap is detected, skip MUST be 0 — do not drop legitimate words.
+
+        Regression for RW-T1: the previous 'allowance' of 1 word per
+        boundary silently dropped up to 14 words per 5-minute recording
+        (one per chunk boundary) even when the model did not re-transcribe
+        any overlap text.  Boundary hallucinations are filtered upstream
+        by should_reject_low_audio_hallucination.
+        """
         # Two completely different word sets, new chunk has >1 word.
         skip = engine_no_model._compute_overlap_skip(
             ["alpha", "bravo"], ["charlie", "delta"]
         )
-        assert skip == 1  # allowance, not 0 — see implementation rationale
+        assert skip == 0  # RW-T1: no allowance — do not drop legitimate words
 
     def test_single_word_new_chunk_no_allowance(self, engine_no_model):
         skip = engine_no_model._compute_overlap_skip(
