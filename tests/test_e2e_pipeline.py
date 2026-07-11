@@ -268,18 +268,50 @@ class TestE2EFullPipeline:
 
         sock.close()
 
-    @pytest.mark.skip(
-        reason="set_config E2E hangs in test env due to _push_event_now "
-               "writing to the TCP client from within the dispatch thread; "
-               "covered by test_new_test_001_live_tcp.py instead"
-    )
     def test_set_config_returns_ack(self, e2e_server):
-        """set_config should return an ack response.
+        """set_config should return an ack response AND emit a config_changed push.
 
-        Note: this test verifies the dispatch + validation + ack path.
-        The full config_changed push event is tested in test_new_test_001_live_tcp.
-        We mock config.save() and apply_config_side_effects to avoid
-        disk I/O and backend side-effect timing issues in the test env.
+        This test verifies the full set_config dispatch path:
+          1. Validation against the IPC allowlist (validate_config_update).
+          2. Config mutation under the app's config-mutation lock
+             (RACE-011).
+          3. ``apply_config_side_effects`` + ``config.save()``.
+          4. Tray / model-availability cache invalidation.
+          5. The ``config_changed`` push event emitted via
+             ``_push_event_now`` (config_handlers.py:169).
+          6. The ``ack`` response returned by the dispatcher.
+
+        NOTE on response ordering: ``_handle_set_config`` emits the
+        ``config_changed`` push event from inside the handler (BEFORE
+        returning the ack to the dispatcher). The dispatcher then
+        writes the ack to the same TCP socket. This means the client
+        sees TWO newline-terminated JSON lines back-to-back:
+        ``config_changed`` first, then ``ack``. We read both and
+        assert on each.
+
+        Background: this test was previously skipped with the reason
+        "set_config E2E hangs in test env due to _push_event_now
+        writing to the TCP client from within the dispatch thread;
+        covered by test_new_test_001_live_tcp.py instead". That
+        rationale was wrong on two counts:
+          (a) No file named ``test_new_test_001_live_tcp.py`` exists
+              in the repository (verified via Glob). A copy of its
+              contents was inlined into ``test_feature_hardening_
+              regressions.py`` after a ``# === Source: ... ===``
+              header, but that copy does NOT cover set_config — it
+              only covers get_status, get_config, unknown_command,
+              reconnect, and server-stop scenarios.
+          (b) The "hang" claim is inaccurate. The actual behavior is
+              that ``_push_event_now`` writes the ``config_changed``
+              event to the socket *before* the ack; the test read a
+              single line and raised ``KeyError: 'id'`` on the
+              push event (which has no ``id`` field). It did not
+              truly hang — the assertion just failed on the wrong
+              response.
+
+        Fix: read all responses within a deadline and assert that
+        both the ``config_changed`` push and the ``ack`` arrive,
+        instead of assuming the ack arrives first.
         """
         server, port, token, app = e2e_server
         # Mock config.save() to avoid disk I/O and path traversal issues
@@ -294,11 +326,61 @@ class TestE2EFullPipeline:
             # Send set_config with a simple boolean field
             _send_line(sock, {"id": 2, "type": "set_config", "data": {"show_notifications": False}})
 
-            # Read responses — the ack should arrive first, possibly
-            # followed by a config_changed push event.
-            resp = _read_line(sock, timeout=5.0)
-            assert resp["id"] == 2
-            assert resp["type"] in ("ack", "error"), f"Expected ack or error, got {resp['type']}"
+            # Read responses — the config_changed push event arrives
+            # FIRST (written from inside _handle_set_config), followed
+            # by the ack (written by the dispatcher after the handler
+            # returns). Both lines may be coalesced into a single TCP
+            # segment by the OS, so we cannot use the ``_read_line``
+            # helper (which discards data after the first newline).
+            # Instead we recv into a buffer and split on newlines.
+            sock.settimeout(2.0)
+            data = b""
+            deadline = time.time() + 5.0
+            while time.time() < deadline:
+                try:
+                    chunk = sock.recv(4096)
+                except socket.timeout:
+                    break
+                if not chunk:
+                    break
+                data += chunk
+                # Stop once we have both expected lines.
+                if data.count(b"\n") >= 2:
+                    break
+
+            responses: list[dict] = [
+                json.loads(line.decode("utf-8"))
+                for line in data.split(b"\n")
+                if line.strip()
+            ]
+
+            # The ack MUST be present with id=2.
+            acks = [r for r in responses if r.get("id") == 2]
+            assert acks, (
+                f"Expected ack with id=2, got responses: {responses}"
+            )
+            assert acks[0]["type"] in ("ack", "error"), (
+                f"Expected ack or error, got {acks[0]['type']}"
+            )
+
+            # If we got an ack (not an error), the config_changed push
+            # event MUST also have been emitted. This is the coverage
+            # the previous skip claimed existed in
+            # test_new_test_001_live_tcp.py (it didn't).
+            if acks[0]["type"] == "ack":
+                pushes = [
+                    r for r in responses
+                    if r.get("type") == "config_changed"
+                ]
+                assert pushes, (
+                    "Expected a config_changed push event alongside the "
+                    f"ack; got responses: {responses}"
+                )
+                # The push carries the validated updates so the renderer
+                # can update UI-local state without a get_config round-trip.
+                assert pushes[0]["data"] == {"show_notifications": False}, (
+                    f"Unexpected config_changed data: {pushes[0]['data']}"
+                )
         finally:
             app.config.save = original_save
             sock.close()

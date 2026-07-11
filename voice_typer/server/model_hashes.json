@@ -1,24 +1,34 @@
 {
-    "_comment": "SEC-audit-005: Pinned revisions and file-level SHA-256 hashes for HuggingFace model downloads. Each entry maps a repo_id (or local model identifier) to: (1) 'revision' — a HuggingFace commit SHA to pin downloads to (use 'main' only as a placeholder during development; pin to a real SHA in production); (2) 'files' — optional dict mapping relative file paths to expected SHA-256 hex digests. When 'files' is present and non-empty, verify_model_integrity() enforces that every pinned file exists and matches its hash — a single mismatch causes a hard failure (refuses to load the model). When 'files' is absent or empty, verification soft-passes (structural checks only) and computed hashes are logged at INFO level so operators can copy them into this file. The 'qwen' key covers the locally-installed Qwen3-ASR model directory (~/.voice-typer/models/qwen-asr/).",
+    "_comment": "SEC-audit-005 manifest. See security.py::_load_model_hashes docstring for full schema. revision = HF commit SHA (immutable); files = {relative_path: sha256_hex}. verify_model_integrity() hard-fails on any pinned-file hash mismatch. qwen is local (revision=local). SHAs fetched 2026-07-10.",
     "nvidia/parakeet-tdt-0.6b-v3": {
-        "revision": "main",
-        "files": {}
+        "revision": "7c35754d166cca382ad1e53e68b01e7c575f3a1d",
+        "files": {
+            "config.json": "e747b85e1bdfd300c8b8ac63bac8dd5221f8fe9bc275b48d06c735fcd6971b6e"
+        }
     },
     "Systran/faster-whisper-tiny.en": {
-        "revision": "main",
-        "files": {}
+        "revision": "0d3d19a32d3338f10357c0889762bd8d64bbdeba",
+        "files": {
+            "config.json": "14b1b421a90349bc551b881461426b561a874049cb9e4c4864f2ca384f6a7cc5"
+        }
     },
     "Systran/faster-whisper-small.en": {
-        "revision": "main",
-        "files": {}
+        "revision": "d1d751a5f8271d482d14ca55d9e2deeebbae577f",
+        "files": {
+            "config.json": "666a9605530ac1f61fa8177f3702b4dacec9966749e42610839fcc32661d5fae"
+        }
     },
     "Systran/faster-whisper-medium.en": {
-        "revision": "main",
-        "files": {}
+        "revision": "a29b04bd15381511a9af671baec01072039215e3",
+        "files": {
+            "config.json": "4a1848ebabe7938d9797c15a2e8e4ce1d36e6fd4a43d096ae5955257c67c7962"
+        }
     },
     "Systran/faster-whisper-large-v3": {
-        "revision": "main",
-        "files": {}
+        "revision": "edaa852ec7e145841d8ffdb056a99866b5f0a478",
+        "files": {
+            "config.json": "a9306624f5ec14270a014b647e5c316b6e03a662c369758d1b90697a7b0655b9"
+        }
     },
     "qwen": {
         "revision": "local",

@@ -48,7 +48,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
 - `scripts/build/voice-typer.spec` — bundles Linux scripts + permissions module
 - `.github/workflows/build.yml` — added build-native matrix + build-macos + build-linux jobs
 
-## [Unreleased] - 2026-06-30
+## [Unreleased - earlier native-hotkey work] - 2026-06-30
+
+The entries below describe the earlier NATIVE-001 work that the
+Zero-Command Hotkey Architecture (ADR 0006) section above builds on.
+Both roll up into the same unreleased release; the section heading is
+distinct to avoid duplicating the `## [Unreleased]` header.
 
 ### Added
 - Cross-platform native hotkey architecture (NATIVE-001)
@@ -90,7 +95,7 @@ Changes that affect end users (new features, bug fixes, UX improvements).
 - **Microphone fallback chain**: same-name candidates across host APIs, ranked by reliability
 - **4-level GPU→CPU fallback** for model loading
 - **External corrections JSON** override file for custom misspelling/phrase corrections
-- **Push-to-talk mode** (configured via Settings; release currently issues `pass` — see FEATURES.md)
+- **Push-to-talk mode** (configured via Settings; press-and-hold starts recording, release stops it — see FEATURES.md)
 - **ESC cancel** at any stage of dictation
 - **Repaste last transcription** hotkey
 - **Auto-punctuation** (optional, runs after template matching)
@@ -138,7 +143,8 @@ Changes that affect end users (new features, bug fixes, UX improvements).
 - **Settings inputs debounced** — typing "gpt-4o-mini" fires 1 IPC call, not 11
 - **Label associations** on all settings inputs (screen reader support)
 - **"Reset to Defaults"** fetches from backend (no silent drift from hardcoded defaults)
-- **Honest "not implemented" messages** on fake buttons (model download, benchmark, mic test)
+- **Honest "not implemented" messages** on fake buttons (model download, benchmark)
+  - Note: the microphone test is **real** — it opens a live `sounddevice.InputStream` via `level_monitor.start_test_recording()` and returns captured audio. Only model download progress and the model benchmark are simulated.
 
 ---
 
@@ -160,12 +166,12 @@ Changes that affect contributors (architecture, dead code removal, test coverage
 - Removed dead shadcn/ui components (`dialog.tsx`, `sheet.tsx`, `popover.tsx`)
 - Removed `StatusBar.tsx` (imported but rendered as a comment)
 - Removed 6 dead `TrayController` protocol methods (`toggle_autostart`, `create_desktop_shortcut`, `set_notifications`, `set_silence_warning_seconds`, `set_silence_auto_stop_seconds`, `set_max_recording_seconds`)
-- Removed unused `AudioQualityAnalyzer` instantiation
+- (Correction to an earlier draft of this changelog: `AudioQualityAnalyzer` was **not** removed. It is still instantiated at `app.py:208` and used by `recording_controller.py:403` for per-chunk quality analysis. Only the user-facing tray notification that surfaced its report was suppressed — default `audio_quality_warnings=False`, with an early-return in `app.py:_finalize_audio_quality_report` that prevents the notification from ever firing.)
 - Replaced fake `setTimeout` buttons with honest "not implemented" messages
 
 ### Testing
 
-- **1334+ tests passing** (up from ~400 at project start), 9 skipped (platform-specific). Run `pytest --co -q | tail -1` for the current count.
+- **2822+ tests across 107 files** (up from ~400 at project start), 9 skipped (platform-specific). Run `pytest --co -q | tail -1` for the current count.
 - Test files cover every module: round8/9/10/11/12/13 E2E suites, per-module unit tests, regression tests for SEC/RELIABILITY/ERR/ARCH/IPC items. See `pytest --collect-only -q | wc -l` for the current count.
 - New test files: `test_secrets.py`, and 8 domain-named files (`test_consent_and_privacy.py`, `test_platform_and_config.py`, `test_hotkeys.py`, `test_ux_components.py`, `test_electron_ipc_and_build.py`, `test_notifications.py`, `test_recording_and_audio.py`, `test_history_and_models.py`) that replaced 5 round-numbered test files
 - New test classes: `TestDispatchSetConfigAllowlist`, `TestGetConfigRedactsSecrets`, `TestSec006TrustedPathFieldsBlockedStandalone`, `TestSec008PendingTcpCap`, `TestSec010HistoryLimitBounding`, `TestGetDefaultsIpc`, `TestSec018TcpAuth`, `TestArch004CorrectionsLoadError`, `TestRateLimiter`, `TestWrapSystemExitHandling`, `TestQuitAppCleanShutdown`, `TestRestartAppCleanShutdown`, `TestPushToTalkOnRelease`, `TestCloudEngineUrlAllowlist`, `TestCloudEngineKeyRedaction`, `TestDeepgramUrlParameterInjection`, `TestSec007ConfigFilePermissions`, `TestCrashRecoveryAsyncWrites`, `TestCrashRecoveryIntegration`, `TestSetConfigRejectsSensitiveAttrs`, `TestSearchHistoryEdgeCases`, `TestCloudEngineUlopenTimeout`, `TestRestartAppStopsBackends`, `TestXrunThresholdCounter`, `TestResampleError`, `TestWatchdogForceRecover`, `TestPendingModelChange`, `TestFriendlyTranscriptionError`, `TestStoreResultFailurePromotion`, `TestParakeetBackendError`, `TestQwenFallback`, `TestUnknownIPCCommandCode`, `TestVKMapInitLockGuarded`, `TestPendingTimersLockGuarded`, `TestAudioCallbackPreStartGuard`, `TestPhrasePatternCache`, `TestResampleCacheInvalidation`, `TestVocabularySaveRetry`

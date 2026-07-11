@@ -268,7 +268,7 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 | 76 | Python backend bundled as pip package | ✅ | setuptools, installed via pip |
 | 77 | CI build pipeline (GitHub Actions) | ✅ | `.github/workflows/build.yml` |
 | 78 | Diagnostics scripts | ✅ | F2 hotkey test, CUDA fallback, runtime proof |
-| 79 | Test suite (~46 pytest files) | ✅ | All major subsystems covered |
+| 79 | Test suite (107 pytest files, 2822+ tests) | ✅ | All major subsystems covered |
 | 80 | Ruff linting + mypy type checking | ✅ | Configured in pyproject.toml |
 | 81 | IPC command allowlist | ✅ | ~35 allowed commands whitelisted in Electron main process |
 | 82 | IPC rate limiter | ✅ | Sliding window: 60 msg/s sustained, 200 burst |
@@ -292,7 +292,7 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 | Onboarding wizard UI | — | ✅ Full 5-step React wizard implemented |
 | Model download (real implementation) | — | ⚠️ Progress bar renders, download is simulated |
 | Model benchmark (real implementation) | — | ⚠️ Button exists, benchmark is simulated |
-| Microphone test (real audio capture) | — | ⚠️ Device list works, test is simulated |
+| Microphone test (real audio capture) | — | ✅ Real capture via `level_monitor.start_test_recording()` which opens a live `sounddevice.InputStream` and returns recorded audio |
 
 ### Distribution — gaps that remain
 
@@ -333,6 +333,6 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 | Onboarding wizard | None | First-run UX | ✅ Implemented |
 | Model download (real) | None | Usability | ⚠️ Simulated |
 | Model benchmark (real) | None | Confidence | ⚠️ Simulated |
-| Microphone test (real) | None | Confidence | ⚠️ Simulated |
+| Microphone test (real) | None | Confidence | ✅ Real audio capture via `level_monitor.start_test_recording()` |
 
 No features conflict. All can coexist once completed.

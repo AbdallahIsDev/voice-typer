@@ -316,6 +316,15 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM"]
 # the limit; lines that exceed 120 are wrapped manually or split with `\`.
 ignore = []
 
+# SEC-audit-005 (Round 0): model_hashes.json is a data manifest, not source
+# code. Ruff parses it as Python (B018 "useless expression" on the top-level
+# dict literal, E501 on the single-line _comment). JSON has no multi-line
+# string syntax, so the _comment must be one line. Excluding all rules for
+# this specific data file is the correct fix — it is not Python source code.
+# This is a targeted per-file override, not a global rule disable.
+[tool.ruff.lint.per-file-ignores]
+"voice_typer/server/model_hashes.json" = ["ALL"]
+
 [tool.mypy]
 python_version = "3.10"  # NEW-CQ-023: match requires-python minimum
 warn_return_any = true

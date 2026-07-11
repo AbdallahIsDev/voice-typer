@@ -57,8 +57,17 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+
 from voice_typer.server import _paths
-from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
+from voice_typer.server._electron_build import (
+    CLIENT_DIR,
+    _build_electron,
+    _electron_binary,
+    _electron_log_files,
+    _main_entry_built,
+    _npm_command,
+    _spawn_flags,
+)
 
 log = logging.getLogger("voice_typer.autostart")
 
@@ -80,15 +89,14 @@ def _close_log_files(sk: dict) -> None:
             except Exception:
                 pass
 
-# Directory layout:
+# Directory layout (mirrors ``_electron_build.CLIENT_DIR``):
 #   <root>/
 #     voice_typer/
 #       server/
 #         autostart_launcher.py   <- this file
 #       client/                    <- Electron app
-# voice_typer/server -> voice_typer -> root
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
-CLIENT_DIR = BASE_DIR / "voice_typer" / "client"
+# CLIENT_DIR is re-exported from _electron_build so tests that monkeypatch
+# ``voice_typer.server.autostart_launcher.CLIENT_DIR`` still work.
 
 IPC_HOST = "127.0.0.1"
 IPC_PORT = 9876
@@ -142,142 +150,6 @@ def _is_port_open(host: str, port: int) -> bool:
 def _client_dir_exists() -> bool:
     """Return True if the Electron client directory (with package.json) exists."""
     return CLIENT_DIR.is_dir() and (CLIENT_DIR / "package.json").exists()
-
-
-def _spawn_flags(hidden: bool = True) -> dict:
-    """Platform-specific kwargs for spawning child processes.
-
-    Parameters
-    ----------
-    hidden : bool
-        If True (autostart at login), prevents console windows from
-        flashing.  If False (desktop shortcut), child processes get
-        normal Windows process creation — they can create their own
-        console windows if needed (e.g. ``npm run dev``).
-    """
-    kwargs: dict = {}
-    if is_windows():
-        if hidden:
-            # CREATE_NO_WINDOW (0x08000000) prevents a console from flashing
-            # during autostart (the user is logging in, not clicking a shortcut).
-            kwargs["creationflags"] = 0x08000000
-        # else: no creation flags — processes get normal console behavior.
-    else:
-        # Detach into a new session so the child survives this launcher.
-        kwargs["start_new_session"] = True
-    return kwargs
-
-
-def _electron_log_files():
-    """RACE-009: Open log files for Electron stdout/stderr.
-
-    Pre-fix, Electron launches used ``subprocess.DEVNULL`` for stdout
-    and stderr, making Electron crashes invisible. We now redirect to
-    rotating log files in the config dir so crashes can be diagnosed.
-
-    Returns a dict ``{"stdout": fd, "stderr": fd, "stdin": DEVNULL}``
-    suitable for unpacking into ``subprocess.Popen(**sk)``. The caller
-    is responsible for keeping the returned file objects alive for the
-    lifetime of the child process (they're closed automatically by GC
-    after the child exits and the fds are inherited).
-
-    On any failure (disk full, permission denied), falls back to
-    ``DEVNULL`` so the launch still succeeds.
-    """
-    try:
-        from voice_typer.server.config import _config_dir as _cfg
-        log_dir = _cfg() / "logs"
-        log_dir.mkdir(parents=True, exist_ok=True)
-        stdout_path = log_dir / "electron-stdout.log"
-        stderr_path = log_dir / "electron-stderr.log"
-        # "a" mode so logs accumulate across launches; the user can
-        # truncate manually if needed. We don't rotate here to keep
-        # the launcher dependency-free.
-        stdout_fd = open(stdout_path, "a", encoding="utf-8", buffering=1)
-        stderr_fd = open(stderr_path, "a", encoding="utf-8", buffering=1)
-        return {
-            "stdout": stdout_fd,
-            "stderr": stderr_fd,
-            "stdin": subprocess.DEVNULL,
-        }
-    except Exception as exc:
-        log.debug("[AUTOSTART] Failed to open Electron log files, using DEVNULL: %s", exc)
-        return {
-            "stdout": subprocess.DEVNULL,
-            "stderr": subprocess.DEVNULL,
-            "stdin": subprocess.DEVNULL,
-        }
-
-
-def _npm_command(script: str = "dev") -> list[str] | None:
-    """Return the command list to run ``npm run <script>``.
-
-    Parameters
-    ----------
-    script : str
-        npm script name, e.g. ""dev"" or ""build"".
-
-    NEW-CQ-033/NEW-SEC-009: On Windows, npm is npm.cmd (a batch file).
-    Previously this returned None to signal "use shell=True" which
-    propagated PATH/env to a shell. We now resolve the .cmd path
-    directly via shutil.which so we can use the list form (no shell).
-    Falls back to the shell form only if npm.cmd can't be found.
-    """
-    import shutil
-    npm_path = shutil.which("npm")
-    if npm_path is not None:
-        return [npm_path, "run", script]
-    # Fallback: use shell=True form (legacy behavior) only if npm
-    # can't be resolved. This is a last resort for unusual setups.
-    if is_windows():
-        return None  # signal: use shell=True form
-    return ["npm", "run", script]
-
-
-def _build_electron() -> bool:
-    """Run ``npm run build`` to produce the compiled Electron bundles.
-
-    Returns True on success, False on failure.
-    ``out/main/index.js``, ``out/preload/index.js``, and the renderer
-    bundles will be present on success.
-    """
-    log.info("[AUTOSTART] Building Electron app (npm run build)...")
-    try:
-        # NEW-CQ-033/NEW-SEC-009: prefer the list form (no shell=True)
-        # to avoid PATH/env propagation. _npm_command resolves the
-        # full npm path via shutil.which.
-        cmd = _npm_command("build")
-        if cmd is not None:
-            result = subprocess.run(
-                cmd,
-                cwd=str(CLIENT_DIR),
-                capture_output=True,
-                timeout=180,
-            )
-        else:
-            # Fallback: shell=True (npm not on PATH on Windows)
-            result = subprocess.run(
-                "npm run build",
-                cwd=str(CLIENT_DIR),
-                shell=True,
-                capture_output=True,
-                timeout=180,
-            )
-        if result.returncode == 0:
-            log.info("[AUTOSTART] npm run build succeeded")
-            return True
-        log.warning(
-            "[AUTOSTART] npm run build failed (exit=%d): %s",
-            result.returncode,
-            result.stderr.decode("utf-8", errors="replace")[-500:],
-        )
-        return False
-    except subprocess.TimeoutExpired:
-        log.warning("[AUTOSTART] npm run build timed out after 180s")
-        return False
-    except Exception as exc:
-        log.warning("[AUTOSTART] npm run build raised: %s", exc)
-        return False
 
 
 def _launch_electron_built(exe: str, hidden: bool = False) -> subprocess.Popen | None:
@@ -372,31 +244,6 @@ def _ensure_built_and_launch(hidden: bool = False) -> bool:
 
     _write_pid_file(os.getpid(), getattr(child, "pid", None))
     return True
-
-
-def _electron_binary() -> str | None:
-    """Return the path to the dev-mode electron binary, or None if absent.
-
-    In dev mode Electron ships under ``node_modules/electron/dist/electron.exe``
-    (Windows) / ``.../electron`` (POSIX).  Returns None when not found, in
-    which case the launcher falls back to ``npm run dev``.
-    """
-    if is_windows():
-        candidate = CLIENT_DIR / "node_modules" / "electron" / "dist" / "electron.exe"
-    else:
-        candidate = CLIENT_DIR / "node_modules" / "electron" / "dist" / "electron"
-    return str(candidate) if candidate.exists() else None
-
-
-def _main_entry_built() -> bool:
-    """Return True if the compiled Electron main bundle exists.
-
-    ``electron .`` loads ``out/main/index.js`` (the electron-vite build
-    output).  If the client has never been built (fresh checkout, deleted
-    ``out/``), this is False and we must fall back to ``npm run dev``,
-    which both builds and runs.
-    """
-    return (CLIENT_DIR / "out" / "main" / "index.js").exists()
 
 
 def _focus_running_app() -> bool:

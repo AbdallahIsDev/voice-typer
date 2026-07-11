@@ -240,22 +240,42 @@ def _load_model_hashes() -> "dict[str, dict[str, Any]]":
             return {k: v for k, v in raw.items() if k != "_comment" and isinstance(v, dict)}
         except Exception as exc:
             log.warning("[SECURITY] Failed to load model_hashes.json: %s", exc)
-    # Hardcoded fallback (matches model_hashes.json defaults)
+    # Hardcoded fallback — mirrors model_hashes.json so that even if the JSON
+    # file is missing or unreadable (e.g. isolated test env, broken install),
+    # the pinned revisions are still enforced. SHAs fetched 2026-07-10 from
+    # https://huggingface.co/api/models/<repo>/revision/main. These MUST be
+    # kept in sync with model_hashes.json; the test_model_hashes_fallback_matches_json
+    # regression test enforces this.
     return {
         "nvidia/parakeet-tdt-0.6b-v3": {
-            "revision": "main",  # TODO: pin to specific commit SHA after audit
+            "revision": "7c35754d166cca382ad1e53e68b01e7c575f3a1d",
+            "files": {
+                "config.json": "e747b85e1bdfd300c8b8ac63bac8dd5221f8fe9bc275b48d06c735fcd6971b6e",
+            },
         },
         "Systran/faster-whisper-tiny.en": {
-            "revision": "main",  # TODO: pin to specific commit SHA after audit
+            "revision": "0d3d19a32d3338f10357c0889762bd8d64bbdeba",
+            "files": {
+                "config.json": "14b1b421a90349bc551b881461426b561a874049cb9e4c4864f2ca384f6a7cc5",
+            },
         },
         "Systran/faster-whisper-small.en": {
-            "revision": "main",  # TODO: pin to specific commit SHA after audit
+            "revision": "d1d751a5f8271d482d14ca55d9e2deeebbae577f",
+            "files": {
+                "config.json": "666a9605530ac1f61fa8177f3702b4dacec9966749e42610839fcc32661d5fae",
+            },
         },
         "Systran/faster-whisper-medium.en": {
-            "revision": "main",  # TODO: pin to specific commit SHA after audit
+            "revision": "a29b04bd15381511a9af671baec01072039215e3",
+            "files": {
+                "config.json": "4a1848ebabe7938d9797c15a2e8e4ce1d36e6fd4a43d096ae5955257c67c7962",
+            },
         },
         "Systran/faster-whisper-large-v3": {
-            "revision": "main",  # TODO: pin to specific commit SHA after audit
+            "revision": "edaa852ec7e145841d8ffdb056a99866b5f0a478",
+            "files": {
+                "config.json": "a9306624f5ec14270a014b647e5c316b6e03a662c369758d1b90697a7b0655b9",
+            },
         },
     }
 
