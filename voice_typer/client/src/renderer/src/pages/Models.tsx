@@ -11,7 +11,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type React from "react";
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import PageHeading from "@/components/common/PageHeading";
 import { Spinner } from "@/components/feedback/Spinner";
@@ -233,6 +233,75 @@ function formatErrorMessage(err: unknown, fallback = "Unknown error"): string {
 	}
 	return fallback;
 }
+
+// ── Model family grouping ──────────────────────────────────────────────
+// Groups models by their backend family (Whisper, Qwen, Parakeet) so they
+// render inside family cards with shared headers.
+interface ModelFamily {
+	id: string;
+	name: string;
+	description: string | null;
+	variants: ModelInfo[];
+}
+
+function groupModelsByFamily(models: ModelInfo[]): ModelFamily[] {
+	const whisper = models.filter(
+		(m) => m.backend === "whisper" || m.backend === "distil-whisper",
+	);
+	const qwen = models.filter((m) => m.backend === "qwen");
+	const parakeet = models.filter((m) => m.backend === "parakeet");
+	const families: ModelFamily[] = [];
+	if (whisper.length > 0) {
+		families.push({
+			id: "whisper",
+			name: "Whisper",
+			description: null,
+			variants: whisper,
+		});
+	}
+	if (qwen.length > 0) {
+		families.push({
+			id: "qwen",
+			name: "Qwen",
+			description: null,
+			variants: qwen,
+		});
+	}
+	if (parakeet.length > 0) {
+		families.push({
+			id: "parakeet",
+			name: "Parakeet",
+			description: null,
+			variants: parakeet,
+		});
+	}
+	return families;
+}
+
+/**
+ * Returns the family ID that contains the currently active model,
+ * or null if no model is active or no family match is found.
+ */
+function getActiveFamilyId(cfg: VoiceTyperConfig | null): string | null {
+	if (!cfg) return null;
+	const activeBackend = cfg.asr_backend ?? "whisper";
+	const activeModel = cfg.model_size ?? "small.en";
+	for (const m of INITIAL_MODELS) {
+		let isActive = false;
+		if (m.backend === "whisper") {
+			isActive = activeBackend === "whisper" && m.name === activeModel;
+		} else {
+			isActive = activeBackend === m.backend;
+		}
+		if (isActive) {
+			if (m.backend === "whisper" || m.backend === "distil-whisper") return "whisper";
+			if (m.backend === "qwen") return "qwen";
+			if (m.backend === "parakeet") return "parakeet";
+		}
+	}
+	return null;
+}
+
 export default function ModelsPage() {
 	const { call } = usePython();
 	const { showSnack, Snackbar } = useSnackbar();
@@ -242,7 +311,24 @@ export default function ModelsPage() {
 		{ value: "cloud", label: t("models.cloudProviders") },
 	];
 	const [config, setConfig] = useState<VoiceTyperConfig | null>(_cachedConfig);
-	const [models, setModels] = useState<ModelInfo[]>(INITIAL_MODELS);
+	const [models, setModels] = useState<ModelInfo[]>(() => {
+		// MOODLES-FIX: initialize with correct isActive from cached config
+		// so the Accordion defaults to only the active model's family open.
+		if (_cachedConfig) {
+			const activeBackend = _cachedConfig.asr_backend ?? "whisper";
+			const activeModel = _cachedConfig.model_size ?? "small.en";
+			return INITIAL_MODELS.map((m) => {
+				let isActive = false;
+				if (m.backend === "whisper") {
+					isActive = activeBackend === "whisper" && m.name === activeModel;
+				} else {
+					isActive = activeBackend === m.backend;
+				}
+				return { ...m, isActive };
+			});
+		}
+		return INITIAL_MODELS;
+	});
 	const [_initialLoading, setInitialLoading] = useState(true);
 	const [downloadProgress, setDownloadProgress] = useState(0);
 	const [downloadStatus, setDownloadStatus] = useState("");
@@ -279,6 +365,32 @@ export default function ModelsPage() {
 	const [testResults, setTestResults] = useState<
 		Record<string, { message: string; status: "success" | "failure" | "info" }>
 	>({});
+
+	// Controlled accordion state — only the active model's family is open.
+	const [accordionValue, setAccordionValue] = useState<string[]>(() => {
+		const activeFamilyId = getActiveFamilyId(_cachedConfig);
+		return activeFamilyId ? [activeFamilyId] : [];
+	});
+
+	// Sync accordion after async config load completes (first visit only).
+	// Uses a ref to fire exactly once in the component lifecycle.
+	const syncGuardRef = useRef(false);
+	useEffect(() => {
+		if (!_initialLoading && !syncGuardRef.current) {
+			syncGuardRef.current = true;
+			const activeModelName = models.find((m) => m.isActive)?.name;
+			if (activeModelName) {
+				const families = groupModelsByFamily(models);
+				const activeFamily = families.find((f) =>
+					f.variants.some((v) => v.name === activeModelName),
+				);
+				if (activeFamily) {
+					setAccordionValue([activeFamily.id]);
+				}
+			}
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [_initialLoading]);
 
 	const loadConfig = useCallback(async () => {
 		setInitialLoading(true);
@@ -845,51 +957,6 @@ export default function ModelsPage() {
 		}
 	};
 
-	// ── Model family grouping ──────────────────────────────────────────────
-	// Groups models by their backend family (Whisper, Qwen, Parakeet) so they
-	// render inside family cards with shared headers.
-	interface ModelFamily {
-		id: string;
-		name: string;
-		variants: ModelInfo[];
-	}
-
-	const DISPLAY_NAMES: Record<string, string> = {
-		qwen: "Qwen3-ASR-1.7B",
-		parakeet: "NVIDIA Parakeet TDT v3",
-	};
-
-	function groupModelsByFamily(models: ModelInfo[]): ModelFamily[] {
-		const whisper = models.filter(
-			(m) => m.backend === "whisper" || m.backend === "distil-whisper",
-		);
-		const qwen = models.filter((m) => m.backend === "qwen");
-		const parakeet = models.filter((m) => m.backend === "parakeet");
-		const families: ModelFamily[] = [];
-		if (whisper.length > 0) {
-			families.push({
-				id: "whisper",
-				name: "Whisper",
-				variants: whisper,
-			});
-		}
-		if (qwen.length > 0) {
-			families.push({
-				id: "qwen",
-				name: "Qwen",
-				variants: qwen,
-			});
-		}
-		if (parakeet.length > 0) {
-			families.push({
-				id: "parakeet",
-				name: "Parakeet",
-				variants: parakeet,
-			});
-		}
-		return families;
-	}
-
 	const getStatusBadge = (
 		model: ModelInfo,
 	): {
@@ -980,17 +1047,6 @@ export default function ModelsPage() {
 	};
 
 	const modelFamilies = groupModelsByFamily(models);
-	const activeModel = models.find((m) => m.isActive);
-	const activeFamilyId = activeModel
-		? modelFamilies.find((f) =>
-				f.variants.some((v) => v.name === activeModel.name),
-			)?.id
-		: undefined;
-	const defaultAccordionValue = activeFamilyId
-		? [activeFamilyId]
-		: modelFamilies.length > 0
-			? [modelFamilies[0].id]
-			: [];
 	return (
 		<>
 			{/* Fixed tab bar at the top */}
@@ -1073,24 +1129,15 @@ export default function ModelsPage() {
 							)}
 
 							{/* Model Cards — grouped by family using shadcn Accordion */}
-							{downloadingModel && (
-								<div className="rounded-lg border border-border bg-(--bg-subtle) p-4">
-									<DownloadProgressBar
-										progress={downloadProgress}
-										status={downloadStatus}
-										isPaused={isPaused}
-										downloadedBytes={downloadedBytes}
-										totalBytes={totalBytes}
-										speedBps={speedBps}
-										etaSeconds={etaSeconds}
-										onTogglePause={handleTogglePause}
-										onCancel={handleCancelDownload}
-									/>
-								</div>
-							)}
+							{/* MODELS-COLLAPSE: only the family containing the active model is
+							    open by default. All other families start collapsed, reducing
+							    vertical noise when many model variants are installed.
+							    The Accordion's internal state persists during the page visit
+							    (collapsing/expanding via clicks), but resets on page re-mount. */}
 							<Accordion
 								type="multiple"
-								defaultValue={defaultAccordionValue}
+								value={accordionValue}
+								onValueChange={setAccordionValue}
 								className="rounded-lg border border-border bg-(--bg-subtle)"
 							>
 								{modelFamilies.map((family) => (
