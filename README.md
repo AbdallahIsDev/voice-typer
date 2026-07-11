@@ -29,8 +29,9 @@ No Python, no terminal, no commands needed.
 > defaults to showing a standard license wizard page only if one is
 > configured.  **Autostart is enabled by default** (the installer
 > creates a Windows Scheduled Task).  To disable autostart after
-> installation, right-click the tray icon → uncheck "Start with
-> Windows", or delete the scheduled task in Task Scheduler.
+> installation, open the Electron app (tray menu → **Open App**) and
+> turn off the **Launch at Login** toggle under Settings → General, or
+> delete the scheduled task in Task Scheduler.
 
 ## Requirements
 
@@ -157,7 +158,7 @@ Only one Voice Typer process can run at a time. If you launch a second instance,
 
 ### Desktop Shortcut
 
-A desktop shortcut with a microphone icon is automatically created on first startup. You can also create it manually from **tray menu → Advanced → Create Desktop Shortcut**. The shortcut uses `pythonw.exe` so no console window appears.
+A desktop shortcut with a microphone icon is automatically created on first startup. The shortcut uses `pythonw.exe` so no console window appears. (There is no manual shortcut action in the tray menu — the shortcut is auto-created on first run.)
 
 ## Fast Startup
 
@@ -185,7 +186,7 @@ for every setting. Key categories:
 | Category | Settings |
 |---|---|
 | Hotkey | `hotkey`, `recording_mode`, `push_to_talk_hotkey`, `repaste_hotkey` |
-| Recording | `microphone`, `sample_rate`, `silence_warning_seconds`, `stop_on_silence_seconds`, `max_recording_time_seconds` |
+| Recording | `microphone`, `sample_rate`, `silence_warning_seconds`, `silence_auto_stop_seconds`, `max_recording_seconds` |
 | Transcription | `model_size`, `language`, `device`, `beam_size`, `streaming_transcription` |
 | Behavior | `autostart`, `paste_on_stop`, `show_notifications`, `text_cleanup_enabled` |
 | ASR backend | `asr_backend` (whisper/qwen/parakeet), `qwen_model_path`, `parakeet_model_path` |
@@ -250,15 +251,15 @@ Voice Typer monitors audio input during recording to detect microphone disconnec
 
 ### Silence Warning
 
-Uses variance-based analysis to detect when the microphone stops capturing audio. When silence exceeds the configured threshold (default 20s), a safety notification warns you to check your microphone. The warning repeats with exponential backoff (10s, 20s, 40s...) until audio resumes or recording stops. Configure from **tray menu → Advanced → Silence Warning**.
+Uses variance-based analysis to detect when the microphone stops capturing audio. When silence exceeds the configured threshold (default 20s), a safety notification warns you to check your microphone. The warning repeats with exponential backoff (10s, 20s, 40s...) until audio resumes or recording stops. Configure from **Settings → Recording → Silence Warning** (Electron app → Settings).
 
 ### Auto-Stop Timeout
 
-Recording automatically stops after a configurable silence period (default 2 minutes). This prevents runaway recordings if you walk away or forget to press the hotkey. Configure from **tray menu → Advanced → Auto-Stop Timeout**.
+Recording automatically stops after a configurable silence period (default 2 minutes). This prevents runaway recordings if you walk away or forget to press the hotkey. Configure from **Settings → Recording → Auto-Stop Timeout** (Electron app → Settings).
 
 ### Max Recording Duration
 
-Recording automatically stops after reaching a maximum time limit. Configure from **tray menu → Advanced → Max Recording**.
+Recording automatically stops after reaching a maximum time limit. Configure from **Settings → Recording → Max Recording** (Electron app → Settings).
 
 All three features fire **safety notifications** that bypass the notification toggle — you will always be alerted when recording stops due to silence or max duration.
 
@@ -267,7 +268,7 @@ All three features fire **safety notifications** that bypass the notification to
 Notifications are split into two categories:
 
 - **Safety alerts** (silence warnings, auto-stop, max duration) — always fire regardless of notification settings. You will never miss a safety-critical event.
-- **Dictation notifications** (transcription complete, errors, clipboard status) — controlled by the **Dictation Notifications** toggle in **tray menu → Advanced**.
+- **Dictation notifications** (transcription complete, errors, clipboard status) — controlled by the **Dictation Notifications** toggle under **Settings → General** (Electron app → Settings).
 
 ## Microphone Selection
 
@@ -289,7 +290,7 @@ python -c "import sounddevice as sd; [print(i, d['name'], sd.query_hostapis(d['h
 
 ## Autostart
 
-Enable or disable from **Settings -> Advanced -> Start on login**.
+Enable or disable from **Settings → General → Launch at Login** (Electron app → Settings).
 
 - **Windows**: registers itself in `HKCU\...\Run` using `pythonw.exe` (no console window).
 - **macOS**: installs a `LaunchAgents` plist in `~/Library/LaunchAgents/`.
@@ -383,7 +384,7 @@ voice_typer/
 │   ├── hotkeys.py      # Hotkey backend abstraction (Win32 native / pynput fallback)
 │   ├── hotkey_dispatcher.py  # Owns the 3 hotkey backends (dictation / ESC / repaste)
 │   ├── ipc_server.py   # JSON-over-stdin/TCP IPC server for the Electron client
-│   ├── platform.py     # OS-specific autostart adapters + mic listing + desktop shortcut
+│   ├── server_platform.py  # OS-specific autostart adapters + mic listing + desktop shortcut
 │   ├── tray.py         # System tray icon (pystray) + dynamic menu
 │   ├── tray_menu.py    # Tray menu builder (extracted from tray.py)
 │   ├── tray_types.py   # AppState enum + TrayController Protocol
@@ -527,25 +528,25 @@ The Windows native binary **does** suppress the Caps Lock keydown event so the O
 
 ### No speech detected
 
-- Check the selected microphone in the tray menu.
+- Check the selected microphone in the Electron app (tray menu → **Open App** → Microphone).
 - Watch the log line `RMS`, `peak`, and `silence_pct`. Near-zero RMS usually means the wrong mic or muted input.
 - If audio is quiet but real, move closer to the mic or choose the non-virtual physical microphone.
 
 ### Wrong microphone
 
-- Use tray menu -> Microphone. Duplicate names show host APIs where needed.
+- Use the Electron app's Microphone page (tray menu → **Open App** → Microphone). Duplicate names show host APIs where needed.
 - If one host API fails, Voice Typer can fall back to another entry with the same physical microphone name and persist the working device index.
 
 ### Silence warnings during recording
 
 - If you get silence warnings while actively speaking, your microphone may have a high noise floor or the silence threshold is too aggressive.
-- Adjust **tray menu → Advanced → Silence Warning** to a higher value (e.g., 15s or 20s).
+- Adjust **Settings → Recording → Silence Warning** (Electron app → Settings) to a higher value (e.g., 15s or 20s).
 - Check that the correct microphone is selected and is not being used by another application.
 
 ### Recording stops unexpectedly
 
 - Check if **Auto-Stop Timeout** or **Max Recording** triggered. Both fire safety notifications.
-- Adjust these from **tray menu → Advanced**.
+- Adjust these from **Settings → Recording** (Electron app → Settings).
 
 ### Slow stop after pressing the hotkey
 
@@ -562,13 +563,13 @@ The Windows native binary **does** suppress the Caps Lock keydown event so the O
 ### Autostart
 
 - Install the package first: `pip install .`
-- Enable from Settings -> Advanced -> Start on login.
+- Enable from **Settings → General → Launch at Login** (Electron app → Settings).
 - Windows uses `pythonw.exe -m voice_typer` when available so no console window stays open.
 
 ### Settings window
 
 - If the settings window does not appear, check the log for errors.
-- The window uses a tkinter GUI with a collapsible Advanced section.
+- The window is the Electron app's Settings page (React + shadcn/ui), organized into sections (General, Recording, Audio, Models, AI Enhancement, Privacy, Theme). Open it via the tray menu → **Open App** → Settings.
 - Cancelling discards changes; Save validates and applies them immediately.
 
 ### Text corrections

@@ -126,23 +126,40 @@ class TestModelIntegrityWarnsOnEmptyHashes:
             "when the qwen manifest's files dict is empty."
         )
 
-    def test_model_hashes_json_currently_empty(self):
-        """Pin the current state: all entries in model_hashes.json have
-        empty ``files`` dicts. This test will START FAILING once an
-        operator populates the manifest with real hashes — at which
-        point it should be updated to assert the hashes are non-empty
-        and the SEC-audit-005 WARNING should be downgraded back to INFO.
+    def test_model_hashes_json_currently_populated(self):
+        """SEC-audit-005 (Round 0 fix): HuggingFace repo entries in
+        model_hashes.json now have POPULATED ``files`` dicts (at minimum
+        config.json pinned with a SHA-256 hash) and pinned 40-char commit
+        SHA revisions (NOT the mutable 'main' branch).
+
+        Pre-fix state (pinned by the previous version of this test): every
+        entry had ``revision: "main"`` and ``files: {}``, so
+        verify_model_integrity() was a no-op that logged a WARNING and
+        soft-passed. This left Voice Typer open to supply-chain attacks
+        where a compromised HuggingFace repo pushes a malicious new commit
+        to 'main'.
+
+        Post-fix state (this test): every HuggingFace repo has an immutable
+        commit SHA and at least config.json pinned. Only the 'qwen' entry
+        (a local model, not fetched from HuggingFace) retains an empty
+        files dict by design.
+
+        Detailed enforcement (hash mismatch, fallback matches JSON, etc.)
+        is covered by tests/test_model_integrity.py.
         """
         import json
+        import re
         from pathlib import Path
+
+        commit_sha_re = re.compile(r"^[0-9a-f]{40}$")
+        sha256_re = re.compile(r"^[0-9a-f]{64}$")
 
         manifest_path = Path(__file__).resolve().parent.parent / \
             "voice_typer" / "server" / "model_hashes.json"
         with open(manifest_path) as f:
             data = json.load(f)
 
-        # Each top-level entry should have a "files" key.
-        # (Skip the "_comment" key which holds a documentation string.)
+        hf_repos_found = 0
         for repo_id, entry in data.items():
             if repo_id.startswith("_"):
                 continue  # skip _comment and other metadata keys
@@ -150,17 +167,42 @@ class TestModelIntegrityWarnsOnEmptyHashes:
                 f"model_hashes.json entry {repo_id!r} must be a dict, "
                 f"got {type(entry).__name__}"
             )
+            assert "revision" in entry, (
+                f"model_hashes.json entry {repo_id!r} must have a 'revision' key"
+            )
             assert "files" in entry, (
                 f"model_hashes.json entry {repo_id!r} must have a 'files' key"
             )
-            # Pin the current state — empty dict means the integrity
-            # check is a no-op and the WARNING fires.
-            # When an operator populates this, the test will fail and
-            # prompt them to also update the SEC-audit-0005 logic.
-            assert entry["files"] == {}, (
-                f"model_hashes.json entry {repo_id!r} now has populated "
-                f"files dict — update SEC-audit-005 test expectations."
+
+            if repo_id == "qwen":
+                assert entry["revision"] == "local", (
+                    f"qwen entry revision should be 'local', got {entry['revision']!r}"
+                )
+                continue
+
+            hf_repos_found += 1
+            assert commit_sha_re.match(entry["revision"]), (
+                f"model_hashes.json entry {repo_id!r} revision {entry['revision']!r} "
+                f"is not a 40-char hex commit SHA — must not be 'main' or any "
+                f"mutable branch (supply-chain attack surface)."
             )
+            assert entry["files"], (
+                f"model_hashes.json entry {repo_id!r} has empty 'files' dict — "
+                f"verify_model_integrity() is a no-op for this repo. "
+                f"Pin at least config.json."
+            )
+            assert "config.json" in entry["files"], (
+                f"model_hashes.json entry {repo_id!r} must pin config.json"
+            )
+            assert sha256_re.match(entry["files"]["config.json"]), (
+                f"model_hashes.json entry {repo_id!r} config.json hash "
+                f"{entry['files']['config.json']!r} is not a 64-char hex SHA-256."
+            )
+
+        assert hf_repos_found >= 5, (
+            f"Expected at least 5 HuggingFace repos with pinned SHAs, "
+            f"found {hf_repos_found}"
+        )
 
 class TestTranscriptionLoggingRedactsPii:
     """SEC-009.
@@ -3893,3 +3935,25 @@ class TestConfigPermissionTestsCoverageExists:
             assert "TestConfigSaveEnforcesPosixFilePermissions" in src
             assert "0600" in src or "0o600" in src
 
+
+class TestPlatMacBlocked:
+    """PLAT-MAC: macOS code exists but requires macOS CI runner."""
+
+    def test_macos_code_exists(self):
+        """macOS-specific code must exist in the codebase."""
+        from voice_typer.server import app
+        src = inspect.getsource(app)
+        assert "darwin" in src or "is_macos" in src
+
+    def test_macos_ci_runner_exists(self):
+        """PLAT-MAC: A macOS CI runner IS configured in build.yml.
+        This test pins that state — if the runner is removed, this
+        test will fail and alert maintainers that macOS code is
+        no longer being tested in CI.
+        """
+        build_yml = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "build.yml"
+        if build_yml.exists():
+            src = build_yml.read_text(encoding="utf-8")
+            assert "macos-latest" in src or "macos" in src.lower(), (
+                "PLAT-MAC: No macOS CI runner found — macOS code is untested."
+            )

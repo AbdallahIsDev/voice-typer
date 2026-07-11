@@ -38,20 +38,19 @@ import signal
 import subprocess
 import sys
 import time
-from pathlib import Path
 
-from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
+from voice_typer.server._electron_build import (
+    CLIENT_DIR,
+    _build_electron,
+    _electron_binary,
+    _electron_log_files,
+    _main_entry_built,
+    _npm_command,
+    _spawn_flags,
+)
+from voice_typer.server.platform_utils import is_windows
 
 log = logging.getLogger("voice_typer.electron_launcher")
-
-# Directory layout (mirrors autostart_launcher.CLIENT_DIR):
-#   <root>/
-#     voice_typer/
-#       server/
-#         electron_launcher.py   <- this file
-#       client/                   <- Electron app
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
-CLIENT_DIR = BASE_DIR / "voice_typer" / "client"
 
 
 def is_spawned_by_electron() -> bool:
@@ -73,128 +72,6 @@ def is_spawned_by_electron() -> bool:
     if os.environ.get("VOICE_TYPER_IPC_TOKEN"):
         return True
     return False
-
-
-def _electron_binary() -> str | None:
-    """Return the path to the dev-mode Electron binary, or None if absent.
-
-    In dev mode Electron ships under
-    ``node_modules/electron/dist/electron.exe`` (Windows) /
-    ``.../electron`` (POSIX).
-    """
-    if is_windows():
-        candidate = CLIENT_DIR / "node_modules" / "electron" / "dist" / "electron.exe"
-    else:
-        candidate = CLIENT_DIR / "node_modules" / "electron" / "dist" / "electron"
-    return str(candidate) if candidate.exists() else None
-
-
-def _main_entry_built() -> bool:
-    """Return True if the compiled Electron main bundle exists.
-
-    ``electron .`` loads ``out/main/index.js`` (the electron-vite build
-    output).  If the client has never been built (fresh checkout, deleted
-    ``out/``), this is False and we must build first.
-    """
-    return (CLIENT_DIR / "out" / "main" / "index.js").exists()
-
-
-def _npm_command(script: str = "dev") -> list[str] | None:
-    """Return the command list to run ``npm run <script>``.
-
-    Resolves the npm path explicitly via ``shutil.which`` so the list
-    form works on Windows too (where npm is npm.cmd).  Returns None if
-    npm can't be resolved (caller falls back to ``shell=True``).
-    """
-    import shutil
-
-    npm_path = shutil.which("npm")
-    if npm_path is not None:
-        return [npm_path, "run", script]
-    return None
-
-
-def _spawn_flags() -> dict:
-    """Platform-specific kwargs for spawning the Electron child."""
-    kwargs: dict = {}
-    if is_windows():
-        # CREATE_NO_WINDOW (0x08000000) prevents a console from flashing.
-        kwargs["creationflags"] = 0x08000000
-    else:
-        # Detach into a new session so the child survives this backend.
-        kwargs["start_new_session"] = True
-    return kwargs
-
-
-def _electron_log_files() -> dict:
-    """Open rotating log files for Electron stdout/stderr (best-effort).
-
-    Returns a dict suitable for unpacking into ``subprocess.Popen``.
-    Falls back to ``DEVNULL`` on any failure so the launch still succeeds.
-    """
-    try:
-        from voice_typer.server.config import _config_dir as _cfg
-
-        log_dir = _cfg() / "logs"
-        log_dir.mkdir(parents=True, exist_ok=True)
-        stdout_path = log_dir / "electron-stdout.log"
-        stderr_path = log_dir / "electron-stderr.log"
-        # "a" mode so logs accumulate across launches; line-buffered so
-        # the user sees output in near-real-time when tailing.
-        stdout_fd = open(stdout_path, "a", encoding="utf-8", buffering=1)
-        stderr_fd = open(stderr_path, "a", encoding="utf-8", buffering=1)
-        return {
-            "stdout": stdout_fd,
-            "stderr": stderr_fd,
-            "stdin": subprocess.DEVNULL,
-        }
-    except Exception as exc:
-        log.debug("[LAUNCHER] Failed to open Electron log files: %s", exc)
-        return {
-            "stdout": subprocess.DEVNULL,
-            "stderr": subprocess.DEVNULL,
-            "stdin": subprocess.DEVNULL,
-        }
-
-
-def _build_electron() -> bool:
-    """Run ``npm run build`` to produce the compiled Electron bundles.
-
-    Returns True on success, False on failure.
-    """
-    log.info("[LAUNCHER] Building Electron app (npm run build)...")
-    try:
-        cmd = _npm_command("build")
-        if cmd is not None:
-            result = subprocess.run(
-                cmd,
-                cwd=str(CLIENT_DIR),
-                capture_output=True,
-                timeout=180,
-            )
-        else:
-            result = subprocess.run(
-                "npm run build",
-                cwd=str(CLIENT_DIR),
-                shell=True,
-                capture_output=True,
-                timeout=180,
-            )
-        if result.returncode == 0:
-            log.info("[LAUNCHER] npm run build succeeded")
-            return True
-        log.warning(
-            "[LAUNCHER] npm run build failed (exit=%d): %s",
-            result.returncode,
-            result.stderr.decode("utf-8", errors="replace")[-500:],
-        )
-        return False
-    except subprocess.TimeoutExpired:
-        log.warning("[LAUNCHER] npm run build timed out after 180s")
-        return False
-    except Exception as exc:
-        log.warning("[LAUNCHER] npm run build raised: %s", exc)
-        return False
 
 
 def launch_electron_frontend(port: int, token: str) -> int | None:
@@ -234,7 +111,7 @@ def launch_electron_frontend(port: int, token: str) -> int | None:
 
     spawn_kwargs: dict = dict(cwd=str(CLIENT_DIR))
     spawn_kwargs.update(_electron_log_files())
-    spawn_kwargs.update(_spawn_flags())
+    spawn_kwargs.update(_spawn_flags(hidden=True))
 
     exe = _electron_binary()
     if exe:

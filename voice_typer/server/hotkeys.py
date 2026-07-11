@@ -760,12 +760,12 @@ class WindowsNativeHotkey(HotkeyBackend):
                     # Register the hotkey.  Pass NULL (0) as hWnd.
                     # RegisterHotKey(NULL, ...) binds the hotkey to the calling
                     # thread so WM_HOTKEY is posted to the thread message queue.
-                  
+
                     result = self._user32.RegisterHotKey(
                         0, self._hotkey_id, _MOD_NOREPEAT | self._modifiers, self._vk
                     )
                     if not result:
-                      
+
                         err = self._kernel32.GetLastError()
                         self._last_error = err
                         log.warning(
@@ -804,7 +804,7 @@ class WindowsNativeHotkey(HotkeyBackend):
             finally:
                 # Cleanup
                 if self._registered:
-                  
+
                     self._user32.UnregisterHotKey(0, self._hotkey_id)
                     self._registered = False
                     log.debug("[HOTKEY] Unregistered %s", self.hotkey_str)
@@ -1009,7 +1009,7 @@ class WindowsNativeHotkey(HotkeyBackend):
             # (OS toggles caps before we can undo it). A periodic ~200ms
             # check catches any missed toggles and re-silences caps lock.
             _caps_check_iter += 1
-            if is_caps_lock_hotkey and _caps_check_iter %% 200 == 0:
+            if is_caps_lock_hotkey and _caps_check_iter % 200 == 0:
                 if not self._caps_lock_suppressing:
                     self._ensure_caps_lock_off()
             # PLAT-020: suppress hotkey triggers during IME composition.
@@ -1039,7 +1039,7 @@ class WindowsNativeHotkey(HotkeyBackend):
                 self._kernel32.Sleep(1)
                 continue
 
-          
+
             state = self._user32.GetAsyncKeyState(vk)
             is_pressed = bool(state & 0x8000) and self._modifiers_pressed() and not self._other_modifiers_pressed()
             if is_pressed and not was_pressed:
@@ -1087,7 +1087,7 @@ class WindowsNativeHotkey(HotkeyBackend):
                     pass
             # PERF-012: 1ms sleep gives near-instant hotkey response
             # while still yielding CPU to other threads.
-          
+
             self._kernel32.Sleep(1)
 
     def _run_modifier_only_polling_loop(self, callback):
@@ -1384,7 +1384,7 @@ class WindowsNativeHotkey(HotkeyBackend):
 
             # PERF-012: 1ms sleep gives near-instant hotkey response
             # while still yielding CPU to other threads.
-          
+
             self._kernel32.Sleep(1)
 
     def _any_non_modifier_key_pressed(
@@ -1429,7 +1429,7 @@ class WindowsNativeHotkey(HotkeyBackend):
             if vk in modifier_vks:
                 continue
             try:
-              
+
                 if self._user32.GetAsyncKeyState(vk) & 0x8000:
                     return True
             except Exception:
@@ -1550,11 +1550,11 @@ class WindowsNativeHotkey(HotkeyBackend):
                 # GetKeyState returns a short where bit 0 (0x1) is the
                 # toggle state. If 1, Caps Lock was just toggled ON by
                 # the physical press — undo it with a synthetic press.
-              
+
                 toggle_state = self._user32.GetKeyState(_VK_CAPITAL) & 0x1
                 if toggle_state:
                     # Synthetic keydown + keyup toggles the state back.
-                  
+
                     self._user32.keybd_event(_VK_CAPITAL, 0x45, 0, 0)
                     self._user32.keybd_event(
                         _VK_CAPITAL, 0x45, _KEYEVENTF_KEYUP, 0
@@ -1569,7 +1569,7 @@ class WindowsNativeHotkey(HotkeyBackend):
                 # keyup and prematurely fire on_release. 5ms is enough
                 # for the OS to dispatch the events but short enough
                 # that the user doesn't notice a delay.
-              
+
                 self._kernel32.Sleep(5)
                 self._caps_lock_suppressing = False
         except Exception:
@@ -1646,7 +1646,7 @@ class WindowsNativeHotkey(HotkeyBackend):
             return False
 
     def _key_pressed(self, vk: int) -> bool:
-      
+
         return bool(self._user32.GetAsyncKeyState(vk) & 0x8000)
 
     def stop(self) -> None:

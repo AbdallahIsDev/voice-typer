@@ -685,7 +685,12 @@ class Config:
     # Crash recovery
     crash_recovery_enabled: bool = True
 
-    # T020: AudioQualityAnalyzer removed — dead code archived to archive/.
+    # T020 (superseded): an earlier draft removed AudioQualityAnalyzer as
+    # dead code and archived a stale copy to archive/. The analyzer was
+    # subsequently revived and is actively used — see app.py:208
+    # (instantiation), app.py:_on_audio_quality_chunk and
+    # _finalize_audio_quality_report (per-chunk + post-stop analysis),
+    # and recording_controller.py:403 (invocation after stop()).
     # FIX-HOTKEY-AND-NOTIFICATION: the user-facing tray notification that
     # reported "Low volume / High noise" after each dictation was deemed
     # annoying. The default is now False, AND the app-side code path that

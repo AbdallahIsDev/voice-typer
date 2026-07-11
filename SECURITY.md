@@ -52,7 +52,7 @@ data exfiltration to attacker-controlled endpoints.
 
 ### Payload Size Limits (SEC-008, SEC-010, SEC-011)
 
-- TCP receive buffer capped at 4 MB per message.
+- TCP receive buffer capped at 1 MB per message (`ipc_server.py:445`, `_MAX_LINE_BYTES = 1 * 1024 * 1024`).
 - History limit/offset bounded to prevent DoS via huge values.
 - Vocabulary payload capped at 1 MB; individual values at 1024 chars.
 
@@ -64,4 +64,10 @@ data exfiltration to attacker-controlled endpoints.
   it's loopback-only, but means any local process with the session token can
   intercept traffic.
 - **Autostart:** The installer enables autostart by default (Windows
-  Scheduled Task). Users can disable it via the tray menu.
+  Scheduled Task; macOS LaunchAgent plist; Linux `.desktop` file in
+  `~/.config/autostart/`). Users can disable it via the Electron app's
+  Settings → General → **Launch at Login** toggle (tray menu → Open App →
+  Settings), or by removing the OS autostart entry directly (Task
+  Scheduler on Windows, `~/Library/LaunchAgents/com.voicetyper.plist`
+  on macOS, `~/.config/autostart/voice-typer.desktop` on Linux). The
+  tray menu itself has no autostart toggle.
