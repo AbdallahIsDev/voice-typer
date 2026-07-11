@@ -9,11 +9,13 @@ import logging
 import os
 import threading
 import unicodedata
-from typing import Any, Optional, Callable
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 
-from voice_typer.server.hallucination import should_reject_low_audio_hallucination, log_hallucination_rejection
+from voice_typer.server.hallucination import log_hallucination_rejection, should_reject_low_audio_hallucination
+from voice_typer.server.security import MODEL_HASHES as _MODEL_HASHES
 
 log = logging.getLogger(__name__)
 
@@ -81,7 +83,6 @@ _PARAKEET_ALLOW_PATTERNS = [
 
 # SEC-audit-005: Pin to a specific revision for reproducibility.
 # Use the centralized MODEL_HASHES manifest from security.py.
-from voice_typer.server.security import MODEL_HASHES as _MODEL_HASHES
 _PARAKEET_REVISION = _MODEL_HASHES.get(_PARAKERT_MODEL_ID, {}).get("revision", "main")
 
 # Parakeet's Conformer encoder has a practical limit of ~30s of audio.
@@ -168,6 +169,7 @@ class ParakeetEngine:
             return
         try:
             import torch
+
             # TASK-14: ``AutoModelForTDT`` was added to transformers in
             # 4.50 (our pyproject floor).  The venv on this runner has
             # 4.44, so a static ``from transformers import AutoModelForTDT``
@@ -199,7 +201,7 @@ class ParakeetEngine:
         """
         try:
             import psutil
-            system_drive = os.environ.get("SystemDrive", "C:") + "\\"
+            system_drive = os.environ.get("SYSTEMDRIVE", "C:") + "\\"
             usage = psutil.disk_usage(system_drive)
             free_mb = usage.free // (1024 * 1024)
             if free_mb < 500:
@@ -239,7 +241,7 @@ class ParakeetEngine:
         with self._lock:
             return self._model is not None and self._processor is not None
 
-    def load(self, progress_callback: Optional[Callable[[str], None]] = None) -> bool:
+    def load(self, progress_callback: Callable[[str], None] | None = None) -> bool:
         """Download (if needed) and load the Parakeet model.
 
         Weights land in ``~/.voice-typer/huggingface/hub/``.
@@ -316,8 +318,8 @@ class ParakeetEngine:
                     effective_device = "cpu"
 
                 # Suppress Transformers' tqdm progress bar
-                from contextlib import redirect_stderr
                 import io as _io
+                from contextlib import redirect_stderr
 
                 _stderr_buf = _io.StringIO()
                 with redirect_stderr(_stderr_buf):
@@ -454,10 +456,7 @@ class ParakeetEngine:
             return ""
 
         # PERF-STATS: reuse pre-computed RMS when provided
-        if audio_stats is not None:
-            rms = audio_stats[0]
-        else:
-            rms = float(np.sqrt(np.mean(np.square(audio), dtype=np.float64)))
+        rms = audio_stats[0] if audio_stats is not None else float(np.sqrt(np.mean(np.square(audio), dtype=np.float64)))
         if should_reject_low_audio_hallucination(text, rms):
             # SEC-009: Use PII-safe logging helper instead of raw text
             log_hallucination_rejection(
@@ -529,10 +528,7 @@ class ParakeetEngine:
                 continue
 
             skip = self._compute_overlap_skip(result_words, words)
-            if skip > 0:
-                tail = words[skip:]
-            else:
-                tail = words
+            tail = words[skip:] if skip > 0 else words
             if tail:
                 result_words.extend(tail)
         return " ".join(result_words).strip()
@@ -724,6 +720,7 @@ class ParakeetEngine:
         is_loaded / transcribe for 10-100ms.
         """
         import gc
+
         from voice_typer.server.transcription import release_gpu_memory
         with self._lock:
             self._model = None

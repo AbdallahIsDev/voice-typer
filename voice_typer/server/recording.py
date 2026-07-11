@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import collections
+import contextlib
 import enum
 import logging
 import math
 import threading
 import time
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 
@@ -25,10 +27,9 @@ import numpy as np
 # annotations`` above stringifies the ``Optional[sd.InputStream]``
 # annotation in Recorder.__init__ so it no longer forces an eager import.
 from voice_typer.server._lazy_import import lazy_module
+from voice_typer.server.config import Config
 
 sd = lazy_module("sounddevice")
-
-from voice_typer.server.config import Config
 
 log = logging.getLogger(__name__)
 
@@ -110,10 +111,8 @@ def _secure_clear_array(arr: np.ndarray) -> None:
     arr : np.ndarray
         Numpy array to zero out in-place.
     """
-    try:
-        arr.fill(0)
-    except Exception:
-        pass  # best-effort; some array types may not support fill
+    with contextlib.suppress(Exception):
+        arr.fill(0)  # best-effort; some array types may not support fill
 
 # PERF-NEW-018: MAX_BUFFER_CHUNKS is now dynamically adjusted in
 # start() based on max_recording_time_seconds.  The default below is a
@@ -154,7 +153,7 @@ threading.Thread(
 ).start()
 
 
-class ResampleUnavailable(RuntimeError):
+class ResampleUnavailableError(RuntimeError):
     """Raised when scipy.signal.resample_poly is unavailable.
 
     ARCH-033: the 3-tier fallback (scipy → linear interp → native)
@@ -195,7 +194,7 @@ def _get_resample_poly():
         except ImportError as exc:
             # ARCH-033: wrap in a typed exception so callers can catch
             # without inspecting the ImportError message.
-            typed = ResampleUnavailable(
+            typed = ResampleUnavailableError(
                 f"scipy.signal.resample_poly unavailable: {exc}"
             )
             _resample_poly_error = typed
@@ -208,10 +207,10 @@ def _get_resample_poly():
 class Recorder:
     """Records audio from microphone into a buffer. Session-based: start, accumulate, stop, get data."""
 
-    def __init__(self, config: Config, audio_processor: Optional[Any] = None):
+    def __init__(self, config: Config, audio_processor: Any | None = None):
         self.config = config
         self._audio_processor = audio_processor  # AudioProcessor or None
-        self._stream: Optional[sd.InputStream] = None
+        self._stream: sd.InputStream | None = None
         self._buffer: collections.deque = collections.deque(maxlen=DEFAULT_MAX_BUFFER_CHUNKS)
         self._lock = threading.Lock()
 
@@ -222,7 +221,7 @@ class Recorder:
         self._last_clip_log_time: float = 0.0
         # Item 1: xrun notification callback — set by VoiceTyperApp
         # to receive a notification when xrun count exceeds threshold.
-        self.on_xrun_threshold: Optional[Callable[[int], None]] = None
+        self.on_xrun_threshold: Callable[[int], None] | None = None
         self._xrun_threshold: int = 10  # notify after this many xruns
         # AUDIO-002: rolling window of xrun timestamps for rate-limited logging
         self._xrun_timestamps: collections.deque = collections.deque(maxlen=_XRUN_WINDOW_MAXLEN)
@@ -249,11 +248,11 @@ class Recorder:
         # np.concatenate.  Invalidated whenever the buffer length
         # changes (i.e. a new chunk arrived).
         self._cached_no_resample_len: int = -1
-        self._cached_no_resample_arr: "np.ndarray | None" = None
+        self._cached_no_resample_arr: np.ndarray | None = None
         # NEW-PERF-010: cache of (rms, peak, silence_pct) from the most
         # recent stop() call, so the transcription engine can reuse
         # them instead of recomputing on the same audio array.
-        self._last_audio_stats: "tuple[float, float, float] | None" = None
+        self._last_audio_stats: tuple[float, float, float] | None = None
 
         # AUDIO-013: VAD state machine with hysteresis
         self._vad_state: VadState = VadState.UNKNOWN
@@ -372,7 +371,7 @@ class Recorder:
         # on Windows, /dev/snd dir change on Linux). The 30s TTL above
         # remains as a fallback for platforms where the watcher can't
         # start (macOS) or for the case where the watcher thread crashes.
-        self._mic_watcher: Optional[Any] = None
+        self._mic_watcher: Any | None = None
         try:
             from voice_typer.server.microphone_watcher import (
                 MicrophoneDeviceWatcher,
@@ -531,13 +530,11 @@ class Recorder:
 
     def __del__(self) -> None:
         """Best-effort cleanup of the mic watcher. Must never raise."""
-        try:
+        with contextlib.suppress(Exception):
             self.shutdown_mic_watcher()
-        except Exception:
-            # __del__ must never raise — Python logs and ignores it,
-            # but we don't want to add noise during interpreter
-            # teardown.
-            pass
+        # __del__ must never raise — Python logs and ignores it,
+        # but we don't want to add noise during interpreter
+        # teardown.
 
     # ── AUDIO-HOT: hot-plug disconnect handling ─────────────────────────
 
@@ -568,14 +565,12 @@ class Recorder:
                 "[RECORDING] Stream finished unexpectedly — possible device disconnect"
             )
             self._device_disconnected = True
-            try:
+            with contextlib.suppress(Exception):
                 threading.Thread(
                     target=self._handle_device_disconnect,
                     name="stream-finished-handler",
                     daemon=True,
                 ).start()
-            except Exception:
-                pass
 
     def _handle_device_disconnect(self, _captured_generation: int = 0) -> None:
         """Attempt to restart recording with the default device after a disconnect.
@@ -608,10 +603,8 @@ class Recorder:
                 self._max_disconnect_retries,
             )
             if self.on_silence_auto_stop is not None:
-                try:
+                with contextlib.suppress(Exception):
                     self.on_silence_auto_stop()
-                except Exception:
-                    pass
             return
 
         log.warning(
@@ -718,9 +711,7 @@ class Recorder:
         )
         if any(filter_flags):
             return True
-        if str(getattr(config, "noise_suppression_method", "none")).lower() != "none":
-            return True
-        return False
+        return str(getattr(config, "noise_suppression_method", "none")).lower() != "none"
 
     def _vad_auto_calibrate(self, chunk_rms: float, chunk_duration: float) -> None:
         """Auto-calibrate VAD thresholds based on ambient noise floor.
@@ -829,12 +820,10 @@ class Recorder:
                 self._vad_state = VadState.SPEECH
             elif is_quiet and self._vad_consecutive_silence_frames >= self._vad_silence_frames:
                 self._vad_state = VadState.SILENCE
-        elif self._vad_state == VadState.SILENCE:
-            if self._vad_consecutive_speech_frames >= self._vad_speech_frames:
-                self._vad_state = VadState.SPEECH
-        elif self._vad_state == VadState.SPEECH:
-            if self._vad_consecutive_silence_frames >= self._vad_hangover_frames:
-                self._vad_state = VadState.SILENCE
+        elif self._vad_state == VadState.SILENCE and self._vad_consecutive_speech_frames >= self._vad_speech_frames:
+            self._vad_state = VadState.SPEECH
+        elif self._vad_state == VadState.SPEECH and self._vad_consecutive_silence_frames >= self._vad_hangover_frames:
+            self._vad_state = VadState.SILENCE
 
         if self._vad_state != old_state:
             log.debug(
@@ -941,7 +930,7 @@ class Recorder:
             return 3
         return 4
 
-    def _resolve_effective_sample_rate(self, device: Optional[int]) -> tuple[int, Optional[dict]]:
+    def _resolve_effective_sample_rate(self, device: int | None) -> tuple[int, dict | None]:
         """Determine the effective sample rate and device info for the given device.
 
         Returns (effective_sr, dev_info_dict) where dev_info_dict has
@@ -961,10 +950,7 @@ class Recorder:
         try:
             # device=None means system default; query_devices(None) returns
             # a list of ALL devices, so we must use kind='input' instead.
-            if device is None:
-                dev_info = sd.query_devices(kind="input")
-            else:
-                dev_info = sd.query_devices(device)
+            dev_info = sd.query_devices(kind="input") if device is None else sd.query_devices(device)
             native_rate = int(dev_info["default_samplerate"])
             host_api_name = ""
             try:
@@ -1204,15 +1190,13 @@ class Recorder:
                 # HOTKEY-CRASH: capture the current stop_generation so the
                 # handler can bail if a stop/start cycle happened in between.
                 _captured_gen = self._stop_generation
-                try:
+                with contextlib.suppress(Exception):
                     threading.Thread(
                         target=self._handle_device_disconnect,
                         kwargs={"_captured_generation": _captured_gen},
                         name="device-disconnect-handler",
                         daemon=True,
                     ).start()
-                except Exception:
-                    pass
                 return
 
             # AUDIO-HOT: periodic device availability check — verify
@@ -1236,15 +1220,13 @@ class Recorder:
                             "in query_devices — disconnect detected")
                             self._device_disconnected = True
                             _captured_gen = self._stop_generation
-                            try:
+                            with contextlib.suppress(Exception):
                                 threading.Thread(
                                     target=self._handle_device_disconnect,
                                     kwargs={"_captured_generation": _captured_gen},
                                     name="device-disconnect-check",
                                     daemon=True,
                                 ).start()
-                            except Exception:
-                                pass
                             return
                 except Exception:
                     pass
@@ -1273,10 +1255,8 @@ class Recorder:
                     )
                 # Item 1: fire threshold callback for tray notification
                 if self._xruns == self._xrun_threshold and self.on_xrun_threshold:
-                    try:
+                    with contextlib.suppress(Exception):
                         self.on_xrun_threshold(self._xruns)
-                    except Exception:
-                        pass
 
             # PERF-011: frame-skip under CPU load — if the previous
             # chunk is still being processed, skip this one to prevent
@@ -1355,8 +1335,6 @@ class Recorder:
             # RACE-003: use the snapshot taken inside the lock above;
             # do NOT re-read _recent_rms_values here.
             recent_rms = recent_rms_snapshot
-            silence_timer = self._silence_timer
-            silence_warning_count = self._silence_warning_count
             recording_start = self._recording_start_time
 
             # ── Everything below runs OUTSIDE the lock ──
@@ -1499,27 +1477,19 @@ class Recorder:
                 if expected_warnings > self._silence_warning_count:
                     self._silence_warning_count = expected_warnings
                     if silence_warning_cb is not None:
-                        try:
+                        with contextlib.suppress(Exception):
                             silence_warning_cb()
-                        except Exception:
-                            pass
 
-            if self._silence_timer >= stop_on_silence_seconds:
-                if silence_auto_stop_cb is not None:
-                    try:
-                        silence_auto_stop_cb()
-                    except Exception:
-                        pass
+            if self._silence_timer >= stop_on_silence_seconds and silence_auto_stop_cb is not None:
+                with contextlib.suppress(Exception):
+                    silence_auto_stop_cb()
 
             # H12b: Maximum recording duration auto-stop
             recording_duration = time.perf_counter() - recording_start
             max_recording_time_seconds = self._cached_max_recording_time
-            if recording_duration >= max_recording_time_seconds:
-                if max_duration_cb is not None:
-                    try:
-                        max_duration_cb()
-                    except Exception:
-                        pass
+            if recording_duration >= max_recording_time_seconds and max_duration_cb is not None:
+                with contextlib.suppress(Exception):
+                    max_duration_cb()
 
             if chunk_count == BUFFER_WARNING_THRESHOLD:
                 log.warning(
@@ -1604,10 +1574,7 @@ class Recorder:
                 # If config.recording_channels > 0, use that value
                 # instead of auto-detecting (allows user override).
                 config_channels = int(getattr(self.config, "recording_channels", 1) or 1)
-                if config_channels > 0:
-                    channels = config_channels
-                else:
-                    channels = 1
+                channels = config_channels if config_channels > 0 else 1
                 try:
                     dev_info = sd.query_devices(candidate) if candidate is not None else sd.query_devices(kind="input")
                     max_ch = dev_info.get("max_input_channels", 1)
@@ -1664,10 +1631,8 @@ class Recorder:
                     e,
                 )
                 if stream is not None:
-                    try:
+                    with contextlib.suppress(Exception):
                         stream.close()
-                    except Exception:
-                        pass
                 self._stream = None
                 continue
 
@@ -1736,10 +1701,8 @@ class Recorder:
                         candidate, e,
                     )
                     if stream is not None:
-                        try:
+                        with contextlib.suppress(Exception):
                             stream.close()
-                        except Exception:
-                            pass
                     continue
 
                 self._stream = stream
@@ -1854,14 +1817,14 @@ class Recorder:
         # callback genuinely runs past ``stream.stop()``, the poll loop
         # waits for it to finish (restoring the AUDIO-009/AUDIO-015
         # safety contract).
-        _BACKOFF_BUDGET_S = 0.300  # total worst-case wait, same as pre-fix
-        _POLL_INTERVAL_S = 0.005   # 5ms poll
-        _deadline = time.perf_counter() + _BACKOFF_BUDGET_S
+        _backoff_budget_s = 0.300  # total worst-case wait, same as pre-fix
+        _poll_interval_s = 0.005   # 5ms poll
+        _deadline = time.perf_counter() + _backoff_budget_s
         while self._is_in_audio_callback.is_set():
             remaining = _deadline - time.perf_counter()
             if remaining <= 0:
                 break
-            time.sleep(min(_POLL_INTERVAL_S, remaining))
+            time.sleep(min(_poll_interval_s, remaining))
         self._stream.close()
         self._stream = None
 
@@ -1952,7 +1915,7 @@ class Recorder:
             self._last_rms = 0.0
             self._last_audio_stats = (0.0, 0.0, 0.0)
             log.warning("[RECORDING] No audio data captured!")
-        stats_ms = (time.perf_counter() - stats_started) * 1000
+        (time.perf_counter() - stats_started) * 1000
 
         # H15: stop() should NOT use cache - resample from scratch for full audio
         resample_started = time.perf_counter()
@@ -1962,7 +1925,6 @@ class Recorder:
         # AUDIO-PROC: post-capture spectral noise reduction (offline,
         # safe to block).  Runs AFTER resampling so noisereduce
         # operates on the final 16 kHz audio.  ~200 ms for 30 s audio.
-        post_capture_ms = 0.0
         # ADR 0007 §3.8: post-capture noisereduce removed. The real-time
         # NoiseSuppressor filter in the chain handles denoising. The
         # old process_full_audio() call is removed because:
@@ -2209,7 +2171,7 @@ class Recorder:
                     effective_sr, target_sr, orig_len, len(audio),
                 )
             resampled = True
-        except ResampleUnavailable as exc:
+        except ResampleUnavailableError as exc:
             # ARCH-033: scipy missing — fall through to linear interp.
             last_error = exc
             if log_resample:

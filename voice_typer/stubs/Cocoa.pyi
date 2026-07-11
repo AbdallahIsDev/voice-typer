@@ -3,10 +3,12 @@
 # CoreData; we mirror that so any `from Cocoa import X` resolves.
 from typing import Any
 
-# Re-export Foundation symbols.
-from Foundation import *  # noqa: F401,F403
 # Re-export AppKit symbols.
 from AppKit import *  # noqa: F401,F403
+
+# Re-export Foundation symbols.
+from Foundation import *  # noqa: F401,F403
+
 # Re-export CoreData (minimal).
 NSManagedObject: Any
 NSManagedObjectContext: Any

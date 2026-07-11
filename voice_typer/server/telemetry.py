@@ -17,14 +17,12 @@ Crash reports include:
 from __future__ import annotations
 
 import logging
-import os
 import platform
 import sys
 import threading
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 log = logging.getLogger(__name__)
 
@@ -44,9 +42,9 @@ def _crash_reports_dir() -> Path:
 def write_crash_report(
     exc: BaseException,
     *,
-    thread_name: Optional[str] = None,
+    thread_name: str | None = None,
     telemetry_enabled: bool = False,
-) -> Optional[Path]:
+) -> Path | None:
     """Write a crash report to a local file.
 
     PROD-001: only writes if telemetry_enabled is True. The caller
@@ -89,20 +87,20 @@ def write_crash_report(
             pass
 
         lines = [
-            f"Voice Typer Crash Report",
-            f"========================",
+            "Voice Typer Crash Report",
+            "========================",
             f"Timestamp: {timestamp}",
             f"Thread: {thread}",
             f"Python: {sys.version}",
             f"Platform: {platform.platform()}",
             f"Architecture: {platform.machine()}",
             f"App Version: {version}",
-            f"",
+            "",
             f"Exception Type: {type(exc).__name__}",
             f"Exception Message: {str(exc)}",
-            f"",
-            f"Traceback:",
-            f"-----------",
+            "",
+            "Traceback:",
+            "-----------",
             tb,
         ]
 
@@ -140,7 +138,7 @@ def list_crash_reports() -> list[Path]:
         return []
 
 
-def read_crash_report(path: Path) -> Optional[str]:
+def read_crash_report(path: Path) -> str | None:
     """Read a crash report file."""
     try:
         return path.read_text(encoding="utf-8")

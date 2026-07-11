@@ -24,7 +24,7 @@
  */
 import { act, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { HotkeyPicker } from "../HotkeyPicker";
+import { HotkeyPicker } from "../hotkey/HotkeyPicker";
 
 interface DispatchOpts {
 	code: string;

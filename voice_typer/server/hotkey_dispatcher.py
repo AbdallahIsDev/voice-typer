@@ -14,8 +14,9 @@ for back-compat with callers (settings window, tests).
 
 from __future__ import annotations
 
+import contextlib
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.hotkeys import HotkeyBackend, create_hotkey_backend
@@ -38,22 +39,22 @@ class HotkeyDispatcher:
 
     def __init__(self, app: Any) -> None:
         self._app = app
-        self._hotkey_backend: Optional[HotkeyBackend] = None
-        self._esc_backend: Optional[HotkeyBackend] = None
-        self._repaste_backend: Optional[HotkeyBackend] = None
+        self._hotkey_backend: HotkeyBackend | None = None
+        self._esc_backend: HotkeyBackend | None = None
+        self._repaste_backend: HotkeyBackend | None = None
 
     # ── Backend accessors (for back-compat with tests that read them) ──
 
     @property
-    def hotkey_backend(self) -> Optional[HotkeyBackend]:
+    def hotkey_backend(self) -> HotkeyBackend | None:
         return self._hotkey_backend
 
     @property
-    def esc_backend(self) -> Optional[HotkeyBackend]:
+    def esc_backend(self) -> HotkeyBackend | None:
         return self._esc_backend
 
     @property
-    def repaste_backend(self) -> Optional[HotkeyBackend]:
+    def repaste_backend(self) -> HotkeyBackend | None:
         return self._repaste_backend
 
     # ── Registration ───────────────────────────────────────────────────
@@ -77,10 +78,8 @@ class HotkeyDispatcher:
             # it can show permission/fallback/recovery notifications.
             # The _NativeBackendAdapter uses this for its notifications;
             # other backends ignore it.
-            try:
+            with contextlib.suppress(AttributeError, TypeError):
                 self._hotkey_backend._tray = app.tray  # type: ignore[attr-defined]
-            except (AttributeError, TypeError):
-                pass
             self._hotkey_backend.start(self._make_dictation_callback())
             # P1: Push-to-talk mode -- set release callback
             if app.config.recording_mode == "push_to_talk":
@@ -170,10 +169,8 @@ class HotkeyDispatcher:
         """
         # Stop any existing backend first
         if self._esc_backend:
-            try:
+            with contextlib.suppress(Exception):
                 self._esc_backend.stop()
-            except Exception:
-                pass
             self._esc_backend = None
 
         # ESC-KEYUP-FIX: flag set on ESC key-down during capture,
@@ -240,28 +237,22 @@ class HotkeyDispatcher:
         # Reset the release callback so it doesn't fire again
         # on the next ESC press during normal operation.
         if self._esc_backend is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._esc_backend.set_on_release(None)
-            except Exception:
-                pass
 
     def unregister_esc(self) -> None:
         """Unregister the ESC hotkey."""
         if self._esc_backend:
-            try:
+            with contextlib.suppress(Exception):
                 self._esc_backend.stop()
-            except Exception:
-                pass
             self._esc_backend = None
             log.info("[HOTKEY] ESC cancel hotkey unregistered")
 
     def register_repaste(self) -> None:
         """Register the repaste hotkey."""
         if self._repaste_backend:
-            try:
+            with contextlib.suppress(Exception):
                 self._repaste_backend.stop()
-            except Exception:
-                pass
             self._repaste_backend = None
         if self._app.config.repaste_hotkey:
             try:

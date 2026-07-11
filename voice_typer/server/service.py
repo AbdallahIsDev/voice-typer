@@ -9,8 +9,9 @@ The service is a thin facade — it delegates to the app but provides
 a stable interface that doesn't leak VoiceTyperApp's internal API.
 """
 
+import contextlib
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from voice_typer.server.branding import APP_NAME
 
@@ -35,9 +36,9 @@ def _apply_audio_preset(preset: str) -> dict:
         dict of noise_filter_* settings to apply.
     """
     from voice_typer.server.audio_presets import (
-        get_preset_filters,
         PRESET_AUTO,
         PRESET_OFF,
+        get_preset_filters,
     )
 
     # Map legacy preset names
@@ -260,10 +261,8 @@ class VoiceTyperService:
         try:
             mics = list_microphones()
             self._app._microphones = mics
-            try:
+            with contextlib.suppress(Exception):
                 self._app.tray.set_microphones(mics)
-            except Exception:
-                pass
             return mics
         except Exception as e:
             log.error("[SERVICE] refresh_microphones failed: %s", e)
@@ -323,11 +322,14 @@ class VoiceTyperService:
         # engine from scratch which can take 30+ seconds).
         if result.get("success") and result.get("audio_base64"):
             try:
-                import base64, io, wave
+                import base64
+                import io
+                import wave
+
                 import numpy as np
 
                 wav_bytes = base64.b64decode(result["audio_base64"])
-                sr = result.get("sample_rate", 16000)
+                result.get("sample_rate", 16000)
 
                 # Decode WAV to float32
                 with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
@@ -560,6 +562,7 @@ class VoiceTyperService:
     def get_model_status(self) -> dict:
         """Return the model download/dependency status for each ASR backend."""
         import os
+
         from voice_typer.server.config import _config_dir
 
         config = self._app.config
@@ -629,6 +632,7 @@ class VoiceTyperService:
         Returns ``{"success": bool, "message": str}``.
         """
         import shutil
+
         from voice_typer.server.config import _config_dir
         from voice_typer.server.model_registry import get_model_metadata
 
@@ -779,7 +783,7 @@ class VoiceTyperService:
 
     def save_vocabulary(self, entries: list[dict]) -> dict:
         """Save vocabulary entries and return result."""
-        from voice_typer.server.vocabulary import VocabularyManager, VocabularyEntry
+        from voice_typer.server.vocabulary import VocabularyEntry, VocabularyManager
         vm = VocabularyManager(config_dir=self._app.config.config_dir)
         try:
             vm.set_entries([
@@ -797,9 +801,10 @@ class VoiceTyperService:
         (diff against bundled defaults) to the user file, preventing
         duplicate entries on next load.
         """
-        from voice_typer.server.vocabulary import VocabularyManager, CATEGORIES, VOCAB_FILENAME
-        from voice_typer.server.config import _config_dir
         import json
+
+        from voice_typer.server.config import _config_dir
+        from voice_typer.server.vocabulary import CATEGORIES, VOCAB_FILENAME, VocabularyManager
 
         mgr = VocabularyManager()
         bundled = mgr._load_bundled()
@@ -815,20 +820,19 @@ class VoiceTyperService:
                     diff = {k: v for k, v in incoming.items() if bd.get(k) != v}
                     if diff:
                         user_only[cat] = diff
-            elif cat in ("phrase_corrections", "extra_word_patterns"):
-                if isinstance(incoming, list):
-                    bs: set[tuple[str, str]] = set()
-                    if isinstance(bundled_cat, list):
-                        for item in bundled_cat:
-                            if isinstance(item, (list, tuple)) and len(item) >= 2:
-                                bs.add((item[0], item[1]))
-                    diff = [
-                        item for item in incoming
-                        if isinstance(item, (list, tuple)) and len(item) >= 2
-                        and (item[0], item[1]) not in bs
-                    ]
-                    if diff:
-                        user_only[cat] = diff
+            elif cat in ("phrase_corrections", "extra_word_patterns") and isinstance(incoming, list):
+                bs: set[tuple[str, str]] = set()
+                if isinstance(bundled_cat, list):
+                    for item in bundled_cat:
+                        if isinstance(item, (list, tuple)) and len(item) >= 2:
+                            bs.add((item[0], item[1]))
+                diff = [
+                    item for item in incoming
+                    if isinstance(item, (list, tuple)) and len(item) >= 2
+                    and (item[0], item[1]) not in bs
+                ]
+                if diff:
+                    user_only[cat] = diff
 
         # Write only user customizations to the user file
         # SEC-003: Use _secure_atomic_write to ensure 0o600 permissions
@@ -1240,6 +1244,7 @@ class VoiceTyperService:
         """
         import os
         import shutil
+
         from voice_typer.server.config import _config_dir
         from voice_typer.server.model_registry import MODEL_REGISTRY
 
@@ -1423,6 +1428,7 @@ class VoiceTyperService:
         a ``resumed: True`` event.
         """
         import os
+
         # UX-005: helper to push progress events to the renderer.
         from voice_typer.server.ipc_server import _push_event_now
 
@@ -1492,9 +1498,9 @@ class VoiceTyperService:
                 # every fresh download so a stale ``paused=True`` from
                 # a previous download doesn't carry over.
                 from voice_typer.server.asr_setup import (
-                    reset_download_pause_state,
                     clear_download_pause_state,
                     is_download_paused,
+                    reset_download_pause_state,
                     wait_while_paused,
                 )
                 reset_download_pause_state()
@@ -1508,6 +1514,7 @@ class VoiceTyperService:
                 # the local cache.
                 try:
                     from huggingface_hub import snapshot_download
+
                     from voice_typer.server.config import _config_dir
                     # NEW-MODEL-001: use the registry's repo_id so
                     # distilled variants (Systran/faster-distil-whisper-*)
@@ -1701,7 +1708,9 @@ class VoiceTyperService:
                                            "retry to resume.",
                             }
                         if download_err:
-                            raise download_err[0]
+                            # B904: suppress context from the failed
+                            # cache-only snapshot_download attempt above.
+                            raise download_err[0] from None
                         log.info(
                             "[SERVICE] Download of '%s' complete (%d MB)",
                             model_name, last_total_bytes_seen // (1024 * 1024),

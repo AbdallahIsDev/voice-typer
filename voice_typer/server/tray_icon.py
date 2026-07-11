@@ -4,13 +4,12 @@ ARCH-003: extracted from tray.py to separate the PIL/image-rendering
 logic from the menu/callback logic.
 """
 
-import sys
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Any
 
+from voice_typer.server.platform_utils import is_windows
 from voice_typer.server.tray_types import AppState
-from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
 
 if TYPE_CHECKING:
     from PIL import Image as PilImage
@@ -50,7 +49,7 @@ def _pil_lanczos() -> int:
 # The icons are needed for the lifetime of the tray (the whole process),
 # so clearing them would just cause re-rendering on every state change
 # — the exact overhead NEW-PERF-005 was designed to eliminate.
-_icon_cache: Dict[Tuple[AppState, int], "PilImage.Image"] = {}
+_icon_cache: dict[tuple[AppState, int], "PilImage.Image"] = {}
 
 # NEW-PERF-005: DPI never changes within a session — cache the result
 # of _get_dpi_aware_icon_size() after the first call so we don't run
@@ -101,7 +100,7 @@ def invalidate_dpi_cache() -> None:
     _dpi_aware_size_cache = None
 
 
-def _get_icon_path(state: AppState, size: int = 0) -> Optional[Path]:
+def _get_icon_path(state: AppState, size: int = 0) -> Path | None:
     """PLAT-024: Return the path to the appropriate icon file for the state.
 
     On Windows, prefers ICO format (multiple sizes in one file, sharper
@@ -172,8 +171,8 @@ def _draw_shape(shape: str, size: int, color: tuple):
         The rendered shape icon.
     """
     from PIL import ImageDraw
-    Image = _get_pil_image()
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    image = _get_pil_image()
+    img = image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     margin = max(2, size // 8)
     inner = size - 2 * margin
@@ -280,25 +279,25 @@ def _make_icon(state: AppState, size: int = 0):
     shape = _ICON_SHAPES.get(state, "circle")
 
     png_loaded = False
-    # TASK-14: initialize ``PilImg`` and ``colored`` to ``None`` BEFORE
+    # TASK-14: initialize ``pil_img`` and ``colored`` to ``None`` BEFORE
     # the try block so that the downstream code paths (the else branch
     # and the Windows ICO re-encoding) cannot reference an unbound name
     # if the try block exits early. The ``png_loaded`` flag governs
     # whether we use ``colored`` from the try (PNG path) or replace it
     # with the shape fallback, but pyrefly cannot prove that
     # ``png_loaded=True`` implies ``colored is not None``.
-    # ``PilImg`` is the ``PIL.Image`` module itself (returned by
+    # ``pil_img`` is the ``PIL.Image`` module itself (returned by
     # ``_get_pil_image()``); ``Any`` reflects that there is no
     # first-class ``ModuleType`` stub in scope.
-    PilImg: Optional[Any] = None
-    colored: Optional[Any] = None
+    pil_img: Any | None = None
+    colored: Any | None = None
     try:
         asset_dir = Path(__file__).resolve().parent / "assets"
         available = [16, 24, 32, 48, 64]
         best = min(available, key=lambda x: abs(x - size))
-        PilImg = _get_pil_image()
-        mic_img = PilImg.open(str(asset_dir / f"tray-mic-{best}.png")).convert("RGBA")
-        colored = PilImg.new("RGBA", mic_img.size, color)
+        pil_img = _get_pil_image()
+        mic_img = pil_img.open(str(asset_dir / f"tray-mic-{best}.png")).convert("RGBA")
+        colored = pil_img.new("RGBA", mic_img.size, color)
         # NEW-MEM-004: use getchannel('A') instead of split()[3].
         colored.putalpha(mic_img.getchannel('A'))
         if colored.size != (size, size):
@@ -325,7 +324,7 @@ def _make_icon(state: AppState, size: int = 0):
         assert colored is not None
         colored = _draw_shape_indicator(colored, shape, color)
 
-    if is_windows() and PilImg is not None and colored is not None:
+    if is_windows() and pil_img is not None and colored is not None:
         # PLAT-024: Save as ICO format for Windows tray.
         # ICO supports multiple sizes (16, 32, 48, 256) and is the
         # native format for Windows tray icons — sharper than PNG on
@@ -335,7 +334,7 @@ def _make_icon(state: AppState, size: int = 0):
             ico_buf = io.BytesIO()
             colored.save(ico_buf, format='ICO', sizes=[(16, 16), (32, 32), (48, 48), (256, 256)])
             ico_buf.seek(0)
-            colored = PilImg.open(ico_buf)
+            colored = pil_img.open(ico_buf)
         except Exception:
             pass
 

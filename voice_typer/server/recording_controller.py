@@ -20,10 +20,11 @@ back-compat with callers (hotkey backend, tray menu, IPC, tests).
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import threading
-from typing import Any, Optional
+from typing import Any
 
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.streaming import StreamingConfig, StreamingTranscriptionSession
@@ -54,8 +55,8 @@ class RecordingController:
 
     def __init__(self, app: Any) -> None:
         self._app = app
-        self._streaming_session: Optional[StreamingTranscriptionSession] = None
-        self._transcription_thread: Optional[threading.Thread] = None
+        self._streaming_session: StreamingTranscriptionSession | None = None
+        self._transcription_thread: threading.Thread | None = None
         # RACE-025: toggle serialization lock. Prevents concurrent toggle_dictation
         # calls from different threads (hotkey thread + tray thread) from both
         # passing the _busy_event check before either modifies it.
@@ -82,11 +83,11 @@ class RecordingController:
         # cheaper than creating a new Timer object every 60s.
         self._watchdog_event = threading.Event()
         self._watchdog_stop_event = threading.Event()
-        self._watchdog_thread: Optional[threading.Thread] = None
+        self._watchdog_thread: threading.Thread | None = None
 
     # ── Streaming session accessors ────────────────────────────────────
 
-    def get_streaming_session(self) -> Optional[StreamingTranscriptionSession]:
+    def get_streaming_session(self) -> StreamingTranscriptionSession | None:
         """Thread-safe accessor for the active streaming session.
 
         ARCH-018: now guarded by ``_streaming_session_lock``.
@@ -94,7 +95,7 @@ class RecordingController:
         with self._streaming_session_lock:
             return self._streaming_session
 
-    def set_streaming_session(self, session_or_none: Optional[StreamingTranscriptionSession]) -> None:
+    def set_streaming_session(self, session_or_none: StreamingTranscriptionSession | None) -> None:
         """Thread-safe setter for the active streaming session.
 
         ARCH-018: now guarded by ``_streaming_session_lock``.
@@ -102,7 +103,7 @@ class RecordingController:
         with self._streaming_session_lock:
             self._streaming_session = session_or_none
 
-    def pop_streaming_session(self) -> Optional[StreamingTranscriptionSession]:
+    def pop_streaming_session(self) -> StreamingTranscriptionSession | None:
         """ARCH-018: Atomically get AND clear the streaming session.
 
         Pre-fix, ``_cancel_streaming_session`` did:
@@ -434,10 +435,8 @@ class RecordingController:
         # starting the final transcription thread.
         session = self.get_streaming_session()
         if session is not None:
-            try:
+            with contextlib.suppress(Exception):
                 session._cancel_event.set()
-            except Exception:
-                pass
 
         # RACE-013: Start persistent watchdog thread using Event.wait(timeout=60).
         # Replaces chained threading.Timer which could stack under CPU pressure.
@@ -599,24 +598,20 @@ class RecordingController:
     def on_silence_warning(self) -> None:
         """Handle silence warning from recorder."""
         log.warning("[DICTATION] Silence warning: no audio detected for a while")
-        try:
+        with contextlib.suppress(Exception):
             self._app.tray.notify_safety(
                 APP_NAME,
                 "No audio detected. Check your microphone is connected and working.",
             )
-        except Exception:
-            pass
 
     def on_silence_auto_stop(self) -> None:
         """Handle silence auto-stop from recorder."""
         log.warning("[DICTATION] Silence auto-stop: stopping recording due to prolonged silence")
-        try:
+        with contextlib.suppress(Exception):
             self._app.tray.notify_safety(
                 APP_NAME,
                 "Recording stopped: no audio detected for an extended period.",
             )
-        except Exception:
-            pass
         # Must NOT call stop() directly here -- this callback runs
         # inside the audio callback while Recorder._lock is held.  Calling
         # recorder.stop() would deadlock on the same lock.  Schedule it on a
@@ -629,13 +624,11 @@ class RecordingController:
     def on_max_duration_auto_stop(self) -> None:
         """Handle max duration auto-stop from recorder."""
         log.warning("[DICTATION] Max duration auto-stop: stopping recording")
-        try:
+        with contextlib.suppress(Exception):
             self._app.tray.notify_safety(
                 APP_NAME,
                 "Recording stopped: maximum recording duration reached.",
             )
-        except Exception:
-            pass
         # Same reason as on_silence_auto_stop: avoid deadlock on Recorder._lock.
         self._app._schedule_timer(0, self._app._stop_dictation)
 
@@ -643,14 +636,12 @@ class RecordingController:
         """Item 1: notify the user when xrun count exceeds threshold."""
         log.warning("[XRUN] Threshold reached: %d xruns", count)
         if self._app.config.show_notifications:
-            try:
+            with contextlib.suppress(Exception):
                 self._app.tray.notify(
                     f"{APP_NAME} — Audio Issues",
                     f"Detected {count} audio buffer underruns. "
                     "Try closing other audio apps or reducing CPU load.",
                 )
-            except Exception:
-                pass
 
     # ── Streaming session ──────────────────────────────────────────────
 

@@ -12,6 +12,5 @@ console script and `python -m voice_typer.server`) were broken.
 
 from voice_typer.server.ipc_server import main
 
-
 if __name__ == "__main__":
     main()

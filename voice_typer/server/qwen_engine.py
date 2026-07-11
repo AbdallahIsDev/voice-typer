@@ -10,17 +10,17 @@ Key constraints:
 - Uses shared hallucination detection from voice_typer.server.hallucination.
 """
 
+import contextlib
 import logging
 import os
-import sys
 import threading
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 
-from voice_typer.server.hallucination import should_reject_low_audio_hallucination, log_hallucination_rejection
-from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
+from voice_typer.server.hallucination import log_hallucination_rejection, should_reject_low_audio_hallucination
+from voice_typer.server.platform_utils import is_windows
 
 log = logging.getLogger(__name__)
 
@@ -147,14 +147,12 @@ class QwenEngine:
                             import json
                             json.load(f)  # Validate it's parseable JSON
                     except Exception:
-                        try:
+                        with contextlib.suppress(OSError):
                             os.close(fd)
-                        except OSError:
-                            pass
                         raise
                 else:
                     # Windows: standard open (NTFS ACLs provide protection)
-                    with open(config_path, "r", encoding="utf-8") as f:
+                    with open(config_path, encoding="utf-8") as f:
                         import json
                         json.load(f)
             except OSError as exc:
@@ -426,11 +424,9 @@ class QwenEngine:
                 try:
                     self.device = "cpu"
                     if self._model is not None:
-                        try:
-                            self._model.to("cpu")
-                        except Exception:
+                        with contextlib.suppress(Exception):
                             # Not all model wrappers expose .to(); ignore
-                            pass
+                            self._model.to("cpu")
                     return self.transcribe(audio, audio_stats=audio_stats)
                 except Exception as cpu_exc:
                     # Restore device on failure so the next attempt starts fresh
@@ -451,6 +447,7 @@ class QwenEngine:
         is_loaded / transcribe for 10-100ms.
         """
         import gc
+
         from voice_typer.server.transcription import release_gpu_memory
         with self._lock:
             self._model = None

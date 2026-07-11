@@ -1,3 +1,4 @@
+# ruff: noqa: A001, A002, N802, N803, N816
 # PYREFLY-001: stub for the `CoreFoundation` framework (pyobjc-framework-
 # CoreFoundation, macOS only). Used by `voice_typer/server/permissions.py
 # ::_check_macos_accessibility`.

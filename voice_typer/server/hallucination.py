@@ -11,7 +11,6 @@ config flag and applies PII redaction + truncation to 40 chars.
 
 import logging
 import re
-from typing import Optional
 
 log = logging.getLogger(__name__)
 
@@ -47,11 +46,11 @@ def should_reject_low_audio_hallucination(
     text: str,
     rms: float,
     *,
-    peak: Optional[float] = None,
-    silence_pct: Optional[float] = None,
-    duration: Optional[float] = None,
-    first_segment_start: Optional[float] = None,
-    last_segment_end: Optional[float] = None,
+    peak: float | None = None,
+    silence_pct: float | None = None,
+    duration: float | None = None,
+    first_segment_start: float | None = None,
+    last_segment_end: float | None = None,
 ) -> bool:
     """Return True if the transcription is likely a hallucination from near-silence.
 

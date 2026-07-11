@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import math
 import threading
 from abc import ABC, abstractmethod
-from typing import Optional
 
 import numpy as np
 
@@ -60,7 +60,7 @@ class AudioFilter(ABC):
     name: str = "AudioFilter"
 
     @abstractmethod
-    def process(self, audio: np.ndarray, sample_rate: int) -> Optional[np.ndarray]:
+    def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray | None:
         """Process a chunk of mono float32 audio.
 
         Args:
@@ -74,9 +74,10 @@ class AudioFilter(ABC):
         """
         ...
 
+    @abstractmethod
     def reset(self) -> None:
-        """Reset internal state. Default: no-op. Override if stateful."""
-        pass
+        """Reset internal state. Override if stateful."""
+        ...
 
     @property
     def latency_ms(self) -> float:
@@ -102,11 +103,11 @@ class FilterChain:
     callers should skip the chunk.
     """
 
-    def __init__(self, filters: Optional[list[AudioFilter]] = None) -> None:
+    def __init__(self, filters: list[AudioFilter] | None = None) -> None:
         self._filters: list[AudioFilter] = list(filters) if filters else []
         self._lock = threading.Lock()
 
-    def process(self, audio: np.ndarray, sample_rate: int) -> Optional[np.ndarray]:
+    def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray | None:
         """Run audio through all filters in order."""
         with self._lock:
             for f in self._filters:
@@ -122,10 +123,8 @@ class FilterChain:
         """Reset all filters' internal state."""
         with self._lock:
             for f in self._filters:
-                try:
+                with contextlib.suppress(Exception):
                     f.reset()
-                except Exception:
-                    pass
 
     @property
     def filters(self) -> list[AudioFilter]:
@@ -164,7 +163,5 @@ class FilterChain:
             self._filters = list(new_filters)
         # Reset old filters outside the lock (no-op for stateless)
         for f in old:
-            try:
+            with contextlib.suppress(Exception):
                 f.reset()
-            except Exception:
-                pass

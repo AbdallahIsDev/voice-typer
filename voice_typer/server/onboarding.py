@@ -13,7 +13,6 @@ Step 5: Done — app starts loading the model
 import json
 import logging
 from pathlib import Path
-from typing import Optional, Callable
 
 log = logging.getLogger(__name__)
 
@@ -21,7 +20,7 @@ log = logging.getLogger(__name__)
 class OnboardingController:
     """Controls the 5-step first-run onboarding wizard."""
 
-    def __init__(self, config_dir: Optional[Path] = None):
+    def __init__(self, config_dir: Path | None = None):
         if config_dir is None:
             from voice_typer.server.config import _config_dir
             config_dir = _config_dir()
@@ -31,7 +30,7 @@ class OnboardingController:
         self._total_steps = 5
 
         # Collected settings
-        self.selected_microphone: Optional[str] = None
+        self.selected_microphone: str | None = None
         # NATIVE-001: default hotkey is Caps Lock on all platforms
         self.selected_hotkey: str = "<caps_lock>"
         self.selected_model: str = "small.en"
@@ -138,7 +137,7 @@ class OnboardingController:
         except Exception:
             return []
 
-    def set_microphone(self, mic_id: Optional[str]) -> None:
+    def set_microphone(self, mic_id: str | None) -> None:
         """Store the selected microphone."""
         self.selected_microphone = mic_id
 

@@ -26,7 +26,7 @@ Both are intentional; removing either would break a real use case.
 """
 
 import argparse
-import sys
+
 from voice_typer.server.branding import APP_NAME
 
 # NEW-CLI-003: standardized exit codes

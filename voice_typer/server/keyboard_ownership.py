@@ -66,10 +66,10 @@ class KeyboardOwnership:
     while the IPC handler sets ownership from the IPC thread.
     """
 
-    _instance: "KeyboardOwnership | None" = None
+    _instance: KeyboardOwnership | None = None
     _lock = threading.Lock()
 
-    def __new__(cls) -> "KeyboardOwnership":
+    def __new__(cls) -> KeyboardOwnership:
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:

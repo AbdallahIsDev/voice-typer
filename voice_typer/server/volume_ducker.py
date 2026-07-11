@@ -53,7 +53,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Callable, Optional
+from collections.abc import Callable
 
 from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
 from voice_typer.server.volume_backend import VolumeBackend, VolumeState
@@ -81,9 +81,9 @@ class VolumeDucker:
 
     def __init__(
         self,
-        backend: Optional[VolumeBackend] = None,
-        crash_recovery: Optional[DuckCrashRecovery] = None,
-        on_crash_restore: Optional[Callable[[VolumeState], None]] = None,
+        backend: VolumeBackend | None = None,
+        crash_recovery: DuckCrashRecovery | None = None,
+        on_crash_restore: Callable[[VolumeState], None] | None = None,
     ) -> None:
         """Initialise the ducker.
 
@@ -100,10 +100,10 @@ class VolumeDucker:
             is found and the volume has been restored.  Used by the app
             to show a tray notification warning the user.
         """
-        self._backend: Optional[VolumeBackend] = backend
+        self._backend: VolumeBackend | None = backend
         self._crash_recovery = crash_recovery
         self._on_crash_restore = on_crash_restore
-        self._saved_state: Optional[VolumeState] = None
+        self._saved_state: VolumeState | None = None
         self._ducked_level: float = 0.25
         self._actually_ducked: bool = False  # True if the volume was actually changed
         # Smart duck: when True (default), duck() first calls
@@ -117,7 +117,7 @@ class VolumeDucker:
         # audio starts playing mid-dictation.  See
         # _smart_duck_monitor_loop().
         self._smart_duck_poll_ms: int = _DEFAULT_SMART_DUCK_POLL_MS
-        self._monitor_thread: Optional[threading.Thread] = None
+        self._monitor_thread: threading.Thread | None = None
         self._monitor_stop: threading.Event = threading.Event()
         self._lock = threading.Lock()
         self._initialized: bool = False
@@ -545,10 +545,7 @@ class VolumeDucker:
             # set_smart_duck_enabled().
             try:
                 # ERR-ERR-003 (fix): explicit null check instead of type: ignore
-                if self._backend is None:
-                    speaker_active = False
-                else:
-                    speaker_active = self._backend.is_speaker_active()
+                speaker_active = False if self._backend is None else self._backend.is_speaker_active()
             except Exception as exc:
                 log.debug("[VOLUME] monitor: is_speaker_active failed: %s", exc)
                 speaker_active = False  # don't duck on error — try again next poll

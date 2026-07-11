@@ -13,6 +13,7 @@ Usage (stdin/stdout mode — ``voice-typer`` CLI)::
     python -m voice_typer.server.ipc_server
 """
 
+import contextlib
 import hmac
 import json
 import logging
@@ -199,7 +200,7 @@ _TCP_WRITE_TIMEOUT_SECONDS = 2.0
 # so the backend doesn't exit prematurely during a slow Electron cold
 # start (10+ seconds for the torch import + window creation).
 _HEARTBEAT_INTERVAL_SECONDS = 5.0
-_HEARTBEAT_TIMEOUT_SECONDS = 120.0  # 24 missed heartbeats — increased from 15s so model downloads (which block the IPC dispatch loop) don't trigger a false-positive shutdown
+_HEARTBEAT_TIMEOUT_SECONDS = 120.0  # 24 missed heartbeats — increased from 15s
 
 
 class _RateLimiter:
@@ -222,7 +223,7 @@ class _RateLimiter:
         self._burst = burst
         self._sustained = sustained_per_sec
         self._window = window
-        self._timestamps: "deque[float]" = deque()
+        self._timestamps: deque[float] = deque()
         self._lock = threading.Lock()
 
     def allow(self, *, now: float | None = None) -> bool:
@@ -442,13 +443,13 @@ class _TCPLineIO:
         long dictations).  When the cap is exceeded, we return an
         empty string to signal EOF — the caller closes the connection.
         """
-        _MAX_LINE_BYTES = 1 * 1024 * 1024  # 1 MB
-        _MAX_LINE_CHARS = _MAX_LINE_BYTES  # conservative (UTF-8 worst case)
-        line = self._reader.readline(_MAX_LINE_CHARS + 1)
-        if len(line) > _MAX_LINE_CHARS:
+        _max_line_bytes = 1 * 1024 * 1024  # 1 MB
+        _max_line_chars = _max_line_bytes  # conservative (UTF-8 worst case)
+        line = self._reader.readline(_max_line_chars + 1)
+        if len(line) > _max_line_chars:
             log.warning(
                 "[TCP] client sent line exceeding %d char cap; closing connection",
-                _MAX_LINE_CHARS,
+                _max_line_chars,
             )
             return ""  # signal EOF
         return line
@@ -463,14 +464,10 @@ class _TCPLineIO:
         return line
 
     def close(self) -> None:
-        try:
+        with contextlib.suppress(Exception):
             self._reader.close()
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             self.conn.close()
-        except Exception:
-            pass
 
 
 # ARCH-REFAC-002: the per-command ``_handle_*`` methods live in the
@@ -492,25 +489,26 @@ _CANONICAL = "voice_typer.server.ipc_server"
 if _CANONICAL not in sys.modules:
     sys.modules[_CANONICAL] = sys.modules["__main__"]
 
-from voice_typer.server.handlers.config_handlers import ConfigHandlersMixin
-from voice_typer.server.handlers.status_handlers import StatusHandlersMixin
-from voice_typer.server.handlers.dictation_handlers import DictationHandlersMixin
-from voice_typer.server.handlers.history_handlers import HistoryHandlersMixin
-from voice_typer.server.handlers.microphone_handlers import MicrophoneHandlersMixin
-from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-from voice_typer.server.handlers.templates_handlers import TemplatesHandlersMixin
-from voice_typer.server.handlers.onboarding_handlers import OnboardingHandlersMixin
-from voice_typer.server.handlers.microphone_test_handlers import (
-    MicrophoneTestHandlersMixin,
-)
-from voice_typer.server.handlers.level_monitor_handlers import (
+
+from voice_typer.server.handlers.config_handlers import ConfigHandlersMixin  # noqa: E402
+from voice_typer.server.handlers.dictation_handlers import DictationHandlersMixin  # noqa: E402
+from voice_typer.server.handlers.history_handlers import HistoryHandlersMixin  # noqa: E402
+from voice_typer.server.handlers.level_monitor_handlers import (  # noqa: E402
     LevelMonitorHandlersMixin,
 )
-from voice_typer.server.handlers.model_handlers import ModelHandlersMixin
-from voice_typer.server.handlers.system_handlers import SystemHandlersMixin
-from voice_typer.server.handlers.vocabulary_automation_handlers import (
+from voice_typer.server.handlers.microphone_handlers import MicrophoneHandlersMixin  # noqa: E402
+from voice_typer.server.handlers.microphone_test_handlers import (  # noqa: E402
+    MicrophoneTestHandlersMixin,
+)
+from voice_typer.server.handlers.model_handlers import ModelHandlersMixin  # noqa: E402
+from voice_typer.server.handlers.onboarding_handlers import OnboardingHandlersMixin  # noqa: E402
+from voice_typer.server.handlers.status_handlers import StatusHandlersMixin  # noqa: E402
+from voice_typer.server.handlers.system_handlers import SystemHandlersMixin  # noqa: E402
+from voice_typer.server.handlers.templates_handlers import TemplatesHandlersMixin  # noqa: E402
+from voice_typer.server.handlers.vocabulary_automation_handlers import (  # noqa: E402
     VocabularyAutomationHandlersMixin,
 )
+from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 
 
 class IPCServer(
@@ -539,7 +537,7 @@ class IPCServer(
     def __init__(
         self,
         app,
-        service: "typing.Optional[typing.Any]" = None,
+        service: "typing.Any | None" = None,
     ) -> None:
         # ARCH-REFAC-004: dependency-injection seam.
         #
@@ -598,7 +596,7 @@ class IPCServer(
         # module-level _push_event_registry on start() and unregistered
         # on stop().  Tracked on the instance so stop() can remove just
         # our callable without affecting other active servers.
-        self._push_fn: "typing.Optional[typing.Callable[[dict], None]]" = None
+        self._push_fn: typing.Callable[[dict], None] | None = None
 
         # RW-10: heartbeat watchdog state.
         #
@@ -692,10 +690,8 @@ class IPCServer(
         # The accept loop catches OSError and breaks out.
         server_sock = self._tcp_server_socket
         if server_sock is not None:
-            try:
+            with contextlib.suppress(OSError):
                 server_sock.close()
-            except OSError:
-                pass
             self._tcp_server_socket = None
         # RW-10: signal the heartbeat watchdog to exit.  The thread
         # sleeps on ``_heartbeat_stop_event.wait(timeout=INTERVAL)``;
@@ -755,10 +751,8 @@ class IPCServer(
         except Exception:
             log.exception("[TCP] failed to bind on port %d", port)
             # Make sure we don't leak the socket on bind failure.
-            try:
+            with contextlib.suppress(OSError):
                 server.close()
-            except OSError:
-                pass
             return
 
         # NEW-IPC-001: store the listening socket on the instance so
@@ -791,10 +785,8 @@ class IPCServer(
                 log.debug("[TCP] connection handler completed")
             # Loop back to accept the next connection
 
-        try:
+        with contextlib.suppress(OSError):
             server.close()
-        except OSError:
-            pass
         # Clear the instance reference so a subsequent start_tcp() can
         # store a fresh socket without confusion.
         if self._tcp_server_socket is server:
@@ -821,11 +813,9 @@ class IPCServer(
         # PR-3-FIX-1: set a read timeout BEFORE the auth readline so a
         # malicious client that connects but sends nothing can't hold
         # the thread indefinitely.
-        _TCP_AUTH_TIMEOUT_SECONDS = 5.0
-        try:
-            conn.settimeout(_TCP_AUTH_TIMEOUT_SECONDS)
-        except (OSError, AttributeError):
-            pass  # socket may be a mock in tests
+        _tcp_auth_timeout_seconds = 5.0
+        with contextlib.suppress(OSError, AttributeError):
+            conn.settimeout(_tcp_auth_timeout_seconds)  # socket may be a mock in tests
 
         # PR-3-FIX-1: perform the auth handshake OUTSIDE self._lock so
         # a stalled auth read doesn't block push() events from other
@@ -988,10 +978,8 @@ class IPCServer(
         # ESC press after reconnect.
         _hotkeys = getattr(self.app, "hotkeys", None)
         if _hotkeys is not None:
-            try:
+            with contextlib.suppress(AttributeError):
                 _hotkeys._esc_pending_capture_exit = False
-            except AttributeError:
-                pass
         log.info(
             "[IPC] keyboard ownership reset to normal (%s)", reason
         )
@@ -1409,10 +1397,8 @@ class IPCServer(
             if _is_shutting_down and msg_type not in _shutdown_allowlist:
                 with self._lock:
                     if self._tcp_client is tcp_client:
-                        try:
+                        with contextlib.suppress(Exception):
                             self._tcp_client.close()
-                        except Exception:
-                            pass
                         self._tcp_client = None
                 return
             # NEW-CONC-003: set a write timeout so a stalled renderer
@@ -1422,13 +1408,11 @@ class IPCServer(
             # timeout, the write raises ``socket.timeout`` and we drop
             # the connection (the accept loop will catch the next
             # reconnect).
-            try:
+            with contextlib.suppress(OSError, AttributeError):
                 tcp_client.conn.settimeout(_TCP_WRITE_TIMEOUT_SECONDS)
-            except (OSError, AttributeError):
-                # settimeout can fail if the socket is already closed;
-                # that's fine — the write below will also fail and we'll
-                # drop the connection cleanly.
-                pass
+            # settimeout can fail if the socket is already closed;
+            # that's fine — the write below will also fail and we'll
+            # drop the connection cleanly.
             try:
                 tcp_client.write(line + "\n")
                 tcp_client.flush()
@@ -1439,11 +1423,11 @@ class IPCServer(
                 # waveform bubble * minutes of disconnect).  Draining
                 # all of them on every push event was O(n) per push
                 # and blocked the audio thread.
-                _DRAIN_CAP = 100
+                _drain_cap = 100
                 if pending:
-                    # Already snapshot under lock — drain up to _DRAIN_CAP
+                    # Already snapshot under lock — drain up to _drain_cap
                     # of the most recent entries.
-                    recent = pending[-_DRAIN_CAP:]
+                    recent = pending[-_drain_cap:]
                     for p in recent:
                         try:
                             tcp_client.write(p + "\n")
@@ -1451,7 +1435,7 @@ class IPCServer(
                         except Exception:
                             log.debug("[IPC] client write failed during pending drain")
                             break
-            except (OSError, socket.timeout) as exc:
+            except (TimeoutError, OSError) as exc:
                 log.debug("[IPC] client write failed: %s", exc)
                 # Mark the client as dead so the accept loop will pick
                 # up the next reconnect.  We do this under the lock to
@@ -1459,18 +1443,14 @@ class IPCServer(
                 # snapshotted the (now-dead) client.
                 with self._lock:
                     if self._tcp_client is tcp_client:
-                        try:
+                        with contextlib.suppress(Exception):
                             self._tcp_client.close()
-                        except Exception:
-                            pass
                         self._tcp_client = None
             finally:
                 # Restore blocking mode (timeout=None means blocking
                 # with no timeout, the default for TCP sockets).
-                try:
+                with contextlib.suppress(OSError, AttributeError):
                     tcp_client.conn.settimeout(None)
-                except (OSError, AttributeError):
-                    pass
             return
 
         if tcp_mode:
@@ -1480,15 +1460,15 @@ class IPCServer(
             # (waveform bubble level events are stale by the
             # time the client reconnects; transcription-complete
             # events are also in history_db).
-            _PENDING_CAP = 1000
+            _pending_cap = 1000
             with self._lock:
                 # Re-merge any pending we snapshot earlier (they belong
                 # before this new message in the queue).
                 if pending:
                     self._pending_tcp.extend(pending)
                 self._pending_tcp.append(line)
-                if len(self._pending_tcp) > _PENDING_CAP:
-                    dropped = len(self._pending_tcp) - _PENDING_CAP
+                if len(self._pending_tcp) > _pending_cap:
+                    dropped = len(self._pending_tcp) - _pending_cap
                     del self._pending_tcp[:dropped]
                     cap_dropped = dropped
                 else:
@@ -1593,7 +1573,7 @@ def main() -> None:
     except Exception:
         pass  # Not available on all platforms
 
-    from voice_typer.server.app import VoiceTyperApp, _setup_logging, _ensure_single_instance
+    from voice_typer.server.app import VoiceTyperApp, _ensure_single_instance, _setup_logging
     from voice_typer.server.config import _config_dir
 
     _setup_logging()
@@ -1739,8 +1719,8 @@ def main() -> None:
         # Also write to the diagnostic file for users running under
         # pythonw.exe where stdout/stderr are devnull.
         try:
-            import traceback
             import io
+            import traceback
             buf = io.StringIO()
             traceback.print_exc(file=buf)
             diag_path = _config_dir() / "startup-error.log"

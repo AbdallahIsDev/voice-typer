@@ -49,7 +49,7 @@ handlers actually access).
 from __future__ import annotations
 
 import logging
-from typing import Any, Protocol, runtime_checkable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 log = logging.getLogger(__name__)
 
@@ -59,7 +59,6 @@ log = logging.getLogger(__name__)
 # must not eagerly import ipc_server at top level).
 if TYPE_CHECKING:  # pragma: no cover - type-checker-only
     from voice_typer.server.ipc_server import IPCServer
-    from voice_typer.server.service import VoiceTyperService
 
 
 @runtime_checkable
@@ -296,7 +295,7 @@ class ServiceProtocol(Protocol):
     def export_diagnostics(self) -> dict: ...
 
 
-def build_ipc_server(app: "AppProtocol") -> "IPCServer":
+def build_ipc_server(app: AppProtocol) -> IPCServer:
     """Construct an :class:`IPCServer` wired to ``app``.
 
     This is the **canonical composition root** for the IPC server.

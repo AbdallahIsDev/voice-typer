@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 import numpy as np
 
@@ -46,7 +45,7 @@ class Limiter(AudioFilter):
         self._release_coeff = one_pole_coeff(self._sample_rate, release_ms / 1000.0)
         self._envelope: float = 0.0
 
-    def process(self, audio: np.ndarray, sample_rate: int) -> Optional[np.ndarray]:
+    def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray | None:
         if audio.size == 0:
             return audio
 

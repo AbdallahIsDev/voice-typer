@@ -21,6 +21,7 @@ suggestions to show).
 """
 
 from typing import Any
+
 from voice_typer.server.ipc_server import log
 
 

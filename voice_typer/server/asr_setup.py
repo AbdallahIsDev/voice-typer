@@ -32,9 +32,7 @@ Lifecycle:
 import logging
 import os
 import threading
-import time
-from pathlib import Path
-from typing import Optional, Callable
+from collections.abc import Callable
 
 log = logging.getLogger(__name__)
 
@@ -55,7 +53,7 @@ log = logging.getLogger(__name__)
 # - ``is_download_paused()``       -> ``_download_pause_event.is_set()``
 # - When no download is in progress, ``_download_pause_event`` is
 #   ``None`` and ``is_download_paused()`` returns ``False``.
-_download_pause_event: Optional[threading.Event] = None
+_download_pause_event: threading.Event | None = None
 _download_pause_lock = threading.Lock()
 
 
@@ -201,7 +199,7 @@ def _verify_model_integrity(repo_id: str, local_dir: str) -> bool:
 
 
 def download_parakeet_weights(
-    progress_callback: Optional[Callable[[str], None]] = None,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> bool:
     """Download Parakeet TDT v3 model weights via huggingface_hub.
 
@@ -229,7 +227,7 @@ def download_parakeet_weights(
 
     # SEC-audit-005: Use pinned revision from MODEL_HASHES manifest
     from voice_typer.server.security import MODEL_HASHES
-    PARAKEET_REVISION = MODEL_HASHES.get(repo_id, {}).get("revision", "main")
+    parakeet_revision = MODEL_HASHES.get(repo_id, {}).get("revision", "main")
 
     msg = "Checking Parakeet model cache..."
     log.info("[ASR_SETUP] %s", msg)
@@ -239,7 +237,7 @@ def download_parakeet_weights(
     try:
         local_dir = snapshot_download(
             repo_id=repo_id,
-            revision=PARAKEET_REVISION,
+            revision=parakeet_revision,
             allow_patterns=_HF_ALLOW_PATTERNS,
             local_files_only=True,
         )
@@ -298,7 +296,7 @@ def download_parakeet_weights(
             max_attempts=_MAX_DOWNLOAD_RETRIES,
             delays=tuple(2 ** i for i in range(_MAX_DOWNLOAD_RETRIES)),  # keep exponential backoff
             repo_id=repo_id,
-            revision=PARAKEET_REVISION,
+            revision=parakeet_revision,
             allow_patterns=_HF_ALLOW_PATTERNS,
             resume_download=True,
         )

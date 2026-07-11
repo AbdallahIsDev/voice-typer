@@ -23,13 +23,13 @@ Components
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import logging.handlers
 import os
 import sys
 import uuid
 from pathlib import Path
-
 
 # ── Module-level state ────────────────────────────────────────────────
 # Encapsulated here instead of in a class so it's accessible to filters
@@ -47,10 +47,8 @@ def reset() -> None:
     global _session_id
     _session_id = ""
     for f in _devnull_files:
-        try:
+        with contextlib.suppress(Exception):
             f.close()
-        except Exception:
-            pass
     _devnull_files.clear()
     root = logging.getLogger("voice_typer")
     root.handlers.clear()
@@ -322,13 +320,13 @@ def setup_logging(
 
     # ── 1. Redirect stdio for pythonw.exe ──────────────────────────
     if sys.stderr is None:
-        sys.stderr = open(os.devnull, "w", encoding="utf-8", errors="replace")
+        sys.stderr = open(os.devnull, "w", encoding="utf-8", errors="replace")  # noqa: SIM115 — must outlive setup_logging()
         _devnull_files.append(sys.stderr)
     if sys.stdout is None:
-        sys.stdout = open(os.devnull, "w", encoding="utf-8", errors="replace")
+        sys.stdout = open(os.devnull, "w", encoding="utf-8", errors="replace")  # noqa: SIM115 — must outlive setup_logging()
         _devnull_files.append(sys.stdout)
     if sys.stdin is None:
-        sys.stdin = open(os.devnull, "r", encoding="utf-8")
+        sys.stdin = open(os.devnull, encoding="utf-8")  # noqa: SIM115 — must outlive setup_logging()
         _devnull_files.append(sys.stdin)
 
     # ── 2. Generate session ID ─────────────────────────────────────
@@ -384,10 +382,8 @@ def setup_logging(
 
     # ── 4. Fix stderr encoding for Unicode ─────────────────────────
     if sys.stderr is not None and hasattr(sys.stderr, "reconfigure"):
-        try:
+        with contextlib.suppress(OSError):
             sys.stderr.reconfigure(errors="backslashreplace")
-        except OSError:
-            pass
 
     # ── 5. Coloured stderr (terminal or --port mode) ───────────────
     # P1-1.1: always flush after each emit so terminal log lines appear
@@ -440,14 +436,12 @@ class _FlushingStreamHandler(logging.StreamHandler):
         super().emit(record)
         # Always flush — the underlying stream may be line-buffered or
         # block-buffered, and the user wants to see logs in real time.
-        try:
-            self.flush()
-        except Exception:
+        with contextlib.suppress(Exception):
             # Best-effort: if the stream is closed or broken, swallow
             # so we don't mask the original log record.  (logging raises
             # the real exception via handleError; we only get here if
             # flush itself fails.)
-            pass
+            self.flush()
 
 
 def close_devnull_files() -> None:
@@ -456,10 +450,8 @@ def close_devnull_files() -> None:
     Called during application shutdown so the FDs don't leak.
     """
     for f in _devnull_files:
-        try:
+        with contextlib.suppress(Exception):
             f.close()
-        except Exception:
-            pass
     _devnull_files.clear()
 
 

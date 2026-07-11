@@ -11,9 +11,9 @@ icon lifecycle, so they belong in their own module.
 import logging
 import os
 import subprocess
-import sys
-from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
+
 from voice_typer.server.branding import APP_NAME
+from voice_typer.server.platform_utils import is_windows
 
 log = logging.getLogger("voice_typer.server.tray_window")
 
@@ -59,8 +59,8 @@ def bring_electron_to_front() -> bool:
                 return False
             return True
 
-        WNDENUMPROC = ctypes.CFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-        ctypes.windll.user32.EnumWindows(WNDENUMPROC(_enum_cb), 0)
+        wndenumproc = ctypes.CFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        ctypes.windll.user32.EnumWindows(wndenumproc(_enum_cb), 0)
 
         if found_hwnd is None:
             return False

@@ -6,13 +6,14 @@ The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 """
 
+import contextlib
 from typing import Any
 
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.ipc_server import (
-    log,
     _push_event_now,
     _validate_dict_payload,
+    log,
 )
 from voice_typer.server.platform_utils import is_macos
 
@@ -125,7 +126,7 @@ class SystemHandlersMixin:
         # The tray menu is rebuilt on the next state change so the
         # new labels take effect.
         try:
-            from voice_typer.server.tray import set_tray_locale, get_tray_locale
+            from voice_typer.server.tray import get_tray_locale, set_tray_locale
             validated, error = _validate_dict_payload(data, {
                 "locale": {"type": str, "required": False, "default": "en"},
             })
@@ -133,10 +134,8 @@ class SystemHandlersMixin:
                 return error
             set_tray_locale(validated["locale"])
             # Force a tray menu rebuild so the new labels show immediately.
-            try:
+            with contextlib.suppress(Exception):
                 self.app.tray.invalidate_menu_cache()
-            except Exception:
-                pass
             resp["type"] = "ack"
             resp["data"] = {"locale": get_tray_locale()}
         except Exception as e:

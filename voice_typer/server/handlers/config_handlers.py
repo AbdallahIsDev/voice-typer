@@ -6,8 +6,9 @@ access ``self.app`` / ``self.service`` as before.
 """
 
 from typing import Any
-from voice_typer.server.ipc_server import log, _push_event_now
+
 from voice_typer.server.config import validate_config_update
+from voice_typer.server.ipc_server import _push_event_now, log
 
 
 class ConfigHandlersMixin:
@@ -83,7 +84,7 @@ class ConfigHandlersMixin:
             # renderer can show the user which fields were applied
             # and which were silently dropped (unknown keys).
             accepted_keys = list(validated.keys())
-            rejected_keys = [k for k in data.keys() if k not in validated]
+            rejected_keys = [k for k in data if k not in validated]
             # NEW-IPC-016: when model_size or asr_backend changes,
             # apply it to the active engine so the next dictation
             # uses the new model without requiring a restart.

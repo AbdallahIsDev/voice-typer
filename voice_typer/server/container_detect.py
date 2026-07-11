@@ -40,7 +40,7 @@ def is_in_container() -> bool:
         return True
 
     # 3. systemd-nspawn sets the `container` env var
-    if os.environ.get("container"):
+    if os.environ.get("CONTAINER"):
         return True
 
     # 4. Check /proc/1/cgroup for container runtime signatures
@@ -66,8 +66,8 @@ def get_container_type() -> str | None:
         return "docker"
     if Path("/run/.containerenv").exists():
         return "podman"
-    if os.environ.get("container"):
-        return f"systemd-nspawn ({os.environ['container']})"
+    if os.environ.get("CONTAINER"):
+        return f"systemd-nspawn ({os.environ['CONTAINER']})"
 
     try:
         cgroup = Path("/proc/1/cgroup").read_text(encoding="utf-8", errors="ignore")

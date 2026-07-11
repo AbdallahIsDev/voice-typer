@@ -14,15 +14,18 @@ All backends share a common interface:
     - diagnose() -> str
 """
 
+import contextlib
 import logging
 import os
 import sys
 import threading
 import time
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Optional
-from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
+from collections.abc import Callable
+from typing import Any
+
 from voice_typer.server.branding import APP_NAME
+from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
 
 log = logging.getLogger("voice_typer")
 
@@ -35,13 +38,13 @@ class HotkeyBackend(ABC):
 
     def __init__(self, hotkey_str: str):
         self.hotkey_str = hotkey_str
-        self._on_release_callback: Optional[Callable[[], None]] = None
+        self._on_release_callback: Callable[[], None] | None = None
 
     @abstractmethod
     def start(self, callback: Callable[[], None]) -> None:
         """Start listening for the hotkey. Calls *callback* when pressed."""
 
-    def set_on_release(self, callback: Optional[Callable[[], None]]) -> None:
+    def set_on_release(self, callback: Callable[[], None] | None) -> None:
         """Set a callback for key release (used by push-to-talk mode)."""
         self._on_release_callback = callback
 
@@ -156,8 +159,8 @@ class PynputHotkey(HotkeyBackend):
 
     # --- internal helpers ---------------------------------------------------
 
-    def _start_fallback(self, callback, Listener, Key, KeyCode) -> None:
-        target = _parse_hotkey_to_pynput(self.hotkey_str, Key, KeyCode)
+    def _start_fallback(self, callback, listener, key, key_code) -> None:
+        target = _parse_hotkey_to_pynput(self.hotkey_str, key, key_code)
         if target is None:
             raise RuntimeError(
                 f"Cannot parse hotkey {self.hotkey_str!r} for fallback"
@@ -219,7 +222,7 @@ class PynputHotkey(HotkeyBackend):
                     except Exception:
                         log.exception("[HOTKEY FALLBACK] on_release callback raised")
 
-        self._listener = Listener(on_press=on_press, on_release=on_release)
+        self._listener = listener(on_press=on_press, on_release=on_release)
         self._listener.start()
         # PERF-NEW-017: was 0.5s — reduced to 50ms for the same reason.
         time.sleep(0.05)
@@ -232,10 +235,8 @@ class PynputHotkey(HotkeyBackend):
 
     def _stop_listener(self) -> None:
         if self._listener is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._listener.stop()
-            except Exception:
-                pass
             self._listener = None
 
     # --- public interface ---------------------------------------------------
@@ -264,68 +265,68 @@ class PynputHotkey(HotkeyBackend):
         )
 
 
-def _parse_hotkey_to_pynput(hotkey_str, Key, KeyCode):
-    """Parse '<f2>' or '<ctrl>+1' -> pynput Key/KeyCode for fallback matching.
+def _parse_hotkey_to_pynput(hotkey_str, key, key_code):
+    """Parse '<f2>' or '<ctrl>+1' -> pynput key/KeyCode for fallback matching.
 
     Handles composite hotkeys with modifiers (ctrl, alt, shift, cmd/win).
     Returns a tuple of (modifier_keys, target_key) for composite hotkeys,
-    or a single Key/KeyCode for simple hotkeys.
+    or a single key/KeyCode for simple hotkeys.
 
     RW-1 (Hotkey parser unification): this now delegates to the
     canonical :func:`voice_typer.server.hotkey_spec.parse_hotkey` for
     tokenisation and alias resolution. The pynput-specific concerns
     that remain in this function are:
 
-    - Modifier ``Key`` collapsing: canonical ``win`` / ``super`` /
-      ``cmd`` all map to ``Key.cmd`` (pynput does not distinguish —
-      it has ``Key.cmd`` / ``Key.cmd_l`` / ``Key.cmd_r`` but no
-      ``Key.win`` or ``Key.super``).
-    - ``Key`` / ``KeyCode`` conversion: pynput's ``Key`` enum (for
+    - Modifier ``key`` collapsing: canonical ``win`` / ``super`` /
+      ``cmd`` all map to ``key.cmd`` (pynput does not distinguish —
+      it has ``key.cmd`` / ``key.cmd_l`` / ``key.cmd_r`` but no
+      ``key.win`` or ``key.super``).
+    - ``key`` / ``KeyCode`` conversion: pynput's ``key`` enum (for
       named keys like ``f2``, ``space``, ``enter``) and
-      ``KeyCode.from_char`` / ``from_vk`` (for letters, digits, and
+      ``key_code.from_char`` / ``from_vk`` (for letters, digits, and
       function keys not in the enum).
     """
     from voice_typer.server.hotkey_spec import parse_hotkey
 
     def _to_pynput_key(name: str):
-        """Convert a canonical key name to a pynput Key/KeyCode, or None."""
-        if hasattr(Key, name):
-            return getattr(Key, name)
+        """Convert a canonical key name to a pynput key/KeyCode, or None."""
+        if hasattr(key, name):
+            return getattr(key, name)
         if name.startswith("f") and name[1:].isdigit():
             fnum = int(name[1:])
             if 1 <= fnum <= 24:
-                return KeyCode.from_vk(0x6F + fnum)
+                return key_code.from_vk(0x6F + fnum)
         if len(name) == 1:
-            return KeyCode.from_char(name)
+            return key_code.from_char(name)
         return None
 
     def _to_pynput_modifier(name: str):
-        """Convert a canonical modifier name to a pynput Key, or None.
+        """Convert a canonical modifier name to a pynput key, or None.
 
-        pynput collapses win/super/cmd → Key.cmd (no Key.win or
-        Key.super exists). alt_gr maps to Key.alt_gr when available
-        (platform-dependent), otherwise Key.alt_r, otherwise None.
-        fn maps to Key.fn when available (macOS only), otherwise None.
+        pynput collapses win/super/cmd → key.cmd (no key.win or
+        key.super exists). alt_gr maps to key.alt_gr when available
+        (platform-dependent), otherwise key.alt_r, otherwise None.
+        fn maps to key.fn when available (macOS only), otherwise None.
         """
-        _CANONICAL_TO_PYNPUT = {
+        _canonical_to_pynput = {
             "ctrl": "ctrl",
             "shift": "shift",
             "alt": "alt",
-            # pynput collapses win/super → cmd (no Key.win / Key.super).
+            # pynput collapses win/super → cmd (no key.win / key.super).
             "cmd": "cmd",
             "win": "cmd",
             "super": "cmd",
         }
-        attr = _CANONICAL_TO_PYNPUT.get(name)
-        if attr is not None and hasattr(Key, attr):
-            return getattr(Key, attr)
+        attr = _canonical_to_pynput.get(name)
+        if attr is not None and hasattr(key, attr):
+            return getattr(key, attr)
         # alt_gr / fn: try the canonical name, fall back to None.
         if name == "alt_gr":
             for fallback in ("alt_gr", "alt_r"):
-                if hasattr(Key, fallback):
-                    return getattr(Key, fallback)
-        if name == "fn" and hasattr(Key, "fn"):
-            return getattr(Key, "fn")
+                if hasattr(key, fallback):
+                    return getattr(key, fallback)
+        if name == "fn" and hasattr(key, "fn"):
+            return key.fn
         return None
 
     parsed = parse_hotkey(hotkey_str)
@@ -333,7 +334,7 @@ def _parse_hotkey_to_pynput(hotkey_str, Key, KeyCode):
         return None
 
     # Single-modifier special case (preserves the prior behaviour where
-    # a 1-part spec like ``<alt>`` returns ``Key.alt`` directly rather
+    # a 1-part spec like ``<alt>`` returns ``key.alt`` directly rather
     # than ``(modifiers, target)``). For multi-modifier specs with no
     # main key (e.g. ``<ctrl>+<shift>``), pynput cannot match without a
     # target key — return None, matching the previous behaviour.
@@ -389,7 +390,7 @@ _KEYEVENTF_KEYUP = 0x0002
 
 # Common virtual-key code mappings for function keys and printable keys.
 #
-# ISSUE-3 (Key-name maps): this table maps pynput-style lowercase names
+# ISSUE-3 (key-name maps): this table maps pynput-style lowercase names
 # to Win32 VK codes. It is ONE OF THREE independent key-name tables:
 #
 #   Frontend: KEY_CODE_TO_PYNPUT (hotkey-utils.ts) — e.code → pynput name
@@ -412,7 +413,7 @@ _VK_MAP = {}
 _VK_MAP_LOCK = threading.Lock()
 
 
-def _win32_vk(vk_name: str) -> Optional[int]:
+def _win32_vk(vk_name: str) -> int | None:
     """Look up a VK code by name, initializing the map lazily."""
     _init_vk_map()
     return _VK_MAP.get(vk_name)
@@ -503,7 +504,7 @@ def _init_vk_map():
         _VK_MAP["ralt"] = 0xA5       # VK_RMENU
 
 
-def parse_hotkey_to_vk(hotkey_str: str) -> Optional[int]:
+def parse_hotkey_to_vk(hotkey_str: str) -> int | None:
     """Convert a hotkey string like '<f2>' to a Win32 virtual-key code.
 
     Returns None if the key cannot be parsed.
@@ -514,7 +515,7 @@ def parse_hotkey_to_vk(hotkey_str: str) -> Optional[int]:
     return parsed[0]
 
 
-def parse_hotkey_to_win32(hotkey_str: str) -> Optional[tuple[Optional[int], int]]:
+def parse_hotkey_to_win32(hotkey_str: str) -> tuple[int | None, int] | None:
     """Convert a hotkey string to ``(virtual_key, RegisterHotKey modifiers)``.
 
     NEW-CQ-022: previously this returned the LAST non-modifier key found
@@ -554,7 +555,7 @@ def parse_hotkey_to_win32(hotkey_str: str) -> Optional[tuple[Optional[int], int]
 
     # Map canonical modifier names to Win32 RegisterHotKey modifier bits.
     # Win32 collapses win/super/cmd → _MOD_WIN (single bit).
-    _CANONICAL_TO_MODBIT = {
+    _canonical_to_modbit = {
         "ctrl": _MOD_CONTROL,
         "shift": _MOD_SHIFT,
         "alt": _MOD_ALT,
@@ -569,7 +570,7 @@ def parse_hotkey_to_win32(hotkey_str: str) -> Optional[tuple[Optional[int], int]
 
     modifiers = 0
     for mod in parsed.modifiers:
-        bit = _CANONICAL_TO_MODBIT.get(mod, 0)
+        bit = _canonical_to_modbit.get(mod, 0)
         modifiers |= bit
 
     key_name = parsed.main_key
@@ -604,7 +605,7 @@ def parse_hotkey_to_win32(hotkey_str: str) -> Optional[tuple[Optional[int], int]
                 import ctypes
                 user32 = ctypes.windll.user32
                 # Get the current keyboard layout
-                hkl = user32.GetKeyboardLayout(0)
+                user32.GetKeyboardLayout(0)
                 # VkKeyScanW returns the VK code and shift state
                 vk_scan = user32.VkKeyScanW(ord(key_name))
                 if vk_scan != -1:
@@ -640,7 +641,7 @@ class WindowsNativeHotkey(HotkeyBackend):
 
     def __init__(self, hotkey_str: str):
         super().__init__(hotkey_str)
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._ready_event = threading.Event()  # signalled when registration completes
         self._hotkey_id = 1  # arbitrary ID for RegisterHotKey
@@ -652,7 +653,7 @@ class WindowsNativeHotkey(HotkeyBackend):
         self._user32: Any = None
         self._kernel32: Any = None
         self._success = False
-        self._vk: Optional[int] = None
+        self._vk: int | None = None
         self._modifiers = 0
         self._using_polling = False  # True if falling back to GetAsyncKeyState
         # FIX-HOTKEY-ARCHITECTURE: True when the hotkey is a modifier-only
@@ -890,10 +891,7 @@ class WindowsNativeHotkey(HotkeyBackend):
 
                 # Check if there's a composition string (GCS_COMPSTR = 0x0400)
                 comp_len = imm32.ImmGetCompositionStringW(himc, 0x0400, None, 0)
-                if comp_len > 0:
-                    return True
-
-                return False
+                return comp_len > 0
             finally:
                 imm32.ImmReleaseContext(hwnd, himc)
         except Exception:
@@ -1009,19 +1007,16 @@ class WindowsNativeHotkey(HotkeyBackend):
             # (OS toggles caps before we can undo it). A periodic ~200ms
             # check catches any missed toggles and re-silences caps lock.
             _caps_check_iter += 1
-            if is_caps_lock_hotkey and _caps_check_iter % 200 == 0:
-                if not self._caps_lock_suppressing:
-                    self._ensure_caps_lock_off()
+            if is_caps_lock_hotkey and _caps_check_iter % 200 == 0 and not self._caps_lock_suppressing:
+                self._ensure_caps_lock_off()
             # PLAT-020: suppress hotkey triggers during IME composition.
             # PERF-FIX-1: use the throttled wrapper so we don't make 5
             # syscalls per 1ms iteration.
             if self._is_ime_composing_throttled():
                 was_pressed = False
                 if _pump_messages is not None:
-                    try:
+                    with contextlib.suppress(Exception):
                         _pump_messages()
-                    except Exception:
-                        pass
                 self._kernel32.Sleep(50)
                 continue
 
@@ -1032,10 +1027,8 @@ class WindowsNativeHotkey(HotkeyBackend):
             # cleared by _suppress_caps_lock_toggle() itself.
             if self._caps_lock_suppressing:
                 if _pump_messages is not None:
-                    try:
+                    with contextlib.suppress(Exception):
                         _pump_messages()
-                    except Exception:
-                        pass
                 self._kernel32.Sleep(1)
                 continue
 
@@ -1067,24 +1060,21 @@ class WindowsNativeHotkey(HotkeyBackend):
             # NEW-CQ-029: detect key-up transition for PTT mode.
             # Fire on_release when the key transitions from pressed
             # to not-pressed.
-            if not is_pressed and was_pressed:
-                if self._on_release_callback is not None:
-                    log.info("[HOTKEY] Key released (PTT on_release)")
-                    try:
-                        self._on_release_callback()
-                    except Exception:
-                        log.exception(
-                            "[HOTKEY] on_release callback raised in polling loop"
-                        )
+            if not is_pressed and was_pressed and self._on_release_callback is not None:
+                log.info("[HOTKEY] Key released (PTT on_release)")
+                try:
+                    self._on_release_callback()
+                except Exception:
+                    log.exception(
+                        "[HOTKEY] on_release callback raised in polling loop"
+                    )
             was_pressed = is_pressed
             # PLAT-PUMP: pump Win32 messages so RegisterHotKey WM_HOTKEY
             # messages are dispatched. Without this, hotkeys silently fail
             # after ~30s on some Win11 builds.
             if _pump_messages is not None:
-                try:
+                with contextlib.suppress(Exception):
                     _pump_messages()
-                except Exception:
-                    pass
             # PERF-012: 1ms sleep gives near-instant hotkey response
             # while still yielding CPU to other threads.
 
@@ -1292,8 +1282,7 @@ class WindowsNativeHotkey(HotkeyBackend):
             # the user can press a non-modifier key at any point during
             # the hold, and we need to detect it before the release
             # transition fires the callback.
-            if is_held and not other_key_pressed:
-                if self._any_non_modifier_key_pressed_throttled(all_modifier_vks):
+            if is_held and not other_key_pressed and self._any_non_modifier_key_pressed_throttled(all_modifier_vks):
                     other_key_pressed = True
                     log.debug(
                         "[HOTKEY] Non-modifier key pressed during modifier "
@@ -1518,9 +1507,7 @@ class WindowsNativeHotkey(HotkeyBackend):
         # If AltGr is pressed and our configured modifier is NOT Alt,
         # treat it as "another modifier held" — it's a real key press
         # that the user likely didn't intend as the hotkey.
-        if not (self._modifiers & _MOD_ALT) and self._is_altgr_pressed():
-            return True
-        return False
+        return bool(not self._modifiers & _MOD_ALT and self._is_altgr_pressed())
 
     def _suppress_caps_lock_toggle(self) -> None:
         """Undo the OS-level caps-lock toggle when the hotkey is Caps Lock.
@@ -1614,19 +1601,13 @@ class WindowsNativeHotkey(HotkeyBackend):
         if self._is_altgr_pressed():
             return False
 
-        if self._modifiers & _MOD_CONTROL:
-            if not self._key_pressed(0x11):
-                return False
-        if self._modifiers & _MOD_SHIFT:
-            if not self._key_pressed(0x10):
-                return False
-        if self._modifiers & _MOD_ALT:
-            if not self._key_pressed(0x12):
-                return False
-        if self._modifiers & _MOD_WIN:
-            if not (self._key_pressed(0x5B) or self._key_pressed(0x5C)):
-                return False
-        return True
+        if self._modifiers & _MOD_CONTROL and not self._key_pressed(0x11):
+            return False
+        if self._modifiers & _MOD_SHIFT and not self._key_pressed(0x10):
+            return False
+        if self._modifiers & _MOD_ALT and not self._key_pressed(0x12):
+            return False
+        return not (self._modifiers & _MOD_WIN and not (self._key_pressed(91) or self._key_pressed(92)))
 
     def _is_altgr_pressed(self) -> bool:
         """PLAT-ALTGR: Detect if AltGr is currently pressed.
@@ -1683,10 +1664,7 @@ class WindowsNativeHotkey(HotkeyBackend):
         # FIX-HOTKEY-ARCHITECTURE: handle modifier-only hotkeys where
         # ``self._vk`` is None (e.g. <alt>, <ctrl>). The previous format
         # string would crash with ``TypeError`` on ``None:X``.
-        if self._vk is not None:
-            vk_str = f"0x{self._vk:X} ({self._vk})"
-        else:
-            vk_str = "(modifier-only, no main VK)"
+        vk_str = f"0x{self._vk:X} ({self._vk})" if self._vk is not None else "(modifier-only, no main VK)"
         return (
             "WindowsNativeHotkey\n"
             f"Hotkey: {self.hotkey_str}\n"
@@ -1893,12 +1871,12 @@ class _NativeBackendAdapter(HotkeyBackend):
         # to the wrapped backend.
         self._native = native_backend
         self.hotkey_str = native_backend.hotkey_str
-        self._on_release_callback: Optional[Callable[[], None]] = None
-        self._callback: Optional[Callable[[], None]] = None
-        self._legacy: Optional[HotkeyBackend] = None
+        self._on_release_callback: Callable[[], None] | None = None
+        self._callback: Callable[[], None] | None = None
+        self._legacy: HotkeyBackend | None = None
         self._state = self._STATE_NATIVE
         self._swap_lock = threading.Lock()
-        self._native_retry_timer: Optional[threading.Timer] = None
+        self._native_retry_timer: threading.Timer | None = None
         self._permission_notification_shown = False
         # Wire up the native backend's error and permanent-failure
         # callbacks so we know when to (a) show a permission prompt
@@ -1921,7 +1899,7 @@ class _NativeBackendAdapter(HotkeyBackend):
             )
             self._swap_to_legacy()
 
-    def set_on_release(self, callback: Optional[Callable[[], None]]) -> None:
+    def set_on_release(self, callback: Callable[[], None] | None) -> None:
         self._on_release_callback = callback
         self._native.set_on_release(callback)
         if self._legacy is not None:
@@ -2027,10 +2005,8 @@ class _NativeBackendAdapter(HotkeyBackend):
         has been granted. Attempts to restart the native backend.
         """
         log.info("[HOTKEY] Permission granted — restarting native backend")
-        try:
+        with contextlib.suppress(Exception):
             self._native.stop()
-        except Exception:
-            pass
         try:
             self._native.start(self._callback)  # type: ignore[arg-type]
             if self._native.is_alive():
@@ -2099,10 +2075,8 @@ class _NativeBackendAdapter(HotkeyBackend):
             with self._swap_lock:
                 if self._state == self._STATE_STOPPED:
                     # stop() was called during the swap — clean up
-                    try:
+                    with contextlib.suppress(Exception):
                         legacy.stop()
-                    except Exception:
-                        pass
                     return
                 self._legacy = legacy
                 self._state = self._STATE_FALLBACK
@@ -2164,10 +2138,8 @@ class _NativeBackendAdapter(HotkeyBackend):
             # Stop the legacy backend first to free up any registered
             # hotkeys (e.g. RegisterHotKey on Windows).
             if self._legacy is not None:
-                try:
+                with contextlib.suppress(Exception):
                     self._legacy.stop()
-                except Exception:
-                    pass
                 self._legacy = None
             self._native.stop()
             self._native.start(self._callback)  # type: ignore[arg-type]
@@ -2238,7 +2210,7 @@ class _NativeBackendAdapter(HotkeyBackend):
             except Exception:
                 log.debug("[HOTKEY] tray.notify failed for recovery notification")
 
-    def _show_failure_notification(self, exc: Optional[Exception]) -> None:
+    def _show_failure_notification(self, exc: Exception | None) -> None:
         """Notify the user that the hotkey is not working at all."""
         tray = self._get_tray()
         if tray is not None:
@@ -2274,16 +2246,16 @@ class WaylandHotkey(HotkeyBackend):
 
     def __init__(self, hotkey_str: str):
         self._hotkey_str = hotkey_str
-        self._callback: Optional[Callable[[], None]] = None
+        self._callback: Callable[[], None] | None = None
         # TASK-10: typed as Any — socket is created lazily inside start()
         # and remains None if the socket bind fails. _accept_loop checks
         # self._alive before touching this socket, but pyrefly cannot
         # prove the narrowing across the thread boundary.
         self._server_socket: Any = None
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self._alive = False
-        self._pynput_fallback: Optional[PynputHotkey] = None
-        self._pynput_timer: Optional[threading.Timer] = None
+        self._pynput_fallback: PynputHotkey | None = None
+        self._pynput_timer: threading.Timer | None = None
 
     def start(self, callback: Callable[[], None]) -> None:
         """Start the Unix socket listener with pynput fallback."""
@@ -2339,7 +2311,6 @@ class WaylandHotkey(HotkeyBackend):
 
     def _accept_loop(self) -> None:
         """Accept connections and handle commands."""
-        import socket as _socket
         while self._alive:
             try:
                 conn, _ = self._server_socket.accept()
@@ -2355,7 +2326,7 @@ class WaylandHotkey(HotkeyBackend):
                         conn.sendall(b"unknown command\n")
                 finally:
                     conn.close()
-            except _socket.timeout:
+            except TimeoutError:
                 continue
             except OSError:
                 if self._alive:
@@ -2416,15 +2387,11 @@ class WaylandHotkey(HotkeyBackend):
         if self._pynput_fallback:
             self._stop_pynput_fallback()
         if self._server_socket:
-            try:
+            with contextlib.suppress(Exception):
                 self._server_socket.close()
-            except Exception:
-                pass
         if os.path.exists(self.SOCKET_PATH):
-            try:
+            with contextlib.suppress(Exception):
                 os.unlink(self.SOCKET_PATH)
-            except Exception:
-                pass
         log.info("[HOTKEY-WAYLAND] Stopped")
 
     def is_alive(self) -> bool:
@@ -2445,7 +2412,7 @@ class WaylandHotkey(HotkeyBackend):
 # ─── PLAT-VKMAP: Custom hotkey capture ──────────────────────────────────────
 
 
-def capture_custom_hotkey(timeout: float = 10.0) -> Optional[tuple[int, int, str]]:
+def capture_custom_hotkey(timeout: float = 10.0) -> tuple[int, int, str] | None:
     """PLAT-VKMAP: Capture a keystroke via GetAsyncKeyState polling.
 
     On Windows, polls all VK codes at ~50Hz to detect which key is
@@ -2478,7 +2445,7 @@ def capture_custom_hotkey(timeout: float = 10.0) -> Optional[tuple[int, int, str
         return None
 
     import ctypes
-    from ctypes.wintypes import BOOL, DWORD, INT, UINT
+    from ctypes.wintypes import DWORD, INT
 
     user32 = ctypes.windll.user32  # type: ignore[attr-defined]
     kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
@@ -2489,7 +2456,7 @@ def capture_custom_hotkey(timeout: float = 10.0) -> Optional[tuple[int, int, str
     kernel32.Sleep.restype = None
 
     # VK codes to poll (skip modifier keys 0x10-0x12, 0xA5, 0x5B/5C)
-    _MODIFIER_VKS = {0x10, 0x11, 0x12, 0xA5, 0x5B, 0x5C}
+    _modifier_vks = {0x10, 0x11, 0x12, 0xA5, 0x5B, 0x5C}
 
     log.info("[HOTKEY-CAPTURE] Waiting for keystroke (timeout=%.0fs)...", timeout)
     start = time.monotonic()
@@ -2497,7 +2464,7 @@ def capture_custom_hotkey(timeout: float = 10.0) -> Optional[tuple[int, int, str
     while time.monotonic() - start < timeout:
         # Check all VK codes 0x01..0xFF for a key press
         for vk in range(1, 256):
-            if vk in _MODIFIER_VKS:
+            if vk in _modifier_vks:
                 continue
             state = user32.GetAsyncKeyState(vk)
             if state & 0x8000:

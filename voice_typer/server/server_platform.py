@@ -1,5 +1,6 @@
 """Platform-specific adapters: autostart, microphone listing, volume backend."""
 
+import contextlib
 import logging
 import os
 import sys
@@ -7,6 +8,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from voice_typer.server import _paths
+from voice_typer.server.branding import APP_NAME
 
 log = logging.getLogger(__name__)
 
@@ -115,10 +117,7 @@ def _is_non_mic_device(name: str) -> bool:
 
     # System virtual devices that just mirror the default device
     # (redundant with "System Default" menu option)
-    if any(p in lower for p in ["microsoft sound mapper", "primary sound capture driver"]):
-        return True
-
-    return False
+    return bool(any(p in lower for p in ["microsoft sound mapper", "primary sound capture driver"]))
 
 
 def list_microphones() -> list[dict]:
@@ -190,7 +189,7 @@ def list_microphones() -> list[dict]:
         return []
 
 
-def find_microphone_by_name(partial_name: str) -> Optional[dict]:
+def find_microphone_by_name(partial_name: str) -> dict | None:
     """Find a microphone whose name contains *partial_name* (case-insensitive)."""
     lower = partial_name.lower()
     for mic in list_microphones():
@@ -199,7 +198,7 @@ def find_microphone_by_name(partial_name: str) -> Optional[dict]:
     return None
 
 
-def find_microphone_by_id(mic_id: str) -> Optional[dict]:
+def find_microphone_by_id(mic_id: str) -> dict | None:
     """Find a microphone by its stable ID (device index string)."""
     for mic in list_microphones():
         if mic["id"] == mic_id:
@@ -414,10 +413,8 @@ def _enable_autostart_windows() -> bool:
     # Try HKCU Run key first (no admin elevation needed).
     if _register_app_autostart_runkey():
         # Clean up any stale Task Scheduler task from a previous install.
-        try:
+        with contextlib.suppress(Exception):
             _unregister_app_autostart_task()
-        except Exception:
-            pass
         return True
     # Fall back to Task Scheduler if the Run key fails.
     log.warning("[CONFIG] HKCU Run key autostart failed; trying Task Scheduler")
@@ -549,10 +546,8 @@ def _register_app_autostart_task() -> bool:
             tf.write(xml_def)
             temp_xml = tf.name
         try:
-            try:
+            with contextlib.suppress(Exception):
                 task_scheduler._schtasks(["/Delete", "/TN", _APP_AUTOSTART_TASK_NAME, "/F"], capture=True)
-            except Exception:
-                pass
             rc, output = task_scheduler._schtasks(
                 ["/Create", "/TN", _APP_AUTOSTART_TASK_NAME, "/XML", temp_xml, "/F"],
                 capture=True,
@@ -568,10 +563,8 @@ def _register_app_autostart_task() -> bool:
             log.warning("[CONFIG] Task Scheduler autostart registration failed: %s", output.strip())
             return False
         finally:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(temp_xml)
-            except OSError:
-                pass
     except Exception as e:
         log.warning("[CONFIG] Task Scheduler autostart registration raised: %s", e)
         return False
@@ -590,9 +583,8 @@ def _unregister_app_autostart_task() -> bool:
         if rc == 0:
             log.info("[CONFIG] App autostart Task Scheduler task removed")
             return True
-        if "cannot find" in output.lower() or "does not exist" in output.lower():
-            return True  # already absent
-        return False
+        # already absent
+        return "cannot find" in output.lower() or "does not exist" in output.lower()
     except Exception as e:
         log.warning("[CONFIG] Task Scheduler autostart removal raised: %s", e)
         return False
@@ -659,9 +651,8 @@ def _register_app_autostart_runkey() -> bool:
             while True:
                 try:
                     name, value, _ = winreg.EnumValue(run_key, i)
-                    if name.startswith("VoiceTyper") and name != reg_key_name:
+                    if name.startswith("VoiceTyper") and name != reg_key_name and isinstance(value, str):
                         # Check if the path still exists
-                        if isinstance(value, str):
                             exe_path = value.strip('"').split('"')[0] if '"' in value else value.split()[0]
                             if not Path(exe_path).exists():
                                 winreg.DeleteValue(run_key, name)
@@ -784,10 +775,8 @@ def _enable_autostart_macos() -> bool:
     # platform-specific paths).
     log_dir = _paths.config_dir()
     log_dir.mkdir(parents=True, exist_ok=True)
-    try:
+    with contextlib.suppress(OSError):
         os.chmod(log_dir, 0o700)
-    except OSError:
-        pass
     try:
         import subprocess
         # NEW-XPLAT-005: previously ``launchctl load`` had no timeout,
@@ -822,12 +811,10 @@ def _disable_autostart_macos() -> bool:
         ["launchctl", "bootout", f"gui/{_os_uid()}/{label}"],
         ["launchctl", "remove", label],
     ):
-        try:
+        with contextlib.suppress(Exception):
             subprocess.run(
                 args, check=False, capture_output=True, timeout=5,
             )
-        except Exception:
-            pass
     if plist_path.exists():
         plist_path.unlink()
     log.info("[CONFIG] Autostart disabled (macOS)")
@@ -896,12 +883,10 @@ def _is_autostart_linux() -> bool:
     return (get_autostart_dir() / "voice-typer.desktop").exists()
 
 
-from voice_typer.server.branding import APP_NAME
-
 
 # ─── Launcher shortcut ────────────────────────────────────────────────
 
-def _generate_icon_ico() -> Optional[Path]:
+def _generate_icon_ico() -> Path | None:
     """Generate a logo .ico file for the shortcut icon.
 
     Uses the pre-rendered logo PNG (from ``client/scripts/logo.svg``,
@@ -961,7 +946,7 @@ def _create_lnk_shortcut(
     lnk_path: Path,
     target: str,
     arguments: str,
-    icon_ico: Optional[Path],
+    icon_ico: Path | None,
     description: str,
 ) -> bool:
     """Create a single .lnk shortcut. Returns True on success.
@@ -1032,13 +1017,11 @@ def _create_lnk_shortcut(
         return False
     finally:
         if tmp is not None:
-            try:
+            with contextlib.suppress(OSError):
                 _os.unlink(tmp)
-            except OSError:
-                pass
 
 
-def create_launcher_shortcut() -> Optional[Path]:
+def create_launcher_shortcut() -> Path | None:
     """Create Desktop + Start Menu shortcuts for Voice Typer.
 
     Both shortcuts point at the **universal launcher** (autostart_launcher.py)
@@ -1072,7 +1055,7 @@ def create_launcher_shortcut() -> Optional[Path]:
     icon_ico = _generate_icon_ico()
 
     # Primary: Desktop .lnk pointing at the universal launcher (no --hidden).
-    primary_path: Optional[Path] = None
+    primary_path: Path | None = None
     lnk_desktop = desktop / "Voice Typer.lnk"
 
     # Skip if the Desktop shortcut already exists — no need to recreate

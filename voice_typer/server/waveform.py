@@ -14,9 +14,10 @@ The listeners (registered by ``app.py``) forward these events through
 the IPC server so Electron can drive the renderer.
 """
 
+import contextlib
 import logging
 import threading
-from typing import Callable, Optional
+from collections.abc import Callable
 
 log = logging.getLogger(__name__)
 
@@ -43,16 +44,16 @@ class WaveformBubble:
         # Listener slots, set by app.py after IPC server is up.
         # Each is ``Optional[Callable[[dict], None]]`` and runs on the
         # calling thread; they should be cheap and non-blocking.
-        self.on_show: Optional[Callable[[], None]] = None
-        self.on_hide: Optional[Callable[[], None]] = None
-        self.on_level: Optional[Callable[[float, float], None]] = None
+        self.on_show: Callable[[], None] | None = None
+        self.on_hide: Callable[[], None] | None = None
+        self.on_level: Callable[[float, float], None] | None = None
         # NEW-BUBBLE-TRANSCRIBING: ``on_set_state`` is called when the
         # bubble should change its visual state (e.g. from "recording"
         # visualizer to "transcribing" text).  The state string is one of:
         #   "recording" — show waveform visualizer
         #   "transcribing" — hide visualizer, show "Transcribing…" text
         #   "idle" — hide everything (bubble visible but showing nothing)
-        self.on_set_state: Optional[Callable[[str], None]] = None
+        self.on_set_state: Callable[[str], None] | None = None
 
     # ── Visibility ───────────────────────────────────────────────────
 
@@ -174,11 +175,9 @@ transcription completes.
             rms_out = self._rms_level
             peak_out = self._peak_level
         if cb is not None:
-            try:
-                cb(rms_out, peak_out)
-            except Exception:
+            with contextlib.suppress(Exception):
                 # Drop frame, audio path must not stall
-                pass
+                cb(rms_out, peak_out)
 
     @property
     def is_speaking(self) -> bool:

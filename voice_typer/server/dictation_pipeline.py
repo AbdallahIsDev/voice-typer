@@ -12,9 +12,10 @@ history_db, etc. — a full dependency injection refactor is deferred
 (ARCH-005's VoiceTyperService is the first step toward that).
 """
 
+import contextlib
 import logging
 import time
-from typing import Optional, Any
+from typing import Any
 
 import numpy as np
 
@@ -72,7 +73,7 @@ class DictationPipeline:
         # NEW-PERF-010: pre-computed (rms, peak, silence_pct) from
         # Recorder.stop(), passed through to the transcription engine
         # so it doesn't recompute the same stats on the same audio.
-        self._audio_stats: "tuple[float, float, float] | None" = None
+        self._audio_stats: tuple[float, float, float] | None = None
 
     def run(
         self,
@@ -213,19 +214,17 @@ class DictationPipeline:
             # from process memory.  The audio buffer contains potentially
             # sensitive biometric data (voice recordings) that should not
             # linger in memory longer than necessary.
-            try:
+            with contextlib.suppress(Exception):
                 if self._audio is not None and isinstance(self._audio, np.ndarray):
                     self._audio.fill(0)
                     self._audio = None
-            except Exception:
-                pass
             # RACE-013: reset the persistent watchdog thread (signal
             # that transcription completed normally). Old code used
             # watchdog.cancel() for Timer-based watchdogs; now we
             # signal the Event-based persistent watchdog thread.
             # RACE-016: wrap daemon thread finally block with
             # try/except to prevent exceptions during shutdown.
-            try:
+            with contextlib.suppress(Exception):
                 # RW-9 Phase 2: fixed typo — was `_recording_controller`
                 # (doesn't exist on VoiceTyperApp). The attribute is `recording`
                 # (a RecordingController). Previously the watchdog reset never
@@ -234,18 +233,14 @@ class DictationPipeline:
                 if recording is not None:
                     recording._reset_watchdog()
                     recording._stop_watchdog_thread()
-            except Exception:
-                pass
             try:
                 session = self._app.recording.get_streaming_session()
                 if session is not None and not self._app.recorder.recording:
                     self._app.recording.set_streaming_session(None)
             except Exception:
                 log.debug("[TRANSCRIBE] finally: session cleanup failed", exc_info=True)
-            try:
+            with contextlib.suppress(Exception):
                 self._app._busy_event.set()  # busy = False
-            except Exception:
-                pass
             # ARCH-016: clear _transcription_thread under the app's
             # state lock so concurrent readers (e.g. _cancel_streaming_session
             # in another thread) don't see a torn None vs Thread object.
@@ -262,15 +257,11 @@ class DictationPipeline:
                     "_transcription_thread; assigning without lock",
                     exc_info=True,
                 )
-                try:
+                with contextlib.suppress(Exception):
                     self._app.recording._transcription_thread = None
-                except Exception:
-                    pass
-            try:
+            with contextlib.suppress(Exception):
                 import gc
                 gc.collect()
-            except Exception:
-                pass
             log.debug("[TRANSCRIBE] busy reset to False (cycle=%s)", self._cycle_id)
 
     # ── Pipeline steps ────────────────────────────────────────────
@@ -362,13 +353,11 @@ class DictationPipeline:
             log.warning("[PIPELINE] Vocabulary correction failed", exc_info=True)
             if not getattr(self, "_vocab_fail_notified", False):
                 self._vocab_fail_notified = True
-                try:
+                with contextlib.suppress(Exception):
                     self._app.tray.notify(
                         APP_NAME,
                         "Vocabulary correction failed. Check the log file for details.",
                     )
-                except Exception:
-                    pass
         return text
 
     def _apply_templates(self, text: str) -> str:
@@ -390,13 +379,11 @@ class DictationPipeline:
             log.warning("[PIPELINE] Template matching failed", exc_info=True)
             if not getattr(self, "_template_fail_notified", False):
                 self._template_fail_notified = True
-                try:
+                with contextlib.suppress(Exception):
                     self._app.tray.notify(
                         APP_NAME,
                         "Template matching failed. Check the log file for details.",
                     )
-                except Exception:
-                    pass
         return text
 
     def _apply_punctuation(self, text: str) -> str:
@@ -434,13 +421,12 @@ class DictationPipeline:
             self._app.config.llm_polish
             and effective_llm_key
             and not getattr(self._app.config, "llm_polish_consent", False)
-        ):
-            if not getattr(self._app, "_llm_consent_warned", False):
-                log.info(
-                    "[LLM_POLISH] llm_polish is enabled but "
-                    "llm_polish_consent is False — skipping polish."
-                )
-                self._app._llm_consent_warned = True
+        ) and not getattr(self._app, "_llm_consent_warned", False):
+            log.info(
+                "[LLM_POLISH] llm_polish is enabled but "
+                "llm_polish_consent is False — skipping polish."
+            )
+            self._app._llm_consent_warned = True
         return text
 
     def _apply_ai_enhancement(self, text: str) -> str:
@@ -570,14 +556,12 @@ class DictationPipeline:
             log.exception("[PIPELINE] History DB add failed")
             if not getattr(self, "_history_fail_notified", False):
                 self._history_fail_notified = True
-                try:
+                with contextlib.suppress(Exception):
                     self._app.tray.notify(
                         APP_NAME,
                         "Could not save the transcription to history. "
                         "Check the log file for details.",
                     )
-                except Exception:
-                    pass
 
         if self._app.config.crash_recovery_enabled:
             try:
@@ -596,14 +580,12 @@ class DictationPipeline:
                 log.exception("[PIPELINE] Crash recovery add failed")
                 if not getattr(self, "_crash_recovery_fail_notified", False):
                     self._crash_recovery_fail_notified = True
-                    try:
+                    with contextlib.suppress(Exception):
                         self._app.tray.notify(
                             APP_NAME,
                             "Could not save the transcription to the crash-recovery "
                             "buffer. Check the log file for details.",
                         )
-                    except Exception:
-                        pass
 
         # Save for repaste / undo
         self._app._last_transcription = text
@@ -645,7 +627,7 @@ class DictationPipeline:
         """
         if not self._app.clipboard.copy(text):
             log.error("[CLIPBOARD] Clipboard copy failed (cycle=%s)", self._cycle_id)
-            recovery_path: Optional[str] = None
+            recovery_path: str | None = None
             try:
                 if self._app.config.crash_recovery_enabled:
                     self._app._crash_recovery.add(text, pasted=False)
@@ -687,15 +669,10 @@ class DictationPipeline:
             pasted = self._app.clipboard.paste()
 
         if pasted and self._app.config.crash_recovery_enabled:
-            try:
+            with contextlib.suppress(Exception):
                 self._app._crash_recovery.mark_latest_pasted()
-            except Exception:
-                pass
 
-        if pasted:
-            status = f"Done -- {len(text)} chars (pasted)"
-        else:
-            status = f"Done -- {len(text)} chars (in clipboard)"
+        status = f"Done -- {len(text)} chars (pasted)" if pasted else f"Done -- {len(text)} chars (in clipboard)"
 
         # NEW-BUBBLE-TRANSCRIBING: Transcription + paste complete — hide the
         # bubble (or set it to idle for always_visible mode) so the overlay

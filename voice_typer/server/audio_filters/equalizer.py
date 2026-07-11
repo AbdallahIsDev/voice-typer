@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Optional
 
 import numpy as np
 
-from voice_typer.server.audio_filters.base import AudioFilter, db_to_mul, ANTIDENORMAL_EPSILON
+from voice_typer.server.audio_filters.base import ANTIDENORMAL_EPSILON, AudioFilter, db_to_mul
 
 log = logging.getLogger(__name__)
 
@@ -54,7 +53,7 @@ class Equalizer(AudioFilter):
         self._low_state: float = ANTIDENORMAL_EPSILON
         self._high_state: float = 0.0
 
-    def process(self, audio: np.ndarray, sample_rate: int) -> Optional[np.ndarray]:
+    def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray | None:
         if audio.size == 0:
             return audio
 

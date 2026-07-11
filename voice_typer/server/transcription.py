@@ -1,5 +1,6 @@
 """Whisper transcription engine using faster-whisper."""
 
+import contextlib
 import logging
 import os
 import site
@@ -8,6 +9,9 @@ import threading
 from typing import Any, Protocol, runtime_checkable
 
 import numpy as np
+
+from voice_typer.server.hallucination import log_hallucination_rejection, should_reject_low_audio_hallucination
+from voice_typer.server.platform_utils import is_windows
 
 log = logging.getLogger(__name__)
 
@@ -140,9 +144,6 @@ _nvidia_dll_paths_configured = False
 # _nvidia_dll_path_handles and os.environ["PATH"], causing duplicate
 # DLL directory additions and race-conditional PATH corruption.
 _nvidia_config_lock = threading.Lock()
-
-from voice_typer.server.hallucination import should_reject_low_audio_hallucination, log_hallucination_rejection
-from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
 
 
 def _download_with_retry(
@@ -616,7 +617,7 @@ class TranscriptionEngine:
             # Force iteration through ALL segments — model.transcribe()
             # returns lazily; the real GPU work (and DLL loading) happens
             # here.
-            for seg in segments:
+            for _seg in segments:
                 pass
             log.info("[CUDA-PROBE] CUDA runtime OK — cuBLAS/cuDNN loaded successfully")
         except Exception as exc:
@@ -720,7 +721,7 @@ class TranscriptionEngine:
 
             # SEC-audit-005: Use pinned revision from MODEL_HASHES manifest
             from voice_typer.server.security import MODEL_HASHES
-            WHISPER_REVISION = MODEL_HASHES.get(repo_id, {}).get("revision", "main")
+            whisper_revision = MODEL_HASHES.get(repo_id, {}).get("revision", "main")
 
             # SEC-audit-005: Allowlist of file patterns permitted in downloads
             _whisper_allow_patterns = [
@@ -735,7 +736,7 @@ class TranscriptionEngine:
             try:
                 snapshot_download(
                     repo_id=repo_id,
-                    revision=WHISPER_REVISION,
+                    revision=whisper_revision,
                     allow_patterns=_whisper_allow_patterns,
                     local_files_only=True,
                 )
@@ -758,10 +759,7 @@ class TranscriptionEngine:
             # in __init__, but we keep the defensive check so future
             # refactors don't reintroduce the crash).
             cfg = self.config
-            if cfg is None:
-                consent = False
-            else:
-                consent = getattr(cfg, 'huggingface_consent', False)
+            consent = False if cfg is None else getattr(cfg, 'huggingface_consent', False)
             if not consent:
                 log.warning(
                     "[MODEL] HuggingFace consent not given — refusing to download "
@@ -790,7 +788,7 @@ class TranscriptionEngine:
             _download_with_retry(
                 snapshot_download,
                 repo_id=repo_id,
-                revision=WHISPER_REVISION,
+                revision=whisper_revision,
                 allow_patterns=_whisper_allow_patterns,
                 resume_download=True,
             )
@@ -977,10 +975,8 @@ class TranscriptionEngine:
             # held for reuse by a different (non-Whisper) backend.
             # RACE-023: gc.collect() moved OUTSIDE the lock to avoid
             # blocking is_loaded / transcribe for 10-100ms.
-            try:
+            with contextlib.suppress(Exception):
                 del self._model
-            except Exception:
-                pass
             self._model = None
             self._device = "cpu"
             self._compute_type = "int8"
@@ -1028,10 +1024,8 @@ class TranscriptionEngine:
             # NEW-MEM-001: also release CUDA cached blocks.
             # RACE-023: gc.collect() deferred outside the lock.
             release_gpu_memory()
-            try:
+            with contextlib.suppress(Exception):
                 del self._model
-            except Exception:
-                pass
             self._model = None
             self._device = "cpu"
             self._compute_type = "int8"

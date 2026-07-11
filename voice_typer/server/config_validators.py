@@ -21,8 +21,12 @@ import.  ``config.py`` imports from this module (for
 backward compatibility.
 """
 
+import json as _json
 import logging
-from typing import Callable, Optional, Tuple, TypeGuard
+import sys as _sys
+from collections.abc import Callable
+from pathlib import Path as _Path
+from typing import TypeGuard
 from urllib.parse import urlparse
 
 log = logging.getLogger("voice_typer.server.config_validators")
@@ -70,8 +74,8 @@ ALLOWED_USER_MODELS = {"tiny.en", "small.en", "medium.en", "qwen", "parakeet"}
 # so the int-vs-bool ambiguity is resolved by checking bool first in the
 # dispatcher (see ``_validate_config_update``).
 
-ValidatorFn = Callable[[object], Optional[str]]
-FieldSpec = Tuple[type, ValidatorFn]
+ValidatorFn = Callable[[object], str | None]
+FieldSpec = tuple[type, ValidatorFn]
 
 
 def _is_str(v: object) -> TypeGuard[str]:
@@ -102,7 +106,7 @@ _MAX_API_KEY_LEN = 16384
 
 
 def _make_str_validator(max_len: int = _MAX_STRING_LEN) -> ValidatorFn:
-    def _validate(v: object) -> Optional[str]:
+    def _validate(v: object) -> str | None:
         if not _is_str(v):
             return f"must be a string, got {type(v).__name__}"
         if len(v) > max_len:
@@ -112,7 +116,7 @@ def _make_str_validator(max_len: int = _MAX_STRING_LEN) -> ValidatorFn:
 
 
 def _make_optional_str_validator(max_len: int = _MAX_STRING_LEN) -> ValidatorFn:
-    def _validate(v: object) -> Optional[str]:
+    def _validate(v: object) -> str | None:
         if v is None:
             return None
         if not _is_str(v):
@@ -123,14 +127,14 @@ def _make_optional_str_validator(max_len: int = _MAX_STRING_LEN) -> ValidatorFn:
     return _validate
 
 
-def _bool_validator(v: object) -> Optional[str]:
+def _bool_validator(v: object) -> str | None:
     if not isinstance(v, bool):
         return f"must be a boolean, got {type(v).__name__}"
     return None
 
 
 def _make_int_validator(*, lo: int, hi: int) -> ValidatorFn:
-    def _validate(v: object) -> Optional[str]:
+    def _validate(v: object) -> str | None:
         if not _is_int_not_bool(v):
             return f"must be an integer, got {type(v).__name__}"
         if v < lo or v > hi:
@@ -140,7 +144,7 @@ def _make_int_validator(*, lo: int, hi: int) -> ValidatorFn:
 
 
 def _make_float_validator(*, lo: float, hi: float) -> ValidatorFn:
-    def _validate(v: object) -> Optional[str]:
+    def _validate(v: object) -> str | None:
         if not _is_float_or_int_not_bool(v):
             return f"must be a number, got {type(v).__name__}"
         if v < lo or v > hi:
@@ -150,7 +154,7 @@ def _make_float_validator(*, lo: float, hi: float) -> ValidatorFn:
 
 
 def _make_enum_validator(allowed: set) -> ValidatorFn:
-    def _validate(v: object) -> Optional[str]:
+    def _validate(v: object) -> str | None:
         if not _is_str(v):
             return f"must be a string, got {type(v).__name__}"
         if v not in allowed:
@@ -161,16 +165,16 @@ def _make_enum_validator(allowed: set) -> ValidatorFn:
 
 def _make_custom_theme_validator() -> ValidatorFn:
     """Validate a custom-theme dict: {light: {var: val, ...}, dark: {var: val, ...}}."""
-    KEY_KEYS = {"--background", "--foreground", "--primary", "--bg-subtle", "--border", "--text-muted"}
+    key_keys = {"--background", "--foreground", "--primary", "--bg-subtle", "--border", "--text-muted"}
 
-    def _validate(v: object) -> Optional[str]:
+    def _validate(v: object) -> str | None:
         if not isinstance(v, dict):
             return "must be a dict"
         for mode in ("light", "dark"):
             mode_dict = v.get(mode)
             if not isinstance(mode_dict, dict):
                 return f"field {mode!r} must be a dict"
-            for key in KEY_KEYS:
+            for key in key_keys:
                 val = mode_dict.get(key)
                 if not isinstance(val, str):
                     return f"{mode}.{key} must be a string, got {type(val).__name__}"
@@ -195,7 +199,7 @@ def _make_url_validator(*, allow_empty: bool = False, max_len: int = _MAX_STRING
     is not ``http`` or ``https``.  Empty string is accepted iff ``allow_empty``
     (used for fields where empty means "feature disabled").
     """
-    def _validate(v: object) -> Optional[str]:
+    def _validate(v: object) -> str | None:
         if not _is_str(v):
             return f"must be a string, got {type(v).__name__}"
         if len(v) > max_len:
@@ -246,9 +250,6 @@ def _make_url_validator(*, allow_empty: bool = False, max_len: int = _MAX_STRING
 #
 # All other combinations (including Alt+<letter>) are allowed by default.
 # This is a denylist design, not a blanket rule design.
-import json as _json
-import sys as _sys
-from pathlib import Path as _Path
 
 # HOTKEY-SHARED-001: load the canonical reserved-shortcut table from the
 # JSON file. The file lives next to this module so the relative path is
@@ -336,7 +337,7 @@ def _parse_hotkey_parts(hotkey: str) -> list[str]:
     return list(spec.modifiers) + list(spec.keys)
 
 
-def _validate_hotkey(value: object) -> Optional[str]:
+def _validate_hotkey(value: object) -> str | None:
     """Validate a hotkey string against the reserved-shortcut denylist.
 
     Returns ``None`` if valid, or a human-readable error string if invalid.
@@ -662,7 +663,7 @@ IPC_CONFIG_ALLOWLIST: dict = {
 }
 
 
-def validate_config_update(data: dict) -> Tuple[dict, list]:
+def validate_config_update(data: dict) -> tuple[dict, list]:
     """Validate a caller-supplied config update payload.
 
     Parameters

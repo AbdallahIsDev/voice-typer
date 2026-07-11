@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 import numpy as np
 
 from voice_typer.server.audio_filters.base import (
     AudioFilter,
     db_to_mul,
-    one_pole_coeff,
 )
 
 log = logging.getLogger(__name__)
@@ -66,7 +64,7 @@ class NoiseGate(AudioFilter):
         else:
             self._decay_rate = 0.001
 
-    def process(self, audio: np.ndarray, sample_rate: int) -> Optional[np.ndarray]:
+    def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray | None:
         if audio.size == 0:
             return audio
 

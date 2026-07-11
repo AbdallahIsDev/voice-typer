@@ -192,8 +192,8 @@ def _electron_log_files() -> dict:
         stderr_path = log_dir / "electron-stderr.log"
         # "a" mode so logs accumulate across launches; line-buffered so
         # the user sees output in near-real-time when tailing.
-        stdout_fd = open(stdout_path, "a", encoding="utf-8", buffering=1)
-        stderr_fd = open(stderr_path, "a", encoding="utf-8", buffering=1)
+        stdout_fd = open(stdout_path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
+        stderr_fd = open(stderr_path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
         return {
             "stdout": stdout_fd,
             "stderr": stderr_fd,

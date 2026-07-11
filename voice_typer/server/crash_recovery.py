@@ -14,15 +14,15 @@ thread with a bounded queue: callers enqueue a save request and
 return immediately; the worker thread serializes the writes.
 """
 
+import contextlib
 import json
 import logging
 import os
 import queue
-import sys
 import threading
 from pathlib import Path
-from typing import Optional
-from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
+
+from voice_typer.server.platform_utils import is_windows
 
 log = logging.getLogger(__name__)
 
@@ -44,15 +44,15 @@ class CrashRecovery:
     source of truth for reads; the worker only persists it.
     """
 
-    def __init__(self, config_dir: Optional[Path] = None):
+    def __init__(self, config_dir: Path | None = None):
         if config_dir is None:
             from voice_typer.server.config import _config_dir
             config_dir = _config_dir()
         self._path = config_dir / RECOVERY_FILENAME
         self._entries: list[dict] = []
         self._lock = threading.Lock()
-        self._save_queue: "queue.Queue[Optional[dict]]" = queue.Queue(maxsize=_SAVE_QUEUE_MAXSIZE)
-        self._save_thread: Optional[threading.Thread] = None
+        self._save_queue: queue.Queue[dict | None] = queue.Queue(maxsize=_SAVE_QUEUE_MAXSIZE)
+        self._save_thread: threading.Thread | None = None
         self._stopped = False
         self._load()
         self._start_save_thread()
@@ -159,10 +159,8 @@ class CrashRecovery:
                 # ready for more items.
                 event = item.get("flush_event")
                 if event is not None:
-                    try:
+                    with contextlib.suppress(Exception):
                         event.set()
-                    except Exception:
-                        pass
                 self._save_queue.task_done()
                 continue
             self._save_sync()
@@ -236,10 +234,8 @@ class CrashRecovery:
         just on the calling thread).
         """
         self._stopped = True
-        try:
+        with contextlib.suppress(queue.Full):
             self._save_queue.put_nowait(None)  # sentinel
-        except queue.Full:
-            pass  # worker will see _stopped on next loop iteration
 
     # ── Public API ───────────────────────────────────────────────────
 
@@ -310,7 +306,7 @@ class CrashRecovery:
         with self._lock:
             return list(self._entries)
 
-    def check_on_startup(self) -> Optional[list[dict]]:
+    def check_on_startup(self) -> list[dict] | None:
         """Check for unpasted transcriptions from a previous session.
 
         Returns a list of unpasted entries if any exist, or None.
@@ -356,16 +352,15 @@ class CrashRecovery:
             # Signal the worker to stop, then do one final
             # synchronous save to capture any pending state.
             self._stopped = True
-            if self._save_thread is not None and self._save_thread.is_alive():
-                # If there's pending work, do a final synchronous save
-                # to capture it.  If the queue is empty, this is a
-                # no-op.
-                if not self._save_queue.empty():
-                    self._save_sync()
+            # If there's pending work, do a final synchronous save
+            # to capture it.  If the queue is empty, this is a
+            # no-op.
+            if self._save_thread is not None and self._save_thread.is_alive() and not self._save_queue.empty():
+                self._save_sync()
         except Exception:
             pass  # __del__ must never raise
 
-    def create_diagnostic_bundle(self) -> Optional[str]:
+    def create_diagnostic_bundle(self) -> str | None:
         """PROD-010: Create a diagnostic bundle zip file.
 
         Collects:
@@ -395,10 +390,8 @@ class CrashRecovery:
                 # 1. Log file
                 log_path = config_dir / "voice-typer.log"
                 if log_path.exists():
-                    try:
+                    with contextlib.suppress(Exception):
                         zf.write(str(log_path), "voice-typer.log")
-                    except Exception:
-                        pass
 
                 # 2. Config (redacted)
                 config_path = config_dir / "config.json"
@@ -473,9 +466,9 @@ class CrashRecovery:
                 # issues without asking the user to run --status manually.
                 try:
                     from voice_typer.server.prewarm import (
-                        get_prewarm_status,
-                        _sentinel_path,
                         _pid_file_path,
+                        _sentinel_path,
+                        get_prewarm_status,
                     )
                     prewarm_data = get_prewarm_status()
                     # Add the raw sentinel + PID file contents + paths

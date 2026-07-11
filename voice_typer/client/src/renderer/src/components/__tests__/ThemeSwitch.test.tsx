@@ -36,7 +36,7 @@ vi.mock("@hugeicons/core-free-icons", () => {
 	};
 });
 
-import { ThemeSwitch } from "@/components/ThemeSwitch";
+import { ThemeSwitch } from "@/components/layout/ThemeSwitch";
 
 describe("ThemeSwitch", () => {
 	afterEach(() => {

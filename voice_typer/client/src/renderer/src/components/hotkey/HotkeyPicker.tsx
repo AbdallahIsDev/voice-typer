@@ -197,7 +197,6 @@ export function HotkeyPicker({
 
 	// Track the latest callbacks into refs after every render so the
 	// always-attached listener (``useEffect([], ..)``) never goes stale.
-	// eslint-disable-next-line react-hooks/exhaustive-deps
 	useEffect(() => {
 		onCaptureEndRef.current = onCaptureEnd;
 		onCaptureStartRef.current = onCaptureStart;
@@ -799,9 +798,9 @@ export function HotkeyPicker({
 				)}
 			</div>
 			{recording && (
-				<p className="text-xs text-(--text-muted)" role="status">
+				<output className="text-xs text-(--text-muted)">
 					{t("hotkeyPicker.assignHint")}
-				</p>
+				</output>
 			)}
 			{error && (
 				<p className="text-xs text-destructive" role="alert">

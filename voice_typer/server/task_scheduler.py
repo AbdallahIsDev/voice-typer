@@ -31,6 +31,7 @@ no effect there.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import subprocess
@@ -38,8 +39,9 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
 from voice_typer.server import _paths
-from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
+from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
 
 log = logging.getLogger("voice_typer.task_scheduler")
 
@@ -472,10 +474,10 @@ def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int
     )
 
     # Redirect output to a temp file so we can read it back
-    out_file = tempfile.NamedTemporaryFile(
+    with tempfile.NamedTemporaryFile(
         mode="w+t", suffix=".txt", delete=False, encoding="utf-8"
-    )
-    out_path = out_file.name
+    ) as out_file:
+        out_path = out_file.name
 
     try:
         # Launch via cmd.exe /c with redirection so we capture output
@@ -514,10 +516,8 @@ def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int
         return exit_code.value, output
 
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(out_path)
-        except OSError:
-            pass
 
 
 # ─── Public API ──────────────────────────────────────────────────────────
@@ -534,7 +534,7 @@ def is_supported() -> bool:
     """
     if is_windows():
         return Path(
-            os.environ.get("SystemRoot", r"C:\Windows") + r"\System32\schtasks.exe"
+            os.environ.get("SYSTEMROOT", r"C:\Windows") + r"\System32\schtasks.exe"
         ).exists()
     # STARTUP-5: POSIX platforms use prewarm_scheduler_posix.
     # Bug fix: use exact match instead of startswith("linux") for
@@ -613,10 +613,8 @@ def register_prewarm_task() -> bool:
         # locked so that `schtasks /Create /F` fails with "Access is
         # denied".  An explicit /Delete /F first clears it cleanly;
         # if it doesn't exist, the error is harmless.
-        try:
+        with contextlib.suppress(Exception):
             _schtasks(["/Delete", "/TN", TASK_NAME, "/F"], capture=True)
-        except Exception:
-            pass
 
         # /F forces overwrite if the task already exists.
         rc, output = _schtasks(
@@ -652,10 +650,8 @@ def register_prewarm_task() -> bool:
             return False
         return _register_prewarm_registry(reg_cmd)
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(temp_xml)
-        except OSError:
-            pass
 
 
 def unregister_prewarm_task() -> bool:

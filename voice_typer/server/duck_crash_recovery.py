@@ -16,7 +16,6 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Optional
 
 from voice_typer.server.volume_backend import VolumeState
 
@@ -34,7 +33,7 @@ class DuckCrashRecovery:
     file (though it contains no secrets, defense in depth is cheap).
     """
 
-    def __init__(self, config_dir: Optional[Path] = None) -> None:
+    def __init__(self, config_dir: Path | None = None) -> None:
         if config_dir is None:
             # RW-7: route through _paths.config_dir() so the default
             # respects the platform-aware _config_dir() logic (Windows
@@ -68,7 +67,7 @@ class DuckCrashRecovery:
         except Exception as exc:
             log.warning("[VOLUME-CRASH] Failed to persist duck state: %s", exc)
 
-    def load_stale(self) -> Optional[VolumeState]:
+    def load_stale(self) -> VolumeState | None:
         """Check for a stale duck state file from a crashed session.
 
         Returns the saved :class:`VolumeState` if a stale file exists,

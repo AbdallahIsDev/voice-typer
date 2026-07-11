@@ -20,15 +20,17 @@
 # ``Config.load()`` consults it during schema migration.
 # ──────────────────────────────────────────────────────────────────────────
 
+import contextlib
 import json
 import logging
 import os
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
+
 from voice_typer.server.config_validators import ALLOWED_USER_MODELS
-from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
+from voice_typer.server.platform_utils import is_macos, is_windows
 
 log = logging.getLogger("voice_typer.server.config")
 
@@ -84,8 +86,6 @@ def _secure_atomic_write(path: Path, content: str) -> None:
     content : str
         Content to write (UTF-8 encoded).
     """
-    import tempfile
-    tmp_fd = None
     tmp_path = None
     try:
         # Create temp file in same directory for atomic rename
@@ -105,10 +105,8 @@ def _secure_atomic_write(path: Path, content: str) -> None:
                     f.flush()
                     os.fsync(f.fileno())
             except Exception:
-                try:
+                with contextlib.suppress(OSError):
                     os.close(fd)
-                except OSError:
-                    pass
                 raise
         else:
             # Windows: O_NOFOLLOW not available, but NTFS ACLs under
@@ -123,10 +121,8 @@ def _secure_atomic_write(path: Path, content: str) -> None:
     except Exception:
         # Clean up temp file on failure
         if tmp_path is not None:
-            try:
+            with contextlib.suppress(OSError):
                 tmp_path.unlink()
-            except OSError:
-                pass
         raise
 
 
@@ -184,10 +180,8 @@ def _secure_read_text(path: Path, *, encoding: str = "utf-8") -> str:
                 f.close()
             return content
         except Exception:
-            try:
+            with contextlib.suppress(OSError):
                 os.close(fd)
-            except OSError:
-                pass
             raise
     else:
         # Windows: check for reparse points (symlinks/junctions) before reading
@@ -207,7 +201,7 @@ def _secure_read_text(path: Path, *, encoding: str = "utf-8") -> str:
                 raise OSError(f"SEC-002: refusing to follow reparse point: {path}")
         except (AttributeError, OSError):
             pass  # lstat not available or file doesn't exist; open() will catch it
-        with open(path, "r", encoding=encoding) as f:
+        with open(path, encoding=encoding) as f:
             # SEC-002: verify inode on Windows too (using os.fstat on the fileno)
             stat_before = os.fstat(f.fileno())
             content = f.read()
@@ -270,7 +264,6 @@ def _is_path_within(path: Path, root: Path) -> bool:
     (``/etc`` IS within ``/``).
     """
     import os.path
-    import sys
     try:
         p_resolved = str(path.resolve())
         r_resolved = str(root.resolve())
@@ -349,7 +342,7 @@ def _validate_systemroot() -> None:
     if not is_windows():
         return
 
-    systemroot = os.environ.get("SystemRoot", "")
+    systemroot = os.environ.get("SYSTEMROOT", "")
     if not systemroot:
         # SystemRoot not set — unusual but not a direct attack vector
         # for our process.  Windows APIs may fail later; we just log.
@@ -366,7 +359,7 @@ def _validate_systemroot() -> None:
         # Try to use the standard default
         default = r"C:\Windows"
         if Path(default).is_dir():
-            os.environ["SystemRoot"] = default
+            os.environ["SYSTEMROOT"] = default
         return
 
     # Check for unusual characters that could indicate tampering
@@ -379,7 +372,7 @@ def _validate_systemroot() -> None:
         )
         default = r"C:\Windows"
         if Path(default).is_dir():
-            os.environ["SystemRoot"] = default
+            os.environ["SYSTEMROOT"] = default
         return
 
     # Verify the directory exists
@@ -391,7 +384,7 @@ def _validate_systemroot() -> None:
         )
         default = r"C:\Windows"
         if Path(default).is_dir():
-            os.environ["SystemRoot"] = default
+            os.environ["SYSTEMROOT"] = default
         return
 
     # SEC-audit-011: Verify SystemRoot contains System32\notepad.exe.
@@ -541,7 +534,7 @@ class Config:
     # _validate_non_numeric_fields when a field had an invalid type
     # and was reset to default. The IPC layer can surface these to
     # the renderer so the user knows their config was corrected.
-    last_load_warnings: Optional[list] = None
+    last_load_warnings: list | None = None
 
     # Hotkey
     # NATIVE-001 / FIX-HOTKEY-ARCHITECTURE: default hotkey is now
@@ -553,7 +546,7 @@ class Config:
 
     # Recording
     sample_rate: int = 16000
-    microphone: Optional[str] = None  # None = system default
+    microphone: str | None = None  # None = system default
 
     # Transcription
     model_size: str = "small.en"
@@ -585,14 +578,14 @@ class Config:
 
     # ASR backend selection
     asr_backend: str = "whisper"  # "whisper", "qwen", or "parakeet"
-    qwen_model_path: Optional[str] = None  # local path to Qwen3-ASR weights
-    parakeet_model_path: Optional[str] = None  # local override for Parakeet weights (None = HF cache)
+    qwen_model_path: str | None = None  # local path to Qwen3-ASR weights
+    parakeet_model_path: str | None = None  # local override for Parakeet weights (None = HF cache)
 
     # Text cleanup
     text_cleanup_enabled: bool = True  # Set False for raw (uncorrected) output
 
     # External corrections file
-    corrections_path: Optional[str] = None
+    corrections_path: str | None = None
 
     # Logging
     log_transcriptions: bool = False
@@ -744,7 +737,7 @@ class Config:
     theme_preset: str = "default"
     # User-customised theme colours (only used when theme_preset == "custom").
     # Stored as nested dict: {"light": {var: val, ...}, "dark": {var: val, ...}}
-    custom_theme: Optional[dict] = None
+    custom_theme: dict | None = None
 
     # UX-036: Accessibility
     high_contrast: bool = False
@@ -1252,4 +1245,4 @@ class Config:
 # ``_is_*`` predicates — so any ``from voice_typer.server.config import …``
 # that worked before the split continues to work unchanged.
 # ──────────────────────────────────────────────────────────────────────────
-from voice_typer.server.config_validators import *  # noqa: F401,F403 — backward compat
+from voice_typer.server.config_validators import *  # noqa: E402,F401,F403 — backward compat (intentional bottom-of-file re-export)

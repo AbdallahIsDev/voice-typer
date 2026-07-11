@@ -1,3 +1,4 @@
+# ruff: noqa: A001, A002, N802, N803, N816
 # PYREFLY-001: stub for the `winreg` module (Windows-only stdlib).
 #
 # pyrefly ships a `winreg` stub, but on non-Windows runners it appears

@@ -19,7 +19,6 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional
 
 log = logging.getLogger(__name__)
 
@@ -75,14 +74,14 @@ class VolumeBackend(ABC):
     # ── Volume operations ───────────────────────────────────────────
 
     @abstractmethod
-    def get_state(self) -> Optional[VolumeState]:
+    def get_state(self) -> VolumeState | None:
         """Read current volume + mute state.
 
         Returns ``None`` on failure (device disconnected, API error).
         """
 
     @abstractmethod
-    def set_linear(self, level: float, muted: Optional[bool] = None) -> bool:
+    def set_linear(self, level: float, muted: bool | None = None) -> bool:
         """Set volume in perceptual-linear scale.
 
         Parameters

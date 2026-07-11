@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Callable, Optional
+from collections.abc import Callable
 
 # PERF-COLDSTART-001: lazy import — pystray's xorg backend calls
 # Xlib.display.Display() at module import time, costing ~48 ms on the
@@ -44,9 +44,8 @@ from typing import Callable, Optional
 # above also stringifies the ``Optional[pystray.Icon]`` annotation in
 # TrayIcon.__init__ so it no longer forces an eager import.
 from voice_typer.server._lazy_import import lazy_module
-
-pystray = lazy_module("pystray")
-
+from voice_typer.server.branding import APP_NAME
+from voice_typer.server.platform_utils import is_linux
 from voice_typer.server.tray_icon import _make_icon
 
 # #13: menu building extracted to tray_menu.py (display_hotkey, wrap_callback,
@@ -55,8 +54,8 @@ from voice_typer.server.tray_menu import build_menu, display_hotkey, wrap_callba
 
 # ARCH-003: types extracted to tray_types.py; icon rendering to tray_icon.py
 from voice_typer.server.tray_types import AppState, TrayController
-from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
-from voice_typer.server.branding import APP_NAME
+
+pystray = lazy_module("pystray")
 
 # TRAY-008: Localization for tray menu labels.
 # Uses English as default. Wrap hardcoded strings with _() function.
@@ -113,10 +112,7 @@ def set_tray_locale(locale: str) -> None:
     labels to take effect.
     """
     global _tray_locale
-    if locale in _TRAY_LABELS_LOCALES:
-        _tray_locale = locale
-    else:
-        _tray_locale = "en"
+    _tray_locale = locale if locale in _TRAY_LABELS_LOCALES else "en"
 
 
 def get_tray_locale() -> str:
@@ -158,7 +154,7 @@ class TrayIcon:
         self._controller = controller
         self._config = config  # reference to live Config object
 
-        self._icon: Optional[pystray.Icon] = None
+        self._icon: pystray.Icon | None = None
         # ARCH-045: set to True if pystray.Icon() raised OSError at start()
         # so callers can decide to skip tray-related operations.
         self._tray_unavailable: bool = False
@@ -169,15 +165,15 @@ class TrayIcon:
         self._autostart_enabled = False
 
     # TRAY-015: Periodic update check state
-        self._update_check_timer: Optional[threading.Timer] = None
+        self._update_check_timer: threading.Timer | None = None
         self._check_updates: bool = getattr(config, 'check_updates', True) if config else True
 
         # Pre-run state queue — flushed once pystray event loop is live
         self._pending_states: list[tuple[AppState, str]] = []
         self._pending_notifications: list[tuple[str, str]] = []
         self._queue_lock = threading.Lock()
-        self._bg_work_fn: Optional[Callable] = None
-        self._bg_thread: Optional[threading.Thread] = None
+        self._bg_work_fn: Callable | None = None
+        self._bg_thread: threading.Thread | None = None
         self._hotkey: str = getattr(config, 'hotkey', '<f2>') or '<f2>'
 
         # P4 #30: Menu cache
@@ -275,7 +271,6 @@ class TrayIcon:
         the SNI-availability check is the actual contract that
         matters.
         """
-        import sys
         import os
         if not is_linux():
             return False
@@ -336,7 +331,7 @@ class TrayIcon:
         self._hotkey = getattr(config, "hotkey", self._hotkey) or self._hotkey
         self._menu_cache_valid = False
 
-    def start(self, bg_work: Optional[Callable] = None) -> None:
+    def start(self, bg_work: Callable | None = None) -> None:
         """Create the tray icon and start background work.
 
         ARCH-045: pystray.Icon() can raise OSError on Windows Server /
@@ -710,8 +705,8 @@ class TrayIcon:
     def _do_update_check(self) -> None:
         """Check GitHub for the latest release and notify if newer."""
         try:
-            import urllib.request
             import json as _json
+            import urllib.request
             url = "https://api.github.com/repos/AbdallahIsDev/voice-typer/releases/latest"
             req = urllib.request.Request(url, headers={"User-Agent": "voice-typer"})
             with urllib.request.urlopen(req, timeout=10) as resp:

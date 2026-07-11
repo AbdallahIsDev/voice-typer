@@ -18,7 +18,7 @@ noticeable menu-open lag.  We now cache:
 import json
 import logging
 import time
-from typing import Any, Optional
+from typing import Any
 
 log = logging.getLogger(__name__)
 
@@ -125,7 +125,7 @@ def build_models_submenu_data(
         # Read current model from config.json on disk.
         config_path = config_dir_fn() / "config.json"
         try:
-            with open(config_path, "r") as f:
+            with open(config_path) as f:
                 cfg = json.load(f)
             current_model = cfg.get("model_size", "tiny.en")
         except Exception:

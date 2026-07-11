@@ -1,3 +1,4 @@
+# ruff: noqa: A001, A002, N802, N803, N816
 # PYREFLY-001: stub for the `objc` module (pyobjc-core, macOS only).
 # This is the pyobjc runtime that loads framework bindings. Voice-typer
 # itself rarely imports `objc` directly, but pyrefly may resolve it

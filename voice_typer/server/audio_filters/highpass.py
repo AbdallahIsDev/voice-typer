@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 import numpy as np
 
-from voice_typer.server.audio_filters.base import AudioFilter, ANTIDENORMAL_EPSILON
+from voice_typer.server.audio_filters.base import ANTIDENORMAL_EPSILON, AudioFilter
 
 log = logging.getLogger(__name__)
 
@@ -28,7 +27,7 @@ class HighPassFilter(AudioFilter):
         self.name = f"HighPass({cutoff_hz:.0f}Hz)"
         self._cutoff_hz = float(cutoff_hz)
         self._sample_rate = int(sample_rate)
-        self._state: Optional[tuple[np.ndarray, np.ndarray, np.ndarray]] = None
+        self._state: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None
         self._init_filter()
 
     def _init_filter(self) -> None:
@@ -53,7 +52,7 @@ class HighPassFilter(AudioFilter):
             log.warning("[HIGHPASS] init failed: %s", exc)
             self._state = None
 
-    def process(self, audio: np.ndarray, sample_rate: int) -> Optional[np.ndarray]:
+    def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray | None:
         if self._state is None or audio.size == 0:
             return audio
         from scipy.signal import lfilter

@@ -12,7 +12,6 @@ All public functions delegate to level_monitor counterparts.
 """
 
 import logging
-from typing import Optional
 
 log = logging.getLogger(__name__)
 
@@ -34,9 +33,9 @@ def get_level() -> dict:
 
 
 def start_test(
-    mic_id: Optional[str] = None,
+    mic_id: str | None = None,
     duration: float = 10.0,
-    filters: Optional[dict] = None,
+    filters: dict | None = None,
 ) -> dict:
     """Start a microphone test recording.
 

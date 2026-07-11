@@ -220,8 +220,8 @@ def auto_capitalize(text: str) -> str:
     #    URL guard: if the text starts with `http://` or `https://`,
     #    we skip this step entirely so we don't mangle the scheme
     #    (capitalizing "h" in "https" would break the URL).
-    _LEADING_URL = re.compile(r"^\s*https?://", re.IGNORECASE)
-    if not _LEADING_URL.match(result):
+    _leading_url = re.compile(r"^\s*https?://", re.IGNORECASE)
+    if not _leading_url.match(result):
         for i, ch in enumerate(result):
             if ch.isalpha():
                 result = result[:i] + ch.upper() + result[i + 1:]
@@ -297,8 +297,8 @@ def auto_punctuate(text: str) -> str:
     # which is itself imported during app startup.  The late import
     # keeps the dependency graph acyclic.
     from voice_typer.server.text_cleanup import (
-        _looks_like_question,
         _NO_PUNCTUATION_PATTERNS,
+        _looks_like_question,
     )
 
     result = text.rstrip()
@@ -315,10 +315,7 @@ def auto_punctuate(text: str) -> str:
         if not skip:
             words = result.split()
             if len(words) >= 4:
-                if _looks_like_question(result):
-                    result = result + "?"
-                else:
-                    result = result + "."
+                result = result + "?" if _looks_like_question(result) else result + "."
 
     # Step 2: comma at "X and/but Y" breath breaks where Y is a
     # pronoun.  This is a very conservative heuristic for detecting
@@ -335,7 +332,7 @@ def auto_punctuate(text: str) -> str:
     # before the conjunction.  We use a function replacement so we
     # can inspect the surrounding words and only insert when there
     # isn't already a comma.
-    _RE_CONJUNCTION_BREAK = re.compile(
+    _re_conjunction_break = re.compile(
         r"(?<![,\s])(\s+)(and|but|or)(\s+)([A-Za-z]+)\b"
     )
 
@@ -347,7 +344,7 @@ def auto_punctuate(text: str) -> str:
             return f",{match.group(1)}{conj}{match.group(3)}{match.group(4)}"
         return match.group(0)
 
-    result = _RE_CONJUNCTION_BREAK.sub(_maybe_insert_comma, result)
+    result = _re_conjunction_break.sub(_maybe_insert_comma, result)
 
     return result
 
@@ -414,7 +411,7 @@ def fix_grammar_basics(text: str) -> str:
     return result
 
 
-def enhance_transcription(text: str, config: "Any") -> str:
+def enhance_transcription(text: str, config: Any) -> str:
     """Apply the AI enhancement steps that are enabled in ``config``.
 
     This is the dispatcher used by the dictation pipeline.  It reads

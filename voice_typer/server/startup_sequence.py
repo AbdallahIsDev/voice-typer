@@ -28,6 +28,7 @@ appears in ``app.py``'s import-time graph.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 from typing import TYPE_CHECKING
@@ -58,7 +59,7 @@ class StartupSequence:
     from ``self.X`` to ``self._app.X``.
     """
 
-    def __init__(self, app: "VoiceTyperApp") -> None:
+    def __init__(self, app: VoiceTyperApp) -> None:
         self._app = app
 
     def run(self) -> None:
@@ -147,23 +148,19 @@ class StartupSequence:
                         except Exception:
                             log.exception("[STARTUP] Could not save onboarding_failed flag")
                         # NEW-UX-018: critical — bypass show_notifications toggle.
-                        try:
+                        with contextlib.suppress(Exception):
                             app.tray.notify_safety(
                                 APP_NAME,
                                 "Onboarding setup kept failing. The app will "
                                 "start with default settings. Open Settings to "
                                 "configure manually.",
                             )
-                        except Exception:
-                            pass
                     elif app.config.show_notifications:
-                        try:
+                        with contextlib.suppress(Exception):
                             app.tray.notify(
                                 APP_NAME,
                                 "Onboarding setup failed; will retry on next start.",
                             )
-                        except Exception:
-                            pass
                 except Exception:
                     log.exception("[STARTUP] Onboarding failure-handler itself failed")
 
@@ -212,33 +209,32 @@ class StartupSequence:
 
         # PLAT-WAYLAND / XPLAT-004: Warn if running on Wayland and
         # suggest wtype/ydotool as fallback for global hotkeys.
-        if is_linux() and os.environ.get("XDG_SESSION_TYPE") == "wayland":
-            if not app.config.wayland_warned:
-                log.warning("[STARTUP] Wayland detected -- global hotkeys may not work")
-                # XPLAT-004: check if wtype or ydotool is available as a fallback
-                import shutil
-                wtype_available = shutil.which("wtype") is not None
-                ydotool_available = shutil.which("ydotool") is not None
-                if not wtype_available and not ydotool_available:
-                    log.warning(
-                        "[STARTUP] Neither wtype nor ydotool found. "
-                        "Install one for hotkey support on Wayland: "
-                        "'sudo apt install wtype' or 'sudo apt install ydotool'"
-                    )
-                    # NEW-UX-018: critical — bypass toggle (hotkeys broken).
-                    app.tray.notify_safety(
-                        f"{APP_NAME} — Wayland Hotkeys",
-                        "Global hotkeys may not work on Wayland. "
-                        "Install 'wtype' or 'ydotool' for hotkey support, "
-                        "or use the tray menu's Toggle Dictation option.",
-                    )
-                else:
-                    log.info(
-                        "[STARTUP] Wayland hotkey fallback available: %s",
-                        "wtype" if wtype_available else "ydotool",
-                    )
-                app.config.wayland_warned = True
-                app.config.save()
+        if is_linux() and os.environ.get("XDG_SESSION_TYPE") == "wayland" and not app.config.wayland_warned:
+            log.warning("[STARTUP] Wayland detected -- global hotkeys may not work")
+            # XPLAT-004: check if wtype or ydotool is available as a fallback
+            import shutil
+            wtype_available = shutil.which("wtype") is not None
+            ydotool_available = shutil.which("ydotool") is not None
+            if not wtype_available and not ydotool_available:
+                log.warning(
+                    "[STARTUP] Neither wtype nor ydotool found. "
+                    "Install one for hotkey support on Wayland: "
+                    "'sudo apt install wtype' or 'sudo apt install ydotool'"
+                )
+                # NEW-UX-018: critical — bypass toggle (hotkeys broken).
+                app.tray.notify_safety(
+                    f"{APP_NAME} — Wayland Hotkeys",
+                    "Global hotkeys may not work on Wayland. "
+                    "Install 'wtype' or 'ydotool' for hotkey support, "
+                    "or use the tray menu's Toggle Dictation option.",
+                )
+            else:
+                log.info(
+                    "[STARTUP] Wayland hotkey fallback available: %s",
+                    "wtype" if wtype_available else "ydotool",
+                )
+            app.config.wayland_warned = True
+            app.config.save()
 
         # XPLAT-002 / PLAT-030: macOS accessibility permission check.
         # On macOS, global hotkeys require Accessibility permission.

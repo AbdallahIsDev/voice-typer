@@ -28,13 +28,15 @@ an error is detected.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from enum import Enum
-from typing import Any, Callable, Optional
+from typing import Any
 
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
@@ -108,7 +110,7 @@ def permission_error_is_permission_denied(error_message: str) -> bool:
 
 
 def request_keyboard_permission(
-    on_granted: Optional[Callable[[], None]] = None,
+    on_granted: Callable[[], None] | None = None,
 ) -> None:
     """Open the OS permission UI so the user can grant the permission.
 
@@ -150,7 +152,7 @@ PERMISSION_RETRY_MAX_ATTEMPTS = 5
 # because the ``object`` type has no ``cancel`` method.  Switch to ``Any``
 # to match the runtime ``threading.Timer`` type (which is fully dynamic
 # at the stub level — older Python's threading.Timer is not annotated).
-_retry_timer: "Optional[Any]" = None  # threading.Timer
+_retry_timer: Any | None = None  # threading.Timer
 _retry_count = 0
 _retry_lock_used = False  # module-level guard against concurrent retries
 
@@ -218,10 +220,8 @@ def cancel_permission_retry() -> None:
     """Cancel any pending permission retry timer. Safe to call multiple times."""
     global _retry_timer, _retry_count
     if _retry_timer is not None:
-        try:
+        with contextlib.suppress(Exception):
             _retry_timer.cancel()
-        except Exception:
-            pass
         _retry_timer = None
     _retry_count = 0
 
@@ -237,8 +237,8 @@ def _check_macos_accessibility() -> PermissionState:
     without it).
     """
     try:
-        from CoreFoundation import CFDictionaryCreate
         from ApplicationServices import AXIsProcessTrustedWithOptions
+        from CoreFoundation import CFDictionaryCreate
         # AXIsProcessTrustedWithOptions takes an options dict; passing
         # kAXTrustedCheckOptionPrompt=True would pop the OS dialog.
         # We just want to *check*, not prompt, so pass an empty dict.

@@ -29,7 +29,9 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 async function importUtils() {
 	vi.resetModules();
-	return (await import("../hotkey-utils")) as typeof import("../hotkey-utils");
+	return (await import(
+		"../hotkey/hotkey-utils"
+	)) as typeof import("../hotkey/hotkey-utils");
 }
 
 function setUserAgent(ua: string) {
@@ -118,8 +120,8 @@ describe("HotkeyPicker — reusable for both recording and paste shortcuts", () 
 		// either the section or the picker is renamed/removed, this
 		// throws and the test fails loudly.
 		const pickerMod = (await import(
-			"../HotkeyPicker"
-		)) as typeof import("../HotkeyPicker");
+			"../hotkey/HotkeyPicker"
+		)) as typeof import("../hotkey/HotkeyPicker");
 		expect(typeof pickerMod.HotkeyPicker).toBe("function");
 	}, 30_000);
 });

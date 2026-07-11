@@ -21,13 +21,13 @@ stored as a list of numpy arrays in memory (max ~30 s of float32 mono).
 """
 
 import base64
+import contextlib
 import io
 import logging
 import threading
 import time
 import types
-
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 
@@ -41,12 +41,12 @@ _monitor_lock = threading.Lock()
 # attribute ...``.  ``Any`` matches the actual runtime type
 # (``sounddevice.InputStream``) which is too heavy to import here and
 # has no inline stubs.
-_monitor_stream: Optional[Any] = None  # sounddevice.InputStream
+_monitor_stream: Any | None = None  # sounddevice.InputStream
 _monitor_active: bool = False
 _monitor_level: float = 0.0   # smoothed RMS (0-1)
 _monitor_peak: float = 0.0    # smoothed peak (0-1)
 _monitor_sample_rate: int = 16000
-_monitor_mic_id: Optional[str] = None  # device this stream is on
+_monitor_mic_id: str | None = None  # device this stream is on
 
 # ── Audio processor for filtering the live level bar ───────────────
 # When set, audio from the callback is run through this processor's
@@ -55,7 +55,7 @@ _monitor_mic_id: Optional[str] = None  # device this stream is on
 # TASK-14: same as ``_monitor_stream`` — ``Optional[object]`` rejects
 # ``.process_chunk()`` / ``.cancel()`` calls below.  Use ``Any`` to
 # match the runtime ``AudioProcessor`` type.
-_level_processor: Optional[Any] = None  # AudioProcessor instance
+_level_processor: Any | None = None  # AudioProcessor instance
 
 # ── Test recording state (uses the SAME stream) ─────────────────────
 
@@ -65,7 +65,7 @@ _test_raw_chunks: list[np.ndarray] = []  # separate copy for before/after compar
 _test_start_time: float = 0.0
 _test_duration: float = 10.0
 _test_filters: dict = {}
-_test_auto_stop_timer: Optional[threading.Timer] = None
+_test_auto_stop_timer: threading.Timer | None = None
 
 # Quality metrics accumulated during test
 _test_peak_history: list[float] = []
@@ -143,7 +143,7 @@ def update_level_processor(config_dict: dict) -> None:
         _level_processor = None
 
 
-def start_monitoring(mic_id: Optional[str] = None) -> dict:
+def start_monitoring(mic_id: str | None = None) -> dict:
     """Start continuous real-time audio level monitoring.
 
     If monitoring is already active, this is a no-op unless `mic_id`
@@ -198,24 +198,16 @@ def start_monitoring(mic_id: Optional[str] = None) -> dict:
     with _monitor_lock:
         device = None
         if mic_id is not None:
-            try:
+            with contextlib.suppress(ValueError, TypeError):
                 device = int(mic_id)
-            except (ValueError, TypeError):
-                pass
 
         try:
-            if device is None:
-                dev_info_raw = sd.query_devices(kind="input")
-            else:
-                dev_info_raw = sd.query_devices(device)
+            dev_info_raw = sd.query_devices(kind="input") if device is None else sd.query_devices(device)
             # TASK-14: ``query_devices`` is overloaded to return either a
             # ``dict`` (single device) or a ``DeviceList`` (tuple).  The
             # ``default_samplerate`` key only exists on the dict form, so
             # narrow before indexing.
-            if isinstance(dev_info_raw, dict):
-                native_rate = int(dev_info_raw["default_samplerate"])
-            else:
-                native_rate = 16000
+            native_rate = int(dev_info_raw["default_samplerate"]) if isinstance(dev_info_raw, dict) else 16000
         except Exception:
             native_rate = 16000
 
@@ -348,9 +340,9 @@ def is_test_active() -> bool:
 
 
 def start_test_recording(
-    mic_id: Optional[str] = None,
+    mic_id: str | None = None,
     duration: float = 10.0,
-    filters: Optional[dict] = None,
+    filters: dict | None = None,
 ) -> dict:
     """Start a microphone test recording using the existing monitor stream.
 
@@ -484,7 +476,7 @@ def stop_test_recording() -> dict:
         chunks = list(_test_chunks)
         raw_chunks = list(_test_raw_chunks)
         filters = dict(_test_filters)
-        peak_hist = list(_test_peak_history)
+        list(_test_peak_history)
         rms_hist = list(_test_rms_history)
         clip_count = _test_clip_count
         silence_blocks = _test_silence_blocks
@@ -544,13 +536,13 @@ def stop_test_recording() -> dict:
     raw_abs = np.abs(raw_audio)
     raw_rms = float(np.sqrt(np.mean(np.square(raw_audio.astype(np.float64)))))
     raw_peak = float(raw_abs.max())
-    
+
     # TASK-14: annotate ``quality`` as ``dict[str, Any]`` so that
     # downstream assignments like ``quality["detected_issues"] = [...str]``
     # do not trigger bad-assignment.  Without the annotation pyrefly
     # infers the dict's value type from the literal (str | bool | int |
     # float) and then rejects the ``list[str]`` assignment below.
-    quality: "dict[str, Any]" = {
+    quality: dict[str, Any] = {
         "volume_level": "good" if raw_rms > 0.002 else ("low" if raw_rms > 0.0005 else "very_low"),
         "volume_rms": round(raw_rms, 6),
         "peak_level": round(raw_peak, 4),
@@ -563,7 +555,7 @@ def stop_test_recording() -> dict:
         "avg_rms": round(float(np.mean(rms_hist) if rms_hist else 0), 6),
         "peak_rms": round(float(np.max(rms_hist) if rms_hist else 0), 6),
     }
-    
+
     # Detected issues list
     detected_issues = []
     if quality["noise_level"] == "high":
@@ -619,10 +611,7 @@ def stop_test_recording() -> dict:
                 block = audio[i:i + block_size]
                 processed_parts.append(processor.process_chunk(block))
             non_null = [p for p in processed_parts if p is not None]
-            if non_null:
-                processed = np.concatenate(non_null)
-            else:
-                processed = audio
+            processed = np.concatenate(non_null) if non_null else audio
 
             if len(processed) > 0:
                 log.info(

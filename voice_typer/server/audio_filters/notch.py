@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import logging
-import math
-from typing import Optional
 
 import numpy as np
 
@@ -34,7 +32,7 @@ class NotchFilter(AudioFilter):
         self.name = f"Notch({frequency_hz:.0f}Hz)"
         self._frequency_hz = float(frequency_hz)
         self._sample_rate = int(sample_rate)
-        self._state: Optional[tuple[np.ndarray, np.ndarray, np.ndarray]] = None
+        self._state: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None
         self._init_filter()
 
     @staticmethod
@@ -59,8 +57,8 @@ class NotchFilter(AudioFilter):
         freq = min(max(self._frequency_hz, 1.0), nyq * 0.99)
         try:
             w0 = freq / nyq
-            Q = 30.0  # narrow notch (~3Hz wide)
-            b, a = iirnotch(w0, Q)
+            q = 30.0  # narrow notch (~3Hz wide)
+            b, a = iirnotch(w0, q)
             zi = np.zeros(max(len(a), len(b)) - 1, dtype=np.float64)
             self._state = (b, a, zi)
             log.debug("[NOTCH] ready: freq=%.0f Hz, Q=30, sr=%d", freq, self._sample_rate)
@@ -68,7 +66,7 @@ class NotchFilter(AudioFilter):
             log.warning("[NOTCH] init failed: %s", exc)
             self._state = None
 
-    def process(self, audio: np.ndarray, sample_rate: int) -> Optional[np.ndarray]:
+    def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray | None:
         if self._state is None or audio.size == 0:
             return audio
         from scipy.signal import lfilter

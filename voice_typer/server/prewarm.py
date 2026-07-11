@@ -48,7 +48,8 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
+
+from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
 
 log = logging.getLogger("voice_typer.prewarm")
 
@@ -139,8 +140,8 @@ def _setup_logging() -> None:
     (via the handler added by ``log.setup_logging``), so the main log
     remains the complete record.
     """
-    from voice_typer.server.log import setup_logging as _setup_logging_shared
     from voice_typer.server import _paths
+    from voice_typer.server.log import setup_logging as _setup_logging_shared
     # RW-7: use the platform-aware config dir helper instead of the
     # previous hardcoded Path.home() / ".voice-typer".
     log_dir = _paths.config_dir()
@@ -219,7 +220,7 @@ def _lower_io_priority() -> None:
     competes with real user work.  Best-effort — silently no-op off Windows
     or on older builds.
 
-    Uses ``SetPriorityClass(PROCESS_MODE_BACKGROUND_BEGIN)``, which is the
+    Uses ``SetPriorityClass(process_mode_background_begin)``, which is the
     API Microsoft recommends for background maintenance tasks: it lowers
     CPU, I/O, and memory scheduling priorities atomically.  Falls back to
     ``BELOW_NORMAL_PRIORITY_CLASS`` if background mode is unavailable
@@ -254,12 +255,12 @@ def _lower_io_priority() -> None:
                 libc.syscall.argtypes = [
                     ctypes.c_long, ctypes.c_uint, ctypes.c_int, ctypes.c_uint,
                 ]
-                IOPRIO_WHO_PROCESS = 1
-                IOPRIO_CLASS_IDLE = 3
-                ioprio = (IOPRIO_CLASS_IDLE << 13) | 0
+                ioprio_who_process = 1
+                ioprio_class_idle = 3
+                ioprio = (ioprio_class_idle << 13) | 0
                 # Try x86_64 syscall number first, then aarch64
                 for sys_num in (251, 314):
-                    rc = libc.syscall(sys_num, IOPRIO_WHO_PROCESS, 0, ioprio)
+                    rc = libc.syscall(sys_num, ioprio_who_process, 0, ioprio)
                     if rc == 0:
                         log.debug("[PREWARM] Linux: set I/O priority to idle (syscall %d)", sys_num)
                         break
@@ -282,15 +283,15 @@ def _lower_io_priority() -> None:
         # PROCESS_MODE_BACKGROUND_BEGIN = 0x00100000.  This is a
         # SetPriorityClass value (NOT SetProcessInformation) and is exactly
         # what Microsoft recommends for background I/O-heavy work.
-        PROCESS_MODE_BACKGROUND_BEGIN = 0x00100000
-        if kernel32.SetPriorityClass(hproc, PROCESS_MODE_BACKGROUND_BEGIN):
+        process_mode_background_begin = 0x00100000
+        if kernel32.SetPriorityClass(hproc, process_mode_background_begin):
             log.debug("[PREWARM] Set process to BACKGROUND priority mode")
             return
 
         # Fallback: below-normal priority.  Less aggressive (doesn't lower
         # I/O priority) but works everywhere and never raises.
-        BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
-        if kernel32.SetPriorityClass(hproc, BELOW_NORMAL_PRIORITY_CLASS):
+        below_normal_priority_class = 0x00004000
+        if kernel32.SetPriorityClass(hproc, below_normal_priority_class):
             log.debug("[PREWARM] Set process priority to BELOW_NORMAL")
             return
 
@@ -628,7 +629,6 @@ def _warm_file(path: Path) -> int:
     working set stays tiny; the goal is to populate the *system* cache,
     not to hold the data ourselves.
     """
-    size = path.stat().st_size
     read = 0
     t0 = time.perf_counter()
     with open(path, "rb") as f:
@@ -819,10 +819,10 @@ def _process_alive(pid: int) -> bool:
         try:
             import ctypes
             kernel32 = ctypes.windll.kernel32
-            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-            STILL_ACTIVE = 259
+            process_query_limited_information = 0x1000
+            STILL_ACTIVE = 259  # noqa: N806
             handle = kernel32.OpenProcess(
-                PROCESS_QUERY_LIMITED_INFORMATION, False, pid,
+                process_query_limited_information, False, pid,
             )
             if not handle:
                 return False
@@ -872,7 +872,7 @@ def _read_process_cmdline_windows(pid: int) -> str | None:
     prewarm — it's launched by the user's scheduled task).
 
     Architecture:
-      1. OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ).
+      1. OpenProcess(process_query_limited_information | process_vm_read).
          Both flags are granted to same-user processes without elevation.
       2. NtQueryInformationProcess(ProcessBasicInformation) → PROCESS_BASIC_INFORMATION.
          This gives us the PEB address inside the target's address space.
@@ -899,7 +899,7 @@ def _read_process_cmdline_windows(pid: int) -> str | None:
     # c_size_t would also work but WPARAM is the semantically correct
     # match for the SDK's ULONG_PTR type. (The previous code used
     # wintypes.ULONG_PTR which doesn't exist, crashing on Windows.)
-    ULONG_PTR = wintypes.WPARAM
+    ulong_ptr = wintypes.WPARAM
 
     kernel32 = ctypes.windll.kernel32
     ntdll = ctypes.windll.ntdll
@@ -930,15 +930,15 @@ def _read_process_cmdline_windows(pid: int) -> str | None:
         _fields_ = [
             ("ExitStatus", wintypes.LONG),        # NTSTATUS
             ("PebBaseAddress", wintypes.LPVOID),  # PEB* inside target's memory
-            ("AffinityMask", ULONG_PTR),
+            ("AffinityMask", ulong_ptr),
             ("BasePriority", wintypes.LONG),
-            ("UniqueProcessId", ULONG_PTR),
-            ("InheritedFromUniqueProcessId", ULONG_PTR),
+            ("UniqueProcessId", ulong_ptr),
+            ("InheritedFromUniqueProcessId", ulong_ptr),
         ]
 
     # ── Function signatures (best practice: set argtypes/restype) ───
-    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-    PROCESS_VM_READ = 0x0010
+    process_query_limited_information = 0x1000
+    process_vm_read = 0x0010
 
     kernel32.OpenProcess.restype = wintypes.HANDLE
     kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
@@ -960,7 +960,7 @@ def _read_process_cmdline_windows(pid: int) -> str | None:
     ]
 
     handle = kernel32.OpenProcess(
-        PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, False, pid,
+        process_query_limited_information | process_vm_read, False, pid,
     )
     if not handle:
         return None  # access denied or process dead
@@ -980,10 +980,10 @@ def _read_process_cmdline_windows(pid: int) -> str | None:
         # ── Step 2: Read PEB → ProcessParameters pointer ───────────
         # On 64-bit Windows, ProcessParameters is at PEB offset 0x20.
         # On 32-bit Windows, it's at PEB offset 0x10. We detect the
-        # pointer size via sizeof(ULONG_PTR) (8 on 64-bit, 4 on 32-bit).
+        # pointer size via sizeof(ulong_ptr) (8 on 64-bit, 4 on 32-bit).
         # These offsets are stable across Win10/Win11 — the PEB layout
         # hasn't changed since Windows 7.
-        is_64bit = ctypes.sizeof(ULONG_PTR) == 8
+        is_64bit = ctypes.sizeof(ulong_ptr) == 8
         params_offset = 0x20 if is_64bit else 0x10
 
         params_ptr = wintypes.LPVOID()

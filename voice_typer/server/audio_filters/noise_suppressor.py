@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 import numpy as np
 
@@ -43,7 +42,7 @@ class NoiseSuppressor(AudioFilter):
         self.name = f"NoiseSuppressor({method})"
         self._method = method
         self._source_sample_rate = int(sample_rate)
-        self._backend: Optional[object] = None
+        self._backend: object | None = None
         self._degraded: bool = False
         self._degraded_reason: str = ""
 
@@ -92,7 +91,7 @@ class NoiseSuppressor(AudioFilter):
     def _init_deepfilternet(self) -> None:
         try:
             import torch  # noqa: F401  — check torch available first
-            from df import init_df, enhance  # type: ignore[import-not-found]
+            from df import enhance, init_df  # type: ignore[import-not-found]
             self._backend = {
                 "init_df": init_df,
                 "enhance": enhance,
@@ -140,7 +139,7 @@ class NoiseSuppressor(AudioFilter):
             self._method = "rnnoise"
             self._init_rnnoise()
 
-    def process(self, audio: np.ndarray, sample_rate: int) -> Optional[np.ndarray]:
+    def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray | None:
         if self._method == "none" or self._backend is None or audio.size == 0:
             return audio
 
@@ -158,7 +157,7 @@ class NoiseSuppressor(AudioFilter):
         samples: np.ndarray,
         sample_rate: int,
         original_shape: tuple,
-    ) -> Optional[np.ndarray]:
+    ) -> np.ndarray | None:
         """Process through RNNoise with frame buffering.
 
         RNNoise requires 48kHz / 480-sample frames. If source is 16kHz,

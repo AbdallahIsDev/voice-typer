@@ -7,6 +7,7 @@ access ``self.app`` / ``self.service`` as before.
 """
 
 from typing import Any
+
 from voice_typer.server.ipc_server import log
 from voice_typer.server.platform_utils import is_windows
 
@@ -157,6 +158,7 @@ class StatusHandlersMixin:
         import subprocess
         import sys
         from pathlib import Path
+
         from voice_typer.server.platform_utils import is_windows
 
         try:
@@ -234,7 +236,8 @@ class StatusHandlersMixin:
         """
         import os
         import subprocess
-        from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
+
+        from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
 
         try:
             # The prewarm log lives in the app config dir. Use the same

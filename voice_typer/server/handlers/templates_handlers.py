@@ -6,9 +6,10 @@ access ``self.app`` / ``self.service`` as before.
 """
 
 from typing import Any
+
 from voice_typer.server.ipc_server import (
-    log,
     _validate_dict_payload,
+    log,
 )
 
 

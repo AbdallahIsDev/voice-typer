@@ -1,3 +1,4 @@
+# ruff: noqa: N802, N803
 # PYREFLY-001: stub for the `comtypes` package (Windows COM).
 # comtypes is declared in pyproject.toml with `sys_platform == 'win32'`,
 # so it is never installed on the Linux/macOS CI runners.
@@ -41,6 +42,6 @@ def CoInitializeEx(reserved: Any = ..., dwCoInit: int = ...) -> None: ...
 def CoUninitialize() -> None: ...
 
 # Submodules re-exported for `import comtypes.client` style access.
-from comtypes import client as client
+from comtypes import client as client  # noqa: E402
 
 __all__: list[str]

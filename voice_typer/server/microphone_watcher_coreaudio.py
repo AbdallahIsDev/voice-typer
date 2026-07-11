@@ -48,8 +48,9 @@ from __future__ import annotations
 import logging
 import sys
 import threading
+from collections.abc import Callable
 from types import SimpleNamespace
-from typing import Any, Callable, Optional
+from typing import Any
 
 log = logging.getLogger(__name__)
 
@@ -141,7 +142,7 @@ class CoreAudioMicrophoneWatcher:
         # event-driven and has no polling cadence. Kept on the
         # instance only for API parity with ``MicrophoneDeviceWatcher``.
         self._poll_interval = poll_interval
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         # Reference to the watcher thread's CFRunLoop, set by the
         # thread itself before entering ``CFRunLoopRun()`` so ``stop()``
@@ -152,10 +153,10 @@ class CoreAudioMicrophoneWatcher:
         # the instance prevents the GC from collecting the wrapper
         # pyobjc builds around the Python callable, which would cause
         # a use-after-free crash inside CoreAudio.
-        self._listener_proc: Optional[Callable[..., int]] = None
+        self._listener_proc: Callable[..., int] | None = None
         # pyobjc symbols — loaded lazily in ``start()`` so the module
         # is importable on non-macOS platforms without raising.
-        self._ca: Optional[SimpleNamespace] = None
+        self._ca: SimpleNamespace | None = None
 
     # ── lifecycle ─────────────────────────────────────────────────────
 

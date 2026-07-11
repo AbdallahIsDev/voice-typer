@@ -7,7 +7,7 @@ the TTL to expire.
 Platform support
 ----------------
 - **Windows**: ``WM_DEVICECHANGE`` via a hidden top-level window
-  (created with ``WS_EX_TOOLWINDOW`` so it never appears in the
+  (created with ``ws_ex_toolwindow`` so it never appears in the
   taskbar). A daemon thread runs a ``PeekMessage`` pump so the
   ``stop_event`` can interrupt it.
 - **Linux**: polls ``/dev/snd`` directory listings at a configurable
@@ -34,7 +34,8 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 log = logging.getLogger(__name__)
 
@@ -69,7 +70,7 @@ class MicrophoneDeviceWatcher:
     ) -> None:
         self._on_change = on_change
         self._poll_interval = poll_interval
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._platform = self._detect_platform()
         # Task 15: when on macOS and pyobjc is available, ``start()``
@@ -78,7 +79,7 @@ class MicrophoneDeviceWatcher:
         # polling thread is used. The selection is at runtime, not
         # import time, so importing this module never triggers a
         # pyobjc import.
-        self._coreaudio_watcher: Optional[Any] = None
+        self._coreaudio_watcher: Any | None = None
 
     # ── platform detection ────────────────────────────────────────────
 
@@ -165,7 +166,7 @@ class MicrophoneDeviceWatcher:
             self._platform,
         )
 
-    def _try_create_coreaudio_watcher(self) -> Optional[Any]:
+    def _try_create_coreaudio_watcher(self) -> Any | None:
         """Attempt to construct a ``CoreAudioMicrophoneWatcher``.
 
         Returns ``None`` if pyobjc is unavailable (so the caller falls
@@ -375,7 +376,7 @@ class MicrophoneDeviceWatcher:
         # ready — treat that as "no baseline yet" so the first
         # successful poll doesn't spuriously fire a callback.
         try:
-            last_count: Optional[int] = len(sd.query_devices())
+            last_count: int | None = len(sd.query_devices())
         except Exception:
             last_count = None
             log.debug(
@@ -416,7 +417,7 @@ class MicrophoneDeviceWatcher:
         """Watch for ``WM_DEVICECHANGE`` on a hidden top-level window.
 
         Uses ``ctypes`` to register a window class, create a hidden
-        window (``WS_EX_TOOLWINDOW``, no ``WS_VISIBLE``), and pump
+        window (``ws_ex_toolwindow``, no ``WS_VISIBLE``), and pump
         messages. A ``PeekMessage`` loop polls at 10Hz so the
         ``stop_event`` can interrupt the pump within ~100ms.
 
@@ -448,10 +449,9 @@ class MicrophoneDeviceWatcher:
             )
             return
 
-        WM_DEVICECHANGE = 0x0219
-        WM_QUIT = 0x0012
-        PM_REMOVE = 1
-        WS_EX_TOOLWINDOW = 0x00000080
+        wm_devicechange = 0x0219
+        pm_remove = 1
+        ws_ex_toolwindow = 0x00000080
 
         try:
             user32 = ctypes.windll.user32
@@ -494,7 +494,7 @@ class MicrophoneDeviceWatcher:
 
         # LRESULT is LONG_PTR — c_ssize_t matches pointer width on
         # both 32-bit and 64-bit Windows.
-        WNDPROC = ctypes.WINFUNCTYPE(
+        WNDPROC = ctypes.WINFUNCTYPE(  # noqa: N806
             ctypes.c_ssize_t,  # LRESULT
             wintypes.HWND,     # hwnd
             wintypes.UINT,     # uMsg
@@ -519,7 +519,7 @@ class MicrophoneDeviceWatcher:
             ]
 
         def _wnd_proc(hwnd, msg, wparam, lparam):
-            if msg == WM_DEVICECHANGE:
+            if msg == wm_devicechange:
                 log.debug(
                     "[MIC-WATCHER] WM_DEVICECHANGE received (wparam=0x%x)",
                     wparam,
@@ -554,7 +554,7 @@ class MicrophoneDeviceWatcher:
         hwnd = 0
         try:
             hwnd = user32.CreateWindowExW(
-                WS_EX_TOOLWINDOW,        # dwExStyle — no taskbar button
+                ws_ex_toolwindow,        # dwExStyle — no taskbar button
                 class_name,              # lpClassName
                 "VoiceTyper Mic Watcher",  # lpWindowName
                 0,                       # dwStyle — not WS_VISIBLE
@@ -576,17 +576,18 @@ class MicrophoneDeviceWatcher:
                 "[MIC-WATCHER] Windows device-change watcher window created (hwnd=%d)",
                 hwnd,
             )
+            WM_QUIT = 0x0012  # noqa: N806
             # Stash hwnd so stop() can post WM_QUIT to wake the pump.
             self._windows_hwnd = hwnd
 
             msg = wintypes.MSG()
             # PeekMessage pump: polls at ~10Hz so stop_event can
-            # interrupt within ~100ms. PeekMessage with PM_REMOVE
+            # interrupt within ~100ms. PeekMessage with pm_remove
             # is non-blocking, so the wait() between iterations is
             # what throttles the loop.
             while not self._stop_event.is_set():
                 while user32.PeekMessageW(
-                    ctypes.byref(msg), None, 0, 0, PM_REMOVE
+                    ctypes.byref(msg), None, 0, 0, pm_remove
                 ):
                     if msg.message == WM_QUIT:
                         return
@@ -621,8 +622,8 @@ class MicrophoneDeviceWatcher:
             return
         import ctypes
 
-        WM_QUIT = 0x0012
-        ctypes.windll.user32.PostMessageW(hwnd, WM_QUIT, 0, 0)
+        wm_quit = 0x0012
+        ctypes.windll.user32.PostMessageW(hwnd, wm_quit, 0, 0)
 
     # ── callback dispatch ─────────────────────────────────────────────
 

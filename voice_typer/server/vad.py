@@ -17,8 +17,9 @@ unless VAD is enabled.
 import contextlib
 import io
 import logging
+from typing import Any
+
 import numpy as np
-from typing import Any, Optional
 
 log = logging.getLogger(__name__)
 
@@ -76,7 +77,7 @@ def _load_model():
         return None, None
 
 
-def compute_vad_prob(audio_chunk: np.ndarray, sample_rate: int = 16000) -> Optional[float]:
+def compute_vad_prob(audio_chunk: np.ndarray, sample_rate: int = 16000) -> float | None:
     """Compute the VAD probability for an audio chunk.
 
     Args:
@@ -108,8 +109,8 @@ def compute_vad_prob(audio_chunk: np.ndarray, sample_rate: int = 16000) -> Optio
         # (or 256 at 8kHz). PortAudio may deliver chunks of arbitrary
         # size (e.g. 1136 on WASAPI). Pad with zeros or truncate to
         # the expected size so VAD works on any device.
-        _EXPECTED_SAMPLES = {16000: 512, 8000: 256}
-        expected = _EXPECTED_SAMPLES.get(sample_rate, 512)
+        _expected_samples = {16000: 512, 8000: 256}
+        expected = _expected_samples.get(sample_rate, 512)
         if audio_tensor.shape[0] != expected:
             if audio_tensor.shape[0] < expected:
                 # Pad with zeros at the end

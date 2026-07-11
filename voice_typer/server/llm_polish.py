@@ -15,9 +15,8 @@ Pipeline order: transcribe → text cleanup → vocabulary → templates → LLM
 
 import json
 import logging
-from typing import Optional
-from urllib.request import Request, urlopen
 from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 from voice_typer.server._secrets import (
     assert_url_allowed,
@@ -65,9 +64,9 @@ class LLMPolisher:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        api_url: Optional[str] = None,
-        model: Optional[str] = None,
+        api_key: str | None = None,
+        api_url: str | None = None,
+        model: str | None = None,
         preset: str = "professional",
         enabled: bool = False,
     ):
@@ -79,7 +78,7 @@ class LLMPolisher:
 
     # ── Public API ───────────────────────────────────────────────────
 
-    def polish(self, text: str, *, preset: Optional[str] = None) -> str:
+    def polish(self, text: str, *, preset: str | None = None) -> str:
         """Send text to the LLM for polishing.
 
         If polishing is disabled, no API key is configured, or the text is
@@ -136,7 +135,7 @@ class LLMPolisher:
         except ValueError as exc:
             return False, str(exc)
         try:
-            result = self._call_api("Hello", _PRESETS["professional"])
+            self._call_api("Hello", _PRESETS["professional"])
             return True, f"Connected (model: {self.model})"
         except Exception as exc:
             return False, f"Connection failed: {redact_secret(str(exc))}"

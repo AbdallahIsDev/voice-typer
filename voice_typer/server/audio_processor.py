@@ -17,7 +17,7 @@ restart required.
 from __future__ import annotations
 
 import logging
-from typing import Callable, Optional
+from collections.abc import Callable
 
 import numpy as np
 
@@ -49,7 +49,7 @@ class AudioProcessor:
         self._config = config
         self._sample_rate = int(sample_rate)
         self._chain: FilterChain = build_chain(config, sample_rate)
-        self._quality_callback: Optional[QualityCallback] = None
+        self._quality_callback: QualityCallback | None = None
         log.info(
             "[AUDIO-PROC] chain built: %s (latency=%.1fms, degraded=%s)",
             self._chain.filter_names,
@@ -85,7 +85,7 @@ class AudioProcessor:
 
     # ── Real-time processing (called from PortAudio callback) ───────
 
-    def process_chunk(self, chunk: np.ndarray) -> Optional[np.ndarray]:
+    def process_chunk(self, chunk: np.ndarray) -> np.ndarray | None:
         """Apply the filter chain to a single audio chunk.
 
         Returns the filtered chunk (same shape/dtype), or ``None`` if

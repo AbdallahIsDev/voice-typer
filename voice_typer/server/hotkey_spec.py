@@ -36,7 +36,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
 log = logging.getLogger(__name__)
 
@@ -87,7 +86,7 @@ class HotkeySpec:
     is_empty: bool
 
     @property
-    def main_key(self) -> Optional[str]:
+    def main_key(self) -> str | None:
         """First non-modifier key, or ``None`` if there are none."""
         return self.keys[0] if self.keys else None
 

@@ -23,24 +23,24 @@ initialized module that is already in ``sys.modules``).
 """
 
 from voice_typer.server.handlers.config_handlers import ConfigHandlersMixin
-from voice_typer.server.handlers.status_handlers import StatusHandlersMixin
 from voice_typer.server.handlers.dictation_handlers import DictationHandlersMixin
 from voice_typer.server.handlers.history_handlers import HistoryHandlersMixin
-from voice_typer.server.handlers.microphone_handlers import MicrophoneHandlersMixin
-from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-from voice_typer.server.handlers.templates_handlers import TemplatesHandlersMixin
-from voice_typer.server.handlers.onboarding_handlers import OnboardingHandlersMixin
-from voice_typer.server.handlers.microphone_test_handlers import (
-    MicrophoneTestHandlersMixin,
-)
 from voice_typer.server.handlers.level_monitor_handlers import (
     LevelMonitorHandlersMixin,
 )
+from voice_typer.server.handlers.microphone_handlers import MicrophoneHandlersMixin
+from voice_typer.server.handlers.microphone_test_handlers import (
+    MicrophoneTestHandlersMixin,
+)
 from voice_typer.server.handlers.model_handlers import ModelHandlersMixin
+from voice_typer.server.handlers.onboarding_handlers import OnboardingHandlersMixin
+from voice_typer.server.handlers.status_handlers import StatusHandlersMixin
 from voice_typer.server.handlers.system_handlers import SystemHandlersMixin
+from voice_typer.server.handlers.templates_handlers import TemplatesHandlersMixin
 from voice_typer.server.handlers.vocabulary_automation_handlers import (
     VocabularyAutomationHandlersMixin,
 )
+from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
 
 __all__ = [
     "ConfigHandlersMixin",

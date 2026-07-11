@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Iterable, Optional
+from collections.abc import Iterable
 from urllib.parse import urlparse
 
 log = logging.getLogger(__name__)
@@ -85,7 +85,7 @@ def redact_secret(value: object) -> str:
         return value
     redacted = value
     for pat in _KEY_PATTERNS:
-        def _sub(m: "re.Match[str]") -> str:
+        def _sub(m: re.Match[str]) -> str:
             if m.lastindex:
                 # Pattern has a prefix group (e.g. "Bearer ").  Keep
                 # the prefix, redact the rest.
@@ -221,10 +221,11 @@ def assert_url_allowed(
     """
     if not url:
         raise ValueError(f"{client_name}: {field_name} is empty")
+
     try:
         parsed = urlparse(url)
     except (ValueError, TypeError) as e:
-        raise ValueError(f"{client_name}: {field_name} is not a valid URL: {e}")
+        raise ValueError(f"{client_name}: {field_name} is not a valid URL: {e}") from e
     if parsed.scheme not in ("http", "https"):
         raise ValueError(
             f"{client_name}: {field_name} must use http or https scheme "
@@ -240,8 +241,8 @@ def assert_url_allowed(
         )
     # NEW-SEC-003: enforce HTTPS for non-loopback hosts to prevent
     # cleartext exfiltration of transcribed text + API keys.
-    _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
-    if require_https and parsed.scheme == "http" and host not in _LOOPBACK_HOSTS:
+    _loopback_hosts = frozenset({"localhost", "127.0.0.1", "::1"})
+    if require_https and parsed.scheme == "http" and host not in _loopback_hosts:
         raise ValueError(
             f"{client_name}: {field_name} must use HTTPS for non-loopback "
             f"host {host!r} (HTTP is only allowed for localhost/127.0.0.1/::1 "

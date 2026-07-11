@@ -1,3 +1,4 @@
+# ruff: noqa: A001, A002, N802, N803, N816
 # PYREFLY-001: stub for `webrtc_audio_processing` (Linux alt to RNNoise).
 #
 # NOTE: voice-typer does not currently import this module. The stub is

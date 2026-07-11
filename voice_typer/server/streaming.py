@@ -4,8 +4,8 @@ import collections
 import logging
 import math
 import threading
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Iterable
 
 import numpy as np
 

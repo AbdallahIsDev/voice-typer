@@ -110,7 +110,6 @@ function flattenKeys(
 
 const EN_KEYS = flattenKeys(en as never as Record<string, unknown>);
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function t(key: string): string {
 	return EN_KEYS.get(key) ?? key;
 }
@@ -144,7 +143,7 @@ function mockDialogResult(result: OpenDialogResult) {
 }
 
 function removeDialogMock() {
-	delete (window as Record<string, unknown>).window_;
+	delete (window as unknown as Record<string, unknown>).window_;
 }
 
 // ── Suite ─────────────────────────────────────────────────────────────
@@ -207,8 +206,10 @@ describe("ModelsPage — Import Model flow", () => {
 		fireEvent.click(button);
 
 		await waitFor(() => {
-			expect((window as Record<string, unknown>).window_).toBeDefined();
-			const api = (window as Record<string, unknown>).window_ as {
+			expect(
+				(window as unknown as Record<string, unknown>).window_,
+			).toBeDefined();
+			const api = (window as unknown as Record<string, unknown>).window_ as {
 				openModelImportDialog: ReturnType<typeof vi.fn>;
 			};
 			expect(api.openModelImportDialog).toHaveBeenCalledTimes(1);

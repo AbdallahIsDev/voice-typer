@@ -295,7 +295,8 @@ function getActiveFamilyId(cfg: VoiceTyperConfig | null): string | null {
 			isActive = activeBackend === m.backend;
 		}
 		if (isActive) {
-			if (m.backend === "whisper" || m.backend === "distil-whisper") return "whisper";
+			if (m.backend === "whisper" || m.backend === "distil-whisper")
+				return "whisper";
 			if (m.backend === "qwen") return "qwen";
 			if (m.backend === "parakeet") return "parakeet";
 		}
@@ -390,8 +391,7 @@ export default function ModelsPage() {
 				}
 			}
 		}
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [_initialLoading]);
+	}, [_initialLoading, models.find, models]);
 
 	const loadConfig = useCallback(async () => {
 		setInitialLoading(true);
@@ -665,7 +665,7 @@ export default function ModelsPage() {
 			} else {
 				showSnack(
 					result.error ||
-					t("models.snack.downloadFailedName", { name: model.name }),
+						t("models.snack.downloadFailedName", { name: model.name }),
 					"error",
 				);
 			}
@@ -770,11 +770,11 @@ export default function ModelsPage() {
 		showSnack(
 			granted
 				? t("models.snack.consentGranted", {
-					provider: getProviderLabel(provider),
-				})
+						provider: getProviderLabel(provider),
+					})
 				: t("models.snack.consentRevoked", {
-					provider: getProviderLabel(provider),
-				}),
+						provider: getProviderLabel(provider),
+					}),
 			granted ? "success" : "warning",
 		);
 	};
@@ -932,11 +932,11 @@ export default function ModelsPage() {
 			showSnack(
 				isPaused
 					? t("models.snack.resumeFailed", {
-						error: formatErrorMessage(err),
-					})
+							error: formatErrorMessage(err),
+						})
 					: t("models.snack.pauseFailed", {
-						error: formatErrorMessage(err),
-					}),
+							error: formatErrorMessage(err),
+						}),
 				"error",
 			);
 		}
@@ -1165,13 +1165,15 @@ export default function ModelsPage() {
 													<Fragment key={model.name}>
 														<div className="flex items-center gap-3 px-0 py-2.5">
 															<div className="flex-1 min-w-0">
-																<div className="flex items-center gap-2">									<h4 className="text-sm font-semibold text-(--text-primary) truncate">
-																	{model.name === "qwen"
-																		? "Qwen3-ASR-1.7B"
-																		: model.name === "parakeet"
-																			? "NVIDIA Parakeet TDT v3"
-																			: model.name}
-																</h4>
+																<div className="flex items-center gap-2">
+																	{" "}
+																	<h4 className="text-sm font-semibold text-(--text-primary) truncate">
+																		{model.name === "qwen"
+																			? "Qwen3-ASR-1.7B"
+																			: model.name === "parakeet"
+																				? "NVIDIA Parakeet TDT v3"
+																				: model.name}
+																	</h4>
 																	{badge && (
 																		<output
 																			className="shrink-0 inline-flex items-center rounded-md px-2 py-0.5 text-[9px] font-semibold border"
@@ -1480,7 +1482,7 @@ export default function ModelsPage() {
 																testResults[provider.key].status === "success"
 																	? "text-primary"
 																	: testResults[provider.key].status ===
-																		"failure"
+																			"failure"
 																		? "text-destructive"
 																		: "text-[(--text-muted)]",
 															)}
@@ -1491,46 +1493,46 @@ export default function ModelsPage() {
 												</div>{" "}
 												{(apiKeys[provider.key] ||
 													config?.[consentKeyFor(provider.key)]) && (
-														<div className="mt-4 rounded-lg border border-border bg-(--bg) p-4">
-															<div className="flex items-start justify-between gap-4">
-																<div className="flex-1">
-																	<h4 className="text-sm font-semibold text-(--text-primary)">
-																		{t("models.cloud.consentTitle")}
-																	</h4>
-																	<p className="mt-1 text-xs leading-relaxed text-(--text-muted)">
-																		{t("models.cloud.consentDescription", {
-																			provider: getProviderLabel(provider.key),
-																		})}
-																	</p>
-																	<p className="mt-2 text-xs text-(--text-muted)">
-																		{t("models.cloud.statusLabel")}{" "}
-																		{config?.[consentKeyFor(provider.key)] ? (
-																			<span className="font-medium text-emerald-500">
-																				{t("models.cloud.consentGrantedStatus")}
-																			</span>
-																		) : (
-																			<span className="font-medium text-amber-500">
-																				{t(
-																					"models.cloud.consentNotGrantedStatus",
-																				)}
-																			</span>
-																		)}
-																	</p>
-																</div>
-																<Switch
-																	checked={
-																		(config?.[consentKeyFor(provider.key)] as
-																			| boolean
-																			| undefined) ?? false
-																	}
-																	onCheckedChange={handleConsentChange}
-																	aria-label={t("models.cloud.consentAria", {
+													<div className="mt-4 rounded-lg border border-border bg-(--bg) p-4">
+														<div className="flex items-start justify-between gap-4">
+															<div className="flex-1">
+																<h4 className="text-sm font-semibold text-(--text-primary)">
+																	{t("models.cloud.consentTitle")}
+																</h4>
+																<p className="mt-1 text-xs leading-relaxed text-(--text-muted)">
+																	{t("models.cloud.consentDescription", {
 																		provider: getProviderLabel(provider.key),
 																	})}
-																/>
+																</p>
+																<p className="mt-2 text-xs text-(--text-muted)">
+																	{t("models.cloud.statusLabel")}{" "}
+																	{config?.[consentKeyFor(provider.key)] ? (
+																		<span className="font-medium text-emerald-500">
+																			{t("models.cloud.consentGrantedStatus")}
+																		</span>
+																	) : (
+																		<span className="font-medium text-amber-500">
+																			{t(
+																				"models.cloud.consentNotGrantedStatus",
+																			)}
+																		</span>
+																	)}
+																</p>
 															</div>
+															<Switch
+																checked={
+																	(config?.[consentKeyFor(provider.key)] as
+																		| boolean
+																		| undefined) ?? false
+																}
+																onCheckedChange={handleConsentChange}
+																aria-label={t("models.cloud.consentAria", {
+																	provider: getProviderLabel(provider.key),
+																})}
+															/>
 														</div>
-													)}
+													</div>
+												)}
 											</div>
 										);
 									})}

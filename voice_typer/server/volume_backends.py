@@ -17,7 +17,6 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 from voice_typer.server.volume_backend import VolumeBackend, VolumeState
 
@@ -95,7 +94,7 @@ class WinVolumeBackend(VolumeBackend):
             log.warning("[VOLUME-WIN] initialize failed: %s", exc)
             return False
 
-    def get_state(self) -> Optional[VolumeState]:
+    def get_state(self) -> VolumeState | None:
         if self._vol is None:
             return None
         try:
@@ -107,7 +106,7 @@ class WinVolumeBackend(VolumeBackend):
             log.warning("[VOLUME-WIN] get_state failed: %s", exc)
             return None
 
-    def set_linear(self, level: float, muted: Optional[bool] = None) -> bool:
+    def set_linear(self, level: float, muted: bool | None = None) -> bool:
         if self._vol is None:
             return False
         try:
@@ -150,7 +149,7 @@ class WinVolumeBackend(VolumeBackend):
                 if proc is None:
                     continue
                 proc_name = proc.name().lower()
-                if "voice_typer" in proc_name or "python" == proc_name:
+                if "voice_typer" in proc_name or proc_name == "python":
                     continue
                 sessions.append(session)
             return sessions
@@ -211,7 +210,7 @@ class MacVolumeBackend(VolumeBackend):
 
     def __init__(self) -> None:
         self._use_coreaudio = False
-        self._default_device_id: Optional[int] = None
+        self._default_device_id: int | None = None
 
     @property
     def name(self) -> str:
@@ -247,12 +246,12 @@ class MacVolumeBackend(VolumeBackend):
         log.info("[VOLUME-MAC] osascript backend ready (CoreAudio path is a stub — using osascript)")
         return True  # osascript is always available on macOS
 
-    def get_state(self) -> Optional[VolumeState]:
+    def get_state(self) -> VolumeState | None:
         if self._use_coreaudio:
             return self._coreaudio_get_state()
         return self._osascript_get_state()
 
-    def set_linear(self, level: float, muted: Optional[bool] = None) -> bool:
+    def set_linear(self, level: float, muted: bool | None = None) -> bool:
         level = max(0.0, min(1.0, level))
         if self._use_coreaudio:
             return self._coreaudio_set(level, muted)
@@ -295,16 +294,16 @@ class MacVolumeBackend(VolumeBackend):
                 # AudioObjectPropertyAddress: (mSelector, mScope, mElement)
                 # We use ctypes to allocate the struct and read the UInt32.
                 # Address = (selector, scope, element) — all 4 bytes each.
-                selector = ctypes.c_uint32(kAudioDevicePropertyDeviceIsRunning)
-                scope = ctypes.c_uint32(kAudioObjectPropertyScopeGlobal)
-                element = ctypes.c_uint32(kAudioObjectPropertyElementMaster)
+                ctypes.c_uint32(kAudioDevicePropertyDeviceIsRunning)
+                ctypes.c_uint32(kAudioObjectPropertyScopeGlobal)
+                ctypes.c_uint32(kAudioObjectPropertyElementMaster)
                 # The property address struct layout:
                 # struct AudioObjectPropertyAddress {
                 #     AudioObjectPropertySelector mSelector;
                 #     AudioObjectPropertyScope     mScope;
                 #     AudioObjectPropertyElement   mElement;
                 # };
-                addr = ctypes.c_uint32 * 3
+                ctypes.c_uint32 * 3
                 # We can't easily call AudioObjectGetPropertyData without
                 # the full pyobjc bindings, so fall through to osascript.
                 raise NotImplementedError("pyobjc struct handling deferred")
@@ -353,7 +352,7 @@ class MacVolumeBackend(VolumeBackend):
 
     # ── CoreAudio (pyobjc) path ─────────────────────────────────────
 
-    def _coreaudio_get_state(self) -> Optional[VolumeState]:
+    def _coreaudio_get_state(self) -> VolumeState | None:
         try:
 
             # Get default output device
@@ -370,7 +369,7 @@ class MacVolumeBackend(VolumeBackend):
             log.warning("[VOLUME-MAC] CoreAudio get_state failed: %s", exc)
             return None
 
-    def _coreaudio_set(self, level: float, muted: Optional[bool]) -> bool:
+    def _coreaudio_set(self, level: float, muted: bool | None) -> bool:
         try:
             dev = self._get_default_output_device()
             if dev is None:
@@ -383,7 +382,7 @@ class MacVolumeBackend(VolumeBackend):
             log.warning("[VOLUME-MAC] CoreAudio set failed: %s", exc)
             return False
 
-    def _get_default_output_device(self) -> Optional[int]:
+    def _get_default_output_device(self) -> int | None:
         """Return the default audio output device ID."""
         try:
 
@@ -401,10 +400,10 @@ class MacVolumeBackend(VolumeBackend):
         except Exception:
             return None
 
-    def _ca_get_volume(self, dev: int) -> Optional[float]:
+    def _ca_get_volume(self, dev: int) -> float | None:
         return None
 
-    def _ca_get_mute(self, dev: int) -> Optional[bool]:
+    def _ca_get_mute(self, dev: int) -> bool | None:
         return None
 
     def _ca_set_volume(self, dev: int, level: float) -> bool:
@@ -415,7 +414,7 @@ class MacVolumeBackend(VolumeBackend):
 
     # ── osascript fallback path ─────────────────────────────────────
 
-    def _osascript_run(self, script: str, timeout: float = 2.0) -> Optional[str]:
+    def _osascript_run(self, script: str, timeout: float = 2.0) -> str | None:
         try:
             result = subprocess.run(
                 ["osascript", "-e", script],
@@ -429,7 +428,7 @@ class MacVolumeBackend(VolumeBackend):
             log.debug("[VOLUME-MAC] osascript failed: %s", exc)
             return None
 
-    def _osascript_get_state(self) -> Optional[VolumeState]:
+    def _osascript_get_state(self) -> VolumeState | None:
         vol_str = self._osascript_run("output volume of (get volume settings)")
         if vol_str is None:
             return None
@@ -441,7 +440,7 @@ class MacVolumeBackend(VolumeBackend):
         muted = mute_str is not None and mute_str.lower() == "true"
         return VolumeState(linear=max(0.0, min(1.0, vol)), muted=muted)
 
-    def _osascript_set(self, level: float, muted: Optional[bool]) -> bool:
+    def _osascript_set(self, level: float, muted: bool | None) -> bool:
         pct = int(level * 100)
         ok = self._osascript_run(f"set volume output volume {pct}") is not None
         if muted is not None:
@@ -472,7 +471,7 @@ class LinuxVolumeBackend(VolumeBackend):
     """
 
     def __init__(self) -> None:
-        self._tool: Optional[str] = None
+        self._tool: str | None = None
 
     @property
     def name(self) -> str:
@@ -493,7 +492,7 @@ class LinuxVolumeBackend(VolumeBackend):
         log.info("[VOLUME-LINUX] No volume tool found (pactl/wpctl/amixer)")
         return False
 
-    def get_state(self) -> Optional[VolumeState]:
+    def get_state(self) -> VolumeState | None:
         if self._tool == "pactl":
             return self._pactl_get()
         if self._tool == "wpctl":
@@ -502,7 +501,7 @@ class LinuxVolumeBackend(VolumeBackend):
             return self._amixer_get()
         return None
 
-    def set_linear(self, level: float, muted: Optional[bool] = None) -> bool:
+    def set_linear(self, level: float, muted: bool | None = None) -> bool:
         level = max(0.0, min(1.0, level))
         if self._tool == "pactl":
             return self._pactl_set(level, muted)
@@ -587,7 +586,7 @@ class LinuxVolumeBackend(VolumeBackend):
 
     # ── pactl (PulseAudio / PipeWire compat) ────────────────────────
 
-    def _run(self, cmd: list[str], timeout: float = 2.0) -> Optional[str]:
+    def _run(self, cmd: list[str], timeout: float = 2.0) -> str | None:
         try:
             result = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=timeout
@@ -600,7 +599,7 @@ class LinuxVolumeBackend(VolumeBackend):
             log.debug("[VOLUME-LINUX] %s failed: %s", cmd[0], exc)
             return None
 
-    def _pactl_get(self) -> Optional[VolumeState]:
+    def _pactl_get(self) -> VolumeState | None:
         out = self._run(["pactl", "get-sink-volume", "@DEFAULT_SINK@"])
         if not out:
             return None
@@ -613,7 +612,7 @@ class LinuxVolumeBackend(VolumeBackend):
         muted = mute_out is not None and "yes" in mute_out.lower()
         return VolumeState(linear=vol, muted=muted)
 
-    def _pactl_set(self, level: float, muted: Optional[bool]) -> bool:
+    def _pactl_set(self, level: float, muted: bool | None) -> bool:
         pct = int(level * 100)
         ok = self._run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{pct}%"]) is not None
         if muted is not None:
@@ -623,7 +622,7 @@ class LinuxVolumeBackend(VolumeBackend):
 
     # ── wpctl (WirePlumber / PipeWire native) ───────────────────────
 
-    def _wpctl_get(self) -> Optional[VolumeState]:
+    def _wpctl_get(self) -> VolumeState | None:
         out = self._run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"])
         if not out:
             return None
@@ -635,7 +634,7 @@ class LinuxVolumeBackend(VolumeBackend):
         muted = "[MUTED]" in out.upper()
         return VolumeState(linear=max(0.0, min(1.0, vol)), muted=muted)
 
-    def _wpctl_set(self, level: float, muted: Optional[bool]) -> bool:
+    def _wpctl_set(self, level: float, muted: bool | None) -> bool:
         ok = self._run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{level:.2f}"]) is not None
         if muted is not None:
             mute_cmd = "mute" if muted else "unmute"
@@ -644,7 +643,7 @@ class LinuxVolumeBackend(VolumeBackend):
 
     # ── amixer (ALSA fallback) ──────────────────────────────────────
 
-    def _amixer_get(self) -> Optional[VolumeState]:
+    def _amixer_get(self) -> VolumeState | None:
         out = self._run(["amixer", "-D", "default", "sget", "Master"])
         if not out:
             return None
@@ -656,7 +655,7 @@ class LinuxVolumeBackend(VolumeBackend):
         muted = "[off]" in out.lower()
         return VolumeState(linear=vol, muted=muted)
 
-    def _amixer_set(self, level: float, muted: Optional[bool]) -> bool:
+    def _amixer_set(self, level: float, muted: bool | None) -> bool:
         pct = int(level * 100)
         ok = self._run(
             ["amixer", "-D", "default", "sset", "Master", f"{pct}%"]

@@ -24,13 +24,14 @@ plain text. In a future version, consider detecting contentEditable elements
 the paste target appears to be a rich editor (e.g. Word, LibreOffice).
 """
 
+import contextlib
 import logging
-import sys
 import time
 from typing import Any
 
 import pyperclip
-from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
+
+from voice_typer.server.platform_utils import is_macos, is_windows
 
 log = logging.getLogger(__name__)
 
@@ -54,10 +55,10 @@ def _ensure_pynput_imported():
     global _Key, _Controller
     if _Key is not None and _Controller is not None:
         return
-    from pynput.keyboard import Controller as _C
-    from pynput.keyboard import Key as _K
-    _Key = _K
-    _Controller = _C
+    from pynput.keyboard import Controller as _c  # noqa: N813
+    from pynput.keyboard import Key as _k  # noqa: N813
+    _Key = _k
+    _Controller = _c
 
 
 # Terminal process names (lowercase, with extension) that require
@@ -222,8 +223,8 @@ def _is_elevated_target() -> bool:
         if not pid.value:
             return False
 
-        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-        h_process = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value)
+        process_query_limited_information = 0x1000
+        h_process = kernel32.OpenProcess(process_query_limited_information, False, pid.value)
         if not h_process:
             return False
 
@@ -348,13 +349,11 @@ def _is_password_field() -> bool:
     if not is_windows():
         return False
     try:
-        import ctypes
-        from ctypes import wintypes
 
         # Try using comtypes for UI Automation (preferred path)
         try:
-            import comtypes.client
             import comtypes
+            import comtypes.client
             comtypes.CoInitialize()
             try:
                 focused = _get_uia_focused_element()
@@ -368,10 +367,8 @@ def _is_password_field() -> bool:
                         )
                         return True
             finally:
-                try:
+                with contextlib.suppress(Exception):
                     comtypes.CoUninitialize()
-                except Exception:
-                    pass
         except ImportError:
             # PLAT-014: comtypes not installed. Pre-fix this failed
             # OPEN (returned False → paste allowed into any field).
@@ -511,10 +508,8 @@ def _is_content_editable() -> bool:
                     return True
             return False
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 comtypes.CoUninitialize()
-            except Exception:
-                pass
     except ImportError:
         return False
     except Exception:
@@ -675,8 +670,8 @@ class ClipboardManager:
             if not pid.value:
                 return None
 
-            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-            h_process = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value)
+            process_query_limited_information = 0x1000
+            h_process = kernel32.OpenProcess(process_query_limited_information, False, pid.value)
             if not h_process:
                 return None
 
@@ -788,10 +783,8 @@ class ClipboardManager:
             return
         try:
             for key in (_Key.ctrl, _Key.shift, _Key.alt, _Key.cmd):
-                try:
+                with contextlib.suppress(Exception):
                     self._keyboard.release(key)
-                except Exception:
-                    pass
         except Exception:
             pass
 
@@ -1017,10 +1010,8 @@ class ClipboardManager:
             # Double-release: guarantee modifier is freed even if the
             # normal release path above was skipped by an exception.
             for key in (modifier, char):
-                try:
+                with contextlib.suppress(Exception):
                     self._keyboard.release(key)
-                except Exception:
-                    pass
 
     def _send_ctrl_v_win32(self) -> None:
         """Send Ctrl+V via a single atomic SendInput batch.
@@ -1041,25 +1032,25 @@ class ClipboardManager:
             SendInput,
         )
 
-        VK_CONTROL = 0x11
-        VK_V = 0x56
+        vk_control = 0x11
+        vk_v = 0x56
 
         events = (INPUT * 4)(
             INPUT(
                 INPUT.KEYBOARD,
-                INPUT_union(ki=KEYBDINPUT(wVk=VK_CONTROL, wScan=0, dwFlags=0, time=0, dwExtraInfo=0)),
+                INPUT_union(ki=KEYBDINPUT(wVk=vk_control, wScan=0, dwFlags=0, time=0, dwExtraInfo=0)),
             ),
             INPUT(
                 INPUT.KEYBOARD,
-                INPUT_union(ki=KEYBDINPUT(wVk=VK_V, wScan=0, dwFlags=0, time=0, dwExtraInfo=0)),
+                INPUT_union(ki=KEYBDINPUT(wVk=vk_v, wScan=0, dwFlags=0, time=0, dwExtraInfo=0)),
             ),
             INPUT(
                 INPUT.KEYBOARD,
-                INPUT_union(ki=KEYBDINPUT(wVk=VK_V, wScan=0, dwFlags=KEYBDINPUT.KEYUP, time=0, dwExtraInfo=0)),
+                INPUT_union(ki=KEYBDINPUT(wVk=vk_v, wScan=0, dwFlags=KEYBDINPUT.KEYUP, time=0, dwExtraInfo=0)),
             ),
             INPUT(
                 INPUT.KEYBOARD,
-                INPUT_union(ki=KEYBDINPUT(wVk=VK_CONTROL, wScan=0, dwFlags=KEYBDINPUT.KEYUP, time=0, dwExtraInfo=0)),
+                INPUT_union(ki=KEYBDINPUT(wVk=vk_control, wScan=0, dwFlags=KEYBDINPUT.KEYUP, time=0, dwExtraInfo=0)),
             ),
         )
 
@@ -1105,12 +1096,12 @@ class ClipboardManager:
                     release_events = (INPUT * 2)(
                         INPUT(
                             INPUT.KEYBOARD,
-                            INPUT_union(ki=KEYBDINPUT(wVk=VK_V, wScan=0, dwFlags=KEYBDINPUT.KEYUP,
+                            INPUT_union(ki=KEYBDINPUT(wVk=vk_v, wScan=0, dwFlags=KEYBDINPUT.KEYUP,
                             time=0, dwExtraInfo=0)),
                         ),
                         INPUT(
                             INPUT.KEYBOARD,
-                            INPUT_union(ki=KEYBDINPUT(wVk=VK_CONTROL, wScan=0, dwFlags=KEYBDINPUT.KEYUP,
+                            INPUT_union(ki=KEYBDINPUT(wVk=vk_control, wScan=0, dwFlags=KEYBDINPUT.KEYUP,
                             time=0, dwExtraInfo=0)),
                         ),
                     )

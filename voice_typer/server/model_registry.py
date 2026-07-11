@@ -38,8 +38,7 @@ clicks "Download" on the Models page.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
-from typing import Optional
+from dataclasses import asdict, dataclass
 
 
 @dataclass(frozen=True)
@@ -56,7 +55,7 @@ class ModelMetadata:
     required_vram_mb: int
     backend: str
     multilingual: bool
-    supported_languages: Optional[list[str]]  # None = all languages
+    supported_languages: list[str] | None  # None = all languages
     description: str
     repo_id: str
     is_distilled: bool = False
@@ -325,7 +324,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
 }
 
 
-def get_model_metadata(model_size: str) -> Optional[ModelMetadata]:
+def get_model_metadata(model_size: str) -> ModelMetadata | None:
     """Return metadata for ``model_size`` or ``None`` if unknown.
 
     Safe to call with any string — never raises.  Used by

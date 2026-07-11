@@ -9,7 +9,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Component } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ErrorBoundary } from "@/components/feedback/ErrorBoundary";
 
 // Module-level toggle for the throwing child. React 19's StrictMode
 // (and dev-mode double-invocation of render) breaks counter-based

@@ -18,7 +18,7 @@ in the pipeline: transcribe → text cleanup → vocabulary → templates → au
 import json
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 log = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ MAX_REPLACEMENT_LENGTH = 500
 class VocabularyManager:
     """Manages custom vocabulary entries across 6 categories."""
 
-    def __init__(self, config_dir: Optional[Path] = None, bundled_path: Optional[Path] = None):
+    def __init__(self, config_dir: Path | None = None, bundled_path: Path | None = None):
         if config_dir is None:
             from voice_typer.server.config import _config_dir
             config_dir = _config_dir()
@@ -160,12 +160,11 @@ class VocabularyManager:
           3. On final failure, log + leave the tmp file in place so
              the user can recover manually.
         """
-        import os
         import time as _time
+
         from voice_typer.server.config import _secure_atomic_write
 
         max_retries = 3
-        last_exc: Exception | None = None
         try:
             self._user_path.parent.mkdir(parents=True, exist_ok=True)
             content = json.dumps(self._data, indent=2, ensure_ascii=False)
@@ -179,7 +178,6 @@ class VocabularyManager:
                     log.debug("[VOCAB] Saved user vocabulary")
                     return
                 except PermissionError as exc:
-                    last_exc = exc
                     if attempt < max_retries - 1:
                         backoff = 0.05 * (2 ** attempt)  # 50ms, 100ms, 200ms
                         log.warning(
@@ -195,7 +193,6 @@ class VocabularyManager:
                             max_retries, exc,
                         )
                 except OSError as exc:
-                    last_exc = exc
                     log.error("[VOCAB] Failed to save user vocabulary: %s", exc)
                     break
             # Note: we deliberately do NOT re-raise — the existing
@@ -379,7 +376,7 @@ class VocabularyManager:
                 # `["x", "\\9"]` raises `re.error` on every dictation
                 # cycle (DoS). The lambda treats `good` as a literal
                 # string with no backref processing.
-                text = pattern.sub(lambda _m: good, text)
+                text = pattern.sub(lambda _m, _g=good: _g, text)
 
         # Word-level corrections
         for cat in ("misspellings", "technical_terms", "names", "products"):
@@ -393,10 +390,7 @@ class VocabularyManager:
                 if key in entries:
                     correction = entries[key]
                     match = _re.match(r"^(\W*)(\w+)(\W*)$", token)
-                    if match:
-                        token = f"{match.group(1)}{correction}{match.group(3)}"
-                    else:
-                        token = correction
+                    token = f"{match.group(1)}{correction}{match.group(3)}" if match else correction
                 output.append(token)
             text = " ".join(output)
 

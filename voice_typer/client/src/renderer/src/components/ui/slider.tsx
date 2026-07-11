@@ -3,7 +3,8 @@ import type * as React from "react";
 
 import { cn } from "#utils";
 
-interface SliderProps extends React.ComponentProps<typeof SliderPrimitive.Root> {
+interface SliderProps
+	extends React.ComponentProps<typeof SliderPrimitive.Root> {
 	/** Additional class name for the track element */
 	trackClassName?: string;
 	/** Additional class name for the range (filled portion) element */
@@ -38,15 +39,12 @@ function Slider({
 			>
 				<SliderPrimitive.Range
 					data-slot="slider-range"
-					className={cn(
-						"absolute h-full bg-primary",
-						rangeClassName,
-					)}
+					className={cn("absolute h-full bg-primary", rangeClassName)}
 				/>
 			</SliderPrimitive.Track>
-			{Array.from({ length: (props.value ?? props.defaultValue ?? [0]).length }, (_, i) => (
+			{(props.value ?? props.defaultValue ?? [0]).map((v) => (
 				<SliderPrimitive.Thumb
-					key={i}
+					key={v}
 					data-slot="slider-thumb"
 					className={cn(
 						"block size-4 rounded-full border-2 border-primary bg-background shadow-sm ring-0 transition-[box-shadow,transform] hover:scale-110 focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none active:scale-105",

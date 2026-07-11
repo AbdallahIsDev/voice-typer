@@ -50,6 +50,7 @@ invoke for diagnostics::
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import socket
@@ -84,10 +85,8 @@ def _close_log_files(sk: dict) -> None:
     for key in ("stdout", "stderr"):
         fd = sk.get(key)
         if fd is not None and fd is not subprocess.DEVNULL:
-            try:
+            with contextlib.suppress(Exception):
                 fd.close()
-            except Exception:
-                pass
 
 # Directory layout (mirrors ``_electron_build.CLIENT_DIR``):
 #   <root>/

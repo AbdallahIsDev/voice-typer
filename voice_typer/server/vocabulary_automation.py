@@ -41,8 +41,9 @@ from __future__ import annotations
 import logging
 import re
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # pragma: no cover — import only for type checkers
     from voice_typer.server.vocabulary import VocabularyManager
@@ -114,7 +115,7 @@ class CorrectionSuggestion:
 # ─── Levenshtein distance (hand-rolled, no external dep) ────────────────────
 
 
-def _levenshtein(a: str, b: str, *, max_distance: Optional[int] = None) -> int:
+def _levenshtein(a: str, b: str, *, max_distance: int | None = None) -> int:
     """Compute the Levenshtein edit distance between ``a`` and ``b``.
 
     Uses the standard O(m·n) dynamic programming algorithm with a
@@ -184,7 +185,7 @@ def _levenshtein(a: str, b: str, *, max_distance: Optional[int] = None) -> int:
 # ─── Helper: collect known-good words from the vocabulary ───────────────────
 
 
-def _collect_vocabulary_words(vm: "VocabularyManager") -> set[str]:
+def _collect_vocabulary_words(vm: VocabularyManager) -> set[str]:
     """Return the set of "correct" words from the vocabulary manager.
 
     Includes the *values* (corrected forms) of all dict-based
@@ -270,8 +271,8 @@ class VocabularyAutomation:
 
     def __init__(
         self,
-        vocabulary_manager: "VocabularyManager",
-        config: "Any",
+        vocabulary_manager: VocabularyManager,
+        config: Any,
     ) -> None:
         """Initialize the automation.
 
@@ -582,12 +583,11 @@ class VocabularyAutomation:
         for suggestion in pending_snapshot:
             if suggestion.applied or suggestion.dismissed:
                 continue
-            if suggestion.confidence >= threshold:
+            if suggestion.confidence >= threshold and suggestion.corrected != suggestion.original:
                 # Only auto-apply if we actually have a proposed
                 # correction different from the original.  Suggestions
                 # where ``corrected == original`` (no Levenshtein
                 # match found) require user input.
-                if suggestion.corrected != suggestion.original:
                     self.apply_suggestion(suggestion)
                     applied_count += 1
 
@@ -656,7 +656,7 @@ def _find_closest_vocabulary_match(
     word: str,
     vocab_words: Iterable[str],
     max_distance: int,
-) -> Optional[str]:
+) -> str | None:
     """Find the closest vocabulary word within ``max_distance`` edits.
 
     Iterates over ``vocab_words`` and returns the one with the
@@ -673,7 +673,7 @@ def _find_closest_vocabulary_match(
         return None
 
     best_distance = max_distance + 1
-    best_match: Optional[str] = None
+    best_match: str | None = None
 
     for candidate in vocab_words:
         # Quick length sanity check before the expensive DP.

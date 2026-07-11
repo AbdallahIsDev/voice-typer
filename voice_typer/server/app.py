@@ -1,6 +1,7 @@
 """Main application orchestrator."""
 
 import atexit
+import contextlib
 import logging
 import logging.handlers
 import os
@@ -21,13 +22,41 @@ import numpy as np
 from voice_typer.server import task_scheduler
 from voice_typer.server.audio_processor import AudioProcessor
 from voice_typer.server.audio_quality import AudioQualityAnalyzer
+from voice_typer.server.branding import APP_NAME
 from voice_typer.server.clipboard import ClipboardManager
 from voice_typer.server.config import Config, _config_dir, _migrate_from_legacy
 from voice_typer.server.crash_recovery import CrashRecovery
 from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
+from voice_typer.server.history_db import HistoryDB
+
 # Re-exported for monkeypatch.setattr("voice_typer.server.app.X", ...) in tests.  # ruff: noqa: F401
 from voice_typer.server.hotkeys import HotkeyBackend, create_hotkey_backend
-from voice_typer.server.history_db import HistoryDB
+from voice_typer.server.log import (
+    close_devnull_files as _close_devnull_files,
+)
+from voice_typer.server.log import (
+    register_devnull_file as _register_devnull_file,
+)
+
+# CQ-029: use centralized platform helpers instead of raw sys.platform checks
+from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
+from voice_typer.server.recording import Recorder
+
+# SEC-001: restart token functions moved to voice_typer.server.security
+# COMPAT-001: backward-compat re-export for tests/test_pii_redaction.py
+# which imports _PIIRedactionFilter from app. The class lives in
+# voice_typer.server.security as PIIRedactionFilter (no underscore).
+from voice_typer.server.security import PIIRedactionFilter as _PIIRedactionFilter  # noqa: F401
+from voice_typer.server.security import (
+    consume_restart_token as _consume_restart_token,
+)
+from voice_typer.server.security import (
+    generate_restart_token as _generate_restart_token,
+)
+from voice_typer.server.security import (
+    verify_restart_token as _verify_restart_token,
+)
+
 # create_launcher_shortcut + list_microphones are re-exported here (and consumed
 # from voice_typer.server.startup_tasks) so tests that monkeypatch
 # voice_typer.server.app.list_microphones / create_launcher_shortcut keep working.  # ruff: noqa: F401
@@ -38,19 +67,13 @@ from voice_typer.server.server_platform import (
     is_autostart_enabled,
     list_microphones,
 )
-# CQ-029: use centralized platform helpers instead of raw sys.platform checks
-from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
-from voice_typer.server.branding import APP_NAME
-from voice_typer.server.recording import Recorder
 from voice_typer.server.settings import SettingsController, SettingsWindow
-from voice_typer.server.log import (
-    close_devnull_files as _close_devnull_files,
-    register_devnull_file as _register_devnull_file,
+from voice_typer.server.streaming import (
+    StreamingTranscriptionSession,  # noqa: F401  (re-exported for tests/test_app.py monkeypatch)
 )
-from voice_typer.server.streaming import StreamingTranscriptionSession  # noqa: F401  (re-exported for tests/test_app.py monkeypatch)
 from voice_typer.server.text_cleanup import clean_transcribed_text, configure_corrections
-from voice_typer.server.tray import AppState, TrayIcon
 from voice_typer.server.transcription import TranscriptionEngine
+from voice_typer.server.tray import AppState, TrayIcon
 from voice_typer.server.volume_ducker import VolumeDucker
 from voice_typer.server.waveform import WaveformBubble
 
@@ -123,16 +146,15 @@ def _validate_env_vars() -> None:
     Rejects values that don't match expected patterns. Logs warnings
     for invalid values and resets them to safe defaults.
     """
-    import re
 
-    _BOOL_VARS = {"VOICE_TYPER_QUIET", "VOICE_TYPER_DEBUG", "VOICE_TYPER_NO_TRAY", "VOICE_TYPER_STREAMING"}
-    _BOOL_PATTERN = re.compile(r"^(1|0|true|false|yes|no)$", re.IGNORECASE)
-    _TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9._\-]{1,128}$")
-    _PATH_PATTERN = re.compile(r'^[^\0]+$')  # no null bytes
+    _bool_vars = {"VOICE_TYPER_QUIET", "VOICE_TYPER_DEBUG", "VOICE_TYPER_NO_TRAY", "VOICE_TYPER_STREAMING"}
+    _bool_pattern = re.compile(r"^(1|0|true|false|yes|no)$", re.IGNORECASE)
+    _token_pattern = re.compile(r"^[A-Za-z0-9._\-]{1,128}$")
+    _path_pattern = re.compile(r'^[^\0]+$')  # no null bytes
 
-    for var in _BOOL_VARS:
+    for var in _bool_vars:
         val = os.environ.get(var)
-        if val is not None and not _BOOL_PATTERN.match(val):
+        if val is not None and not _bool_pattern.match(val):
             log.warning(
                 "[ENV] Invalid value for %s=%r -- expected boolean (1/0/true/false/yes/no). Resetting to empty.",
                 var, val,
@@ -140,7 +162,7 @@ def _validate_env_vars() -> None:
             os.environ.pop(var, None)
 
     restart_val = os.environ.get("VOICE_TYPER_RESTART")
-    if restart_val is not None and not _TOKEN_PATTERN.match(restart_val):
+    if restart_val is not None and not _token_pattern.match(restart_val):
         log.warning(
             ("[ENV] Invalid value for VOICE_TYPER_RESTART=<redacted> -- "
             "expected alphanumeric token. Resetting to empty."),
@@ -148,7 +170,7 @@ def _validate_env_vars() -> None:
         os.environ.pop("VOICE_TYPER_RESTART", None)
 
     config_dir = os.environ.get("VOICE_TYPER_CONFIG_DIR")
-    if config_dir is not None and (not _PATH_PATTERN.match(config_dir) or len(config_dir) > 4096):
+    if config_dir is not None and (not _path_pattern.match(config_dir) or len(config_dir) > 4096):
         log.warning(
             "[ENV] Invalid value for VOICE_TYPER_CONFIG_DIR=%r -- expected valid path. Resetting to empty.",
             config_dir,
@@ -156,7 +178,7 @@ def _validate_env_vars() -> None:
         os.environ.pop("VOICE_TYPER_CONFIG_DIR", None)
 
     ipc_token = os.environ.get("VOICE_TYPER_IPC_TOKEN")
-    if ipc_token is not None and not _TOKEN_PATTERN.match(ipc_token):
+    if ipc_token is not None and not _token_pattern.match(ipc_token):
         log.warning(
             ("[ENV] Invalid value for VOICE_TYPER_IPC_TOKEN=<redacted> -- "
             "expected alphanumeric token. Resetting to empty."),
@@ -169,7 +191,7 @@ def _validate_env_vars() -> None:
 
     # PLAT-008: Validate HF_HOME is a valid path if set
     hf_home = os.environ.get("HF_HOME")
-    if hf_home is not None and (not _PATH_PATTERN.match(hf_home) or len(hf_home) > 4096):
+    if hf_home is not None and (not _path_pattern.match(hf_home) or len(hf_home) > 4096):
         log.warning(
             "[ENV] Invalid value for HF_HOME=%r -- expected valid path. Resetting to empty.",
             hf_home,
@@ -256,7 +278,7 @@ class VoiceTyperApp:
         # delegates that used to mirror them on VoiceTyperApp have been
         # removed — callers now use `self.recording.<field>` directly,
         # or `self._get_streaming_session()` / `self._set_streaming_session()`.)
-        self._settings_window: Optional[SettingsWindow] = None
+        self._settings_window: SettingsWindow | None = None
         self._microphones: list[dict] = []
         self._busy_event = threading.Event()
         self._busy_event.set()  # SET = not busy
@@ -341,7 +363,7 @@ class VoiceTyperApp:
         # by ``IPCServer.start()`` (``self.app._ipc_server = self``);
         # initializing it to ``None`` here means pyrefly sees the
         # attribute exists on every instance, satisfying the protocol.
-        self._ipc_server: Optional[Any] = None
+        self._ipc_server: Any | None = None
         # ARCH-011: eager-init managers so config changes between
         # startup and first dictation are reflected.  Previously these
         # were lazy-init on first use, which meant a config change
@@ -353,8 +375,8 @@ class VoiceTyperApp:
         # in the except branch below type-checks.  Without the
         # annotation pyrefly infers ``TemplateManager`` from the
         # try-block assignment and then rejects the ``None`` reset.
-        self._template_manager: "Optional[TemplateManager]" = None
-        self._vocabulary_manager: "Optional[VocabularyManager]" = None
+        self._template_manager: "TemplateManager | None" = None  # noqa: UP037
+        self._vocabulary_manager: "VocabularyManager | None" = None  # noqa: UP037
         try:
             from voice_typer.server.templates import TemplateManager
             self._template_manager = TemplateManager()
@@ -416,7 +438,7 @@ class VoiceTyperApp:
         except Exception:
             log.debug("[VOLUME] duck failed", exc_info=True)
 
-    def _restore_volume(self, fade_ms: Optional[int] = None) -> None:
+    def _restore_volume(self, fade_ms: int | None = None) -> None:
         """Restore system volume at the end of dictation.
 
         If ``fade_ms`` is ``None``, uses the configured fade duration.
@@ -577,16 +599,14 @@ class VoiceTyperApp:
             q = getattr(self, "_bubble_level_queue", None)
             if q is None:
                 return  # wiring not complete yet
-            try:
+            with contextlib.suppress(queue.Full):
+                # Queue is full — the worker thread fell behind.  Drop
+                # this sample; the next one will pick up the latest
+                # smoothed level from update_level's low-pass filter.
                 q.put_nowait({
                     "type": "bubble_level",
                     "data": {"rms": float(rms), "peak": float(peak)},
                 })
-            except queue.Full:
-                # Queue is full — the worker thread fell behind.  Drop
-                # this sample; the next one will pick up the latest
-                # smoothed level from update_level's low-pass filter.
-                pass
 
         # PERF-NEW-001: dedicated queue + worker thread for bubble
         # level pushes.  Bounded so a stuck Electron client can't
@@ -595,7 +615,7 @@ class VoiceTyperApp:
         # (e.g. in tests after a stop/start cycle), the existing
         # queue and worker are reused.
         if not hasattr(self, "_bubble_level_queue") or self._bubble_level_queue is None:
-            self._bubble_level_queue: "queue.Queue[Optional[dict]]" = queue.Queue(maxsize=64)
+            self._bubble_level_queue: queue.Queue[dict | None] = queue.Queue(maxsize=64)
         if not hasattr(self, "_bubble_level_worker_stop") or self._bubble_level_worker_stop is None:
             self._bubble_level_worker_stop = threading.Event()
 
@@ -1131,7 +1151,7 @@ class VoiceTyperApp:
                 # SEC-audit-011: Use SystemRoot-validated notepad path.
                 # Fall back to hardcoded C:\Windows\System32\notepad.exe
                 # if SystemRoot validation failed.
-                systemroot = os.environ.get("SystemRoot", r"C:\Windows")
+                systemroot = os.environ.get("SYSTEMROOT", r"C:\Windows")
                 notepad = Path(systemroot) / "System32" / "notepad.exe"
                 if not notepad.exists():
                     # Hardcoded fallback per SEC-audit-011
@@ -1143,10 +1163,8 @@ class VoiceTyperApp:
                         # SEC-audit-011: Use Popen().wait() to block until
                         # notepad closes, then reload the config.
                         proc = subprocess.Popen([str(notepad), str(config_file)])
-                        try:
+                        with contextlib.suppress(Exception):
                             proc.wait()
-                        except Exception:
-                            pass
                         # Reload config after notepad closes
                         try:
                             self.config = type(self.config).load()
@@ -1539,10 +1557,8 @@ class VoiceTyperApp:
             if hasattr(self, "_bubble_level_worker_stop") and self._bubble_level_worker_stop is not None:
                 self._bubble_level_worker_stop.set()
                 if hasattr(self, "_bubble_level_queue") and self._bubble_level_queue is not None:
-                    try:
+                    with contextlib.suppress(queue.Full):
                         self._bubble_level_queue.put_nowait(None)  # sentinel
-                    except queue.Full:
-                        pass
                 if hasattr(self, "_bubble_level_worker") and self._bubble_level_worker is not None:
                     self._bubble_level_worker.join(timeout=1.0)
         except Exception as e:
@@ -1587,10 +1603,8 @@ class VoiceTyperApp:
                 if electron_pid is not None:
                     import signal as _sig
                     log.info("[SHUTDOWN] Terminating Electron subprocess (PID=%s)", electron_pid)
-                    try:
+                    with contextlib.suppress(OSError, ProcessLookupError):
                         os.kill(electron_pid, _sig.SIGTERM)
-                    except (OSError, ProcessLookupError):
-                        pass
         except Exception:
             log.debug("[SHUTDOWN] Electron subprocess termination failed", exc_info=True)
 
@@ -1712,7 +1726,6 @@ class VoiceTyperApp:
         to avoid deadlock when the main thread is inside the signal
         handler.
         """
-        import signal
         def _signal_handler(signum, frame):
             sig_name = signal.Signals(signum).name
             log.info("[SIGNAL] %s received, shutting down gracefully", sig_name)
@@ -1722,12 +1735,10 @@ class VoiceTyperApp:
             threading.Thread(target=self.quit, daemon=True).start()
 
         for sig in (signal.SIGINT, signal.SIGTERM):
-            try:
-                signal.signal(sig, _signal_handler)
-            except (OSError, ValueError):
+            with contextlib.suppress(OSError, ValueError):
                 # SIGTERM not available on Windows; signal.signal can
                 # raise if not in the main thread
-                pass
+                signal.signal(sig, _signal_handler)
 
     def _install_win32_console_handler(self):
         """On Windows, install a console control handler to survive console closure.
@@ -1748,18 +1759,13 @@ class VoiceTyperApp:
             import ctypes
             from ctypes import wintypes
 
-            CTRL_C_EVENT = 0
-            CTRL_BREAK_EVENT = 1
-            CTRL_CLOSE_EVENT = 2
-            CTRL_LOGOFF_EVENT = 5
-            CTRL_SHUTDOWN_EVENT = 6
 
-            HANDLER_ROUTINE = ctypes.CFUNCTYPE(wintypes.BOOL, wintypes.DWORD)
+            handler_routine = ctypes.CFUNCTYPE(wintypes.BOOL, wintypes.DWORD)
 
-            self._console_handler = HANDLER_ROUTINE(self._win32_console_handler)
+            self._console_handler = handler_routine(self._win32_console_handler)
             self._kernel32 = ctypes.windll.kernel32
             kernel32 = self._kernel32
-            kernel32.SetConsoleCtrlHandler.argtypes = [HANDLER_ROUTINE, wintypes.BOOL]
+            kernel32.SetConsoleCtrlHandler.argtypes = [handler_routine, wintypes.BOOL]
             kernel32.SetConsoleCtrlHandler.restype = wintypes.BOOL
             kernel32.FreeConsole.argtypes = []
             kernel32.FreeConsole.restype = wintypes.BOOL
@@ -1774,13 +1780,13 @@ class VoiceTyperApp:
 
     def _win32_console_handler(self, ctrl_type):
         """Callback for Windows console control events."""
-        CTRL_C_EVENT = 0
-        CTRL_BREAK_EVENT = 1
-        CTRL_CLOSE_EVENT = 2
-        CTRL_LOGOFF_EVENT = 5
-        CTRL_SHUTDOWN_EVENT = 6
+        ctrl_c_event = 0
+        ctrl_break_event = 1
+        ctrl_close_event = 2
+        ctrl_logoff_event = 5
+        ctrl_shutdown_event = 6
 
-        if ctrl_type == CTRL_CLOSE_EVENT:
+        if ctrl_type == ctrl_close_event:
             log.info(
                 "[WIN32] Console window closing -- "
                 "keeping process alive (tray app survives)"
@@ -1788,10 +1794,10 @@ class VoiceTyperApp:
             try:
                 self._kernel32.FreeConsole()
                 # PERF-004: reuse the existing devnull object instead of
-                # opening a new one on every CTRL_CLOSE_EVENT (would hit
+                # opening a new one on every ctrl_close_event (would hit
                 # Windows' 10,000 handle cap after ~250 RDP logout cycles).
                 if getattr(self, "_devnull", None) is None or self._devnull.closed:
-                    self._devnull = open(os.devnull, 'w')
+                    self._devnull = open(os.devnull, 'w')  # noqa: SIM115
                     _register_devnull_file(self._devnull)
                 sys.stdout = self._devnull
                 sys.stderr = self._devnull
@@ -1800,14 +1806,14 @@ class VoiceTyperApp:
                 log.warning("[WIN32] FreeConsole() failed")
             return True
 
-        if ctrl_type in (CTRL_LOGOFF_EVENT, CTRL_SHUTDOWN_EVENT):
+        if ctrl_type in (ctrl_logoff_event, ctrl_shutdown_event):
             log.info("[WIN32] System event %d received, shutting down", ctrl_type)
             # RACE-016: daemon=True is acceptable because quit() is
             # idempotent and the atexit handler covers critical cleanup.
             threading.Thread(target=self.quit, daemon=True).start()
             return True
 
-        if ctrl_type in (CTRL_C_EVENT, CTRL_BREAK_EVENT):
+        if ctrl_type in (ctrl_c_event, ctrl_break_event):
             log.info("[WIN32] Ctrl+C received, shutting down")
             # RACE-016: daemon=True is acceptable because quit() is
             # idempotent and the atexit handler covers critical cleanup.
@@ -1817,16 +1823,6 @@ class VoiceTyperApp:
         return False
 
 
-# SEC-001: restart token functions moved to voice_typer.server.security
-from voice_typer.server.security import (
-    generate_restart_token as _generate_restart_token,
-    verify_restart_token as _verify_restart_token,
-    consume_restart_token as _consume_restart_token,
-)
-# COMPAT-001: backward-compat re-export for tests/test_pii_redaction.py
-# which imports _PIIRedactionFilter from app. The class lives in
-# voice_typer.server.security as PIIRedactionFilter (no underscore).
-from voice_typer.server.security import PIIRedactionFilter as _PIIRedactionFilter  # noqa: F401
 
 
 def _create_restrictive_security_attributes():
@@ -1884,7 +1880,7 @@ def _create_restrictive_security_attributes():
                 return None
 
             # Build an explicit access array for the current user
-            class EXPLICIT_ACCESS(ctypes.Structure):
+            class EXPLICIT_ACCESS(ctypes.Structure):  # noqa: N801
                 _fields_ = [
                     ("grfAccessPermissions", wintypes.DWORD),
                     ("grfAccessMode", wintypes.DWORD),
@@ -1934,7 +1930,7 @@ def _create_restrictive_security_attributes():
                     return None
 
             # Build SECURITY_ATTRIBUTES
-            class SECURITY_ATTRIBUTES(ctypes.Structure):
+            class SECURITY_ATTRIBUTES(ctypes.Structure):  # noqa: N801
                 _fields_ = [
                     ("nLength", wintypes.DWORD),
                     ("lpSecurityDescriptor", wintypes.LPVOID),
@@ -2002,7 +1998,7 @@ def _is_pid_alive(pid: int) -> bool:
 
     Cross-platform: uses ``os.kill(pid, 0)`` on POSIX and ``OpenProcess``
     on Windows.  Returns False if the PID is invalid or the process has
-    exited.  On Windows, ERROR_ACCESS_DENIED (5) is treated as "alive"
+    exited.  On Windows, error_access_denied (5) is treated as "alive"
     (the process exists but is owned by another session — better to
     block a duplicate than to proceed when unsure).
     """
@@ -2013,14 +2009,14 @@ def _is_pid_alive(pid: int) -> bool:
             import ctypes
             from ctypes import wintypes
 
-            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            process_query_limited_information = 0x1000
             kernel32 = ctypes.windll.kernel32
             still_active = wintypes.DWORD()
             handle = kernel32.OpenProcess(
-                PROCESS_QUERY_LIMITED_INFORMATION, False, pid,
+                process_query_limited_information, False, pid,
             )
             if not handle:
-                # ERROR_ACCESS_DENIED (5) means the process exists but is
+                # error_access_denied (5) means the process exists but is
                 # owned by another user/session — treat as alive.
                 return kernel32.GetLastError() == 5
             try:
@@ -2076,7 +2072,7 @@ def _ensure_single_instance(silent=False):
     silent : bool
         If True, skip the MessageBoxW dialog (caller handles UX).
 
-    On duplicate launch, Windows returns ``ERROR_ALREADY_EXISTS`` from
+    On duplicate launch, Windows returns ``error_already_exists`` from
     ``CreateMutexW`` — this is the authoritative signal that another
     instance owns the lock.  We bail immediately.  (Previously the code
     second-guessed Windows with a flaky ``wmic``-based process scan and,
@@ -2165,8 +2161,8 @@ def _ensure_single_instance(silent=False):
 
     import ctypes
 
-    ERROR_ALREADY_EXISTS = 183
-    ERROR_ACCESS_DENIED = 5
+    error_already_exists = 183
+    error_access_denied = 5
 
     # SEC-001: Create a SECURITY_ATTRIBUTES with a restrictive DACL that
     # only allows the current user to access the mutex. This prevents
@@ -2194,9 +2190,9 @@ def _ensure_single_instance(silent=False):
     )
     last_error = ctypes.windll.kernel32.GetLastError()
 
-    if last_error == ERROR_ALREADY_EXISTS:
+    if last_error == error_already_exists:
         # P1-1.4: belt-and-suspenders check.  Windows guarantees that
-        # ERROR_ALREADY_EXISTS means another process holds the mutex
+        # error_already_exists means another process holds the mutex
         # RIGHT NOW.  But if that process is actually a zombie (BSOD,
         # power loss, kill -9 leaving the mutex in a transitional state),
         # the PID file lets us detect the stale state and proceed.
@@ -2221,18 +2217,17 @@ def _ensure_single_instance(silent=False):
         # named kernel object persists in the \BaseNamedObjects        # namespace even after all handles are closed.
         #
         # WaitForSingleObject return values:
-        #   WAIT_ABANDONED (0x00000080): previous owner died, WE now
+        #   wait_abandoned (0x00000080): previous owner died, WE now
         #     own the mutex → proceed.
         #   WAIT_TIMEOUT  (0x00000102): another live process owns it
         #     → genuine duplicate, exit.
-        #   WAIT_OBJECT_0 (0x00000000): we acquired it (unexpected
-        #     since CreateMutexW returned ERROR_ALREADY_EXISTS).
-        WAIT_ABANDONED = 0x00000080
-        WAIT_OBJECT_0 = 0x00000000
-        WAIT_TIMEOUT = 0x00000102
+        #   wait_object_0 (0x00000000): we acquired it (unexpected
+        #     since CreateMutexW returned error_already_exists).
+        wait_abandoned = 0x00000080
+        wait_object_0 = 0x00000000
         if mutex:
             wait_result = ctypes.windll.kernel32.WaitForSingleObject(mutex, 0)
-            if wait_result == WAIT_ABANDONED:
+            if wait_result == wait_abandoned:
                 # Previous instance crashed.  The mutex is now OURS.
                 log.warning(
                     "[STARTUP] Mutex was abandoned (previous instance crashed) "
@@ -2240,10 +2235,10 @@ def _ensure_single_instance(silent=False):
                 )
                 _write_backend_pid_file()
                 return mutex
-            elif wait_result == WAIT_OBJECT_0:
+            elif wait_result == wait_object_0:
                 # Unexpectedly acquired the mutex.  Proceed anyway.
                 log.warning(
-                    "[STARTUP] Mutex unexpectedly acquired after ERROR_ALREADY_EXISTS"
+                    "[STARTUP] Mutex unexpectedly acquired after error_already_exists"
                 )
                 _write_backend_pid_file()
                 return mutex
@@ -2268,7 +2263,7 @@ def _ensure_single_instance(silent=False):
         if mutex:
             ctypes.windll.kernel32.CloseHandle(mutex)
         sys.exit(1)
-    elif last_error == ERROR_ACCESS_DENIED:
+    elif last_error == error_access_denied:
         # Couldn't even open the mutex; bail safely.
         if not silent and sys.stderr is not None:
             print("Voice Typer: mutex access denied.", file=sys.stderr)
@@ -2281,7 +2276,7 @@ def _ensure_single_instance(silent=False):
 
 # DEAD-013: _another_voice_typer_alive() deleted.
 # The Win32 named mutex (VoiceTyperSingleInstance) already proves a
-# duplicate exists when ERROR_ALREADY_EXISTS is returned — the scan
+# duplicate exists when error_already_exists is returned — the scan
 # had zero decision power (its result only affected a log message).
 
 

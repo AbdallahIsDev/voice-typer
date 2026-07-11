@@ -13,14 +13,12 @@ Variables supported in output text:
     {username}  — system username
 """
 
+import getpass
 import json
 import logging
-import os
 import re
-import getpass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 log = logging.getLogger(__name__)
 
@@ -79,7 +77,7 @@ def _safe_getuser() -> str:
 class TemplateManager:
     """Manages voice templates: CRUD, persistence, matching."""
 
-    def __init__(self, config_dir: Optional[Path] = None):
+    def __init__(self, config_dir: Path | None = None):
         if config_dir is None:
             from voice_typer.server.config import _config_dir
             config_dir = _config_dir()
@@ -143,7 +141,7 @@ class TemplateManager:
         self._save()
         return template
 
-    def update(self, index: int, trigger: str, output: str, *, match_mode: str = "exact") -> Optional[dict]:
+    def update(self, index: int, trigger: str, output: str, *, match_mode: str = "exact") -> dict | None:
         """Update a template by index. Returns the updated template or None."""
         if 0 <= index < len(self._templates):
             self._templates[index]["trigger"] = trigger.strip()
@@ -186,7 +184,7 @@ class TemplateManager:
 
     # ── Matching ─────────────────────────────────────────────────────
 
-    def match(self, text: str) -> Optional[str]:
+    def match(self, text: str) -> str | None:
         """Try to match *text* against any template trigger.
 
         Returns the expanded output text (with variables substituted)
@@ -203,7 +201,7 @@ class TemplateManager:
 
         normalized = re.sub(r"\s+", " ", text.strip()).lower()
 
-        best_match: Optional[dict] = None
+        best_match: dict | None = None
         best_len = float("inf")
 
         for t in self._templates:
@@ -213,11 +211,10 @@ class TemplateManager:
             trigger_norm = re.sub(r"\s+", " ", trigger.strip()).lower()
             mode = t.get("match_mode", "exact")
 
-            matched = False
-            if mode == "contains":
-                matched = trigger_norm in normalized
-            else:  # exact
-                matched = normalized == trigger_norm
+            matched = (
+                trigger_norm in normalized if mode == "contains"
+                else normalized == trigger_norm
+            )
 
             if matched and len(trigger_norm) < best_len:
                 best_match = t

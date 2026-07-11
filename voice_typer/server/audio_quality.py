@@ -7,7 +7,6 @@ can be shown as notifications or in the microphone diagnostics screen.
 
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
 
 import numpy as np
 
@@ -71,14 +70,14 @@ class AudioQualityAnalyzer:
         self._peak = 0.0
         self._chunk_count = 0
 
-    def analyze_chunk(self, chunk: np.ndarray) -> Optional[str]:
+    def analyze_chunk(self, chunk: np.ndarray) -> str | None:
         """Analyze a single audio chunk during recording.
 
         Call this from the audio callback for each incoming chunk.
         Returns a warning string if an immediate issue is detected,
         or None if everything is fine.
         """
-        rms = float(np.sqrt(np.mean(np.square(chunk), dtype=np.float64)))
+        float(np.sqrt(np.mean(np.square(chunk), dtype=np.float64)))
         peak = float(np.max(np.abs(chunk)))
 
         self._chunk_count += 1

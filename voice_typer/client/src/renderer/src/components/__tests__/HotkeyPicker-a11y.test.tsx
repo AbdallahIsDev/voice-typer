@@ -38,7 +38,7 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import axe from "axe-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { HotkeyPicker } from "../HotkeyPicker";
+import { HotkeyPicker } from "../hotkey/HotkeyPicker";
 
 // Disable color-contrast — the test environment doesn't load the full
 // Tailwind stylesheet, so axe's computed contrast values would be

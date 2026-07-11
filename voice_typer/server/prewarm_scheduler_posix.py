@@ -21,13 +21,15 @@ Both call: ``python3 -m voice_typer.server.prewarm``
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import subprocess
 import sys
 from pathlib import Path
+
 from voice_typer.server import _paths
-from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
+from voice_typer.server.platform_utils import is_linux, is_macos
 
 log = logging.getLogger("voice_typer.prewarm_scheduler_posix")
 
@@ -105,10 +107,8 @@ def _register_prewarm_macos() -> bool:
         # The LaunchAgent plist contains the Python interpreter path and
         # arguments; restricting to 0o600 prevents other users from
         # reading or modifying the launch configuration.
-        try:
+        with contextlib.suppress(OSError):
             plist_path.chmod(0o600)
-        except OSError:
-            pass
         # Try to load it immediately so it takes effect this session.
         try:
             subprocess.run(
@@ -261,10 +261,8 @@ def _unregister_prewarm_linux() -> bool:
             ["systemctl", "--user", "disable", "voice-typer-prewarm.timer"],
             ["systemctl", "--user", "stop", "voice-typer-prewarm.timer"],
         ):
-            try:
+            with contextlib.suppress(subprocess.TimeoutExpired, FileNotFoundError):
                 subprocess.run(cmd, check=False, capture_output=True, timeout=10)
-            except (subprocess.TimeoutExpired, FileNotFoundError):
-                pass
         removed = False
         if _linux_timer_path().exists():
             _linux_timer_path().unlink()

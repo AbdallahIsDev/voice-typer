@@ -15,9 +15,8 @@ import io
 import json
 import logging
 import threading
-from typing import Optional
-from urllib.request import Request, urlopen, build_opener, HTTPSHandler
 from urllib.error import URLError
+from urllib.request import HTTPSHandler, Request, build_opener, urlopen
 
 import numpy as np
 
@@ -26,7 +25,6 @@ from voice_typer.server._secrets import (
     redact_secret,
     redact_url,
 )
-from voice_typer.server.transcription import TranscriberProtocol
 
 log = logging.getLogger(__name__)
 
@@ -64,7 +62,6 @@ _PROVIDER_DEFAULTS = {
 
 def _audio_to_wav_bytes(audio: np.ndarray, sample_rate: int = 16000) -> bytes:
     """Convert float32 numpy array to WAV bytes."""
-    import struct
     import wave
 
     buf = io.BytesIO()
@@ -197,8 +194,8 @@ class CloudEngine:
         self,
         provider: str,
         api_key: str,
-        api_url: Optional[str] = None,
-        model: Optional[str] = None,
+        api_url: str | None = None,
+        model: str | None = None,
         language: str = "en",
         consent_given: bool = False,
     ):
@@ -336,7 +333,6 @@ class CloudEngine:
 
         # PERF-NEW-010: retry with exponential backoff
         max_retries = 3
-        last_exc = None
         for attempt in range(max_retries):
             try:
                 with _opener.open(req, timeout=30) as resp:
@@ -350,7 +346,6 @@ class CloudEngine:
                     log.info("[CLOUD] %s transcription: %d chars", self.provider, len(text))
                     return text
             except URLError as exc:
-                last_exc = exc
                 # Only retry on transient errors (timeouts, connection reset)
                 # Don't retry on 4xx errors (bad request, auth failure)
                 if attempt < max_retries - 1:
@@ -404,14 +399,14 @@ class CloudEngine:
 
         # SEC-005: urlencode escapes special characters in the model
         # and language values, preventing parameter injection.
-        from urllib.parse import urlencode
         import re
-        _SAFE_TOKEN = re.compile(r"^[A-Za-z0-9._\-]+$")
-        if not _SAFE_TOKEN.match(self.model_name or ""):
+        from urllib.parse import urlencode
+        _safe_token = re.compile(r"^[A-Za-z0-9._\-]+$")
+        if not _safe_token.match(self.model_name or ""):
             raise RuntimeError(
                 f"Deepgram model name {self.model_name!r} contains invalid characters"
             )
-        if not _SAFE_TOKEN.match(self.language or ""):
+        if not _safe_token.match(self.language or ""):
             raise RuntimeError(
                 f"Deepgram language {self.language!r} contains invalid characters"
             )
@@ -425,7 +420,6 @@ class CloudEngine:
 
         # PERF-NEW-010: retry with exponential backoff (same as OpenAI path)
         max_retries = 3
-        last_exc = None
         for attempt in range(max_retries):
             try:
                 with _opener.open(req, timeout=30) as resp:
@@ -442,7 +436,6 @@ class CloudEngine:
                             return text
                     return ""
             except URLError as exc:
-                last_exc = exc
                 if attempt < max_retries - 1:
                     import time as _time
                     backoff = 0.5 * (2 ** attempt)  # 0.5s, 1.0s, 2.0s

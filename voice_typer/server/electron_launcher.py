@@ -31,6 +31,7 @@ if the Electron app has been built (``out/main/index.js`` exists), it runs
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import secrets
@@ -69,9 +70,7 @@ def is_spawned_by_electron() -> bool:
     """
     if "--port" in sys.argv:
         return True
-    if os.environ.get("VOICE_TYPER_IPC_TOKEN"):
-        return True
-    return False
+    return bool(os.environ.get("VOICE_TYPER_IPC_TOKEN"))
 
 
 def launch_electron_frontend(port: int, token: str) -> int | None:
@@ -114,17 +113,16 @@ def launch_electron_frontend(port: int, token: str) -> int | None:
     spawn_kwargs.update(_spawn_flags(hidden=True))
 
     exe = _electron_binary()
-    if exe:
-        if not _main_entry_built():
-            log.info("[LAUNCHER] No pre-built output — building first")
-            if not _build_electron():
-                log.warning("[LAUNCHER] Build failed; will try npm run dev")
-                exe = None
-            elif not _main_entry_built():
-                log.warning(
-                    "[LAUNCHER] Build succeeded but out/main/index.js still missing"
-                )
-                exe = None
+    if exe and not _main_entry_built():
+        log.info("[LAUNCHER] No pre-built output — building first")
+        if not _build_electron():
+            log.warning("[LAUNCHER] Build failed; will try npm run dev")
+            exe = None
+        elif not _main_entry_built():
+            log.warning(
+                "[LAUNCHER] Build succeeded but out/main/index.js still missing"
+            )
+            exe = None
 
     if exe:
         try:
@@ -198,14 +196,10 @@ def terminate_electron(pid: int) -> None:
                 return
             time.sleep(0.1)
         # Still alive — SIGKILL.
-        try:
+        with contextlib.suppress(OSError, ProcessLookupError):
             os.kill(pid, signal.SIGKILL)
-        except (OSError, ProcessLookupError):
-            pass
-        try:
+        with contextlib.suppress(OSError, ChildProcessError):
             os.waitpid(pid, 0)
-        except (OSError, ChildProcessError):
-            pass
     except Exception:
         log.debug("[LAUNCHER] terminate_electron(%s) failed", pid, exc_info=True)
 

@@ -10,7 +10,8 @@ from __future__ import annotations
 import contextlib
 import re
 import warnings
-from typing import Callable, Optional, cast
+from collections.abc import Callable
+from typing import cast
 
 # RACE-011: ``contextlib.nullcontext`` is used as the no-op context
 # manager when ``SettingsController._config_mutation_lock`` is None
@@ -79,9 +80,7 @@ def format_function_hotkey(key_name: str) -> str:
                 parts.append(f"<{part}>")
             elif _FUNCTION_KEY_RE.match(part.upper()):
                 parts.append(f"<f{part[1:]}>")
-            elif len(part) == 1 and part.isalpha():
-                parts.append(f"<{part}>")
-            elif len(part) == 1 and part.isdigit():
+            elif len(part) == 1 and part.isalpha() or len(part) == 1 and part.isdigit():
                 parts.append(f"<{part}>")
             else:
                 raise ValueError(f"Unsupported hotkey: {key_name}")
@@ -102,12 +101,12 @@ class SettingsController:
     def __init__(
         self,
         config,
-        on_hotkey_changed: Optional[Callable[[str], None]] = None,
-        on_model_changed: Optional[Callable[[str], None]] = None,
-        on_microphone_changed: Optional[Callable[[Optional[str]], None]] = None,
-        on_autostart_changed: Optional[Callable[[bool], None]] = None,
-        on_notifications_changed: Optional[Callable[[bool], None]] = None,
-        config_mutation_lock: Optional["object"] = None,
+        on_hotkey_changed: Callable[[str], None] | None = None,
+        on_model_changed: Callable[[str], None] | None = None,
+        on_microphone_changed: Callable[[str | None], None] | None = None,
+        on_autostart_changed: Callable[[bool], None] | None = None,
+        on_notifications_changed: Callable[[bool], None] | None = None,
+        config_mutation_lock: object | None = None,
     ):
         _warn_deprecated()
         self.config = config
@@ -128,7 +127,7 @@ class SettingsController:
         *,
         hotkey: str,
         model_size: str,
-        microphone: Optional[str],
+        microphone: str | None,
         autostart: bool,
         show_notifications: bool,
     ) -> None:
@@ -184,7 +183,7 @@ class SettingsWindow:
         controller: SettingsController,
         microphones=None,
         parent=None,
-        on_open_config: Optional[Callable[[], None]] = None,
+        on_open_config: Callable[[], None] | None = None,
     ):
         _warn_deprecated()
         import tkinter as tk
@@ -194,7 +193,7 @@ class SettingsWindow:
         self.microphones = microphones or []
         self._messagebox = messagebox
         self._on_open_config = on_open_config
-        self.on_destroy: Optional[Callable[[], None]] = None
+        self.on_destroy: Callable[[], None] | None = None
 
         self.root = tk.Toplevel(parent) if parent is not None else tk.Tk()
         self.root.title("Voice Typer Settings")

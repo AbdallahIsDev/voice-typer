@@ -1,9 +1,13 @@
 """Lightweight cleanup for raw speech-to-text output."""
 
+import collections as _collections
+import contextlib
 import json
 import logging
 import re
 from pathlib import Path
+
+from voice_typer.server.vocabulary import BUNDLED_CORRECTIONS_PATH as _BUNDLED_CORRECTIONS_PATH
 
 log = logging.getLogger(__name__)
 # Question openers used by _looks_like_question().
@@ -38,10 +42,6 @@ _COMMON_EXTRA_WORD_PATTERNS: list[tuple[str, str]] = []
 # specified by config.corrections_path), its entries OVERRIDE the built-in
 # defaults.  This allows users to tailor corrections for their model/version
 # without editing source code.
-
-# ARCH-028: import the shared constant from vocabulary.py instead of
-# re-declaring it. If one file moves, the other stays in sync.
-from voice_typer.server.vocabulary import BUNDLED_CORRECTIONS_PATH as _BUNDLED_CORRECTIONS_PATH
 
 
 class CorrectionsLoadError(RuntimeError):
@@ -142,23 +142,23 @@ def _load_external_corrections(
         return None
 
     # SEC-010/SEC-011: Cap corrections to prevent ReDoS and resource exhaustion
-    MAX_CORRECTIONS_ENTRIES = 5000
-    MAX_PATTERN_LENGTH = 200
-    MAX_REPLACEMENT_LENGTH = 500
+    max_corrections_entries = 5000
+    max_pattern_length = 200
+    max_replacement_length = 500
 
-    MAX_MISSPELLINGS = MAX_CORRECTIONS_ENTRIES
-    MAX_PHRASE_CORRECTIONS = MAX_CORRECTIONS_ENTRIES
-    MAX_EXTRA_WORD_PATTERNS = MAX_CORRECTIONS_ENTRIES
+    max_misspellings = max_corrections_entries
+    max_phrase_corrections = max_corrections_entries
+    max_extra_word_patterns = max_corrections_entries
 
-    if len(misspellings) > MAX_MISSPELLINGS:
-        log.warning("[CLEANUP] Too many misspellings (%d > %d), truncating", len(misspellings), MAX_MISSPELLINGS)
-        misspellings = dict(list(misspellings.items())[:MAX_MISSPELLINGS])
-    if len(phrase_corrections) > MAX_PHRASE_CORRECTIONS:
+    if len(misspellings) > max_misspellings:
+        log.warning("[CLEANUP] Too many misspellings (%d > %d), truncating", len(misspellings), max_misspellings)
+        misspellings = dict(list(misspellings.items())[:max_misspellings])
+    if len(phrase_corrections) > max_phrase_corrections:
         log.warning("[CLEANUP] Too many phrase corrections, truncating")
-        phrase_corrections = phrase_corrections[:MAX_PHRASE_CORRECTIONS]
-    if len(extra_word_patterns) > MAX_EXTRA_WORD_PATTERNS:
+        phrase_corrections = phrase_corrections[:max_phrase_corrections]
+    if len(extra_word_patterns) > max_extra_word_patterns:
         log.warning("[CLEANUP] Too many extra word patterns, truncating")
-        extra_word_patterns = extra_word_patterns[:MAX_EXTRA_WORD_PATTERNS]
+        extra_word_patterns = extra_word_patterns[:max_extra_word_patterns]
 
     # SEC-011: Validate string lengths — patterns and replacements have
     # separate limits to prevent ReDoS (long patterns cause expensive
@@ -168,24 +168,24 @@ def _load_external_corrections(
     _dropped_replacement = 0
     misspellings_filtered = {}
     for k, v in misspellings.items():
-        if len(k) > MAX_PATTERN_LENGTH:
+        if len(k) > max_pattern_length:
             _dropped_pattern += 1
             continue
-        if len(v) > MAX_REPLACEMENT_LENGTH:
+        if len(v) > max_replacement_length:
             _dropped_replacement += 1
             continue
         misspellings_filtered[k] = v
     misspellings = misspellings_filtered
     if _dropped_pattern:
-        log.warning("[CLEANUP] Dropped %d misspellings with pattern > %d chars", _dropped_pattern, MAX_PATTERN_LENGTH)
+        log.warning("[CLEANUP] Dropped %d misspellings with pattern > %d chars", _dropped_pattern, max_pattern_length)
     if _dropped_replacement:
         log.warning("[CLEANUP] Dropped %d misspellings with replacement "
-           "> %d chars", _dropped_replacement, MAX_REPLACEMENT_LENGTH)
+           "> %d chars", _dropped_replacement, max_replacement_length)
 
     _dropped_phrase = 0
     filtered_phrases = []
     for b, g in phrase_corrections:
-        if len(b) > MAX_PATTERN_LENGTH or len(g) > MAX_REPLACEMENT_LENGTH:
+        if len(b) > max_pattern_length or len(g) > max_replacement_length:
             _dropped_phrase += 1
             continue
         filtered_phrases.append((b, g))
@@ -196,10 +196,10 @@ def _load_external_corrections(
     _dropped_extra = 0
     filtered_extra = []
     for b, g in extra_word_patterns:
-        if len(b) > MAX_PATTERN_LENGTH:
+        if len(b) > max_pattern_length:
             _dropped_extra += 1
             continue
-        if len(g) > MAX_REPLACEMENT_LENGTH:
+        if len(g) > max_replacement_length:
             _dropped_extra += 1
             continue
         filtered_extra.append((b, g))
@@ -253,7 +253,7 @@ _active_state_lock = __import__("threading").Lock()
 # moving the entry to the end of the insertion order on every cache
 # hit, which OrderedDict.move_to_end does in O(1).
 # See FORENSIC_REVIEW_COMPLETE.md → SEC-011.
-import collections as _collections
+
 _PHRASE_PATTERN_CACHE_MAXSIZE = 5000
 _phrase_pattern_cache: "_collections.OrderedDict[str, re.Pattern[str]]" = _collections.OrderedDict()
 
@@ -277,10 +277,8 @@ def _get_compiled_phrase_pattern(phrase: str) -> "re.Pattern[str]":
     # at the front of the insertion order, which is the LRU entry
     # because every cache hit moves the entry to the back).
     if len(_phrase_pattern_cache) >= _PHRASE_PATTERN_CACHE_MAXSIZE:
-        try:
+        with contextlib.suppress(KeyError):
             _phrase_pattern_cache.popitem(last=False)
-        except KeyError:
-            pass
     _phrase_pattern_cache[phrase] = compiled
     return compiled
 
@@ -408,7 +406,7 @@ def _clean_self_corrections(text: str) -> str:
                 # Shared root with common prefix of 4+ chars
                 if len(key1) >= 4 and len(key2) >= 4:
                     common = 0
-                    for a, b in zip(key1, key2):
+                    for a, b in zip(key1, key2, strict=False):
                         if a == b:
                             common += 1
                         else:
@@ -470,12 +468,11 @@ def _remove_near_duplicate_words(text: str) -> str:
                     output.append(tokens[i])
                     i += 1
                     continue
-                if abs(len(key1) - len(key2)) <= 2:
-                    if key1 in key2 or key2 in key1:
-                        longer = tokens[i] if len(key1) >= len(key2) else tokens[i + 1]
-                        output.append(longer)
-                        i += 2
-                        continue
+                if abs(len(key1) - len(key2)) <= 2 and (key1 in key2 or key2 in key1):
+                    longer = tokens[i] if len(key1) >= len(key2) else tokens[i + 1]
+                    output.append(longer)
+                    i += 2
+                    continue
         output.append(tokens[i])
         i += 1
     return " ".join(output)
@@ -490,10 +487,7 @@ def _fix_common_misspellings(text: str) -> str:
         if key in _active_misspellings:
             correction = _active_misspellings[key]
             match = re.match(r"^(\W*)(\w+)(\W*)$", token)
-            if match:
-                token = f"{match.group(1)}{correction}{match.group(3)}"
-            else:
-                token = correction
+            token = f"{match.group(1)}{correction}{match.group(3)}" if match else correction
         output.append(token)
     return " ".join(output)
 
@@ -512,7 +506,7 @@ def _correct_whisper_phrases(text: str) -> str:
         pattern = _get_compiled_phrase_pattern(bad)
         if pattern.search(lower):
             # L19: Preserve original casing pattern
-            def _apply_case_preserving_replacement(match):
+            def _apply_case_preserving_replacement(match, good=good):
                 original = match.group(0)
                 replacement = good
                 # Apply same casing pattern as original
@@ -576,7 +570,7 @@ _ROMAN_NUMERAL_CONTEXT_WORDS = {
 }
 
 _ROMAN_NUMERAL_FOLLOWING_WORDS = {
-    "through", "to", "and", "or", "through", "thru", "vs",
+    "through", "to", "and", "or", "thru", "vs",
     "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x",
 }
 

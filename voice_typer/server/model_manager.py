@@ -34,12 +34,13 @@ All of those now delegate to ModelManager.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import threading
-from typing import Any, Optional
+from typing import Any
 
-from voice_typer.server.branding import APP_NAME
 from voice_typer.server.asr_registry import AsrBackendRegistry
+from voice_typer.server.branding import APP_NAME
 from voice_typer.server.tray_types import AppState
 
 log = logging.getLogger(__name__)
@@ -84,20 +85,20 @@ class ModelManager:
         # the registry on assignment — have been removed; callers must
         # now call ``app.models._sync_registry_from_fields()`` after
         # writing to these fields.)
-        self.transcriber: Optional[Any] = None
-        self._qwen_engine: Optional[Any] = None
-        self._parakeet_engine: Optional[Any] = None
+        self.transcriber: Any | None = None
+        self._qwen_engine: Any | None = None
+        self._parakeet_engine: Any | None = None
 
         # Background model-load thread (tracked so toggle_dictation can
         # detect "loading in progress" and auto-start once finished).
-        self._model_load_thread: Optional[threading.Thread] = None
+        self._model_load_thread: threading.Thread | None = None
         self._model_load_attempted: bool = False
         self._pending_dictation: bool = False
         # ERR-003: When the user changes model during an active recording
         # we save config and notify "will change after current recording",
         # but previously never actually applied the change. We capture
         # the requested model here and apply it on the next _start_dictation.
-        self._pending_model_change: Optional[str] = None
+        self._pending_model_change: str | None = None
 
         # PERF-015: LRU tracking for loaded models.
         # Maps backend_name → last-access timestamp. When loading a new
@@ -156,7 +157,7 @@ class ModelManager:
                     self._registry.unregister(name)
                 self._registry.register(name, field_val)
 
-    def active_transcriber(self) -> Optional[Any]:
+    def active_transcriber(self) -> Any | None:
         """Return the active transcriber (Parakeet, Qwen, or Whisper).
 
         ARCH-007/008: delegates to AsrBackendRegistry which centralizes
@@ -409,8 +410,8 @@ class ModelManager:
             # completes). Safe no-op if prewarm isn't running.
             try:
                 from voice_typer.server.prewarm import (
-                    wait_for_prewarm,
                     spawn_background_prewarm,
+                    wait_for_prewarm,
                 )
                 prewarm_finished = wait_for_prewarm(timeout_s=60.0)
                 # Task 5: if prewarm timed out (still running after 60s),
@@ -540,10 +541,8 @@ class ModelManager:
         elif old_backend == "qwen":
             self._qwen_engine = None
         elif self.transcriber is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self.transcriber.unload()
-            except Exception:
-                pass
             self.transcriber = None
 
         # Create new engine object via registry.create()
@@ -598,7 +597,7 @@ class ModelManager:
 
     # ── Lazy init for _start_dictation ─────────────────────────────────
 
-    def ensure_active_engine_loaded(self) -> Optional[Any]:
+    def ensure_active_engine_loaded(self) -> Any | None:
         """Ensure the active backend's engine exists; lazy-init if missing.
 
         Called from VoiceTyperApp._start_dictation to handle the case

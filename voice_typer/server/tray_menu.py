@@ -23,7 +23,7 @@ actually changes (microphone list, autostart toggle, hotkey, etc.).
 from __future__ import annotations
 
 import logging
-from typing import Callable
+from collections.abc import Callable
 
 # PERF-COLDSTART-001: lazy import — pystray's xorg backend calls
 # Xlib.display.Display() at module import time, costing ~48 ms and
@@ -33,10 +33,9 @@ from typing import Callable
 # mock via monkeypatch.setitem(sys.modules, "pystray", ...) — or that
 # assign tray_menu.pystray directly — keep working unchanged.
 from voice_typer.server._lazy_import import lazy_module
+from voice_typer.server.tray_hotkey import format_hotkey_label
 
 pystray = lazy_module("pystray")
-
-from voice_typer.server.tray_hotkey import format_hotkey_label
 
 log = logging.getLogger("voice_typer.server.tray_menu")
 

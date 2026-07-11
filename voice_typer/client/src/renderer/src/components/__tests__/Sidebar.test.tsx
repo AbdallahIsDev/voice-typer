@@ -43,7 +43,7 @@ vi.mock("@hugeicons/core-free-icons", () => {
 	};
 });
 
-import { Sidebar } from "@/components/Sidebar";
+import { Sidebar } from "@/components/layout/Sidebar";
 
 describe("Sidebar", () => {
 	afterEach(() => {

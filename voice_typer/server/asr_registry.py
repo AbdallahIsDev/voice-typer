@@ -12,7 +12,7 @@ backend without knowing which one it is.
 """
 
 import logging
-from typing import Optional, Any
+from typing import Any
 
 log = logging.getLogger("voice_typer")
 
@@ -48,7 +48,7 @@ class AsrBackendRegistry:
             del self._backends[name]
             log.debug("[ASR_REGISTRY] unregistered backend: %s", name)
 
-    def get_active(self) -> Optional[Any]:
+    def get_active(self) -> Any | None:
         """Return the currently active backend based on config.asr_backend.
 
         Falls back to 'whisper' if the configured backend isn't loaded.
@@ -82,7 +82,7 @@ class AsrBackendRegistry:
         """Return the name of the active backend."""
         return getattr(self._config, "asr_backend", "whisper")
 
-    def get(self, name: str) -> Optional[Any]:
+    def get(self, name: str) -> Any | None:
         """Get a specific backend by name."""
         return self._backends.get(name)
 
@@ -103,7 +103,7 @@ class AsrBackendRegistry:
         whisper_kwargs: dict | None = None,
         qwen_kwargs: dict | None = None,
         parakeet_kwargs: dict | None = None,
-    ) -> Optional[Any]:
+    ) -> Any | None:
         """ARCH-007: Construct (but don't load) a backend engine.
 
         Centralizes the triplicated TranscriptionEngine(...) /
@@ -167,7 +167,7 @@ class AsrBackendRegistry:
             )
             return None
 
-    def load_active(self, progress_callback: Any = None) -> Optional[Any]:
+    def load_active(self, progress_callback: Any = None) -> Any | None:
         """Load the active backend and return it.
 
         Delegates to the backend's load() method with a progress
@@ -187,7 +187,7 @@ class AsrBackendRegistry:
                       self.active_name, exc)
             return None
 
-    def load_with_fallback(self, progress_callback: Any = None) -> Optional[Any]:
+    def load_with_fallback(self, progress_callback: Any = None) -> Any | None:
         """Load the configured backend; on failure, fall back to whisper.
 
         ARCH-008: replaces the duplicated fallback logic in
@@ -223,7 +223,7 @@ class AsrBackendRegistry:
 
         return None
 
-    def unload(self, name: Optional[str] = None) -> None:
+    def unload(self, name: str | None = None) -> None:
         """Unload a backend by name, or the active backend if name is None.
 
         ARCH-007: used by app.py's _change_model() before loading

@@ -26,7 +26,7 @@ import {
 	normalizeHotkey,
 	RESERVED_SHORTCUTS,
 	validateHotkey,
-} from "../hotkey-validation";
+} from "../hotkey/hotkey-validation";
 
 describe("isReserved", () => {
 	it("detects Win+E on Windows", () => {

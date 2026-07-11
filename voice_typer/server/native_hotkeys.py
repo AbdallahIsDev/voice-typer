@@ -50,17 +50,17 @@ All three backends share ``SubprocessHotkeyBackend`` which handles:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
-import shutil
 import signal
 import subprocess
 import sys
 import threading
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Callable, Optional, Sequence
 
 from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
 
@@ -83,7 +83,7 @@ _BINARY_NAMES = {
 # ─── Hotkey spec parsing ───────────────────────────────────────────────────
 
 
-def parse_hotkey_spec(spec: str) -> Optional[dict]:
+def parse_hotkey_spec(spec: str) -> dict | None:
     """Parse a pynput-style hotkey spec into a structured form.
 
     Returns a dict with keys:
@@ -127,17 +127,17 @@ def parse_hotkey_spec(spec: str) -> Optional[dict]:
     # Collapse canonical win/super → cmd for cross-platform wire matching.
     # Map alt_gr → altgr (no underscore) for backward compat with the
     # existing wire-protocol matching in this module.
-    _CANONICAL_TO_NATIVE = {
+    _canonical_to_native = {
         "win": "cmd",
         "super": "cmd",
         "alt_gr": "altgr",
     }
 
-    modifiers: set[str] = {_CANONICAL_TO_NATIVE.get(m, m) for m in parsed.modifiers}
+    modifiers: set[str] = {_canonical_to_native.get(m, m) for m in parsed.modifiers}
 
     # Non-modifier keys: only one allowed; extras ignored with a warning
     # (preserves the previous first-match-wins behaviour).
-    main_key: Optional[str] = None
+    main_key: str | None = None
     if parsed.keys:
         main_key = _normalize_key_name(parsed.keys[0])
         if len(parsed.keys) > 1:
@@ -237,7 +237,7 @@ def _normalize_key_name(token: str) -> str:
 # ─── Binary discovery ──────────────────────────────────────────────────────
 
 
-def get_native_binary_path() -> Optional[Path]:
+def get_native_binary_path() -> Path | None:
     """Find the native key-listener binary for the current platform.
 
     Search order:
@@ -307,14 +307,14 @@ class SubprocessHotkeyBackend(ABC):
     def __init__(self, hotkey_str: str):
         self.hotkey_str = hotkey_str
         self._parsed = parse_hotkey_spec(hotkey_str)
-        self._on_release_callback: Optional[Callable[[], None]] = None
-        self._process: Optional[subprocess.Popen] = None
-        self._reader_thread: Optional[threading.Thread] = None
+        self._on_release_callback: Callable[[], None] | None = None
+        self._process: subprocess.Popen | None = None
+        self._reader_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._ready_event = threading.Event()
         self._failed = False
-        self._error_message: Optional[str] = None
-        self._binary_path: Optional[Path] = get_native_binary_path()
+        self._error_message: str | None = None
+        self._binary_path: Path | None = get_native_binary_path()
         # Hotkey state tracking for matching
         self._held_modifiers: set[str] = set()
         self._fn_down: bool = False
@@ -326,12 +326,12 @@ class SubprocessHotkeyBackend(ABC):
         # and (b) swap to a legacy backend when the native binary dies
         # permanently. Both default to None (no-op) so the callbacks are
         # opt-in and don't affect tests that don't care about them.
-        self._on_error_callback: Optional[Callable[[str], None]] = None
-        self._on_permanent_failure_callback: Optional[Callable[[], None]] = None
+        self._on_error_callback: Callable[[str], None] | None = None
+        self._on_permanent_failure_callback: Callable[[], None] | None = None
 
     # ── HotkeyBackend interface (compatible with hotkeys.HotkeyBackend) ──
 
-    def set_on_release(self, callback: Optional[Callable[[], None]]) -> None:
+    def set_on_release(self, callback: Callable[[], None] | None) -> None:
         """Set the callback for key release (push-to-talk mode)."""
         self._on_release_callback = callback
 
@@ -438,7 +438,7 @@ class SubprocessHotkeyBackend(ABC):
     # ── Platform-specific hooks ──────────────────────────────────────────
 
     @abstractmethod
-    def _validate_platform(self) -> Optional[str]:
+    def _validate_platform(self) -> str | None:
         """Return an error message if the hotkey is invalid for this platform,
         or None if valid. Subclasses must implement."""
         ...
@@ -643,7 +643,7 @@ class SubprocessHotkeyBackend(ABC):
                 self._main_key_down = False
         self._try_match(down, key_name=key_name)
 
-    def _try_match(self, down: bool, *, key_name: Optional[str] = None) -> None:
+    def _try_match(self, down: bool, *, key_name: str | None = None) -> None:
         """Check if the current event matches the registered hotkey.
 
         Matching rules:
@@ -684,7 +684,6 @@ class SubprocessHotkeyBackend(ABC):
                 return
             with self._match_lock:
                 held = set(self._held_modifiers)
-                fn_down = self._fn_down
             # The hotkey is "these exact modifiers and no others"
             if held != required_canonical:
                 return
@@ -763,7 +762,7 @@ _MOD_CANONICAL_MAP = {
 }
 
 
-def _canonical_modifier(wire_name: str) -> Optional[str]:
+def _canonical_modifier(wire_name: str) -> str | None:
     """Convert a wire-protocol modifier name (e.g. 'Win', 'Super', 'Cmd')
     to a canonical lowercase form ('ctrl', 'shift', 'alt', 'cmd').
 
@@ -772,7 +771,7 @@ def _canonical_modifier(wire_name: str) -> Optional[str]:
     return _MOD_CANONICAL_MAP.get(wire_name)
 
 
-def _canonical_modifier_name_for_token(token: str) -> Optional[str]:
+def _canonical_modifier_name_for_token(token: str) -> str | None:
     """Convert a hotkey-spec modifier token (e.g. 'ctrl', 'alt', 'cmd',
     'win', 'super') to canonical form."""
     aliases = {
@@ -801,7 +800,7 @@ class MacNativeHotkey(SubprocessHotkeyBackend):
     platform_name = "macOS"
     supports_fn = True
 
-    def _validate_platform(self) -> Optional[str]:
+    def _validate_platform(self) -> str | None:
         if not is_macos():
             return f"MacNativeHotkey requires macOS (current: {sys.platform})"
         if self._parsed and "fn" in self._parsed["modifiers"]:
@@ -822,7 +821,7 @@ class WindowsHookHotkey(SubprocessHotkeyBackend):
     platform_name = "Windows"
     supports_fn = False  # FN is firmware-only on Windows
 
-    def _validate_platform(self) -> Optional[str]:
+    def _validate_platform(self) -> str | None:
         if not is_windows():
             return f"WindowsHookHotkey requires Windows (current: {sys.platform})"
         if self._parsed and "fn" in self._parsed["modifiers"]:
@@ -846,7 +845,7 @@ class LinuxEvdevHotkey(SubprocessHotkeyBackend):
     platform_name = "Linux"
     supports_fn = False  # FN is firmware-only on most Linux laptops
 
-    def _validate_platform(self) -> Optional[str]:
+    def _validate_platform(self) -> str | None:
         if not is_linux():
             return f"LinuxEvdevHotkey requires Linux (current: {sys.platform})"
         if self._parsed and "fn" in self._parsed["modifiers"]:
@@ -860,7 +859,7 @@ class LinuxEvdevHotkey(SubprocessHotkeyBackend):
 # ─── Factory ───────────────────────────────────────────────────────────────
 
 
-def create_native_backend(hotkey_str: str) -> Optional[SubprocessHotkeyBackend]:
+def create_native_backend(hotkey_str: str) -> SubprocessHotkeyBackend | None:
     """Create a native subprocess backend for the current platform.
 
     Returns ``None`` if no native binary is available (caller should fall
@@ -909,7 +908,7 @@ class NativeHotkeyRecorder:
 
     def __init__(self, timeout: float = 10.0):
         self.timeout = timeout
-        self._backend: Optional[SubprocessHotkeyBackend] = None
+        self._backend: SubprocessHotkeyBackend | None = None
         self._events: list[tuple[str, str]] = []  # (event_type, name)
         self._lock = threading.Lock()
         self._cond = threading.Condition(self._lock)
@@ -971,7 +970,7 @@ class NativeHotkeyRecorder:
                 self._done = True
                 self._cond.notify_all()
 
-    def wait_for_event(self) -> Optional[str]:
+    def wait_for_event(self) -> str | None:
         """Block until an event is captured or timeout elapses.
 
         Returns a hotkey-spec string like ``<caps_lock>`` or
@@ -991,13 +990,11 @@ class NativeHotkeyRecorder:
     def stop(self) -> None:
         """Stop the recording binary."""
         if self._backend is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._backend.stop()
-            except Exception:
-                pass
             self._backend = None
 
-    def _build_spec_from_events(self, events: Sequence[tuple[str, str]]) -> Optional[str]:
+    def _build_spec_from_events(self, events: Sequence[tuple[str, str]]) -> str | None:
         """Build a hotkey spec from the captured events.
 
         Strategy: take the first non-modifier KEY_DOWN as the main key,
@@ -1007,7 +1004,7 @@ class NativeHotkeyRecorder:
         if not events:
             return None
         held_modifiers: list[str] = []
-        main_key: Optional[str] = None
+        main_key: str | None = None
         for event_type, name in events:
             if event_type == "MOD_DOWN":
                 if name not in held_modifiers:
@@ -1056,7 +1053,7 @@ def _modifier_to_token(wire_name: str) -> str:
     return mapping.get(wire_name, wire_name.lower())
 
 
-def _key_name_to_token(name: str) -> Optional[str]:
+def _key_name_to_token(name: str) -> str | None:
     """Convert a wire-protocol key name back to a spec token."""
     # Reverse of _normalize_key_name
     if not name:

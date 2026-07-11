@@ -6,13 +6,13 @@ import logging
 from typing import Any
 
 from voice_typer.server.audio_filters import (
+    Compressor,
+    Equalizer,
     FilterChain,
     HighPassFilter,
-    NoiseSuppressor,
-    NoiseGate,
-    Equalizer,
-    Compressor,
     Limiter,
+    NoiseGate,
+    NoiseSuppressor,
     NotchFilter,
 )
 from voice_typer.server.audio_filters.base import AudioFilter

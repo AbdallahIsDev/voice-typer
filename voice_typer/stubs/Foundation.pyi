@@ -1,3 +1,4 @@
+# ruff: noqa: A001, A002, N802, N803, N816
 # PYREFLY-001: stub for the `Foundation` framework (pyobjc-framework-
 # Cocoa, macOS only). Pystray uses Cocoa/AppKit internally; the
 # voice-typer code does not import Foundation directly today, but

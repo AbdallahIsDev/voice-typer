@@ -47,17 +47,20 @@ checking the specific sentinel for each method. Hard failures
 (corruption, locked DB) additionally log at ``log.error`` level.
 """
 
-import sqlite3
+import concurrent.futures
+import contextlib
 import logging
 import os
 import queue
+import sqlite3
 import threading
 import time
-import concurrent.futures
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional, Any, Callable
-from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
+from typing import Any
+
+from voice_typer.server.platform_utils import is_windows
 
 log = logging.getLogger(__name__)
 
@@ -146,7 +149,7 @@ class HistoryDB:
     callers (IPC handlers) see the result.
     """
 
-    def __init__(self, db_path: Optional[Path] = None):
+    def __init__(self, db_path: Path | None = None):
         if db_path is None:
             from voice_typer.server.config import _config_dir
             db_path = _config_dir() / "history.db"
@@ -161,7 +164,7 @@ class HistoryDB:
         # Write queue: items are (callable, future) tuples, or the
         # _SHUTDOWN_SENTINEL to ask the writer to exit. ``future`` is
         # None for fire-and-forget writes (e.g. add_transcription).
-        self._queue: "queue.Queue[Any]" = queue.Queue()
+        self._queue: queue.Queue[Any] = queue.Queue()
         # Signaled by the writer thread once schema init succeeds (or
         # fails). __init__ waits on this so subsequent reads see the
         # schema.
@@ -170,7 +173,7 @@ class HistoryDB:
         self._shutdown = threading.Event()
         # If the writer thread failed during schema init, the exception
         # is stored here so __init__ can log it.
-        self._init_error: Optional[BaseException] = None
+        self._init_error: BaseException | None = None
         # Start the writer thread last — it signals _writer_ready once
         # the schema is set up.
         self._writer_thread = threading.Thread(
@@ -250,10 +253,8 @@ class HistoryDB:
                 # checkpoint will fail with "database table is locked"
                 # because the writer's own connection has a pending
                 # uncommitted transaction.
-                try:
+                with contextlib.suppress(sqlite3.Error):
                     conn.rollback()
-                except sqlite3.Error:
-                    pass
                 if future is not None:
                     future.set_exception(e)
                 else:
@@ -271,10 +272,8 @@ class HistoryDB:
                 # connection might be in an unexpected state. A
                 # rollback here is a safe no-op if there's no open
                 # transaction.
-                try:
+                with contextlib.suppress(sqlite3.Error):
                     conn.rollback()
-                except sqlite3.Error:
-                    pass
         # Drain loop exited — close the writer's connection.
         try:
             conn.close()
@@ -302,10 +301,8 @@ class HistoryDB:
             except BaseException as e:  # noqa: BLE001 — propagate to future
                 # DB-LOCK-FIX: rollback any uncommitted transaction left
                 # by the failed closure, same as in _writer_loop.
-                try:
+                with contextlib.suppress(sqlite3.Error):
                     conn.rollback()
-                except sqlite3.Error:
-                    pass
                 if future is not None:
                     future.set_exception(e)
                 else:
@@ -317,10 +314,8 @@ class HistoryDB:
                 # WAL-CHECKPOINT-FIX: same post-write cleanup as in
                 # _writer_loop — rollback any lingering state so the
                 # final checkpoint before connection close succeeds.
-                try:
+                with contextlib.suppress(sqlite3.Error):
                     conn.rollback()
-                except sqlite3.Error:
-                    pass
 
     def _run_checkpoint(self, conn: sqlite3.Connection) -> None:
         """Run a passive WAL checkpoint to bound WAL growth.
@@ -634,7 +629,7 @@ class HistoryDB:
         fn: Callable[[sqlite3.Connection], Any],
         *,
         wait: bool = True,
-    ) -> Optional[Any]:
+    ) -> Any | None:
         """Submit a write closure to the writer thread.
 
         Parameters
@@ -664,7 +659,7 @@ class HistoryDB:
                 "[HISTORY_DB] Write submitted after shutdown — dropped."
             )
             return None
-        future: Optional[concurrent.futures.Future] = None
+        future: concurrent.futures.Future | None = None
         if wait:
             future = concurrent.futures.Future()
         self._queue.put((fn, future))
@@ -682,7 +677,7 @@ class HistoryDB:
                 if not self._writer_thread.is_alive():
                     raise HistoryDBError(
                         "HistoryDB writer thread is dead; write did not complete"
-                    )
+                    ) from None
                 # Writer still alive — keep waiting (rare; means a
                 # prior write is taking a very long time, e.g. a
                 # multi-batch retention sweep on a huge DB).
@@ -703,11 +698,8 @@ class HistoryDB:
         """
         if self._shutdown.is_set():
             return
-        try:
+        with contextlib.suppress(HistoryDBError):
             self._submit_write(lambda conn: None, wait=True)
-        except HistoryDBError:
-            # Writer is dead — nothing to flush.
-            pass
 
     # ──────────────────────────────────────────────────────────────
     # Lifecycle
@@ -715,10 +707,8 @@ class HistoryDB:
 
     def __del__(self):
         """Ensure all connections are closed on GC to prevent ResourceWarning."""
-        try:
+        with contextlib.suppress(Exception):
             self.close()
-        except Exception:
-            pass
 
     def close(self):
         """Shut down the writer thread and close all connections.
@@ -731,10 +721,8 @@ class HistoryDB:
             # Already closed — just make sure read conns are gone.
             with self._connections_lock:
                 for conn in self._all_read_connections:
-                    try:
+                    with contextlib.suppress(sqlite3.Error):
                         conn.close()
-                    except sqlite3.Error:
-                        pass
                 self._all_read_connections.clear()
             return
         self._shutdown.set()
@@ -761,18 +749,14 @@ class HistoryDB:
                 )
         # Close the current thread's read connection first (if any).
         if hasattr(self._read_local, 'conn') and self._read_local.conn is not None:
-            try:
+            with contextlib.suppress(sqlite3.Error):
                 self._read_local.conn.close()
-            except sqlite3.Error:
-                pass
             self._read_local.conn = None
         # Then close all other read connections tracked across threads.
         with self._connections_lock:
             for conn in self._all_read_connections:
-                try:
+                with contextlib.suppress(sqlite3.Error):
                     conn.close()
-                except sqlite3.Error:
-                    pass
             self._all_read_connections.clear()
 
     # ──────────────────────────────────────────────────────────────

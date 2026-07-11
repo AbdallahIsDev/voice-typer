@@ -21,14 +21,15 @@ the relevant functions rather than being captured at import time.
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 import threading
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from voice_typer.server import task_scheduler
-from voice_typer.server.platform_utils import is_windows
 from voice_typer.server.branding import APP_NAME
+from voice_typer.server.platform_utils import is_windows
 from voice_typer.server.server_platform import create_launcher_shortcut
 
 log = logging.getLogger(__name__)
@@ -44,7 +45,7 @@ log = logging.getLogger(__name__)
 # of each process). The cache is best-effort: a permanent load failure
 # (non-macOS, missing framework) leaves this as ``None`` and the pulse
 # falls through to the "fail safe (assume not granted)" branch.
-_APP_SERVICES_LIB: Optional[Any] = None
+_APP_SERVICES_LIB: Any | None = None
 _APP_SERVICES_LIB_LOADED: bool = False
 
 
@@ -67,7 +68,7 @@ def sync_autostart(app: Any) -> None:
         log.warning("[CONFIG] Autostart sync failed: %s", e)
 
 
-def sync_prewarm_task(app: Any, shutdown_event: Optional[Any] = None) -> None:
+def sync_prewarm_task(app: Any, shutdown_event: Any | None = None) -> None:
     """Ensure the OS prewarm scheduled task is registered.
 
     fast_startup is always enabled (no user toggle). The prewarm
@@ -105,7 +106,7 @@ def ensure_desktop_shortcut(app: Any) -> None:
     if not is_windows():
         return
     desktop = Path.home() / "Desktop"
-    lnk_path = desktop / "Voice Typer.lnk"
+    desktop / "Voice Typer.lnk"
     legacy_bat = desktop / "Voice Typer.bat"
 
     # 1. Migrate: remove the legacy backend-only .bat so the broken
@@ -128,7 +129,7 @@ def ensure_desktop_shortcut(app: Any) -> None:
         log.debug("[STARTUP] Desktop shortcut creation skipped: %s", e)
 
 
-def load_microphones(app: Any, shutdown_event: Optional[Any] = None) -> None:
+def load_microphones(app: Any, shutdown_event: Any | None = None) -> None:
     """Enumerate microphones and update the tray menu.
 
     RACE-020: accepts an optional shutdown_event so the task can
@@ -306,23 +307,19 @@ def start_accessibility_pulse(app: Any, initial_state: bool) -> None:
             if current != last_state:
                 if current:
                     log.info("[PLAT-009] macOS Accessibility permission granted")
-                    try:
+                    with contextlib.suppress(Exception):
                         app.tray.notify(
                             APP_NAME,
                             "Accessibility permission granted. Hotkeys are now active.",
                         )
-                    except Exception:
-                        pass
                 else:
                     log.warning("[PLAT-009] macOS Accessibility permission revoked")
-                    try:
+                    with contextlib.suppress(Exception):
                         app.tray.notify_safety(
                             f"{APP_NAME} — Accessibility Revoked",
                             "Global hotkeys have been disabled. Open System Settings "
                             "\u2192 Privacy & Security \u2192 Accessibility to re-grant.",
                         )
-                    except Exception:
-                        pass
                 last_state = current
 
     t = threading.Thread(target=_pulse_loop, daemon=True, name="A11yPulse")
