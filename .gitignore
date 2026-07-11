@@ -69,6 +69,9 @@ coverage.xml
 
 # Workspace Manager
 .workspace/
+
+# Git worktrees — sibling worktree roots live under .worktree/
+.worktree/
 README.ws.md
 bubble.md
 archive/deleted_files.txt
