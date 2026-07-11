@@ -402,9 +402,9 @@
 		"notificationsDescription": "Show a desktop notification when transcription completes or an error occurs.",
 		"trayClick": "Tray Click",
 		"trayClickDescription": "What happens when you left-click the Voice Typer icon in the system tray.",
-		"generalDescription": "Behavior, startup, and appearance.",
+		"generalDescription": "Configure how Voice Typer starts, behaves at login, and interacts with your system.",
 		"overlay": "Overlay",
-		"overlayDescription": "Floating recording bubble.",
+		"overlayDescription": "Control how the floating recording indicator appears and behaves on screen.",
 		"bubbleBehaviorLabel": "Bubble Behavior",
 		"bubbleBehaviorInfo": "Show the bubble only while recording, or keep it visible at all times.",
 		"bubblePositionLabel": "Bubble Position",
@@ -414,7 +414,7 @@
 		"dragToMove": "Drag to Move",
 		"dragToMoveInfo": "Allow dragging the bubble with your mouse to reposition it on screen.",
 		"postProcessing": "Post-Processing",
-		"postProcessingDescription": "Cleanup, corrections, and language.",
+		"postProcessingDescription": "Fine-tune how transcriptions are cleaned up, corrected, and formatted.",
 		"autoPunctuation": "Auto Punctuation",
 		"autoPunctuationInfo": "Add periods, commas, and question marks automatically.",
 		"textCleanupLabel": "Text Cleanup",
@@ -424,7 +424,7 @@
 		"vocabulary": "Vocabulary",
 		"vocabularyInfo": "Custom word replacements so the transcription uses your preferred terms.",
 		"llmPolishing": "LLM Polishing",
-		"llmPolishingDescription2": "AI-powered transcription enhancement.",
+		"llmPolishingDescription2": "Use an AI language model to polish and refine your transcriptions.",
 		"enable": "Enable",
 		"enableInfo": "Use an AI language model to clean up and improve the transcribed text. Requires an API key.",
 		"apiKey": "API Key",
@@ -460,7 +460,7 @@
 		"tabsAria": "Settings tabs",
 		"appearance": {
 			"title": "Appearance",
-			"description": "Color scheme, theme preset, and text sizing.",
+			"description": "Customize the look and feel — color scheme, theme presets, and text size.",
 			"colorScheme": "Color Scheme",
 			"colorSchemeInfo": "Switch between light, dark, or follow your system setting.",
 			"colorSchemeAria": "Color Scheme",
@@ -491,7 +491,7 @@
 			"dictationKeyInfoSearch": "The keyboard key used to start and stop recording.",
 			"dictationKeyAria": "Dictation key",
 			"recordingTitle": "Hotkeys & Recording",
-			"recordingDescription": "Behavior, shortcuts, and silence handling.",
+			"recordingDescription": "Configure recording shortcuts, silence auto-stop, and audio feedback preferences.",
 			"recordingMode": "Recording Mode",
 			"recordingModeInfo": "Toggle: press the key once to start and again to stop. Push-to-talk: hold the key while speaking.",
 			"recordingModeInfoSearch": "Tap to Record: press the key once to start and again to stop. Push to Talk: hold the key while speaking.",
@@ -520,9 +520,9 @@
 			"silenceWarningInfo": "Seconds of silence before showing a warning to help catch microphone issues.",
 			"silenceWarningAria": "Silence Warning Seconds",
 			"maxRecordingTime": "Max Recording Time",
-			"maxRecordingTimeInfo": "Maximum recording time limit in seconds (300–3600).",
-			"maxRecordingTimeInfoSearch": "Maximum recording time limit in seconds.",
-			"maxRecordingTimeAria": "Max Recording Time Seconds",
+			"maxRecordingTimeInfo": "Maximum recording time limit in minutes (5–60).",
+			"maxRecordingTimeInfoSearch": "Maximum recording time limit in minutes.",
+			"maxRecordingTimeAria": "Max Recording Time Minutes",
 			"stopOnSilence": "Stop on Silence",
 			"stopOnSilenceInfo": "Automatically stop recording after this many seconds of silence.",
 			"stopOnSilenceAria": "Stop on Silence Seconds"
@@ -656,7 +656,7 @@
 		},
 		"privacy": {
 			"audioRecoveryTitle": "Audio & Recovery",
-			"audioRecoveryDescription": "Quality monitoring and safety.",
+			"audioRecoveryDescription": "Monitor recording quality and safeguard your transcriptions against crashes.",
 			"crashRecovery": "Crash Recovery",
 			"crashRecoveryInfo": "Save recent transcriptions so they can be recovered if the app crashes before you paste them.",
 			"crashRecoveryInfoSearch": "Save recent transcriptions so they can be recovered.",
@@ -740,6 +740,8 @@
 		}
 	},
 	"models": {
+		"asrTitle": "ASR Models",
+		"asrSubtitle": "Configure local on-device models and cloud ASR providers.",
 		"title": "Models",
 		"description": "Configure your speech-to-text engines",
 		"active": "Active",
@@ -1051,7 +1053,8 @@
 		"forward": "Forward (or mouse forward button)"
 	},
 	"bubble": {
-		"recordingIndicatorAria": "Voice Typer recording indicator"
+		"recordingIndicatorAria": "Voice Typer recording indicator",
+		"transcribingLabel": "Transcribing"
 	},
 	"errorBoundary": {
 		"title": "Something went wrong",

@@ -191,7 +191,7 @@ const baseConfig: VoiceTyperConfig = {
 	silence_warning_seconds: 0,
 	stop_on_silence_seconds: 0,
 	// SIMPLIFY-001: single explicit field replaces the old 3-field split
-	max_recording_time_seconds: 1200,
+	max_recording_time_seconds: 900,
 	volume_duck_enabled: false,
 	volume_duck_level: 0,
 	volume_duck_per_session: false,

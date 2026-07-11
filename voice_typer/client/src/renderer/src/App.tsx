@@ -28,13 +28,21 @@ import OnboardingPage from "@/pages/Onboarding";
 import SettingsPage from "@/pages/Settings";
 import TemplatesPage from "@/pages/Templates";
 import VocabularyPage from "@/pages/Vocabulary";
+import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { Page, WindowBridge } from "@/types/ipc";
-
 export default function App() {
 	// ── Routing (extracted to useNavigation) ──────────────────────
 	const { currentPage, navigate, goBack, goForward, canGoBack, canGoForward } =
 		useNavigation();
+
+	// ── Route guard: protect onboarding from completed users ─────
+	const config = useAppStore((s) => s.config);
+	useEffect(() => {
+		if (currentPage === "onboarding" && config?.onboarding_completed === true) {
+			navigate("home");
+		}
+	}, [currentPage, config, navigate]);
 
 	// SOUND-FIX-004: App-level sound feedback subscription.  Previously
 	// lived in Home.tsx, so cues only played when the user was on Home.

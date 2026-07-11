@@ -265,8 +265,8 @@
 			"silenceWarningInfo": "माइक्रोफ़ोन समस्याओं को पकड़ने में मदद के लिए चेतावनी दिखाने से पहले मौन के सेकंड।",
 			"silenceWarningAria": "मौन चेतावनी सेकंड",
 			"maxRecordingTime": "अधिकतम अवधि",
-			"maxRecordingTimeInfo": "सेकंड में अधिकतम रिकॉर्डिंग समय (300–3600).",
-			"maxRecordingTimeInfoSearch": "सेकंड में अधिकतम रिकॉर्डिंग समय.",
+			"maxRecordingTimeInfo": "मिनटों में अधिकतम रिकॉर्डिंग समय (5–60).",
+			"maxRecordingTimeInfoSearch": "मिनटों में अधिकतम रिकॉर्डिंग समय.",
 			"maxRecordingTimeAria": "अधिकतम रिकॉर्डिंग अवधि",
 			"stopOnSilence": "स्वतः रोकें",
 			"stopOnSilenceInfo": "इतने सेकंड के मौन के बाद स्वतः रिकॉर्डिंग रोकें।",
@@ -486,6 +486,8 @@
 		"allChangesSaved": "All changes saved"
 	},
 	"models": {
+		"asrTitle": "ASR मॉडल",
+		"asrSubtitle": "स्थानीय ऑन-डिवाइस मॉडल और क्लाउड ASR प्रदाताओं को कॉन्फ़िगर करें.",
 		"title": "मॉडल",
 		"download": {
 			"resumeAria": "Resume download",
@@ -849,7 +851,8 @@
 		"forward": "Forward (or mouse forward button)"
 	},
 	"bubble": {
-		"recordingIndicatorAria": "Voice Typer recording indicator"
+		"recordingIndicatorAria": "Voice Typer recording indicator",
+		"transcribingLabel": "लिखा जा रहा है"
 	},
 	"errorBoundary": {
 		"title": "Something went wrong",

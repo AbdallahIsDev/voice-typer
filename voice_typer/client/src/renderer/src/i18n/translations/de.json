@@ -265,8 +265,8 @@
 			"silenceWarningInfo": "Sekunden Stille, bevor eine Warnung angezeigt wird, um Mikrofonprobleme zu erkennen.",
 			"silenceWarningAria": "Stille-Warnung Sekunden",
 			"maxRecordingTime": "Maximale Dauer",
-			"maxRecordingTimeInfo": "Maximale Aufnahmedauer in Sekunden (300–3600).",
-			"maxRecordingTimeInfoSearch": "Maximale Aufnahmedauer in Sekunden.",
+			"maxRecordingTimeInfo": "Maximale Aufnahmedauer in Minuten (5–60).",
+			"maxRecordingTimeInfoSearch": "Maximale Aufnahmedauer in Minuten.",
 			"maxRecordingTimeAria": "Maximale Aufnahmedauer",
 			"stopOnSilence": "Automatischer Stopp",
 			"stopOnSilenceInfo": "Aufnahme nach dieser Anzahl Sekunden Stille automatisch stoppen.",
@@ -486,6 +486,8 @@
 		"allChangesSaved": "All changes saved"
 	},
 	"models": {
+		"asrTitle": "ASR-Modelle",
+		"asrSubtitle": "Lokale On-Device-Modelle und Cloud-ASR-Anbieter konfigurieren.",
 		"title": "Modelle",
 		"download": {
 			"resumeAria": "Resume download",
@@ -1000,7 +1002,8 @@
 		"forward": "Forward (or mouse forward button)"
 	},
 	"bubble": {
-		"recordingIndicatorAria": "Voice Typer recording indicator"
+		"recordingIndicatorAria": "Voice Typer recording indicator",
+		"transcribingLabel": "Transkribieren"
 	},
 	"errorBoundary": {
 		"title": "Something went wrong",

@@ -79,8 +79,20 @@
 		"deviceDescription": "Вычислительное устройство для расшифровки",
 		"silenceWarning": "Предупреждение о тишине",
 		"silenceWarningDescription": "Предупреждать, когда речь не обнаружена в течение указанного количества секунд",
-		"autoStop": "Автоостановка через",
-		"autoStopDescription": "Автоматически останавливать запись через указанное время",
+		"stopOnSilence": "Автоостановка через",
+		"stopOnSilenceDescription": "Автоматически останавливать запись через указанное время",
+		"hotkeySection": {
+			"silenceWarning": "Предупреждение о тишине",
+			"silenceWarningInfo": "Секунды тишины перед предупреждением — помогает выявить проблемы с микрофоном.",
+			"silenceWarningAria": "Секунды до предупреждения о тишине",
+			"stopOnSilence": "Автоостановка при тишине",
+			"stopOnSilenceInfo": "Автоматически остановить запись после указанного количества секунд тишины.",
+			"stopOnSilenceAria": "Секунды до автоостановки при тишине",
+			"maxRecordingTime": "Макс. время записи",
+			"maxRecordingTimeInfo": "Максимальное время записи в минутах (5–60).",
+			"maxRecordingTimeInfoSearch": "Максимальное время записи в минутах.",
+			"maxRecordingTimeAria": "Макс. время записи в минутах"
+		},
 		"bubble": "Всплывающий пузырёк",
 		"bubblePosition": "Положение пузырька",
 		"bubblePositionDescription": "Где появляется плавающий пузырёк на экране",
@@ -190,6 +202,8 @@
 		"allChangesSaved": "All changes saved"
 	},
 	"models": {
+		"asrTitle": "Модели ASR",
+		"asrSubtitle": "Настройте локальные модели на устройстве и облачных провайдеров ASR.",
 		"title": "Модели",
 		"download": {
 			"resumeAria": "Resume download",
@@ -490,7 +504,8 @@
 		"forward": "Forward (or mouse forward button)"
 	},
 	"bubble": {
-		"recordingIndicatorAria": "Voice Typer recording indicator"
+		"recordingIndicatorAria": "Voice Typer recording indicator",
+		"transcribingLabel": "Расшифровка"
 	},
 	"errorBoundary": {
 		"title": "Something went wrong",

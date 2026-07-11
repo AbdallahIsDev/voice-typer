@@ -184,6 +184,47 @@ export default function SettingsPage({
 	};
 	const [activeTab, setActiveTab] = useState<SettingsTab>(getSavedTab);
 
+	// NEW-UX-SCROLL: preserve scroll position when switching tabs so the
+	// user doesn't start from the top every time they switch sections.
+	// Tracks scrollTop per tab and restores it after the new tab renders.
+	const scrollPositionsRef = useRef<Record<SettingsTab, number>>({
+		appearance: 0,
+		general: 0,
+		aiAudio: 0,
+		privacy: 0,
+	});
+	const prevTabRef = useRef(activeTab);
+
+	const handleTabChange = useCallback(
+		(tab: SettingsTab) => {
+			// Save current scroll position before switching
+			const mainEl = document.getElementById("main-content");
+			if (mainEl) {
+				scrollPositionsRef.current[activeTab] = mainEl.scrollTop;
+			}
+			setActiveTab(tab);
+		},
+		[activeTab],
+	);
+
+	// Restore scroll position after the new tab's content has rendered.
+	// Uses requestAnimationFrame to wait for the DOM to settle after
+	// the conditional sections mount/unmount.
+	useEffect(() => {
+		if (prevTabRef.current !== activeTab) {
+			prevTabRef.current = activeTab;
+			const saved = scrollPositionsRef.current[activeTab];
+			if (saved > 0) {
+				requestAnimationFrame(() => {
+					const mainEl = document.getElementById("main-content");
+					if (mainEl) {
+						mainEl.scrollTop = saved;
+					}
+				});
+			}
+		}
+	}, [activeTab]);
+
 	// Persist tab changes to localStorage so the choice survives navigation.
 	useEffect(() => {
 		try {
@@ -662,7 +703,7 @@ export default function SettingsPage({
 							{ value: "privacy", label: t("settings.tabs.privacy") },
 						]}
 						value={activeTab}
-						onChange={setActiveTab}
+						onChange={handleTabChange}
 						ariaLabel={t("settings.tabsAria")}
 						indicatorClassName="bg-input/50"
 						labelClassName="flex-1 text-center"

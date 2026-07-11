@@ -851,9 +851,13 @@ export default function ModelsPage() {
 	interface ModelFamily {
 		id: string;
 		name: string;
-		description: string | null;
 		variants: ModelInfo[];
 	}
+
+	const DISPLAY_NAMES: Record<string, string> = {
+		qwen: "Qwen3-ASR-1.7B",
+		parakeet: "NVIDIA Parakeet TDT v3",
+	};
 
 	function groupModelsByFamily(models: ModelInfo[]): ModelFamily[] {
 		const whisper = models.filter(
@@ -866,7 +870,6 @@ export default function ModelsPage() {
 			families.push({
 				id: "whisper",
 				name: "Whisper",
-				description: `by OpenAI — ${whisper.length} variants available`,
 				variants: whisper,
 			});
 		}
@@ -874,7 +877,6 @@ export default function ModelsPage() {
 			families.push({
 				id: "qwen",
 				name: "Qwen",
-				description: null,
 				variants: qwen,
 			});
 		}
@@ -882,7 +884,6 @@ export default function ModelsPage() {
 			families.push({
 				id: "parakeet",
 				name: "Parakeet",
-				description: "by NVIDIA",
 				variants: parakeet,
 			});
 		}
@@ -979,6 +980,17 @@ export default function ModelsPage() {
 	};
 
 	const modelFamilies = groupModelsByFamily(models);
+	const activeModel = models.find((m) => m.isActive);
+	const activeFamilyId = activeModel
+		? modelFamilies.find((f) =>
+				f.variants.some((v) => v.name === activeModel.name),
+			)?.id
+		: undefined;
+	const defaultAccordionValue = activeFamilyId
+		? [activeFamilyId]
+		: modelFamilies.length > 0
+			? [modelFamilies[0].id]
+			: [];
 	return (
 		<>
 			{/* Fixed tab bar at the top */}
@@ -1061,9 +1073,24 @@ export default function ModelsPage() {
 							)}
 
 							{/* Model Cards — grouped by family using shadcn Accordion */}
+							{downloadingModel && (
+								<div className="rounded-lg border border-border bg-(--bg-subtle) p-4">
+									<DownloadProgressBar
+										progress={downloadProgress}
+										status={downloadStatus}
+										isPaused={isPaused}
+										downloadedBytes={downloadedBytes}
+										totalBytes={totalBytes}
+										speedBps={speedBps}
+										etaSeconds={etaSeconds}
+										onTogglePause={handleTogglePause}
+										onCancel={handleCancelDownload}
+									/>
+								</div>
+							)}
 							<Accordion
 								type="multiple"
-								defaultValue={modelFamilies.map((f) => f.id)}
+								defaultValue={defaultAccordionValue}
 								className="rounded-lg border border-border bg-(--bg-subtle)"
 							>
 								{modelFamilies.map((family) => (
@@ -1074,11 +1101,6 @@ export default function ModelsPage() {
 									>
 										<AccordionTrigger className="px-3.5 py-2.5 text-sm font-semibold text-(--text-primary) hover:no-underline hover:bg-black/2 dark:hover:bg-white/5 data-open:bg-transparent">
 											{family.name}
-											{family.description && (
-												<span className="text-xs text-(--text-muted) font-normal ml-2">
-													{family.description}
-												</span>
-											)}
 										</AccordionTrigger>
 										<AccordionContent className="px-0 pb-0 divide-y divide-border">
 											{family.variants.map((model) => {
@@ -1097,7 +1119,7 @@ export default function ModelsPage() {
 															<div className="flex-1 min-w-0">
 																<div className="flex items-center gap-2">
 																	<h4 className="text-sm font-semibold text-(--text-primary) truncate">
-																		{model.name}
+																		{DISPLAY_NAMES[model.name] ?? model.name}
 																	</h4>
 																	{badge && (
 																		<output

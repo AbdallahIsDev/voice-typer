@@ -1,4 +1,4 @@
-"""Qwen3-ASR-0.6B transcription engine — optional backend alongside Whisper.
+"""Qwen3-ASR-1.7B transcription engine — optional backend alongside Whisper.
 
 This module is entirely self-contained.  If the ``qwen-asr`` package is not
 installed, import still succeeds — the engine simply won't be loadable.
@@ -51,7 +51,7 @@ _QWEN_CHUNK_OVERLAP_SECONDS = 3
 
 
 class QwenEngine:
-    """Wraps Qwen3-ASR-0.6B model loading and transcription.
+    """Wraps Qwen3-ASR-1.7B model loading and transcription.
 
     Provides the same ``transcribe(audio) -> str`` interface as
     ``TranscriptionEngine`` so the app can swap backends transparently.

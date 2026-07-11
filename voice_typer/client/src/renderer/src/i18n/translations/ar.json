@@ -265,8 +265,8 @@
 			"silenceWarningInfo": "ثواني الصمت قبل إظهار تحذير للمساعدة في اكتشاف مشاكل الميكروفون.",
 			"silenceWarningAria": "ثواني تحذير الصمت",
 			"maxRecordingTime": "المدة القصوى",
-			"maxRecordingTimeInfo": "الحد الأقصى لمدة التسجيل بالثواني (300–3600).",
-			"maxRecordingTimeInfoSearch": "الحد الأقصى لمدة التسجيل بالثواني.",
+			"maxRecordingTimeInfo": "الحد الأقصى لمدة التسجيل بالدقائق (5–60).",
+			"maxRecordingTimeInfoSearch": "الحد الأقصى لمدة التسجيل بالدقائق.",
 			"maxRecordingTimeAria": "أقصى مدة تسجيل",
 			"stopOnSilence": "الإيقاف التلقائي",
 			"stopOnSilenceInfo": "أوقف التسجيل تلقائيًا بعد هذا العدد من الثواني من الصمت.",
@@ -486,6 +486,8 @@
 		"allChangesSaved": "All changes saved"
 	},
 	"models": {
+		"asrTitle": "نماذج ASR",
+		"asrSubtitle": "تكوين النماذج المحلية على الجهاز ومزودي ASR السحابيين.",
 		"title": "النماذج",
 		"download": {
 			"resumeAria": "استئناف التحميل",
@@ -1000,7 +1002,8 @@
 		"forward": "Forward (or mouse forward button)"
 	},
 	"bubble": {
-		"recordingIndicatorAria": "Voice Typer recording indicator"
+		"recordingIndicatorAria": "Voice Typer recording indicator",
+		"transcribingLabel": "جارٍ الكتابة"
 	},
 	"errorBoundary": {
 		"title": "Something went wrong",
