@@ -202,6 +202,15 @@ def _validate_env_vars() -> None:
 class VoiceTyperApp:
     """The main application."""
 
+    # PERF-BUBBLE-001 (Round 0 forward-port): declared at class scope
+    # (not just in __init__) so ``MagicMock(spec=VoiceTyperApp)`` in
+    # ``tests/test_waveform_bubble.py`` auto-creates a truthy mock
+    # attribute instead of raising AttributeError when
+    # ``_push_bubble_level`` reads it. ``__init__`` re-sets it to
+    # ``False`` on real instances so the level-push gate fires until
+    # the bubble is shown.
+    _bubble_visible: bool = False
+
     def __init__(self):
         self.config = Config.load()
 
@@ -364,6 +373,10 @@ class VoiceTyperApp:
         # initializing it to ``None`` here means pyrefly sees the
         # attribute exists on every instance, satisfying the protocol.
         self._ipc_server: Any | None = None
+        # PERF-BUBBLE-001 (Round 0 forward-port): instance-level reset so
+        # the level-push gate fires until the bubble is shown.  The class
+        # attribute above is only for MagicMock(spec=...) compatibility.
+        self._bubble_visible: bool = False
         # ARCH-011: eager-init managers so config changes between
         # startup and first dictation are reflected.  Previously these
         # were lazy-init on first use, which meant a config change
@@ -568,13 +581,32 @@ class VoiceTyperApp:
         from voice_typer.server.ipc_server import _push_event_now
 
         def _push_bubble_show() -> None:
+            # PERF-BUBBLE-001 (Round 0 forward-port): mark the bubble as
+            # visible so the level pusher (firing from the audio callback
+            # at ~60 Hz) starts forwarding samples again. Paired with
+            # _push_bubble_hide.
+            self._bubble_visible = True
             sent = _push_event_now({"type": "bubble_show"})
             log.info("[WAVEFORM] bubble.show() fired; push=%s", "OK" if sent else "NO IPC")
 
         def _push_bubble_hide() -> None:
+            # PERF-BUBBLE-001 (Round 0 forward-port): mark hidden first
+            # so any in-flight _push_bubble_level call queued behind this
+            # hide sees the updated flag and skips its IPC push.
+            self._bubble_visible = False
             _push_event_now({"type": "bubble_hide"})
 
         def _push_bubble_level(rms: float, peak: float) -> None:
+            # PERF-BUBBLE-001 (Round 0 forward-port): early-return when
+            # the bubble is hidden. The audio callback fires this
+            # listener at the device's native chunk rate (~31 Hz @ 16 kHz
+            # / blocksize 512, ~94 Hz @ 48 kHz). When the bubble isn't on
+            # screen, every push wastes CPU on json.dumps + queue.put +
+            # IPC writer thread wake-up, and Electron has to receive and
+            # discard the message. Gating here eliminates ~60 Hz of
+            # wasted IPC while the user is not dictating.
+            if not self._bubble_visible:
+                return
             # PERF-NEW-001 / PERF-NEW-015: this callback fires from the
             # PortAudio thread at the device's native chunk rate
             # (~31 Hz @ 16 kHz / blocksize 512, ~94 Hz @ 48 kHz).
@@ -1550,6 +1582,33 @@ class VoiceTyperApp:
                 self.history_db.flush()
         except Exception as e:
             log.warning("[SHUTDOWN] history DB flush failed: %s", e)
+
+        # ARCH-1A-011 (Round 0 forward-port): close the history DB's
+        # read connections after flushing.  Each ``HistoryDB`` instance
+        # holds open SQLite read connections (one per thread that called
+        # ``get_recent`` / ``search``).  In production these are daemons
+        # so the OS cleans them up on exit, but explicit close() makes
+        # the shutdown deterministic (helpful for test suites that
+        # instantiate + tear down many VoiceTyperApp instances in a
+        # single process, and for ResourceWarning leak detection).
+        try:
+            if self.history_db is not None:
+                self.history_db.close()
+        except Exception as e:
+            log.debug("[SHUTDOWN] history DB close failed: %s", e)
+
+        # ARCH-1A-011 (Round 0 forward-port): stop the IPC server's TCP
+        # accept loop explicitly.  Without this, the accept loop survives
+        # the shutdown window (it blocks on ``server_sock.accept()``) and
+        # a reconnecting Electron client can race the cleanup, getting a
+        # half-torn-down app object.  ``stop()`` closes the listening
+        # socket, which unblocks the accept() call and lets the loop
+        # exit cleanly.  Safe to call when no server is running (no-op).
+        try:
+            if self._ipc_server is not None:
+                self._ipc_server.stop()
+        except Exception as e:
+            log.debug("[SHUTDOWN] IPC server stop failed: %s", e)
 
         # PERF-NEW-001: stop the bubble level worker so it doesn't
         # try to push to a torn-down IPC server during shutdown.
