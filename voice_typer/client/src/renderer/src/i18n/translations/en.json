@@ -49,7 +49,8 @@
 		"cancel": "Cancel",
 		"save": "Save",
 		"delete": "Delete",
-		"undo": "Undo"
+		"undo": "Undo",
+		"confirm": "Confirm"
 	},
 	"microphone": {
 		"description": "Select and test your microphone",

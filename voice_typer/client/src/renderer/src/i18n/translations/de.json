@@ -759,7 +759,8 @@
 		"cancel": "Abbrechen",
 		"save": "Speichern",
 		"delete": "Löschen",
-		"undo": "Rückgängig"
+		"undo": "Rückgängig",
+		"confirm": "Bestätigen"
 	},
 	"microphone": {
 		"description": "Mikrofon auswählen und testen",

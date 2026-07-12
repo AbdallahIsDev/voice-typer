@@ -552,5 +552,8 @@
 		"limiter": "限制器",
 		"limiterCeiling": "限制器上限",
 		"notchFilter": "陷波滤波器（嗡声）"
+	},
+	"common": {
+		"confirm": "确认"
 	}
 }

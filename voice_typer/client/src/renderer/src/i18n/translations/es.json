@@ -761,7 +761,8 @@
 		"cancel": "Cancelar",
 		"save": "Guardar",
 		"delete": "Eliminar",
-		"undo": "Deshacer"
+		"undo": "Deshacer",
+		"confirm": "Confirmar"
 	},
 	"microphone": {
 		"description": "Selecciona y prueba tu micrófono",

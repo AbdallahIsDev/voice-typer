@@ -759,7 +759,8 @@
 		"cancel": "Annuler",
 		"save": "Enregistrer",
 		"delete": "Supprimer",
-		"undo": "Annuler"
+		"undo": "Annuler",
+		"confirm": "Confirmer"
 	},
 	"microphone": {
 		"description": "Sélectionnez et testez votre microphone",
