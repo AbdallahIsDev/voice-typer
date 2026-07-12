@@ -60,12 +60,30 @@ class CrashRecovery:
     # ── Persistence ──────────────────────────────────────────────────
 
     def _load(self) -> None:
-        """Load recovery entries from disk."""
+        """Load recovery entries from disk.
+
+        SEC-audit-006 (Round 0 forward-port): uses
+        :func:`voice_typer.server.config._secure_read_text`
+        (POSIX ``O_NOFOLLOW`` + inode re-verification) to prevent a
+        symlink-TOCTOU attack where an attacker replaces the recovery
+        file with a symlink to a sensitive file (e.g.
+        ``~/.ssh/id_rsa``) between writes.  Previously this used
+        :meth:`pathlib.Path.read_text`, which silently followed
+        symlinks — inconsistent with :meth:`_save_sync`, which already
+        used :func:`_secure_atomic_write` (the write-side counterpart).
+        If ``_secure_read_text`` raises (symlink detected, inode
+        changed, or any other OSError/ValueError), the load fails
+        closed: ``_entries`` is reset to an empty list and a warning
+        is logged so the user knows their recovery state was discarded
+        rather than silently loaded from a tampered file.
+        """
         if not self._path.exists():
             self._entries = []
             return
         try:
-            data = json.loads(self._path.read_text(encoding="utf-8"))
+            from voice_typer.server.config import _secure_read_text
+            raw = _secure_read_text(self._path)
+            data = json.loads(raw)
             if isinstance(data, list):
                 self._entries = data
             elif isinstance(data, dict) and "entries" in data:
@@ -398,10 +416,33 @@ class CrashRecovery:
                 if config_path.exists():
                     try:
                         import json
-                        raw = config_path.read_text(encoding="utf-8")
+
+                        # SEC-audit-006 (Round 0 forward-port): use
+                        # _secure_read_text to prevent symlink TOCTOU on
+                        # the config file (matches _load() above).
+                        from voice_typer.server.config import _secure_read_text
+                        raw = _secure_read_text(config_path)
                         data = json.loads(raw)
-                        # Redact sensitive keys
-                        for key in ("llm_api_key", "openai_api_key", "deepgram_api_key"):
+                        # SEC-audit-006: redact ALL secret fields via the
+                        # shared _SECRET_CONFIG_FIELDS set (single source
+                        # of truth — ipc_server uses the same set when
+                        # echoing config back to the renderer).  Previously
+                        # only 3 of 5 fields were redacted, leaking
+                        # ``cloud_api_key`` and ``groq_api_key``.
+                        try:
+                            from voice_typer.server.ipc_server import (
+                                _SECRET_CONFIG_FIELDS,
+                            )
+                            secret_fields = _SECRET_CONFIG_FIELDS
+                        except ImportError:
+                            secret_fields = frozenset({
+                                "cloud_api_key",
+                                "openai_api_key",
+                                "groq_api_key",
+                                "deepgram_api_key",
+                                "llm_api_key",
+                            })
+                        for key in secret_fields:
                             if key in data and data[key]:
                                 data[key] = "[REDACTED]"
                         zf.writestr("config.json", json.dumps(data, indent=2))

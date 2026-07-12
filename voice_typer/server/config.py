@@ -1053,6 +1053,44 @@ class Config:
                             corrections,
                         )
                         data["corrections_path"] = None
+                    else:
+                        # SEC-audit-006 (Round 0 forward-port — M6):
+                        # defense-in-depth path-traversal check.
+                        # ``corrections_path`` is NOT in the IPC
+                        # allowlist (can only be set via direct
+                        # ``config.json`` edit), but a user who
+                        # manually edits the config could point it at
+                        # an arbitrary file.  The :mod:`text_cleanup`
+                        # module reads + applies corrections from this
+                        # file, so a malicious or accidentally-
+                        # chosen path could expose sensitive data
+                        # (e.g. log transcription text being matched
+                        # against /etc/passwd contents).  Restrict the
+                        # path to the user's home directory or the
+                        # config directory — both are user-writable
+                        # locations where the user has explicitly
+                        # chosen to store data.
+                        try:
+                            cp_resolved = cp.resolve()
+                            allowed_roots = [
+                                Path.home().resolve(),
+                                _config_dir().resolve(),
+                            ]
+                            if not any(
+                                _is_path_within(cp_resolved, root)
+                                for root in allowed_roots
+                            ):
+                                raise ValueError(
+                                    "corrections_path must be within the "
+                                    "user home or config directory"
+                                )
+                        except ValueError as exc:
+                            log.warning(
+                                "[CONFIG] Config corrections_path=%s "
+                                "rejected: %s, resetting to None",
+                                corrections, exc,
+                            )
+                            data["corrections_path"] = None
 
                 # SEC-009: Warn the user about privacy implications when
                 # log_transcriptions is enabled.  Transcription text may

@@ -16,7 +16,7 @@ Pipeline order: transcribe → text cleanup → vocabulary → templates → LLM
 import json
 import logging
 from urllib.error import URLError
-from urllib.request import Request, urlopen
+from urllib.request import HTTPSHandler, Request, build_opener
 
 from voice_typer.server._secrets import (
     assert_url_allowed,
@@ -25,6 +25,21 @@ from voice_typer.server._secrets import (
 )
 
 log = logging.getLogger(__name__)
+
+# SEC-audit-006 (Round 0 forward-port): use a dedicated opener that does NOT
+# include ``HTTPRedirectHandler``.  The default ``urllib.request.urlopen()``
+# follows 3xx redirects silently, and our URL allowlist is only checked on
+# the *initial* request — a malicious or compromised LLM endpoint could
+# return ``302 Location: http://attacker.example.com/collect`` and
+# ``urllib`` would POST the request body (which contains the user's
+# transcribed text) to the attacker-controlled redirect target.  By
+# building the opener with only ``HTTPSHandler`` (no
+# ``HTTPRedirectHandler``), redirects are NOT followed and instead raise
+# ``HTTPError`` (30x), which the existing ``except`` branches handle.
+# This mirrors the pattern already used by
+# ``voice_typer.server.cloud_engines._opener`` for the main transcription
+# path; ``llm_polish._call_api`` was the last redirect-following path.
+_opener = build_opener(HTTPSHandler())
 
 # ─── Preset prompts ─────────────────────────────────────────────────────
 
@@ -172,7 +187,7 @@ class LLMPolisher:
         req = Request(self.api_url, data=payload, headers=headers, method="POST")
 
         try:
-            with urlopen(req, timeout=30) as resp:
+            with _opener.open(req, timeout=30) as resp:
                 # SEC-030: cap response at 50 MB to prevent OOM from
                 # a malicious / buggy LLM endpoint.
                 from voice_typer.server.cloud_engines import _read_capped

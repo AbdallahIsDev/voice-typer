@@ -63,6 +63,18 @@ def _find_symlink_in_tree(root):
     into symlinked directories, but it DOES include them in
     ``dirnames`` — so both symlinked files and symlinked directories
     are detected by this check.
+
+    SEC-audit-006 (Round 0 forward-port — H2 TOCTOU fix): the pre-flight
+    check performed by this function and the subsequent
+    :func:`shutil.copytree` call are two separate filesystem walks, so a
+    symlink created in the window between them would be silently followed
+    by ``copytree`` (because ``symlinks=False`` follows rather than
+    preserves).  The :func:`_safe_copy` function below is passed as
+    ``copytree``'s ``copy_function`` so the symlink check happens
+    atomically with the copy of each individual file — closing the
+    TOCTOU window.  The pre-flight check is kept as a fast-path rejection
+    (so a model dir FULL of symlinks is rejected before copying any
+    files), but the per-file ``_safe_copy`` is the authoritative gate.
     """
     import os
     for dirpath, dirnames, filenames in os.walk(root):
@@ -71,6 +83,30 @@ def _find_symlink_in_tree(root):
             if os.path.islink(full):
                 return full
     return None
+
+
+def _safe_copy(src, dst, *, follow_symlinks=True):
+    """SEC-audit-006 (Round 0 forward-port — H2 TOCTOU fix): race-free
+    symlink-rejecting ``copy_function`` for :func:`shutil.copytree`.
+
+    The pre-flight :func:`_find_symlink_in_tree` check and the
+    :func:`shutil.copytree` call are two separate filesystem walks, so a
+    symlink created in the window between them would be silently followed
+    by ``copytree`` (because ``symlinks=False`` follows rather than
+    preserves).  This function is passed as ``copytree``'s
+    ``copy_function``, so the symlink check happens atomically with the
+    copy of each individual file — closing the TOCTOU window.
+
+    Raises :class:`ValueError` if ``src`` is a symlink.  Otherwise
+    delegates to :func:`shutil.copy2` (preserves metadata).
+    """
+    import os
+    import shutil
+    if os.path.islink(src):
+        raise ValueError(
+            f"symlink detected during copy (TOCTOU-safe): {src}"
+        )
+    return shutil.copy2(src, dst, follow_symlinks=follow_symlinks)
 
 
 class VoiceTyperService:
@@ -1329,7 +1365,11 @@ class VoiceTyperService:
                 # follow it rather than preserve it as a symlink in the
                 # destination cache.  Combined with the check above, this
                 # means symlinks are never silently preserved.
-                shutil.copytree(src_path, dest, symlinks=False)
+                # SEC-audit-006 (Round 0 forward-port): pass ``_safe_copy``
+                # as the ``copy_function`` so each per-file copy atomically
+                # rejects symlinks (closes the TOCTOU window between
+                # ``_find_symlink_in_tree`` and ``copytree``'s internal walk).
+                shutil.copytree(src_path, dest, symlinks=False, copy_function=_safe_copy)
                 imported_models.append(model_name)
             except Exception as exc:
                 errors.append({"model": model_name, "error": str(exc)})

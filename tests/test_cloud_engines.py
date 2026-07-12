@@ -193,13 +193,16 @@ class TestCloudEngineKeyRedaction:
             api_key="sk-abcdefghijklmnopqrstuvwxyz1234567890ABCDEF",
             consent_given=True,
         )
-        # Patch urlopen to raise a URLError whose str includes the
+        # Patch _opener.open to raise a URLError whose str includes the
         # request URL (which the engine constructs with the key in
         # the Authorization header — not the URL, but if a future
         # change puts the key in the URL this test will catch it).
+        # SEC-audit-006: cloud_engines now uses ``_opener.open()`` (no
+        # redirect handler) instead of ``urlopen()`` for all HTTP egress
+        # paths, so we patch the opener's open method directly.
         key = engine.api_key
         with patch(
-            "voice_typer.server.cloud_engines.urlopen",
+            "voice_typer.server.cloud_engines._opener.open",
             side_effect=URLError("connection refused to https://api.openai.com/"),
         ):
             with pytest.raises(RuntimeError) as exc_info:
@@ -213,8 +216,9 @@ class TestCloudEngineKeyRedaction:
 
         key = "sk-abcdefghijklmnopqrstuvwxyz1234567890ABCDEF"
         engine = CloudEngine(provider="openai", api_key=key, consent_given=True)
+        # SEC-audit-006: test_connection now uses ``_opener.open()`` too.
         with patch(
-            "voice_typer.server.cloud_engines.urlopen",
+            "voice_typer.server.cloud_engines._opener.open",
             side_effect=URLError(f"refused: Bearer {key}"),
         ):
             success, msg = engine.test_connection()

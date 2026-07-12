@@ -16,7 +16,7 @@ import json
 import logging
 import threading
 from urllib.error import URLError
-from urllib.request import HTTPSHandler, Request, build_opener, urlopen
+from urllib.request import HTTPSHandler, Request, build_opener
 
 import numpy as np
 
@@ -588,7 +588,13 @@ class CloudEngine:
                 req = Request(
                     self.api_url, data=body, headers=headers, method="POST"
                 )
-            with urlopen(req, timeout=10) as resp:
+            # SEC-audit-006 (Round 0 forward-port): use ``_opener.open()``
+            # instead of default ``urlopen()`` so HTTP redirects are NOT
+            # followed (the URL allowlist is only checked on the initial
+            # request — a redirect to an attacker URL would otherwise POST
+            # the test payload there).  Mirrors ``_call_api`` in
+            # ``llm_polish.py`` and the main transcription path above.
+            with _opener.open(req, timeout=10) as resp:
                 return True, f"Connected to {self.provider} (status {resp.status})"
         except Exception as exc:
             # A 400/401/403/422 error means the server is reachable

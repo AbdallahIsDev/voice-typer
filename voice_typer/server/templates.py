@@ -88,12 +88,30 @@ class TemplateManager:
     # ── Persistence ──────────────────────────────────────────────────
 
     def _load(self) -> None:
-        """Load templates from JSON file."""
+        """Load templates from JSON file.
+
+        SEC-audit-006 (Round 0 forward-port): uses
+        :func:`voice_typer.server.config._secure_read_text`
+        (POSIX ``O_NOFOLLOW`` + inode re-verification) to prevent a
+        symlink-TOCTOU attack where an attacker replaces the templates
+        file with a symlink to a sensitive file (e.g.
+        ``~/.ssh/id_rsa``).  Previously this used
+        :meth:`pathlib.Path.read_text`, which silently followed
+        symlinks — inconsistent with :meth:`_save`, which already used
+        :func:`_secure_atomic_write` (the write-side counterpart).
+        If ``_secure_read_text`` raises (symlink detected, inode
+        changed, or any other OSError/ValueError), the load fails
+        closed: ``_templates`` is reset to an empty list and a warning
+        is logged so the user knows their templates were discarded
+        rather than silently loaded from a tampered file.
+        """
         if not self._path.exists():
             self._templates = []
             return
         try:
-            data = json.loads(self._path.read_text(encoding="utf-8"))
+            from voice_typer.server.config import _secure_read_text
+            raw = _secure_read_text(self._path)
+            data = json.loads(raw)
             if isinstance(data, list):
                 self._templates = data
             elif isinstance(data, dict) and "templates" in data:
