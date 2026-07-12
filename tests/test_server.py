@@ -1809,20 +1809,32 @@ class TestDispatchNonDictDataRobustness:
         assert result["type"] == "history"
 
     def test_delete_history_with_non_dict_data_returns_error(self, server, mock_app):
-        """delete_history with data=[1,2] should return an error, not crash."""
+        """delete_history with data=[1,2] should return an error, not crash.
+
+        ARCH-1A-002 (Round 0 forward-port): the @overload on
+        ``_validate_dict_payload`` makes the schema validator reject
+        non-dict data early with ``'data must be an object'`` (the
+        previous implementation fell through to the handler's per-field
+        ``Missing 'id'`` check).  Both responses are correct rejections;
+        the message just moved earlier in the pipeline.
+        """
         result = server._dispatch({
             "id": 1, "type": "delete_history", "data": [1, 2],
         })
         assert result["type"] == "error"
-        assert "Missing 'id'" in result["data"]["message"]
+        assert "data must be an object" in result["data"]["message"]
 
     def test_toggle_favorite_with_string_data_returns_error(self, server, mock_app):
-        """toggle_favorite with data="bad" should return an error."""
+        """toggle_favorite with data="bad" should return an error.
+
+        ARCH-1A-002 (Round 0 forward-port): same early-rejection change as
+        ``test_delete_history_with_non_dict_data_returns_error`` above.
+        """
         result = server._dispatch({
             "id": 1, "type": "toggle_favorite", "data": "bad",
         })
         assert result["type"] == "error"
-        assert "Missing 'id'" in result["data"]["message"]
+        assert "data must be an object" in result["data"]["message"]
 
     def test_search_history_with_list_data_does_not_crash(self, server, mock_app):
         """search_history with data=[1,2] should fall back to empty query."""
