@@ -88,4 +88,15 @@ contextBridge.exposeInMainWorld("bubble", {
 	resizeTo: (width: number, height: number) => {
 		ipcRenderer.send("bubble:resize", { width, height });
 	},
+	// NEW-A11Y-006 (Round 0 forward-port): keyboard-based move
+	// (accessibility alternative to drag). Main process clamps to
+	// screen bounds. Mirrors the implementation in preload/index.ts —
+	// included here so the bubble preload (which is intentionally
+	// narrower than preload/index.ts) still exposes the accessibility
+	// move channel that Bubble.tsx:210 relies on. Without this,
+	// ``window.bubble?.moveBy?.(...)`` silently no-ops and arrow-key
+	// bubble repositioning is dead in production.
+	moveBy: (deltaX: number, deltaY: number) => {
+		ipcRenderer.send("bubble:move-by", { deltaX, deltaY });
+	},
 });

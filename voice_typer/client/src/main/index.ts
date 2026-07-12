@@ -1505,7 +1505,18 @@ function startPython() {
 			// is the FALLBACK for the race where the event was lost (TCP
 			// closed before Electron processed the data).
 			pythonProcess = null;
-			if (!_relaunching) {
+			// P1-2c (Round 0 forward-port): also guard against
+			// `app.isQuitting` — the tray "Quit" path sends
+			// `quit_app` to Python, which then exits with code 0.
+			// Without this check, the clean-exit branch would
+			// treat the tray Quit as a lost "relaunch_electron"
+			// event and trigger an unwanted full app relaunch
+			// instead of letting the user-initiated quit
+			// complete.  The `app.isQuitting` flag is set in
+			// the `before-quit` handler (~line 2123) which
+			// fires synchronously when the `quit_app` IPC
+			// handler calls `app.quit()`.
+			if (!_relaunching && !app.isQuitting) {
 				console.warn(
 					"[RESTART] Python exited cleanly (code 0) — triggering full app relaunch",
 				);
@@ -1661,7 +1672,14 @@ function stopPython() {
 			pythonProcess = null;
 		}
 	}, 3000);
-	pythonProcess.on("exit", () => clearTimeout(killTimer));
+	// P1-2c (Round 0 forward-port): use `.once` so the listener is
+	// auto-removed after firing. `stopPython()` may be called more than
+	// once for the same live `pythonProcess` (e.g. shutdown sequence +
+	// before-quit handler), and `.on` would accumulate a fresh listener
+	// per call — eventually tripping Node's default maxListeners=10
+	// warning. `.once` ensures each registered listener fires at most
+	// one time and is then cleaned up.
+	pythonProcess.once("exit", () => clearTimeout(killTimer));
 }
 
 function broadcastMaximized(maximized: boolean) {

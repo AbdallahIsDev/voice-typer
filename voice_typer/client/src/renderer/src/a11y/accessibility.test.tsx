@@ -73,19 +73,38 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 
 describe("NEW-UX-012: Dialog accessibility", () => {
 	it('ConfirmDialog should have role="dialog" and aria-modal', () => {
-		const dialogPath = path.resolve(
+		// P1-2c (Round 0 forward-port): ConfirmDialog was moved to
+		// ``components/common/ConfirmDialog.tsx``.  Check the new path
+		// first, then fall back to the old path for backward
+		// compatibility with any branch that hasn't picked up the move.
+		const newPath = path.resolve(
 			__dirname,
 			"..",
 			"components",
+			"common",
 			"ConfirmDialog.tsx",
 		);
+		const dialogPath = fs.existsSync(newPath)
+			? newPath
+			: path.resolve(__dirname, "..", "components", "ConfirmDialog.tsx");
 		if (fs.existsSync(dialogPath)) {
 			const src = fs.readFileSync(dialogPath, "utf-8");
+			// ConfirmDialog uses Radix AlertDialog (via the
+			// ui/alert-dialog.tsx wrapper), which renders
+			// ``role="alertdialog"`` and ``aria-modal="true"``
+			// at runtime via AlertDialogPrimitive.Content.
+			// The role attribute is NOT in ConfirmDialog.tsx
+			// source — it's provided by the Radix primitive.
+			// Accept either an explicit role attribute OR
+			// evidence that the Radix AlertDialog is used
+			// (which guarantees the role at runtime).
 			expect(
 				src.includes('role="dialog"') ||
 					src.includes("role='dialog'") ||
 					src.includes('role="alertdialog"') ||
-					src.includes("role='alertdialog'"),
+					src.includes("role='alertdialog'") ||
+					src.includes("AlertDialog") ||
+					src.includes("AlertDialogContent"),
 			).toBe(true);
 		}
 	});

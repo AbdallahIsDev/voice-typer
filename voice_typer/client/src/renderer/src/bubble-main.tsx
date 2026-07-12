@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { Bubble } from "./Bubble";
+import { ErrorBoundary } from "./components/feedback/ErrorBoundary";
 import "./index.css";
 
 // console.warn('[bubble renderer] mounting')
@@ -17,8 +18,18 @@ const bubbleRootEl = document.getElementById(
 if (!bubbleRootEl)
 	throw new Error("Bubble root element #bubble-root not found in bubble.html");
 
+// P1-2c (Round 0 forward-port): wrap <Bubble /> in
+// <ErrorBoundary fallback={null}>. The bubble window is an
+// always-on-top transparent overlay — if its render crashes without an
+// error boundary, React unmounts the tree but the BrowserWindow itself
+// stays alive, leaving a stuck invisible overlay that intercepts
+// clicks. Rendering null on error makes the overlay visually disappear
+// (and the ErrorBoundary logs the caught error to the renderer console,
+// which Electron surfaces in the diagnostic log).
 ReactDOM.createRoot(bubbleRootEl).render(
 	<React.StrictMode>
-		<Bubble />
+		<ErrorBoundary fallback={null}>
+			<Bubble />
+		</ErrorBoundary>
 	</React.StrictMode>,
 );

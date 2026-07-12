@@ -9,6 +9,7 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { t } from "@/i18n/i18n";
 
 interface ConfirmDialogProps {
 	open: boolean;
@@ -23,10 +24,14 @@ interface ConfirmDialogProps {
 
 export default function ConfirmDialog({
 	open,
-	title = "Confirm",
+	// P1-2c (Round 0 forward-port): i18n the default labels so non-English
+	// users see localized button text even when the caller doesn't pass
+	// explicit labels.  The caller can still override with a custom string
+	// (e.g. a verb other than "delete") by passing the prop explicitly.
+	title = t("common.confirm"),
 	message,
-	confirmLabel = "Delete",
-	cancelLabel = "Cancel",
+	confirmLabel = t("common.delete"),
+	cancelLabel = t("common.cancel"),
 	variant = "destructive",
 	onConfirm,
 	onCancel,
