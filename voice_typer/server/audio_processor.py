@@ -88,9 +88,19 @@ class AudioProcessor:
     def process_chunk(self, chunk: np.ndarray) -> np.ndarray | None:
         """Apply the filter chain to a single audio chunk.
 
-        Returns the filtered chunk (same shape/dtype), or ``None`` if
-        a filter is buffering (e.g. RNNoise needs a full 480-sample
-        frame). Callers should propagate ``None`` by skipping the chunk.
+        Returns the filtered chunk (same shape/dtype). If the chain
+        returns ``None`` because a downstream filter is buffering (e.g.
+        RNNoise needs a full 480-sample frame), the ORIGINAL unfiltered
+        chunk is returned so callers that don't propagate ``None``
+        (e.g. ``level_monitor``'s live level bar, and the recording
+        callback's RMS / silence-detection path) keep running without
+        special-casing. The trade-off is a brief temporal misalignment
+        of buffered samples during the warm-up window — acceptable for
+        a few startup chunks (~30 ms at 16 kHz).
+
+        Callers that need strict ``None`` propagation (none today — the
+        only buffering filter is RNNoise, which is opt-in) should
+        inspect :attr:`chain` directly via ``chain.process(...)``.
 
         **Must be non-blocking.** Only pre-allocated buffers and fast
         numpy/scipy operations are used.
@@ -108,6 +118,12 @@ class AudioProcessor:
         if result is not None and self._quality_callback is not None:
             self._run_quality_check(result)
 
+        # Option B (E.1 fix, Round 0 forward-port): propagate the filtered
+        # result when present, otherwise fall back to the original chunk.
+        # True ``None`` propagation would break level_monitor (out of this
+        # module's scope) and the recording callback's downstream RMS /
+        # silence math, which assume a concrete ndarray. Documented here so
+        # future callers know the contract.
         return result if result is not None else chunk
 
     def _run_quality_check(self, chunk: np.ndarray) -> None:

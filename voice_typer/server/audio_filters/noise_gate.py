@@ -50,8 +50,18 @@ class NoiseGate(AudioFilter):
         self._sample_rate = int(sample_rate)
 
         # State (carried across process() calls)
-        self._is_open: bool = False
-        self._attenuation: float = 0.0
+        # NOISE-GATE-INIT (Round 0 forward-port): the gate must start OPEN
+        # with full attenuation (1.0).  Starting closed (_is_open=False,
+        # _attenuation=0.0) silences the beginning of every recording
+        # until the input level exceeds the open threshold — the user
+        # would lose the first ~100-300ms of speech.  An open start lets
+        # audio pass immediately; the gate only closes after the level
+        # drops below the close threshold for the hold duration.  This
+        # matches the OBS noise gate behavior this filter is modeled
+        # after (ADR 0007).  Without this, ``test_reset_clears_state``
+        # fails (it asserts ``_is_open is True`` after ``reset()``).
+        self._is_open: bool = True
+        self._attenuation: float = 1.0
         self._level: float = 0.0
         self._held_time: float = 0.0
 
@@ -127,7 +137,9 @@ class NoiseGate(AudioFilter):
         return output.reshape(original_shape)
 
     def reset(self) -> None:
-        self._is_open = False
-        self._attenuation = 0.0
+        # NOISE-GATE-INIT: reset to the same open-with-full-attenuation
+        # state as __init__ — see the comment there for rationale.
+        self._is_open = True
+        self._attenuation = 1.0
         self._level = 0.0
         self._held_time = 0.0

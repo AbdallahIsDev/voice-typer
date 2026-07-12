@@ -321,10 +321,16 @@ class TestStopCallbackBackoff:
     polling loop: ``while self._is_in_audio_callback.is_set(): sleep(5ms)``
     with a 300ms hard deadline.
 
-    These tests verify the three key behaviors:
-    1. 0ms common case (flag already clear → no wait).
-    2. Callback-in-flight guard (flag set → polls until clear).
-    3. Deadline exceeded (flag stays set → breaks after 300ms).
+    Round 0 forward-port: the manual poll loop was REMOVED because
+    PortAudio's ``stream.stop()`` already blocks until the in-flight
+    callback returns — the manual poll was redundant and added up to
+    300ms of latency on every F2-press-to-stop.  These tests were
+    updated to verify the new contract:
+    1. 0ms common case (flag already clear → no wait, stream.stop called).
+    2. ``stream.stop()`` is called and trusted to drain the callback
+       (no manual poll loop).
+    3. ``stop()`` returns promptly after ``stream.stop()`` returns
+       (no extra blocking).
     """
 
     def test_zero_ms_common_case_when_flag_already_clear(self, monkeypatch):
@@ -353,10 +359,12 @@ class TestStopCallbackBackoff:
             f"Expected 0 sleep calls (flag clear), got {len(sleep_calls)}"
         )
 
-    def test_polls_until_callback_completes(self, monkeypatch):
-        """When _is_in_audio_callback IS set, the loop polls until it's
-
-        cleared. Simulate the callback completing after 3 polls."""
+    def test_stream_stop_called_when_callback_in_flight(self, monkeypatch):
+        """When ``_is_in_audio_callback`` IS set (callback in flight),
+        ``stop()`` delegates to ``stream.stop()`` which itself blocks until
+        the in-flight callback returns (PortAudio contract).  No manual
+        poll loop is needed — Round 0 forward-port removed the redundant
+        300ms poll."""
         from voice_typer.server.recording import Recorder
 
         config = MagicMock(sample_rate=16000, microphone=None)
@@ -366,32 +374,34 @@ class TestStopCallbackBackoff:
         r._stream = MagicMock()
         r._buffer = [np.array([[1.0]], dtype=np.float32)]
 
-        # Set the flag (callback in flight)
+        # Set the flag (callback in flight).  stream.stop() (a MagicMock)
+        # returns immediately without clearing the flag — that's fine
+        # because the new contract trusts PortAudio to drain the callback.
         r._is_in_audio_callback.set()
 
-        # Clear the flag after 3 sleep calls (simulating callback completion)
-        poll_count = {"n": 0}
+        stop_called = {"n": 0}
+        original_stop = r._stream.stop
 
-        def fake_sleep(s):
-            poll_count["n"] += 1
-            if poll_count["n"] >= 3:
-                r._is_in_audio_callback.clear()
+        def tracking_stop():
+            stop_called["n"] += 1
+            return original_stop()
 
-        monkeypatch.setattr(
-            "voice_typer.server.recording.time.sleep",
-            fake_sleep,
-        )
+        r._stream.stop = tracking_stop
 
         r.stop()
 
-        # Should have polled at least 3 times before the flag cleared
-        assert poll_count["n"] >= 3, (
-            f"Expected >= 3 polls, got {poll_count['n']}"
+        # stream.stop() must have been called exactly once.
+        assert stop_called["n"] == 1, (
+            f"Expected stream.stop() called once, got {stop_called['n']}"
         )
+        # The flag may still be set (PortAudio cleared it internally) —
+        # that's acceptable; the new contract does not poll it.
+        assert r._stream is None or r._stream.stop.called
 
-    def test_deadline_exceeded_breaks_after_300ms(self, monkeypatch):
-        """When _is_in_audio_callback stays set (callback hung), the loop
-        breaks after the 300ms hard deadline."""
+    def test_stop_returns_promptly_after_stream_stop(self, monkeypatch):
+        """When ``_is_in_audio_callback`` stays set (callback hung),
+        ``stop()`` returns as soon as ``stream.stop()`` returns.  The
+        old 300ms hard deadline is gone — PortAudio's own timeout governs."""
         from voice_typer.server.recording import Recorder
         import voice_typer.server.recording as rec_mod
 
@@ -402,22 +412,12 @@ class TestStopCallbackBackoff:
         r._stream = MagicMock()
         r._buffer = [np.array([[1.0]], dtype=np.float32)]
 
-        # Flag stays set (callback never completes)
+        # Flag stays set (callback never completes from our perspective).
         r._is_in_audio_callback.set()
 
-        # Use a monotonic counter that advances past the 300ms deadline.
-        # perf_counter is called in multiple places (stop_started, the
-        # backoff loop, stream_ms, concat_started), so we use a growing
-        # counter that returns increasing values.
-        counter = {"n": 0.0}
-
-        def fake_perf_counter():
-            val = counter["n"]
-            counter["n"] += 0.1  # advance by 100ms each call
-            return val
-
-        monkeypatch.setattr(rec_mod.time, "perf_counter", fake_perf_counter)
-
+        # No fake perf_counter / sleep — the new contract doesn't poll.
+        # stream.stop() (MagicMock) returns immediately, so stop() should
+        # also return immediately without sleeping.
         sleep_calls = []
         monkeypatch.setattr(
             rec_mod.time,
@@ -425,12 +425,13 @@ class TestStopCallbackBackoff:
             lambda s: sleep_calls.append(s),
         )
 
-        # Should not raise, should complete (deadline breaks the loop)
+        # Should not raise, should complete promptly.
         r.stop()
 
-        # The loop should have broken due to deadline (remaining <= 0)
-        # Verify sleep was called at least once before the deadline
-        assert len(sleep_calls) >= 1, "Expected at least one sleep before deadline"
+        # No sleep calls — the manual poll loop is gone.
+        assert len(sleep_calls) == 0, (
+            f"Expected 0 sleep calls (no manual poll), got {len(sleep_calls)}"
+        )
 
     def test_user_stop_pending_flag_set_during_stop(self, monkeypatch):
         """STREAM-FIX (Round 1): stop() must set _user_stop_pending before

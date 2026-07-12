@@ -53,116 +53,116 @@ def _make_recorder():
 class TestDiscardWaitsForCallback:
     """17-H-FIX-2: ``discard()`` must drain the in-flight audio callback
     before closing the stream, matching ``stop()``'s AUDIO-009/AUDIO-015
-    contract (previously it skipped the poll entirely)."""
+    contract (previously it skipped the poll entirely).
 
-    def test_discard_polls_when_callback_in_flight(self, monkeypatch):
+    Round 0 forward-port: the manual ``_is_in_audio_callback`` poll loop
+    was removed because PortAudio's ``stream.stop()`` already blocks until
+    the in-flight callback returns.  These tests were updated to verify
+    ``discard()`` delegates to ``stream.stop()`` (which drains the
+    callback) rather than polling ``_is_in_audio_callback`` manually."""
+
+    def test_discard_calls_stream_stop_when_callback_in_flight(self, monkeypatch):
         """When ``_is_in_audio_callback`` is set (callback running),
-        ``discard()`` must poll until it clears — not call
-        ``stream.close()`` immediately."""
+        ``discard()`` must call ``stream.stop()`` (which blocks until the
+        callback returns) before calling ``stream.close()``.  No manual
+        poll loop — PortAudio handles the drain."""
         r = _make_recorder()
         r._is_in_audio_callback.set()
 
-        # Simulate the callback completing after a few polls.
-        poll_count = {"n": 0}
-
-        def fake_sleep(s):
-            poll_count["n"] += 1
-            # After 3 polls, simulate the callback returning
-            if poll_count["n"] >= 3:
-                r._is_in_audio_callback.clear()
-
-        monkeypatch.setattr(
-            "voice_typer.server.recording.time.sleep", fake_sleep
-        )
-
-        # Capture the callback-flag state at the moment stream.close() runs.
-        flag_at_close = {"value": None}
+        # Capture the order of stream.stop() and stream.close() calls.
+        call_order = []
+        original_stop = r._stream.stop
         original_close = r._stream.close
 
-        def capturing_close():
-            flag_at_close["value"] = r._is_in_audio_callback.is_set()
+        def tracking_stop():
+            call_order.append("stop")
+            return original_stop()
+
+        def tracking_close():
+            call_order.append("close")
             return original_close()
 
-        r._stream.close = capturing_close
+        r._stream.stop = tracking_stop
+        r._stream.close = tracking_close
 
         r.discard()
 
-        # The poll loop must have run at least 3 times before close().
-        assert poll_count["n"] >= 3, (
-            f"Expected >= 3 polls before stream.close(), got {poll_count['n']}"
+        # stream.stop() must have been called BEFORE stream.close().
+        assert "stop" in call_order, (
+            "discard() did not call stream.stop() — needed to drain the callback"
         )
-        # stream.close() must have been called AFTER the flag cleared.
-        assert flag_at_close["value"] is False, (
-            "discard() called stream.close() while the callback was still "
-            "in flight — _teardown_stream() should poll first"
+        assert "close" in call_order, (
+            "discard() did not call stream.close()"
+        )
+        assert call_order.index("stop") < call_order.index("close"), (
+            f"discard() called close before stop: {call_order}"
         )
         assert r._stream is None
 
     def test_discard_zero_ms_when_flag_already_clear(self, monkeypatch):
         """Symmetric with ``stop()``: when ``_is_in_audio_callback`` is NOT
-        set, ``discard()``'s poll loop exits on the first check — 0ms wait."""
+        set, ``discard()`` still calls ``stream.stop()`` (idempotent when
+        no callback is in flight) and then ``stream.close()``."""
         r = _make_recorder()
         # Flag is already clear (default state)
 
-        sleep_calls = []
-        monkeypatch.setattr(
-            "voice_typer.server.recording.time.sleep",
-            lambda s: sleep_calls.append(s),
-        )
+        stop_called = {"n": 0}
+        original_stop = r._stream.stop
+
+        def tracking_stop():
+            stop_called["n"] += 1
+            return original_stop()
+
+        r._stream.stop = tracking_stop
 
         r.discard()
 
-        assert len(sleep_calls) == 0, (
-            f"Expected 0 sleep calls (flag clear), got {len(sleep_calls)}"
+        # stream.stop() is still called (it's a no-op when no callback
+        # is in flight, but it's part of the teardown contract).
+        assert stop_called["n"] >= 1, (
+            f"Expected stream.stop() called, got {stop_called['n']}"
         )
         assert r._stream is None
 
-    def test_discard_waits_50ms_for_callback(self, monkeypatch):
-        """Simulates a callback that stays 'in flight' for ~50ms —
-        ``discard()`` must wait for it (matching ``stop()``'s contract)
-        instead of closing immediately, and must not blow past the 300ms
-        hard deadline."""
+    def test_discard_delegates_to_stream_stop_for_callback(self, monkeypatch):
+        """Simulates a callback that's 'in flight' — ``discard()`` must
+        call ``stream.stop()`` (which blocks until the callback returns)
+        rather than closing immediately.  No manual poll — PortAudio
+        handles the drain inside ``stream.stop()``."""
         import voice_typer.server.recording as rec_mod
 
         r = _make_recorder()
         r._is_in_audio_callback.set()
 
-        # Use the real time.sleep so we get real wall-clock timing. A
-        # background thread clears the flag after ~50ms (simulating the
-        # callback returning).
-        original_sleep = time.sleep
+        # No fake sleep — the new contract doesn't poll.
         sleep_calls = []
+        monkeypatch.setattr(rec_mod.time, "sleep", lambda s: sleep_calls.append(s))
 
-        def tracked_sleep(s):
-            sleep_calls.append(s)
-            original_sleep(s)
+        # Track that stream.stop() is called.
+        stop_called = {"n": 0}
+        original_stop = r._stream.stop
 
-        monkeypatch.setattr(rec_mod.time, "sleep", tracked_sleep)
+        def tracking_stop():
+            stop_called["n"] += 1
+            return original_stop()
 
-        def release_after_50ms():
-            original_sleep(0.050)
-            r._is_in_audio_callback.clear()
+        r._stream.stop = tracking_stop
 
-        t = threading.Thread(target=release_after_50ms, daemon=True)
         start = time.perf_counter()
-        t.start()
-
         r.discard()
         elapsed = time.perf_counter() - start
 
-        # Must have waited at least ~50ms for the callback to clear.
-        # (45ms lower bound gives slack for scheduler jitter.)
-        assert elapsed >= 0.045, (
-            f"discard() returned in {elapsed*1000:.1f}ms — should have "
-            f"waited ~50ms for the callback to clear"
+        # stream.stop() must have been called.
+        assert stop_called["n"] >= 1, (
+            "discard() did not call stream.stop() — needed to drain callback"
         )
-        # Must not have blown past the 300ms hard deadline.
+        # No manual poll — stream.stop() (MagicMock) returns immediately.
+        assert len(sleep_calls) == 0, (
+            f"Expected 0 sleep calls (no manual poll), got {len(sleep_calls)}"
+        )
+        # Should complete promptly (stream.stop is mocked).
         assert elapsed < 0.300, (
             f"discard() took {elapsed*1000:.1f}ms — exceeded 300ms budget"
-        )
-        # Must have polled at least once.
-        assert len(sleep_calls) >= 1, (
-            "Expected at least one poll while waiting for the callback"
         )
         assert r._stream is None
 

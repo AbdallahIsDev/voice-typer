@@ -6,7 +6,7 @@ import logging
 
 import numpy as np
 
-from voice_typer.server.audio_filters.base import AudioFilter
+from voice_typer.server.audio_filters.base import ANTIDENORMAL_EPSILON, AudioFilter
 
 log = logging.getLogger(__name__)
 
@@ -81,7 +81,14 @@ class NotchFilter(AudioFilter):
     def reset(self) -> None:
         if self._state is not None:
             b, a, _ = self._state
-            self._state = (b, a, np.zeros(max(len(a), len(b)) - 1, dtype=np.float64))
+            zi = np.zeros(max(len(a), len(b)) - 1, dtype=np.float64)
+            # ANTIDENORMAL (Round 0 forward-port): re-apply epsilon to
+            # the first state element (mirrors HighPassFilter.reset).
+            # Without this, reset() leaves the IIR state at exact zero,
+            # which on some CPUs triggers denormal float handling and
+            # burns cycles in the audio callback.
+            zi[0] = ANTIDENORMAL_EPSILON
+            self._state = (b, a, zi)
 
     @property
     def is_degraded(self) -> bool:

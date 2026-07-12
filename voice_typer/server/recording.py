@@ -351,10 +351,18 @@ class Recorder:
         self._device_disconnected: bool = False
         self._device_disconnect_retries: int = 0
         self._max_disconnect_retries: int = 3
-        # AUDIO-HOT: periodic device availability check — every N chunks,
-        # verify the current device is still present in sd.query_devices().
-        self._device_check_interval: int = 500  # check every ~500 chunks (~32s at 16Hz)
-        self._device_check_counter: int = 0
+        # AUDIO-HOT (Round 0 forward-port): device availability is now
+        # tracked solely by the ``MicrophoneDeviceWatcher`` (OS-level
+        # plug/unplug events: WM_DEVICECHANGE on Windows, /dev/snd dir
+        # inotify on Linux) and the zero-filled ``indata`` check in the
+        # audio callback. The previous ``sd.query_devices()`` poll
+        # (every ~500 chunks ≈ 32 s at 16 Hz) was removed because on
+        # Windows MME it blocks the audio thread for 50–200 ms,
+        # guaranteeing xruns (audio glitches / dropped frames) every
+        # ~32 s during recording. The OS-event watcher covers the same
+        # use case (USB unplug, BT disconnect) with zero callback-thread
+        # overhead, so the periodic poll was redundant. See the callback
+        # comment below for the full rationale.
 
         # NOTE (RW-0): dead_air_timeout / _dead_air_speech_detected /
         # _dead_air_silence_start were REMOVED — redundant with
@@ -1107,8 +1115,9 @@ class Recorder:
         # PERF-011: reset frame-skip state
         self._previous_chunk_pending = False
         self._skipped_frames = 0
-        # AUDIO-HOT: reset periodic device check counter
-        self._device_check_counter = 0
+        # AUDIO-HOT (Round 0 forward-port): _device_check_counter was
+        # removed along with the per-callback sd.query_devices() poll.
+        # See __init__ and the audio callback comment for full rationale.
         # PERF-NEW-021: cache the target sample rate once at start()
         # so the audio callback / snapshot() doesn't re-read
         # self.config.sample_rate on every call.
@@ -1199,37 +1208,20 @@ class Recorder:
                     ).start()
                 return
 
-            # AUDIO-HOT: periodic device availability check — verify
-            # the current device is still present in sd.query_devices().
-            # This catches cases where PortAudio doesn't deliver zeros
-            # but the device is already gone (e.g. USB unplug on some
-            # drivers). Runs every ~500 chunks to avoid per-chunk overhead.
-            self._device_check_counter += 1
-            if self._device_check_counter >= self._device_check_interval:
-                self._device_check_counter = 0
-                try:
-                    current_device = self._resolve_device()
-                    if current_device is not None:
-                        try:
-                            sd.query_devices(current_device)
-                        except Exception:
-                            # HOTKEY-CRASH: double-check recording is still active
-                            if not self._recording_event.is_set():
-                                return
-                            log.warning("[RECORDING] Current device no longer available "
-                            "in query_devices — disconnect detected")
-                            self._device_disconnected = True
-                            _captured_gen = self._stop_generation
-                            with contextlib.suppress(Exception):
-                                threading.Thread(
-                                    target=self._handle_device_disconnect,
-                                    kwargs={"_captured_generation": _captured_gen},
-                                    name="device-disconnect-check",
-                                    daemon=True,
-                                ).start()
-                            return
-                except Exception:
-                    pass
+            # AUDIO-HOT (Round 0 forward-port): the previous per-callback
+            # ``sd.query_devices()`` poll (every ~500 chunks ≈ 32 s) was
+            # REMOVED. On Windows MME, ``sd.query_devices()`` blocks the
+            # audio thread for 50–200 ms, guaranteeing xruns (audio
+            # glitches / dropped frames) every ~32 s during recording.
+            # Device-availability is now handled entirely by the
+            # ``MicrophoneDeviceWatcher`` (started in ``__init__``),
+            # which receives OS-level plug/unplug notifications
+            # (WM_DEVICECHANGE on Windows, /dev/snd dir inotify on
+            # Linux). The zero-filled ``indata`` check above still
+            # catches the case where PortAudio delivers silent frames
+            # before the watcher fires. The ``_device_check_counter``
+            # and ``_device_check_interval`` fields were removed from
+            # ``__init__`` and from ``start()`` (line ~1119).
 
             # NOTE: Dead-air timeout was REMOVED in RW-0.
             # Redundant with stop_on_silence_seconds (auto-stop already resets on
@@ -1769,21 +1761,29 @@ class Recorder:
             self.warm_up_resampler()
 
     def _teardown_stream(self) -> None:
-        """Stop + close the PortAudio stream, draining any in-flight callback.
+        """Stop + close the PortAudio stream.
 
         17-H-FIX-2: extracted from ``stop()`` so ``discard()`` shares the
-        same callback-drain contract. Without the poll, ``discard()``
-        could call ``stream.close()`` while the audio callback (firing
-        ~16×/s) was still running — risking use-after-free or deadlock
-        when ESC-cancel landed mid-callback.
+        same teardown contract. 17-H-FIX-2 originally added a
+        ``_is_in_audio_callback`` poll loop (300 ms / 5 ms interval)
+        between ``stream.stop()`` and ``stream.close()`` to drain the
+        in-flight callback. That poll was redundant (Round 0 forward-port):
+        PortAudio's ``Pa_StopStream`` (called by
+        ``sounddevice.Stream.stop()``) already blocks until the in-flight
+        callback returns, so by the time ``stream.stop()`` returns the
+        callback is guaranteed not to be running. The manual poll added
+        up to 300 ms of latency per dictation on the (rare) path where
+        the flag was stuck set, and contributed nothing on the common
+        path (flag already clear → 0 ms wait). The AUDIO-009/AUDIO-015
+        safety contract (no callback during/after ``stream.close()``) is
+        preserved by PortAudio's ``Pa_StopStream`` blocking contract.
 
         Behavior:
           1. If ``self._stream`` is None, return immediately (idempotent).
-          2. Call ``stream.stop()`` to halt PortAudio's callback dispatch.
-          3. Poll ``_is_in_audio_callback`` for up to 300ms (5ms interval)
-             until the in-flight callback (if any) returns.
-          4. Call ``stream.close()`` to free PortAudio resources.
-          5. Set ``self._stream = None``.
+          2. Call ``stream.stop()`` (blocks until in-flight callback
+             returns — PortAudio contract).
+          3. Call ``stream.close()`` to free PortAudio resources.
+          4. Set ``self._stream = None``.
 
         Idempotent: safe to call when the stream is already None (e.g.
         when ``discard()`` is invoked twice, or after ``stop()``).
@@ -1791,40 +1791,6 @@ class Recorder:
         if not self._stream:
             return
         self._stream.stop()
-        # AUDIO-009/AUDIO-015: wait briefly for any in-flight audio
-        # callback to complete before closing the stream. This prevents
-        # PortAudio from calling the callback during/after stream.stop()
-        # which can cause use-after-free or deadlock.
-        #
-        # PERF-FIX-002 (Round 0): the previous "exponential backoff"
-        # implementation was inverted. It used::
-        #
-        #     if self._is_in_audio_callback.wait(timeout=_timeout):
-        #         break  # callback completed
-        #
-        # but ``threading.Event.wait(timeout)`` returns ``True`` when the
-        # flag is *set* — and the flag is set while the callback is
-        # *running* (see lines 1082/1086: set on entry, clear on exit).
-        # So the loop broke immediately when the callback WAS running
-        # (defeating the safety guard) and blocked for the full
-        # 20+30+50+80+130+200 = 510ms when the callback was NOT running
-        # (the common case).  Every dictation paid a half-second penalty.
-        #
-        # The fix: poll for the flag to become *clear* (callback not
-        # running), with a 5ms interval and a 300ms hard budget (matching
-        # the original 6×50ms worst case).  On a healthy system the flag
-        # is already clear on the first check → 0ms wait.  When the
-        # callback genuinely runs past ``stream.stop()``, the poll loop
-        # waits for it to finish (restoring the AUDIO-009/AUDIO-015
-        # safety contract).
-        _backoff_budget_s = 0.300  # total worst-case wait, same as pre-fix
-        _poll_interval_s = 0.005   # 5ms poll
-        _deadline = time.perf_counter() + _backoff_budget_s
-        while self._is_in_audio_callback.is_set():
-            remaining = _deadline - time.perf_counter()
-            if remaining <= 0:
-                break
-            time.sleep(min(_poll_interval_s, remaining))
         self._stream.close()
         self._stream = None
 
