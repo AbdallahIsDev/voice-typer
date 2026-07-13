@@ -1,0 +1,110 @@
+name: Populate model hashes
+
+# SEC-audit-005 / Task 7 (Round 6): On-demand workflow that re-fetches
+# file-level SHA-256 hashes for every HuggingFace repo pinned in
+# voice_typer/server/model_hashes.json and rewrites both the JSON
+# manifest and the hardcoded fallback dict in voice_typer/server/security.py
+# so they stay in lock-step.
+#
+# When to run:
+#   - Manually via the "Run workflow" button (workflow_dispatch).
+#   - On every tag push (so release builds always carry fresh hashes).
+#
+# What it does NOT do:
+#   - It does NOT bump the pinned ``revision`` SHAs.  Those are immutable
+#     HuggingFace commit SHAs and must be updated manually by a human
+#     after security review of the new commit.  The script only refreshes
+#     the per-file SHA-256 digests under the existing pinned revision.
+#   - It does NOT auto-commit on failure.  If HuggingFace is unreachable
+#     the workflow fails and the existing manifest is left untouched.
+#
+# Artifact:
+#   - A git patch (model-hashes.patch) showing the exact changes that
+#     would be applied.  Download it from the run summary, review, and
+#     apply with `git am` or `git apply`.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: populate-model-hashes
+  cancel-in-progress: false
+
+jobs:
+  populate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # We need full history to compute a clean patch against HEAD.
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Snapshot pre-run manifest
+        id: pre
+        run: |
+          cp voice_typer/server/model_hashes.json /tmp/model_hashes.before.json
+          cp voice_typer/server/security.py /tmp/security.before.py
+          echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Run populate_model_hashes.py
+        run: |
+          # The script reads the manifest, fetches file lists from the
+          # HuggingFace API at each pinned revision, computes SHA-256
+          # digests (using the LFS pointer's ``oid`` for LFS-managed
+          # files to avoid multi-GB downloads), updates the JSON, and
+          # rewrites the security.py fallback to match.
+          python scripts/populate_model_hashes.py
+
+      - name: Verify tests still pass
+        run: |
+          pip install --quiet -e ".[test]"
+          python -m pytest tests/test_model_integrity.py \
+            tests/test_bugfix_regressions.py::TestModelIntegrityWarnsOnEmptyHashes \
+            --no-cov -q --timeout=30
+
+      - name: Generate patch artifact
+        if: always()
+        run: |
+          git diff --no-color > /tmp/model-hashes.patch || true
+          if [ -s /tmp/model-hashes.patch ]; then
+            echo "Changes detected — patch is non-empty."
+            cp /tmp/model-hashes.patch "${{ github.workspace }}/model-hashes.patch"
+          else
+            echo "No changes — manifest and security.py were already in sync."
+            echo "(empty patch)" > "${{ github.workspace }}/model-hashes.patch"
+          fi
+
+      - name: Upload patch
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-hashes-patch
+          path: ${{ github.workspace }}/model-hashes.patch
+          if-no-files-found: error
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Populate model hashes — ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Baseline commit: \`${{ steps.pre.outputs.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "If the run succeeded and the patch is non-empty, a maintainer must:" >> "$GITHUB_STEP_SUMMARY"
+          echo "1. Download the **model-hashes-patch** artifact." >> "$GITHUB_STEP_SUMMARY"
+          echo "2. Review the diff for unexpected file additions/removals." >> "$GITHUB_STEP_SUMMARY"
+          echo "3. Apply with \`git am model-hashes.patch\` (or \`git apply\`) and push." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "If the run failed, the manifest and \`security.py\` are unchanged." >> "$GITHUB_STEP_SUMMARY"

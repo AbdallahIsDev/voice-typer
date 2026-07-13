@@ -250,31 +250,62 @@ def _load_model_hashes() -> "dict[str, dict[str, Any]]":
         "nvidia/parakeet-tdt-0.6b-v3": {
             "revision": "7c35754d166cca382ad1e53e68b01e7c575f3a1d",
             "files": {
+                ".eval_results/open_asr_leaderboard.yaml": "0fc9e33d2bef30eef17538cc5c5c3192bd65ff19207b82b1e21c6af893471bd9",  # noqa: E501
+                ".gitattributes": "a56ee2f5837104b08fe8402f29119e81e6f0f1378cbe68ce2979cb4b7fba8185",
+                "README.md": "10171089d00553522fe3f51d5a7fa600cbdc7005a98d12b6eaabc056b05d1b8d",
                 "config.json": "e747b85e1bdfd300c8b8ac63bac8dd5221f8fe9bc275b48d06c735fcd6971b6e",
+                "generation_config.json": "b141de6ec6d7f982ece13f98f604e3fe1807ea9c0e839185d0ab7064604209d0",
+                "model.safetensors": "3a2026366188c8c68598edbbff92f8d11590a08e0ae2e6775544e7b07d6a5e11",
+                "parakeet-tdt-0.6b-v3.nemo": "3cbdc85877e668ca7b82d0d56770eb1fac76691f55d6b97545e8d61ca588d10d",
+                "plots/asr.png": "43df117825ce8148acce53c1c35cb54e9ecd111b835b171ff903b380429ee105",
+                "processor_config.json": "8346a93a3b987fa1dec57a78f045cd0817d21786589a5a096b41a57a446fd1d7",
+                "tokenizer.json": "bd321b096832a3f270bd3b2a88823957920f1a5c5ada71114a26ea729d0cbe91",
+                "tokenizer_config.json": "0b2fe0037599ee335f0b972fa682bf0ece74e4ccfec755cb7daa3405d3d3e874",
             },
         },
         "Systran/faster-whisper-tiny.en": {
             "revision": "0d3d19a32d3338f10357c0889762bd8d64bbdeba",
             "files": {
+                ".gitattributes": "db7c0371f46f0840b8f25794c1e3321c9b5820a8cb6ba9694a46fc64b8fae5a6",
+                "README.md": "1b7816626bf0548e4b71a467f4112b4592924bc818e3117f19aefcc50ce4b6aa",
                 "config.json": "14b1b421a90349bc551b881461426b561a874049cb9e4c4864f2ca384f6a7cc5",
+                "model.bin": "1a5afae06a4db91c975c9a9d78be5cc110ee4ea022ad57d55492e4550e936b2a",
+                "tokenizer.json": "929c5252409436dce1b38a75d1abbcb5e132d170d8e324e4e04ed915fa2d22df",
+                "vocabulary.txt": "ff77588746d3a2595d32ab5b69ffd7b95ce2441ac57533cb66fc3eb575a115cf",
             },
         },
         "Systran/faster-whisper-small.en": {
             "revision": "d1d751a5f8271d482d14ca55d9e2deeebbae577f",
             "files": {
+                ".gitattributes": "db7c0371f46f0840b8f25794c1e3321c9b5820a8cb6ba9694a46fc64b8fae5a6",
+                "README.md": "c87ff776137c2ecb30ee3b324b4cf5f38abf9423464613641ee45430bf580851",
                 "config.json": "666a9605530ac1f61fa8177f3702b4dacec9966749e42610839fcc32661d5fae",
+                "model.bin": "62b2a45b05ee59acb4a5341b33ee35e041395d378d418a18acfe4c9e768ee37a",
+                "tokenizer.json": "929c5252409436dce1b38a75d1abbcb5e132d170d8e324e4e04ed915fa2d22df",
+                "vocabulary.txt": "ff77588746d3a2595d32ab5b69ffd7b95ce2441ac57533cb66fc3eb575a115cf",
             },
         },
         "Systran/faster-whisper-medium.en": {
             "revision": "a29b04bd15381511a9af671baec01072039215e3",
             "files": {
+                ".gitattributes": "db7c0371f46f0840b8f25794c1e3321c9b5820a8cb6ba9694a46fc64b8fae5a6",
+                "README.md": "ab3ddd3b6af4ea0ef353cb80004f26613ba33217f81652fc13738d3b098c7675",
                 "config.json": "4a1848ebabe7938d9797c15a2e8e4ce1d36e6fd4a43d096ae5955257c67c7962",
+                "model.bin": "11b220779aea4c6f3ce9d2549c8a95ea869ed84066864b999531ef53e594fe5b",
+                "tokenizer.json": "929c5252409436dce1b38a75d1abbcb5e132d170d8e324e4e04ed915fa2d22df",
+                "vocabulary.txt": "ff77588746d3a2595d32ab5b69ffd7b95ce2441ac57533cb66fc3eb575a115cf",
             },
         },
         "Systran/faster-whisper-large-v3": {
             "revision": "edaa852ec7e145841d8ffdb056a99866b5f0a478",
             "files": {
+                ".gitattributes": "11ad7efa24975ee4b0c3c3a38ed18737f0658a5f75a0a96787b576a78a023361",
+                "README.md": "39e96252229f5a3d0141dc81afb65a36fd205461ac21e5b70f2cd1248ef0082c",
                 "config.json": "a9306624f5ec14270a014b647e5c316b6e03a662c369758d1b90697a7b0655b9",
+                "model.bin": "69f74147e3334731bc3a76048724833325d2ec74642fb52620eda87352e3d4f1",
+                "preprocessor_config.json": "7ccc62c6f2765af1f3b46c00c9b5894426835a05021c8b9c01eecb6dfb542711",
+                "tokenizer.json": "6d8cbd7cd0d8d5815e478dac67b85a26bbe77c1f5e0c6d76d1ce2abc0e5f21ca",
+                "vocabulary.json": "c69260f2ab26d659b7c398f9a2b2b48ed0df16c3b47d7326782fd9cba71690c1",
             },
         },
     }
