@@ -296,6 +296,12 @@
 	"settings": {
 		"title": "Configuración",
 		"searchPlaceholder": "Buscar configuración…",
+		"searchHints": {
+			"appearance": "tema, apariencia, color, oscuro, claro, tamaño de texto, fuente",
+			"general": "idioma, notificación, bandeja, burbuja, superposición, inicio, inicio de sesión, lanzar, atajo, tecla de dictado, modo grabación, pulsar para hablar",
+			"aiAudio": "modelo, llm, audio, volumen, atenuación, ruido, filtro, postprocesado, mejora ia, vocabulario, clave api, pulido, transcripción, preajuste, fragmento",
+			"privacy": "privacidad, recuperación, caída, exportar, consentimiento, solución problemas, diagnóstico, restablecer, registro, error, ayuda, faq"
+		},
 		"noResultsTitle": "Sin resultados",
 		"noResultsMessage": "Pruebe con otro término de búsqueda o borre el filtro para ver todos los ajustes.",
 		"tabs": {
@@ -739,7 +745,11 @@
 			"resetToDefaultsHint": "Restablece todas las configuraciones a sus valores predeterminados (no se puede deshacer)",
 			"cancelResetAria": "Cancelar restablecimiento",
 			"confirmResetAria": "Confirmar restablecimiento a valores predeterminados",
-			"resetDialogMessage": "¿Seguro que quieres restablecer todas las configuraciones a sus valores predeterminados? Esto no se puede deshacer."
+			"resetDialogMessage": "¿Seguro que quieres restablecer todas las configuraciones a sus valores predeterminados? Esto no se puede deshacer.",
+			"reRunWizard": "Re-ejecutar asistente de configuración",
+			"reRunWizardAria": "Re-ejecutar asistente de configuración",
+			"reRunWizardHint": "Reiniciar el asistente de configuración para reconfigurar micrófono, atajo y modelo",
+			"reRunWizardToast": "Asistente de configuración re-activado — navegando allí ahora"
 		}
 	},
 	"models": {

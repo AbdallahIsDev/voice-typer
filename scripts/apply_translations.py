@@ -64,7 +64,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "models.status.depsRequired": "التبعيات مطلوبة",
         "models.status.available": "متاح",
         "models.hfConsent.title": "موافقة تحميل HuggingFace مطلوبة",
-        "models.hfConsent.description": "نماذج Whisper المحلية (tiny.en، base.en، إلخ) تقوم بتحميل الأوزان من huggingface.co عند أول استخدام. امنح الموافقة لتمكين تحميلات النماذج. لا يتم رفع أي صوت — يتم فقط جلب أوزان النموذج.",
+        "models.hfConsent.description": "نماذج Whisper المحلية"
+        "(tiny.en، base.en، إلخ) تقوم بتحميل الأوزان من huggingface.co عند أول استخدام. امنح الموافقة لتمكين تحميلات"
+        "النماذج. لا يتم رفع أي صوت — يتم فقط جلب أوزان النموذج.",
         "models.hfConsent.grantAria": "منح موافقة تحميل HuggingFace",
         "models.hfConsent.grant": "منح الموافقة",
         "models.hfConsent.blockedHint": "تحميلات النماذج محظورة حتى تمنح الموافقة.",
@@ -98,7 +100,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "models.cloud.testConnectionAria": "اختبار اتصال {provider}",
         "models.cloud.testConnection": "اختبار الاتصال",
         "models.cloud.consentTitle": "موافقة إرسال الصوت",
-        "models.cloud.consentDescription": "عند تحديد هذا المزود كخلفية ASR النشطة، سيتم إرسال تسجيلاتك الصوتية إلى {provider} للتفريغ. امنح الموافقة لتمكين إرسال الصوت.",
+        "models.cloud.consentDescription": "عند تحديد هذا المزود كخلفية ASR النشطة، سيتم إرسال تسجيلاتك الصوتية إلى"
+        "{provider} للتفريغ. امنح الموافقة لتمكين إرسال الصوت.",
         "models.cloud.statusLabel": "الحالة:",
         "models.cloud.consentGrantedStatus": "تم منح الموافقة — سيتم إرسال الصوت عندما يكون هذا المزود نشطاً.",
         "models.cloud.consentNotGrantedStatus": "لم يتم منح الموافقة — سيرفض هذا المزود التفريغ.",
@@ -149,10 +152,13 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "models.snack.deleteFailed": "Error al eliminar",
         "models.snack.deleteFailedError": "Error al eliminar: {error}",
         "models.snack.apiKeySaved": "Clave API de {provider} guardada",
-        "models.snack.consentGranted": "Consentimiento otorgado para {provider} — el audio se enviará a este proveedor.",
+        "models.snack.consentGranted": "Consentimiento otorgado para {provider} — el audio se enviará a este"
+        "proveedor.",
         "models.snack.consentRevoked": "Consentimiento revocado para {provider} — el audio NO se enviará.",
-        "models.snack.hfConsentGranted": "Consentimiento otorgado — las descargas de modelos desde HuggingFace continuarán.",
-        "models.snack.hfConsentRevoked": "Consentimiento revocado — las descargas de modelos desde HuggingFace están bloqueadas.",
+        "models.snack.hfConsentGranted": "Consentimiento otorgado — las descargas de modelos desde HuggingFace"
+        "continuarán.",
+        "models.snack.hfConsentRevoked": "Consentimiento revocado — las descargas de modelos desde HuggingFace están"
+        "bloqueadas.",
         "models.snack.resumeFailed": "Error al reanudar: {error}",
         "models.snack.pauseFailed": "Error al pausar: {error}",
         "models.snack.cancelled": "Descarga cancelada. Los archivos parciales se reutilizarán al reintentar.",
@@ -173,7 +179,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "models.status.depsRequired": "Dependencias requeridas",
         "models.status.available": "Disponible",
         "models.hfConsent.title": "Se requiere consentimiento de descarga de HuggingFace",
-        "models.hfConsent.description": "Los modelos Whisper locales (tiny.en, base.en, etc.) descargan pesos desde huggingface.co en el primer uso. Otorga consentimiento para habilitar las descargas de modelos. No se sube audio — solo se obtienen los pesos del modelo.",
+        "models.hfConsent.description": "Los modelos Whisper"
+        "locales (tiny.en, base.en, etc.) descargan pesos desde huggingface.co en el primer uso. Otorga"
+        "consentimiento para habilitar las descargas de modelos. No se sube audio — solo se obtienen los pesos del "
+        "modelo.",
         "models.hfConsent.grantAria": "Otorgar consentimiento de descarga de HuggingFace",
         "models.hfConsent.grant": "Otorgar consentimiento",
         "models.hfConsent.blockedHint": "Las descargas de modelos están bloqueadas hasta que otorgues consentimiento.",
@@ -207,13 +216,17 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "models.cloud.testConnectionAria": "Probar conexión de {provider}",
         "models.cloud.testConnection": "Probar Conexión",
         "models.cloud.consentTitle": "Consentimiento de transmisión de audio",
-        "models.cloud.consentDescription": "Cuando este proveedor se selecciona como backend ASR activo, tus grabaciones de audio se enviarán a {provider} para transcripción. Otorga consentimiento para habilitar la transmisión de audio.",
+        "models.cloud.consentDescription": "Cuando este"
+        "proveedor se selecciona como backend ASR activo, tus grabaciones de audio se enviarán a {provider} para"
+        "transcripción. Otorga consentimiento para habilitar la transmisión de audio.",
         "models.cloud.statusLabel": "Estado:",
-        "models.cloud.consentGrantedStatus": "Consentimiento otorgado — el audio se enviará cuando este proveedor esté activo.",
+        "models.cloud.consentGrantedStatus": "Consentimiento otorgado — el audio se enviará cuando este proveedor"
+        "esté activo.",
         "models.cloud.consentNotGrantedStatus": "Consentimiento no otorgado — este proveedor se negará a transcribir.",
         "models.cloud.consentAria": "Otorgar consentimiento de transmisión de audio para {provider}",
         "models.deleteDialog.title": "Eliminar Modelo",
-        "models.deleteDialog.message": "¿Estás seguro de que quieres eliminar \"{name}\"? Esta acción no se puede deshacer.",
+        "models.deleteDialog.message": "¿Estás seguro de que quieres eliminar \"{name}\"? Esta acción no se puede"
+        "deshacer.",
         "history.undo": "Deshacer",
         "history.clearAllAria": "Borrar todo el historial",
     },
@@ -374,9 +387,8 @@ def main() -> int:
             # Only overwrite if the current value is identical to English
             # (i.e. untranslated) OR missing.  Never clobber an existing
             # human translation.
-            if current_value is None or current_value == en_value:
-                if set_nested(loc_data, dot_key, translated_value):
-                    applied += 1
+            if (current_value is None or current_value == en_value) and set_nested(loc_data, dot_key, translated_value):
+                applied += 1
         if applied > 0:
             save_json(loc_file, loc_data)
         print(f"  {locale}: applied {applied} translations")

@@ -41,52 +41,52 @@ ALLOWED_UNTRANSLATED = {
     "home.error",  # "ERROR" — technical term
     # Provider labels are brand names — kept identical across all locales.
     "models.providers.openai.label",  # "OpenAI Whisper API"
-    "models.providers.groq.label",    # "Groq Whisper API"
-    "models.providers.deepgram.label", # "Deepgram API"
+    "models.providers.groq.label",  # "Groq Whisper API"
+    "models.providers.deepgram.label",  # "Deepgram API"
     # Parakeet label is a product name — kept identical.
     "models.card.parakeetLabel",  # "NVIDIA Parakeet TDT v3  ·  "
     # Em-dash placeholder for missing data — identical glyph across locales.
     "about.unknown",  # "—"
     # Version number format — "v{version}" is universally identical.
     "about.versionValue",  # "v{version}"
-    # AUDIO-TERM (Round 1): audio engineering terms that are genuinely
+    # AUDIO-TERM: audio engineering terms that are genuinely
     # identical cognates in de/es/fr — "Equalizer", "Limiter" are
     # standard technical vocabulary used untranslated in German, Spanish,
     # and French audio engineering contexts. Adding them here avoids
     # forcing a fake distinction that would confuse native speakers.
-    "settings.audioEnhancement.equalizer",      # "Equalizer"
+    "settings.audioEnhancement.equalizer",  # "Equalizer"
     "settings.audioEnhancement.equalizerAria",  # "Equalizer"
-    "settings.audioEnhancement.limiter",        # "Limiter"
-    "settings.audioEnhancement.limiterAria",    # "Limiter"
+    "settings.audioEnhancement.limiter",  # "Limiter"
+    "settings.audioEnhancement.limiterAria",  # "Limiter"
     # "Variables: {vars}" — "Variables" is identical in EN/ES (cognate).
     "templates.variablesTooltip",  # "Variables: {vars}"
     # IMPL-C: keyboard shortcut values that are universal key-combo notation
     # (no natural translation — "Ctrl+B", "Tab / Shift+Tab", "Esc" stay
     # identical across locales that use the Latin keyboard layout).
-    "about.toggleSidebarValue",     # "Ctrl+B"
-    "about.navigateFieldsValue",    # "Tab / Shift+Tab"
-    "about.closeDialogsValue",      # "Esc"
+    "about.toggleSidebarValue",  # "Ctrl+B"
+    "about.navigateFieldsValue",  # "Tab / Shift+Tab"
+    "about.closeDialogsValue",  # "Esc"
     # IMPL-C (parity): "Enter or Space" and "Space" are the same universal
     # keyboard-key notation as the about.*Value keys above.  Adding them
     # here keeps the keyboard-shortcut table consistent — translating key
     # names will not match how users see them on their physical keyboards.
-    "about.openDropdownsValue",     # "Enter or Space"
-    "about.toggleSwitchesValue",    # "Space"
+    "about.openDropdownsValue",  # "Enter or Space"
+    "about.toggleSwitchesValue",  # "Space"
     # IMPL-C: "Auto" is a universal abbreviation for automatic mode — kept
     # identical across Latin-script locales.
-    "analytics.auto",               # "Auto"
+    "analytics.auto",  # "Auto"
     # Theme switch labels: "System" in German is the standard German word for
     # the system-following theme mode — identical to English by coincidence,
     # not a translation gap.
-    "theme.system",                 # "System"
-    # IMPL-C (Round 6): universal technical placeholders that have no natural
+    "theme.system",  # "System"
+    # IMPL-C: universal technical placeholders that have no natural
     # translation in any locale. URLs and model identifiers are protocol-level
     # strings — translating them would break the API endpoint or model lookup.
     # The hotkeyPicker.customLabel value is "{label}" only — a pure template
     # placeholder with no translatable prose.
-    "settings.apiUrlPlaceholder",   # "https://api.openai.com/v1/chat/completions"
-    "settings.modelPlaceholder",    # "gpt-4o-mini"
-    "hotkeyPicker.customLabel",     # "{label}"
+    "settings.apiUrlPlaceholder",  # "https://api.openai.com/v1/chat/completions"
+    "settings.modelPlaceholder",  # "gpt-4o-mini"
+    "hotkeyPicker.customLabel",  # "{label}"
 }
 
 # Pre-existing untranslated settings keys documented in the directive (§6).
@@ -316,9 +316,7 @@ class TestI18nCompleteness:
                     + (f" missing={missing_in_loc}" if missing_in_loc else "")
                     + (f" extra={extra_in_loc}" if extra_in_loc else "")
                 )
-        assert not mismatches, (
-            f"{locale}.json has placeholder mismatches:\n" + "\n".join(mismatches)
-        )
+        assert not mismatches, f"{locale}.json has placeholder mismatches:\n" + "\n".join(mismatches)
 
     def test_values_translated(self, locale: str, en_flat: dict[str, str]) -> None:
         """No locale value should be identical to the English value (unless allowed).
@@ -345,8 +343,7 @@ class TestI18nCompleteness:
                 untranslated.append(f"  {key}: {en_value!r}")
         assert not untranslated, (
             f"{locale}.json has {len(untranslated)} untranslated values "
-            f"(identical to English):\n" + "\n".join(untranslated[:20])
-            + ("..." if len(untranslated) > 20 else "")
+            f"(identical to English):\n" + "\n".join(untranslated[:20]) + ("..." if len(untranslated) > 20 else "")
         )
 
 

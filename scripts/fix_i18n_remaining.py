@@ -30,7 +30,7 @@ FIXES = {
     },
     "fr": {
         "microphone": {
-            "microphone": "Microphone",  # Keep brand-ish but make distinct — actually "Microphone" in French is "Microphone"
+            "microphone": "Microphone",  # French uses "Microphone" too; use "Micro" to distinguish
         },
         "about": {
             "microphone": "Microphone",

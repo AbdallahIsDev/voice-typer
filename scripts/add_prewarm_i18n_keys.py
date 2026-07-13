@@ -35,7 +35,8 @@ I18N_DIR = ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "i18n"
 TRANSLATIONS: dict[str, dict[str, str]] = {
     "en": {
         "cacheTitle": "Cache Status",
-        "cacheDescription": "Live state of the OS file cache for the speech model. Prewarm runs at boot to keep the model files in RAM for fast startup.",
+        "cacheDescription": "Live state of the OS file cache for the speech model. Prewarm runs at boot to keep the "
+        "model files in RAM for fast startup.",
         "prewarmStatus": "Prewarm Status",
         "lastRun": "Last Run",
         "cacheHealth": "Cache Health",
@@ -49,11 +50,21 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "neverRun": "Never",
     },
     "ar": {
-        "cacheTitle": "\u062d\u0627\u0644\u0629 \u0627\u0644\u0630\u0627\u0643\u0631\u0629 \u0627\u0644\u0645\u062e\u0628\u0623\u0629",
-        "cacheDescription": "\u0627\u0644\u062d\u0627\u0644\u0629 \u0627\u0644\u062d\u0627\u0644\u064a\u0629 \u0644\u0630\u0627\u0643\u0631\u0629 \u0627\u0644\u0645\u062e\u0628\u0623\u0629 \u0644\u0646\u0638\u0627\u0645 \u0627\u0644\u062a\u0634\u063a\u064a\u0644 \u0644\u0644\u0646\u0645\u0648\u0630\u062c. \u064a\u0639\u0645\u0644 \u0627\u0644\u062a\u0633\u062e\u064a\u0646 \u0627\u0644\u0645\u0633\u0628\u0642 \u0639\u0646\u062f \u0627\u0644\u062a\u0634\u063a\u064a\u0644 \u0644\u0625\u0628\u0642\u0627\u0621 \u0645\u0644\u0641\u0627\u062a \u0627\u0644\u0646\u0645\u0648\u0630\u062c \u0641\u064a \u0627\u0644\u0630\u0627\u0643\u0631\u0629 \u0644\u0628\u062f\u0621 \u0633\u0631\u064a\u0639.",
-        "prewarmStatus": "\u062d\u0627\u0644\u0629 \u0627\u0644\u062a\u0633\u062e\u064a\u0646 \u0627\u0644\u0645\u0633\u0628\u0642",
+        "cacheTitle": "\u062d\u0627\u0644\u0629 \u0627\u0644\u0630\u0627\u0643\u0631\u0629 "
+        "\u0627\u0644\u0645\u062e\u0628\u0623\u0629",
+        "cacheDescription": "\u0627\u0644\u062d\u0627\u0644\u0629 \u0627\u0644\u062d\u0627\u0644\u064a\u0629 "
+        "\u0644\u0630\u0627\u0643\u0631\u0629 \u0627\u0644\u0645\u062e\u0628\u0623\u0629 "
+        "\u0644\u0646\u0638\u0627\u0645 \u0627\u0644\u062a\u0634\u063a\u064a\u0644 "
+        "\u0644\u0644\u0646\u0645\u0648\u0630\u062c. \u064a\u0639\u0645\u0644 "
+        "\u0627\u0644\u062a\u0633\u062e\u064a\u0646 \u0627\u0644\u0645\u0633\u0628\u0642 \u0639\u0646\u062f "
+        "\u0627\u0644\u062a\u0634\u063a\u064a\u0644 \u0644\u0625\u0628\u0642\u0627\u0621 "
+        "\u0645\u0644\u0641\u0627\u062a \u0627\u0644\u0646\u0645\u0648\u0630\u062c \u0641\u064a "
+        "\u0627\u0644\u0630\u0627\u0643\u0631\u0629 \u0644\u0628\u062f\u0621 \u0633\u0631\u064a\u0639.",
+        "prewarmStatus": "\u062d\u0627\u0644\u0629 \u0627\u0644\u062a\u0633\u062e\u064a\u0646 "
+        "\u0627\u0644\u0645\u0633\u0628\u0642",
         "lastRun": "\u0622\u062e\u0631 \u062a\u0634\u063a\u064a\u0644",
-        "cacheHealth": "\u0635\u062d\u0629 \u0627\u0644\u0630\u0627\u0643\u0631\u0629 \u0627\u0644\u0645\u062e\u0628\u0623\u0629",
+        "cacheHealth": "\u0635\u062d\u0629 \u0627\u0644\u0630\u0627\u0643\u0631\u0629 "
+        "\u0627\u0644\u0645\u062e\u0628\u0623\u0629",
         "prewarmElapsed": "\u0627\u0644\u0645\u062f\u0629 \u0627\u0644\u0645\u0646\u0642\u0636\u064a\u0629",
         "cacheHot": "\u0633\u0627\u062e\u0646",
         "cachePartial": "\u062c\u0632\u0626\u064a",
@@ -65,7 +76,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     },
     "de": {
         "cacheTitle": "Cache-Status",
-        "cacheDescription": "Live-Zustand des Dateicaches f\u00fcr das Sprachmodell. Prewarm l\u00e4uft beim Booten, um die Modelldateien f\u00fcr einen schnellen Start im RAM zu halten.",
+        "cacheDescription": "Live-Zustand des Dateicaches f\u00fcr das Sprachmodell. Prewarm l\u00e4uft beim Booten, "
+        "um die Modelldateien f\u00fcr einen schnellen Start im RAM zu halten.",
         "prewarmStatus": "Prewarm-Status",
         "lastRun": "Letzte Ausf\u00fchrung",
         "cacheHealth": "Cache-Gesundheit",
@@ -80,7 +92,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     },
     "es": {
         "cacheTitle": "Estado de la cach\u00e9",
-        "cacheDescription": "Estado en vivo de la cach\u00e9 del sistema para el modelo de voz. El precalentamiento se ejecuta en el arranque para mantener los archivos del modelo en RAM para un inicio r\u00e1pido.",
+        "cacheDescription": "Estado en vivo de la cach\u00e9 del sistema para el modelo de voz. El precalentamiento "
+        "se ejecuta en el arranque para mantener los archivos del modelo en RAM para un inicio r\u00e1pido.",
         "prewarmStatus": "Estado del precalentamiento",
         "lastRun": "\u00daltima ejecuci\u00f3n",
         "cacheHealth": "Salud de la cach\u00e9",
@@ -95,7 +108,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     },
     "fr": {
         "cacheTitle": "\u00c9tat du cache",
-        "cacheDescription": "\u00c9tat en direct du cache de fichiers du syst\u00e8me pour le mod\u00e8le vocal. Le pr\u00e9chauffage s\u2019ex\u00e9cute au d\u00e9marrage pour garder les fichiers du mod\u00e8le en RAM pour un lancement rapide.",
+        "cacheDescription": "\u00c9tat en direct du cache de fichiers du syst\u00e8me pour le mod\u00e8le vocal. Le "
+        "pr\u00e9chauffage s\u2019ex\u00e9cute au d\u00e9marrage pour garder les fichiers du mod\u00e8le en RAM pour "
+        "un lancement rapide.",
         "prewarmStatus": "\u00c9tat du pr\u00e9chauffage",
         "lastRun": "Derni\u00e8re ex\u00e9cution",
         "cacheHealth": "Sant\u00e9 du cache",
@@ -110,7 +125,13 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     },
     "hi": {
         "cacheTitle": "\u0915\u0948\u091a \u0938\u094d\u0925\u093f\u0924\u093f",
-        "cacheDescription": "\u0935\u0949\u092f\u093f\u0938 \u092e\u0949\u0921\u0932 \u0915\u0947 \u0932\u093f\u090f \u0913\u0935\u0930 \u092b\u093c\u093e\u0907\u0932 \u0915\u0948\u091a \u0915\u0940 \u0932\u093e\u0907\u0935 \u0938\u094d\u0925\u093f\u0924\u093f\u0964 \u092a\u094d\u0930\u0940\u0935\u093e\u0930\u094d\u092e \u092c\u0942\u091f \u092a\u0930 \u091a\u0932\u0924\u093e \u0939\u0948 \u0924\u093e\u0915\u093f \u092e\u0949\u0921\u0932 \u092b\u093c\u093e\u0907\u0932\u0947\u0902 \u0924\u0947\u091c \u0936\u0941\u0930\u0942\u0906\u0924 \u0915\u0947 \u0932\u093f\u090f RAM \u092e\u0947\u0902 \u0930\u0939\u0947\u0902\u0964",
+        "cacheDescription": "\u0935\u0949\u092f\u093f\u0938 \u092e\u0949\u0921\u0932 \u0915\u0947 \u0932\u093f\u090f "
+        "\u0913\u0935\u0930 \u092b\u093c\u093e\u0907\u0932 \u0915\u0948\u091a \u0915\u0940 \u0932\u093e\u0907\u0935 "
+        "\u0938\u094d\u0925\u093f\u0924\u093f\u0964 \u092a\u094d\u0930\u0940\u0935\u093e\u0930\u094d\u092e "
+        "\u092c\u0942\u091f \u092a\u0930 \u091a\u0932\u0924\u093e \u0939\u0948 \u0924\u093e\u0915\u093f "
+        "\u092e\u0949\u0921\u0932 \u092b\u093c\u093e\u0907\u0932\u0947\u0902 \u0924\u0947\u091c "
+        "\u0936\u0941\u0930\u0942\u0906\u0924 \u0915\u0947 \u0932\u093f\u090f RAM \u092e\u0947\u0902 "
+        "\u0930\u0939\u0947\u0902\u0964",
         "prewarmStatus": "\u092a\u094d\u0930\u0940\u0935\u093e\u0930\u094d\u092e \u0938\u094d\u0925\u093f\u0924\u093f",
         "lastRun": "\u0905\u0902\u0924\u093f\u092e \u091a\u0932\u093e\u0928\u093e",
         "cacheHealth": "\u0915\u0948\u091a \u0938\u094d\u0935\u093e\u0938\u094d\u0925\u094d\u092f",
@@ -125,11 +146,20 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     },
     "ru": {
         "cacheTitle": "\u0421\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435 \u043a\u044d\u0448\u0430",
-        "cacheDescription": "\u0416\u0438\u0432\u043e\u0435 \u0441\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435 \u0444\u0430\u0439\u043b\u043e\u0432\u043e\u0433\u043e \u043a\u044d\u0448\u0430 \u041e\u0421 \u0434\u043b\u044f \u0440\u0435\u0447\u0435\u0432\u043e\u0439 \u043c\u043e\u0434\u0435\u043b\u0438. \u041f\u0440\u0435\u0434\u043f\u0440\u043e\u0433\u0440\u0435\u0432 \u0437\u0430\u043f\u0443\u0441\u043a\u0430\u0435\u0442\u0441\u044f \u043f\u0440\u0438 \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0435, \u0447\u0442\u043e\u0431\u044b \u0444\u0430\u0439\u043b\u044b \u043c\u043e\u0434\u0435\u043b\u0438 \u043e\u0441\u0442\u0430\u0432\u0430\u043b\u0438\u0441\u044c \u0432 RAM \u0434\u043b\u044f \u0431\u044b\u0441\u0442\u0440\u043e\u0433\u043e \u0437\u0430\u043f\u0443\u0441\u043a\u0430.",
-        "prewarmStatus": "\u0421\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435 \u043f\u0440\u0435\u0434\u043f\u0440\u043e\u0433\u0440\u0435\u0432\u0430",
+        "cacheDescription": "\u0416\u0438\u0432\u043e\u0435 \u0441\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435 "
+        "\u0444\u0430\u0439\u043b\u043e\u0432\u043e\u0433\u043e \u043a\u044d\u0448\u0430 \u041e\u0421 "
+        "\u0434\u043b\u044f \u0440\u0435\u0447\u0435\u0432\u043e\u0439 \u043c\u043e\u0434\u0435\u043b\u0438. "
+        "\u041f\u0440\u0435\u0434\u043f\u0440\u043e\u0433\u0440\u0435\u0432 "
+        "\u0437\u0430\u043f\u0443\u0441\u043a\u0430\u0435\u0442\u0441\u044f \u043f\u0440\u0438 "
+        "\u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0435, \u0447\u0442\u043e\u0431\u044b "
+        "\u0444\u0430\u0439\u043b\u044b \u043c\u043e\u0434\u0435\u043b\u0438 "
+        "\u043e\u0441\u0442\u0430\u0432\u0430\u043b\u0438\u0441\u044c \u0432 RAM \u0434\u043b\u044f "
+        "\u0431\u044b\u0441\u0442\u0440\u043e\u0433\u043e \u0437\u0430\u043f\u0443\u0441\u043a\u0430.",
+        "prewarmStatus": "\u0421\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435 "
+        "\u043f\u0440\u0435\u0434\u043f\u0440\u043e\u0433\u0440\u0435\u0432\u0430",
         "lastRun": "\u041f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0439 \u0437\u0430\u043f\u0443\u0441\u043a",
         "cacheHealth": "\u0417\u0434\u043e\u0440\u043e\u0432\u044c\u0435 \u043a\u044d\u0448\u0430",
-        "prewarmElapsed": "\u041f\u0440\u043e\u0434\u043e\u043b\u0436\u0438\u0442\u0435\u043b\u044c\u043d\u043e\u0441\u0442\u044c",
+        "prewarmElapsed": "\u041f\u0440\u043e\u0434\u043e\u043b\u0436\u0438\u0442\u0435\u043b\u044c\u043d\u043e\u0441\u0442\u044c",  # noqa: E501
         "cacheHot": "\u0413\u043e\u0440\u044f\u0447\u0438\u0439",
         "cachePartial": "\u0427\u0430\u0441\u0442\u0438\u0447\u043d\u043e",
         "cacheCold": "\u0425\u043e\u043b\u043e\u0434\u043d\u044b\u0439",
@@ -140,7 +170,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     },
     "zh": {
         "cacheTitle": "\u7f13\u5b58\u72b6\u6001",
-        "cacheDescription": "\u8bed\u97f3\u6a21\u578b\u7684\u64cd\u4f5c\u7cfb\u7edf\u6587\u4ef6\u7f13\u5b58\u5b9e\u65f6\u72b6\u6001\u3002\u9884\u70ed\u5728\u5f00\u673a\u65f6\u8fd0\u884c\uff0c\u5c06\u6a21\u578b\u6587\u4ef6\u4fdd\u7559\u5728 RAM \u4e2d\u4ee5\u5b9e\u73b0\u5feb\u901f\u542f\u52a8\u3002",
+        "cacheDescription": "\u8bed\u97f3\u6a21\u578b\u7684\u64cd\u4f5c\u7cfb\u7edf\u6587\u4ef6\u7f13\u5b58\u5b9e\u65f6\u72b6\u6001\u3002\u9884\u70ed\u5728\u5f00\u673a\u65f6\u8fd0\u884c\uff0c\u5c06\u6a21\u578b\u6587\u4ef6\u4fdd\u7559\u5728 "  # noqa: E501
+        "RAM \u4e2d\u4ee5\u5b9e\u73b0\u5feb\u901f\u542f\u52a8\u3002",
         "prewarmStatus": "\u9884\u70ed\u72b6\u6001",
         "lastRun": "\u4e0a\u6b21\u8fd0\u884c",
         "cacheHealth": "\u7f13\u5b58\u5065\u5eb7\u5ea6",

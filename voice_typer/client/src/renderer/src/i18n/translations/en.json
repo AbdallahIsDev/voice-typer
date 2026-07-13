@@ -291,11 +291,23 @@
 		"viewPrewarmLog": "View prewarm log",
 		"prewarmLogNotFound": "No prewarm log found",
 		"prewarmLogOpened": "Opened prewarm log",
-		"prewarmLogOpenFailed": "Could not open prewarm log"
+		"prewarmLogOpenFailed": "Could not open prewarm log",
+		"relativeTime": {
+			"lessThanMinute": "<1 min ago",
+			"minutesAgo": "{count} min ago",
+			"hoursAgo": "{count} h ago",
+			"daysAgo": "{count} d ago"
+		}
 	},
 	"settings": {
 		"title": "Settings",
 		"searchPlaceholder": "Search settings…",
+		"searchHints": {
+			"appearance": "theme, appearance, color, dark, light, text size, font",
+			"general": "language, notification, tray, bubble, overlay, startup, login, launch, hotkey, shortcut, dictation key, recording mode, push to talk",
+			"aiAudio": "model, llm, audio, volume, ducking, noise, filter, post-processing, ai enhancement, vocabulary, api key, polish, transcription, preset, snippet",
+			"privacy": "privacy, recovery, crash, export, consent, troubleshooting, diagnostics, reset, log, bug, help, faq"
+		},
 		"noResultsTitle": "No results found",
 		"noResultsMessage": "Try a different search term or clear the filter to see all settings.",
 		"tabs": {
@@ -739,7 +751,11 @@
 			"resetToDefaultsHint": "Reset all settings to their default values (cannot be undone)",
 			"cancelResetAria": "Cancel reset",
 			"confirmResetAria": "Confirm reset to defaults",
-			"resetDialogMessage": "Are you sure you want to reset all settings to their default values? This cannot be undone."
+			"resetDialogMessage": "Are you sure you want to reset all settings to their default values? This cannot be undone.",
+			"reRunWizard": "Re-run Setup Wizard",
+			"reRunWizardAria": "Re-run setup wizard",
+			"reRunWizardHint": "Restart the onboarding wizard to re-configure microphone, hotkey, and model",
+			"reRunWizardToast": "Setup wizard re-enabled — navigating there now"
 		}
 	},
 	"models": {
@@ -961,7 +977,21 @@
 		"openHelp": "Open this help overlay",
 		"navBack": "Navigate back / forward",
 		"closeHint": "Press {key} or click outside to close.",
-		"zoomTextSize": "Zoom text size"
+		"zoomTextSize": "Zoom text size",
+		"keys": {
+			"dictation": "Caps Lock (or your hotkey)",
+			"cancel": "Esc",
+			"repaste": "Ctrl+Alt+V",
+			"toggleSidebar": "Ctrl+B",
+			"openSettings": "Ctrl+,",
+			"goHome": "Ctrl+H",
+			"navigate": "Tab / Shift+Tab",
+			"toggle": "Space",
+			"activate": "Enter",
+			"zoomTextSize": "Ctrl+Plus / Ctrl+Minus",
+			"openHelp": "?",
+			"navBack": "Alt+Left / Alt+Right"
+		}
 	},
 	"history": {
 		"title": "History",
@@ -1104,5 +1134,30 @@
 		"limiter": "Limiter",
 		"limiterCeiling": "Limiter Ceiling",
 		"notchFilter": "Notch Filter (hum)"
+	},
+	"microphoneTest": {
+		"title": "Test Complete",
+		"duration": "Duration: {duration}s",
+		"retest": "Retest",
+		"estimatedQuality": "Estimated Transcription Quality",
+		"volume": "Volume",
+		"good": "Good ✓",
+		"low": "Low ⚠",
+		"veryLow": "Very Low ⚠",
+		"backgroundNoise": "Background Noise",
+		"lowNoise": "Low ✓",
+		"moderateNoise": "Moderate ⚠",
+		"highNoise": "High ⚠",
+		"clipping": "Clipping",
+		"clippingDetected": "Detected ⚠",
+		"clippingNone": "None ✓",
+		"voice": "Voice",
+		"voiceDetected": "Detected ✓",
+		"voiceNotDetected": "Not detected ⚠",
+		"detectedIssues": "Detected Issues:",
+		"playEnhanced": "Play Enhanced",
+		"playOriginal": "Play Original",
+		"playRecording": "Play Recording",
+		"stop": "Stop"
 	}
 }

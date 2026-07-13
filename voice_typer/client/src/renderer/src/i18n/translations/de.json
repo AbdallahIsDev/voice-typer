@@ -296,6 +296,12 @@
 	"settings": {
 		"title": "Einstellungen",
 		"searchPlaceholder": "Einstellungen durchsuchen…",
+		"searchHints": {
+			"appearance": "theme, appearance, color, dark, light, text size, font",
+			"general": "language, notification, tray, bubble, overlay, startup, login, launch, hotkey, shortcut, dictation key, recording mode, push to talk",
+			"aiAudio": "model, llm, audio, volume, ducking, noise, filter, post-processing, ai enhancement, vocabulary, api key, polish, transcription, preset, snippet",
+			"privacy": "privacy, recovery, crash, export, consent, troubleshooting, diagnostics, reset, log, bug, help, faq"
+		},
 		"noResultsTitle": "Keine Ergebnisse gefunden",
 		"noResultsMessage": "Versuchen Sie einen anderen Suchbegriff oder löschen Sie den Filter, um alle Einstellungen zu sehen.",
 		"tabs": {
@@ -739,7 +745,11 @@
 			"resetToDefaultsHint": "Setzt alle Einstellungen auf ihre Standardwerte zurück (kann nicht rückgängig gemacht werden)",
 			"cancelResetAria": "Zurücksetzen abbrechen",
 			"confirmResetAria": "Auf Standardwerte zurücksetzen bestätigen",
-			"resetDialogMessage": "Möchten Sie wirklich alle Einstellungen auf ihre Standardwerte zurücksetzen? Dies kann nicht rückgängig gemacht werden."
+			"resetDialogMessage": "Möchten Sie wirklich alle Einstellungen auf ihre Standardwerte zurücksetzen? Dies kann nicht rückgängig gemacht werden.",
+			"reRunWizard": "Setup-Assistent erneut ausführen",
+			"reRunWizardAria": "Setup-Assistent erneut ausführen",
+			"reRunWizardHint": "Setup-Assistent neu starten, um Mikrofon, Hotkey und Modell neu zu konfigurieren",
+			"reRunWizardToast": "Setup-Assistent wieder aktiviert — navigiere dorthin"
 		}
 	},
 	"models": {

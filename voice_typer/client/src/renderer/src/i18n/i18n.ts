@@ -36,6 +36,17 @@ export type Locale = (typeof SUPPORTED_LOCALES)[number];
 // UX-015: export the list of supported locales for the UI language selector.
 export { SUPPORTED_LOCALES };
 
+// F-4: RTL locales (Arabic). When the current locale is RTL, the
+// document direction is set to "rtl" so the entire UI flips horizontally.
+const RTL_LOCALES = new Set<Locale>(["ar"]);
+
+/**
+ * Returns true if the given locale is a right-to-left language.
+ */
+export function isRtlLocale(locale: Locale): boolean {
+	return RTL_LOCALES.has(locale);
+}
+
 // Human-readable labels for each locale (used in the Settings dropdown).
 const LOCALE_LABELS: Record<Locale, string> = {
 	ar: "العربية",
@@ -135,7 +146,11 @@ export function getLocale(): Locale {
 }
 
 /**
- * Set the current locale.
+ * Set the current locale and update the document text direction.
+ *
+ * F-4: When switching to an RTL locale (Arabic), sets
+ * ``document.documentElement.dir = "rtl"`` so the entire UI flips
+ * horizontally. Falls back to "ltr" for all other locales.
  */
 export function setLocale(locale: Locale): void {
 	if (!SUPPORTED_LOCALES.includes(locale)) {
@@ -144,6 +159,15 @@ export function setLocale(locale: Locale): void {
 		return;
 	}
 	_currentLocale = locale;
+
+	// F-4: Update document direction for RTL support.
+	try {
+		if (typeof document !== "undefined") {
+			document.documentElement.dir = RTL_LOCALES.has(locale) ? "rtl" : "ltr";
+		}
+	} catch {
+		// SSR environments may not have document
+	}
 }
 
 /**

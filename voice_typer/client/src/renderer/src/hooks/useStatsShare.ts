@@ -74,13 +74,13 @@ export function useStatsShare() {
 	const shareAsImage = useCallback(async (filename = "voice-typer-stats") => {
 		const el = imageRef.current;
 		if (!el) {
-			// EXPORT-FIX (Round 1): log the failure path so the
+			// EXPORT-FIX: log the failure path so the
 			// user can see why nothing happened.
 			console.warn("[StatsShare] imageRef not attached — capture aborted");
 			return;
 		}
 
-		// EXPORT-FIX (Round 1): pre-capture diagnostics. The previous
+		// EXPORT-FIX: pre-capture diagnostics. The previous
 		// implementation silently produced a blank PNG because the
 		// off-screen `position: fixed; left: -9999` wrapper caused
 		// Chromium's paint optimization to skip painting the element,
@@ -102,7 +102,7 @@ export function useStatsShare() {
 		}
 
 		try {
-			// EXPORT-FIX (Round 1): the previous call used only
+			// EXPORT-FIX: the previous call used only
 			// {quality:1, pixelRatio:2, cacheBust:true}. Three
 			// issues caused blank images:
 			// 1. No explicit width/height → toPng used the
@@ -127,7 +127,7 @@ export function useStatsShare() {
 					// that break SVG foreignObject rendering.
 					margin: "0",
 					padding: "0",
-					// EXPORT-FIX (Round 2): the wrapper div in
+					// EXPORT-FIX: the wrapper div in
 					// Home.tsx/Dashboard.tsx uses
 					// clipPath:inset(50% 50% 50% 50%) to hide
 					// the off-screen capture target from the
