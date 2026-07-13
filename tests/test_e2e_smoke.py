@@ -5,12 +5,9 @@ and the core flows still work end-to-end.
 """
 import json
 import os
-import sys
 from unittest.mock import MagicMock
 
 import pytest
-
-sys.path.insert(0, '/home/z/my-project/voice-typer-repo')
 
 
 @pytest.fixture

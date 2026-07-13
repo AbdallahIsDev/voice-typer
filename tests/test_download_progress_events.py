@@ -8,10 +8,6 @@ Verifies that:
 - The progress value is clamped to [0, 100].
 """
 import os
-import sys
-
-sys.path.insert(0, '/home/z/my-project/voice-typer-repo')
-
 from unittest.mock import MagicMock
 
 import pytest

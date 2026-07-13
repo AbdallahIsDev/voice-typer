@@ -9,10 +9,6 @@ Verifies that:
   can rely on it existing
 """
 import inspect
-import sys
-
-sys.path.insert(0, '/home/z/my-project/voice-typer-repo')
-
 from unittest.mock import MagicMock
 
 from voice_typer.server.asr_registry import AsrBackendRegistry

@@ -47,8 +47,12 @@ class TestSettingsShowsSuccessToastOnUpdateConfig:
 
     def test_update_config_still_has_error_toast(self):
         settings = _read("pages/Settings.tsx")
-        # The error toast is a hardcoded string, not a t() key
-        assert "Failed to save setting" in settings or 'showSnack("Failed' in settings
+        # The error toast is rendered via i18n key `settings.saveFailedToast`
+        # (not a hardcoded English string). Verify both the key is present
+        # in Settings.tsx and that the key is defined in the en.json locale.
+        assert "settings.saveFailedToast" in settings or 'showSnack(t("settings.saveFailedToast"))' in settings
+        en = _read("i18n/translations/en.json")
+        assert "saveFailedToast" in en
 
 
 class TestOnNavigateTypedAsPageLiteralUnion:
@@ -75,15 +79,16 @@ class TestNumberInputOmitsOnInvalidFromProps:
     """NumberInputProps omits onInvalid from inherited HTML attributes."""
 
     def test_omit_includes_oninvalid(self):
-        number_input = _read("components/ui/number-input.tsx")
+        number_input = _read("components/ui/number-input-stepper.tsx")
         assert re.search(
-            r'Omit<\s*React\.ComponentProps<"input">\s*,\s*"type"\s*\|\s*"onChange"\s*\|\s*"onInvalid"',
+            r'Omit<\s*React\.ComponentProps<(?:typeof Input|"input")>\s*,'
+            r'\s*"type"\s*\|\s*"onChange"\s*\|\s*"onInvalid"',
             number_input,
             re.DOTALL,
         )
 
     def test_custom_oninvalid_still_declared(self):
-        number_input = _read("components/ui/number-input.tsx")
+        number_input = _read("components/ui/number-input-stepper.tsx")
         assert 'onInvalid?: (reason: "parse" | "range" | null) => void' in number_input
 
 
@@ -271,7 +276,7 @@ class TestTitleBarReceivesIsMaximizedProp:
     """TitleBar accepts isMaximized prop from App."""
 
     def test_titlebar_accepts_isMaximized_prop(self):  # noqa: N802
-        src = _read("components/TitleBar.tsx")
+        src = _read("components/layout/TitleBar.tsx")
         assert "isMaximized?" in src
 
     def test_app_passes_isMaximized_to_titlebar(self):  # noqa: N802
@@ -279,7 +284,7 @@ class TestTitleBarReceivesIsMaximizedProp:
         assert "isMaximized={isMaximized}" in src
 
     def test_titlebar_skips_subscription_when_prop_provided(self):
-        src = _read("components/TitleBar.tsx")
+        src = _read("components/layout/TitleBar.tsx")
         assert "isMaximizedProp !== undefined" in src
 
 
@@ -306,7 +311,7 @@ class TestAboutDiagnosticsPageExists:
         assert "export default" in src
 
     def test_sidebar_has_about_nav(self):
-        src = _read("components/Sidebar.tsx")
+        src = _read("components/layout/Sidebar.tsx")
         assert "'about'" in src or '"about"' in src
 
     def test_app_routes_to_about(self):
@@ -336,7 +341,7 @@ class TestErrorBoundaryComponentExists:
     """ErrorBoundary component exists and is wired."""
 
     def test_error_boundary_file_exists(self):
-        assert (RENDERER_SRC / "components" / "ErrorBoundary.tsx").exists()
+        assert (RENDERER_SRC / "components" / "feedback" / "ErrorBoundary.tsx").exists()
 
     def test_app_wraps_in_error_boundary(self):
         src = _read("App.tsx")
@@ -356,7 +361,7 @@ class TestSidebarHasAriaCurrentPage:
     """Sidebar has aria-current=page."""
 
     def test_sidebar_has_aria_current(self):
-        src = _read("components/Sidebar.tsx")
+        src = _read("components/layout/Sidebar.tsx")
         assert "aria-current" in src
 
 
@@ -365,7 +370,9 @@ class TestAppHasSkipToMainContentLink:
 
     def test_app_has_skip_link(self):
         src = _read("App.tsx")
-        assert "Skip to main content" in src
+        # The cue is rendered via i18n key `a11y.skipToMain` (not a hardcoded
+        # English string) — accept either form for backward compatibility.
+        assert "a11y.skipToMain" in src or "Skip to main content" in src
         assert "#main-content" in src
 
 
@@ -395,7 +402,8 @@ class TestAppAnnouncesRecordingStartStopWithAriaLive:
     def test_app_has_aria_live(self):
         src = _read("App.tsx")
         assert "aria-live" in src
-        assert "Recording started" in src
+        # The cue is rendered via i18n key `a11y.recordingStarted`.
+        assert "a11y.recordingStarted" in src or "Recording started" in src
 
 
 class TestHistorySearchHasClearButton:
@@ -404,8 +412,8 @@ class TestHistorySearchHasClearButton:
     def test_history_has_clear_button(self):
         src = _read("pages/History.tsx")
         assert "SearchField" in src
-        sf = _read("components/SearchField.tsx")
-        assert "Clear search" in sf or 'aria-label="Clear search"' in sf
+        sf = _read("components/common/SearchField.tsx")
+        assert "Clear search" in sf or "clearSearch" in sf or 'aria-label="Clear search"' in sf
 
 
 class TestModelDownloadSupportsCancel:

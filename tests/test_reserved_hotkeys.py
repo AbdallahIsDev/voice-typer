@@ -2,7 +2,10 @@
 
 HOTKEY-UNIFY-002: verifies that:
   1. ``_RESERVED_HOTKEYS`` in ``config_validators.py`` matches the
-     frontend ``RESERVED_SHORTCUTS`` in ``hotkey-validation.ts``.
+     frontend ``RESERVED_SHORTCUTS`` mirror in ``hotkey/hotkey-validation.ts``,
+     which since the 3c2b5d6 refactor re-exports the per-platform table
+     from ``data/hotkey_reserved.json`` (a byte-identical client-side copy
+     of the server canonical).
   2. ``_validate_hotkey`` correctly identifies reserved shortcuts.
   3. The ``_VALIDATOR_HOTKEY`` validator rejects reserved shortcuts
      via ``validate_config_update``.
@@ -12,7 +15,7 @@ HOTKEY-UNIFY-002: verifies that:
 
 from __future__ import annotations
 
-import re
+import json
 from pathlib import Path
 
 import pytest
@@ -27,49 +30,29 @@ from voice_typer.server.config_validators import (
 # 1. Frontend ↔ backend sync
 # ──────────────────────────────────────────────────────────────────────────
 
-_HOTKEY_VALIDATION_TS = Path(__file__).resolve().parents[1] / (
-    "voice_typer/client/src/renderer/src/components/hotkey-validation.ts"
+_HOTKEY_RESERVED_JSON_CLIENT = Path(__file__).resolve().parents[1] / (
+    "voice_typer/client/src/renderer/src/data/hotkey_reserved.json"
 )
 
 
 def _parse_frontend_reserved_shortcuts() -> dict:
-    """Parse the RESERVED_SHORTCUTS literal from hotkey-validation.ts.
+    """Load the per-platform reserved-shortcut table from the client JSON.
 
     Returns a dict matching the backend ``_RESERVED_HOTKEYS`` shape:
     ``{"win32": [...], "darwin": [...], "linux": [...]}``.
+
+    The TS file (``hotkey/hotkey-validation.ts``) re-exports the JSON's
+    ``per_platform_reserved`` field as ``RESERVED_SHORTCUTS``, so reading
+    the JSON directly is equivalent to parsing the TS literal — and is
+    robust to future TS source formatting changes.
     """
-    if not _HOTKEY_VALIDATION_TS.exists():
+    if not _HOTKEY_RESERVED_JSON_CLIENT.exists():
         pytest.skip(
-            f"hotkey-validation.ts not found at {_HOTKEY_VALIDATION_TS}"
+            f"hotkey_reserved.json not found at {_HOTKEY_RESERVED_JSON_CLIENT}"
         )
-    src = _HOTKEY_VALIDATION_TS.read_text(encoding="utf-8")
-
-    # Extract the object literal assigned to RESERVED_SHORTCUTS.
-    # Match: export const RESERVED_SHORTCUTS: Record<...> = { ... };
-    m = re.search(
-        r"export\s+const\s+RESERVED_SHORTCUTS[^=]*=\s*(\{[^;]+\});",
-        src,
-        re.DOTALL,
-    )
-    assert m, "Could not find RESERVED_SHORTCUTS literal in hotkey-validation.ts"
-    obj_literal = m.group(1)
-
-    # Parse each platform key → list of shortcut strings.
-    result: dict = {}
-    # Match: win32: [ "...", "...", ... ],
-    for pm in re.finditer(
-        r'(win32|darwin|linux)\s*:\s*\[(.*?)\]',
-        obj_literal,
-        re.DOTALL,
-    ):
-        platform_key = pm.group(1)
-        list_body = pm.group(2)
-        # Extract all double-quoted strings, ignoring comments.
-        # Strip line comments first.
-        list_body_clean = re.sub(r'//.*', '', list_body)
-        shortcuts = re.findall(r'"([^"]+)"', list_body_clean)
-        result[platform_key] = shortcuts
-    return result
+    with _HOTKEY_RESERVED_JSON_CLIENT.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+    return data.get("per_platform_reserved", {})
 
 
 def test_reserved_hotkeys_match_frontend() -> None:

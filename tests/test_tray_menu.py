@@ -5,12 +5,9 @@ Verifies that:
 - wrap_callback suppresses SystemExit (ERR-QUIT-002)
 - build_menu produces the expected menu structure
 """
-import sys
 from unittest.mock import MagicMock
 
 import pytest
-
-sys.path.insert(0, '/home/z/my-project/voice-typer-repo')
 
 
 class TestDisplayHotkey:
