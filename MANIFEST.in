@@ -15,8 +15,14 @@ recursive-include voice_typer/server/assets *
 # Client build output (Electron)
 recursive-include voice_typer/client/build *
 
-# Corrections data
+# Corrections data + reserved-hotkey table + model integrity hashes.
+# All three JSON files are read by voice_typer/server/ modules at
+# runtime (config_validators._load_reserved_data, security.verify_model_integrity,
+# text_cleanup.configure_corrections) and must be present in both the
+# sdist and the PyInstaller bundle (see scripts/build/voice-typer.spec).
 include voice_typer/server/corrections.json
+include voice_typer/server/hotkey_reserved.json
+include voice_typer/server/model_hashes.json
 
 # Icon assets
 include voice_typer/server/assets/*.png

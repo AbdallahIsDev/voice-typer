@@ -16,8 +16,12 @@ block_cipher = None
 _spec_script = next(a for a in sys.argv if a.endswith(".spec"))
 _PROJECT_ROOT = Path(_spec_script).resolve().parent.parent.parent
 
-# Locate the corrections.json data file relative to project root
-_corrections_json = str(_PROJECT_ROOT / "voice_typer" / "corrections.json")
+# BUILD-006: data files loaded at runtime via Path(__file__).parent from
+# voice_typer/server/*. They must be bundled NEXT TO the importing module,
+# i.e. under "voice_typer/server" in the bundle, not "voice_typer".
+_corrections_json = str(_PROJECT_ROOT / "voice_typer" / "server" / "corrections.json")
+_hotkey_reserved_json = str(_PROJECT_ROOT / "voice_typer" / "server" / "hotkey_reserved.json")
+_model_hashes_json = str(_PROJECT_ROOT / "voice_typer" / "server" / "model_hashes.json")
 _icon_path = _PROJECT_ROOT / "scripts" / "build" / "voice-typer.ico"
 
 # NATIVE-001: native key-listener binaries.
@@ -110,7 +114,12 @@ a = Analysis(
     [str(_PROJECT_ROOT / "voice_typer" / "__main__.py")],
     pathex=[str(_PROJECT_ROOT)],
     binaries=_native_binaries,
-    datas=[(_corrections_json, "voice_typer")] + _linux_scripts,
+    datas=[
+        (_corrections_json, "voice_typer/server"),
+        (_hotkey_reserved_json, "voice_typer/server"),
+        (_model_hashes_json, "voice_typer/server"),
+    ]
+    + _linux_scripts,
     hiddenimports=[
         "scipy.signal",
         "scipy._lib",
