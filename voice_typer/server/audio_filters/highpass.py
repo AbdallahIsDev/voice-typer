@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import cast
 
 import numpy as np
 
@@ -42,7 +43,14 @@ class HighPassFilter(AudioFilter):
         cutoff = min(max(self._cutoff_hz, 20.0), nyq * 0.99)
         try:
             # Order 4 for steeper rolloff (24 dB/octave).
-            b, a = butter(4, cutoff / nyq, btype="high")
+            # scipy.signal.butter's stubs declare a union return type
+            # (zpk / ba / sos) that pyrefly cannot narrow through unpacking.
+            # ``cast`` is the narrowest correct fix: at runtime ``butter``
+            # with the default ``output="ba"`` always returns a 2-tuple of
+            # 1-D ndarrays. Using ``cast`` keeps the runtime path identical
+            # while giving the static analyzer the precise shape it needs.
+            result = butter(4, cutoff / nyq, btype="high")
+            b, a = cast("tuple[np.ndarray, np.ndarray]", result)
             zi = np.zeros(max(len(a), len(b)) - 1, dtype=np.float64)
             # Anti-denormal: add epsilon to first state element.
             zi[0] = ANTIDENORMAL_EPSILON
