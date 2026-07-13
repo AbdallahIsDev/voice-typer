@@ -2956,18 +2956,25 @@ class TestReconnectTestCoverageExists:
     def test_reconnect_integration_tests_exist(self):
         from pathlib import Path
 
-        test_file = Path(__file__).resolve().parent / "test_new_test_001_live_tcp.py"
-        if test_file.exists():
-            src = test_file.read_text(encoding="utf-8")
-            assert "test_reconnect_after_disconnect" in src, (
-                "NEW-IPC-004: test_reconnect_after_disconnect must exist"
-            )
-            assert "test_server_survives_client_crash" in src, (
-                "NEW-IPC-004: test_server_survives_client_crash must exist"
-            )
-            assert "live_server" in src, (
-                "NEW-IPC-004: tests must use a live_server fixture (real TCP)"
-            )
+        # NEW-IPC-004: the live-TCP reconnect tests were originally in
+        # test_new_test_001_live_tcp.py (deleted) and have been
+        # consolidated into test_feature_hardening_regressions.py.
+        # Assert the file exists and contains the required test
+        # functions so a future refactor can't silently drop them.
+        test_file = Path(__file__).resolve().parent / "test_feature_hardening_regressions.py"
+        assert test_file.exists(), (
+            f"NEW-IPC-004: required test file {test_file.name} was deleted (regression)"
+        )
+        src = test_file.read_text(encoding="utf-8")
+        assert "test_reconnect_after_disconnect" in src, (
+            "NEW-IPC-004: test_reconnect_after_disconnect must exist"
+        )
+        assert "test_server_survives_client_crash" in src, (
+            "NEW-IPC-004: test_server_survives_client_crash must exist"
+        )
+        assert "live_server" in src, (
+            "NEW-IPC-004: tests must use a live_server fixture (real TCP)"
+        )
 
 class TestConcurrentCancelTestCoverageExists:
     """NEW-CONC-003.
@@ -2980,21 +2987,29 @@ class TestConcurrentCancelTestCoverageExists:
     def test_concurrent_cancel_tests_exist(self):
         from pathlib import Path
 
-        # Check test_volume_ducker.py
+        # NEW-CONC-003: concurrent-cancel coverage was originally
+        # pinned across test_volume_ducker.py and test_round11_regression.py
+        # (deleted). The test_schedule_and_cancel_are_threadsafe test
+        # was consolidated into test_recording_and_audio.py. Assert
+        # both files exist and contain the required test functions so
+        # a future refactor can't silently drop them.
         ducker_test = Path(__file__).resolve().parent / "test_volume_ducker.py"
-        if ducker_test.exists():
-            src = ducker_test.read_text(encoding="utf-8")
-            assert "test_concurrent_cancel_and_stop" in src, (
-                "NEW-CONC-003: test_concurrent_cancel_and_stop must exist in test_volume_ducker.py"
-            )
+        assert ducker_test.exists(), (
+            f"NEW-CONC-003: required test file {ducker_test.name} was deleted (regression)"
+        )
+        src = ducker_test.read_text(encoding="utf-8")
+        assert "test_concurrent_cancel_and_stop" in src, (
+            "NEW-CONC-003: test_concurrent_cancel_and_stop must exist in test_volume_ducker.py"
+        )
 
-        # Check test_round11_regression.py
-        round11_test = Path(__file__).resolve().parent / "test_round11_regression.py"
-        if round11_test.exists():
-            src = round11_test.read_text(encoding="utf-8")
-            assert "test_schedule_and_cancel_are_threadsafe" in src, (
-                "NEW-CONC-003: test_schedule_and_cancel_are_threadsafe must exist"
-            )
+        recording_test = Path(__file__).resolve().parent / "test_recording_and_audio.py"
+        assert recording_test.exists(), (
+            f"NEW-CONC-003: required test file {recording_test.name} was deleted (regression)"
+        )
+        src = recording_test.read_text(encoding="utf-8")
+        assert "test_schedule_and_cancel_are_threadsafe" in src, (
+            "NEW-CONC-003: test_schedule_and_cancel_are_threadsafe must exist"
+        )
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

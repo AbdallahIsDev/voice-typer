@@ -44,6 +44,8 @@ CLIENT_JSON_PATH = (
     / "hotkey_reserved.json"
 )
 # Path to the frontend TS file that imports the JSON.
+# After the 3c2b5d6 refactor, the file moved from components/hotkey-validation.ts
+# to components/hotkey/hotkey-validation.ts.
 TS_PATH = (
     Path(__file__).resolve().parent.parent
     / "voice_typer"
@@ -52,6 +54,7 @@ TS_PATH = (
     / "renderer"
     / "src"
     / "components"
+    / "hotkey"
     / "hotkey-validation.ts"
 )
 
@@ -113,13 +116,23 @@ class TestFrontendImportsFromJson:
     re-exports all required fields."""
 
     def test_ts_imports_from_client_copy(self, ts_content: str) -> None:
-        """The TS file must import from ../data/hotkey_reserved.json
-        (the client-side copy, not via @server alias which resolved
-        outside the renderer root and crashed Vite HMR)."""
-        assert "import hotkeyReserved from \"../data/hotkey_reserved.json\"" in ts_content or \
-               "import hotkeyReserved from '../data/hotkey_reserved.json'" in ts_content, (
+        """The TS file must import from the client copy of hotkey_reserved.json.
+
+        The relative path depends on the file's location:
+        - components/hotkey-validation.ts  (pre-3c2b5d6) used ``../data/...``
+        - components/hotkey/hotkey-validation.ts  (post-3c2b5d6) uses ``../../data/...``
+        Both relative paths are accepted; both single and double quotes are
+        accepted because the project's Biome formatter has been inconsistent
+        about quote style across versions.
+        """
+        assert (
+            "import hotkeyReserved from \"../data/hotkey_reserved.json\"" in ts_content
+            or "import hotkeyReserved from '../data/hotkey_reserved.json'" in ts_content
+            or "import hotkeyReserved from \"../../data/hotkey_reserved.json\"" in ts_content
+            or "import hotkeyReserved from '../../data/hotkey_reserved.json'" in ts_content
+        ), (
             "hotkey-validation.ts must import from ../data/hotkey_reserved.json "
-            "(client-side copy, not @server alias)"
+            "or ../../data/hotkey_reserved.json (client-side copy, not @server alias)"
         )
 
     def test_ts_re_exports_all_fields(self, ts_content: str) -> None:

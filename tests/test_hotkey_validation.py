@@ -3,7 +3,7 @@
 These tests pin the denylist-based validation policy introduced in
 ``voice_typer/server/config_validators.py::_validate_hotkey``.  The
 validator mirrors the frontend ``validateHotkey`` in
-``voice_typer/client/src/renderer/src/components/hotkey-validation.ts``.
+``voice_typer/client/src/renderer/src/components/hotkey/hotkey-validation.ts``.
 
 The policy is a DENYLIST design, not a blanket rule design:
   - Allow Alt+<letter> by default (e.g. <alt>+<q>, <alt>+<r>).

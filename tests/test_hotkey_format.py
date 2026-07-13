@@ -3,7 +3,7 @@
 The Python ``voice_typer.server.tray_hotkey.format_hotkey_label`` must
 produce byte-identical output to the canonical TypeScript
 ``formatHotkeyLabel`` in
-``client/src/renderer/src/components/hotkey-utils.ts`` for any given
+``client/src/renderer/src/components/hotkey/hotkey-utils.ts`` for any given
 hotkey string. This file pins that parity with a ~30-case corpus
 covering:
 

@@ -21,14 +21,14 @@ class TestHotkeyUtilsFormatLabel:
     """formatHotkeyLabel converts pynput syntax to human-readable."""
 
     def test_formats_single_key(self):
-        utils = _read("components/hotkey-utils.ts")
+        utils = _read("components/hotkey/hotkey-utils.ts")
         assert "function formatHotkeyLabel" in utils
         assert '"Ctrl"' in utils or "'Ctrl'" in utils
         assert '"Caps Lock"' in utils or "'Caps Lock'" in utils
         assert '"Space"' in utils or "'Space'" in utils
 
     def test_formats_combo(self):
-        utils = _read("components/hotkey-utils.ts")
+        utils = _read("components/hotkey/hotkey-utils.ts")
         assert '.split("+")' in utils or ".split('+')" in utils
         assert '.join("+")' in utils or ".join('+')" in utils
 
@@ -37,19 +37,19 @@ class TestHotkeyUtilsValidate:
     """validateHotkey returns null for valid, error string for invalid."""
 
     def test_validate_function_exists(self):
-        utils = _read("components/hotkey-utils.ts")
+        utils = _read("components/hotkey/hotkey-utils.ts")
         assert "function validateHotkey" in utils
 
     def test_validate_rejects_empty(self):
-        utils = _read("components/hotkey-utils.ts")
+        utils = _read("components/hotkey/hotkey-utils.ts")
         assert "Hotkey is empty" in utils
 
     def test_validate_rejects_modifiers_only_in_combo(self):
-        utils = _read("components/hotkey-utils.ts")
+        utils = _read("components/hotkey/hotkey-utils.ts")
         assert "must end with a non-modifier key" in utils
 
     def test_validate_rejects_multi_key_in_single_mode(self):
-        utils = _read("components/hotkey-utils.ts")
+        utils = _read("components/hotkey/hotkey-utils.ts")
         assert "must be a single key" in utils
 
 
@@ -59,7 +59,7 @@ class TestRepasteKeySettingUsesHotkeyPicker:
     def test_settings_imports_hotkey_picker(self):
         recording = _read("components/settings/RecordingSettingsSection.tsx")
         assert "import { HotkeyPicker }" in recording
-        assert "@/components/HotkeyPicker" in recording
+        assert "@/components/hotkey/HotkeyPicker" in recording
 
     def test_repaste_key_uses_hotkey_picker_combo_mode(self):
         recording = _read("components/settings/RecordingSettingsSection.tsx")
@@ -85,7 +85,7 @@ class TestDictationKeySupportsExpandedPresets:
         assert "DICTATION_KEY_PRESETS" in recording
 
     def test_single_key_presets_include_beyond_f12(self):
-        utils = _read("components/hotkey-utils.ts")
+        utils = _read("components/hotkey/hotkey-utils.ts")
         assert "caps_lock" in utils
         assert "print_screen" in utils
         assert "scroll_lock" in utils

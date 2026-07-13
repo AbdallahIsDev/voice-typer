@@ -213,6 +213,13 @@ def e2e_server(tmp_path, monkeypatch):
     port = _free_port()
     token = "e2e-token-67890"
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", token)
+    # P1 env-leak fix: E2EMockApp.__init__ also sets VOICE_TYPER_CONFIG_DIR
+    # directly via os.environ (belt-and-suspenders for code paths that
+    # read the env var before _config_dir is consulted). Mirror it here
+    # via monkeypatch so pytest auto-cleans the var at teardown —
+    # otherwise it persists for the entire pytest session and leaks
+    # into unrelated tests.
+    monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", str(tmp_path))
 
     # Patch _config_dir to return tmp_path — avoids SEC-005 path traversal
     # rejection of tmp_path (which is outside the home directory).

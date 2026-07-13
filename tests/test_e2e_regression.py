@@ -14,8 +14,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-sys.path.insert(0, '/home/z/my-project/voice-typer-repo')
-
 
 @pytest.fixture
 def temp_config(tmp_path, monkeypatch):

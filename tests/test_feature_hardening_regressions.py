@@ -142,6 +142,13 @@ def live_server(tmp_path, monkeypatch):
     token = "test-token-12345"
     # Set the env var the server reads for the auth token.
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", token)
+    # P1 env-leak fix: MockApp.__init__ also sets
+    # VOICE_TYPER_CONFIG_DIR_OVERRIDE directly via os.environ
+    # (belt-and-suspenders for code paths that read the env var before
+    # _config_dir is consulted). Mirror it here via monkeypatch so
+    # pytest auto-cleans the var at teardown — otherwise it persists
+    # for the entire pytest session and leaks into unrelated tests.
+    monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR_OVERRIDE", str(tmp_path))
 
     app = MockApp(tmp_path=tmp_path, token=token)
     server = IPCServer(app)
