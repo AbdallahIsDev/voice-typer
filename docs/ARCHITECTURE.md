@@ -130,7 +130,7 @@
 
 ## ARCH-REFAC-003: VoiceTyperApp @property delegates removed
 
-During the Round 9 extraction (Task #2), `VoiceTyperApp` (in
+During the extraction (Task #2), `VoiceTyperApp` (in
 `voice_typer/server/app.py`) grew ~12 `@property` delegates that
 mirrored fields owned by the extracted modules:
 

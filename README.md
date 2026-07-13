@@ -368,7 +368,7 @@ Voice Typer is **cross-platform** — Windows, macOS, and Linux (X11 and Wayland
 voice_typer/
 ├── __init__.py         # Package init, __version__
 ├── __main__.py         # Entry point (python -m voice_typer)
-├── server/             # Python backend (was voice_typer/*.py before Round 9 refactor)
+├── server/             # Python backend (was voice_typer/*.py before refactor)
 │   ├── app.py          # VoiceTyperApp orchestrator — startup, state machine, thread safety
 │   ├── asr_setup.py    # ASR auto-setup: GPU detection, dependency checking, weight downloading
 │   ├── asr_registry.py # Registry of ASR backends (whisper/qwen/parakeet)
