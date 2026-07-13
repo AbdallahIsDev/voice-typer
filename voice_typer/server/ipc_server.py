@@ -18,7 +18,6 @@ import hmac
 import json
 import logging
 import os
-import secrets
 import socket
 import sys
 import threading
@@ -58,22 +57,7 @@ log = logging.getLogger("voice_typer.server.ipc_server")
 #     if error:
 #         return error
 
-# ARCH-1A-002 (Round 0 forward-port): the two ``@typing.overload`` stubs
-# encode the *mutual exclusivity* of the return — callers either get
-# ``(dict, None)`` (success) or ``(None, dict)`` (error).  This lets
-# pyrefly narrow ``validated`` to ``dict`` after the
-# ``if error: return error`` early-exit in the handlers, so the 9
-# ``None is not subscriptable`` errors in ``history_handlers.py``,
-# ``onboarding_handlers.py``, ``system_handlers.py``, and
-# ``templates_handlers.py`` resolve without touching the handlers
-# themselves.
-@typing.overload
-def _validate_dict_payload(data: object, schema: dict) -> tuple[dict, None]: ...
-@typing.overload
-def _validate_dict_payload(data: object, schema: dict) -> tuple[None, dict]: ...
-
-
-def _validate_dict_payload(data: object, schema: dict) -> tuple[dict | None, dict | None]:
+def _validate_dict_payload(data, schema):
     """Validate IPC ``data`` against a declarative *schema*.
 
     Parameters
@@ -180,12 +164,6 @@ def _pick_available_port(start: int = 9876, max_tries: int = 100) -> int:
 _RATE_LIMIT_WINDOW_SECONDS = 1.0
 _RATE_LIMIT_BURST = 200
 _RATE_LIMIT_SUSTAINED = 60  # per second
-# ARCH-1A-003 (Round 0 forward-port): two-timescale rate limiter.
-# The burst window (1 s) caps short spikes; the sustained window (60 s)
-# caps the long-term average.  Previously both caps were evaluated against
-# a single 1 s deque — with default burst=200 / sustained=60, the
-# sustained cap (60) always fired first, making the burst cap (200) dead.
-_RATE_LIMIT_SUSTAINED_WINDOW_SECONDS = 60.0  # sustained average window
 
 # NEW-CONC-003: write timeout for TCP sendall.  A stalled Electron
 # renderer (e.g. GC pause, dev-tools inspection, or a busy main thread)
@@ -226,39 +204,13 @@ _HEARTBEAT_TIMEOUT_SECONDS = 120.0  # 24 missed heartbeats — increased from 15
 
 
 class _RateLimiter:
-    """Sliding-window per-connection rate limiter (two-timescale).
+    """Sliding-window per-connection rate limiter.
 
     Each IPC connection gets its own ``_RateLimiter`` instance.  The
-    limiter tracks message timestamps in TWO sliding windows:
-
-    - **Burst window** (``burst_window``, default 1 second): caps the
-      number of messages accepted in any short burst.  Default
-      ``_RATE_LIMIT_BURST = 200``.
-    - **Sustained window** (``window``, default 60 seconds): caps the
-      long-term average rate.  Default
-      ``_RATE_LIMIT_SUSTAINED × 60 = 3600`` messages per 60-second
-      window (i.e. 60 msg/s averaged).
-
-    ARCH-1A-003 (Round 0 forward-port): the previous implementation
-    checked both ``burst`` and ``sustained`` against a SINGLE 1-second
-    deque.  With the default config (``burst=200``, ``sustained=60``)
-    the sustained cap (60) always fired first, making the burst cap
-    (200) unreachable — the limiter behaved as a hard 60 msg/s cap with
-    no burst allowance.  The two-timescale design lets a well-behaved
-    client send up to 200 messages in a 1-second burst (e.g. during
-    initial UI hydration) while still bounding the long-term average
-    to 60 msg/s.
-
-    Note on the ``window`` parameter
-    --------------------------------
-    Historically ``window`` referred to the single burst/sustained
-    window.  It now refers to the SUSTAINED window.  Existing test
-    call sites that pass ``window=1.0`` therefore get a 1-second
-    sustained window (matching the legacy single-window behaviour
-    where both caps apply in 1s); production callers that use the
-    default get a 60-second sustained window.  The new
-    ``burst_window`` parameter (default 1.0s) controls the burst
-    timescale independently.
+    limiter tracks the timestamp of each accepted message in a deque;
+    when the deque exceeds the burst size, the oldest entries are
+    evicted and the message is rejected if the sustained rate would
+    be exceeded.
     """
 
     def __init__(
@@ -266,20 +218,13 @@ class _RateLimiter:
         *,
         burst: int = _RATE_LIMIT_BURST,
         sustained_per_sec: int = _RATE_LIMIT_SUSTAINED,
-        window: float = _RATE_LIMIT_SUSTAINED_WINDOW_SECONDS,
-        burst_window: float = _RATE_LIMIT_WINDOW_SECONDS,
+        window: float = _RATE_LIMIT_WINDOW_SECONDS,
     ) -> None:
         self._burst = burst
-        self._sustained_per_sec = sustained_per_sec
-        self._burst_window = burst_window
-        self._sustained_window = window
-        self._burst_timestamps: deque[float] = deque()
-        self._sustained_timestamps: deque[float] = deque()
+        self._sustained = sustained_per_sec
+        self._window = window
+        self._timestamps: deque[float] = deque()
         self._lock = threading.Lock()
-        # ARCH-1A-007 (Round 0 forward-port): initialize ``_rejected`` here
-        # so ``rejected_count`` doesn't fall back to the ``getattr`` default
-        # and ``reject()`` can use ``+=`` directly under the lock.
-        self._rejected: int = 0
 
     def allow(self, *, now: float | None = None) -> bool:
         """Return True if the message should be accepted.
@@ -290,37 +235,24 @@ class _RateLimiter:
             Current monotonic time.  If omitted, ``time.monotonic()``
             is used.  Passing ``now`` explicitly makes the limiter
             trivially testable.
-
-        ARCH-1A-003: prunes both the burst and sustained timestamp
-        deques against their respective windows, then rejects if
-        EITHER cap is exceeded.  Both caps are evaluated against
-        their own windows; the burst cap is no longer dead code.
         """
         ts = now if now is not None else time.monotonic()
-        burst_cutoff = ts - self._burst_window
-        sustained_cutoff = ts - self._sustained_window
+        cutoff = ts - self._window
         with self._lock:
-            # Evict timestamps older than each window.
-            while (
-                self._burst_timestamps
-                and self._burst_timestamps[0] < burst_cutoff
-            ):
-                self._burst_timestamps.popleft()
-            while (
-                self._sustained_timestamps
-                and self._sustained_timestamps[0] < sustained_cutoff
-            ):
-                self._sustained_timestamps.popleft()
-            # Reject if either cap is exceeded.
-            if len(self._burst_timestamps) >= self._burst:
+            # Evict timestamps older than the window
+            while self._timestamps and self._timestamps[0] < cutoff:
+                self._timestamps.popleft()
+            # Reject if we're at the burst cap or would exceed the
+            # sustained rate.
+            if len(self._timestamps) >= self._burst:
                 return False
-            sustained_cap = int(self._sustained_per_sec * self._sustained_window)
-            if len(self._sustained_timestamps) >= sustained_cap:
+            if len(self._timestamps) >= self._sustained:
+                # Allow bursts up to ``burst``, but if we've already
+                # hit the sustained rate within the window, reject.
+                # This prevents a slow trickle from saturating the
+                # dispatcher indefinitely.
                 return False
-            # Accept: record in both deques so the next call sees the
-            # updated count in each window.
-            self._burst_timestamps.append(ts)
-            self._sustained_timestamps.append(ts)
+            self._timestamps.append(ts)
             return True
 
     @property
@@ -329,12 +261,12 @@ class _RateLimiter:
 
         Not currently exposed via IPC, but useful for tests.
         """
-        return self._rejected
+        return getattr(self, "_rejected", 0)
 
     def reject(self) -> None:
         """Increment the rejected counter (called when allow() returns False)."""
         with self._lock:
-            self._rejected += 1
+            self._rejected = getattr(self, "_rejected", 0) + 1
 
 
 # ── SEC-003: config sanitization for IPC ─────────────────────────────────
@@ -723,6 +655,38 @@ class IPCServer(
             daemon=True,
         )
         self._heartbeat_thread.start()
+        # THREAD-REGISTRY: register both IPC threads with the central
+        # registry (if the app provides one) so ``shutdown_all()`` can
+        # signal and join them during ``VoiceTyperApp.quit()``.
+        #
+        # heartbeat-watchdog: registers WITH a stop_event
+        # (``_heartbeat_stop_event``) because the loop wakes on
+        # ``Event.wait(timeout)`` — setting the event unblocks it
+        # immediately and the thread exits cleanly.
+        #
+        # ipc-server (stdin listener): registers with ``stop_event=None``
+        # because the thread blocks on ``for line in iter(stdin)`` —
+        # there is no event it checks between reads. The existing
+        # ``stop()`` path closes the TCP client socket and sets
+        # ``_running = False`` (checked between lines), but the stdin
+        # loop only exits naturally on EOF/OSError. The registry's
+        # ``shutdown_all()`` will still JOIN the stdin thread (with a
+        # short timeout) to verify it's tracked; the existing per-site
+        # ``stop()`` is responsible for the actual cleanup.
+        registry = getattr(self.app, "_thread_registry", None)
+        if registry is not None:
+            registry.register(
+                name="heartbeat-watchdog",
+                thread=self._heartbeat_thread,
+                stop_event=self._heartbeat_stop_event,
+                join_timeout=2.0,
+            )
+            registry.register(
+                name="ipc-server",
+                thread=self._stdin_thread,
+                stop_event=None,
+                join_timeout=0.5,
+            )
         log.info("[IPC] server started; push hook registered")
 
     def stop(self) -> None:
@@ -768,6 +732,15 @@ class IPCServer(
         # it wouldn't block process exit — but explicit shutdown is
         # cleaner for test start/stop cycles.)
         self._heartbeat_stop_event.set()
+        # THREAD-REGISTRY: unregister both IPC threads so a subsequent
+        # ``start()`` cycle (common in tests) re-registers cleanly
+        # without triggering the "Re-registering name" warning. Safe to
+        # call when no entry exists (unregister is a no-op for unknown
+        # names).
+        registry = getattr(self.app, "_thread_registry", None)
+        if registry is not None:
+            registry.unregister("heartbeat-watchdog")
+            registry.unregister("ipc-server")
         # Keep the app-level reference so existing closures still
         # work after a stop+start cycle in tests.
 
@@ -801,31 +774,13 @@ class IPCServer(
         # Read the expected token from the env var set by Electron.
         expected_token = os.environ.get("VOICE_TYPER_IPC_TOKEN", "")
         if not expected_token:
-            # ARCH-1A-005 (Round 0 forward-port): SEC-018 hardening — never
-            # accept unauthenticated TCP connections on 127.0.0.1, even in
-            # standalone ``--port`` mode.  The Electron-spawned path always
-            # passes ``VOICE_TYPER_IPC_TOKEN`` via env var (set by
-            # ``client/src/main/index.ts:startPython``); this branch only
-            # fires when the user manually launches the IPC server from a
-            # terminal with ``--port`` and no env var.  We auto-generate a
-            # 256-bit session token with ``secrets.token_hex(32)`` (matching
-            # the strength of ``electron_launcher.generate_session_token``),
-            # echo it to stderr so the user can pass it to a connecting
-            # client (e.g. ``nc 127.0.0.1 9876`` with the right auth line),
-            # and use it for the auth handshake below.  This closes the
-            # local privilege-escalation surface where any co-located
-            # process could connect and send ``quit_app`` / ``set_config``
-            # / etc. without authentication.
-            expected_token = secrets.token_hex(32)
-            print(
-                "[IPC] Generated IPC token for standalone mode "
-                f"(VOICE_TYPER_IPC_TOKEN was not set): {expected_token}",
-                file=sys.stderr,
-            )
+            # No token configured — fall back to the legacy unauthenticated
+            # path.  This happens when running the IPC server standalone
+            # (e.g. ``python -m voice_typer.server.ipc_server`` from a
+            # terminal).  We log a warning so the user knows the server
+            # is accepting unauthenticated connections.
             log.warning(
-                "[TCP] VOICE_TYPER_IPC_TOKEN not set — generated a "
-                "256-bit session token for standalone --port mode "
-                "(see stderr for the token value)"
+                "[TCP] VOICE_TYPER_IPC_TOKEN not set — accepting UNAUTHENTICATED connections"
             )
 
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -951,17 +906,6 @@ class IPCServer(
         else:
             auth_client = _TCPLineIO(conn)
 
-        # ARCH-1A-004 (Round 0 forward-port): clear the auth-read timeout
-        # now that the handshake has succeeded.  PR-3-FIX-1 set a 5s socket
-        # timeout to prevent a stalled auth read from holding the thread
-        # indefinitely; if we leave it in place, ANY idle period > 5s
-        # during the dispatch loop (e.g. the user not touching the UI for
-        # several seconds) raises ``socket.timeout`` and disconnects the
-        # client.  ``settimeout(None)`` restores blocking mode with no
-        # timeout, the default for TCP sockets.
-        with contextlib.suppress(OSError, AttributeError):
-            conn.settimeout(None)  # socket may be a mock in tests
-
         # PR-3-FIX-1: now acquire the lock ONLY for the post-auth setup
         # (installing the client + flushing pending events). This is
         # a short critical section that can't block on unbounded I/O.
@@ -1014,14 +958,42 @@ class IPCServer(
                     continue
                 try:
                     msg = json.loads(line)
-                    result = self._dispatch(msg)
-                    if result is not None:
-                        self._send(result)
                 except json.JSONDecodeError:
                     self._send({
                         "type": "error",
                         "data": {"message": "invalid JSON"},
                     })
+                    continue
+                # ERR-018: isolate handler exceptions from socket I/O
+                # errors.  Previously, ANY exception raised by
+                # ``self._dispatch(msg)`` (other than JSONDecodeError,
+                # which only fires for ``json.loads``) bubbled up to
+                # the outer ``except Exception:`` clause below, which
+                # logs "client connection closed" at DEBUG and
+                # disconnects the client.  Handler bugs were therefore
+                # silently swallowed and a single bad handler killed
+                # the entire IPC session.  We now log the exception at
+                # ERROR with ``exc_info`` and send a structured error
+                # response so the client gets a clear signal and the
+                # connection survives.  The outer ``except Exception:``
+                # is now reserved for genuine socket I/O errors.
+                try:
+                    result = self._dispatch(msg)
+                except Exception as dispatch_exc:
+                    log.error(
+                        "[TCP] unhandled exception in dispatch for "
+                        "message type %r: %s",
+                        msg.get("type") if isinstance(msg, dict) else None,
+                        dispatch_exc,
+                        exc_info=True,
+                    )
+                    self._send({
+                        "type": "error",
+                        "data": {"message": "internal error"},
+                    })
+                    continue
+                if result is not None:
+                    self._send(result)
         except Exception:
             log.debug("[TCP] client connection closed")
         finally:
@@ -1266,39 +1238,7 @@ class IPCServer(
             result = self._handle_unknown_command(cmd, data, resp)
         else:
             handler = getattr(self, handler_name)
-            # ARCH-1A-006 (Round 0 forward-port): wrap the handler call in a
-            # try/except so one buggy handler can't disconnect the IPC
-            # client.  Previously an unhandled ``Exception`` bubbled out of
-            # ``_dispatch``, up through the ``for line in self._tcp_client:``
-            # loop in ``_handle_tcp_connection``, into the outer ``except
-            # Exception: log.debug(...)`` which then ran the ``finally``
-            # block closing the TCP client — a single buggy handler (e.g.
-            # a ``set_config`` validator that raises ``KeyError`` on an
-            # unexpected field) would terminate the entire IPC connection,
-            # forcing Electron to reconnect.  Now we catch ``Exception``
-            # (but NOT ``SystemExit`` / ``KeyboardInterrupt``, which
-            # propagate normally so ``app.quit()`` and Ctrl+C still work),
-            # log the failure with ``exc_info=True``, and return a
-            # structured ``internal_error`` response so the client knows
-            # the failure was server-side (vs. ``unknown_command`` for
-            # caller bugs).
-            try:
-                result = handler(data, resp)
-            except (SystemExit, KeyboardInterrupt):
-                # Don't swallow process-control exceptions —
-                # ``app.quit()`` (which raises SystemExit) and Ctrl+C
-                # must propagate so the shutdown path runs.
-                raise
-            except Exception as e:
-                log.warning(
-                    "handler %s raised", msg.get("type"), exc_info=True
-                )
-                resp["type"] = "error"
-                resp["data"] = {
-                    "message": f"internal error: {type(e).__name__}",
-                    "code": "internal_error",
-                }
-                result = resp
+            result = handler(data, resp)
 
         # NEW-IPC-006: ensure every response has a `data` field so the
         # client can always read `resp.data` without a defensive guard.

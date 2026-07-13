@@ -1,7 +1,6 @@
 // src/renderer/src/components/common/SettingRow.tsx
 
 import type { ReactNode } from "react";
-import { useId } from "react";
 import { InfoTooltip } from "@/components/feedback/InfoTooltip";
 import { cn } from "@/lib/utils";
 
@@ -18,12 +17,16 @@ export function SettingRow({
 	children,
 	align = "center",
 }: SettingRowProps) {
-	// UX-014: generate a unique ID for this row so the <label> can be
-	// associated with its input via htmlFor.  This makes screen readers
-	// announce the label when the input is focused, and lets clicking
-	// the label focus the input.  The child input should use this ID
-	// via the `useSettingRowId()` hook or by passing `id={...}` manually.
-	const id = useId();
+	// UX-014: the <span> below is purely visual — it does NOT use
+	// ``htmlFor`` because there is no shared ID between the label
+	// and the child input.  Children must provide their own
+	// ``aria-label`` (or be wrapped in a ``<label>`` themselves) so
+	// screen readers announce the setting name when the input is
+	// focused.  A previous version of this component used ``<label>``
+	// with ``useId()``, but that ID was never consumed by any child,
+	// leaving ``htmlFor`` pointing at a non-existent element.
+	// Using a <span> avoids the Biome ``a11y/noLabelWithoutControl``
+	// lint violation.
 	return (
 		<div
 			className={cn(
@@ -32,17 +35,12 @@ export function SettingRow({
 			)}
 		>
 			<div className="flex min-w-0 items-center gap-2">
-				<label
-					htmlFor={id}
-					className="text-sm font-medium text-(--text-primary) cursor-default"
-				>
+				<span className="text-sm font-medium text-(--text-primary) cursor-default">
 					{label}
-				</label>
+				</span>
 				{info && <InfoTooltip text={info} />}
 			</div>
-			<div className="shrink-0" data-setting-row-id={id}>
-				{children}
-			</div>
+			<div className="shrink-0">{children}</div>
 		</div>
 	);
 }

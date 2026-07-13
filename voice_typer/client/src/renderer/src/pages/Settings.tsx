@@ -993,6 +993,7 @@ export default function SettingsPage({
 							<Button
 								variant="ghost"
 								onClick={() => setShowResetDialog(false)}
+								autoFocus
 								aria-label={t("settings.troubleshooting.cancelResetAria")}
 							>
 								{t("common.cancel")}
@@ -1000,7 +1001,6 @@ export default function SettingsPage({
 							<Button
 								variant="destructive"
 								onClick={resetToDefaults}
-								autoFocus
 								aria-label={t("settings.troubleshooting.confirmResetAria")}
 							>
 								{t("settings.troubleshooting.resetToDefaults")}

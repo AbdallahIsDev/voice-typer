@@ -408,7 +408,7 @@ export default function VocabularyPage() {
 							toast.error(t("vocabulary.restoreFailed"));
 						}
 					},
-					{ undoLabel: "Undo", type: "warning", timeoutMs: 6000 },
+					{ undoLabel: t("common.undo"), type: "warning", timeoutMs: 6000 },
 				);
 			} catch {
 				showSnack(t("vocabulary.deleteFailed"), "error");

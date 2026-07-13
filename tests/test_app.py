@@ -4,15 +4,18 @@ All heavy dependencies are mocked so these tests run on any platform
 without GPU, microphone, or display.
 """
 
-import sys
+import contextlib
 import json
+import sys
 import time
-import pytest
-import numpy as np
 from pathlib import Path
+
 # TEST-021: removed unused `PropertyMock` import (ruff F401).
 # Path is used by TestSingleInstanceEnforcement (TEST-037).
 from unittest.mock import MagicMock, patch
+
+import numpy as np
+import pytest
 
 
 def _wait_for_busy_clear(app, timeout=2.0):
@@ -70,7 +73,10 @@ def mock_heavy_imports(monkeypatch):
     # (the old behavior) was a no-op; tests passed only because on Linux/X11
     # the unpatched create_hotkey_backend returns PynputHotkey by default.
     from voice_typer.server.hotkeys import PynputHotkey
-    _force_pynput = lambda hotkey_str: PynputHotkey(hotkey_str)
+
+    def _force_pynput(hotkey_str):
+        return PynputHotkey(hotkey_str)
+
     monkeypatch.setattr(
         "voice_typer.server.app.create_hotkey_backend",
         _force_pynput,
@@ -352,7 +358,7 @@ class TestAppStateTransitions:
 
         def track_set_state(state):
             call_order.append(('set_state', state))
-            return original_set_state(state) if hasattr(original_set_state, '__call__') else None
+            return original_set_state(state) if callable(original_set_state) else None
         app._waveform_bubble.set_state = track_set_state
 
         app.clipboard = MagicMock()
@@ -588,14 +594,11 @@ class TestConfigWiring:
 
 
 class TestSettingsWindowIntegration:
-    def test_show_settings_opens_native_window(self, app, monkeypatch):
-        window_cls = MagicMock()
-        monkeypatch.setattr("voice_typer.server.app.SettingsWindow", window_cls)
-
-        app.show_settings()
-
-        window_cls.assert_called_once()
-        window_cls.return_value.show.assert_called_once()
+    # ARCH-DEAD-SETTINGS: the show_settings / SettingsWindow tests were
+    # removed when voice_typer.server.settings was deleted. The tkinter
+    # settings UI is fully replaced by the Electron frontend; no
+    # production code path constructs a SettingsWindow or calls
+    # show_settings / open_settings.
 
     def test_restart_hotkey_stops_existing_backend_and_registers_new_one(self, app):
         old_backend = MagicMock()
@@ -635,16 +638,13 @@ class TestSettingsWindowIntegration:
         app.tray = MagicMock()
         # Stub _push_event_now so restart_app's TCP push doesn't blow up
         # in the test environment (no IPC server wired up).
-        import voice_typer.server.app as app_mod
         monkeypatch.setattr(
             "voice_typer.server.ipc_server._push_event_now",
             lambda msg: None,
         )
 
-        try:
+        with contextlib.suppress(SystemExit):
             app.restart_app()
-        except SystemExit:
-            pass
 
         assert popen_calls == [], (
             f"restart_app must NOT spawn a subprocess (Electron is the sole "
@@ -678,10 +678,8 @@ class TestSettingsWindowIntegration:
             lambda msg: pushed.append(msg),
         )
 
-        try:
+        with contextlib.suppress(SystemExit):
             app.restart_app()
-        except SystemExit:
-            pass
 
         assert pushed, "restart_app must push at least one event"
         assert any(m.get("type") == "relaunch_electron" for m in pushed), (
@@ -737,10 +735,8 @@ class TestQuitAppCleanShutdown:
         app.hotkeys._repaste_backend = MagicMock()
         app.tray = MagicMock()
 
-        try:
+        with contextlib.suppress(SystemExit):
             app.quit_app()
-        except SystemExit:
-            pass  # sys.exit(0) raises SystemExit — that's the intended path
 
         assert os_exit_called == [], (
             f"quit_app must not call os._exit; called with {os_exit_called}"
@@ -805,10 +801,8 @@ class TestQuitAppCleanShutdown:
         app.hotkeys._repaste_backend = MagicMock()
         app.tray = MagicMock()
 
-        try:
+        with contextlib.suppress(SystemExit):
             app.quit()
-        except SystemExit:
-            pass
 
         app.hotkeys._hotkey_backend.stop.assert_called_once()
         app.hotkeys._esc_backend.stop.assert_called_once()
@@ -839,10 +833,8 @@ class TestRestartAppCleanShutdown:
         app._cancel_pending_timers = MagicMock()
         app.tray = MagicMock()
 
-        try:
+        with contextlib.suppress(SystemExit):
             app.restart_app()
-        except SystemExit:
-            pass
 
         assert os_exit_called == [], (
             f"restart_app must not call os._exit; called with {os_exit_called}"
@@ -863,10 +855,8 @@ class TestRestartAppCleanShutdown:
         app._cancel_pending_timers = MagicMock()
         app.tray = MagicMock()
 
-        try:
+        with contextlib.suppress(SystemExit):
             app.restart_app()
-        except SystemExit:
-            pass
 
         app.hotkeys._hotkey_backend.stop.assert_called_once()
         app.hotkeys._esc_backend.stop.assert_called_once()
@@ -887,10 +877,8 @@ class TestRestartAppCleanShutdown:
         app._cancel_pending_timers = MagicMock()
         app.tray = MagicMock()
 
-        try:
+        with contextlib.suppress(SystemExit):
             app.restart_app()
-        except SystemExit:
-            pass
 
         app.tray.stop.assert_called_once()
 
@@ -915,10 +903,8 @@ class TestRestartAppCleanShutdown:
         # Sanity: flag starts False.
         assert app._shutting_down is False
 
-        try:
+        with contextlib.suppress(SystemExit):
             app.restart_app()
-        except SystemExit:
-            pass
 
         # Must be True after restart_app so the atexit handler
         # doesn't log a spurious "likely killed externally" warning.
@@ -1000,7 +986,10 @@ class TestHotkeyMapping:
         mock_backend = MagicMock()
         # #2 (Round 9): create_hotkey_backend is now imported in
         # hotkey_dispatcher, so monkeypatch it there.
-        monkeypatch.setattr("voice_typer.server.hotkey_dispatcher.create_hotkey_backend", MagicMock(return_value=mock_backend))
+        monkeypatch.setattr(
+            "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
+            MagicMock(return_value=mock_backend),
+        )
 
         app._register_esc_hotkey()
         assert app.hotkeys._esc_backend is mock_backend
@@ -1055,7 +1044,6 @@ class TestHotkeyMapping:
 
         # Track toggle_dictation calls
         toggle_called = {"n": 0}
-        original_toggle = app.toggle_dictation
         monkeypatch.setattr(app, "toggle_dictation", lambda: toggle_called.__setitem__("n", toggle_called["n"] + 1))
 
         # Case 1: ownership = normal → callback should fire toggle_dictation
@@ -1141,14 +1129,17 @@ class TestToggleDictationDispatch:
 
         # Track which method was called
         start_called = []
-        original_start = app._start_dictation
+
         def tracked_start():
             start_called.append(True)
+
         app._start_dictation = tracked_start
 
         stop_called = []
+
         def tracked_stop():
             stop_called.append(True)
+
         app._stop_dictation = tracked_stop
 
         app.toggle_dictation()
@@ -1322,7 +1313,6 @@ class TestModelLoadingQueue:
 
     def test_background_load_catches_exception_and_sets_error(self, app):
         """A crashing loader sets ERROR state but does not propagate."""
-        from unittest.mock import MagicMock as _MM
         app.tray = MagicMock()
         app.models._ensure_engine = MagicMock()
         # ARCH-007: _load_transcription_engine_background now delegates
@@ -1331,7 +1321,7 @@ class TestModelLoadingQueue:
         # ARCH-REFAC-003: assign to ModelManager._registry directly (was
         # a @property delegate on VoiceTyperApp).
         app.models._registry = MagicMock()
-        app.models.registry.load_with_fallback = _MM(side_effect=RuntimeError("disk on fire"))
+        app.models.registry.load_with_fallback = MagicMock(side_effect=RuntimeError("disk on fire"))
         # ARCH-REFAC-003: write to ModelManager directly (was a @property
         # delegate on VoiceTyperApp).
         app.models._pending_dictation = False
@@ -1718,7 +1708,11 @@ class TestStreamingIntegration:
         session_cls = MagicMock(return_value=session)
         # #2 (Round 9): streaming session now lives in RecordingController,
         # so monkeypatch the module where it's actually imported.
-        monkeypatch.setattr("voice_typer.server.recording_controller.StreamingTranscriptionSession", session_cls, raising=False)
+        monkeypatch.setattr(
+            "voice_typer.server.recording_controller.StreamingTranscriptionSession",
+            session_cls,
+            raising=False,
+        )
 
         app._start_dictation()
 
@@ -1938,8 +1932,9 @@ class TestStartupNoCrash:
         monkeypatch.setattr("voice_typer.server.app.TranscriptionEngine", MagicMock())
 
         # Ensure tray module uses fakes
-        from tests.test_tray import _FakeIcon, _FakeMenu, _FakeMenuItem
         import voice_typer.server.tray as tray_mod
+
+        from tests.test_tray import _FakeIcon, _FakeMenu, _FakeMenuItem
         mock_pystray = MagicMock()
         mock_pystray.Icon = _FakeIcon
         mock_pystray.Menu = _FakeMenu
@@ -2017,9 +2012,11 @@ class TestTrayControllerProtocolCompliance:
     # set_max_recording_time_seconds, create_desktop_shortcut removed
     # from TrayController protocol — no caller existed.  The public
     # methods are now just the ones the tray menu actually invokes.
+    # ARCH-DEAD-SETTINGS: show_settings / open_settings removed along
+    # with voice_typer.server.settings; the Electron frontend owns the
+    # settings UI now.
     REQUIRED_PUBLIC_METHODS = [
         "toggle_dictation",
-        "show_settings",
         "quit",
     ]
 
@@ -2156,10 +2153,8 @@ class TestRestartAppCleanupPath:
         app._cancel_pending_timers = MagicMock()
         app.tray = MagicMock()
 
-        try:
+        with contextlib.suppress(SystemExit):
             app.restart_app()
-        except SystemExit:
-            pass
 
         app.hotkeys._hotkey_backend.stop.assert_called_once()
         app.hotkeys._esc_backend.stop.assert_called_once()
@@ -2180,10 +2175,8 @@ class TestRestartAppCleanupPath:
         app._cancel_pending_timers = MagicMock()
         app.tray = MagicMock()
 
-        try:
+        with contextlib.suppress(SystemExit):
             app.restart_app()
-        except SystemExit:
-            pass
 
         app.tray.stop.assert_called_once()
 
@@ -2197,7 +2190,6 @@ class TestRestartAppCleanupPath:
         monkeypatch.setattr(sys, "argv", ["voice_typer"])
         monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
         monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: os_exit_calls.append(code))
-        sys_exit_called = []
         monkeypatch.setattr("voice_typer.server.app.sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
         app.hotkeys._hotkey_backend = MagicMock()
         app.hotkeys._esc_backend = MagicMock()
@@ -2205,10 +2197,8 @@ class TestRestartAppCleanupPath:
         app._cancel_pending_timers = MagicMock()
         app.tray = MagicMock()
 
-        try:
+        with contextlib.suppress(SystemExit):
             app.restart_app()
-        except SystemExit:
-            pass
 
         assert os_exit_calls == [], f"restart_app must not call os._exit; got {os_exit_calls}"
 
@@ -2230,6 +2220,7 @@ class TestSingleInstanceEnforcement:
     def test_voice_typer_app_has_single_call_site(self):
         """VoiceTyperApp() must be called from exactly one location."""
         import ast
+
         import voice_typer.server as server_pkg
         pkg_dir = Path(server_pkg.__file__).parent
         call_sites = []
@@ -2239,9 +2230,8 @@ class TestSingleInstanceEnforcement:
             except SyntaxError:
                 continue
             for node in ast.walk(tree):
-                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-                    if node.func.id == "VoiceTyperApp":
-                        call_sites.append(f"{py_file.name}:{node.lineno}")
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "VoiceTyperApp":
+                    call_sites.append(f"{py_file.name}:{node.lineno}")
         assert len(call_sites) == 1, (
             f"VoiceTyperApp() should be called from exactly one location "
             f"(ipc_server.main); found {len(call_sites)} call sites: {call_sites}"

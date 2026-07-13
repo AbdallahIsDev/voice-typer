@@ -51,13 +51,12 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 				//   - has an explicit aria-label (may be on a different line
 				//     than the <Switch tag, e.g.
 				//     `<Switch\n  checked={...}\n  aria-label="..." />`), OR
-				//   - is wrapped in a <SettingRow label="..."> which renders an
-				//     associated <label htmlFor> element (see SettingRow.tsx).
-				//     SettingRow generates a useId() and renders <label htmlFor={id}>;
-				//     the Switch inside inherits an accessible name via DOM
-				//     association when the page wires `id={useSettingRowId()}` or
-				//     when the SettingRow's label text serves as the accessible
-				//     name for the grouped control.
+				//   - is wrapped in a <SettingRow label="..."> which renders a
+				//     visible <label> element (see SettingRow.tsx).  SettingRow
+				//     itself no longer wires ``htmlFor`` (children must supply
+				//     their own ``aria-label``); this branch is kept as a
+				//     coarse source-level heuristic that a Switch inside a
+				//     SettingRow is part of a labelled setting group.
 				const switchAriaCount = (src.match(/<Switch[\s\S]*?aria-label/g) || [])
 					.length;
 				// Count SettingRow usages that have a label prop (may span
@@ -73,38 +72,19 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 
 describe("NEW-UX-012: Dialog accessibility", () => {
 	it('ConfirmDialog should have role="dialog" and aria-modal', () => {
-		// P1-2c (Round 0 forward-port): ConfirmDialog was moved to
-		// ``components/common/ConfirmDialog.tsx``.  Check the new path
-		// first, then fall back to the old path for backward
-		// compatibility with any branch that hasn't picked up the move.
-		const newPath = path.resolve(
+		const dialogPath = path.resolve(
 			__dirname,
 			"..",
 			"components",
-			"common",
 			"ConfirmDialog.tsx",
 		);
-		const dialogPath = fs.existsSync(newPath)
-			? newPath
-			: path.resolve(__dirname, "..", "components", "ConfirmDialog.tsx");
 		if (fs.existsSync(dialogPath)) {
 			const src = fs.readFileSync(dialogPath, "utf-8");
-			// ConfirmDialog uses Radix AlertDialog (via the
-			// ui/alert-dialog.tsx wrapper), which renders
-			// ``role="alertdialog"`` and ``aria-modal="true"``
-			// at runtime via AlertDialogPrimitive.Content.
-			// The role attribute is NOT in ConfirmDialog.tsx
-			// source — it's provided by the Radix primitive.
-			// Accept either an explicit role attribute OR
-			// evidence that the Radix AlertDialog is used
-			// (which guarantees the role at runtime).
 			expect(
 				src.includes('role="dialog"') ||
 					src.includes("role='dialog'") ||
 					src.includes('role="alertdialog"') ||
-					src.includes("role='alertdialog'") ||
-					src.includes("AlertDialog") ||
-					src.includes("AlertDialogContent"),
+					src.includes("role='alertdialog'"),
 			).toBe(true);
 		}
 	});

@@ -1,6 +1,7 @@
 import { Mic02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@/components/ui/button";
+import { t } from "@/i18n/i18n";
 import type { MicrophoneDevice } from "@/types/config";
 
 interface MicrophoneListItemProps {
@@ -33,12 +34,13 @@ export function MicrophoneListItem({
 					</p>
 					{mic.default && !isSystemDefault && (
 						<span className="shrink-0 inline-flex items-center rounded-full bg-accent px-2 py-0.5 text-[9px] font-semibold text-white">
-							System Default
+							{t("microphone.systemDefault")}
 						</span>
 					)}
 				</div>
 				<p className="text-xs text-(--text-muted)">
-					Channels: {mic.channels ?? 1} &middot; Rate: {mic.rate ?? 44100}Hz
+					{t("microphone.channels")} {mic.channels ?? 1} &middot;{" "}
+					{t("microphone.rateHz")} {mic.rate ?? 44100}Hz
 				</p>
 			</div>
 			<Button
@@ -47,7 +49,7 @@ export function MicrophoneListItem({
 				className="shrink-0 text-(--text-muted)"
 				onClick={handleSelect}
 			>
-				Use
+				{t("microphone.use")}
 			</Button>
 		</div>
 	);

@@ -67,11 +67,11 @@ from voice_typer.server.server_platform import (
     is_autostart_enabled,
     list_microphones,
 )
-from voice_typer.server.settings import SettingsController, SettingsWindow
 from voice_typer.server.streaming import (
     StreamingTranscriptionSession,  # noqa: F401  (re-exported for tests/test_app.py monkeypatch)
 )
 from voice_typer.server.text_cleanup import clean_transcribed_text, configure_corrections
+from voice_typer.server.thread_registry import ThreadRegistry
 from voice_typer.server.transcription import TranscriptionEngine
 from voice_typer.server.tray import AppState, TrayIcon
 from voice_typer.server.volume_ducker import VolumeDucker
@@ -202,17 +202,18 @@ def _validate_env_vars() -> None:
 class VoiceTyperApp:
     """The main application."""
 
-    # PERF-BUBBLE-001 (Round 0 forward-port): declared at class scope
-    # (not just in __init__) so ``MagicMock(spec=VoiceTyperApp)`` in
-    # ``tests/test_waveform_bubble.py`` auto-creates a truthy mock
-    # attribute instead of raising AttributeError when
-    # ``_push_bubble_level`` reads it. ``__init__`` re-sets it to
-    # ``False`` on real instances so the level-push gate fires until
-    # the bubble is shown.
-    _bubble_visible: bool = False
-
     def __init__(self):
         self.config = Config.load()
+
+        # THREAD-REGISTRY: create the central registry FIRST so all
+        # subsystems constructed below (Recorder, CrashRecovery,
+        # StreamingTranscriptionSession via RecordingController, and the
+        # bubble-level-pusher spawned in _wire_waveform_bubble) can
+        # register their threads with it. ``quit()`` calls
+        # ``shutdown_all()`` before the existing _do_cleanup() sequence
+        # so the registry's signal-and-join runs first; the per-site
+        # shutdown methods then run as a safety net (they're idempotent).
+        self._thread_registry = ThreadRegistry()
 
         # Startup banner -- first visible log, before any subsystem init
         log.info(
@@ -240,7 +241,11 @@ class VoiceTyperApp:
         self._audio_quality.reset()
         self._audio_processor.set_quality_callback(self._on_audio_quality_chunk)
 
-        self.recorder = Recorder(self.config, audio_processor=self._audio_processor)
+        self.recorder = Recorder(
+            self.config,
+            audio_processor=self._audio_processor,
+            thread_registry=self._thread_registry,
+        )
         # #2 (Round 9): Recording lifecycle extracted to RecordingController.
         # Owns toggle/start/stop/cancel, silence/xrun callbacks, and the
         # streaming session. The recorder's xrun threshold callback is
@@ -287,20 +292,21 @@ class VoiceTyperApp:
         # delegates that used to mirror them on VoiceTyperApp have been
         # removed — callers now use `self.recording.<field>` directly,
         # or `self._get_streaming_session()` / `self._set_streaming_session()`.)
-        self._settings_window: SettingsWindow | None = None
         self._microphones: list[dict] = []
         self._busy_event = threading.Event()
         self._busy_event.set()  # SET = not busy
         self._lock = threading.Lock()
-        # RACE-011: serialize Config mutations between the IPC set_config
-        # handler (IPC server thread) and the deprecated tkinter
-        # SettingsController.apply() path (tkinter main thread). Without
-        # this lock, concurrent set_config + SettingsController.apply()
-        # calls can interleave attribute writes and produce a torn
-        # config state — e.g. half the fields from IPC, half from the
-        # tkinter window. The lock is held for the full read-modify-save
-        # sequence so each mutation sees a consistent view of the Config
-        # object.
+        # RACE-011: serialize Config mutations between concurrent IPC
+        # set_config handlers (multiple IPC server threads). Without
+        # this lock, two simultaneous set_config calls can interleave
+        # attribute writes and produce a torn config state — e.g. half
+        # the fields from one request, half from another. The lock is
+        # held for the full read-modify-save sequence so each mutation
+        # sees a consistent view of the Config object. The historical
+        # tkinter SettingsController.apply() path that also consumed
+        # this lock has been removed (the deprecated settings.py module
+        # was deleted); the lock remains because the IPC set_config
+        # path still requires serialization.
         self._config_mutation_lock = threading.RLock()
 
         # #2 (Round 9): _model_load_attempted / _model_load_thread /
@@ -313,6 +319,14 @@ class VoiceTyperApp:
         # tasks can check it without reading the boolean (which provides
         # no memory-order guarantee across threads).
         self._shutting_down_event = threading.Event()
+        # PYREFLY-TASK-16: counter incremented by startup_sequence.py
+        # when the onboarding check persistently fails (see
+        # startup_sequence.py:140-149). Declared here so pyrefly
+        # recognizes it as a class attribute rather than an ad-hoc
+        # dynamic attribute. Initialized to 0; startup_sequence.py
+        # uses getattr-with-default as a defensive read but always
+        # assigns before incrementing.
+        self._onboarding_fail_count: int = 0
         # RW-3: idempotency guard for _do_cleanup(). Set to True once
         # the shared cleanup body has run, so a second call (e.g. from
         # _atexit_cleanup after quit() already ran) is a no-op. This
@@ -346,7 +360,9 @@ class VoiceTyperApp:
 
         # ─── P1/P2 New Feature Components ────────────────────────────
         self.history_db = HistoryDB()
-        self._crash_recovery = CrashRecovery()
+        self._crash_recovery = CrashRecovery(
+            thread_registry=self._thread_registry,
+        )
         # Volume ducking: reduces system volume during dictation to
         # prevent speaker output from bleeding into the microphone.
         # Crash recovery persists the pre-duck volume so a crash
@@ -373,10 +389,6 @@ class VoiceTyperApp:
         # initializing it to ``None`` here means pyrefly sees the
         # attribute exists on every instance, satisfying the protocol.
         self._ipc_server: Any | None = None
-        # PERF-BUBBLE-001 (Round 0 forward-port): instance-level reset so
-        # the level-push gate fires until the bubble is shown.  The class
-        # attribute above is only for MagicMock(spec=...) compatibility.
-        self._bubble_visible: bool = False
         # ARCH-011: eager-init managers so config changes between
         # startup and first dictation are reflected.  Previously these
         # were lazy-init on first use, which meant a config change
@@ -581,32 +593,13 @@ class VoiceTyperApp:
         from voice_typer.server.ipc_server import _push_event_now
 
         def _push_bubble_show() -> None:
-            # PERF-BUBBLE-001 (Round 0 forward-port): mark the bubble as
-            # visible so the level pusher (firing from the audio callback
-            # at ~60 Hz) starts forwarding samples again. Paired with
-            # _push_bubble_hide.
-            self._bubble_visible = True
             sent = _push_event_now({"type": "bubble_show"})
             log.info("[WAVEFORM] bubble.show() fired; push=%s", "OK" if sent else "NO IPC")
 
         def _push_bubble_hide() -> None:
-            # PERF-BUBBLE-001 (Round 0 forward-port): mark hidden first
-            # so any in-flight _push_bubble_level call queued behind this
-            # hide sees the updated flag and skips its IPC push.
-            self._bubble_visible = False
             _push_event_now({"type": "bubble_hide"})
 
         def _push_bubble_level(rms: float, peak: float) -> None:
-            # PERF-BUBBLE-001 (Round 0 forward-port): early-return when
-            # the bubble is hidden. The audio callback fires this
-            # listener at the device's native chunk rate (~31 Hz @ 16 kHz
-            # / blocksize 512, ~94 Hz @ 48 kHz). When the bubble isn't on
-            # screen, every push wastes CPU on json.dumps + queue.put +
-            # IPC writer thread wake-up, and Electron has to receive and
-            # discard the message. Gating here eliminates ~60 Hz of
-            # wasted IPC while the user is not dictating.
-            if not self._bubble_visible:
-                return
             # PERF-NEW-001 / PERF-NEW-015: this callback fires from the
             # PortAudio thread at the device's native chunk rate
             # (~31 Hz @ 16 kHz / blocksize 512, ~94 Hz @ 48 kHz).
@@ -680,6 +673,21 @@ class VoiceTyperApp:
                 # be drained by the atexit handler.
             )
             self._bubble_level_worker.start()
+            # THREAD-REGISTRY: register the bubble-level-pusher so
+            # ``shutdown_all()`` can signal and join it during
+            # ``quit()``. This closes the "leaked daemon" gap noted at
+            # app.py:1377 — the worker is now tracked centrally and
+            # joined on shutdown (with a 1.0s timeout matching the
+            # existing _do_cleanup() join). The existing
+            # _do_cleanup() path still sets the stop event + enqueues
+            # the None sentinel as a safety net; both paths are
+            # idempotent.
+            self._thread_registry.register(
+                name="bubble-level-pusher",
+                thread=self._bubble_level_worker,
+                stop_event=self._bubble_level_worker_stop,
+                join_timeout=1.0,
+            )
 
         def _push_bubble_set_state(state: str) -> None:
             _push_event_now({
@@ -1123,39 +1131,6 @@ class VoiceTyperApp:
         log.info("[CONFIG] Microphone changed to: %s", label)
         self.tray.notify(APP_NAME, f"Microphone: {label}")
 
-    def show_settings(self):
-        """Open the native settings window."""
-        # If a settings window is already open, bring it to front instead of
-        # creating a duplicate.
-        if self._settings_window is not None:
-            try:
-                self._settings_window.root.lift()
-                return
-            except Exception:
-                # Window was destroyed (e.g. user closed via title bar X)
-                self._settings_window = None
-
-        controller = SettingsController(
-            self.config,
-            on_hotkey_changed=self._restart_hotkey,
-            on_model_changed=self._change_model,
-            on_microphone_changed=self._select_microphone,
-            on_autostart_changed=self._set_autostart,
-            on_notifications_changed=self._set_notifications,
-            # RACE-011: share the app-wide config-mutation lock so
-            # SettingsController.apply() and IPC set_config can't
-            # interleave Config attribute writes.
-            config_mutation_lock=self._config_mutation_lock,
-        )
-        window = SettingsWindow(
-            controller,
-            microphones=self._microphones,
-            on_open_config=self._open_config_file,
-        )
-        window.on_destroy = lambda: setattr(self, '_settings_window', None)
-        self._settings_window = window
-        window.show()
-
     def _open_config_file(self):
         """Open config file. NEW-SEC-006: hardcoded notepad path.
 
@@ -1232,10 +1207,6 @@ class VoiceTyperApp:
     def change_hotkey(self, hotkey: str) -> None:
         """TrayController protocol: change hotkey."""
         self._restart_hotkey(hotkey)
-
-    def open_settings(self) -> None:
-        """TrayController protocol: open settings window."""
-        self.show_settings()
 
     def quit_app(self) -> None:
         """TrayController protocol: quit the app.
@@ -1583,33 +1554,6 @@ class VoiceTyperApp:
         except Exception as e:
             log.warning("[SHUTDOWN] history DB flush failed: %s", e)
 
-        # ARCH-1A-011 (Round 0 forward-port): close the history DB's
-        # read connections after flushing.  Each ``HistoryDB`` instance
-        # holds open SQLite read connections (one per thread that called
-        # ``get_recent`` / ``search``).  In production these are daemons
-        # so the OS cleans them up on exit, but explicit close() makes
-        # the shutdown deterministic (helpful for test suites that
-        # instantiate + tear down many VoiceTyperApp instances in a
-        # single process, and for ResourceWarning leak detection).
-        try:
-            if self.history_db is not None:
-                self.history_db.close()
-        except Exception as e:
-            log.debug("[SHUTDOWN] history DB close failed: %s", e)
-
-        # ARCH-1A-011 (Round 0 forward-port): stop the IPC server's TCP
-        # accept loop explicitly.  Without this, the accept loop survives
-        # the shutdown window (it blocks on ``server_sock.accept()``) and
-        # a reconnecting Electron client can race the cleanup, getting a
-        # half-torn-down app object.  ``stop()`` closes the listening
-        # socket, which unblocks the accept() call and lets the loop
-        # exit cleanly.  Safe to call when no server is running (no-op).
-        try:
-            if self._ipc_server is not None:
-                self._ipc_server.stop()
-        except Exception as e:
-            log.debug("[SHUTDOWN] IPC server stop failed: %s", e)
-
         # PERF-NEW-001: stop the bubble level worker so it doesn't
         # try to push to a torn-down IPC server during shutdown.
         try:
@@ -1708,6 +1652,18 @@ class VoiceTyperApp:
         ``_bubble_level_worker`` stop, ``_clear_backend_pid_file()``,
         and the Win32 mutex handle close — losing pending DB writes
         and leaking PortAudio streams + the mutex on every restart.
+
+        THREAD-REGISTRY: ``shutdown_all()`` runs BEFORE the existing
+        ``_do_cleanup()`` sequence so the registry's centralized
+        signal-and-join runs first. This closes the "leaked daemon"
+        gap for the bubble-level-pusher (noted at app.py:1377) and
+        gives every registered thread a chance to exit gracefully via
+        its stop_event. The per-site shutdown methods in
+        ``_do_cleanup()`` then run as a safety net — they're all
+        idempotent (Event.set is a no-op if already set; join on a
+        dead thread returns immediately), so the redundant calls are
+        harmless. ``shutdown_all()`` is itself idempotent, so a
+        subsequent call from ``_atexit_cleanup()`` is a no-op.
         """
         if self._shutting_down:
             log.debug("[SHUTDOWN] quit() already in progress, ignoring duplicate call")
@@ -1718,6 +1674,20 @@ class VoiceTyperApp:
         self._shutting_down = True
         # RACE-020: also set the Event version so executor tasks can check it
         self._shutting_down_event.set()
+
+        # THREAD-REGISTRY: signal all registered threads to stop and
+        # join them with their per-thread timeouts. Runs BEFORE
+        # _do_cleanup() so the registry's centralized shutdown is the
+        # first pass; the per-site methods in _do_cleanup() then run
+        # as a safety net. Best-effort — failures here don't prevent
+        # the rest of shutdown from running.
+        try:
+            self._thread_registry.shutdown_all()
+        except Exception:
+            log.debug(
+                "[SHUTDOWN] thread_registry.shutdown_all() failed",
+                exc_info=True,
+            )
 
         # RW-3: delegate to the shared, idempotent cleanup body. The
         # _cleanup_done flag inside _do_cleanup() guarantees that a
