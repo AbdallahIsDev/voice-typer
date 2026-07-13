@@ -483,7 +483,9 @@
 			"confirmResetAria": "Confirmer la réinitialisation aux valeurs par défaut",
 			"resetDialogMessage": "Voulez-vous vraiment réinitialiser tous les paramètres à leurs valeurs par défaut ? Cette action est irréversible."
 		},
-		"allChangesSaved": "All changes saved"
+		"allChangesSaved": "Toutes les modifications ont été enregistrées",
+		"noResultsTitle": "Aucun résultat trouvé",
+		"noResultsMessage": "Essayez un autre terme de recherche ou effacez le filtre pour voir tous les paramètres."
 	},
 	"models": {
 		"asrTitle": "Modèles ASR",
@@ -753,14 +755,13 @@
 		"openHelp": "Ouvrir cette superposition d'aide",
 		"navBack": "Naviguer en arrière / en avant",
 		"closeHint": "Appuyez sur {key} ou cliquez à l'extérieur pour fermer.",
-		"zoomTextSize": "Zoom text size"
+		"zoomTextSize": "Taille du texte du zoom"
 	},
 	"common": {
 		"cancel": "Annuler",
 		"save": "Enregistrer",
 		"delete": "Supprimer",
-		"undo": "Annuler",
-		"confirm": "Confirmer"
+		"undo": "Annuler"
 	},
 	"microphone": {
 		"description": "Sélectionnez et testez votre microphone",
@@ -791,7 +792,10 @@
 		"noMicrophonesFound": "Aucun microphone trouvé",
 		"connectAndRestart": "Connectez un microphone et redémarrez",
 		"otherMicrophones": "Autres microphones",
-		"noOtherMicrophones": "Aucun autre microphone disponible"
+		"noOtherMicrophones": "Aucun autre microphone disponible",
+		"use": "Utiliser",
+		"channels": "Canaux:",
+		"rateHz": "Taux:"
 	},
 	"vocabulary": {
 		"title": "Vocabulaire personnalisé",
@@ -905,7 +909,9 @@
 			"thu": "Jeu",
 			"fri": "Ven",
 			"sat": "Sam"
-		}
+		},
+		"unknown": "Inconnu",
+		"auto": "Automatique"
 	},
 	"about": {
 		"title": "À propos",
@@ -992,43 +998,48 @@
 		"viewPrewarmLog": "Voir le journal de préchauffage",
 		"prewarmLogNotFound": "Aucun journal de préchauffage trouvé",
 		"prewarmLogOpened": "Journal de préchauffage ouvert",
-		"prewarmLogOpenFailed": "Impossible d'ouvrir le journal de préchauffage"
+		"prewarmLogOpenFailed": "Impossible d'ouvrir le journal de préchauffage",
+		"closeDialogsValue": "Esc",
+		"navigateFieldsValue": "Tab / Shift+Tab",
+		"openDropdownsValue": "Enter or Space",
+		"toggleSidebarValue": "Ctrl+B",
+		"toggleSwitchesValue": "Space"
 	},
 	"titleBar": {
-		"minimize": "Minimize",
-		"maximize": "Maximize",
-		"restore": "Restore",
-		"close": "Close",
-		"back": "Back (or mouse back button)",
-		"forward": "Forward (or mouse forward button)"
+		"minimize": "Réduire",
+		"maximize": "Agrandir",
+		"restore": "Restaurer",
+		"close": "Fermer",
+		"back": "Retour (ou bouton retour de la souris)",
+		"forward": "Avancer (ou bouton avancer de la souris)"
 	},
 	"bubble": {
-		"recordingIndicatorAria": "Voice Typer recording indicator",
+		"recordingIndicatorAria": "Indicateur d'enregistrement Voice Typer",
 		"transcribingLabel": "Transcription en cours"
 	},
 	"errorBoundary": {
-		"title": "Something went wrong",
-		"description": "The app encountered an unexpected error. Your data is safe.",
-		"unknownError": "Unknown error",
-		"tryAgain": "Try Again",
-		"reloadApp": "Reload App"
+		"title": "Une erreur s'est produite",
+		"description": "L'application a rencontré une erreur inattendue. Vos données sont en sécurité.",
+		"unknownError": "Erreur inconnue",
+		"tryAgain": "Réessayer",
+		"reloadApp": "Recharger l'application"
 	},
 	"hotkeyPicker": {
-		"pressAKey": "Press a key",
-		"none": "None",
-		"presets": "Presets…",
+		"pressAKey": "Appuyez sur une touche",
+		"none": "Aucun",
+		"presets": "Préréglages…",
 		"customLabel": "{label}",
-		"cancelRecordingAria": "Cancel recording — {label}",
-		"recordNewAria": "Record new hotkey — {label}",
-		"presetHotkeysAria": "Preset hotkeys — {label}",
-		"assignHint": "Press a key to assign, or press Esc to cancel"
+		"cancelRecordingAria": "Annuler l'enregistrement — {label}",
+		"recordNewAria": "Enregistrer un nouveau raccourci — {label}",
+		"presetHotkeysAria": "Raccourcis prédéfinis — {label}",
+		"assignHint": "Appuyez sur une touche pour assigner, ou appuyez sur Échap pour annuler"
 	},
 	"activityList": {
-		"failedToCopy": "Failed to copy",
-		"viewAll": "View all",
-		"wordsCount": "{count} words",
-		"removeFromFavorites": "Remove from favorites",
-		"addToFavorites": "Add to favorites"
+		"failedToCopy": "Échec de la copie",
+		"viewAll": "Voir tout",
+		"wordsCount": "{count} mots",
+		"removeFromFavorites": "Retirer des favoris",
+		"addToFavorites": "Ajouter aux favoris"
 	},
 	"exportFormat": {
 		"export": "Exporter",
@@ -1051,5 +1062,47 @@
 		"limiter": "Limiteur",
 		"limiterCeiling": "Plafond du limiteur",
 		"notchFilter": "Filtre coupe-bande (ronflement)"
+	},
+	"theme": {
+		"light": "Clair",
+		"dark": "Sombre",
+		"switchTitle": "Mode {mode} — cliquez pour basculer",
+		"switchAriaLabel": "Thème actuel : {mode}. Cliquez pour basculer.",
+		"system": "Système"
+	},
+	"onboarding": {
+		"welcomeTitle": "Bienvenue dans Voice Typer",
+		"welcomeDescription": "Voice Typer est un utilitaire premium hors ligne de voix-vers-texte qui s'exécute dans la barre système. Appuyez sur un raccourci, parlez, et vos mots apparaissent comme du texte dans n'importe quelle application. Configurons quelques éléments pour commencer.",
+		"step1Item": "Choisissez votre microphone",
+		"step2Item": "Sélectionnez un raccourci clavier",
+		"step3Item": "Choisissez un modèle de transcription",
+		"micTitle": "Choisissez votre microphone",
+		"micDescription": "Sélectionnez le microphone que vous souhaitez utiliser pour la dictée. Vous pourrez le changer ultérieurement dans les Paramètres.",
+		"micSelectAria": "Sélectionner le microphone",
+		"noMics": "Aucun microphone détecté. Vous pourrez en définir un ultérieurement dans les Paramètres.",
+		"hotkeyTitle": "Choisissez votre raccourci clavier",
+		"hotkeyDescription": "Sélectionnez le raccourci clavier que vous utiliserez pour démarrer et arrêter la dictée. F2 est la valeur par défaut.",
+		"hotkeySelectAria": "Sélectionner le raccourci clavier",
+		"modelTitle": "Choisissez votre modèle",
+		"modelDescription": "Choisissez un modèle de transcription. Les modèles plus petits sont plus rapides ; les modèles plus grands sont plus précis. Le modèle se télécharge en arrière-plan après la configuration.",
+		"modelSelectAria": "Sélectionner le modèle : {name}",
+		"completeTitle": "C'est prêt !",
+		"completeDescription": "Votre Voice Typer est configuré et prêt. Appuyez sur votre raccourci clavier ({hotkey}) pour commencer à dicter. Le modèle sera téléchargé et chargé en arrière-plan — cela peut prendre une minute lors de la première utilisation.",
+		"summaryMic": "Microphone :",
+		"defaultMic": "Par défaut",
+		"summaryHotkey": "Raccourci clavier :",
+		"summaryModel": "Modèle :",
+		"backAria": "Revenir en arrière",
+		"back": "Retour",
+		"skipAria": "Passer la configuration",
+		"skip": "Passer",
+		"getStartedAria": "Commencer",
+		"getStarted": "Commencer",
+		"continueAria": "Continuer",
+		"continue": "Continuer",
+		"setupCompleteSnack": "Configuration terminée ! Chargement du modèle...",
+		"saveFailedSnack": "Échec de l'enregistrement de la sélection",
+		"skippedSnack": "Configuration ignorée — utilisation des valeurs par défaut",
+		"stepProgress": "Étape {current} sur {total}"
 	}
 }

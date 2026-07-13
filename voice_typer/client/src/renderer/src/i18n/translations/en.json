@@ -49,8 +49,7 @@
 		"cancel": "Cancel",
 		"save": "Save",
 		"delete": "Delete",
-		"undo": "Undo",
-		"confirm": "Confirm"
+		"undo": "Undo"
 	},
 	"microphone": {
 		"description": "Select and test your microphone",
@@ -81,7 +80,10 @@
 		"noMicrophonesFound": "No microphones found",
 		"connectAndRestart": "Connect a microphone and restart",
 		"otherMicrophones": "Other Microphones",
-		"noOtherMicrophones": "No other microphones available"
+		"noOtherMicrophones": "No other microphones available",
+		"use": "Use",
+		"channels": "Channels:",
+		"rateHz": "Rate:"
 	},
 	"vocabulary": {
 		"title": "Custom Vocabulary",

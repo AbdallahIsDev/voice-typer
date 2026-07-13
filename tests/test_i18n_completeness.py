@@ -66,6 +66,12 @@ ALLOWED_UNTRANSLATED = {
     "about.toggleSidebarValue",     # "Ctrl+B"
     "about.navigateFieldsValue",    # "Tab / Shift+Tab"
     "about.closeDialogsValue",      # "Esc"
+    # IMPL-C (parity): "Enter or Space" and "Space" are the same universal
+    # keyboard-key notation as the about.*Value keys above.  Adding them
+    # here keeps the keyboard-shortcut table consistent — translating key
+    # names will not match how users see them on their physical keyboards.
+    "about.openDropdownsValue",     # "Enter or Space"
+    "about.toggleSwitchesValue",    # "Space"
     # IMPL-C: "Auto" is a universal abbreviation for automatic mode — kept
     # identical across Latin-script locales.
     "analytics.auto",               # "Auto"
@@ -73,6 +79,14 @@ ALLOWED_UNTRANSLATED = {
     # the system-following theme mode — identical to English by coincidence,
     # not a translation gap.
     "theme.system",                 # "System"
+    # IMPL-C (Round 6): universal technical placeholders that have no natural
+    # translation in any locale. URLs and model identifiers are protocol-level
+    # strings — translating them would break the API endpoint or model lookup.
+    # The hotkeyPicker.customLabel value is "{label}" only — a pure template
+    # placeholder with no translatable prose.
+    "settings.apiUrlPlaceholder",   # "https://api.openai.com/v1/chat/completions"
+    "settings.modelPlaceholder",    # "gpt-4o-mini"
+    "hotkeyPicker.customLabel",     # "{label}"
 }
 
 # Pre-existing untranslated settings keys documented in the directive (§6).
