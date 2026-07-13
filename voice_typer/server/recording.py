@@ -1494,10 +1494,8 @@ class Recorder:
             import threading as _threading_for_save
 
             def _persist_mic() -> None:
-                try:
-                    self.config.save()
-                except Exception as e:
-                    log.debug("[RECORDING] Could not persist microphone fallback: %s", e)
+                if not self.config.save():
+                    log.debug("[RECORDING] Could not persist microphone fallback")
 
             _threading_for_save.Thread(
                 target=_persist_mic,

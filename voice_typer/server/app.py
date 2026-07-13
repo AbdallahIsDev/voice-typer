@@ -1113,7 +1113,8 @@ class VoiceTyperApp:
             else:
                 disable_autostart()
             self.config.autostart = enabled
-            self.config.save()
+            if not self.config.save():
+                log.warning("[CONFIG] Failed to save autostart setting to disk")
             self.tray.set_autostart_enabled(enabled)
             log.info("[CONFIG] Autostart set to %s", enabled)
         except Exception as e:
@@ -1123,14 +1124,20 @@ class VoiceTyperApp:
     def _set_notifications(self, enabled: bool):
         """Set notification behavior from the settings window."""
         self.config.show_notifications = enabled
-        self.config.save()
+        if not self.config.save():
+            log.warning("[CONFIG] Failed to save notifications setting to disk")
         self.tray.set_notifications_enabled(enabled)
         log.info("[CONFIG] Notifications set to %s", enabled)
 
     def _select_microphone(self, mic_name: str | None):
         """Handle microphone selection from tray menu."""
         self.config.microphone = mic_name
-        self.config.save()
+        if not self.config.save():
+            log.warning("[CONFIG] Failed to save microphone selection to disk")
+            self.tray.notify(
+                APP_NAME,
+                "Failed to save microphone selection. Check disk space or permissions.",
+            )
         label = mic_name if mic_name else "System Default"
 
         if self.recorder.recording:
@@ -1162,7 +1169,8 @@ class VoiceTyperApp:
         """
         config_file = self.config.config_dir / "config.json"
         # Save current in-memory config so the editor sees the latest state
-        self.config.save()
+        if not self.config.save():
+            log.warning("[CONFIG] Failed to save config before opening editor")
         import subprocess
 
         try:
@@ -1322,10 +1330,8 @@ class VoiceTyperApp:
         # restart sequence begins.  This ensures the new Python process
         # loads the latest config, preventing the theme from reverting
         # to default after a restart.
-        try:
-            self.config.save()
-        except Exception:
-            log.debug("[RESTART] config.save() before push failed", exc_info=True)
+        if not self.config.save():
+            log.warning("[RESTART] config.save() before push failed")
 
         # ── CRITICAL ORDERING FIX ────────────────────────────────────
         #

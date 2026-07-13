@@ -487,7 +487,10 @@ class ModelManager:
 
         self._app.config.asr_backend = new_backend
         self._app.config.model_size = model_size
-        self._app.config.save()
+        if not self._app.config.save():
+            log.warning(
+                "[MODEL] config.save() returned False — model change may not persist"
+            )
 
         if self._app.recorder.recording or not self._app._busy_event.is_set():
             log.info(

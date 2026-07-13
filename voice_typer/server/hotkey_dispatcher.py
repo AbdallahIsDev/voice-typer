@@ -257,7 +257,12 @@ class HotkeyDispatcher:
         """Re-register the global hotkey after settings change."""
         app = self._app
         app.config.hotkey = hotkey
-        app.config.save()
+        if not app.config.save():
+            log.warning("[HOTKEY] config.save() returned False — hotkey change may not persist")
+            app.tray.notify(
+                APP_NAME,
+                "Failed to save hotkey to disk. Check disk space or permissions.",
+            )
         if self._hotkey_backend:
             try:
                 self._hotkey_backend.stop()
