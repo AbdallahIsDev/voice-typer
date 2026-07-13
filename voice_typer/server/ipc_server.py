@@ -57,6 +57,7 @@ log = logging.getLogger("voice_typer.server.ipc_server")
 #     if error:
 #         return error
 
+
 def _validate_dict_payload(data, schema):
     """Validate IPC ``data`` against a declarative *schema*.
 
@@ -103,8 +104,8 @@ def _validate_dict_payload(data, schema):
                         "code": "invalid_field",
                         "field": field_name,
                         "message": f"'{field_name}' must be of type "
-                                   f"{expected_type.__name__}, got "
-                                   f"{type(value).__name__}",
+                        f"{expected_type.__name__}, got "
+                        f"{type(value).__name__}",
                     },
                 }
             validated[field_name] = value
@@ -224,6 +225,7 @@ class _RateLimiter:
         self._sustained = sustained_per_sec
         self._window = window
         self._timestamps: deque[float] = deque()
+        self._rejected: int = 0
         self._lock = threading.Lock()
 
     def allow(self, *, now: float | None = None) -> bool:
@@ -261,12 +263,12 @@ class _RateLimiter:
 
         Not currently exposed via IPC, but useful for tests.
         """
-        return getattr(self, "_rejected", 0)
+        return self._rejected
 
     def reject(self) -> None:
         """Increment the rejected counter (called when allow() returns False)."""
         with self._lock:
-            self._rejected = getattr(self, "_rejected", 0) + 1
+            self._rejected += 1
 
 
 # ── SEC-003: config sanitization for IPC ─────────────────────────────────
@@ -279,13 +281,15 @@ class _RateLimiter:
 # actual key value.
 
 # Fields whose values are secrets and must never be echoed back.
-_SECRET_CONFIG_FIELDS = frozenset({
-    "cloud_api_key",
-    "openai_api_key",
-    "groq_api_key",
-    "deepgram_api_key",
-    "llm_api_key",
-})
+_SECRET_CONFIG_FIELDS = frozenset(
+    {
+        "cloud_api_key",
+        "openai_api_key",
+        "groq_api_key",
+        "deepgram_api_key",
+        "llm_api_key",
+    }
+)
 
 # Sentinel returned in place of a secret value.  The renderer treats
 # this as "key is set, do not display" — it must NOT treat this as the
@@ -574,6 +578,7 @@ class IPCServer(
             # gRPC) to reuse the same service layer without duplicating
             # app glue.
             from voice_typer.server.service import VoiceTyperService
+
             self.service = VoiceTyperService(app)
         self._running = False
         # NEW-CQ-018: use RLock instead of Lock so _hook_tray_set_state
@@ -639,7 +644,8 @@ class IPCServer(
         # stdin is unused (inherited from Electron, connected to /dev/null
         # or NUL).
         self._stdin_thread = threading.Thread(
-            target=self._run, name="ipc-server",
+            target=self._run,
+            name="ipc-server",
             daemon=True,
         )
         self._stdin_thread.start()
@@ -707,6 +713,12 @@ class IPCServer(
         NEW-IPC-013: stop() now unregisters OUR push callable from the
         module-level registry instead of clearing the global outright.
         Other active servers in the same process keep working.
+
+        S-5: ``_stdin_thread`` is now joined with a short timeout so
+        the thread is properly tracked and doesn't leak in test
+        start/stop cycles. The stdin thread is a daemon that blocks
+        on ``for line in iter(stdin)``, so a 0.5s timeout is
+        sufficient — the thread exits naturally on stdin EOF/OSError.
         """
         self._running = False
         # Unregister our push callable.  Other servers in the registry
@@ -741,6 +753,15 @@ class IPCServer(
         if registry is not None:
             registry.unregister("heartbeat-watchdog")
             registry.unregister("ipc-server")
+        # S-5: join the stdin thread so it doesn't leak in test
+        # start/stop cycles.  The thread is a daemon that blocks on
+        # ``for line in iter(stdin)``, so a 0.5s timeout is sufficient
+        # — the thread exits naturally on stdin EOF/OSError (set by
+        # closing the TCP client socket above) or when _running becomes
+        # False (checked between lines).
+        stdin_thread = getattr(self, "_stdin_thread", None)
+        if stdin_thread is not None and stdin_thread.is_alive():
+            stdin_thread.join(timeout=0.5)
         # Keep the app-level reference so existing closures still
         # work after a stop+start cycle in tests.
 
@@ -750,7 +771,9 @@ class IPCServer(
         """Start a TCP server that accepts one Electron connection."""
         self._tcp_mode = True
         t = threading.Thread(
-            target=self._accept_tcp, args=(port,), daemon=True,
+            target=self._accept_tcp,
+            args=(port,),
+            daemon=True,
         )
         t.start()
 
@@ -779,9 +802,7 @@ class IPCServer(
             # (e.g. ``python -m voice_typer.server.ipc_server`` from a
             # terminal).  We log a warning so the user knows the server
             # is accepting unauthenticated connections.
-            log.warning(
-                "[TCP] VOICE_TYPER_IPC_TOKEN not set — accepting UNAUTHENTICATED connections"
-            )
+            log.warning("[TCP] VOICE_TYPER_IPC_TOKEN not set — accepting UNAUTHENTICATED connections")
 
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -884,10 +905,13 @@ class IPCServer(
                     log.warning("[TCP] auth failed — invalid token")
                     try:
                         auth_client.write(
-                            json.dumps({
-                                "type": "error",
-                                "data": {"message": "authentication failed"},
-                            }) + "\n"
+                            json.dumps(
+                                {
+                                    "type": "error",
+                                    "data": {"message": "authentication failed"},
+                                }
+                            )
+                            + "\n"
                         )
                         auth_client.flush()
                     except Exception:
@@ -925,13 +949,15 @@ class IPCServer(
             current_state = getattr(self.app.tray, "_state", None)
             current_msg = getattr(self.app.tray, "_message", "")
             if current_state is not None:
-                self.push({
-                    "type": "state_changed",
-                    "data": {
-                        "status": getattr(current_state, "value", str(current_state)),
-                        "message": current_msg,
-                    },
-                })
+                self.push(
+                    {
+                        "type": "state_changed",
+                        "data": {
+                            "status": getattr(current_state, "value", str(current_state)),
+                            "message": current_msg,
+                        },
+                    }
+                )
         except Exception:
             log.debug("[TCP] failed to emit initial state_changed on connect")
 
@@ -947,10 +973,12 @@ class IPCServer(
                     continue
                 if not rate_limiter.allow():
                     rate_limiter.reject()
-                    self._send({
-                        "type": "error",
-                        "data": {"message": "rate limit exceeded; backing off"},
-                    })
+                    self._send(
+                        {
+                            "type": "error",
+                            "data": {"message": "rate limit exceeded; backing off"},
+                        }
+                    )
                     log.warning(
                         "[TCP] rate limit hit (%d rejected)",
                         rate_limiter.rejected_count,
@@ -959,10 +987,12 @@ class IPCServer(
                 try:
                     msg = json.loads(line)
                 except json.JSONDecodeError:
-                    self._send({
-                        "type": "error",
-                        "data": {"message": "invalid JSON"},
-                    })
+                    self._send(
+                        {
+                            "type": "error",
+                            "data": {"message": "invalid JSON"},
+                        }
+                    )
                     continue
                 # ERR-018: isolate handler exceptions from socket I/O
                 # errors.  Previously, ANY exception raised by
@@ -981,16 +1011,17 @@ class IPCServer(
                     result = self._dispatch(msg)
                 except Exception as dispatch_exc:
                     log.error(
-                        "[TCP] unhandled exception in dispatch for "
-                        "message type %r: %s",
+                        "[TCP] unhandled exception in dispatch for message type %r: %s",
                         msg.get("type") if isinstance(msg, dict) else None,
                         dispatch_exc,
                         exc_info=True,
                     )
-                    self._send({
-                        "type": "error",
-                        "data": {"message": "internal error"},
-                    })
+                    self._send(
+                        {
+                            "type": "error",
+                            "data": {"message": "internal error"},
+                        }
+                    )
                     continue
                 if result is not None:
                     self._send(result)
@@ -1034,10 +1065,7 @@ class IPCServer(
             # Server is shutting down (stop() was called). Don't
             # reset ownership — a recording might be in progress
             # and the teardown sequence will handle cleanup.
-            log.debug(
-                "[IPC] client disconnect during shutdown; "
-                "skipping keyboard ownership reset"
-            )
+            log.debug("[IPC] client disconnect during shutdown; skipping keyboard ownership reset")
             return
         keyboard_ownership().reset()
         # ISSUE-8: also clear the ESC-pending-capture-exit flag on the
@@ -1049,9 +1077,7 @@ class IPCServer(
         if _hotkeys is not None:
             with contextlib.suppress(AttributeError):
                 _hotkeys._esc_pending_capture_exit = False
-        log.info(
-            "[IPC] keyboard ownership reset to normal (%s)", reason
-        )
+        log.info("[IPC] keyboard ownership reset to normal (%s)", reason)
 
     # ── Heartbeat watchdog (RW-10) ───────────────────────────────────────
 
@@ -1120,9 +1146,7 @@ class IPCServer(
         try:
             self.app.quit()
         except Exception:
-            log.exception(
-                "[HEARTBEAT] app.quit() raised during heartbeat timeout"
-            )
+            log.exception("[HEARTBEAT] app.quit() raised during heartbeat timeout")
         return True
 
     def _handle_heartbeat(self, data, resp) -> dict:
@@ -1156,10 +1180,12 @@ class IPCServer(
 
         def wrapped(state, message=""):
             original(state, message)
-            self.push({
-                "type": "status_change",
-                "data": {"status": state.value},
-            })
+            self.push(
+                {
+                    "type": "status_change",
+                    "data": {"status": state.value},
+                }
+            )
 
         self.app.tray.set_state = wrapped
 
@@ -1197,10 +1223,13 @@ class IPCServer(
                     result = self._dispatch(msg)
                     self._send(result, _out=stdout)
                 except json.JSONDecodeError:
-                    self._send({
-                        "type": "error",
-                        "data": {"message": "invalid JSON"},
-                    }, _out=stdout)
+                    self._send(
+                        {
+                            "type": "error",
+                            "data": {"message": "invalid JSON"},
+                        },
+                        _out=stdout,
+                    )
         except OSError:
             pass  # stdin closed (e.g. during test teardown)
         # TASK-0010: stdin EOF (or OSError on read) means the IPC
@@ -1590,6 +1619,7 @@ def _set_process_metadata() -> None:
     """
     from voice_typer.server.branding import APP_NAME
     from voice_typer.server.platform_utils import _set_windows_process_metadata
+
     _set_windows_process_metadata(APP_NAME)
 
 
@@ -1623,10 +1653,12 @@ def main() -> None:
     # Invaluable for debugging production crashes with CUDA/GPU drivers.
     try:
         import faulthandler
+
         faulthandler.enable()
         # Optional: register SIGUSR1 for on-demand thread dumps (POSIX only)
         import signal
-        if hasattr(signal, 'SIGUSR1'):
+
+        if hasattr(signal, "SIGUSR1"):
             # TASK-14: ``faulthandler.dump_traceback_later`` has the
             # signature ``(timeout: float, repeat: bool = False, ...)
             # -> None`` and does NOT match the ``signal.signal`` handler
@@ -1638,6 +1670,7 @@ def main() -> None:
             # on-demand thread dumps from SIGUSR1.
             def _on_sigusr1(_signum: int, _frame: "typing.Any") -> None:
                 faulthandler.dump_traceback_later(timeout=1.0)
+
             signal.signal(signal.SIGUSR1, _on_sigusr1)
     except Exception:
         pass  # Not available on all platforms
@@ -1662,13 +1695,18 @@ def main() -> None:
         # is possible.
         log.exception("[FATAL] VoiceTyperApp() construction failed")
         try:
+            import io
             import traceback
+
+            from voice_typer.server.config import _secure_atomic_write
+
+            buf = io.StringIO()
+            buf.write(f"Voice Typer startup failed at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            buf.write(f"sys.executable: {sys.executable}\n")
+            buf.write(f"sys.argv: {sys.argv}\n")
+            traceback.print_exc(file=buf)
             diag_path = _config_dir() / "startup-error.log"
-            with open(diag_path, "w", encoding="utf-8") as f:
-                f.write(f"Voice Typer startup failed at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"sys.executable: {sys.executable}\n")
-                f.write(f"sys.argv: {sys.argv}\n")
-                traceback.print_exc(file=f)
+            _secure_atomic_write(diag_path, buf.getvalue())
             log.error("[FATAL] Diagnostic written to %s", diag_path)
         except Exception:
             pass
@@ -1685,14 +1723,19 @@ def main() -> None:
     # a wrapper script (e.g. --port with no value as the last arg)
     # silently started Python in stdin/stdout mode.
     import argparse
+
     parser = argparse.ArgumentParser(
         prog="voice_typer.server.ipc_server",
         description="Voice Typer IPC server (spawned by Electron)",
         add_help=False,  # we add --help manually to avoid conflict with app
     )
-    parser.add_argument("--port", type=int, default=None, metavar="N",
-                        help="TCP port to listen on (1..65535). "
-                             "If omitted, uses stdin/stdout IPC.")
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        metavar="N",
+        help="TCP port to listen on (1..65535). If omitted, uses stdin/stdout IPC.",
+    )
     args, _unknown = parser.parse_known_args(sys.argv[1:])
     port = args.port
     if port is not None and not (1 <= port <= 65535):
@@ -1706,6 +1749,7 @@ def main() -> None:
     # flags, an alternate service implementation) lives in one place
     # rather than being threaded through this entry point.
     from voice_typer.server.providers import build_ipc_server
+
     server = build_ipc_server(app)
     server.start()
     if port is not None:
@@ -1740,7 +1784,8 @@ def main() -> None:
         # env vars so Electron's main process detects them and connects
         # directly instead of spawning its own Python backend.
         electron_pid = electron_launcher.launch_electron_frontend(
-            standalone_port, ipc_token,
+            standalone_port,
+            ipc_token,
         )
         if electron_pid is not None:
             # Track PID on the app instance so quit() can terminate
@@ -1750,17 +1795,18 @@ def main() -> None:
             # path (which calls get_electron_pid()) still works.
             try:
                 from voice_typer.server.tray_window import set_electron_pid
+
                 set_electron_pid(electron_pid)
             except Exception:
                 log.debug("[IPC] could not register Electron PID with tray_window", exc_info=True)
             log.info(
                 "[STARTUP] Standalone mode — launched Electron (PID=%s) on port %d",
-                electron_pid, standalone_port,
+                electron_pid,
+                standalone_port,
             )
         else:
             log.error(
-                "[STARTUP] Standalone mode — failed to launch Electron; "
-                "backend is running on port %d with no UI",
+                "[STARTUP] Standalone mode — failed to launch Electron; backend is running on port %d with no UI",
                 standalone_port,
             )
 
@@ -1790,12 +1836,19 @@ def main() -> None:
         try:
             import io
             import traceback
+
+            from voice_typer.server.config import _secure_atomic_write
+
             buf = io.StringIO()
+            buf.write(f"\n--- app.start() failed at {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
             traceback.print_exc(file=buf)
             diag_path = _config_dir() / "startup-error.log"
-            with open(diag_path, "a", encoding="utf-8") as f:
-                f.write(f"\n--- app.start() failed at {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
-                f.write(buf.getvalue())
+            # Read existing content if any, then write full content atomically
+            try:
+                existing = diag_path.read_text(encoding="utf-8")
+            except (OSError, FileNotFoundError):
+                existing = ""
+            _secure_atomic_write(diag_path, existing + buf.getvalue())
             log.error("[FATAL] Diagnostic written to %s", diag_path)
         except Exception:
             pass

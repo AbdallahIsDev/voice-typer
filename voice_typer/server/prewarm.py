@@ -40,6 +40,7 @@ Run manually for diagnostics::
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import logging.handlers
 import os
@@ -51,7 +52,7 @@ from pathlib import Path
 
 from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
 
-log = logging.getLogger("voice_typer.prewarm")
+log = logging.getLogger(__name__)
 
 # Skip prewarming when free RAM is below this.  ~6 GB covers the torch
 # package (4.2 GB) + Parakeet weights (2.4 GB) without catastrophically
@@ -727,8 +728,10 @@ def _mark_warmed(elapsed_s: float) -> None:
         #           show "Last run: 3 hours ago". Line 1 is the BOOT
         #           time, not the completion time.
         import datetime as _dt
+
+        from voice_typer.server.config import _secure_atomic_write
         now_iso = _dt.datetime.now().isoformat(timespec="seconds")
-        sentinel.write_text(f"{bt}\n{elapsed_s:.1f}\n{now_iso}")
+        _secure_atomic_write(sentinel, f"{bt}\n{elapsed_s:.1f}\n{now_iso}")
     except Exception:
         # Review fix H5: log the failure (was silently swallowed).
         # A failed sentinel write means the next prewarm trigger will
@@ -793,9 +796,10 @@ def _write_pid_file() -> None:
     model. ``_remove_pid_file()`` removes it in a finally block.
     """
     try:
+        from voice_typer.server.config import _secure_atomic_write
         pid_file = _pid_file_path()
         pid_file.parent.mkdir(parents=True, exist_ok=True)
-        pid_file.write_text(str(os.getpid()))
+        _secure_atomic_write(pid_file, str(os.getpid()))
     except OSError as exc:
         log.debug("[PREWARM] could not write PID file: %s", exc)
 
@@ -1659,7 +1663,6 @@ def _print_status() -> int:
     (with an added ``sentinel_path`` field for diagnostics). Exits with
     code 0 on success, 1 if the status probe raised.
     """
-    import json
     try:
         status = get_prewarm_status()
         # Add the sentinel path for diagnostics (useful for support

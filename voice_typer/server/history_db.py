@@ -337,10 +337,11 @@ class HistoryDB:
         The rollback is a no-op when there is no open transaction, so
         it's safe to call unconditionally.
         """
-        try:                # WAL-CHECKPOINT-FIX: clear any lingering transaction from
-                # a prior write before checkpointing. The rollback is safe
-                # because all write closures commit before returning, so
-                # any open transaction here is an unexpected/transient state.
+        # WAL-CHECKPOINT-FIX: clear any lingering transaction from
+        # a prior write before checkpointing. The rollback is safe
+        # because all write closures commit before returning, so
+        # any open transaction here is an unexpected/transient state.
+        try:
             conn.rollback()
             result = conn.execute("PRAGMA wal_checkpoint(PASSIVE)").fetchone()
             if result is not None:

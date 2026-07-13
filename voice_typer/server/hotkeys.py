@@ -27,7 +27,7 @@ from typing import Any
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
 
-log = logging.getLogger("voice_typer")
+log = logging.getLogger(__name__)
 
 
 # ─── Base class ──────────────────────────────────────────────────────────────
@@ -2231,7 +2231,8 @@ class WaylandHotkey(HotkeyBackend):
 
     On Wayland compositors, pynput's X11-based keyboard listener doesn't
     work. This backend listens on a Unix domain socket at
-    ``/tmp/voice-typer-hotkey.sock`` for commands like ``toggle`` and
+    ``$XDG_RUNTIME_DIR/voice-typer-hotkey.sock`` (falling back to
+    ``/tmp/voice-typer-hotkey.sock``) for commands like ``toggle`` and
     ``ping``. External tools (systemd, shell scripts, wlr-which-key)
     can send these commands to trigger dictation.
 
@@ -2240,7 +2241,24 @@ class WaylandHotkey(HotkeyBackend):
     within a timeout (it silently fails on Wayland).
     """
 
-    SOCKET_PATH = "/tmp/voice-typer-hotkey.sock"
+    @staticmethod
+    def _socket_path() -> str:
+        """Return the Unix socket path, preferring ``$XDG_RUNTIME_DIR``.
+
+        ``$XDG_RUNTIME_DIR`` is the Freedesktop standard for
+        per-user runtime files (typically
+        ``/run/user/<uid>/voice-typer-hotkey.sock``). It is only
+        accessible by the owning UID, eliminating the cross-user
+        TOCTOU window between ``bind()`` and ``chmod()`` that existed
+        when the path was hardcoded to the world-writable ``/tmp``.
+
+        Falls back to ``/tmp/voice-typer-hotkey.sock`` when
+        ``$XDG_RUNTIME_DIR`` is not set.
+        """
+        xdg = os.environ.get("XDG_RUNTIME_DIR")
+        if xdg:
+            return os.path.join(xdg, "voice-typer-hotkey.sock")
+        return "/tmp/voice-typer-hotkey.sock"
     PING_RESPONSE = b"pong\n"
     TOGGLE_RESPONSE = b"toggled\n"
 

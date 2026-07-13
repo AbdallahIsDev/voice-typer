@@ -444,7 +444,7 @@ def _app_autostart_command_and_args() -> tuple[str, str]:
 
     STARTUP-7: same launcher + --hidden + --delay <N> as the Run-key path,
     but split into Command + Arguments for the Task Scheduler XML so we
-    avoid the cmd.exe wrapper (mirrors the prewarm task fix from Round 8).
+    avoid the cmd.exe wrapper (mirrors the prewarm task fix).
 
     ADR-0009 Issue 4: the delay was reduced from 30s to 15s (see
     _autostart_command() for the full rationale).

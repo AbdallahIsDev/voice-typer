@@ -31,7 +31,7 @@ from pathlib import Path
 from voice_typer.server import _paths
 from voice_typer.server.platform_utils import is_linux, is_macos
 
-log = logging.getLogger("voice_typer.prewarm_scheduler_posix")
+log = logging.getLogger(__name__)
 
 PREWARM_LABEL = "com.voicetyper.prewarm"
 

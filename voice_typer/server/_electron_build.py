@@ -52,7 +52,7 @@ from pathlib import Path
 
 from voice_typer.server.platform_utils import is_windows
 
-log = logging.getLogger("voice_typer._electron_build")
+log = logging.getLogger(__name__)
 
 # Directory layout (mirrors both launcher modules):
 #   <root>/

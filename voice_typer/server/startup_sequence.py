@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     # pass mocks that satisfy the same duck-typed surface).
     from voice_typer.server.app import VoiceTyperApp
 
-log = logging.getLogger("voice_typer")
+log = logging.getLogger(__name__)
 
 
 class StartupSequence:
@@ -98,6 +98,7 @@ class StartupSequence:
         if not app.config.onboarding_completed:
             try:
                 from voice_typer.server.onboarding import OnboardingController
+
                 onboarding = OnboardingController()
                 if onboarding.is_first_run():
                     # Check if config.json already exists on disk.
@@ -137,9 +138,7 @@ class StartupSequence:
                 # flag so the app remains usable.
                 log.exception("[STARTUP] Onboarding check failed: %s", e)
                 try:
-                    app._onboarding_fail_count = getattr(
-                        app, "_onboarding_fail_count", 0
-                    ) + 1
+                    app._onboarding_fail_count = getattr(app, "_onboarding_fail_count", 0) + 1
                     if app._onboarding_fail_count >= 3:
                         app.config.onboarding_completed = True
                         app.config.onboarding_failed = True
@@ -174,8 +173,7 @@ class StartupSequence:
                 try:
                     app.tray.notify_safety(
                         f"{APP_NAME} — Corrections Error",
-                        f"{err}\nCorrections will use built-in defaults. "
-                        f"Fix the file and restart.",
+                        f"{err}\nCorrections will use built-in defaults. Fix the file and restart.",
                     )
                 except Exception:
                     log.debug("[STARTUP] Could not show corrections error notification")
@@ -213,6 +211,7 @@ class StartupSequence:
             log.warning("[STARTUP] Wayland detected -- global hotkeys may not work")
             # XPLAT-004: check if wtype or ydotool is available as a fallback
             import shutil
+
             wtype_available = shutil.which("wtype") is not None
             ydotool_available = shutil.which("ydotool") is not None
             if not wtype_available and not ydotool_available:
@@ -244,6 +243,7 @@ class StartupSequence:
         if is_macos():
             try:
                 import subprocess as _sp
+
                 # PLAT-030: Use AXIsProcessTrusted() via ctypes for the
                 # definitive check.  AXIsProcessTrusted() is the official
                 # API — it returns True iff the process has Accessibility
@@ -251,6 +251,7 @@ class StartupSequence:
                 # via ctypes (no PyObjC dependency required).
                 try:
                     import ctypes
+
                     app_services = ctypes.cdll.LoadLibrary(
                         "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
                     )
@@ -259,9 +260,10 @@ class StartupSequence:
                     # Fallback: osascript check (less reliable but works
                     # even if ctypes loading fails)
                     result = _sp.run(
-                        ["osascript", "-e",
-                         'tell application "System Events" to keystroke " "'],
-                        capture_output=True, text=True, timeout=3,
+                        ["osascript", "-e", 'tell application "System Events" to keystroke " "'],
+                        capture_output=True,
+                        text=True,
+                        timeout=3,
                     )
                     _has_accessibility = result.returncode == 0
 
@@ -284,6 +286,7 @@ class StartupSequence:
             # RW-9 Phase 2: call startup_tasks directly (the
             # ``app._start_accessibility_pulse`` facade is kept for test seams).
             from voice_typer.server import startup_tasks
+
             startup_tasks.start_accessibility_pulse(app, _has_accessibility)
 
         # 1. Sync autostart config with platform
@@ -291,6 +294,7 @@ class StartupSequence:
         # RW-9 Phase 2: call startup_tasks directly (the
         # ``app._sync_autostart`` facade is kept for test seams).
         from voice_typer.server import startup_tasks
+
         startup_tasks.sync_autostart(app)
         app.tray.set_autostart_enabled(is_autostart_enabled())
 
@@ -313,7 +317,7 @@ class StartupSequence:
 
         # RACE-020: pass the shutdown event to executor tasks so they
         # can abort early if the app is quitting during startup.
-        _shutdown_event = app._shutting_down_event if hasattr(app, '_shutting_down_event') else None
+        _shutdown_event = app._shutting_down_event if hasattr(app, "_shutting_down_event") else None
 
         def _startup_parallel_work() -> None:
             with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
@@ -381,7 +385,7 @@ class StartupSequence:
         # and -- if they press F2 before the load finishes -- gets queued
         # and auto-started once it completes.  See toggle_dictation().
         #
-        # #2 (Round 9): ModelManager owns the load thread now; the
+        # #2 ModelManager owns the load thread now; the
         # ``self._model_load_thread`` property delegate on VoiceTyperApp
         # reads/writes through to ``self.models._model_load_thread`` so
         # existing code that checks the thread (e.g. toggle_dictation)
@@ -406,7 +410,7 @@ class StartupSequence:
 
         # Show the bubble at startup if always_visible mode is enabled AND
         # bubble_show_on_startup is True (user's preference in Settings).
-        if app.config.bubble_behavior == 'always_visible' and app.config.bubble_show_on_startup:
+        if app.config.bubble_behavior == "always_visible" and app.config.bubble_show_on_startup:
             try:
                 app._waveform_bubble.show()
                 log.info("[STARTUP] Bubble shown at startup (always_visible mode)")

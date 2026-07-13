@@ -1,4 +1,4 @@
-"""#2 (Round 9): HotkeyDispatcher — extracted from VoiceTyperApp.
+"""#2 HotkeyDispatcher — extracted from VoiceTyperApp.
 
 Owns global hotkey registration: dictation toggle hotkey, ESC cancel
 hotkey, and repaste hotkey. Each hotkey gets its own HotkeyBackend
@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 class HotkeyDispatcher:
     """Owns the three global hotkey backends (dictation / ESC / repaste).
 
-    #2 (Round 9): extracted from VoiceTyperApp. The app passes itself
+    #2 extracted from VoiceTyperApp. The app passes itself
     (``app``) so HotkeyDispatcher can:
     - Read ``app.config`` (hotkey, recording_mode, esc_cancel_enabled, repaste_hotkey)
     - Call ``app.toggle_dictation`` / ``app._stop_dictation`` /
@@ -113,7 +113,7 @@ class HotkeyDispatcher:
     def _make_dictation_callback(self):
         """Create a dictation hotkey callback that respects keyboard ownership.
 
-        HOTKEY-FIX-001 (Round 1): the dictation callback previously called
+        HOTKEY-FIX-001: the dictation callback previously called
         ``app.toggle_dictation`` directly with NO ownership check. This meant
         that pressing any key during a hotkey capture session (e.g. re-assigning
         the current hotkey, or capturing a new key like Tab) would immediately
@@ -125,28 +125,28 @@ class HotkeyDispatcher:
         (``is_hotkey_capture_active()`` returns True), the dictation callback
         is a no-op. This fixes sub-tasks 2.4 (Race A) and 2.5 entirely.
         """
+
         def _dictation_callback() -> None:
             if keyboard_ownership().is_hotkey_capture_active():
-                log.debug(
-                    "[HOTKEY] dictation ignored — frontend hotkey capture active"
-                )
+                log.debug("[HOTKEY] dictation ignored — frontend hotkey capture active")
                 return
             self._app.toggle_dictation()
+
         return _dictation_callback
 
     def _make_repaste_callback(self):
         """Create a repaste hotkey callback that respects keyboard ownership.
 
-        HOTKEY-FIX-001 (Round 1): same defense-in-depth as the dictation
+        HOTKEY-FIX-001: same defense-in-depth as the dictation
         callback. Prevents the repaste hotkey from firing during capture.
         """
+
         def _repaste_callback() -> None:
             if keyboard_ownership().is_hotkey_capture_active():
-                log.debug(
-                    "[HOTKEY] repaste ignored — frontend hotkey capture active"
-                )
+                log.debug("[HOTKEY] repaste ignored — frontend hotkey capture active")
                 return
             self._app.repaste_last()
+
         return _repaste_callback
 
     def register_esc(self) -> None:
@@ -183,18 +183,13 @@ class HotkeyDispatcher:
             def _esc_callback() -> None:
                 # ARCH-ESC-001: centralized ownership check.
                 if keyboard_ownership().is_hotkey_capture_active():
-                    log.info(
-                        "[HOTKEY] ESC pressed during hotkey capture "
-                        "— waiting for key-up"
-                    )
+                    log.info("[HOTKEY] ESC pressed during hotkey capture — waiting for key-up")
                     # ESC-KEYUP-FIX: set the pending flag and install
                     # a release callback. The actual cancel happens on
                     # key-up (release), not key-down (press).
                     self._esc_pending_capture_exit = True
                     if self._esc_backend is not None:
-                        self._esc_backend.set_on_release(
-                            self._on_esc_release
-                        )
+                        self._esc_backend.set_on_release(self._on_esc_release)
                     return
                 self._app._cancel_dictation()
 
@@ -219,19 +214,15 @@ class HotkeyDispatcher:
             return
         self._esc_pending_capture_exit = False
 
-        log.info(
-            "[HOTKEY] ESC released during hotkey capture "
-            "— canceling capture"
-        )
+        log.info("[HOTKEY] ESC released during hotkey capture — canceling capture")
 
         # Reset keyboard ownership so subsequent keys
         # are no longer blocked by the capture check.
-        keyboard_ownership().set_owner(
-            "normal", reason="esc released during capture"
-        )
+        keyboard_ownership().set_owner("normal", reason="esc released during capture")
 
         # Push an event so the frontend exits capture mode.
         from voice_typer.server.ipc_server import _push_event_now
+
         _push_event_now({"type": "hotkey_capture_cancel"})
 
         # Reset the release callback so it doesn't fire again

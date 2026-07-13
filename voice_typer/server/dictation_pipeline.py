@@ -22,7 +22,7 @@ import numpy as np
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.tray_types import AppState
 
-log = logging.getLogger("voice_typer")
+log = logging.getLogger(__name__)
 
 
 # ERR-005: raw exception messages from ctranslate2 / torch / faster-whisper
@@ -297,7 +297,16 @@ class DictationPipeline:
         return text
 
     def _handle_empty_transcription(self) -> None:
-        """Step 2: Handle case where no speech was detected."""
+        """Step 2: Handle case where no speech was detected.
+
+        UX-SILENCE-GRACE: If the recording duration is less than the 15-second
+        grace period, the "no speech detected" tray notification is suppressed.
+        This prevents an annoying warning when the user briefly taps the hotkey
+        (start recording, stop immediately) — the recording is too short to
+        make a meaningful speech assessment. The notification only fires when
+        the user records for 15+ seconds with no detectable speech, which
+        genuinely suggests a microphone issue.
+        """
         log.info("[TRANSCRIBE] No speech detected (cycle=%s)", self._cycle_id)
         # NEW-BUBBLE-TRANSCRIBING: Hide the bubble since there's nothing to
         # transcribe — no need to keep the overlay visible.
@@ -308,7 +317,18 @@ class DictationPipeline:
                 self._app._waveform_bubble.hide()
         except Exception:
             log.debug("[PIPELINE] bubble hide/set idle on empty failed", exc_info=True)
-        if self._recorded_rms < 0.005:
+
+        # UX-SILENCE-GRACE: Suppress the notification for short recordings (< 15s).
+        # A brief tap of the hotkey does not warrant a microphone warning.
+        _grace_period = 15.0
+        if self._duration < _grace_period:
+            log.info(
+                "[TRANSCRIBE] No speech detected but recording was only %.1fs "
+                "(< %.0fs grace period) — suppressing notification",
+                self._duration, _grace_period,
+            )
+            self._app.tray.set_state(AppState.IDLE, "No speech detected")
+        elif self._recorded_rms < 0.005:
             self._app.tray.set_state(AppState.IDLE, "No speech -- check microphone")
             self._app.tray.notify(
                 APP_NAME,

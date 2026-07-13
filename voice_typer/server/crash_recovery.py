@@ -272,10 +272,16 @@ class CrashRecovery:
         calls to ``add()`` / ``mark_pasted()`` / etc. will fall
         back to synchronous saves (so the data is still persisted,
         just on the calling thread).
+
+        S-6: ``_save_thread`` is now joined with a short timeout
+        after the sentinel is enqueued, so the thread is properly
+        tracked and doesn't leak in test start/stop cycles.
         """
         self._stopped = True
         with contextlib.suppress(queue.Full):
             self._save_queue.put_nowait(None)  # sentinel
+        if self._save_thread is not None and self._save_thread.is_alive():
+            self._save_thread.join(timeout=1.0)
 
     # ── Public API ───────────────────────────────────────────────────
 

@@ -703,14 +703,21 @@ class TrayIcon:
         self._update_check_timer.start()
 
     def _do_update_check(self) -> None:
-        """Check GitHub for the latest release and notify if newer."""
+        """Check GitHub for the latest release and notify if newer.
+
+        S-10: ``resp.read()`` with no size cap could exhaust memory if
+        the server returns a huge response.  ``_read_capped`` from
+        ``cloud_engines`` caps the read at 10 MB.
+        """
         try:
             import json as _json
             import urllib.request
+
+            from voice_typer.server.cloud_engines import _read_capped
             url = "https://api.github.com/repos/AbdallahIsDev/voice-typer/releases/latest"
             req = urllib.request.Request(url, headers={"User-Agent": "voice-typer"})
             with urllib.request.urlopen(req, timeout=10) as resp:
-                data = _json.loads(resp.read())
+                data = _json.loads(_read_capped(resp, max_bytes=10 * 1024 * 1024))
             latest_tag = data.get("tag_name", "").lstrip("v")
             if not latest_tag:
                 return

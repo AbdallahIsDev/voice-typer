@@ -44,6 +44,7 @@ class VadState(enum.Enum):
     SPEECH → SILENCE requires ``_vad_silence_frames`` consecutive quiet frames.
     UNKNOWN is the initial state before enough frames have been observed.
     """
+
     SILENCE = "silence"
     SPEECH = "speech"
     UNKNOWN = "unknown"
@@ -52,8 +53,8 @@ class VadState(enum.Enum):
 # AUDIO-014: default VAD thresholds (overridden by auto-calibration)
 _DEFAULT_VAD_SPEECH_THRESHOLD_DB = -40.0  # dBFS — above this → speech candidate
 _DEFAULT_VAD_SILENCE_THRESHOLD_DB = -50.0  # dBFS — below this → silence candidate
-_DEFAULT_VAD_CALIBRATION_DURATION = 1.5    # seconds of ambient noise to sample
-_DEFAULT_VAD_SPEECH_FRAMES = 3   # consecutive loud frames to declare SPEECH
+_DEFAULT_VAD_CALIBRATION_DURATION = 1.5  # seconds of ambient noise to sample
+_DEFAULT_VAD_SPEECH_FRAMES = 3  # consecutive loud frames to declare SPEECH
 _DEFAULT_VAD_SILENCE_FRAMES = 15  # consecutive quiet frames to declare SILENCE (hangover)
 _DEFAULT_VAD_HANGOVER_FRAMES = 15  # same as _VAD_SILENCE_FRAMES — configurable alias
 
@@ -81,9 +82,9 @@ _DEFAULT_VAD_HANGOVER_FRAMES = 15  # same as _VAD_SILENCE_FRAMES — configurabl
 
 
 # AUDIO-002: XRUN rolling window parameters
-_XRUN_WINDOW_MAXLEN = 10     # keep last 10 xrun timestamps
-_XRUN_ALERT_THRESHOLD = 5    # alert if N xruns in the window
-_XRUN_ALERT_PERIOD = 10.0    # ...within M seconds
+_XRUN_WINDOW_MAXLEN = 10  # keep last 10 xrun timestamps
+_XRUN_ALERT_THRESHOLD = 5  # alert if N xruns in the window
+_XRUN_ALERT_PERIOD = 10.0  # ...within M seconds
 
 
 class ResampleError(RuntimeError):
@@ -113,6 +114,7 @@ def _secure_clear_array(arr: np.ndarray) -> None:
     """
     with contextlib.suppress(Exception):
         arr.fill(0)  # best-effort; some array types may not support fill
+
 
 # PERF-NEW-018: MAX_BUFFER_CHUNKS is now dynamically adjusted in
 # start() based on max_recording_time_seconds.  The default below is a
@@ -174,6 +176,7 @@ def _preload_resample_poly() -> None:
     """Background preloader for scipy.signal.resample_poly."""
     try:
         from scipy.signal import resample_poly  # noqa: F401
+
         _get_resample_poly()
     except Exception:
         # Error will be cached by _get_resample_poly on first real use.
@@ -264,9 +267,7 @@ def _get_resample_poly():
         except ImportError as exc:
             # ARCH-033: wrap in a typed exception so callers can catch
             # without inspecting the ImportError message.
-            typed = ResampleUnavailableError(
-                f"scipy.signal.resample_poly unavailable: {exc}"
-            )
+            typed = ResampleUnavailableError(f"scipy.signal.resample_poly unavailable: {exc}")
             _resample_poly_error = typed
             _resample_poly_error_time = time.monotonic()
             raise typed from exc
@@ -361,6 +362,7 @@ class Recorder:
         if self._use_silero_vad:
             try:
                 from voice_typer.server.vad import is_available as _vad_is_available
+
                 self._silero_available = _vad_is_available()
                 if not self._silero_available:
                     log.warning("[RECORDING] use_silero_vad=True but Silero VAD unavailable — falling back to RMS")
@@ -377,7 +379,7 @@ class Recorder:
         # and state-transition logs appearing even when "Microphone
         # Quality / AI enhancements are disabled" (the "Off" audio preset
         # sets every noise_filter_* to False and noise_suppression_method
-        # to "none"). The prior fix (VAD-FIX Round 1) only demoted the
+        # to "none"). The prior fix (VAD-FIX) only demoted the
         # log level from INFO to DEBUG — it did NOT gate the processing
         # itself, so users with DEBUG logging still saw the spam and the
         # calibration/state-machine work still ran on every chunk.
@@ -389,10 +391,7 @@ class Recorder:
         # current config dynamically so preset changes are reflected immediately,
         # even mid-session (see property definition below).
         if not self._vad_enabled:
-            log.info(
-                "[RECORDING] VAD disabled — all audio enhancements off "
-                "(raw recording mode)."
-            )
+            log.info("[RECORDING] VAD disabled — all audio enhancements off (raw recording mode).")
 
         # ADR 0007 §3.5: AGC instance variables deleted (replaced by
         # Compressor filter in the audio filter chain).
@@ -416,9 +415,7 @@ class Recorder:
         # worker thread (single consumer) pops and processes them.
         # collections.deque is atomic for append/popleft under CPython's
         # GIL, so no lock is needed on the ring buffer itself.
-        self._ring_buffer: collections.deque = collections.deque(
-            maxlen=_AUDIO_RING_BUFFER_CAPACITY
-        )
+        self._ring_buffer: collections.deque = collections.deque(maxlen=_AUDIO_RING_BUFFER_CAPACITY)
         # Worker thread that drains _ring_buffer and runs the heavy
         # audio processing pipeline (filter chain, VAD, resample, state
         # machine). Started by start(), stopped by stop()/discard().
@@ -441,7 +438,7 @@ class Recorder:
         # detect they're operating on an already-stopped stream and bail out
         # instead of racing with start()/stop().
         self._stop_generation: int = 0
-        # STREAM-FIX (Round 1): flag set by stop() BEFORE stream.stop() so
+        # STREAM-FIX: flag set by stop() BEFORE stream.stop() so
         # _stream_finished_callback can distinguish "user pressed stop"
         # (expected, no warning) from "device disconnected" (unexpected,
         # warn). Previously the callback checked _recording_event, but
@@ -478,16 +475,14 @@ class Recorder:
             from voice_typer.server.microphone_watcher import (
                 MicrophoneDeviceWatcher,
             )
-            self._mic_watcher = MicrophoneDeviceWatcher(
-                on_change=self._invalidate_device_cache
-            )
+
+            self._mic_watcher = MicrophoneDeviceWatcher(on_change=self._invalidate_device_cache)
             self._mic_watcher.start()
         except Exception:
             # Watcher is best-effort — the 30s TTL cache covers the
             # case where the watcher fails to start.
             log.warning(
-                "[RECORDING] mic device watcher failed to start, "
-                "falling back to 30s TTL polling",
+                "[RECORDING] mic device watcher failed to start, falling back to 30s TTL polling",
                 exc_info=True,
             )
             self._mic_watcher = None
@@ -584,10 +579,7 @@ class Recorder:
         disappears.
         """
         now = time.monotonic()
-        if (
-            self._device_list_cache is not None
-            and now - self._device_list_cache_time < self._device_list_cache_ttl
-        ):
+        if self._device_list_cache is not None and now - self._device_list_cache_time < self._device_list_cache_ttl:
             return self._device_list_cache
 
         try:
@@ -595,12 +587,14 @@ class Recorder:
             for i, dev in enumerate(sd.query_devices()):
                 if dev.get("max_input_channels", 0) <= 0:
                     continue
-                devices.append({
-                    "id": str(i),
-                    "index": i,
-                    "name": dev.get("name", ""),
-                    "max_input_channels": dev.get("max_input_channels", 0),
-                })
+                devices.append(
+                    {
+                        "id": str(i),
+                        "index": i,
+                        "name": dev.get("name", ""),
+                        "max_input_channels": dev.get("max_input_channels", 0),
+                    }
+                )
             self._device_list_cache = devices
             self._device_list_cache_time = now
             return devices
@@ -628,9 +622,7 @@ class Recorder:
         """
         self._device_list_cache = None
         self._device_list_cache_time = 0.0
-        log.debug(
-            "[RECORDING] Device cache invalidated by OS-event watcher"
-        )
+        log.debug("[RECORDING] Device cache invalidated by OS-event watcher")
 
     def shutdown_mic_watcher(self) -> None:
         """Stop the microphone device-change watcher.
@@ -645,9 +637,7 @@ class Recorder:
         try:
             watcher.stop()
         except Exception:
-            log.debug(
-                "[RECORDING] mic watcher stop failed", exc_info=True
-            )
+            log.debug("[RECORDING] mic watcher stop failed", exc_info=True)
         self._mic_watcher = None
 
     def __del__(self) -> None:
@@ -675,7 +665,7 @@ class Recorder:
         """
         if self._device_disconnected:
             return  # already handling disconnect via callback detection
-        # STREAM-FIX (Round 1): if stop() set this flag, the stream
+        # STREAM-FIX: if stop() set this flag, the stream
         # finished because the user pressed the hotkey — expected, no
         # warning. The flag is cleared after stream.close() in stop().
         if self._user_stop_pending:
@@ -683,9 +673,7 @@ class Recorder:
         # If the stream stopped but we didn't call stop() ourselves,
         # treat it as an unexpected disconnect.
         if self._stream is not None and not self._recording_event.is_set():
-            log.warning(
-                "[RECORDING] Stream finished unexpectedly — possible device disconnect"
-            )
+            log.warning("[RECORDING] Stream finished unexpectedly — possible device disconnect")
             self._device_disconnected = True
             with contextlib.suppress(Exception):
                 threading.Thread(
@@ -709,8 +697,11 @@ class Recorder:
         # HOTKEY-CRASH: if a stop/start cycle happened since this handler
         # was scheduled, the stream has already been replaced. Bail out.
         if _captured_generation != self._stop_generation:
-            log.debug("[RECORDING] Disconnect handler skipped — stop_generation changed (%d != %d)",
-                      _captured_generation, self._stop_generation)
+            log.debug(
+                "[RECORDING] Disconnect handler skipped — stop_generation changed (%d != %d)",
+                _captured_generation,
+                self._stop_generation,
+            )
             return
         # HOTKEY-CRASH: if recording was deliberately stopped since this
         # handler was scheduled, don't restart.
@@ -730,9 +721,9 @@ class Recorder:
             return
 
         log.warning(
-            "[RECORDING] Device disconnect detected (attempt %d/%d). "
-            "Attempting restart with default device.",
-            self._device_disconnect_retries, self._max_disconnect_retries,
+            "[RECORDING] Device disconnect detected (attempt %d/%d). Attempting restart with default device.",
+            self._device_disconnect_retries,
+            self._max_disconnect_retries,
         )
 
         # Stop current stream
@@ -867,11 +858,11 @@ class Recorder:
         noise_db = 20.0 * math.log10(noise_rms) if noise_rms > 0 else -90.0
 
         # Set thresholds relative to noise floor
-        self._vad_silence_threshold_db = noise_db + 6.0   # 6 dB above noise → silence
-        self._vad_speech_threshold_db = noise_db + 18.0    # 18 dB above noise → speech
+        self._vad_silence_threshold_db = noise_db + 6.0  # 6 dB above noise → silence
+        self._vad_speech_threshold_db = noise_db + 18.0  # 18 dB above noise → speech
         self._vad_calibrated = True
 
-        # VAD-FIX (Round 1): demote from INFO to DEBUG. The user reported
+        # VAD-FIX: demote from INFO to DEBUG. The user reported
         # this log line appearing even when mic quality / AI enhancements
         # are disabled — it's diagnostic noise for non-debug users. The
         # auto-calibration itself is cheap and runs unconditionally (the
@@ -882,7 +873,9 @@ class Recorder:
         log.debug(
             "[RECORDING] VAD auto-calibrated: noise_floor=%.1f dBFS, "
             "silence_threshold=%.1f dBFS, speech_threshold=%.1f dBFS",
-            noise_db, self._vad_silence_threshold_db, self._vad_speech_threshold_db,
+            noise_db,
+            self._vad_silence_threshold_db,
+            self._vad_speech_threshold_db,
         )
 
     # ── AUDIO-013: VAD state machine update ─────────────────────────────
@@ -950,8 +943,11 @@ class Recorder:
         if self._vad_state != old_state:
             log.debug(
                 "[RECORDING] VAD: %s -> %s (rms_db=%.1f, speech_frames=%d, silence_frames=%d)",
-                old_state.value, self._vad_state.value, chunk_rms_db,
-                self._vad_consecutive_speech_frames, self._vad_consecutive_silence_frames,
+                old_state.value,
+                self._vad_state.value,
+                chunk_rms_db,
+                self._vad_consecutive_speech_frames,
+                self._vad_consecutive_silence_frames,
             )
 
         return self._vad_state
@@ -1086,9 +1082,11 @@ class Recorder:
                 "native_rate": native_rate,
             }
             log.debug(
-                "[RECORDING] Device query: name=%s, host_api=%s, "
-                "native_rate=%d, target_rate=%d",
-                dev_info["name"], host_api_name, native_rate, target_sr,
+                "[RECORDING] Device query: name=%s, host_api=%s, native_rate=%d, target_rate=%d",
+                dev_info["name"],
+                host_api_name,
+                native_rate,
+                target_sr,
             )
 
             # If the device's native rate matches the target, use it directly.
@@ -1105,9 +1103,9 @@ class Recorder:
                 return target_sr, dev_info_extra
             else:
                 log.debug(
-                    "[RECORDING] Native rate %d differs from target %d, "
-                    "will record at native rate and resample",
-                    native_rate, target_sr,
+                    "[RECORDING] Native rate %d differs from target %d, will record at native rate and resample",
+                    native_rate,
+                    target_sr,
                 )
                 return native_rate, dev_info_extra
         except Exception as e:
@@ -1118,7 +1116,9 @@ class Recorder:
                 "[RECORDING] Could not query device info for device %s: %s. "
                 "Falling back to target rate %d Hz (PortAudio will resample "
                 "internally — audio quality may be lower).",
-                device, e, target_sr,
+                device,
+                e,
+                target_sr,
             )
             return target_sr, dev_info_extra
 
@@ -1212,7 +1212,7 @@ class Recorder:
         # AUDIO-014: reset auto-calibration
         self._vad_calibration_rms_values = []
         self._vad_calibrated = False
-        # STREAM-FIX (Round 1): reset user-stop-pending flag for the new
+        # STREAM-FIX: reset user-stop-pending flag for the new
         # session so a stale True doesn't suppress a genuine disconnect
         # warning in this session.
         self._user_stop_pending = False
@@ -1249,12 +1249,12 @@ class Recorder:
 
         # PERF-NEW-006: cache config values at start() time so the
         # audio callback doesn't do 5x getattr per iteration.
-        self._cached_silence_warning = getattr(self.config, 'silence_warning_seconds', 20.0)
-        self._cached_stop_on_silence = getattr(self.config, 'stop_on_silence_seconds', 60.0)
+        self._cached_silence_warning = getattr(self.config, "silence_warning_seconds", 20.0)
+        self._cached_stop_on_silence = getattr(self.config, "stop_on_silence_seconds", 60.0)
         # SIMPLIFY-001: single explicit field replaces the old 3-field split
         # (max_recording_time_seconds_gpu, max_recording_time_seconds_cpu,
         # and max_recording_time_seconds=0 auto-selection). Always defaults to 900.
-        self._cached_max_recording_time = int(getattr(self.config, 'max_recording_time_seconds', 900))
+        self._cached_max_recording_time = int(getattr(self.config, "max_recording_time_seconds", 900))
 
         # PERF-NEW-018: dynamically size the buffer based on max_recording_time_seconds.
         # At 16kHz with 1024-sample chunks, each chunk = 64ms.  For a 30-min
@@ -1271,7 +1271,8 @@ class Recorder:
                 self._buffer = collections.deque(old_data, maxlen=needed_chunks)
                 log.debug(
                     "[RECORDING] Buffer sized for %ds max recording: %d chunks",
-                    max_rec, needed_chunks,
+                    max_rec,
+                    needed_chunks,
                 )
 
         device = self._resolve_device()
@@ -1310,8 +1311,7 @@ class Recorder:
 
             if dev_info_extra:
                 log.info(
-                    "[RECORDING] Using device: [%s] %s | host_api=%s | "
-                    "native_rate=%d | effective_rate=%d",
+                    "[RECORDING] Using device: [%s] %s | host_api=%s | native_rate=%d | effective_rate=%d",
                     candidate if candidate is not None else "default",
                     dev_info_extra["name"],
                     dev_info_extra["host_api_name"],
@@ -1362,14 +1362,15 @@ class Recorder:
                 # After opening the stream, check if the actual sample
                 # rate differs from requested and is 8000 or 16000.
                 try:
-                    actual_sr = int(stream.samplerate) if hasattr(stream, 'samplerate') else candidate_sr
+                    actual_sr = int(stream.samplerate) if hasattr(stream, "samplerate") else candidate_sr
                     if actual_sr in (8000, 16000) and actual_sr != candidate_sr:
                         log.warning(
                             "[RECORDING] Bluetooth HFP profile detected: actual sample rate "
                             "%d Hz differs from requested %d Hz. Audio quality will be limited. "
                             "Consider disabling the hands-free telephony profile in Bluetooth "
                             "settings for better quality.",
-                            actual_sr, candidate_sr,
+                            actual_sr,
+                            candidate_sr,
                         )
                 except Exception:
                     pass
@@ -1414,8 +1415,7 @@ class Recorder:
 
                 if dev_info_extra:
                     log.info(
-                        "[RECORDING] Fallback device: [%s] %s | host_api=%s | "
-                        "native_rate=%d | effective_rate=%d",
+                        "[RECORDING] Fallback device: [%s] %s | host_api=%s | native_rate=%d | effective_rate=%d",
                         candidate,
                         dev_info_extra["name"],
                         dev_info_extra["host_api_name"],
@@ -1451,7 +1451,8 @@ class Recorder:
                     last_error = e
                     log.warning(
                         "[RECORDING] Fallback device [%s] also failed: %s",
-                        candidate, e,
+                        candidate,
+                        e,
                     )
                     if stream is not None:
                         with contextlib.suppress(Exception):
@@ -1467,8 +1468,8 @@ class Recorder:
                 used_fallback = True
                 log.info(
                     "[RECORDING] Fallback succeeded with device [%s] %s",
-
-                    candidate, dev_info_extra["name"],
+                    candidate,
+                    dev_info_extra["name"],
                 )
                 break
 
@@ -1491,13 +1492,17 @@ class Recorder:
             # crashes before the write lands, the user just re-selects
             # the mic on next start.
             import threading as _threading_for_save
+
             def _persist_mic() -> None:
                 try:
                     self.config.save()
                 except Exception as e:
                     log.debug("[RECORDING] Could not persist microphone fallback: %s", e)
+
             _threading_for_save.Thread(
-                target=_persist_mic, name="mic-fallback-save", daemon=True,
+                target=_persist_mic,
+                name="mic-fallback-save",
+                daemon=True,
             ).start()
 
         self._recording_event.set()
@@ -1513,7 +1518,8 @@ class Recorder:
                     self._buffer.appendleft(mono_chunk.copy())
                 log.debug(
                     "[RECORDING] Prepended %d pre-roll chunks (~%.1fs)",
-                    len(preroll_chunks), len(preroll_chunks) * 512 / self._effective_sr,
+                    len(preroll_chunks),
+                    len(preroll_chunks) * 512 / self._effective_sr,
                 )
 
         target_sr = self.config.sample_rate
@@ -1580,7 +1586,7 @@ class Recorder:
         # waits for it to finish (restoring the AUDIO-009/AUDIO-015
         # safety contract).
         _backoff_budget_s = 0.300  # total worst-case wait, same as pre-fix
-        _poll_interval_s = 0.005   # 5ms poll
+        _poll_interval_s = 0.005  # 5ms poll
         _deadline = time.perf_counter() + _backoff_budget_s
         while self._is_in_audio_callback.is_set():
             remaining = _deadline - time.perf_counter()
@@ -1733,9 +1739,7 @@ class Recorder:
                     # the worker (otherwise all subsequent audio is lost
                     # until the next start()). The exception is logged
                     # with exc_info for debugging.
-                    log.exception(
-                        "[RECORDING] Audio worker thread error processing chunk"
-                    )
+                    log.exception("[RECORDING] Audio worker thread error processing chunk")
 
             # Check for shutdown. We drain the ring buffer fully before
             # exiting so stop() doesn't lose in-flight audio. For the
@@ -1744,9 +1748,7 @@ class Recorder:
             if self._worker_stop_event.is_set():
                 return
 
-    def _audio_callback_dispatch(
-        self, indata: np.ndarray, frames: int, time_info: Any, status: Any
-    ) -> None:
+    def _audio_callback_dispatch(self, indata: np.ndarray, frames: int, time_info: Any, status: Any) -> None:
         """Real-time audio callback entry point — RT-safe path.
 
         This method is invoked by PortAudio from the real-time audio
@@ -1802,12 +1804,9 @@ class Recorder:
         if ring_maxlen is not None and len(self._ring_buffer) >= ring_maxlen:
             self._dropped_ring_chunks += 1
             self._skipped_frames += 1  # preserve old counter for diagnostics
-            if (
-                self._dropped_ring_chunks == 1
-                or self._dropped_ring_chunks % 100 == 0
-            ):
+            if self._dropped_ring_chunks == 1 or self._dropped_ring_chunks % 100 == 0:
                 log.warning(
-                    "[RECORDING] Audio ring buffer full — dropping incoming "
+                    "[RECORDING] Audio ring buffer full — evicting oldest "
                     "chunk (total=%d). Worker thread cannot keep up.",
                     self._dropped_ring_chunks,
                 )
@@ -1816,9 +1815,7 @@ class Recorder:
         # ring buffer. The timestamp is captured here (not in the worker)
         # so silence-timer calculations reflect when the audio arrived,
         # not when the worker happened to process it.
-        self._ring_buffer.append(
-            (chunk_copy, frames, time_info, status, time.perf_counter())
-        )
+        self._ring_buffer.append((chunk_copy, frames, time_info, status, time.perf_counter()))
         # Signal the worker thread to drain the buffer. Event.set() is
         # a fast atomic operation — safe to call from the RT thread.
         self._worker_wake_event.set()
@@ -1905,8 +1902,9 @@ class Recorder:
                         # HOTKEY-CRASH: double-check recording is still active
                         if not self._recording_event.is_set():
                             return
-                        log.warning("[RECORDING] Current device no longer available "
-                        "in query_devices — disconnect detected")
+                        log.warning(
+                            "[RECORDING] Current device no longer available in query_devices — disconnect detected"
+                        )
                         self._device_disconnected = True
                         _captured_gen = self._stop_generation
                         with contextlib.suppress(Exception):
@@ -1940,7 +1938,10 @@ class Recorder:
             if recent_count >= _XRUN_ALERT_THRESHOLD or self._xruns == 1:
                 log.warning(
                     "[RECORDING] PortAudio status flag: %s (xrun_count=%d, recent=%d/%.0fs)",
-                    status, self._xruns, recent_count, _XRUN_ALERT_PERIOD,
+                    status,
+                    self._xruns,
+                    recent_count,
+                    _XRUN_ALERT_PERIOD,
                 )
             # Item 1: fire threshold callback for tray notification
             if self._xruns == self._xrun_threshold and self.on_xrun_threshold:
@@ -1998,11 +1999,10 @@ class Recorder:
         # AUDIO-019: Backpressure detection — if the deque dropped chunks
         # (maxlen exceeded), increment a counter and warn the user
         if self._buffer.maxlen is not None and buffer_len >= self._buffer.maxlen - 1:
-            self._dropped_chunks = getattr(self, '_dropped_chunks', 0) + 1
+            self._dropped_chunks = getattr(self, "_dropped_chunks", 0) + 1
             if self._dropped_chunks == 1 or self._dropped_chunks % 100 == 0:
                 log.warning(
-                    "[RECORDING] Buffer full — oldest audio dropped (total=%d). "
-                    "ASR is slower than real-time.",
+                    "[RECORDING] Buffer full — oldest audio dropped (total=%d). ASR is slower than real-time.",
                     self._dropped_chunks,
                 )
 
@@ -2055,10 +2055,7 @@ class Recorder:
                 self._peak = chunk_peak
             now = time.perf_counter()
             if now - self._last_clip_log_time >= 1.0:
-                log.debug(
-                    "[RECORDING] Clipping detected: peak=%.4f, count=%d chunks.",
-                    chunk_peak, self._clip_count
-                )
+                log.debug("[RECORDING] Clipping detected: peak=%.4f, count=%d chunks.", chunk_peak, self._clip_count)
                 self._last_clip_log_time = now
                 # AUDIO-CLIP: push a real-time IPC event so the
                 # Electron UI can flash a red level-bar / show a
@@ -2070,13 +2067,16 @@ class Recorder:
                 # to avoid flooding the IPC channel.
                 try:
                     from voice_typer.server.ipc_server import _push_event_now
-                    _push_event_now({
-                        "type": "audio_clip",
-                        "data": {
-                            "peak": float(chunk_peak),
-                            "count": int(self._clip_count),
-                        },
-                    })
+
+                    _push_event_now(
+                        {
+                            "type": "audio_clip",
+                            "data": {
+                                "peak": float(chunk_peak),
+                                "count": int(self._clip_count),
+                            },
+                        }
+                    )
                 except Exception:
                     pass
 
@@ -2095,6 +2095,7 @@ class Recorder:
         if self._vad_enabled and self._use_silero_vad and self._silero_available:
             try:
                 from voice_typer.server.vad import compute_vad_prob
+
                 # impl-vad-fix: Silero VAD only accepts {8000, 16000} Hz.
                 # The mic's native rate (self._effective_sr) may be 44100
                 # or 48000, which previously raised:
@@ -2107,9 +2108,7 @@ class Recorder:
                         gcd = math.gcd(self._effective_sr, 16000)
                         up = 16000 // gcd
                         down = self._effective_sr // gcd
-                        vad_audio = resample_poly(
-                            filtered.ravel(), up, down
-                        ).astype(np.float32)
+                        vad_audio = resample_poly(filtered.ravel(), up, down).astype(np.float32)
                         vad_sr = 16000
                     except Exception:
                         # scipy unavailable or resample failed — fall
@@ -2173,14 +2172,12 @@ class Recorder:
                 max_duration_cb()
 
         if chunk_count == BUFFER_WARNING_THRESHOLD:
-            log.warning(
-                "[RECORDING] Buffer is large (5k chunks, ~5 min). "
-                "Consider stopping recording."
-            )
+            log.warning("[RECORDING] Buffer is large (5k chunks, ~5 min). Consider stopping recording.")
         if chunk_count % TELEMETRY_LOG_INTERVAL == 0:
             log.debug(
                 "[RECORDING] Buffer telemetry: chunks=%d, buffer_count=%d",
-                chunk_count, buffer_len,
+                chunk_count,
+                buffer_len,
             )
 
         # Fire RMS callback OUTSIDE the lock
@@ -2205,23 +2202,16 @@ class Recorder:
                 # traceback on the FIRST raise and every 100th
                 # subsequent raise; the rest are logged without
                 # exc_info so the formatting cost is avoided.
-                self._rms_callback_error_count = getattr(
-                    self, "_rms_callback_error_count", 0
-                ) + 1
-                if (
-                    self._rms_callback_error_count == 1
-                    or self._rms_callback_error_count % 100 == 0
-                ):
+                self._rms_callback_error_count = getattr(self, "_rms_callback_error_count", 0) + 1
+                if self._rms_callback_error_count == 1 or self._rms_callback_error_count % 100 == 0:
                     log.debug(
-                        "[RECORDING] on_rms_level callback raised "
-                        "(occurrence #%d)",
+                        "[RECORDING] on_rms_level callback raised (occurrence #%d)",
                         self._rms_callback_error_count,
                         exc_info=True,
                     )
                 else:
                     log.debug(
-                        "[RECORDING] on_rms_level callback raised "
-                        "(occurrence #%d, traceback suppressed)",
+                        "[RECORDING] on_rms_level callback raised (occurrence #%d, traceback suppressed)",
                         self._rms_callback_error_count,
                     )
 
@@ -2237,7 +2227,7 @@ class Recorder:
         # handlers from the audio callback know to bail out.
         self._stop_generation += 1
 
-        # STREAM-FIX (Round 1): mark that we're about to call stream.stop()
+        # STREAM-FIX: mark that we're about to call stream.stop()
         # intentionally, so _stream_finished_callback doesn't warn about
         # an "unexpected" disconnect. Cleared after stream.close() below.
         self._user_stop_pending = True
@@ -2247,7 +2237,7 @@ class Recorder:
         # verbatim — see the helper's docstring/comments for the
         # AUDIO-009/AUDIO-015 / PERF-FIX-002 history.
         self._teardown_stream()
-        # STREAM-FIX (Round 1): clear the user-stop-pending flag now
+        # STREAM-FIX: clear the user-stop-pending flag now
         # that stream.close() has completed. Any future
         # _stream_finished_callback invocation is now genuinely
         # unexpected (device disconnect).
@@ -2260,9 +2250,7 @@ class Recorder:
         # below. Without this drain, the last few hundred ms of audio
         # (chunks pushed to the ring buffer but not yet processed by the
         # worker) would be lost.
-        self._stop_audio_worker(
-            timeout=_AUDIO_WORKER_JOIN_TIMEOUT_S, drain=True
-        )
+        self._stop_audio_worker(timeout=_AUDIO_WORKER_JOIN_TIMEOUT_S, drain=True)
 
         concat_started = time.perf_counter()
         with self._lock:
@@ -2291,7 +2279,6 @@ class Recorder:
         concat_ms = (time.perf_counter() - concat_started) * 1000
 
         # Log audio statistics for diagnostics
-        stats_started = time.perf_counter()
         effective_sr = self._effective_sr
         duration = len(audio) / effective_sr if len(audio) > 0 else 0
         # TASK-14: initialize ``rms``/``peak``/``silence_pct`` BEFORE
@@ -2322,7 +2309,6 @@ class Recorder:
             self._last_rms = 0.0
             self._last_audio_stats = (0.0, 0.0, 0.0)
             log.warning("[RECORDING] No audio data captured!")
-        (time.perf_counter() - stats_started) * 1000
 
         # H15: stop() should NOT use cache - resample from scratch for full audio
         resample_started = time.perf_counter()
@@ -2345,17 +2331,25 @@ class Recorder:
                 "[RECORDING] Audio stopped: duration=%.1fs, sr=%d, samples=%d, "
                 "RMS=%.6f, peak=%.6f, silence=%.1f%% | "
                 "stream=%.0fms concat=%.0fms resample=%.0fms total=%.0fms",
-                duration, effective_sr, len(audio), rms, peak, silence_pct,
-                stream_ms, concat_ms, resample_ms, total_ms,
+                duration,
+                effective_sr,
+                len(audio),
+                rms,
+                peak,
+                silence_pct,
+                stream_ms,
+                concat_ms,
+                resample_ms,
+                total_ms,
             )
             if rms < 0.001:
                 log.warning(
-                    "[RECORDING] Near-silence detected! (RMS=%.6f) "
-                    "Microphone may not be capturing audio.",
+                    "[RECORDING] Near-silence detected! (RMS=%.6f) Microphone may not be capturing audio.",
                     rms,
                 )
         else:
-            log.warning("[RECORDING] No audio data captured!")
+            # Warning already emitted above when len(audio) == 0
+            pass
 
         return audio
 
@@ -2399,6 +2393,7 @@ class Recorder:
           early-out.  No correctness issue.
         """
         import itertools
+
         # NEW-PERF-007: lock-free fast path for the empty-buffer case.
         # Avoids 4 Hz lock contention with the audio callback thread
         # when the recorder isn't actively recording.
@@ -2450,9 +2445,9 @@ class Recorder:
                         new_resampled = self._resample_chunk(new_audio, effective_sr, target_sr)
                     except ResampleError as e:
                         log.warning(
-                            "[RECORDING] Snapshot resample failed; dropping "
-                            "%d native samples: %s",
-                            len(new_audio), e,
+                            "[RECORDING] Snapshot resample failed; dropping %d native samples: %s",
+                            len(new_audio),
+                            e,
                         )
                         self._cached_native_chunk_count = len(self._buffer)
                         # NEW-PERF-003: return a view, not a copy.
@@ -2460,9 +2455,7 @@ class Recorder:
                     # PERF-NEW-002: avoid the O(n) reallocation when the
                     # cached prefix is empty (first snapshot of a session).
                     if len(self._cached_resampled) > 0:
-                        self._cached_resampled = np.concatenate(
-                            [self._cached_resampled, new_resampled]
-                        )
+                        self._cached_resampled = np.concatenate([self._cached_resampled, new_resampled])
                     else:
                         self._cached_resampled = new_resampled
                     self._cached_native_chunk_count = len(self._buffer)
@@ -2487,10 +2480,7 @@ class Recorder:
                 # cache.  The cache key is the buffer length — if it
                 # hasn't changed, the cached array is still valid.
                 buf_len = len(self._buffer)
-                if (
-                    getattr(self, "_cached_no_resample_len", -1) == buf_len
-                    and self._cached_no_resample_arr is not None
-                ):
+                if getattr(self, "_cached_no_resample_len", -1) == buf_len and self._cached_no_resample_arr is not None:
                     return self._cached_no_resample_arr[:]
                 chunks = list(itertools.islice(self._buffer, 0, None))
                 audio = np.concatenate(chunks, axis=0).reshape(-1)
@@ -2575,16 +2565,17 @@ class Recorder:
             if log_resample:
                 log.info(
                     "[RECORDING] Resampled %d Hz -> %d Hz (%d -> %d samples)",
-                    effective_sr, target_sr, orig_len, len(audio),
+                    effective_sr,
+                    target_sr,
+                    orig_len,
+                    len(audio),
                 )
             resampled = True
         except ResampleUnavailableError as exc:
             # ARCH-033: scipy missing — fall through to linear interp.
             last_error = exc
             if log_resample:
-                log.warning(
-                    "[RECORDING] scipy not available, using linear interp resampling"
-                )
+                log.warning("[RECORDING] scipy not available, using linear interp resampling")
         except (ValueError, OSError, TypeError) as exc:
             # ERR-012: narrow to expected scipy/numpy failure modes.
             # AttributeError / MemoryError / etc. propagate.
@@ -2604,13 +2595,17 @@ class Recorder:
                 indices = np.linspace(0, len(audio) - 1, new_len)
 
                 audio = np.interp(
-                    indices, np.arange(len(audio)), audio,
+                    indices,
+                    np.arange(len(audio)),
+                    audio,
                 ).astype(np.float32)
                 if log_resample:
                     log.info(
-                        "[RECORDING] Resampled (linear interp) %d Hz -> %d Hz "
-                        "(%d -> %d samples)",
-                        effective_sr, target_sr, orig_len, len(audio),
+                        "[RECORDING] Resampled (linear interp) %d Hz -> %d Hz (%d -> %d samples)",
+                        effective_sr,
+                        target_sr,
+                        orig_len,
+                        len(audio),
                     )
                 resampled = True
             except (ValueError, OSError, TypeError) as exc:
@@ -2618,9 +2613,9 @@ class Recorder:
                 last_error = exc
                 if log_resample:
                     log.error(
-                        "[RECORDING] All resampling failed: %s. "
-                        "Audio at %d Hz cannot be used by Whisper.",
-                        exc, effective_sr,
+                        "[RECORDING] All resampling failed: %s. Audio at %d Hz cannot be used by Whisper.",
+                        exc,
+                        effective_sr,
                     )
 
         if not resampled:
@@ -2628,8 +2623,7 @@ class Recorder:
             # which silently produced garbage transcriptions. Raise so
             # the streaming / final paths can decide how to recover.
             raise ResampleError(
-                f"Cannot resample audio from {effective_sr} Hz to "
-                f"{target_sr} Hz (last error: {last_error!r})"
+                f"Cannot resample audio from {effective_sr} Hz to {target_sr} Hz (last error: {last_error!r})"
             )
         return audio
 
@@ -2677,9 +2671,7 @@ class Recorder:
         # clear self._buffer anyway. The worker clears the ring buffer
         # and exits after its current chunk (if any). Any chunk the
         # worker appends to self._buffer before exiting is cleared below.
-        self._stop_audio_worker(
-            timeout=_AUDIO_WORKER_DISCARD_JOIN_TIMEOUT_S, drain=False
-        )
+        self._stop_audio_worker(timeout=_AUDIO_WORKER_DISCARD_JOIN_TIMEOUT_S, drain=False)
         with self._lock:
             # SEC-audit-008: Zero the buffer contents before clearing to prevent
             # forensic recovery of audio data from process memory

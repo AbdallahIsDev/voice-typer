@@ -51,7 +51,7 @@ from voice_typer.server._electron_build import (
 )
 from voice_typer.server.platform_utils import is_windows
 
-log = logging.getLogger("voice_typer.electron_launcher")
+log = logging.getLogger(__name__)
 
 
 def is_spawned_by_electron() -> bool:

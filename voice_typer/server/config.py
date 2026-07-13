@@ -1247,7 +1247,7 @@ class Config:
                 warnings.append(msg)
                 data[field_name] = default_val
 
-        optional_str_fields = {"parakeet_model_path"}
+        optional_str_fields = {"parakeet_model_path", "qwen_model_path"}
 
         for field_name in str_fields:
             if field_name not in data:

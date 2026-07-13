@@ -14,7 +14,7 @@ backend without knowing which one it is.
 import logging
 from typing import Any
 
-log = logging.getLogger("voice_typer")
+log = logging.getLogger(__name__)
 
 
 class AsrBackendRegistry:

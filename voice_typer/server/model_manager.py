@@ -1,4 +1,4 @@
-"""#2 (Round 9): ModelManager — extracted from VoiceTyperApp.
+"""#2 ModelManager — extracted from VoiceTyperApp.
 
 Owns the ASR backend lifecycle: construction (via AsrBackendRegistry.create),
 loading (with whisper fallback), model changes, and the three legacy engine
@@ -49,7 +49,7 @@ log = logging.getLogger(__name__)
 class ModelManager:
     """Owns ASR backend construction, loading, fallback, and switching.
 
-    #2 (Round 9): extracted from VoiceTyperApp. Centralizes the three
+    #2 extracted from VoiceTyperApp. Centralizes the three
     legacy engine fields + the AsrBackendRegistry so callers go through
     one object instead of poking at app.py internals.
 
@@ -263,41 +263,29 @@ class ModelManager:
             self._sync_registry_from_fields()
 
             # Set tray state before heavy import so user sees progress
-            self._app.tray.set_state(
-                AppState.LOADING, "Loading model -- press F2 to queue..."
-            )
+            self._app.tray.set_state(AppState.LOADING, "Loading model -- press F2 to queue...")
 
             def on_progress(msg: str):
                 self._app.tray.set_state(AppState.LOADING, msg)
 
-            success = self._registry.load_with_fallback(
-                progress_callback=on_progress
-            )
+            success = self._registry.load_with_fallback(progress_callback=on_progress)
 
             if success:
                 active = self._registry.get_active()
                 name = self._registry.active_name
                 if name == "whisper" and active is not None:
-                    self._app.tray.set_state(
-                        AppState.IDLE, f"Ready -- {active.device_info}"
-                    )
+                    self._app.tray.set_state(AppState.IDLE, f"Ready -- {active.device_info}")
                 else:
-                    self._app.tray.set_state(
-                        AppState.IDLE, f"Ready -- {name.title()} ASR"
-                    )
+                    self._app.tray.set_state(AppState.IDLE, f"Ready -- {name.title()} ASR")
             else:
                 if self._app._shutting_down:
                     return
                 log.warning("[STARTUP] All backends failed to load")
-                self._app.tray.set_state(
-                    AppState.ERROR, "Model load failed -- press F2 to retry"
-                )
+                self._app.tray.set_state(AppState.ERROR, "Model load failed -- press F2 to retry")
 
         except Exception:
             log.exception("[STARTUP] Background model load crashed")
-            self._app.tray.set_state(
-                AppState.ERROR, "Model load failed -- press F2 to retry"
-            )
+            self._app.tray.set_state(AppState.ERROR, "Model load failed -- press F2 to retry")
         finally:
             self._model_load_thread = None
             # If the user pressed F2 during load, honour it now.
@@ -359,9 +347,7 @@ class ModelManager:
         def on_progress(msg: str):
             self._app.tray.set_state(AppState.LOADING, msg)
 
-        success = self._registry.load_with_fallback(
-            progress_callback=on_progress
-        )
+        success = self._registry.load_with_fallback(progress_callback=on_progress)
         if success:
             active = self._registry.get_active()
             self._app.tray.set_state(
@@ -369,15 +355,12 @@ class ModelManager:
                 f"Ready -- {active.device_info}" if active else "Ready",
             )
         else:
-            self._app.tray.set_state(
-                AppState.ERROR, "Model failed to load -- press F2 to retry"
-            )
+            self._app.tray.set_state(AppState.ERROR, "Model failed to load -- press F2 to retry")
             if notify_on_failure:
                 # NEW-UX-018: critical — bypass toggle (model load failed).
                 self._app.tray.notify_safety(
                     APP_NAME,
-                    "Could not load the speech model.\n"
-                    "The app will keep running. Press F2 to retry loading.",
+                    "Could not load the speech model.\nThe app will keep running. Press F2 to retry loading.",
                 )
 
     def try_load(self, notify_on_failure: bool = False) -> None:
@@ -413,6 +396,7 @@ class ModelManager:
                     spawn_background_prewarm,
                     wait_for_prewarm,
                 )
+
                 prewarm_finished = wait_for_prewarm(timeout_s=60.0)
                 # Task 5: if prewarm timed out (still running after 60s),
                 # the app's model load preempted it. Spawn a fresh
@@ -421,10 +405,7 @@ class ModelManager:
                 # optional — without it, every subsequent launch in this
                 # boot session hits a cold cache.
                 if not prewarm_finished:
-                    log.info(
-                        "[MODEL] prewarm timed out — spawning background "
-                        "prewarm for next launch"
-                    )
+                    log.info("[MODEL] prewarm timed out — spawning background prewarm for next launch")
                     try:
                         spawn_background_prewarm(force=True)
                     except Exception as bg_exc:
@@ -433,15 +414,16 @@ class ModelManager:
                         # optimization for next time, not a correctness
                         # requirement.
                         log.debug(
-                            "[MODEL] spawn_background_prewarm raised "
-                            "(non-fatal): %s", bg_exc,
+                            "[MODEL] spawn_background_prewarm raised (non-fatal): %s",
+                            bg_exc,
                         )
             except Exception as prewarm_exc:
                 # Defensive: never let a prewarm-wait failure block model
                 # loading. The wait is an optimization, not a correctness
                 # requirement — if it fails, we load from disk as before.
                 log.debug(
-                    "[MODEL] wait_for_prewarm raised (non-fatal): %s", prewarm_exc,
+                    "[MODEL] wait_for_prewarm raised (non-fatal): %s",
+                    prewarm_exc,
                 )
 
             log.info(
@@ -454,26 +436,21 @@ class ModelManager:
             def on_progress(message: str):
                 self._app.tray.set_state(AppState.LOADING, message)
 
-            success = self._registry.load_with_fallback(
-                progress_callback=on_progress
-            )
+            success = self._registry.load_with_fallback(progress_callback=on_progress)
             if success:
                 active = self._registry.get_active()
-                info = getattr(active, 'device_info', 'unknown') if active else 'unknown'
+                info = getattr(active, "device_info", "unknown") if active else "unknown"
                 self._app.tray.set_state(AppState.IDLE, f"Ready -- {info}")
                 log.info("[MODEL] Loaded successfully")
             else:
                 raise RuntimeError("All backends failed to load")
         except Exception as e:
             log.exception("[MODEL] Load FAILED")
-            self._app.tray.set_state(
-                AppState.ERROR, "Model failed to load -- press F2 to retry"
-            )
+            self._app.tray.set_state(AppState.ERROR, "Model failed to load -- press F2 to retry")
             if notify_on_failure:
                 self._app.tray.notify(
                     APP_NAME,
-                    f"Could not load the speech model.\n{e}\n\n"
-                    "The app will keep running. Press F2 to retry loading.",
+                    f"Could not load the speech model.\n{e}\n\nThe app will keep running. Press F2 to retry loading.",
                 )
 
     def change_model(self, model_size: str) -> None:
@@ -499,8 +476,10 @@ class ModelManager:
         old_backend = self._app.config.asr_backend
         log.info(
             "[MODEL] Changing model: %s (%s) → %s (%s)",
-            self._app.config.model_size, old_backend,
-            model_size, new_backend,
+            self._app.config.model_size,
+            old_backend,
+            model_size,
+            new_backend,
         )
 
         self._app.config.asr_backend = new_backend
@@ -510,7 +489,8 @@ class ModelManager:
         if self._app.recorder.recording or not self._app._busy_event.is_set():
             log.info(
                 "[CONFIG] Model changed to %s (%s); applying after active work",
-                model_size, new_backend,
+                model_size,
+                new_backend,
             )
             # ERR-003: capture the request so the next _start_dictation
             # re-runs the unload/load cycle. Without this, the config
@@ -527,7 +507,7 @@ class ModelManager:
         # Unload old backend via registry
         self._sync_registry_from_fields()
         self._registry.unload(old_backend)
-        # #2 (Round 9): UNREGISTER the old backend so _ensure_engine
+        # #2 UNREGISTER the old backend so _ensure_engine
         # actually constructs a fresh one. Previously unload() only
         # called backend.unload() but left the backend in the registry,
         # so _ensure_engine's "if registry.get(name) is not None: return"
@@ -559,19 +539,13 @@ class ModelManager:
             if success:
                 active = self._registry.get_active()
                 if new_backend == "whisper" and active is not None:
-                    self._app.tray.set_state(
-                        AppState.IDLE, f"Ready -- {active.device_info}"
-                    )
+                    self._app.tray.set_state(AppState.IDLE, f"Ready -- {active.device_info}")
                 else:
-                    self._app.tray.set_state(
-                        AppState.IDLE, f"Ready -- {new_backend.title()} ASR"
-                    )
+                    self._app.tray.set_state(AppState.IDLE, f"Ready -- {new_backend.title()} ASR")
                 self._app.tray.invalidate_menu_cache()
             else:
                 log.warning("[MODEL] %s model failed to load", new_backend.title())
-                self._app.tray.set_state(
-                    AppState.ERROR, f"{new_backend.title()} model failed to load"
-                )
+                self._app.tray.set_state(AppState.ERROR, f"{new_backend.title()} model failed to load")
         except Exception as exc:
             log.exception("[MODEL] Model load failed: %s", exc)
             self._app.tray.set_state(AppState.ERROR, f"Model failed: {exc}")
@@ -644,8 +618,7 @@ class ModelManager:
             oldest_backend = min(self._model_access_times, key=self._model_access_times.get)
             oldest_time = self._model_access_times[oldest_backend]
             log.info(
-                "[PERF-015] Evicting LRU model '%s' (last used %.1fs ago) — "
-                "%d models loaded, max is %d",
+                "[PERF-015] Evicting LRU model '%s' (last used %.1fs ago) — %d models loaded, max is %d",
                 oldest_backend,
                 __import__("time").monotonic() - oldest_time,
                 len(self._model_access_times),
@@ -671,5 +644,6 @@ class ModelManager:
         knows which models are actively being used.
         """
         import time
+
         with self._model_lru_lock:
             self._model_access_times[backend_name] = time.monotonic()

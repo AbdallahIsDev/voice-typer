@@ -1,4 +1,4 @@
-"""#2 (Round 9): RecordingController — extracted from VoiceTyperApp.
+"""#2 RecordingController — extracted from VoiceTyperApp.
 
 Owns the recording lifecycle: toggle/start/stop/cancel, silence/xrun
 callbacks, and the streaming session management that runs alongside
@@ -36,7 +36,7 @@ log = logging.getLogger(__name__)
 class RecordingController:
     """Owns recording lifecycle + streaming session + silence/xrun callbacks.
 
-    #2 (Round 9): extracted from VoiceTyperApp. The app passes itself
+    #2 extracted from VoiceTyperApp. The app passes itself
     (``app``) so RecordingController can:
     - Read ``app.config`` (recording_mode, streaming_*, silence_*)
     - Read/write ``app.recorder`` (Recorder instance)
@@ -144,9 +144,9 @@ class RecordingController:
         active = app.models.active_transcriber()
         model_loaded = active is not None and active.is_loaded
         log.info(
-            "[HOTKEY FIRED] toggle_dictation called "
-            "(recording=%s, busy=%s, model_loaded=%s, thread=%s, cycle=%s)",
-            app.recorder.recording, app._busy_event.is_set(),
+            "[HOTKEY FIRED] toggle_dictation called (recording=%s, busy=%s, model_loaded=%s, thread=%s, cycle=%s)",
+            app.recorder.recording,
+            app._busy_event.is_set(),
             model_loaded,
             threading.current_thread().name,
             app._cycle_id,
@@ -182,7 +182,7 @@ class RecordingController:
             return
 
         if app.recorder.recording:
-            # #2 (Round 9): Call app._stop_dictation (which delegates to
+            # #2 Call app._stop_dictation (which delegates to
             # self.stop()) so tests that monkeypatch app._stop_dictation
             # still intercept the call.
             app._stop_dictation()
@@ -242,21 +242,19 @@ class RecordingController:
             log.exception("[DICTATION] Failed to apply pending model change; continuing")
 
         # Lazy-init engines if backend was changed via Electron UI after startup.
-        # #2 (Round 9): ModelManager handles the lazy-init + registry sync.
+        # #2 ModelManager handles the lazy-init + registry sync.
         app.models.ensure_active_engine_loaded()
         active = app.models.active_transcriber()
 
-        if active is None or not getattr(active, 'is_loaded', False):
+        if active is None or not getattr(active, "is_loaded", False):
             # No engine loaded -- try to load whisper as a fallback
             log.warning("[DICTATION] No loaded engine found, lazy-loading Whisper as fallback")
             app._fallback_to_whisper(notify_on_failure=True)
             active = app.models.active_transcriber()
-            if active is None or not getattr(active, 'is_loaded', False):
+            if active is None or not getattr(active, "is_loaded", False):
                 log.error("[DICTATION] Whisper fallback also failed, cannot record")
                 app._schedule_timer(
-                    3.0, lambda: app.tray.set_state(
-                        AppState.ERROR, "Model failed to load -- press F2 to retry"
-                    )
+                    3.0, lambda: app.tray.set_state(AppState.ERROR, "Model failed to load -- press F2 to retry")
                 )
                 return
 
@@ -293,9 +291,7 @@ class RecordingController:
             try:
                 from voice_typer.server.keyboard_ownership import keyboard_ownership
 
-                keyboard_ownership().set_owner(
-                    "recording", reason=f"recording started (cycle={app._cycle_id})"
-                )
+                keyboard_ownership().set_owner("recording", reason=f"recording started (cycle={app._cycle_id})")
             except Exception:
                 log.debug(
                     "[DICTATION] failed to set keyboard ownership on start",
@@ -309,6 +305,7 @@ class RecordingController:
             # and the user gets no audible feedback.  This must be visible.
             try:
                 from voice_typer.server.ipc_server import _push_event_now
+
                 _push_event_now({"type": "recording_started"})
             except Exception:
                 log.warning(
@@ -321,8 +318,7 @@ class RecordingController:
             app.tray.set_state(AppState.ERROR, "Recording failed")
             app.tray.notify(
                 APP_NAME,
-                f"Could not start recording.\n{e}\n\n"
-                "Check voice-typer.log for traceback.",
+                f"Could not start recording.\n{e}\n\nCheck voice-typer.log for traceback.",
             )
             app._schedule_timer(3.0, lambda: app.tray.set_state(AppState.IDLE))
 
@@ -336,6 +332,7 @@ class RecordingController:
         # SOUND-FIX-004: log push failures (see comment in start() above).
         try:
             from voice_typer.server.ipc_server import _push_event_now
+
             _push_event_now({"type": "recording_stopped"})
         except Exception:
             log.warning(
@@ -350,9 +347,7 @@ class RecordingController:
         try:
             from voice_typer.server.keyboard_ownership import keyboard_ownership
 
-            keyboard_ownership().set_owner(
-                "normal", reason=f"recording stopped (cycle={app._cycle_id})"
-            )
+            keyboard_ownership().set_owner("normal", reason=f"recording stopped (cycle={app._cycle_id})")
         except Exception:
             log.debug(
                 "[DICTATION] failed to reset keyboard ownership on stop",
@@ -413,7 +408,8 @@ class RecordingController:
                 log.debug("[AUDIO_QUALITY] finalize failed", exc_info=True)
         log.info(
             "[DICTATION] Recording stopped -- %.1fs of audio, busy=True (cycle=%s)",
-            duration, app._cycle_id,
+            duration,
+            app._cycle_id,
         )
 
         if duration < 0.5:
@@ -523,9 +519,7 @@ class RecordingController:
         try:
             from voice_typer.server.keyboard_ownership import keyboard_ownership
 
-            keyboard_ownership().set_owner(
-                "normal", reason=f"recording cancelled (cycle={app._cycle_id})"
-            )
+            keyboard_ownership().set_owner("normal", reason=f"recording cancelled (cycle={app._cycle_id})")
         except Exception:
             log.debug(
                 "[CANCEL] failed to reset keyboard ownership on cancel",
@@ -551,7 +545,8 @@ class RecordingController:
                 # ensure tray state + busy flag are reset.
                 log.exception(
                     "[CANCEL] Failed to discard recording (cycle=%s): %s",
-                    app._cycle_id, e,
+                    app._cycle_id,
+                    e,
                 )
 
         # Always run these — even if discard failed.
@@ -569,7 +564,7 @@ class RecordingController:
         # Hide bubble unless always_visible mode (in which case set
         # to idle so the visualizer bars don't stay frozen on screen)
         try:
-            if app.config.bubble_behavior != 'always_visible':
+            if app.config.bubble_behavior != "always_visible":
                 app._waveform_bubble.hide()
             else:
                 app._waveform_bubble.set_state("idle")
@@ -616,7 +611,7 @@ class RecordingController:
         # inside the audio callback while Recorder._lock is held.  Calling
         # recorder.stop() would deadlock on the same lock.  Schedule it on a
         # separate thread instead.
-        # #2 (Round 9): call app._stop_dictation (delegate) instead of
+        # #2 call app._stop_dictation (delegate) instead of
         # self.stop() directly so tests that monkeypatch _stop_dictation
         # still intercept the call.
         self._app._schedule_timer(0, self._app._stop_dictation)
@@ -639,8 +634,7 @@ class RecordingController:
             with contextlib.suppress(Exception):
                 self._app.tray.notify(
                     f"{APP_NAME} — Audio Issues",
-                    f"Detected {count} audio buffer underruns. "
-                    "Try closing other audio apps or reducing CPU load.",
+                    f"Detected {count} audio buffer underruns. Try closing other audio apps or reducing CPU load.",
                 )
 
     # ── Streaming session ──────────────────────────────────────────────
@@ -753,15 +747,12 @@ class RecordingController:
         app = self._app
         if app._busy_event.is_set():  # not busy
             return  # Already recovered, nothing to do
-        if (
-            not force
-            and self._transcription_thread is not None
-            and self._transcription_thread.is_alive()
-        ):
+        if not force and self._transcription_thread is not None and self._transcription_thread.is_alive():
             log.warning(
                 "Transcription watchdog fired (%d/%d), but worker is still "
                 "alive; leaving app busy to avoid overlapping model calls",
-                self._watchdog_firings, self._watchdog_max_firings,
+                self._watchdog_firings,
+                self._watchdog_max_firings,
             )
             app.tray.set_state(AppState.TRANSCRIBING, "Still transcribing...")
             # TRANSCRIBE-NOTIFY-FIX: first firing is silent — only notify
@@ -771,8 +762,7 @@ class RecordingController:
             if self._watchdog_firings >= 2:
                 app.tray.notify(
                     APP_NAME,
-                    "Transcription is still running.\n"
-                    "Long recordings or CPU fallback can take extra time.",
+                    "Transcription is still running.\nLong recordings or CPU fallback can take extra time.",
                 )
             # RACE-013: no need to create a new Timer. The persistent
             # watchdog thread will time out again on its next
@@ -793,8 +783,7 @@ class RecordingController:
         app.tray.set_state(AppState.IDLE, "Recovered -- transcription timed out")
         app.tray.notify(
             APP_NAME,
-            "Transcription took too long and was cancelled.\n"
-            "Press F2 to try again.",
+            "Transcription took too long and was cancelled.\nPress F2 to try again.",
         )
         app._schedule_timer(5.0, lambda: app.tray.set_state(AppState.IDLE))
 

@@ -70,7 +70,7 @@ from voice_typer.server._electron_build import (
     _spawn_flags,
 )
 
-log = logging.getLogger("voice_typer.autostart")
+log = logging.getLogger(__name__)
 
 
 def _close_log_files(sk: dict) -> None:

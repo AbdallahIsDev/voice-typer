@@ -140,27 +140,54 @@ _TOPIC_COLOR: dict[str, str] = {
 _TOPIC_KEYWORDS: dict[str, list[str]] = {
     "PARAKEET": ["parakeet", "loading model", "model loaded", "loaded successfully"],
     "STARTUP": [
-        "voice typer starting", "startup", "tray icon created",
-        "tray event loop", "entering tray", "found microphone",
+        "voice typer starting",
+        "startup",
+        "tray icon created",
+        "tray event loop",
+        "entering tray",
+        "found microphone",
     ],
     "HOTKEY": [
-        "hotkey", "register", "unregister", "polling", "getasynckeystate",
-        "platform is win32", "key-down", "vk=0x",
+        "hotkey",
+        "register",
+        "unregister",
+        "polling",
+        "getasynckeystate",
+        "platform is win32",
+        "key-down",
+        "vk=0x",
     ],
     "DICTATION": [
-        "dictation", "recording started", "recording stopped",
-        "starting recording", "stopping recording",
+        "dictation",
+        "recording started",
+        "recording stopped",
+        "starting recording",
+        "stopping recording",
     ],
     "RECORDING": [
-        "microphone", "device query", "native rate", "resampl",
-        "buffer telemetry", "audio captured", "silence", "chunk",
+        "microphone",
+        "device query",
+        "native rate",
+        "resampl",
+        "buffer telemetry",
+        "audio captured",
+        "silence",
+        "chunk",
     ],
     "TRANSCRIBE": [
-        "transcrib", "transcription thread", "transcription complete",
-        "transcription failed", "clipboard", "paste",
+        "transcrib",
+        "transcription thread",
+        "transcription complete",
+        "transcription failed",
+        "clipboard",
+        "paste",
     ],
     "SHUTDOWN": [
-        "shutdown", "stopping", "stopped", "exiting", "tray icon stopped",
+        "shutdown",
+        "stopping",
+        "stopped",
+        "exiting",
+        "tray icon stopped",
         "unregisterhotkey",
     ],
     "WIN32": ["console control handler"],
@@ -188,7 +215,7 @@ def _extract_topic(msg: str) -> tuple[str | None, str]:
     """
     if msg.startswith("[") and "]" in msg:
         close = msg.index("]")
-        return msg[1:close], msg[close + 1:].lstrip()
+        return msg[1:close], msg[close + 1 :].lstrip()
     return None, msg
 
 
@@ -208,15 +235,15 @@ class _ColorFormatter(logging.Formatter):
     """
 
     _DIM = "38;5;242"  # grey
-    # LOG-COLOR-FIX (Round 1): WARN was 38;5;214 (orange #FFAF00) which
+    # LOG-COLOR-FIX: WARN was 38;5;214 (orange #FFAF00) which
     # 256→16-color quantization on Windows conhost maps to bright-red,
     # making WARN look red and ERROR look yellow by comparison — the
     # inversion the user reported. Changed to 38;5;226 (pure yellow
     # #FFFF00) which quantizes to bright-yellow slot 14 on Windows
     # conhost, matching the standard WARN=yellow / ERROR=red convention.
     _LVL_COLOR = {
-        logging.WARNING: "38;5;226",   # pure yellow (#FFFF00)
-        logging.ERROR: "38;5;196",     # pure red (#FF0000)
+        logging.WARNING: "38;5;226",  # pure yellow (#FFFF00)
+        logging.ERROR: "38;5;196",  # pure red (#FF0000)
         logging.CRITICAL: "38;5;196;1",  # red bold
     }
     _LVL_SYM = {
@@ -344,8 +371,11 @@ def setup_logging(
     # arrows, em-dashes, and smart quotes become unreadable trash
     # in the log file.
     handler = logging.handlers.RotatingFileHandler(
-        log_file, maxBytes=1_000_000, backupCount=2,
-        encoding="utf-8", errors="backslashreplace",
+        log_file,
+        maxBytes=1_000_000,
+        backupCount=2,
+        encoding="utf-8",
+        errors="backslashreplace",
     )
     handler.setFormatter(_FileFormatter())
 
@@ -364,6 +394,7 @@ def setup_logging(
     # double-filtering records that hit both the logger and handler
     # filters is harmless.
     from voice_typer.server.security import PIIRedactionFilter as _PIIRedactionFilter
+
     _pii_filter = _PIIRedactionFilter()
     handler.addFilter(_pii_filter)
 

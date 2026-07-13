@@ -86,13 +86,7 @@ if TYPE_CHECKING:
     from voice_typer.server.templates import TemplateManager
     from voice_typer.server.vocabulary import VocabularyManager
 
-log = logging.getLogger("voice_typer")
-
-
-
-
-
-
+log = logging.getLogger(__name__)
 
 
 def _setup_logging():
@@ -134,6 +128,7 @@ def _setup_logging():
 
     # PLAT-021: detect container environments and warn about unavailable features
     from voice_typer.server.container_detect import warn_if_in_container
+
     warn_if_in_container()
 
 
@@ -150,22 +145,25 @@ def _validate_env_vars() -> None:
     _bool_vars = {"VOICE_TYPER_QUIET", "VOICE_TYPER_DEBUG", "VOICE_TYPER_NO_TRAY", "VOICE_TYPER_STREAMING"}
     _bool_pattern = re.compile(r"^(1|0|true|false|yes|no)$", re.IGNORECASE)
     _token_pattern = re.compile(r"^[A-Za-z0-9._\-]{1,128}$")
-    _path_pattern = re.compile(r'^[^\0]+$')  # no null bytes
+    _path_pattern = re.compile(r"^[^\0]+$")  # no null bytes
 
     for var in _bool_vars:
         val = os.environ.get(var)
         if val is not None and not _bool_pattern.match(val):
             log.warning(
                 "[ENV] Invalid value for %s=%r -- expected boolean (1/0/true/false/yes/no). Resetting to empty.",
-                var, val,
+                var,
+                val,
             )
             os.environ.pop(var, None)
 
     restart_val = os.environ.get("VOICE_TYPER_RESTART")
     if restart_val is not None and not _token_pattern.match(restart_val):
         log.warning(
-            ("[ENV] Invalid value for VOICE_TYPER_RESTART=<redacted> -- "
-            "expected alphanumeric token. Resetting to empty."),
+            (
+                "[ENV] Invalid value for VOICE_TYPER_RESTART=<redacted> -- "
+                "expected alphanumeric token. Resetting to empty."
+            ),
         )
         os.environ.pop("VOICE_TYPER_RESTART", None)
 
@@ -180,13 +178,16 @@ def _validate_env_vars() -> None:
     ipc_token = os.environ.get("VOICE_TYPER_IPC_TOKEN")
     if ipc_token is not None and not _token_pattern.match(ipc_token):
         log.warning(
-            ("[ENV] Invalid value for VOICE_TYPER_IPC_TOKEN=<redacted> -- "
-            "expected alphanumeric token. Resetting to empty."),
+            (
+                "[ENV] Invalid value for VOICE_TYPER_IPC_TOKEN=<redacted> -- "
+                "expected alphanumeric token. Resetting to empty."
+            ),
         )
         os.environ.pop("VOICE_TYPER_IPC_TOKEN", None)
 
     # SEC-audit-011: Validate SystemRoot on Windows to prevent DLL injection
     from voice_typer.server.config import _validate_systemroot
+
     _validate_systemroot()
 
     # PLAT-008: Validate HF_HOME is a valid path if set
@@ -218,8 +219,11 @@ class VoiceTyperApp:
         # Startup banner -- first visible log, before any subsystem init
         log.info(
             "%s starting -- model=%s, hotkey=%s, mic=%s, sample_rate=%s",
-            APP_NAME, self.config.model_size, self.config.hotkey,
-            self.config.microphone or "default", self.config.sample_rate,
+            APP_NAME,
+            self.config.model_size,
+            self.config.hotkey,
+            self.config.microphone or "default",
+            self.config.sample_rate,
         )
 
         # ADR 0007: Audio processor wraps a FilterChain built from config.
@@ -246,16 +250,17 @@ class VoiceTyperApp:
             audio_processor=self._audio_processor,
             thread_registry=self._thread_registry,
         )
-        # #2 (Round 9): Recording lifecycle extracted to RecordingController.
+        # #2 Recording lifecycle extracted to RecordingController.
         # Owns toggle/start/stop/cancel, silence/xrun callbacks, and the
         # streaming session. The recorder's xrun threshold callback is
         # wired to RecordingController.on_xrun_threshold instead of the
         # old VoiceTyperApp._on_xrun_threshold method.
         from voice_typer.server.recording_controller import RecordingController
+
         self.recording: RecordingController = RecordingController(self)
         # Item 1: wire xrun threshold callback for tray notification
         self.recorder.on_xrun_threshold = self.recording.on_xrun_threshold
-        # #2 (Round 9): ASR backend lifecycle extracted to ModelManager.
+        # #2 ASR backend lifecycle extracted to ModelManager.
         # Previously VoiceTyperApp owned the AsrBackendRegistry + three
         # engine fields + ~500 LOC of load/fallback/change logic. Now
         # ModelManager owns all of that; app.py accesses it via
@@ -264,6 +269,7 @@ class VoiceTyperApp:
         # `self._asr_registry` / etc. on VoiceTyperApp have been
         # removed — callers now use `self.models.<field>` directly.)
         from voice_typer.server.model_manager import ModelManager
+
         self.models: ModelManager = ModelManager(self)
         if self.config.asr_backend == "qwen" and self.config.qwen_model_path:
             # Eager-init the Qwen engine if configured (mirrors the
@@ -278,7 +284,7 @@ class VoiceTyperApp:
             config=self.config,
         )
 
-        # #2 (Round 9): Hotkey registration extracted to HotkeyDispatcher.
+        # #2 Hotkey registration extracted to HotkeyDispatcher.
         # Owns the 3 hotkey backends (dictation / ESC / repaste) and the
         # register/restart logic. (ARCH-REFAC-003: the @property
         # delegates that used to mirror the 3 legacy fields
@@ -286,8 +292,9 @@ class VoiceTyperApp:
         # VoiceTyperApp have been removed — callers now use
         # `self.hotkeys.<field>` directly.)
         from voice_typer.server.hotkey_dispatcher import HotkeyDispatcher
+
         self.hotkeys: HotkeyDispatcher = HotkeyDispatcher(self)
-        # #2 (Round 9): _streaming_session and _transcription_thread now
+        # #2 _streaming_session and _transcription_thread now
         # live in RecordingController. (ARCH-REFAC-003: the @property
         # delegates that used to mirror them on VoiceTyperApp have been
         # removed — callers now use `self.recording.<field>` directly,
@@ -309,7 +316,7 @@ class VoiceTyperApp:
         # path still requires serialization.
         self._config_mutation_lock = threading.RLock()
 
-        # #2 (Round 9): _model_load_attempted / _model_load_thread /
+        # #2 _model_load_attempted / _model_load_thread /
         # _pending_dictation now live in ModelManager. (ARCH-REFAC-003:
         # the @property delegates that used to mirror them on
         # VoiceTyperApp have been removed — callers now use
@@ -355,8 +362,8 @@ class VoiceTyperApp:
         self._pending_timers: list[threading.Timer] = []
         self._pending_timers_lock = threading.Lock()
         self._timer_generation: int = 0
-        self._cycle_counter = 0      # monotonic counter for dictation cycles
-        self._cycle_id: str = ""     # human-readable cycle id for log correlation
+        self._cycle_counter = 0  # monotonic counter for dictation cycles
+        self._cycle_id: str = ""  # human-readable cycle id for log correlation
 
         # ─── P1/P2 New Feature Components ────────────────────────────
         self.history_db = HistoryDB()
@@ -404,12 +411,14 @@ class VoiceTyperApp:
         self._vocabulary_manager: "VocabularyManager | None" = None  # noqa: UP037
         try:
             from voice_typer.server.templates import TemplateManager
+
             self._template_manager = TemplateManager()
         except Exception:
             log.debug("[INIT] TemplateManager eager-init failed")
             self._template_manager = None
         try:
             from voice_typer.server.vocabulary import VocabularyManager
+
             self._vocabulary_manager = VocabularyManager()
         except Exception:
             log.debug("[INIT] VocabularyManager eager-init failed")
@@ -427,8 +436,7 @@ class VoiceTyperApp:
         try:
             self.tray.notify(
                 APP_NAME,
-                f"System volume was restored after a crash "
-                f"(to {int(state.linear * 100)}%).",
+                f"System volume was restored after a crash (to {int(state.linear * 100)}%).",
             )
         except Exception:
             log.debug("[VOLUME] crash-restore notification failed", exc_info=True)
@@ -482,7 +490,7 @@ class VoiceTyperApp:
         except Exception:
             log.debug("[VOLUME] restore failed", exc_info=True)
 
-    # ─── #2 (Round 9): ASR backend delegates to ModelManager ───────────
+    # ─── #2 ASR backend delegates to ModelManager ───────────
     #
     # ARCH-REFAC-003: removed @property delegates (transcriber,
     # _qwen_engine, _parakeet_engine, _asr_registry, _model_load_thread,
@@ -528,9 +536,11 @@ class VoiceTyperApp:
           - The generation-guard pattern already prevents stale callbacks
         """
         gen = self._timer_generation
+
         def guarded_func():
             if gen == self._timer_generation:
                 func()
+
         timer = threading.Timer(delay, guarded_func)
         # RACE-016: daemon=True is acceptable because timer callbacks
         # are fire-and-forget UI updates; missing one on shutdown is harmless.
@@ -628,10 +638,12 @@ class VoiceTyperApp:
                 # Queue is full — the worker thread fell behind.  Drop
                 # this sample; the next one will pick up the latest
                 # smoothed level from update_level's low-pass filter.
-                q.put_nowait({
-                    "type": "bubble_level",
-                    "data": {"rms": float(rms), "peak": float(peak)},
-                })
+                q.put_nowait(
+                    {
+                        "type": "bubble_level",
+                        "data": {"rms": float(rms), "peak": float(peak)},
+                    }
+                )
 
         # PERF-NEW-001: dedicated queue + worker thread for bubble
         # level pushes.  Bounded so a stuck Electron client can't
@@ -690,10 +702,12 @@ class VoiceTyperApp:
             )
 
         def _push_bubble_set_state(state: str) -> None:
-            _push_event_now({
-                "type": "bubble_set_state",
-                "data": {"state": state},
-            })
+            _push_event_now(
+                {
+                    "type": "bubble_set_state",
+                    "data": {"state": state},
+                }
+            )
 
         self._waveform_bubble.on_show = _push_bubble_show
         self._waveform_bubble.on_hide = _push_bubble_hide
@@ -752,6 +766,7 @@ class VoiceTyperApp:
         or ``app.hotkeys.register = MagicMock()``).
         """
         from voice_typer.server.startup_sequence import StartupSequence
+
         StartupSequence(self).run()
 
     def _sync_autostart(self) -> None:
@@ -813,11 +828,11 @@ class VoiceTyperApp:
         start_accessibility_pulse(self, initial_state)
 
     def _fallback_to_whisper(self, notify_on_failure: bool = False):
-        """#2 (Round 9): delegate to ModelManager.fallback_to_whisper()."""
+        """#2 delegate to ModelManager.fallback_to_whisper()."""
         self.models.fallback_to_whisper(notify_on_failure=notify_on_failure)
 
     def _try_load_model(self, notify_on_failure: bool = False):
-        """#2 (Round 9): delegate to ModelManager.try_load()."""
+        """#2 delegate to ModelManager.try_load()."""
         self.models.try_load(notify_on_failure=notify_on_failure)
 
     # ─── Hotkey ────────────────────────────────────────────────────────
@@ -829,6 +844,7 @@ class VoiceTyperApp:
         directly. This delegate remains for tests that monkeypatch it.
         """
         self.hotkeys.register()
+
     def _register_esc_hotkey(self):
         """Test seam — kept for monkeypatch compatibility.
 
@@ -836,6 +852,7 @@ class VoiceTyperApp:
         directly. This delegate remains for tests that monkeypatch it.
         """
         self.hotkeys.register_esc()
+
     def _unregister_esc_hotkey(self):
         """Test seam — kept for monkeypatch compatibility.
 
@@ -843,6 +860,7 @@ class VoiceTyperApp:
         directly. This delegate remains for tests that monkeypatch it.
         """
         self.hotkeys.unregister_esc()
+
     def _register_repaste_hotkey(self):
         """Test seam — kept for monkeypatch compatibility.
 
@@ -850,27 +868,18 @@ class VoiceTyperApp:
         directly. This delegate remains for tests that monkeypatch it.
         """
         self.hotkeys.register_repaste()
+
     # ─── Dictation ─────────────────────────────────────────────────────
 
     def toggle_dictation(self):
-        """#2 (Round 9): delegate to RecordingController.toggle()."""
+        """#2 delegate to RecordingController.toggle()."""
         self.recording.toggle()
-    def _start_dictation(self):
-        """#2 (Round 9): delegate to RecordingController.start()."""
-        self.recording.start()
-    def _on_recorder_rms(self, rms: float, peak: float, audio_chunk=None) -> None:
-        """DEAD — pinned by test_e2e_smoke + test_waveform_bubble signature checks.
 
-        RW-9 Phase 1: this 3-line delegate has no production callers (the
-        RecordingController wires ``on_recorder_rms`` directly via
-        ``self._app._on_recorder_rms`` in ``recording.py:1621``).  Kept as a
-        thin facade because two tests assert
-        ``inspect.signature(VoiceTyperApp._on_recorder_rms)`` contains the
-        ``audio_chunk`` parameter — see ``test_e2e_smoke.py:113`` and
-        ``test_waveform_bubble.py:512``.  Delete those signature checks
-        before removing this method.
-        """
-        self.recording.on_recorder_rms(rms, peak, audio_chunk=audio_chunk)
+    def _start_dictation(self):
+        """#2 delegate to RecordingController.start()."""
+        self.recording.start()
+
+
     def _on_audio_quality_chunk(self, rms: float, peak: float) -> None:
         """Per-chunk quality callback wired to AudioProcessor.
 
@@ -985,8 +994,9 @@ class VoiceTyperApp:
         self.recording.stop()
 
     def _cancel_streaming_session(self):
-        """#2 (Round 9): delegate to RecordingController._cancel_streaming_session()."""
+        """#2 delegate to RecordingController._cancel_streaming_session()."""
         self.recording._cancel_streaming_session()
+
     def _force_recover_from_stuck_transcription(self, force: bool = False):
         """Test seam — kept for monkeypatch compatibility.
 
@@ -1001,6 +1011,7 @@ class VoiceTyperApp:
         Transcription" item calls this with ``force=True``.
         """
         self.recording._force_recover_from_stuck_transcription(force=force)
+
     # ─── Settings / Microphone ─────────────────────────────────────────
 
     def repaste_last(self) -> None:
@@ -1021,8 +1032,7 @@ class VoiceTyperApp:
             log.warning("[REPASTE] Clipboard copy failed: %s", e)
             self.tray.notify(
                 APP_NAME,
-                "Could not copy the transcription to the clipboard. "
-                "Another app may be holding the clipboard lock.",
+                "Could not copy the transcription to the clipboard. Another app may be holding the clipboard lock.",
             )
             return
 
@@ -1038,8 +1048,7 @@ class VoiceTyperApp:
             log.warning("[REPASTE] Paste keystroke failed: %s", e)
             self.tray.notify(
                 APP_NAME,
-                "Copied to clipboard, but the paste keystroke failed. "
-                "Press Ctrl+V manually to paste.",
+                "Copied to clipboard, but the paste keystroke failed. Press Ctrl+V manually to paste.",
             )
 
     def undo_last(self) -> None:
@@ -1058,6 +1067,7 @@ class VoiceTyperApp:
         try:
             # Use pynput to send backspace keystrokes
             from pynput.keyboard import Controller as KeyboardController
+
             kb = KeyboardController()
             # Select all text in the current field first (Ctrl+A), then
             # Delete — this is more reliable than sending N backspaces
@@ -1068,8 +1078,8 @@ class VoiceTyperApp:
             # backspaces instead — this is the standard "undo paste"
             # behavior.
             for _ in range(char_count):
-                kb.press('\x08')  # Backspace
-                kb.release('\x08')
+                kb.press("\x08")  # Backspace
+                kb.release("\x08")
             self._last_transcription = ""
             self.tray.notify(APP_NAME, f"Undid last transcription ({char_count} chars)")
         except ImportError:
@@ -1080,7 +1090,7 @@ class VoiceTyperApp:
             self.tray.notify(APP_NAME, f"Undo failed: {e}")
 
     def _cancel_dictation(self):
-        """#2 (Round 9): delegate to RecordingController.cancel().
+        """#2 delegate to RecordingController.cancel().
 
         ESC-FIX-001: If _esc_cancel_paused is True (the frontend
         HotkeyPicker is in hotkey capture mode), the ESC cancel is a
@@ -1090,6 +1100,7 @@ class VoiceTyperApp:
             log.debug("[CANCEL] ESC cancel paused (frontend hotkey capture) — no-op")
             return
         self.recording.cancel()
+
     def _toggle_autostart(self):
         """Toggle autostart on/off from the tray menu. Delegates to _set_autostart (P2 dedup)."""
         self._set_autostart(not is_autostart_enabled())
@@ -1153,6 +1164,7 @@ class VoiceTyperApp:
         # Save current in-memory config so the editor sees the latest state
         self.config.save()
         import subprocess
+
         try:
             if is_windows():
                 # SEC-audit-011: Use SystemRoot-validated notepad path.
@@ -1188,10 +1200,11 @@ class VoiceTyperApp:
             self.tray.notify(APP_NAME, f"Config file:\n{config_file}")
 
     def _restart_hotkey(self, hotkey: str):
-        """#2 (Round 9): delegate to HotkeyDispatcher.restart()."""
+        """#2 delegate to HotkeyDispatcher.restart()."""
         self.hotkeys.restart(hotkey)
+
     def _change_model(self, model_size: str):
-        """#2 (Round 9): delegate to ModelManager.change_model()."""
+        """#2 delegate to ModelManager.change_model()."""
         self.models.change_model(model_size)
 
     # ─── TrayController Protocol Methods (P3) ────────────────────────
@@ -1249,6 +1262,7 @@ class VoiceTyperApp:
 
         # 0. Notify Electron frontend over TCP so it can quit cleanly.
         from voice_typer.server.ipc_server import _push_event_now
+
         _push_event_now({"type": "quit_app"})
 
         # 1. Delegate to the audited cleanup path.  self.quit() raises
@@ -1327,6 +1341,7 @@ class VoiceTyperApp:
         #
         # 1. Push relaunch_electron BEFORE marking _shutting_down.
         from voice_typer.server.ipc_server import _push_event_now
+
         try:
             _push_event_now({"type": "relaunch_electron"})
             log.info("[RESTART] relaunch_electron pushed to Electron via TCP")
@@ -1431,10 +1446,10 @@ class VoiceTyperApp:
 
         # PROD-003: Stop the persistent watchdog thread
         try:
-            if hasattr(self, 'recording') and self.recording is not None:
+            if hasattr(self, "recording") and self.recording is not None:
                 self.recording._stop_watchdog_thread()
         except Exception:
-            pass
+            log.debug("[CLEANUP] _stop_watchdog_thread failed", exc_info=True)
 
         # Signal streaming session to cancel without blocking on join.
         # The old code called _cancel_streaming_session() → session.cancel()
@@ -1489,7 +1504,7 @@ class VoiceTyperApp:
         # ARCH-REFAC-003: read directly from RecordingController (was a
         # @property delegate previously).
         try:
-            if hasattr(self, 'recording') and self.recording is not None:
+            if hasattr(self, "recording") and self.recording is not None:
                 t = self.recording._transcription_thread
                 if t is not None and t.is_alive():
                     log.info("[SHUTDOWN] Waiting for transcription thread to finish...")
@@ -1580,9 +1595,10 @@ class VoiceTyperApp:
         # a stream, this ensures sounddevice doesn't hold the microphone.
         try:
             import sounddevice as sd
+
             sd.stop()
         except Exception:
-            pass
+            log.debug("[CLEANUP] sd.stop() failed", exc_info=True)
 
         # PROD-003: Terminate the Electron subprocess if we spawned one.
         # The IPC "quit_app" push was sent earlier; this is a forced
@@ -1595,6 +1611,7 @@ class VoiceTyperApp:
         # cleaned up.
         try:
             from voice_typer.server import electron_launcher
+
             launched_pid = getattr(self, "_electron_pid", None)
             if launched_pid:
                 log.info("[SHUTDOWN] Terminating Electron subprocess (PID=%s)", launched_pid)
@@ -1602,9 +1619,11 @@ class VoiceTyperApp:
                 self._electron_pid = None
             else:
                 from voice_typer.server.tray_window import get_electron_pid
+
                 electron_pid = get_electron_pid()
                 if electron_pid is not None:
                     import signal as _sig
+
                     log.info("[SHUTDOWN] Terminating Electron subprocess (PID=%s)", electron_pid)
                     with contextlib.suppress(OSError, ProcessLookupError):
                         os.kill(electron_pid, _sig.SIGTERM)
@@ -1622,12 +1641,13 @@ class VoiceTyperApp:
 
         # PLAT-HLEAK: Close the mutex handle on shutdown
         try:
-            if hasattr(self, '_mutex_handle') and self._mutex_handle:
+            if hasattr(self, "_mutex_handle") and self._mutex_handle:
                 import ctypes
+
                 ctypes.windll.kernel32.CloseHandle(self._mutex_handle)
                 self._mutex_handle = None
         except Exception:
-            pass
+            log.debug("[CLEANUP] CloseHandle failed", exc_info=True)
 
         # Close devnull streams opened during logging setup
         try:
@@ -1700,9 +1720,11 @@ class VoiceTyperApp:
 
     def _atexit_log(self) -> None:
         """Log when the process exits, even if quit() was not called."""
-        if not self._shutting_down:
-            log.warning("[ATEXIT] Process exiting without quit() -- "
-                        "likely killed externally (console close, task manager, etc.)")
+        if not self._shutting_down_event.is_set():
+            log.warning(
+                "[ATEXIT] Process exiting without quit() -- "
+                "likely killed externally (console close, task manager, etc.)"
+            )
 
     def _atexit_cleanup(self) -> None:
         """RACE-016: atexit handler for critical cleanup paths.
@@ -1755,6 +1777,7 @@ class VoiceTyperApp:
         to avoid deadlock when the main thread is inside the signal
         handler.
         """
+
         def _signal_handler(signum, frame):
             sig_name = signal.Signals(signum).name
             log.info("[SIGNAL] %s received, shutting down gracefully", sig_name)
@@ -1788,7 +1811,6 @@ class VoiceTyperApp:
             import ctypes
             from ctypes import wintypes
 
-
             handler_routine = ctypes.CFUNCTYPE(wintypes.BOOL, wintypes.DWORD)
 
             self._console_handler = handler_routine(self._win32_console_handler)
@@ -1816,17 +1838,14 @@ class VoiceTyperApp:
         ctrl_shutdown_event = 6
 
         if ctrl_type == ctrl_close_event:
-            log.info(
-                "[WIN32] Console window closing -- "
-                "keeping process alive (tray app survives)"
-            )
+            log.info("[WIN32] Console window closing -- keeping process alive (tray app survives)")
             try:
                 self._kernel32.FreeConsole()
                 # PERF-004: reuse the existing devnull object instead of
                 # opening a new one on every ctrl_close_event (would hit
                 # Windows' 10,000 handle cap after ~250 RDP logout cycles).
                 if getattr(self, "_devnull", None) is None or self._devnull.closed:
-                    self._devnull = open(os.devnull, 'w')  # noqa: SIM115
+                    self._devnull = open(os.devnull, "w")  # noqa: SIM115
                     _register_devnull_file(self._devnull)
                 sys.stdout = self._devnull
                 sys.stderr = self._devnull
@@ -1850,8 +1869,6 @@ class VoiceTyperApp:
             return True
 
         return False
-
-
 
 
 def _create_restrictive_security_attributes():
@@ -1887,9 +1904,7 @@ def _create_restrictive_security_attributes():
             ret_len = wintypes.DWORD()
             advapi32.GetTokenInformation(token, 1, None, 0, ctypes.byref(ret_len))
             buf = ctypes.create_string_buffer(ret_len.value)
-            if not advapi32.GetTokenInformation(
-                token, 1, buf, ret_len.value, ctypes.byref(ret_len)
-            ):
+            if not advapi32.GetTokenInformation(token, 1, buf, ret_len.value, ctypes.byref(ret_len)):
                 return None
 
             # Extract SID from TOKEN_USER structure
@@ -1948,9 +1963,7 @@ def _create_restrictive_security_attributes():
 
             # Set the DACL
             new_acl = wintypes.LPVOID()
-            if not advapi32.SetEntriesInAclW(
-                1, ctypes.byref(ea), None, ctypes.byref(new_acl)
-            ):
+            if not advapi32.SetEntriesInAclW(1, ctypes.byref(ea), None, ctypes.byref(new_acl)):
                 # Fallback: use a simpler approach with NULL DACL
                 if not advapi32.SetSecurityDescriptorDacl(sd, True, None, False):
                     return None
@@ -2042,7 +2055,9 @@ def _is_pid_alive(pid: int) -> bool:
             kernel32 = ctypes.windll.kernel32
             still_active = wintypes.DWORD()
             handle = kernel32.OpenProcess(
-                process_query_limited_information, False, pid,
+                process_query_limited_information,
+                False,
+                pid,
             )
             if not handle:
                 # error_access_denied (5) means the process exists but is
@@ -2135,6 +2150,7 @@ def _ensure_single_instance(silent=False):
             # 1-day cap catches clock-jump corruption.
             try:
                 from voice_typer.server.config import _config_dir
+
                 token_path = _config_dir() / ".restart_token"
                 if token_path.exists():
                     mtime = token_path.stat().st_mtime
@@ -2144,7 +2160,8 @@ def _ensure_single_instance(silent=False):
                         log.warning(
                             "[STARTUP] Restart token age is negative (%.1fs) — "
                             "system clock may have jumped backward. Blocking "
-                            "duplicate launch to be safe.", age,
+                            "duplicate launch to be safe.",
+                            age,
                         )
                         if not silent and sys.stderr is not None:
                             print(
@@ -2156,7 +2173,8 @@ def _ensure_single_instance(silent=False):
                         log.warning(
                             "[STARTUP] Restart token age is suspiciously large "
                             "(%.1fs > 86400s) — system clock may have jumped "
-                            "forward. Blocking duplicate launch.", age,
+                            "forward. Blocking duplicate launch.",
+                            age,
                         )
                         if not silent and sys.stderr is not None:
                             print(
@@ -2166,8 +2184,8 @@ def _ensure_single_instance(silent=False):
                         sys.exit(1)
                     if age > 30.0:
                         log.warning(
-                            "[STARTUP] Restart token too old (%.1fs > 30s) — "
-                            "blocking duplicate launch", age,
+                            "[STARTUP] Restart token too old (%.1fs > 30s) — blocking duplicate launch",
+                            age,
                         )
                         # Don't consume the token; let it expire naturally
                         if not silent and sys.stderr is not None:
@@ -2214,9 +2232,7 @@ def _ensure_single_instance(silent=False):
     # Python; the inheritance concern is real but handled separately:
     # Electron's main process kills stale backends before spawning, and
     # the restart path sets VOICE_TYPER_RESTART to skip this check.
-    mutex = ctypes.windll.kernel32.CreateMutexW(
-        lp_mutex_attributes, True, mutex_name
-    )
+    mutex = ctypes.windll.kernel32.CreateMutexW(lp_mutex_attributes, True, mutex_name)
     last_error = ctypes.windll.kernel32.GetLastError()
 
     if last_error == error_already_exists:
@@ -2259,16 +2275,13 @@ def _ensure_single_instance(silent=False):
             if wait_result == wait_abandoned:
                 # Previous instance crashed.  The mutex is now OURS.
                 log.warning(
-                    "[STARTUP] Mutex was abandoned (previous instance crashed) "
-                    "— acquired ownership, proceeding"
+                    "[STARTUP] Mutex was abandoned (previous instance crashed) — acquired ownership, proceeding"
                 )
                 _write_backend_pid_file()
                 return mutex
             elif wait_result == wait_object_0:
                 # Unexpectedly acquired the mutex.  Proceed anyway.
-                log.warning(
-                    "[STARTUP] Mutex unexpectedly acquired after error_already_exists"
-                )
+                log.warning("[STARTUP] Mutex unexpectedly acquired after error_already_exists")
                 _write_backend_pid_file()
                 return mutex
             # WAIT_TIMEOUT (or any other result) → genuine duplicate.
@@ -2283,7 +2296,9 @@ def _ensure_single_instance(silent=False):
             msg = "Voice Typer is already running. Only one instance is allowed."
             try:
                 ctypes.windll.user32.MessageBoxW(
-                    0, msg, APP_NAME,
+                    0,
+                    msg,
+                    APP_NAME,
                     0x00000030 | 0x00000000,  # MB_ICONWARNING | MB_OK
                 )
             except Exception:
@@ -2309,9 +2324,6 @@ def _ensure_single_instance(silent=False):
 # had zero decision power (its result only affected a log message).
 
 
-
-
-
 def main() -> None:
     """Entry point for the ``voice-typer`` console script (pyproject).
 
@@ -2324,9 +2336,11 @@ def main() -> None:
     # Invaluable for debugging production crashes with CUDA/GPU drivers.
     try:
         import faulthandler
+
         faulthandler.enable()
     except Exception:
-        pass  # Not available on all platforms
+        log.debug("[IPC] faulthandler not available", exc_info=True)
 
     from voice_typer.server.ipc_server import main as ipc_main
+
     ipc_main()

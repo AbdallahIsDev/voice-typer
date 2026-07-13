@@ -329,7 +329,6 @@ class VoiceTyperService:
                 import numpy as np
 
                 wav_bytes = base64.b64decode(result["audio_base64"])
-                result.get("sample_rate", 16000)
 
                 # Decode WAV to float32
                 with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
@@ -780,36 +779,6 @@ class VoiceTyperService:
         # the UI (e.g. "edit the file directly at ...").
         data["_user_file"] = str(vm._user_path) if hasattr(vm, "_user_path") else None
         return data
-
-    def save_vocabulary(self, entries: list[dict]) -> dict:
-        """Save flat word/replacement pairs as misspellings and return result.
-
-        ARCH-005 legacy API. Production IPC routes use
-        ``save_vocabulary_with_diff`` (categorized dict with diff
-        semantics); this method is retained for the
-        ``ServiceProtocol`` interface (providers.py:271) and for any
-        external caller that wants the simple flat-list API.
-
-        PYREFLY-TASK-16: previously this imported a non-existent
-        ``VocabularyEntry`` symbol from ``voice_typer.server.vocabulary``
-        and called a non-existent ``VocabularyManager.set_entries``
-        method — both would have raised ``AttributeError`` at runtime.
-        Rewritten to use the real ``VocabularyManager.add_entry``
-        API, routing word/replacement pairs to the ``misspellings``
-        category (semantically appropriate for word-level corrections).
-        """
-        from voice_typer.server.vocabulary import VocabularyManager
-        vm = VocabularyManager(config_dir=self._app.config.config_dir)
-        try:
-            count = 0
-            for e in entries:
-                word = e["word"]
-                replacement = e["replacement"]
-                if vm.add_entry("misspellings", word, replacement):
-                    count += 1
-            return {"success": True, "count": count}
-        except Exception as exc:
-            return {"success": False, "error": str(exc)}
 
     def save_vocabulary_with_diff(self, data: dict) -> dict:
         """Save vocabulary with bundled diff logic.

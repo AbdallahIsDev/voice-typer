@@ -6,7 +6,7 @@ Re-exports the main entry point from `voice_typer.server.ipc_server` so
 
 ERR-IPC-001 (fix): previously imported `main` from `voice_typer.server.app`,
 but `app.py` does NOT define `main` (it was moved to `ipc_server.py:main`
-in the Round 6 BUILD-002 refactor). Both startup paths (`voice-typer`
+in the BUILD-002 refactor). Both startup paths (`voice-typer`
 console script and `python -m voice_typer.server`) were broken.
 """
 
