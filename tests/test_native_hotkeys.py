@@ -12,12 +12,7 @@ Covers:
 from __future__ import annotations
 
 import sys
-import threading
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
-
 
 # ─── parse_hotkey_spec ─────────────────────────────────────────────────────
 
@@ -198,7 +193,6 @@ class TestPlatformBackends:
 
     def test_mac_backend_accepts_fn_on_macos(self, monkeypatch):
         monkeypatch.setattr(sys, "platform", "darwin")
-        from voice_typer.server.platform_utils import is_macos
         # Need to patch is_macos since it caches via sys.platform
         from voice_typer.server import native_hotkeys
         monkeypatch.setattr(native_hotkeys, "is_macos", lambda: True)
@@ -450,7 +444,6 @@ class TestBinaryDiscovery:
     """Verify get_native_binary_path finds the binary in various locations."""
 
     def test_returns_none_when_platform_unknown(self, monkeypatch):
-        from voice_typer.server import native_hotkeys
         monkeypatch.setattr(sys, "platform", "freebsd")
         from voice_typer.server.native_hotkeys import get_native_binary_path
         assert get_native_binary_path() is None

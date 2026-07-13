@@ -10,7 +10,6 @@ from __future__ import annotations
 import threading
 
 import pytest
-
 from voice_typer.server.keyboard_ownership import (
     KeyboardOwnership,
     keyboard_ownership,

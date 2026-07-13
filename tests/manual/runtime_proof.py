@@ -299,12 +299,12 @@ def run_runtime_proof():
     # ─── Print all tray state transitions ─────────────────────────────────
     log.info("")
     log.info("TRAY STATE TRANSITIONS:")
-    for state_name, message, ts in mock_tray.states:
+    for state_name, message, _ in mock_tray.states:
         log.info("  -> %s: %r", state_name, message)
 
     log.info("")
     log.info("NOTIFICATIONS:")
-    for title, message, ts in mock_tray.notifications:
+    for title, message, _ in mock_tray.notifications:
         log.info("  -> %s: %r", title, message)
 
     # ─── Print captured log lines ─────────────────────────────────────────

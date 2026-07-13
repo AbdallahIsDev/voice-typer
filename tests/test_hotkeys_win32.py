@@ -4,15 +4,12 @@ These tests mock ctypes.windll.user32 and kernel32 to simulate specific
 failure modes and success scenarios without requiring a Windows host.
 """
 
-import sys
-import threading
-import time
 import ctypes
 import ctypes.wintypes
+import time
+from unittest.mock import MagicMock
 
 import pytest
-from unittest.mock import MagicMock, patch
-
 
 # ─── Fixture ─────────────────────────────────────────────────────────────────
 

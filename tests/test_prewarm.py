@@ -5,15 +5,11 @@ the CLI entry point — without actually importing torch or reading real
 model weights.
 """
 
-import io
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
-
 from voice_typer.server import prewarm
-
 
 # ─── Guards ─────────────────────────────────────────────────────────────
 
@@ -844,7 +840,6 @@ class TestFindWeights:
 
     def test_returns_none_when_cache_absent(self, monkeypatch):
         """No cache directory → None."""
-        from voice_typer.server import parakeet_engine
         monkeypatch.setattr(
             "voice_typer.server.config._config_dir",
             lambda: Path("C:/nonexistent/path/that/does/not/exist"),
@@ -1271,8 +1266,7 @@ class TestPrewarmIntegration:
 
     def _mock_config(self, monkeypatch, tmp_path: Path):
         """Mock Config.load() and _config_dir to point at tmp_path."""
-        from unittest.mock import MagicMock as _MM
-        fake_cfg = _MM(asr_backend="whisper", model_size="tiny.en")
+        fake_cfg = MagicMock(asr_backend="whisper", model_size="tiny.en")
         monkeypatch.setattr(
             "voice_typer.server.config.Config.load",
             classmethod(lambda cls: fake_cfg),

@@ -13,8 +13,9 @@ dispatcher API that was removed.
 
 from __future__ import annotations
 
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 def _import_ime_check():

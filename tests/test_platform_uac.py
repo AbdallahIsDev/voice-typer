@@ -7,8 +7,9 @@ Test that the app doesn't crash when foreground window is a secure desktop.
 from __future__ import annotations
 
 import sys
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import MagicMock, patch
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only test")

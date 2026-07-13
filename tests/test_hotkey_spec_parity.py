@@ -44,17 +44,12 @@ form before comparing.
 
 from __future__ import annotations
 
-from typing import Optional
-
 import pytest
-
 from voice_typer.server.hotkey_spec import (
-    CANONICAL_MODIFIERS,
     MODIFIER_ALIASES,
     HotkeySpec,
     parse_hotkey,
 )
-
 
 # ─── Common collapsed form ───────────────────────────────────────────────
 
@@ -88,7 +83,7 @@ def _collapse_modifiers(modifiers: frozenset[str] | set[str] | tuple[str, ...]) 
 # ─── Wire-protocol key normalisation ─────────────────────────────────────
 
 
-def _to_wire_name(canonical_key: str) -> Optional[str]:
+def _to_wire_name(canonical_key: str) -> str | None:
     """Convert a canonical (lowercase) key name to the wire-protocol name.
 
     Delegates to ``native_hotkeys._normalize_key_name`` so the parity
@@ -110,7 +105,7 @@ def _to_wire_name(canonical_key: str) -> Optional[str]:
 # or ``None`` if the adapter considered the spec empty / unparseable.
 
 
-def canonicalise_config_validators(parts: list[str]) -> Optional[tuple[frozenset[str], Optional[str]]]:
+def canonicalise_config_validators(parts: list[str]) -> tuple[frozenset[str], str | None] | None:
     """Canonicalise the output of ``_parse_hotkey_parts``.
 
     ``_parse_hotkey_parts`` returns a flat list of canonical tokens
@@ -135,7 +130,7 @@ def canonicalise_config_validators(parts: list[str]) -> Optional[tuple[frozenset
     )
 
 
-def canonicalise_pynput(result, Key) -> Optional[tuple[frozenset[str], Optional[str]]]:
+def canonicalise_pynput(result, key) -> tuple[frozenset[str], str | None] | None:
     """Canonicalise the output of ``_parse_hotkey_to_pynput``.
 
     Returns ``None`` if the adapter returned ``None`` (unparseable on
@@ -147,7 +142,7 @@ def canonicalise_pynput(result, Key) -> Optional[tuple[frozenset[str], Optional[
 
     # Reverse mapping: pynput Key attribute name → canonical modifier name.
     # pynput collapses win/super/cmd → Key.cmd; we map back to "cmd".
-    _PYNPUT_TO_CANONICAL_MOD = {
+    _pynput_to_canonical_mod = {
         "ctrl": "ctrl",
         "shift": "shift",
         "alt": "alt",
@@ -160,7 +155,7 @@ def canonicalise_pynput(result, Key) -> Optional[tuple[frozenset[str], Optional[
         "fn": "fn",
     }
 
-    def _key_to_name(k) -> Optional[str]:
+    def _key_to_name(k) -> str | None:
         # Pynput Key enum members expose their name via .name (enum) or
         # via dir() inspection. We use a simpler heuristic: scan the
         # known attribute set.
@@ -171,11 +166,11 @@ def canonicalise_pynput(result, Key) -> Optional[tuple[frozenset[str], Optional[
             "home", "end", "page_up", "page_down", "caps_lock",
             "up", "down", "left", "right",
         ):
-            if hasattr(Key, attr) and getattr(Key, attr) is k:
+            if hasattr(key, attr) and getattr(key, attr) is k:
                 return attr
         for n in range(1, 25):
             attr = f"f{n}"
-            if hasattr(Key, attr) and getattr(Key, attr) is k:
+            if hasattr(key, attr) and getattr(key, attr) is k:
                 return attr
         # KeyCode with char
         char = getattr(k, "char", None)
@@ -191,8 +186,8 @@ def canonicalise_pynput(result, Key) -> Optional[tuple[frozenset[str], Optional[
         modifier_keys, target = result
         mod_names: set[str] = set()
         for mk in modifier_keys:
-            for attr, canonical in _PYNPUT_TO_CANONICAL_MOD.items():
-                if hasattr(Key, attr) and getattr(Key, attr) is mk:
+            for attr, canonical in _pynput_to_canonical_mod.items():
+                if hasattr(key, attr) and getattr(key, attr) is mk:
                     mod_names.add(canonical)
                     break
         main_name = _key_to_name(target)
@@ -201,8 +196,8 @@ def canonicalise_pynput(result, Key) -> Optional[tuple[frozenset[str], Optional[
         name = _key_to_name(result)
         if name is None:
             return None
-        if name in _PYNPUT_TO_CANONICAL_MOD:
-            mod_names = {_PYNPUT_TO_CANONICAL_MOD[name]}
+        if name in _pynput_to_canonical_mod:
+            mod_names = {_pynput_to_canonical_mod[name]}
             main_name = None
         else:
             mod_names = set()
@@ -217,16 +212,21 @@ def canonicalise_pynput(result, Key) -> Optional[tuple[frozenset[str], Optional[
 
 
 def canonicalise_win32(
-    parsed: Optional[tuple[Optional[int], int]],
-) -> Optional[tuple[frozenset[str], Optional[str]]]:
+    parsed: tuple[int | None, int] | None,
+) -> tuple[frozenset[str], str | None] | None:
     """Canonicalise the output of ``parse_hotkey_to_win32``.
 
     Returns ``None`` if the adapter returned ``None`` (unparseable —
     e.g. ``<fn>`` has no Win32 equivalent, ``<globe>`` likewise).
     """
     from voice_typer.server.hotkeys import (
-        _MOD_ALT, _MOD_ALTGR, _MOD_CONTROL, _MOD_SHIFT, _MOD_WIN,
-        _VK_MAP, _init_vk_map,
+        _MOD_ALT,
+        _MOD_ALTGR,
+        _MOD_CONTROL,
+        _MOD_SHIFT,
+        _MOD_WIN,
+        _VK_MAP,
+        _init_vk_map,
     )
 
     if parsed is None:
@@ -247,7 +247,7 @@ def canonicalise_win32(
     if modbits & _MOD_ALTGR:
         modifiers.add("altgr")
 
-    main_key: Optional[str] = None
+    main_key: str | None = None
     if vk is not None:
         _init_vk_map()
         # Reverse VK lookup: find the first name mapping to this VK code.
@@ -265,8 +265,8 @@ def canonicalise_win32(
 
 
 def canonicalise_native(
-    d: Optional[dict],
-) -> Optional[tuple[frozenset[str], Optional[str]]]:
+    d: dict | None,
+) -> tuple[frozenset[str], str | None] | None:
     """Canonicalise the output of ``parse_hotkey_spec`` (native_hotkeys).
 
     The dict's ``modifiers`` set is already in the common collapsed
@@ -284,7 +284,7 @@ def canonicalise_native(
 
 def canonicalise_canonical(
     spec: HotkeySpec,
-) -> Optional[tuple[frozenset[str], Optional[str]]]:
+) -> tuple[frozenset[str], str | None] | None:
     """Canonicalise the output of the canonical :func:`parse_hotkey`."""
     if spec.is_empty:
         return None
@@ -560,7 +560,7 @@ class TestAdapterParity:
                 return hash(("Key", self.name))
 
         class _FakeKeyCode:
-            def __init__(self, *, char: Optional[str] = None, vk: Optional[int] = None):
+            def __init__(self, *, char: str | None = None, vk: int | None = None):
                 self.char = char
                 self.vk = vk
             def __repr__(self) -> str:
@@ -574,10 +574,10 @@ class TestAdapterParity:
             def __hash__(self) -> int:
                 return hash(("KeyCode", self.char, self.vk))
             @classmethod
-            def from_char(cls, c: str) -> "_FakeKeyCode":
+            def from_char(cls, c: str) -> _FakeKeyCode:
                 return cls(char=c)
             @classmethod
-            def from_vk(cls, vk: int) -> "_FakeKeyCode":
+            def from_vk(cls, vk: int) -> _FakeKeyCode:
                 return cls(vk=vk)
 
         class _FakeKeyEnum:
@@ -608,7 +608,7 @@ class TestAdapterParity:
         self, hotkey: str, fake_pynput
     ) -> None:
         """All four adapters must produce the same canonical form."""
-        Key, KeyCode = fake_pynput
+        key, key_code = fake_pynput
 
         # Compute the expected (collapsed) form from the canonical parser.
         expected = canonicalise_canonical(parse_hotkey(hotkey))
@@ -622,12 +622,12 @@ class TestAdapterParity:
         from voice_typer.server.native_hotkeys import parse_hotkey_spec
 
         cv_parts = _parse_hotkey_parts(hotkey)
-        pp_result = _parse_hotkey_to_pynput(hotkey, Key, KeyCode)
+        pp_result = _parse_hotkey_to_pynput(hotkey, key, key_code)
         w32_result = parse_hotkey_to_win32(hotkey)
         native_dict = parse_hotkey_spec(hotkey)
 
         cv_canon = canonicalise_config_validators(cv_parts)
-        pp_canon = canonicalise_pynput(pp_result, Key)
+        pp_canon = canonicalise_pynput(pp_result, key)
         w32_canon = canonicalise_win32(w32_result)
         native_canon = canonicalise_native(native_dict)
 
@@ -637,7 +637,7 @@ class TestAdapterParity:
         # can't handle (e.g. <fn> on Linux). For those, skip the adapter.
         skip_pynput = hotkey in SKIP_PYNPUT or _spec_contains_fn(hotkey)
         skip_win32 = hotkey in SKIP_WIN32 or _spec_contains_fn(hotkey)
-        results: list[tuple[str, Optional[tuple[frozenset[str], Optional[str]]]]] = [
+        results: list[tuple[str, tuple[frozenset[str], str | None] | None]] = [
             ("canonical", expected),
             ("config_validators", cv_canon),
             ("native_hotkeys", native_canon),

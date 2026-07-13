@@ -8,13 +8,13 @@ Verifies that:
 - The registry is initialized in __init__ (not lazily) so _start_dictation
   can rely on it existing
 """
-import sys
 import inspect
+import sys
 
 sys.path.insert(0, '/home/z/my-project/voice-typer-repo')
 
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
+
 from voice_typer.server.asr_registry import AsrBackendRegistry
 
 
@@ -125,6 +125,7 @@ class TestAppConstructionDelegatesToRegistry:
         in comments/docstrings.
         """
         import re
+
         from voice_typer.server import app
         src = inspect.getsource(app)
         # Match lines like "self.transcriber = TranscriptionEngine(...)"

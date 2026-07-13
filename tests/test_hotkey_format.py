@@ -26,7 +26,6 @@ results here — the two columns must stay in lock-step.
 from __future__ import annotations
 
 import pytest
-
 from voice_typer.server.tray_hotkey import format_hotkey_label
 
 # Each tuple is (input_hotkey, expected_label). The expected labels

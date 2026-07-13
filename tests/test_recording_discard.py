@@ -23,7 +23,6 @@ audio callback (which fires ~16×/s). ``discard()`` is called from
 """
 
 import sys
-import threading
 import time
 from unittest.mock import MagicMock
 

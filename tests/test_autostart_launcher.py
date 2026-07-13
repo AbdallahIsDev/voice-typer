@@ -10,25 +10,18 @@ Covers:
   - PID file writing
 """
 
-import os
-import sys
 import socket
 import subprocess
+import sys
 import time
-import threading
-import pytest
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock
 
 from voice_typer.server.autostart_launcher import (
+    IPC_HOST,
+    _focus_running_app,
     _is_port_open,
     _write_pid_file,
-    _focus_running_app,
-    _config_dir,
-    _pid_file,
-    _client_dir_exists,
-    IPC_HOST,
-    IPC_PORT,
     launch,
 )
 

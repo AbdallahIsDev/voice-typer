@@ -4,8 +4,8 @@ These tests verify the newly added warm-up inference, batch API,
 and LRU model eviction features.
 """
 
-import pytest
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
+
 import numpy as np
 
 
@@ -118,6 +118,7 @@ class TestLRUModelEviction:
     def test_eviction_unloads_oldest(self):
         """Eviction should unload the least recently used model."""
         import time
+
         from voice_typer.server.model_manager import ModelManager
         mm = ModelManager.__new__(ModelManager)
         now = time.monotonic()
@@ -144,6 +145,7 @@ class TestLRUModelEviction:
     def test_touch_updates_timestamp(self):
         """touch_model should update the access timestamp."""
         import time
+
         from voice_typer.server.model_manager import ModelManager
         mm = ModelManager.__new__(ModelManager)
         mm._model_access_times = {}
@@ -229,7 +231,7 @@ class TestPlatformUtils:
 
     def test_platform_utils_returns_bool(self):
         """Platform utility functions should return booleans."""
-        from voice_typer.server.platform_utils import is_windows, is_macos, is_linux
+        from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
         assert isinstance(is_windows(), bool)
         assert isinstance(is_macos(), bool)
         assert isinstance(is_linux(), bool)

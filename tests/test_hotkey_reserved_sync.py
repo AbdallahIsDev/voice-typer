@@ -21,7 +21,6 @@ This test verifies that:
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 import pytest
@@ -129,13 +128,13 @@ class TestFrontendImportsFromJson:
             # Expect: export const UNIVERSAL_RESERVED_SHORTCUTS = hotkeyReserved.universal_reserved
             # The TS variable name is the field name converted to SCREAMING_SNAKE_CASE.
             # Map JSON field names to their TS constant names.
-            _FIELD_TO_TS_VAR = {
+            _field_to_ts_var = {
                 "universal_reserved": "UNIVERSAL_RESERVED_SHORTCUTS",
                 "per_platform_reserved": "RESERVED_SHORTCUTS",
                 "blocked_ctrl_letters": "BLOCKED_CTRL_LETTERS",
                 "modifiers": "MODIFIER_KEYS_SHARED",
             }
-            ts_var = _FIELD_TO_TS_VAR[field]
+            ts_var = _field_to_ts_var[field]
             # The TS file has a type annotation between the name and `=`
             # (e.g. ``export const UNIVERSAL_RESERVED_SHORTCUTS: readonly string[] =``).
             # Just check that `export const {ts_var}` appears.
@@ -161,9 +160,9 @@ class TestBackendLoadsFromJson:
         )
 
         # Universal reserved.
-        assert _UNIVERSAL_RESERVED_HOTKEYS == frozenset(
+        assert frozenset(
             json_data["universal_reserved"]
-        ), "Backend _UNIVERSAL_RESERVED_HOTKEYS does not match JSON"
+        ) == _UNIVERSAL_RESERVED_HOTKEYS, "Backend _UNIVERSAL_RESERVED_HOTKEYS does not match JSON"
 
         # Per-platform reserved.
         for platform, entries in json_data["per_platform_reserved"].items():
@@ -175,12 +174,12 @@ class TestBackendLoadsFromJson:
             )
 
         # Blocked Ctrl letters.
-        assert _BLOCKED_CTRL_LETTERS == frozenset(
+        assert frozenset(
             json_data["blocked_ctrl_letters"]
-        ), "Backend _BLOCKED_CTRL_LETTERS does not match JSON"
+        ) == _BLOCKED_CTRL_LETTERS, "Backend _BLOCKED_CTRL_LETTERS does not match JSON"
 
         # Modifiers.
-        assert _HOTKEY_MODIFIERS == frozenset(json_data["modifiers"]), (
+        assert frozenset(json_data["modifiers"]) == _HOTKEY_MODIFIERS, (
             "Backend _HOTKEY_MODIFIERS does not match JSON"
         )
 

@@ -25,9 +25,9 @@ import socket
 import threading
 
 import pytest
-
-from voice_typer.server.keyboard_ownership import keyboard_ownership
 from voice_typer.server.ipc_server import IPCServer
+from voice_typer.server.keyboard_ownership import keyboard_ownership
+
 from tests.fixtures.ipc_test_helpers import make_fake_app, make_fake_service
 
 

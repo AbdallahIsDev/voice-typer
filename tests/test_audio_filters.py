@@ -6,39 +6,34 @@ then the chain builder, and finally the preset system.
 
 from __future__ import annotations
 
-import math
-
 import numpy as np
 import pytest
-
+from voice_typer.server.audio_chain_builder import build_chain_from_dict
 from voice_typer.server.audio_filters import (
-    AudioFilter,
+    ANTIDENORMAL_EPSILON,
+    Compressor,
+    Equalizer,
     FilterChain,
     HighPassFilter,
-    NoiseGate,
-    Equalizer,
-    Compressor,
     Limiter,
-    NotchFilter,
+    NoiseGate,
     NoiseSuppressor,
+    NotchFilter,
     db_to_mul,
     mul_to_db,
     one_pole_coeff,
-    ANTIDENORMAL_EPSILON,
 )
-from voice_typer.server.audio_chain_builder import build_chain, build_chain_from_dict
 from voice_typer.server.audio_presets import (
-    PRESETS,
     PRESET_AUTO,
-    PRESET_STUDIO,
+    PRESET_CUSTOM,
     PRESET_NOISY_ROOM,
     PRESET_OFF,
-    PRESET_CUSTOM,
+    PRESET_STUDIO,
+    PRESETS,
     apply_preset,
     get_preset_filters,
     get_preset_for_display,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # DSP helper tests

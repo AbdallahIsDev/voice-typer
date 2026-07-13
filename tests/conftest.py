@@ -36,11 +36,12 @@ consistent and maintainable:
    fixtures should be justified with a comment explaining why.
 """
 
-from pathlib import Path
+import contextlib
 import sys
+from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
-from unittest.mock import MagicMock
 
 
 def pytest_configure(config):
@@ -104,7 +105,6 @@ def wav_fixture_path():
     The fixture is a 1-second 440Hz sine wave at 16kHz mono, 16-bit PCM.
     See tests/fixtures/README.md for details.
     """
-    from pathlib import Path
     path = Path(__file__).resolve().parent / "fixtures" / "test_440hz_1s_16k.wav"
     assert path.exists(), f"WAV fixture not found at {path}"
     return path
@@ -157,7 +157,6 @@ def mock_heavy_imports(monkeypatch, request):
         # PIL.ImageDraw from sys.modules before importing the real
         # package. We identify mocks by checking ``__spec__`` — real
         # modules have a non-None ``__spec__``; MagicMocks do not.
-        import types as _types
         for _key in ("PIL", "PIL.Image", "PIL.ImageDraw"):
             _existing = sys.modules.get(_key)
             if _existing is not None and getattr(_existing, "__spec__", None) is None:
@@ -178,10 +177,8 @@ def mock_heavy_imports(monkeypatch, request):
     monkeypatch.setitem(sys.modules, "pyperclip", MagicMock())
 
     # Prevent atexit handler from polluting test output
-    try:
+    with contextlib.suppress(Exception):
         monkeypatch.setattr("voice_typer.server.app.atexit.register", lambda *a, **kw: None)
-    except Exception:
-        pass
 
 
 # ── Shared fixtures for domain-split test files ────────────────────────

@@ -5,9 +5,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 APP_PY = REPO_ROOT / "voice_typer" / "server" / "app.py"
 MODEL_MANAGER_PY = REPO_ROOT / "voice_typer" / "server" / "model_manager.py"
@@ -108,8 +105,9 @@ class TestStoreResultFailurePromotion:
     """Failure to write history fires a tray notification."""
 
     def test_store_result_calls_tray_notify_on_history_failure(self):
-        from voice_typer.server.dictation_pipeline import DictationPipeline
         from unittest.mock import MagicMock
+
+        from voice_typer.server.dictation_pipeline import DictationPipeline
 
         pipeline = DictationPipeline.__new__(DictationPipeline)
         pipeline._duration = 1.0
@@ -133,8 +131,9 @@ class TestApplyVocabularyTemplateNotify:
     """Vocabulary/template apply failures fire a tray notification."""
 
     def test_apply_vocabulary_notifies_on_failure(self):
-        from voice_typer.server.dictation_pipeline import DictationPipeline
         from unittest.mock import MagicMock
+
+        from voice_typer.server.dictation_pipeline import DictationPipeline
 
         pipeline = DictationPipeline.__new__(DictationPipeline)
         app = MagicMock()
@@ -150,8 +149,9 @@ class TestApplyVocabularyTemplateNotify:
         assert any("Vocabulary" in str(args) for args in notify_calls)
 
     def test_apply_templates_notifies_on_failure(self):
-        from voice_typer.server.dictation_pipeline import DictationPipeline
         from unittest.mock import MagicMock
+
+        from voice_typer.server.dictation_pipeline import DictationPipeline
 
         pipeline = DictationPipeline.__new__(DictationPipeline)
         app = MagicMock()
@@ -172,8 +172,9 @@ class TestRepasteLastSplitsErrors:
     """Clipboard-copy failure and paste-keystroke failure produce distinct notifications."""
 
     def test_copy_failure_message_mentions_clipboard(self):
-        from voice_typer.server import app as app_module
         from unittest.mock import MagicMock
+
+        from voice_typer.server import app as app_module
 
         app = app_module.VoiceTyperApp.__new__(app_module.VoiceTyperApp)
         app._last_transcription = "hello"
@@ -188,8 +189,9 @@ class TestRepasteLastSplitsErrors:
         app.clipboard.paste.assert_not_called()
 
     def test_paste_failure_message_mentions_keystroke(self):
-        from voice_typer.server import app as app_module
         from unittest.mock import MagicMock
+
+        from voice_typer.server import app as app_module
 
         app = app_module.VoiceTyperApp.__new__(app_module.VoiceTyperApp)
         app._last_transcription = "hello"

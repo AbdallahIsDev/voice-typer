@@ -29,13 +29,10 @@ from __future__ import annotations
 
 import sys
 import threading
-import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-
 from voice_typer.server.microphone_watcher import MicrophoneDeviceWatcher
-
 
 # ── Cross-platform tests (run on every platform) ────────────────────
 
@@ -70,9 +67,8 @@ def test_import_error_when_not_macos() -> None:
     with patch(
         "voice_typer.server.microphone_watcher_coreaudio._IS_MACOS",
         False,
-    ):
-        with pytest.raises(ImportError, match="only available on macOS"):
-            _try_import_coreaudio()
+    ), pytest.raises(ImportError, match="only available on macOS"):
+        _try_import_coreaudio()
 
 
 def test_import_error_when_pyobjc_missing() -> None:
@@ -96,9 +92,8 @@ def test_import_error_when_pyobjc_missing() -> None:
         True,
     ), patch.dict(
         sys.modules, {"CoreAudio": None, "CoreFoundation": None}
-    ):
-        with pytest.raises(ImportError, match="pyobjc-framework-CoreAudio"):
-            _try_import_coreaudio()
+    ), pytest.raises(ImportError, match="pyobjc-framework-CoreAudio"):
+        _try_import_coreaudio()
 
 
 def test_coreaudio_watcher_start_raises_on_non_macos() -> None:

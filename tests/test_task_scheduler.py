@@ -7,10 +7,9 @@ Platform checks are monkeypatched so tests run on any OS.
 import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
-
 from voice_typer.server import task_scheduler
 
 

@@ -24,11 +24,12 @@ Coverage gap analysis:
 
 from __future__ import annotations
 
+import contextlib
 import sys
 import time
-import threading
+from unittest.mock import MagicMock, PropertyMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock, PropertyMock
 
 # Ensure heavy imports are mocked before the module loads
 mock_pynput = MagicMock()
@@ -37,18 +38,17 @@ sys.modules.setdefault("pynput", mock_pynput)
 sys.modules.setdefault("pynput.keyboard", mock_pynput_kb)
 sys.modules.setdefault("pyperclip", MagicMock())
 
-from voice_typer.server import clipboard as clip_mod
-from voice_typer.server.clipboard import (
+from voice_typer.server import clipboard as clip_mod  # noqa: E402
+from voice_typer.server.clipboard import (  # noqa: E402
     ClipboardManager,
     Win32Clipboard,
     _ensure_pynput_imported,
-    _win32_empty_clipboard,
-    _is_elevated_target,
     _focused_window_is_credential_dialog,
-    _is_password_field,
     _is_content_editable,
+    _is_elevated_target,
+    _is_password_field,
+    _win32_empty_clipboard,
 )
-
 
 # =============================================================================
 # _ensure_pynput_imported
@@ -72,13 +72,11 @@ class TestEnsurePynputImported:
         """If pynput import raises, _Key/_Controller remain None."""
         clip_mod._Key = None
         clip_mod._Controller = None
-        with patch.dict(sys.modules, {"pynput": None, "pynput.keyboard": None}):
-            with patch("builtins.__import__", side_effect=ImportError("no pynput")):
-                # Should not raise
-                try:
-                    _ensure_pynput_imported()
-                except ImportError:
-                    pass  # implementation may or may not catch — both acceptable
+        with patch.dict(sys.modules, {"pynput": None, "pynput.keyboard": None}), \
+             patch("builtins.__import__", side_effect=ImportError("no pynput")), \
+             contextlib.suppress(ImportError):
+            # Should not raise
+            _ensure_pynput_imported()
         # After failed import, state is implementation-defined; just verify no crash
 
 
@@ -89,8 +87,8 @@ class TestEnsurePynputImported:
 class TestWin32ClipboardNonWindows:
     def test_constructor_raises_on_non_windows(self):
         """On non-Windows, Win32Clipboard.__init__ raises RuntimeError."""
-        with patch.object(clip_mod, "is_windows", return_value=False):
-            with pytest.raises(RuntimeError, match="only available on Windows"):
+        with patch.object(clip_mod, "is_windows", return_value=False), \
+             pytest.raises(RuntimeError, match="only available on Windows"):
                 Win32Clipboard()
 
     def test_get_sequence_number_returns_zero_on_non_windows(self):
@@ -259,10 +257,8 @@ class TestSendKeystrokeSequence:
         cm._keyboard = mock_kb
         modifier = MagicMock(name="modifier")
         # Should not propagate — finally block catches
-        try:
+        with contextlib.suppress(RuntimeError):
             cm._send_keystroke_sequence(modifier, "v")
-        except RuntimeError:
-            pass  # implementation may or may not swallow — both acceptable
 
 
 # =============================================================================
@@ -295,13 +291,11 @@ class TestSendCtrlVWin32:
             mock_user32.SendInput.return_value = 1  # 1 event sent
             with patch("ctypes.windll", create=True) as windll_mock:
                 windll_mock.user32 = mock_user32
-                try:
+                # The function may still raise on attribute access details;
+                # the key invariant is that it attempted to call SendInput
+                # or returned without crashing the test runner.
+                with contextlib.suppress(Exception):
                     cm._send_ctrl_v_win32()
-                except Exception:
-                    # The function may still raise on attribute access details;
-                    # the key invariant is that it attempted to call SendInput
-                    # or returned without crashing the test runner.
-                    pass
 
 
 # =============================================================================
@@ -362,8 +356,8 @@ class TestPaste:
         cm._clipboard_seq = 0
         cm._saved_clipboard = None
         cm._clipboard_save_restore_enabled = False
-        with patch.object(clip_mod, "is_windows", return_value=False):
-            with patch.object(ClipboardManager, "_is_safe_paste_target", return_value=True):
+        with patch.object(clip_mod, "is_windows", return_value=False), \
+             patch.object(ClipboardManager, "_is_safe_paste_target", return_value=True):
                 result = cm.paste()
         assert result is False  # rate-limited
 
@@ -376,8 +370,8 @@ class TestPaste:
         cm._clipboard_seq = 0
         cm._saved_clipboard = None
         cm._clipboard_save_restore_enabled = False
-        with patch.object(clip_mod, "is_windows", return_value=False):
-            with patch.object(ClipboardManager, "_is_safe_paste_target", return_value=False):
+        with patch.object(clip_mod, "is_windows", return_value=False), \
+             patch.object(ClipboardManager, "_is_safe_paste_target", return_value=False):
                 result = cm.paste()
         assert result is False
 

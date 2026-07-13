@@ -7,7 +7,6 @@ Test transcription output with these characters.
 from __future__ import annotations
 
 import pytest
-
 from voice_typer.server.text_cleanup import clean_transcribed_text, configure_corrections
 
 
@@ -105,6 +104,7 @@ class TestEmojiInCorrections:
     def test_misspelling_with_emoji_no_crash(self, tmp_path):
         """A corrections file with emoji should load without crashing."""
         import json
+
         from voice_typer.server.text_cleanup import configure_corrections
         corrections_file = tmp_path / "voice-typer-corrections.json"
         corrections_file.write_text(json.dumps({

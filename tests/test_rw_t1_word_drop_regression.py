@@ -14,8 +14,6 @@ import threading
 from unittest.mock import MagicMock
 
 import numpy as np
-import pytest
-
 from voice_typer.server.parakeet_engine import ParakeetEngine
 from voice_typer.server.qwen_engine import QwenEngine
 

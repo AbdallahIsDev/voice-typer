@@ -3,14 +3,8 @@
 from __future__ import annotations
 
 import inspect
-import json
 import re
-import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
-
 
 RENDERER_SRC = (
     Path(__file__).resolve().parent.parent
@@ -146,9 +140,10 @@ class TestAutouseFixturePatchesBothHotkeyNamespaces:
 
     def test_app_py_fixture_patches_both_namespaces(self):
         import inspect
+
         import tests.test_app as test_app_mod
         fixture_src = None
-        for name, obj in vars(test_app_mod).items():
+        for _name, obj in vars(test_app_mod).items():
             if callable(obj) and hasattr(obj, '__wrapped__'):
                 src = inspect.getsource(obj)
                 if 'create_hotkey_backend' in src and 'PynputHotkey' in src:
@@ -197,7 +192,7 @@ class TestExtendedVKMap:
     """_init_vk_map includes numpad, media, browser, special keys."""
 
     def test_media_keys_present(self):
-        from voice_typer.server.hotkeys import _init_vk_map, _VK_MAP, _VK_MAP_LOCK
+        from voice_typer.server.hotkeys import _VK_MAP, _VK_MAP_LOCK, _init_vk_map
         with _VK_MAP_LOCK:
             _VK_MAP.clear()
         _init_vk_map()
@@ -208,7 +203,7 @@ class TestExtendedVKMap:
         assert "printscreen" in _VK_MAP
 
     def test_numpad_keys_present(self):
-        from voice_typer.server.hotkeys import _init_vk_map, _VK_MAP
+        from voice_typer.server.hotkeys import _VK_MAP, _init_vk_map
         _init_vk_map()
         assert "num_0" in _VK_MAP
         assert "numpad_5" in _VK_MAP

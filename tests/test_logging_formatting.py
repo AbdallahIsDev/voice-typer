@@ -28,8 +28,7 @@ for _mod in (
     if _mod not in sys.modules:
         sys.modules[_mod] = MagicMock()
 
-from voice_typer.server.log import _ColorFormatter, _TOPIC_COLOR
-
+from voice_typer.server.log import _TOPIC_COLOR, _ColorFormatter  # noqa: E402
 
 _LOG_METHODS = {"debug", "info", "warning", "error", "exception", "critical"}
 

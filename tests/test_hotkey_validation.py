@@ -19,14 +19,12 @@ The policy is a DENYLIST design, not a blanket rule design:
 from __future__ import annotations
 
 import pytest
-
 from voice_typer.server.config_validators import (
     _BLOCKED_CTRL_LETTERS,
     _HOTKEY_MODIFIERS,
     _RESERVED_HOTKEYS,
     _validate_hotkey,
 )
-
 
 # ── Allowed combinations ──────────────────────────────────────────────
 

@@ -1,8 +1,9 @@
 """Tests for voice_typer.llm_polish — LLMPolisher presets and API."""
 
 import json
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 
 @pytest.fixture
@@ -156,8 +157,9 @@ class TestLLMPolishUrlAllowlist:
 
     def test_default_openai_url_allowed(self):
         """The default OpenAI URL must pass the allowlist check."""
-        from voice_typer.server.llm_polish import LLMPolisher
         from urllib.error import URLError
+
+        from voice_typer.server.llm_polish import LLMPolisher
         p = LLMPolisher(api_key="sk-test", enabled=True)
         # Default URL is api.openai.com — allowlist check passes,
         # but HTTP fails (no network).  We just verify the error is
@@ -173,17 +175,17 @@ class TestLLMPolishUrlAllowlist:
     def test_polish_redacts_key_in_log(self, caplog):
         """When polish() catches an exception, the log message must
         not contain the API key."""
-        from voice_typer.server.llm_polish import LLMPolisher
         import logging
+
+        from voice_typer.server.llm_polish import LLMPolisher
 
         key = "sk-abcdefghijklmnopqrstuvwxyz1234567890ABCDEF"
         p = LLMPolisher(api_key=key, enabled=True)
         # Force an exception by patching _call_api to raise
         with patch.object(
             p, "_call_api", side_effect=RuntimeError(f"auth failed: {key}")
-        ):
-            with caplog.at_level(logging.WARNING, logger="voice_typer.server.llm_polish"):
-                result = p.polish("Hello, world!")
+        ), caplog.at_level(logging.WARNING, logger="voice_typer.server.llm_polish"):
+            result = p.polish("Hello, world!")
         assert result == "Hello, world!"  # original returned
         # Verify the key does not appear in any log record
         for record in caplog.records:

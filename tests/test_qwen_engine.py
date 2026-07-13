@@ -1,9 +1,10 @@
 """Tests for the optional Qwen3-ASR backend."""
 
 import os
-import pytest
-import numpy as np
 from unittest.mock import MagicMock, patch
+
+import numpy as np
+import pytest
 
 
 class TestQwenEngineUnit:

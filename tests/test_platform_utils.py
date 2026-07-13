@@ -5,10 +5,7 @@ CQ-029: Verify that centralized platform detection functions work correctly.
 
 from __future__ import annotations
 
-import sys
-import pytest
-
-from voice_typer.server.platform_utils import is_windows, is_macos, is_linux, platform_name
+from voice_typer.server.platform_utils import is_linux, is_macos, is_windows, platform_name
 
 
 class TestPlatformDetection:

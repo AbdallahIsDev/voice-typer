@@ -11,14 +11,14 @@ Left-click "Open App" launches the Electron app (or focuses it if already runnin
 All settings, history, templates, etc. live in the Electron window only.
 """
 
-import gc
 import subprocess
 import sys
 import time
 import warnings
-import pytest
 from types import SimpleNamespace
 from unittest.mock import MagicMock
+
+import pytest
 
 # Mock pystray at module level so the tray module can be imported
 # without needing an X display (headless CI).
@@ -40,7 +40,7 @@ _mock_pystray.MenuItem = MagicMock
 _mock_pystray.Icon = MagicMock
 sys.modules.setdefault("pystray", _mock_pystray)
 
-from voice_typer.server.tray import TrayIcon
+from voice_typer.server.tray import TrayIcon  # noqa: E402
 
 
 class _FakeMenu:
@@ -154,7 +154,6 @@ class _MockController:
 
 @pytest.fixture
 def tray():
-    from voice_typer.server.tray import TrayIcon
     _FakeIcon.last_kwargs = {}
     controller = _MockController()
     for method_name in [
@@ -165,7 +164,11 @@ def tray():
         setattr(controller, method_name, MagicMock())
     t = TrayIcon(
         controller=controller,
-        config=SimpleNamespace(hotkey="<f2>", model_size="small.en", autostart=True, show_notifications=True, microphone=None, silence_warning_seconds=20.0, stop_on_silence_seconds=120.0),
+        config=SimpleNamespace(
+            hotkey="<f2>", model_size="small.en", autostart=True,
+            show_notifications=True, microphone=None,
+            silence_warning_seconds=20.0, stop_on_silence_seconds=120.0,
+        ),
     )
     yield t
     with warnings.catch_warnings():
@@ -207,13 +210,12 @@ class TestTrayMenuHasMinimalOptions:
         menu_items = [i for i in items if isinstance(i, _FakeMenuItem)]
         labels = [m.args[0] for m in menu_items]
         assert len(menu_items) >= 5
-        assert any("Toggle Dictation" in l for l in labels)
-        assert any("Open App" in l for l in labels)
-        assert any("Restart" in l for l in labels)
-        assert any("Quit" in l for l in labels)
+        assert any("Toggle Dictation" in lb for lb in labels)
+        assert any("Open App" in lb for lb in labels)
+        assert any("Restart" in lb for lb in labels)
+        assert any("Quit" in lb for lb in labels)
 
     def test_toggle_label_includes_current_hotkey(self):
-        from voice_typer.server.tray import TrayIcon
         controller = _MockController()
         tray = TrayIcon(
             controller=controller,
@@ -225,7 +227,7 @@ class TestTrayMenuHasMinimalOptions:
     def test_models_submenu_in_menu(self, tray):
         """Models submenu is now in the tray menu."""
         labels = _menu_labels(tray)
-        assert any("Models" in l for l in labels)
+        assert any("Models" in lb for lb in labels)
 
     def test_no_microphone_submenu(self, tray):
         """Microphone selection is in Electron app, not tray menu."""
@@ -484,7 +486,6 @@ class TestWrapSystemExitHandling:
     def test_wrap_suppresses_system_exit(self):
         """ERR-QUIT-002: SystemExit must be suppressed (not re-raised)
         so pystray doesn't print a traceback."""
-        from voice_typer.server.tray import TrayIcon
 
         def cb_that_exits():
             raise SystemExit(0)
@@ -497,7 +498,6 @@ class TestWrapSystemExitHandling:
         """Simulates the real-world scenario: a controller's quit_app
         calls sys.exit(0), which raises SystemExit.  _wrap must suppress
         it so pystray doesn't print a traceback."""
-        from voice_typer.server.tray import TrayIcon
 
         class _ControllerThatExits:
             def quit_app(self):
@@ -510,7 +510,6 @@ class TestWrapSystemExitHandling:
 
     def test_wrap_passes_through_normal_callback(self):
         """Non-SystemExit callbacks should still work normally."""
-        from voice_typer.server.tray import TrayIcon
 
         called = []
         def cb():
@@ -523,7 +522,6 @@ class TestWrapSystemExitHandling:
     def test_wrap_propagates_non_system_exceptions(self):
         """Non-SystemExit exceptions must also propagate (not be
         converted to silent failures)."""
-        from voice_typer.server.tray import TrayIcon
 
         def cb_that_errors():
             raise RuntimeError("boom")

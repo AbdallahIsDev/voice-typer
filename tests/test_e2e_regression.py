@@ -1,4 +1,4 @@
-"""Round 9 E2E tests — verify the #2 extractions and STARTUP-3/5/7 fixes.
+"""E2E tests — verify the #2 extractions and STARTUP-3/5/7 fixes.
 
 Covers:
 - #2: ModelManager / RecordingController / HotkeyDispatcher extracted from app.py
@@ -6,14 +6,13 @@ Covers:
 - STARTUP-5: POSIX prewarm scheduler (macOS LaunchAgent + Linux systemd)
 - STARTUP-7: Windows autostart uses Task Scheduler logon trigger (with Run-key fallback)
 """
-import sys
-import os
-import json
-import tempfile
 import inspect
-import pytest
+import json
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 sys.path.insert(0, '/home/z/my-project/voice-typer-repo')
 

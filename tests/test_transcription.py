@@ -4,10 +4,14 @@ All faster_whisper imports are mocked so these tests run on any platform
 without GPU or model downloads.
 """
 
-import sys
+import contextlib
 import os
+import sys
+import threading
+from unittest.mock import MagicMock, patch
+
+import numpy as np
 import pytest
-from unittest.mock import MagicMock, patch, call
 
 
 @pytest.fixture(autouse=True)
@@ -32,7 +36,6 @@ class TestFallbackChain:
 
         engine = TranscriptionEngine(model_size="small.en", device="auto")
         # Force all WhisperModel calls to fail
-        import voice_typer.server.transcription as mod
         mod_obj = sys.modules.get("faster_whisper")
         # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.side_effect = RuntimeError("mkl_malloc: failed to allocate memory")
@@ -55,7 +58,6 @@ class TestFallbackChain:
         from voice_typer.server.transcription import TranscriptionEngine
 
         engine = TranscriptionEngine(model_size="small.en", device="cuda")
-        import voice_typer.server.transcription as mod
         mod_obj = sys.modules.get("faster_whisper")
         # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.side_effect = RuntimeError("fail")
@@ -65,7 +67,7 @@ class TestFallbackChain:
 
         # pyrefly: ignore [missing-attribute]
         first_call = mod_obj.WhisperModel.call_args_list[0]
-        args, kwargs = first_call[0], first_call[1] if len(first_call) > 1 else {}
+        _args, kwargs = first_call[0], first_call[1] if len(first_call) > 1 else {}
         assert kwargs["device"] == "cuda"
         assert kwargs["compute_type"] == "float16"
 
@@ -74,7 +76,6 @@ class TestFallbackChain:
         from voice_typer.server.transcription import TranscriptionEngine
 
         engine = TranscriptionEngine(model_size="small.en", device="cuda")
-        import voice_typer.server.transcription as mod
         mod_obj = sys.modules.get("faster_whisper")
         # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.side_effect = RuntimeError("fail")
@@ -96,7 +97,6 @@ class TestFallbackChain:
         from voice_typer.server.transcription import TranscriptionEngine
 
         engine = TranscriptionEngine(model_size="medium.en", device="cuda")
-        import voice_typer.server.transcription as mod
         mod_obj = sys.modules.get("faster_whisper")
         # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.side_effect = RuntimeError("fail")
@@ -121,7 +121,6 @@ class TestFallbackChain:
 
         engine = TranscriptionEngine(model_size="small.en", device="cuda")
         mock_model = MagicMock()
-        import voice_typer.server.transcription as mod
         mod_obj = sys.modules.get("faster_whisper")
 
         # First call (CUDA) fails, second call (CPU/int8) succeeds
@@ -144,7 +143,6 @@ class TestFallbackChain:
 
         engine = TranscriptionEngine(model_size="small.en", device="cuda")
         mock_model = MagicMock()
-        import voice_typer.server.transcription as mod
         mod_obj = sys.modules.get("faster_whisper")
 
         # All fail except the last (float32/tiny.en)
@@ -171,7 +169,6 @@ class TestFallbackChain:
 
         engine = TranscriptionEngine(model_size="small.en", device="auto")
         mock_model = MagicMock()
-        import voice_typer.server.transcription as mod
         mod_obj = sys.modules.get("faster_whisper")
 
         # Force resolution to CPU (auto with no CUDA)
@@ -233,7 +230,6 @@ class TestLoadIdempotent:
 
         engine = TranscriptionEngine(model_size="small.en", device="cpu")
         mock_model = MagicMock()
-        import voice_typer.server.transcription as mod
         mod_obj = sys.modules.get("faster_whisper")
         # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.return_value = mock_model
@@ -304,7 +300,6 @@ class TestTranscribeWithFallback:
     def test_gpu_error_triggers_cpu_fallback(self):
         """GPU cuBLAS error triggers model reload on CPU and retry."""
         import numpy as np
-        import voice_typer.server.transcription as mod
         mod_obj = sys.modules.get("faster_whisper")
 
         engine, mock_model = self._make_engine_with_model()
@@ -329,7 +324,6 @@ class TestTranscribeWithFallback:
     def test_transcribe_words_gpu_error_triggers_cpu_fallback(self):
         """Timestamped streaming transcription should use the same GPU fallback."""
         import numpy as np
-        import voice_typer.server.transcription as mod
         from voice_typer.server.streaming import WordTiming
         mod_obj = sys.modules.get("faster_whisper")
 
@@ -448,7 +442,6 @@ class TestTranscribeWithFallback:
 class TestTranscribeWords:
     def test_transcribe_words_passes_timestamp_options_and_applies_offset(self):
         import numpy as np
-
         from voice_typer.server.streaming import WordTiming
         from voice_typer.server.transcription import TranscriptionEngine
 
@@ -529,9 +522,9 @@ class TestM9GpuMemoryFree:
     def test_transcribe_with_fallback_frees_gpu_memory(self):
         """GPU fallback should del model and gc.collect before reload."""
         import gc as real_gc
+
         import numpy as np
         from voice_typer.server.transcription import TranscriptionEngine
-        import voice_typer.server.transcription as mod
 
         engine = TranscriptionEngine(model_size="small.en", device="cuda")
         engine._device = "cuda"
@@ -562,9 +555,9 @@ class TestM9GpuMemoryFree:
     def test_transcribe_words_with_fallback_frees_gpu_memory(self):
         """GPU words fallback should del model and gc.collect before reload."""
         import gc as real_gc
+
         import numpy as np
         from voice_typer.server.transcription import TranscriptionEngine
-        import voice_typer.server.transcription as mod
 
         engine = TranscriptionEngine(model_size="small.en", device="cuda")
         engine._device = "cuda"
@@ -697,13 +690,9 @@ The fix:
    recomputation when it's provided.
 """
 
-import threading
-
-import numpy as np
-
-from voice_typer.server.config import Config
-from voice_typer.server.recording import Recorder
-from voice_typer.server.transcription import TranscriptionEngine
+from voice_typer.server.config import Config  # noqa: E402
+from voice_typer.server.recording import Recorder  # noqa: E402
+from voice_typer.server.transcription import TranscriptionEngine  # noqa: E402
 
 
 def _make_recorder__010() -> Recorder:
@@ -805,18 +794,14 @@ class TestTranscriptionEngineAcceptsAudioStats:
             sqrt_calls.append(args)
             return original_sqrt(*args, **kwargs)
 
-        with patch("voice_typer.server.transcription.np.sqrt", counting_sqrt):
+        with patch("voice_typer.server.transcription.np.sqrt", counting_sqrt), \
+             contextlib.suppress(Exception):
             # With audio_stats provided, sqrt should NOT be called for
             # the stats computation (it might still be called by the
             # whisper model, but the stats block is skipped).
             # We can't easily distinguish, so we just verify the call
             # succeeds and the stats are used as-is.
-            try:
-                result = eng._transcribe_unlocked(audio, audio_stats=(0.123, 0.456, 25.0))
-            except Exception:
-                # The mock model might raise; we only care that the
-                # stats block didn't recompute.
-                pass
+            eng._transcribe_unlocked(audio, audio_stats=(0.123, 0.456, 25.0))
 
         # The stats block uses np.sqrt(np.mean(np.square(audio))).
         # If audio_stats was provided, this exact pattern should NOT
@@ -864,6 +849,7 @@ class TestPipelinePassesStatsThrough:
         ``transcribe_with_fallback(audio, audio_stats=self._audio_stats)``.
         """
         import inspect
+
         from voice_typer.server.dictation_pipeline import DictationPipeline
 
         source = inspect.getsource(DictationPipeline._transcribe)

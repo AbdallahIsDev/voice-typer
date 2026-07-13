@@ -16,7 +16,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 # ─── permission_error_is_permission_denied ─────────────────────────────────
 
 
@@ -118,18 +117,20 @@ class TestLinuxInputAccessCheck:
 
     @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux-only test (requires grp module)")
     def test_returns_denied_when_input_group_missing(self, monkeypatch):
-        from voice_typer.server.permissions import _check_linux_input_access, PermissionState
         # Mock grp.getgrnam to raise KeyError (group doesn't exist)
         import grp as grp_module
+
+        from voice_typer.server.permissions import PermissionState, _check_linux_input_access
         monkeypatch.setattr(grp_module, "getgrnam", lambda name: (_ for _ in ()).throw(KeyError(name)))
         result = _check_linux_input_access()
         assert result == PermissionState.DENIED
 
     @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux-only test (requires grp module)")
     def test_returns_granted_when_in_group_and_device_readable(self, monkeypatch, tmp_path):
-        from voice_typer.server.permissions import _check_linux_input_access, PermissionState
         import grp as grp_module
         import os as os_module
+
+        from voice_typer.server.permissions import PermissionState, _check_linux_input_access
 
         # Mock the input group to contain the current user
         class FakeGroup:
@@ -209,8 +210,8 @@ class TestPermissionRetry:
 
     def test_schedule_then_cancel(self):
         from voice_typer.server.permissions import (
-            schedule_permission_retry,
             cancel_permission_retry,
+            schedule_permission_retry,
         )
         cb = MagicMock()
         schedule_permission_retry(cb, interval=0.01, max_attempts=1)
@@ -325,8 +326,9 @@ class TestLinuxPkexecHelper:
         permissions._open_linux_pkexec_prompt()
 
     def test_pkexec_available_invokes_subprocess(self, monkeypatch):
-        from voice_typer.server import permissions
         from pathlib import Path
+
+        from voice_typer.server import permissions
         monkeypatch.setattr(permissions.shutil, "which", lambda cmd: "/usr/bin/pkexec" if cmd == "pkexec" else None)
         monkeypatch.setattr(permissions, "_find_linux_install_script",
                             lambda: Path("/fake/install_permissions.py"))

@@ -1,8 +1,8 @@
 """Tests for voice_typer.cloud_engines — CloudEngine factory and API."""
 
-import json
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import MagicMock, patch
 
 
 class TestCloudEngineFactory:
@@ -60,15 +60,15 @@ class TestCloudEngineProtocol:
         assert "whisper-large-v3" in engine.loaded_via
 
     def test_transcribe_empty_audio(self):
-        from voice_typer.server.cloud_engines import CloudEngine
         import numpy as np
+        from voice_typer.server.cloud_engines import CloudEngine
         engine = CloudEngine(provider="openai", api_key="test-key", consent_given=True)
         result = engine.transcribe(np.array([], dtype=np.float32))
         assert result == ""
 
     def test_transcribe_with_fallback(self):
-        from voice_typer.server.cloud_engines import CloudEngine
         import numpy as np
+        from voice_typer.server.cloud_engines import CloudEngine
         engine = CloudEngine(provider="openai", api_key="test-key", consent_given=True)
         # Should delegate to transcribe
         audio = np.zeros(16000, dtype=np.float32)
@@ -110,8 +110,8 @@ class TestCloudEngineUrlAllowlist:
     def test_openai_compatible_rejects_untrusted_url(self):
         """_send_openai_compatible raises ValueError before any HTTP
         request is made when api_url points to an untrusted host."""
-        from voice_typer.server.cloud_engines import CloudEngine
         import numpy as np
+        from voice_typer.server.cloud_engines import CloudEngine
         engine = CloudEngine(
             provider="openai",
             api_key="sk-test",
@@ -123,8 +123,8 @@ class TestCloudEngineUrlAllowlist:
             engine.transcribe(np.zeros(16000, dtype=np.float32))
 
     def test_deepgram_rejects_untrusted_url(self):
-        from voice_typer.server.cloud_engines import CloudEngine
         import numpy as np
+        from voice_typer.server.cloud_engines import CloudEngine
         engine = CloudEngine(
             provider="deepgram",
             api_key="test-token",
@@ -137,8 +137,8 @@ class TestCloudEngineUrlAllowlist:
 
     def test_openai_default_url_allowed(self):
         """The default provider URL must pass the allowlist check."""
-        from voice_typer.server.cloud_engines import CloudEngine
         import numpy as np
+        from voice_typer.server.cloud_engines import CloudEngine
         engine = CloudEngine(provider="openai", api_key="sk-test", consent_given=True)
         # Should not raise on the allowlist check; the actual HTTP
         # request will fail (no network) but the error should be a
@@ -148,8 +148,8 @@ class TestCloudEngineUrlAllowlist:
 
     def test_localhost_self_hosted_allowed(self):
         """Local self-hosted endpoints (Ollama, vLLM) must work."""
-        from voice_typer.server.cloud_engines import CloudEngine
         import numpy as np
+        from voice_typer.server.cloud_engines import CloudEngine
         engine = CloudEngine(
             provider="openai",
             api_key="sk-test",
@@ -184,9 +184,10 @@ class TestCloudEngineKeyRedaction:
     def test_runtime_error_message_excludes_key(self):
         """The RuntimeError raised on HTTP failure must not contain
         the API key, even if the underlying URLError did."""
-        from voice_typer.server.cloud_engines import CloudEngine
         from urllib.error import URLError
+
         import numpy as np
+        from voice_typer.server.cloud_engines import CloudEngine
 
         engine = CloudEngine(
             provider="openai",
@@ -204,15 +205,15 @@ class TestCloudEngineKeyRedaction:
         with patch(
             "voice_typer.server.cloud_engines._opener.open",
             side_effect=URLError("connection refused to https://api.openai.com/"),
-        ):
-            with pytest.raises(RuntimeError) as exc_info:
-                engine.transcribe(np.zeros(16000, dtype=np.float32))
+        ), pytest.raises(RuntimeError) as exc_info:
+            engine.transcribe(np.zeros(16000, dtype=np.float32))
         assert key not in str(exc_info.value)
 
     def test_test_connection_redacts_key_in_message(self):
         """test_connection's failure message must not contain the key."""
-        from voice_typer.server.cloud_engines import CloudEngine
         from urllib.error import URLError
+
+        from voice_typer.server.cloud_engines import CloudEngine
 
         key = "sk-abcdefghijklmnopqrstuvwxyz1234567890ABCDEF"
         engine = CloudEngine(provider="openai", api_key=key, consent_given=True)
@@ -242,8 +243,8 @@ class TestDeepgramUrlParameterInjection:
     def test_rejects_model_name_with_ampersand(self):
         """A model_name containing '&' must be rejected before any
         HTTP request is made."""
-        from voice_typer.server.cloud_engines import CloudEngine
         import numpy as np
+        from voice_typer.server.cloud_engines import CloudEngine
         engine = CloudEngine(
             provider="deepgram",
             api_key="test-token",
@@ -255,8 +256,8 @@ class TestDeepgramUrlParameterInjection:
             engine.transcribe(np.zeros(16000, dtype=np.float32))
 
     def test_rejects_language_with_special_chars(self):
-        from voice_typer.server.cloud_engines import CloudEngine
         import numpy as np
+        from voice_typer.server.cloud_engines import CloudEngine
         engine = CloudEngine(
             provider="deepgram",
             api_key="test-token",
@@ -291,8 +292,8 @@ class TestDeepgramUrlParameterInjection:
 
     def test_rejects_path_traversal_in_model(self):
         """Model name containing '../' must be rejected."""
-        from voice_typer.server.cloud_engines import CloudEngine
         import numpy as np
+        from voice_typer.server.cloud_engines import CloudEngine
         engine = CloudEngine(
             provider="deepgram",
             api_key="test-token",

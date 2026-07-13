@@ -22,13 +22,7 @@ Covers:
 
 from __future__ import annotations
 
-import sys
 import threading
-from pathlib import Path
-from typing import Optional
-from unittest.mock import MagicMock, patch
-
-import pytest
 
 from voice_typer.server.volume_backend import VolumeBackend, VolumeState
 from voice_typer.server.volume_backends import (
@@ -36,7 +30,6 @@ from voice_typer.server.volume_backends import (
     MacVolumeBackend,
 )
 from voice_typer.server.volume_ducker import VolumeDucker
-
 
 # ── Shared FakeBackend (matches the one in test_volume_ducker.py) ───────
 
@@ -53,7 +46,7 @@ class FakeBackend(VolumeBackend):
         self._current = current
         self._muted = muted
         self._speaker_active = speaker_active
-        self.set_calls: list[tuple[float, Optional[bool]]] = []
+        self.set_calls: list[tuple[float, bool | None]] = []
         self.fade_calls: list[tuple[float, int]] = []
         self.is_speaker_active_calls: int = 0
 
@@ -68,10 +61,10 @@ class FakeBackend(VolumeBackend):
     def initialize(self) -> bool:
         return True
 
-    def get_state(self) -> Optional[VolumeState]:
+    def get_state(self) -> VolumeState | None:
         return VolumeState(linear=self._current, muted=self._muted)
 
-    def set_linear(self, level: float, muted: Optional[bool] = None) -> bool:
+    def set_linear(self, level: float, muted: bool | None = None) -> bool:
         self._current = max(0.0, min(1.0, level))
         if muted is not None:
             self._muted = muted
@@ -373,23 +366,6 @@ class TestLinuxAlsaProcfs:
         # Patch Path("/proc/asound") to point at tmp_path
         import voice_typer.server.volume_backends as vb_mod
         original_path = vb_mod.Path
-        class FakePath:
-            def __init__(self, p):
-                self._p = str(p)
-            def exists(self):
-                return str(tmp_path) == self._p
-            def iterdir(self):
-                if self._p == str(tmp_path):
-                    return iter([original_path(str(card))])
-                return iter([])
-            def glob(self, pattern):
-                # delegate to real Path.glob on the card dir
-                if "pcm*p" in pattern:
-                    return original_path(str(card)).glob(pattern)
-                return iter([])
-        # This is tricky because Path is used as a constructor and as
-        # method calls. Simpler: monkeypatch the module's Path to a
-        # function that returns real Path objects rooted at tmp_path.
         def fake_path(p):
             if str(p) == "/proc/asound":
                 return original_path(str(tmp_path))
@@ -406,7 +382,7 @@ class TestLinuxAlsaProcfs:
         sub.mkdir(parents=True)
         (sub / "status").write_text("state: IDLE\n")
         import voice_typer.server.volume_backends as vb_mod
-        original_path = vb_mod.Path
+        original_path = vb_mod.Path  # noqa: F841 — used in fake_path closure
         def fake_path(p):
             if str(p) == "/proc/asound":
                 return original_path(str(tmp_path))
@@ -418,7 +394,7 @@ class TestLinuxAlsaProcfs:
         """If /proc/asound doesn't exist (non-Linux), return True (duck anyway)."""
         b = LinuxVolumeBackend()
         import voice_typer.server.volume_backends as vb_mod
-        original_path = vb_mod.Path
+        original_path = vb_mod.Path  # noqa: F841 — used in fake_path closure
         class FakePath:
             def __init__(self, p):
                 self._p = str(p)
@@ -546,7 +522,9 @@ class TestSmartDuckConcurrency:
 
         t1 = threading.Thread(target=duck_call)
         t2 = threading.Thread(target=restore_call)
-        t1.start(); t2.start()
-        t1.join(timeout=2.0); t2.join(timeout=2.0)
+        t1.start()
+        t2.start()
+        t1.join(timeout=2.0)
+        t2.join(timeout=2.0)
 
         assert not errors

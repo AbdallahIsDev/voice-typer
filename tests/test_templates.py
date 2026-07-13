@@ -1,8 +1,8 @@
 """Tests for voice_typer.templates — TemplateManager CRUD, match, variables."""
 
 import json
+
 import pytest
-from pathlib import Path
 
 
 @pytest.fixture

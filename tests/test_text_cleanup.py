@@ -170,8 +170,9 @@ class TestExternalCorrectionsFallback:
 
     def test_load_external_corrections_returns_corrections_when_file_exists(self, tmp_path, monkeypatch):
         """When corrections file exists, returns merged corrections."""
-        from voice_typer.server import text_cleanup
         import json
+
+        from voice_typer.server import text_cleanup
         monkeypatch.setattr(text_cleanup, "_BUNDLED_CORRECTIONS_PATH", tmp_path / "nonexistent.json")
         corrections_file = tmp_path / "voice-typer-corrections.json"
         corrections_file.write_text(json.dumps({
@@ -198,6 +199,7 @@ class TestExternalCorrectionsFallback:
     def test_cleanup_merges_external_corrections(self, tmp_path):
         """External corrections are merged with built-in defaults."""
         import json
+
         from voice_typer.server.text_cleanup import configure_corrections
         corrections_file = tmp_path / "voice-typer-corrections.json"
         corrections_file.write_text(json.dumps({
@@ -215,7 +217,7 @@ class TestFileExtensionFix:
 
     def test_file_extension_not_mangled(self):
         """'features. md' should become 'Features.md', NOT 'features.Md'.
-        
+
         The key bug was _capitalize_sentences capitalizing after the dot,
         producing 'features.Md'. Now _fix_file_extensions runs after
         capitalization and correctly collapses to lowercase extension.
@@ -268,8 +270,9 @@ class TestConfigureCorrectionsSurfacesLoadErrors:
 
     def test_returns_none_for_valid_json(self, tmp_path):
         """Valid user corrections file → None (no error)."""
-        from voice_typer.server.text_cleanup import configure_corrections
         import json
+
+        from voice_typer.server.text_cleanup import configure_corrections
         good_file = tmp_path / "voice-typer-corrections.json"
         good_file.write_text(json.dumps({"misspellings": {"teh": "the"}}), encoding="utf-8")
         result = configure_corrections(config_dir=tmp_path)
@@ -451,12 +454,13 @@ class TestCorruptionsRecoveryWithBuiltins:
         configure_corrections(config_dir=tmp_path)
 
         result = clean_transcribed_text("hello hello world")
-        assert "Hello world" == result
+        assert result == "Hello world"
 
     def test_app_recreates_corrections_json_after_corruption(self, tmp_path):
         """TEST-016: After corruption, calling configure_corrections()
         with a valid file should recreate it successfully."""
         import json
+
         from voice_typer.server.text_cleanup import configure_corrections
 
         # First, load with corrupted file
@@ -491,7 +495,7 @@ class TestCorrectionsJsonIsValid:
         bundled = Path(__file__).resolve().parent.parent / "voice_typer" / "server" / "corrections.json"
         assert bundled.exists(), f"corrections.json not found at {bundled}"
 
-        with open(bundled, "r", encoding="utf-8") as f:
+        with open(bundled, encoding="utf-8") as f:
             data = json.load(f)
 
         assert isinstance(data, dict), "corrections.json root must be a dict"
@@ -606,9 +610,9 @@ class TestTextCleanupAdditionalParametrized:
         words = result.lower().split()
         # Check that no adjacent duplicate bigrams exist
         for i in range(len(words) - 1):
-            bigram = f"{words[i]} {words[i+1]}"
+            f"{words[i]} {words[i+1]}"
             if i + 3 <= len(words):
-                next_bigram = f"{words[i+2]} {words[i+3]}" if i + 3 < len(words) else ""
+                f"{words[i+2]} {words[i+3]}" if i + 3 < len(words) else ""
                 # Should not have identical consecutive bigrams
                 # (unless it's an intentional repeat like "no no")
                 pass

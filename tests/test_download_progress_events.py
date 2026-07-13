@@ -7,12 +7,14 @@ Verifies that:
 - Tray notifications fire on completion and on failure.
 - The progress value is clamped to [0, 100].
 """
-import sys
 import os
+import sys
+
 sys.path.insert(0, '/home/z/my-project/voice-typer-repo')
 
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import MagicMock, patch
 from voice_typer.server.service import VoiceTyperService
 
 

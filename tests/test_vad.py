@@ -1,6 +1,7 @@
-import numpy as np
 import sys
 from unittest.mock import MagicMock
+
+import numpy as np
 
 
 class _MockTensor:

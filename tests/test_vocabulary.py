@@ -1,8 +1,8 @@
 """Tests for voice_typer.vocabulary — VocabularyManager CRUD, merge, apply."""
 
 import json
+
 import pytest
-from pathlib import Path
 
 
 @pytest.fixture

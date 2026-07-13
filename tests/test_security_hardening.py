@@ -14,15 +14,10 @@ Tests cover:
 
 import json
 import logging
-import os
-import stat
 import sys
-import tempfile
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
 
 # ─── SEC-audit-005: Model Integrity Verification ──────────────────────────
 
@@ -62,8 +57,9 @@ class TestModelIntegritySHA256:
 
     def test_compute_file_sha256(self, tmp_path):
         """compute_file_sha256 returns correct SHA-256 digest."""
-        from voice_typer.server.security import compute_file_sha256
         import hashlib
+
+        from voice_typer.server.security import compute_file_sha256
         test_file = tmp_path / "test.bin"
         content = b"hello world"
         test_file.write_bytes(content)
@@ -157,7 +153,8 @@ class TestMutexLocalPrefix:
     def test_mutex_name_has_local_prefix(self):
         """SEC-001: The mutex name in app.py uses Local\\ prefix."""
         import voice_typer.server.app as app_module
-        source = open(app_module.__file__, "r").read()
+        with open(app_module.__file__) as f:
+            source = f.read()
         assert 'Local\\\\VoiceTyperSingleInstance' in source or \
                '"Local\\VoiceTyperSingleInstance"' in source
 
@@ -238,8 +235,8 @@ class TestHallucinationLogging:
         config_file = tmp_path / "config.json"
         config_data = {"log_transcriptions": True, "schema_version": 1}
         config_file.write_text(json.dumps(config_data), encoding="utf-8")
-        with patch("voice_typer.server.config._config_dir", return_value=tmp_path):
-            with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
+        with patch("voice_typer.server.config._config_dir", return_value=tmp_path), \
+             caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
                 cfg = Config.load()
         assert cfg.log_transcriptions is True
         # The privacy warning should appear in the log
@@ -254,7 +251,6 @@ class TestCorrectionsLimits:
 
     def test_max_corrections_entries_constant(self):
         """SEC-011: MAX_CORRECTIONS_ENTRIES is 5000."""
-        from voice_typer.server.text_cleanup import _load_external_corrections
         # The constant is used inside the function; verify indirectly
         # by checking that the vocabulary module also defines it
         from voice_typer.server.vocabulary import MAX_CORRECTIONS_ENTRIES
@@ -272,7 +268,7 @@ class TestCorrectionsLimits:
 
     def test_long_pattern_rejected_in_vocabulary(self, tmp_path):
         """SEC-011: VocabularyManager.add_entry rejects patterns > MAX_PATTERN_LENGTH."""
-        from voice_typer.server.vocabulary import VocabularyManager, MAX_PATTERN_LENGTH
+        from voice_typer.server.vocabulary import MAX_PATTERN_LENGTH, VocabularyManager
         vm = VocabularyManager(config_dir=tmp_path, bundled_path=tmp_path / "noop.json")
         long_key = "x" * (MAX_PATTERN_LENGTH + 1)
         result = vm.add_entry("misspellings", long_key, "value")
@@ -280,7 +276,7 @@ class TestCorrectionsLimits:
 
     def test_long_replacement_rejected_in_vocabulary(self, tmp_path):
         """SEC-011: VocabularyManager.add_entry rejects replacements > MAX_REPLACEMENT_LENGTH."""
-        from voice_typer.server.vocabulary import VocabularyManager, MAX_REPLACEMENT_LENGTH
+        from voice_typer.server.vocabulary import MAX_REPLACEMENT_LENGTH, VocabularyManager
         vm = VocabularyManager(config_dir=tmp_path, bundled_path=tmp_path / "noop.json")
         long_value = "x" * (MAX_REPLACEMENT_LENGTH + 1)
         result = vm.add_entry("misspellings", "key", long_value)
@@ -288,7 +284,7 @@ class TestCorrectionsLimits:
 
     def test_long_phrase_pattern_rejected(self, tmp_path):
         """SEC-011: VocabularyManager.add_phrase rejects patterns > MAX_PATTERN_LENGTH."""
-        from voice_typer.server.vocabulary import VocabularyManager, MAX_PATTERN_LENGTH
+        from voice_typer.server.vocabulary import MAX_PATTERN_LENGTH, VocabularyManager
         vm = VocabularyManager(config_dir=tmp_path, bundled_path=tmp_path / "noop.json")
         long_wrong = "x" * (MAX_PATTERN_LENGTH + 1)
         result = vm.add_phrase("phrase_corrections", long_wrong, "correct")
@@ -297,7 +293,6 @@ class TestCorrectionsLimits:
     def test_text_cleanup_drops_oversized_patterns(self, tmp_path):
         """SEC-011: _load_external_corrections drops patterns exceeding MAX_PATTERN_LENGTH."""
         from voice_typer.server.text_cleanup import _load_external_corrections
-        from voice_typer.server.vocabulary import BUNDLED_CORRECTIONS_PATH
         # Create a corrections file with an oversized pattern
         corrections_file = tmp_path / "corrections.json"
         long_pattern = "x" * 300  # > MAX_PATTERN_LENGTH (200)
@@ -315,9 +310,8 @@ class TestCorrectionsLimits:
     def test_phrase_pattern_cache_has_lru_eviction(self):
         """SEC-011: _phrase_pattern_cache evicts oldest entries when full."""
         from voice_typer.server.text_cleanup import (
-            _get_compiled_phrase_pattern,
-            _phrase_pattern_cache,
             _PHRASE_PATTERN_CACHE_MAXSIZE,
+            _get_compiled_phrase_pattern,
         )
         # The cache should have a maximum size
         assert _PHRASE_PATTERN_CACHE_MAXSIZE > 0
@@ -348,7 +342,8 @@ class TestSystemRootValidation:
     def test_systemroot_validation_called_in_app(self):
         """SEC-audit-011: _validate_systemroot is called in _validate_env_vars."""
         import voice_typer.server.app as app_module
-        source = open(app_module.__file__, "r").read()
+        with open(app_module.__file__) as f:
+            source = f.read()
         assert "_validate_systemroot" in source
 
 
@@ -372,25 +367,29 @@ class TestSecureFileWrites:
     def test_duck_crash_recovery_uses_secure_write(self):
         """SEC-003: DuckCrashRecovery.save uses _secure_atomic_write."""
         import voice_typer.server.duck_crash_recovery as mod
-        source = open(mod.__file__, "r").read()
+        with open(mod.__file__) as f:
+            source = f.read()
         assert "_secure_atomic_write" in source
 
     def test_onboarding_uses_secure_write(self):
         """SEC-003: OnboardingManager.mark_complete uses _secure_atomic_write."""
         import voice_typer.server.onboarding as mod
-        source = open(mod.__file__, "r").read()
+        with open(mod.__file__) as f:
+            source = f.read()
         assert "_secure_atomic_write" in source
 
     def test_autostart_launcher_uses_secure_write(self):
         """SEC-003: _write_pid_file uses _secure_atomic_write."""
         import voice_typer.server.autostart_launcher as mod
-        source = open(mod.__file__, "r").read()
+        with open(mod.__file__) as f:
+            source = f.read()
         assert "_secure_atomic_write" in source
 
     def test_security_restart_token_uses_secure_write(self):
         """SEC-003: generate_restart_token uses _secure_atomic_write."""
         import voice_typer.server.security as mod
-        source = open(mod.__file__, "r").read()
+        with open(mod.__file__) as f:
+            source = f.read()
         assert "_secure_atomic_write" in source
 
 
@@ -403,14 +402,16 @@ class TestAudioBufferZeroing:
     def test_recording_source_has_zeroing(self):
         """SEC-audit-008: recording.py contains chunk.fill(0) for buffer zeroing."""
         import voice_typer.server.recording as mod
-        source = open(mod.__file__, "r").read()
+        with open(mod.__file__) as f:
+            source = f.read()
         assert "chunk.fill(0)" in source
         assert "SEC-audit-008" in source
 
     def test_preroll_buffer_zeroing(self):
         """SEC-audit-008: preroll_buffer is also zeroed before clear."""
         import voice_typer.server.recording as mod
-        source = open(mod.__file__, "r").read()
+        with open(mod.__file__) as f:
+            source = f.read()
         # The preroll buffer should also be zeroed
         # Find the section that zeros the preroll buffer
         assert "_preroll_buffer" in source
@@ -433,30 +434,35 @@ class TestSecureReadUsage:
     def test_vocabulary_loads_use_secure_read(self):
         """SEC-002: VocabularyManager._load_bundled and _load_user use _secure_read_text."""
         import voice_typer.server.vocabulary as mod
-        source = open(mod.__file__, "r").read()
+        with open(mod.__file__) as f:
+            source = f.read()
         assert "_secure_read_text" in source
 
     def test_text_cleanup_uses_secure_read(self):
         """SEC-002: text_cleanup._load_external_corrections uses _secure_read_text."""
         import voice_typer.server.text_cleanup as mod
-        source = open(mod.__file__, "r").read()
+        with open(mod.__file__) as f:
+            source = f.read()
         assert "_secure_read_text" in source
 
     def test_config_load_uses_secure_read(self):
         """SEC-002: Config.load uses _secure_read_text for config.json."""
         import voice_typer.server.config as mod
-        source = open(mod.__file__, "r").read()
+        with open(mod.__file__) as f:
+            source = f.read()
         # Config.load should use _secure_read_text
         assert "_secure_read_text(config_file)" in source
 
     def test_duck_crash_recovery_uses_secure_read(self):
         """SEC-002: DuckCrashRecovery.load_stale uses _secure_read_text."""
         import voice_typer.server.duck_crash_recovery as mod
-        source = open(mod.__file__, "r").read()
+        with open(mod.__file__) as f:
+            source = f.read()
         assert "_secure_read_text" in source
 
     def test_security_verify_restart_uses_secure_read(self):
         """SEC-002: verify_restart_token uses _secure_read_text."""
         import voice_typer.server.security as mod
-        source = open(mod.__file__, "r").read()
+        with open(mod.__file__) as f:
+            source = f.read()
         assert "_secure_read_text" in source

@@ -54,6 +54,4 @@ TEST_COMMAND = (
 def pre_mutation(context):
     """Called before each mutation. Return False to skip."""
     # Skip mutations in string literals (too many false positives)
-    if context.node.type == ast.Str if hasattr(ast, 'Str') else isinstance(context.node, ast.Constant):
-        return False
-    return True
+    return not (context.node.type == ast.Str if hasattr(ast, 'Str') else isinstance(context.node, ast.Constant))

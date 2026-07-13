@@ -15,9 +15,10 @@ by ``_cleanup_done``) so the atexit safety net can call it
 unconditionally without double-flushing.
 """
 
-import pytest
+import contextlib
 from unittest.mock import MagicMock
 
+import pytest
 
 # ── Fixtures ────────────────────────────────────────────────────────────
 #
@@ -121,10 +122,8 @@ class TestRestartAppSharedCleanup:
         """
         _stub_restart_environment(app, monkeypatch)
 
-        try:
+        with contextlib.suppress(SystemExit):
             app.restart_app()
-        except SystemExit:
-            pass
 
         app.history_db.flush.assert_called_once()
 
@@ -139,10 +138,8 @@ class TestRestartAppSharedCleanup:
         """
         _stub_restart_environment(app, monkeypatch)
 
-        try:
+        with contextlib.suppress(SystemExit):
             app.restart_app()
-        except SystemExit:
-            pass
 
         # _do_cleanup calls recorder.stop() when recorder.recording is
         # truthy, falling back to recorder.discard() if stop() raises.
@@ -170,10 +167,8 @@ class TestRestartAppSharedCleanup:
             lambda: clear_calls.append(True),
         )
 
-        try:
+        with contextlib.suppress(SystemExit):
             app.restart_app()
-        except SystemExit:
-            pass
 
         assert clear_calls == [True], (
             "restart_app must call _clear_backend_pid_file() so the next "
@@ -193,10 +188,8 @@ class TestRestartAppSharedCleanup:
         """
         _stub_restart_environment(app, monkeypatch)
 
-        try:
+        with contextlib.suppress(SystemExit):
             app.restart_app()
-        except SystemExit:
-            pass
 
         app._crash_recovery.flush.assert_called_once()
         app._crash_recovery.shutdown.assert_called_once()
@@ -214,10 +207,8 @@ class TestRestartAppSharedCleanup:
         """
         _stub_restart_environment(app, monkeypatch)
 
-        try:
+        with contextlib.suppress(SystemExit):
             app.restart_app()
-        except SystemExit:
-            pass
 
         app.recorder.shutdown_mic_watcher.assert_called_once()
 
@@ -227,10 +218,8 @@ class TestRestartAppSharedCleanup:
         RW-3 refactor extracts them into _do_cleanup()."""
         _stub_restart_environment(app, monkeypatch)
 
-        try:
+        with contextlib.suppress(SystemExit):
             app.restart_app()
-        except SystemExit:
-            pass
 
         app.hotkeys._hotkey_backend.stop.assert_called_once()
         app.hotkeys._esc_backend.stop.assert_called_once()
@@ -242,10 +231,8 @@ class TestRestartAppSharedCleanup:
         _do_cleanup()."""
         _stub_restart_environment(app, monkeypatch)
 
-        try:
+        with contextlib.suppress(SystemExit):
             app.restart_app()
-        except SystemExit:
-            pass
 
         app.tray.stop.assert_called_once()
 
@@ -271,10 +258,8 @@ class TestRestartAppSharedCleanup:
 
         monkeypatch.setattr(app, "_do_cleanup", spy_do_cleanup)
 
-        try:
+        with contextlib.suppress(SystemExit):
             app.restart_app()
-        except SystemExit:
-            pass
 
         assert flag_values_at_cleanup_entry == [True], (
             "restart_app must set _shutting_down=True BEFORE calling "
@@ -447,10 +432,8 @@ class TestQuitAppUsesSharedCleanup:
         into _do_cleanup()."""
         _stub_restart_environment(app, monkeypatch)
 
-        try:
+        with contextlib.suppress(SystemExit):
             app.quit()
-        except SystemExit:
-            pass
 
         app.history_db.flush.assert_called_once()
 
@@ -464,10 +447,8 @@ class TestQuitAppUsesSharedCleanup:
             lambda: clear_calls.append(True),
         )
 
-        try:
+        with contextlib.suppress(SystemExit):
             app.quit()
-        except SystemExit:
-            pass
 
         assert clear_calls == [True]
 
@@ -476,10 +457,8 @@ class TestQuitAppUsesSharedCleanup:
         discard()) after the refactor."""
         _stub_restart_environment(app, monkeypatch)
 
-        try:
+        with contextlib.suppress(SystemExit):
             app.quit()
-        except SystemExit:
-            pass
 
         assert app.recorder.stop.called or app.recorder.discard.called
 
@@ -497,10 +476,8 @@ class TestQuitAppUsesSharedCleanup:
 
         monkeypatch.setattr(app, "_do_cleanup", spy)
 
-        try:
+        with contextlib.suppress(SystemExit):
             app.quit()
-        except SystemExit:
-            pass
 
         assert do_cleanup_calls == [True], (
             "quit() must call _do_cleanup() exactly once"

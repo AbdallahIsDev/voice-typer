@@ -1,20 +1,21 @@
 """Tests for PLAT-CLIPRACE, PLAT-SECURE, PLAT-STUCK, SEC-012 clipboard fixes."""
 import sys
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 
 @pytest.fixture
 def clipboard():
     """Create a ClipboardManager with mocked keyboard."""
-    with patch("voice_typer.server.clipboard._ensure_pynput_imported"):
-        with patch("voice_typer.server.clipboard._Controller") as mock_ctrl:
-            mock_instance = MagicMock()
-            mock_ctrl.return_value = mock_instance
-            from voice_typer.server.clipboard import ClipboardManager
-            cm = ClipboardManager(paste_enabled=True)
-            cm._keyboard = mock_instance
-            return cm
+    with patch("voice_typer.server.clipboard._ensure_pynput_imported"), \
+            patch("voice_typer.server.clipboard._Controller") as mock_ctrl:
+        mock_instance = MagicMock()
+        mock_ctrl.return_value = mock_instance
+        from voice_typer.server.clipboard import ClipboardManager
+        cm = ClipboardManager(paste_enabled=True)
+        cm._keyboard = mock_instance
+        return cm
 
 
 def test_safe_paste_target_non_windows(clipboard):

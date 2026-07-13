@@ -22,14 +22,11 @@ Verifies that:
 
 from __future__ import annotations
 
-import os
 import sys
-import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-
 
 # ── Helpers (mirror tests/test_model_import.py) ──────────────────────
 
@@ -242,8 +239,8 @@ class TestImportPathValidationHandler:
         ``service.import_model``."""
         # Prime the circular import.
         import voice_typer.server.ipc_server  # noqa: F401
-        from voice_typer.server.handlers.model_handlers import ModelHandlersMixin
         from voice_typer.server import config as cfg
+        from voice_typer.server.handlers.model_handlers import ModelHandlersMixin
 
         # Point all allowed roots at tmp_path subdirs so we can construct
         # a guaranteed-outside path.
@@ -286,8 +283,8 @@ class TestImportPathValidationHandler:
         and delegates to ``service.import_model``."""
         # Prime the circular import.
         import voice_typer.server.ipc_server  # noqa: F401
-        from voice_typer.server.handlers.model_handlers import ModelHandlersMixin
         from voice_typer.server import config as cfg
+        from voice_typer.server.handlers.model_handlers import ModelHandlersMixin
 
         fake_home = tmp_path / "home"
         fake_home.mkdir()
@@ -574,9 +571,9 @@ class TestIsPathWithin:
         from voice_typer.server.config import _is_path_within
         user = tmp_path / "user"
         user.mkdir()
-        userX = tmp_path / "userX"
-        userX.mkdir()
-        assert _is_path_within(userX, user) is False
+        user_x = tmp_path / "userX"
+        user_x.mkdir()
+        assert _is_path_within(user_x, user) is False
 
     def test_dotdot_resolved_before_comparison(self, tmp_path):
         """``parent/sub/../sub`` resolves to ``parent/sub`` and is

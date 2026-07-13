@@ -20,7 +20,6 @@ from voice_typer.server.ai_enhancement import (
 )
 from voice_typer.server.config import Config
 
-
 # ─── auto_capitalize ────────────────────────────────────────────────────────
 
 

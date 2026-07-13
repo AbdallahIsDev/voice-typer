@@ -8,7 +8,6 @@ RW-6 extends ``PIIRedactionFilter`` to also redact:
 import logging
 import sys
 
-
 # ─── SEC-009: existing PII patterns (unchanged behavior) ──────────────────
 
 

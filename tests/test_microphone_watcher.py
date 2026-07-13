@@ -20,13 +20,10 @@ import os
 import sys
 import threading
 import time
-from ctypes import wintypes
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from voice_typer.server.microphone_watcher import MicrophoneDeviceWatcher
-
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -159,8 +156,6 @@ class TestMicrophoneDeviceWatcher:
     def test_watcher_logs_warning_on_callback_exception(self, caplog):
         """If the callback raises, a warning is logged and the thread continues."""
         state = {"entries": ["controlC0"]}
-        second_event = threading.Event()
-
         def raising_callback() -> None:
             # Raise on every call — the watcher should log and continue.
             raise RuntimeError("boom from callback")
@@ -271,8 +266,8 @@ class TestRecorderWatcherIntegration:
         # Patch the watcher class so no real thread is spawned.
         with patch(
             "voice_typer.server.microphone_watcher.MicrophoneDeviceWatcher"
-        ) as MockWatcher:
-            mock_instance = MockWatcher.return_value
+        ) as mock_watcher:
+            mock_instance = mock_watcher.return_value
             from voice_typer.server.recording import Recorder
 
             config = MagicMock(sample_rate=16000, microphone=None)
@@ -280,7 +275,7 @@ class TestRecorderWatcherIntegration:
 
             # Watcher was instantiated with the invalidation callback
             # and start() was called.
-            MockWatcher.assert_called_once()
+            mock_watcher.assert_called_once()
             assert mock_instance.start.called
             assert r._mic_watcher is mock_instance
             r.shutdown_mic_watcher()
@@ -289,8 +284,8 @@ class TestRecorderWatcherIntegration:
         """``shutdown_mic_watcher`` calls ``stop()`` on the watcher and clears the ref."""
         with patch(
             "voice_typer.server.microphone_watcher.MicrophoneDeviceWatcher"
-        ) as MockWatcher:
-            mock_instance = MockWatcher.return_value
+        ) as mock_watcher:
+            mock_instance = mock_watcher.return_value
             from voice_typer.server.recording import Recorder
 
             config = MagicMock(sample_rate=16000, microphone=None)
@@ -329,8 +324,8 @@ class TestRecorderWatcherIntegration:
         """``__del__`` does not raise even when the watcher is active."""
         with patch(
             "voice_typer.server.microphone_watcher.MicrophoneDeviceWatcher"
-        ) as MockWatcher:
-            mock_instance = MockWatcher.return_value
+        ) as mock_watcher:
+            mock_instance = mock_watcher.return_value
             from voice_typer.server.recording import Recorder
 
             config = MagicMock(sample_rate=16000, microphone=None)

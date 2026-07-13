@@ -16,14 +16,12 @@ import re
 from pathlib import Path
 
 import pytest
-
 from voice_typer.server.config_validators import (
     _RESERVED_HOTKEYS,
     _platform_key,
     _validate_hotkey,
     validate_config_update,
 )
-
 
 # ──────────────────────────────────────────────────────────────────────────
 # 1. Frontend ↔ backend sync

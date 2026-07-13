@@ -31,8 +31,9 @@ tests now exercise the real contract.
 from __future__ import annotations
 
 import sys
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 class TestElevatedFocusHandling:

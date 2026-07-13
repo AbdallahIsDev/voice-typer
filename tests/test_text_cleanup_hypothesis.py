@@ -7,12 +7,12 @@ TEST-013: Fuzzing for _load_external_corrections() with random JSON-like inputs.
 from __future__ import annotations
 
 import json
-import pytest
 
+import pytest
 from voice_typer.server.text_cleanup import clean_transcribed_text, configure_corrections
 
 try:
-    from hypothesis import given, assume, settings, HealthCheck
+    from hypothesis import HealthCheck, assume, given, settings
     from hypothesis import strategies as st
 
     HAS_HYPOTHESIS = True
@@ -27,7 +27,7 @@ except ImportError:
     def assume(condition):
         pass
 
-    class settings:
+    class settings:  # noqa: N801 — matches hypothesis.settings name
         def __init__(self, **kwargs):
             pass
         def __call__(self, func):
@@ -36,7 +36,7 @@ except ImportError:
     class HealthCheck:
         too_slow = None
 
-    class st:
+    class st:  # noqa: N801 — matches hypothesis.strategies alias
         @staticmethod
         def text(**kwargs):
             return None

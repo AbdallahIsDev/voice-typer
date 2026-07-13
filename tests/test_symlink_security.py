@@ -8,13 +8,11 @@ the config directory. Only on POSIX (skip on Windows).
 from __future__ import annotations
 
 import json
-import os
 import sys
-import pytest
-from pathlib import Path
 
-from voice_typer.server.text_cleanup import configure_corrections
+import pytest
 from voice_typer.server.config import Config
+from voice_typer.server.text_cleanup import configure_corrections
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX symlink tests")
@@ -40,7 +38,6 @@ class TestSymlinkConfigAttack:
 
         # Load and save config — the symlink target should NOT be overwritten
         c = Config.load()
-        original_content = sensitive.read_text(encoding="utf-8")
 
         # The sensitive file content should either be preserved or the
         # symlink should be replaced with a regular file

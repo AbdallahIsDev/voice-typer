@@ -79,14 +79,14 @@ class _KEYBDINPUT(ctypes.Structure):
     KEYUP = 0x0002
 
 
-class _INPUT_union(ctypes.Union):
+class _InputUnion(ctypes.Union):
     _fields_ = (("ki", _KEYBDINPUT),)
 
 
 class _INPUT(ctypes.Structure):
     _fields_ = (
         ("type", wintypes.DWORD),
-        ("ii", _INPUT_union),
+        ("ii", _InputUnion),
     )
     KEYBOARD = 1
 
@@ -100,7 +100,7 @@ def _make_pynput_win32_module(sendinput_return: int = 4) -> types.ModuleType:
     mod = types.ModuleType("pynput._util.win32")
     mod.INPUT = _INPUT
     mod.KEYBDINPUT = _KEYBDINPUT
-    mod.INPUT_union = _INPUT_union
+    mod.INPUT_union = _InputUnion
     mod.SendInput = MagicMock(return_value=sendinput_return)
     return mod
 
@@ -370,9 +370,9 @@ class TestIsElevatedTargetWindows:
         fake_target_ptr.__getitem__.return_value = 1  # target_elevated=True
         fake_our_ptr = MagicMock()
         fake_our_ptr.__getitem__.return_value = 0  # we_elevated=False
-        with patch("ctypes.cast", side_effect=[fake_target_ptr, fake_our_ptr]):
-            with patch.object(clip_mod, "log") as mock_log:
-                result = _is_elevated_target()
+        with patch("ctypes.cast", side_effect=[fake_target_ptr, fake_our_ptr]), \
+                patch.object(clip_mod, "log") as mock_log:
+            result = _is_elevated_target()
         assert result is True
         mock_log.warning.assert_called()
 
@@ -514,14 +514,14 @@ class TestIsPasswordFieldWindows:
         """No focused window → False (comtypes path returns False too)."""
         fake_win32["user32"].GetForegroundWindow.return_value = 0
         # Make comtypes import fail so we exercise the ImportError branch.
-        with patch.dict(sys.modules, {"comtypes": None, "comtypes.client": None}):
-            with patch.object(clip_mod, "log"):
-                with patch(
+        with patch.dict(sys.modules, {"comtypes": None, "comtypes.client": None}), \
+                patch.object(clip_mod, "log"), \
+                patch(
                     "voice_typer.server.clipboard._focused_window_is_credential_dialog",
                     return_value=False,
                 ):
-                    # Function should not raise; returns False.
-                    result = _is_password_field()
+            # Function should not raise; returns False.
+            result = _is_password_field()
         assert result is False
 
     def test_returns_true_for_password_field_via_uia(self, fake_win32):
@@ -545,9 +545,8 @@ class TestIsPasswordFieldWindows:
         with patch.dict(
             sys.modules,
             {"comtypes": fake_comtypes, "comtypes.client": fake_comtypes_client},
-        ):
-            with patch.object(clip_mod, "log") as mock_log:
-                result = _is_password_field()
+        ), patch.object(clip_mod, "log") as mock_log:
+            result = _is_password_field()
         assert result is True
         mock_log.warning.assert_called()
         # Verify UIA was queried for the password property (id 30022).
@@ -597,13 +596,13 @@ class TestIsPasswordFieldWindows:
         # ImportError on ``import comtypes.client`` — no need to patch
         # builtins.__import__ (which would break the outer ``import ctypes``
         # and cause the function to bail out before reaching the heuristic).
-        with patch.dict(sys.modules, {"comtypes": None, "comtypes.client": None}):
-            with patch.object(clip_mod, "log"):
-                with patch(
+        with patch.dict(sys.modules, {"comtypes": None, "comtypes.client": None}), \
+                patch.object(clip_mod, "log"), \
+                patch(
                     "voice_typer.server.clipboard._focused_window_is_credential_dialog",
                     return_value=False,
                 ) as mock_cred:
-                    result = _is_password_field()
+            result = _is_password_field()
         assert result is False
         mock_cred.assert_called_once()
 
@@ -611,13 +610,13 @@ class TestIsPasswordFieldWindows:
         self, fake_win32
     ):
         """comtypes ImportError + credential dialog → True (fail closed)."""
-        with patch.dict(sys.modules, {"comtypes": None, "comtypes.client": None}):
-            with patch.object(clip_mod, "log"):
-                with patch(
+        with patch.dict(sys.modules, {"comtypes": None, "comtypes.client": None}), \
+                patch.object(clip_mod, "log"), \
+                patch(
                     "voice_typer.server.clipboard._focused_window_is_credential_dialog",
                     return_value=True,
                 ):
-                    result = _is_password_field()
+            result = _is_password_field()
         assert result is True
 
     def test_returns_false_on_uia_call_exception(self, fake_win32):
@@ -631,22 +630,21 @@ class TestIsPasswordFieldWindows:
         with patch.dict(
             sys.modules,
             {"comtypes": fake_comtypes, "comtypes.client": fake_comtypes_client},
-        ):
-            with patch.object(clip_mod, "log"):
-                result = _is_password_field()
+        ), patch.object(clip_mod, "log"):
+            result = _is_password_field()
         assert result is False
 
     def test_returns_false_on_outer_exception(self, fake_win32):
         """Any unexpected exception in the outer try → False."""
         # comtypes not installed so we hit the cred-dialog fallback,
         # which itself raises → outer except catches.
-        with patch.dict(sys.modules, {"comtypes": None, "comtypes.client": None}):
-            with patch.object(clip_mod, "log"):
-                with patch(
+        with patch.dict(sys.modules, {"comtypes": None, "comtypes.client": None}), \
+                patch.object(clip_mod, "log"), \
+                patch(
                     "voice_typer.server.clipboard._focused_window_is_credential_dialog",
                     side_effect=RuntimeError("cred dialog broke"),
                 ):
-                    result = _is_password_field()
+            result = _is_password_field()
         # Outer except catches and returns False.
         assert result is False
 
@@ -849,11 +847,10 @@ class TestIsSafePasteTargetWindows:
         fake_win32["buf"].return_value.value = "Edit"  # safe class
         with patch(
             "voice_typer.server.clipboard._is_elevated_target", return_value=True
+        ), patch(
+            "voice_typer.server.clipboard._is_password_field", return_value=False
         ):
-            with patch(
-                "voice_typer.server.clipboard._is_password_field", return_value=False
-            ):
-                result = ClipboardManager._is_safe_paste_target()
+            result = ClipboardManager._is_safe_paste_target()
         assert result is False
 
     def test_returns_false_when_password_field(self, fake_win32):
@@ -861,11 +858,10 @@ class TestIsSafePasteTargetWindows:
         fake_win32["buf"].return_value.value = "Edit"
         with patch(
             "voice_typer.server.clipboard._is_elevated_target", return_value=False
+        ), patch(
+            "voice_typer.server.clipboard._is_password_field", return_value=True
         ):
-            with patch(
-                "voice_typer.server.clipboard._is_password_field", return_value=True
-            ):
-                result = ClipboardManager._is_safe_paste_target()
+            result = ClipboardManager._is_safe_paste_target()
         assert result is False
 
     def test_returns_true_for_normal_window(self, fake_win32):
@@ -873,15 +869,13 @@ class TestIsSafePasteTargetWindows:
         fake_win32["buf"].return_value.value = "Edit"
         with patch(
             "voice_typer.server.clipboard._is_elevated_target", return_value=False
+        ), patch(
+            "voice_typer.server.clipboard._is_password_field", return_value=False
+        ), patch(
+            "voice_typer.server.clipboard._is_content_editable",
+            return_value=False,
         ):
-            with patch(
-                "voice_typer.server.clipboard._is_password_field", return_value=False
-            ):
-                with patch(
-                    "voice_typer.server.clipboard._is_content_editable",
-                    return_value=False,
-                ):
-                    result = ClipboardManager._is_safe_paste_target()
+            result = ClipboardManager._is_safe_paste_target()
         assert result is True
 
     def test_returns_true_when_content_editable_logged(self, fake_win32):
@@ -889,16 +883,13 @@ class TestIsSafePasteTargetWindows:
         fake_win32["buf"].return_value.value = "Edit"
         with patch(
             "voice_typer.server.clipboard._is_elevated_target", return_value=False
-        ):
-            with patch(
-                "voice_typer.server.clipboard._is_password_field", return_value=False
-            ):
-                with patch(
-                    "voice_typer.server.clipboard._is_content_editable",
-                    return_value=True,
-                ):
-                    with patch.object(clip_mod, "log") as mock_log:
-                        result = ClipboardManager._is_safe_paste_target()
+        ), patch(
+            "voice_typer.server.clipboard._is_password_field", return_value=False
+        ), patch(
+            "voice_typer.server.clipboard._is_content_editable",
+            return_value=True,
+        ), patch.object(clip_mod, "log") as mock_log:
+            result = ClipboardManager._is_safe_paste_target()
         assert result is True
         mock_log.info.assert_called()
 
@@ -918,12 +909,10 @@ class TestIsSafePasteTargetWindows:
         with patch(
             "voice_typer.server.clipboard._is_elevated_target",
             side_effect=RuntimeError("boom"),
-        ):
-            with patch(
-                "voice_typer.server.clipboard._is_password_field", return_value=False
-            ):
-                with patch.object(clip_mod, "log"):
-                    result = ClipboardManager._is_safe_paste_target()
+        ), patch(
+            "voice_typer.server.clipboard._is_password_field", return_value=False
+        ), patch.object(clip_mod, "log"):
+            result = ClipboardManager._is_safe_paste_target()
         assert result is True
 
     def test_returns_true_when_content_editable_check_raises(self, fake_win32):
@@ -931,16 +920,13 @@ class TestIsSafePasteTargetWindows:
         fake_win32["buf"].return_value.value = "Edit"
         with patch(
             "voice_typer.server.clipboard._is_elevated_target", return_value=False
-        ):
-            with patch(
-                "voice_typer.server.clipboard._is_password_field", return_value=False
-            ):
-                with patch(
-                    "voice_typer.server.clipboard._is_content_editable",
-                    side_effect=RuntimeError("boom"),
-                ):
-                    with patch.object(clip_mod, "log"):
-                        result = ClipboardManager._is_safe_paste_target()
+        ), patch(
+            "voice_typer.server.clipboard._is_password_field", return_value=False
+        ), patch(
+            "voice_typer.server.clipboard._is_content_editable",
+            side_effect=RuntimeError("boom"),
+        ), patch.object(clip_mod, "log"):
+            result = ClipboardManager._is_safe_paste_target()
         assert result is True
 
 
@@ -1059,9 +1045,8 @@ class TestCopyWindowsBranches:
         cm = self._make_cm()
         mock_pyper = MagicMock()
         mock_pyper.paste.return_value = "old clipboard"
-        with patch.object(clip_mod, "pyperclip", mock_pyper):
-            with patch.object(clip_mod, "log"):
-                result = cm.copy("new text")
+        with patch.object(clip_mod, "pyperclip", mock_pyper), patch.object(clip_mod, "log"):
+            result = cm.copy("new text")
         assert result is True
         assert cm._saved_clipboard == "old clipboard"
 
@@ -1073,9 +1058,8 @@ class TestCopyWindowsBranches:
         mock_pyper = MagicMock()
         # First paste() (save) raises; second paste() (verify) returns text.
         mock_pyper.paste.side_effect = [OSError("locked"), "new text"]
-        with patch.object(clip_mod, "pyperclip", mock_pyper):
-            with patch.object(clip_mod, "log"):
-                result = cm.copy("new text")
+        with patch.object(clip_mod, "pyperclip", mock_pyper), patch.object(clip_mod, "log"):
+            result = cm.copy("new text")
         assert result is True
         assert cm._saved_clipboard is None
 
@@ -1085,9 +1069,8 @@ class TestCopyWindowsBranches:
         cm._clipboard_save_restore_enabled = False
         mock_pyper = MagicMock()
         mock_pyper.paste.return_value = "old"
-        with patch.object(clip_mod, "pyperclip", mock_pyper):
-            with patch.object(clip_mod, "log"):
-                result = cm.copy("new text")
+        with patch.object(clip_mod, "pyperclip", mock_pyper), patch.object(clip_mod, "log"):
+            result = cm.copy("new text")
         assert result is True
         assert cm._saved_clipboard is None
         # paste() called only for verification, not for save
@@ -1104,10 +1087,9 @@ class TestCopyWindowsBranches:
         mock_pyper.copy.side_effect = [copy_err, copy_err, None]
         # paste() during verification returns the text → success.
         mock_pyper.paste.return_value = "hello"
-        with patch.object(clip_mod, "pyperclip", mock_pyper):
-            with patch.object(clip_mod, "time"):
-                with patch.object(clip_mod, "log"):
-                    result = cm.copy("hello")
+        with patch.object(clip_mod, "pyperclip", mock_pyper), patch.object(clip_mod, "time"), \
+                patch.object(clip_mod, "log"):
+            result = cm.copy("hello")
         assert result is True
         assert mock_pyper.copy.call_count == 3
 
@@ -1119,10 +1101,9 @@ class TestCopyWindowsBranches:
         copy_err.winerror = 5
         mock_pyper.copy.side_effect = copy_err  # always raises
         mock_pyper.paste.return_value = "hello"
-        with patch.object(clip_mod, "pyperclip", mock_pyper):
-            with patch.object(clip_mod, "time"):
-                with patch.object(clip_mod, "log"):
-                    result = cm.copy("hello")
+        with patch.object(clip_mod, "pyperclip", mock_pyper), patch.object(clip_mod, "time"), \
+                patch.object(clip_mod, "log"):
+            result = cm.copy("hello")
         assert result is False
         assert mock_pyper.copy.call_count == 3
 
@@ -1132,9 +1113,8 @@ class TestCopyWindowsBranches:
         mock_pyper = MagicMock()
         mock_pyper.copy.side_effect = OSError("other error")
         mock_pyper.paste.return_value = "hello"
-        with patch.object(clip_mod, "pyperclip", mock_pyper):
-            with patch.object(clip_mod, "log"):
-                result = cm.copy("hello")
+        with patch.object(clip_mod, "pyperclip", mock_pyper), patch.object(clip_mod, "log"):
+            result = cm.copy("hello")
         assert result is False
         # Only the first attempt — no retry.
         assert mock_pyper.copy.call_count == 1
@@ -1146,9 +1126,8 @@ class TestCopyWindowsBranches:
         mock_pyper.copy.return_value = None
         # All 3 paste() calls return mismatched text → loop runs to end.
         mock_pyper.paste.return_value = "wrong"
-        with patch.object(clip_mod, "pyperclip", mock_pyper):
-            with patch.object(clip_mod, "log") as mock_log:
-                result = cm.copy("expected")
+        with patch.object(clip_mod, "pyperclip", mock_pyper), patch.object(clip_mod, "log") as mock_log:
+            result = cm.copy("expected")
         assert result is True  # copy still returns True (best-effort)
         # Verify logged the verification-failed warning.
         warning_calls = [
@@ -1167,9 +1146,8 @@ class TestCopyWindowsBranches:
         mock_pyper = MagicMock()
         mock_pyper.copy.return_value = None
         mock_pyper.paste.side_effect = ["wrong", "expected"]
-        with patch.object(clip_mod, "pyperclip", mock_pyper):
-            with patch.object(clip_mod, "log"):
-                result = cm.copy("expected")
+        with patch.object(clip_mod, "pyperclip", mock_pyper), patch.object(clip_mod, "log"):
+            result = cm.copy("expected")
         assert result is True
 
     def test_copy_verification_swallows_paste_exception(self, fake_win32):
@@ -1180,9 +1158,8 @@ class TestCopyWindowsBranches:
         # First paste() during save succeeds (returns "old");
         # subsequent paste() during verification raise → swallowed.
         mock_pyper.paste.side_effect = ["old", OSError("boom"), OSError("boom"), OSError("boom")]
-        with patch.object(clip_mod, "pyperclip", mock_pyper):
-            with patch.object(clip_mod, "log"):
-                result = cm.copy("expected")
+        with patch.object(clip_mod, "pyperclip", mock_pyper), patch.object(clip_mod, "log"):
+            result = cm.copy("expected")
         assert result is True
 
 
@@ -1209,26 +1186,22 @@ class TestPasteWindowsBranches:
         cm._clipboard_seq = 10  # was 10 at copy time
         # _get_clipboard_sequence_number returns a different value now.
         mock_pyper = MagicMock()
-        with patch.object(clip_mod, "pyperclip", mock_pyper):
-            with patch.object(clip_mod, "time") as mock_time:
-                mock_time.monotonic.return_value = 100.0
-                mock_time.sleep = MagicMock()
-                with patch.object(
-                    ClipboardManager, "_get_clipboard_sequence_number",
-                    return_value=99,
-                ):
-                    with patch.object(
-                        ClipboardManager, "_is_safe_paste_target",
-                        return_value=True,
-                    ):
-                        with patch.object(
-                            ClipboardManager, "_detect_focused_process",
-                            return_value=None,
-                        ):
-                            with patch.object(
-                                ClipboardManager, "_send_ctrl_v_win32"
-                            ) as mock_send:
-                                result = cm.paste()
+        with patch.object(clip_mod, "pyperclip", mock_pyper), patch.object(clip_mod, "time") as mock_time:
+            mock_time.monotonic.return_value = 100.0
+            mock_time.sleep = MagicMock()
+            with patch.object(
+                ClipboardManager, "_get_clipboard_sequence_number",
+                return_value=99,
+            ), patch.object(
+                ClipboardManager, "_is_safe_paste_target",
+                return_value=True,
+            ), patch.object(
+                ClipboardManager, "_detect_focused_process",
+                return_value=None,
+            ), patch.object(
+                ClipboardManager, "_send_ctrl_v_win32"
+            ) as mock_send:
+                result = cm.paste()
         assert result is True
         # Re-copied _last_copied_text ("test")
         mock_pyper.copy.assert_any_call("test")
@@ -1240,27 +1213,22 @@ class TestPasteWindowsBranches:
         cm._clipboard_seq = 10
         mock_pyper = MagicMock()
         mock_pyper.copy.side_effect = OSError("re-copy failed")
-        with patch.object(clip_mod, "pyperclip", mock_pyper):
-            with patch.object(clip_mod, "time") as mock_time:
-                mock_time.monotonic.return_value = 100.0
-                mock_time.sleep = MagicMock()
-                with patch.object(
-                    ClipboardManager, "_get_clipboard_sequence_number",
-                    return_value=99,
-                ):
-                    with patch.object(
-                        ClipboardManager, "_is_safe_paste_target",
-                        return_value=True,
-                    ):
-                        with patch.object(
-                            ClipboardManager, "_detect_focused_process",
-                            return_value=None,
-                        ):
-                            with patch.object(
-                                ClipboardManager, "_send_ctrl_v_win32"
-                            ):
-                                with patch.object(clip_mod, "log") as mock_log:
-                                    result = cm.paste()
+        with patch.object(clip_mod, "pyperclip", mock_pyper), patch.object(clip_mod, "time") as mock_time:
+            mock_time.monotonic.return_value = 100.0
+            mock_time.sleep = MagicMock()
+            with patch.object(
+                ClipboardManager, "_get_clipboard_sequence_number",
+                return_value=99,
+            ), patch.object(
+                ClipboardManager, "_is_safe_paste_target",
+                return_value=True,
+            ), patch.object(
+                ClipboardManager, "_detect_focused_process",
+                return_value=None,
+            ), patch.object(
+                ClipboardManager, "_send_ctrl_v_win32"
+            ), patch.object(clip_mod, "log") as mock_log:
+                result = cm.paste()
         assert result is True
         # An error was logged for the re-copy failure.
         error_calls = [
@@ -1278,14 +1246,12 @@ class TestPasteWindowsBranches:
             mock_time.sleep = MagicMock()
             with patch.object(
                 ClipboardManager, "_is_safe_paste_target", return_value=True
-            ):
-                with patch.object(
-                    ClipboardManager, "_detect_focused_process", return_value=None
-                ):
-                    with patch.object(
-                        ClipboardManager, "_send_ctrl_v_win32"
-                    ) as mock_send:
-                        result = cm.paste()
+            ), patch.object(
+                ClipboardManager, "_detect_focused_process", return_value=None
+            ), patch.object(
+                ClipboardManager, "_send_ctrl_v_win32"
+            ) as mock_send:
+                result = cm.paste()
         assert result is True
         mock_send.assert_called_once()
 
@@ -1297,15 +1263,13 @@ class TestPasteWindowsBranches:
             mock_time.sleep = MagicMock()
             with patch.object(
                 ClipboardManager, "_is_safe_paste_target", return_value=True
-            ):
-                with patch.object(
-                    ClipboardManager, "_detect_focused_process",
-                    return_value="notepad.exe",
-                ):
-                    with patch.object(
-                        ClipboardManager, "_send_ctrl_v_win32"
-                    ) as mock_send:
-                        result = cm.paste()
+            ), patch.object(
+                ClipboardManager, "_detect_focused_process",
+                return_value="notepad.exe",
+            ), patch.object(
+                ClipboardManager, "_send_ctrl_v_win32"
+            ) as mock_send:
+                result = cm.paste()
         assert result is True
         mock_send.assert_called_once()
 
@@ -1321,15 +1285,13 @@ class TestPasteWindowsBranches:
                 mock_time.sleep = MagicMock()
                 with patch.object(
                     ClipboardManager, "_is_safe_paste_target", return_value=True
-                ):
-                    with patch.object(
-                        ClipboardManager, "_detect_focused_process",
-                        return_value="cmd.exe",
-                    ):
-                        with patch.object(
-                            ClipboardManager, "_send_ctrl_v_win32"
-                        ) as mock_send:
-                            result = cm.paste()
+                ), patch.object(
+                    ClipboardManager, "_detect_focused_process",
+                    return_value="cmd.exe",
+                ), patch.object(
+                    ClipboardManager, "_send_ctrl_v_win32"
+                ) as mock_send:
+                    result = cm.paste()
         assert result is True
         # _send_ctrl_v_win32 NOT called — terminal path used instead.
         mock_send.assert_not_called()
@@ -1350,17 +1312,17 @@ class TestPasteWindowsBranches:
                 # Override the is_windows=True from fake_win32 with
                 # is_macos=True so the macOS branch is taken.  We keep
                 # is_windows=False to avoid the Windows seq-check path.
-                with patch.object(clip_mod, "is_windows", return_value=False):
-                    with patch.object(clip_mod, "is_macos", return_value=True):
-                        with patch.object(
+                with patch.object(clip_mod, "is_windows", return_value=False), \
+                        patch.object(clip_mod, "is_macos", return_value=True), \
+                        patch.object(
                             ClipboardManager, "_is_safe_paste_target",
                             return_value=True,
+                        ), \
+                        patch.object(
+                            ClipboardManager, "_detect_focused_process",
+                            return_value="cmd.exe",
                         ):
-                            with patch.object(
-                                ClipboardManager, "_detect_focused_process",
-                                return_value="cmd.exe",
-                            ):
-                                result = cm.paste()
+                            result = cm.paste()
         assert result is True
         # Cmd+V pressed via _safe_key_press.
         cm._keyboard.press.assert_any_call("cmd_key")
@@ -1374,17 +1336,17 @@ class TestPasteWindowsBranches:
             with patch.object(clip_mod, "time") as mock_time:
                 mock_time.monotonic.return_value = 100.0
                 mock_time.sleep = MagicMock()
-                with patch.object(clip_mod, "is_windows", return_value=False):
-                    with patch.object(clip_mod, "is_macos", return_value=True):
-                        with patch.object(
+                with patch.object(clip_mod, "is_windows", return_value=False), \
+                        patch.object(clip_mod, "is_macos", return_value=True), \
+                        patch.object(
                             ClipboardManager, "_is_safe_paste_target",
                             return_value=True,
+                        ), \
+                        patch.object(
+                            ClipboardManager, "_detect_focused_process",
+                            return_value="notepad.exe",
                         ):
-                            with patch.object(
-                                ClipboardManager, "_detect_focused_process",
-                                return_value="notepad.exe",
-                            ):
-                                result = cm.paste()
+                            result = cm.paste()
         assert result is True
         cm._keyboard.press.assert_any_call("cmd_key")
         cm._keyboard.press.assert_any_call("v")
@@ -1401,19 +1363,15 @@ class TestPasteWindowsBranches:
             with patch.dict(
                 sys.modules,
                 {"voice_typer.server.server_platform": fake_platform},
-            ):
-                with patch.object(
-                    ClipboardManager, "_is_safe_paste_target", return_value=True
-                ):
-                    with patch.object(
-                        ClipboardManager, "_detect_focused_process",
-                        return_value=None,
-                    ):
-                        with patch.object(
-                            ClipboardManager, "_send_ctrl_v_win32"
-                        ):
-                            with patch.object(clip_mod, "log") as mock_log:
-                                result = cm.paste()
+            ), patch.object(
+                ClipboardManager, "_is_safe_paste_target", return_value=True
+            ), patch.object(
+                ClipboardManager, "_detect_focused_process",
+                return_value=None,
+            ), patch.object(
+                ClipboardManager, "_send_ctrl_v_win32"
+            ), patch.object(clip_mod, "log") as mock_log:
+                result = cm.paste()
         assert result is True
         # Verify RDP info log was emitted.
         info_calls = [
@@ -1435,18 +1393,15 @@ class TestPasteWindowsBranches:
             with patch.dict(
                 sys.modules,
                 {"voice_typer.server.server_platform": fake_platform},
+            ), patch.object(
+                ClipboardManager, "_is_safe_paste_target", return_value=True
+            ), patch.object(
+                ClipboardManager, "_detect_focused_process",
+                return_value=None,
+            ), patch.object(
+                ClipboardManager, "_send_ctrl_v_win32"
             ):
-                with patch.object(
-                    ClipboardManager, "_is_safe_paste_target", return_value=True
-                ):
-                    with patch.object(
-                        ClipboardManager, "_detect_focused_process",
-                        return_value=None,
-                    ):
-                        with patch.object(
-                            ClipboardManager, "_send_ctrl_v_win32"
-                        ):
-                            result = cm.paste()
+                result = cm.paste()
         assert result is True
 
     def test_paste_returns_false_when_unsafe_target(self, fake_win32):
@@ -1456,9 +1411,8 @@ class TestPasteWindowsBranches:
             mock_time.monotonic.return_value = 100.0
             with patch.object(
                 ClipboardManager, "_is_safe_paste_target", return_value=False
-            ):
-                with patch.object(clip_mod, "log") as mock_log:
-                    result = cm.paste()
+            ), patch.object(clip_mod, "log") as mock_log:
+                result = cm.paste()
         assert result is False
         info_calls = [
             c for c in mock_log.info.call_args_list
@@ -1474,16 +1428,13 @@ class TestPasteWindowsBranches:
             mock_time.sleep = MagicMock()
             with patch.object(
                 ClipboardManager, "_is_safe_paste_target", return_value=True
-            ):
-                with patch.object(
-                    ClipboardManager, "_detect_focused_process",
-                    return_value="winword.exe",
-                ):
-                    with patch.object(
-                        ClipboardManager, "_send_ctrl_v_win32"
-                    ):
-                        with patch.object(clip_mod, "log") as mock_log:
-                            result = cm.paste()
+            ), patch.object(
+                ClipboardManager, "_detect_focused_process",
+                return_value="winword.exe",
+            ), patch.object(
+                ClipboardManager, "_send_ctrl_v_win32"
+            ), patch.object(clip_mod, "log") as mock_log:
+                result = cm.paste()
         assert result is True
         rich_calls = [
             c for c in mock_log.info.call_args_list
@@ -1499,17 +1450,14 @@ class TestPasteWindowsBranches:
             mock_time.sleep = MagicMock()
             with patch.object(
                 ClipboardManager, "_is_safe_paste_target", return_value=True
-            ):
-                with patch.object(
-                    ClipboardManager, "_detect_focused_process",
-                    return_value=None,
-                ):
-                    with patch.object(
-                        ClipboardManager, "_send_ctrl_v_win32",
-                        side_effect=RuntimeError("sendinput broken"),
-                    ):
-                        with patch.object(clip_mod, "log"):
-                            result = cm.paste()
+            ), patch.object(
+                ClipboardManager, "_detect_focused_process",
+                return_value=None,
+            ), patch.object(
+                ClipboardManager, "_send_ctrl_v_win32",
+                side_effect=RuntimeError("sendinput broken"),
+            ), patch.object(clip_mod, "log"):
+                result = cm.paste()
         assert result is False
 
 
@@ -1552,11 +1500,10 @@ class TestSendCtrlVWin32:
     ):
         """SendInput returning 0 → log info, fall back to pynput."""
         cm = self._make_cm()
-        with self._patch_pynput_win32(sendinput_return=0) as mods:
-            with patch.object(clip_mod, "_Key") as mock_key:
-                mock_key.ctrl = "ctrl_key"
-                with patch.object(clip_mod, "log") as mock_log:
-                    cm._send_ctrl_v_win32()
+        with self._patch_pynput_win32(sendinput_return=0), patch.object(clip_mod, "_Key") as mock_key:
+            mock_key.ctrl = "ctrl_key"
+            with patch.object(clip_mod, "log") as mock_log:
+                cm._send_ctrl_v_win32()
         # pynput fallback called via _safe_key_press.
         cm._keyboard.press.assert_any_call("ctrl_key")
         cm._keyboard.press.assert_any_call("v")
@@ -1631,12 +1578,11 @@ class TestScheduleClipboardClearInner:
         cm._saved_clipboard = "old content"
         mock_pyper = MagicMock()
         mock_pyper.paste.return_value = "sensitive"  # clipboard unchanged
-        with patch.object(clip_mod, "pyperclip", mock_pyper):
-            with patch.object(clip_mod, "time"):
-                with patch.object(clip_mod, "log"):
-                    cm.schedule_clipboard_clear(delay=0.01)
-                    if cm._clear_thread is not None:
-                        cm._clear_thread.join(timeout=1.0)
+        with patch.object(clip_mod, "pyperclip", mock_pyper), patch.object(clip_mod, "time"), \
+                patch.object(clip_mod, "log"):
+            cm.schedule_clipboard_clear(delay=0.01)
+            if cm._clear_thread is not None:
+                cm._clear_thread.join(timeout=1.0)
         # pyperclip.copy called with saved content (restore path).
         mock_pyper.copy.assert_called_with("old content")
 
@@ -1648,12 +1594,11 @@ class TestScheduleClipboardClearInner:
         mock_pyper.paste.return_value = "sensitive"
         # First copy (restore) raises; second (clear) succeeds.
         mock_pyper.copy.side_effect = [OSError("restore failed"), None]
-        with patch.object(clip_mod, "pyperclip", mock_pyper):
-            with patch.object(clip_mod, "time"):
-                with patch.object(clip_mod, "log"):
-                    cm.schedule_clipboard_clear(delay=0.01)
-                    if cm._clear_thread is not None:
-                        cm._clear_thread.join(timeout=1.0)
+        with patch.object(clip_mod, "pyperclip", mock_pyper), patch.object(clip_mod, "time"), \
+                patch.object(clip_mod, "log"):
+            cm.schedule_clipboard_clear(delay=0.01)
+            if cm._clear_thread is not None:
+                cm._clear_thread.join(timeout=1.0)
         # Second copy call used empty string to clear.
         assert mock_pyper.copy.call_count == 2
         second_args, _ = mock_pyper.copy.call_args_list[1]
@@ -1675,16 +1620,15 @@ class TestScheduleClipboardClearInner:
         fake_config = MagicMock()
         fake_config.clipboard_save_restore = False
         fake_config.clipboard_clear_delay_seconds = 0.01
-        with patch.object(clip_mod, "pyperclip", mock_pyper):
-            with patch.object(clip_mod, "time"):
-                with patch.object(clip_mod, "log"):
-                    with patch(
-                        "voice_typer.server.config.Config.load",
-                        return_value=fake_config,
-                    ):
-                        cm.schedule_clipboard_clear(delay=0.01)
-                        if cm._clear_thread is not None:
-                            cm._clear_thread.join(timeout=1.0)
+        with patch.object(clip_mod, "pyperclip", mock_pyper), patch.object(clip_mod, "time"), \
+                patch.object(clip_mod, "log"), \
+                patch(
+                    "voice_typer.server.config.Config.load",
+                    return_value=fake_config,
+                ):
+            cm.schedule_clipboard_clear(delay=0.01)
+            if cm._clear_thread is not None:
+                cm._clear_thread.join(timeout=1.0)
         mock_pyper.copy.assert_called_with("")
 
     def test_clear_skips_when_clipboard_changed(self, fake_win32):
@@ -1694,12 +1638,11 @@ class TestScheduleClipboardClearInner:
         mock_pyper = MagicMock()
         # User copied something else → current != saved_text → skip.
         mock_pyper.paste.return_value = "user's new copy"
-        with patch.object(clip_mod, "pyperclip", mock_pyper):
-            with patch.object(clip_mod, "time"):
-                with patch.object(clip_mod, "log") as mock_log:
-                    cm.schedule_clipboard_clear(delay=0.01)
-                    if cm._clear_thread is not None:
-                        cm._clear_thread.join(timeout=1.0)
+        with patch.object(clip_mod, "pyperclip", mock_pyper), patch.object(clip_mod, "time"), \
+                patch.object(clip_mod, "log") as mock_log:
+            cm.schedule_clipboard_clear(delay=0.01)
+            if cm._clear_thread is not None:
+                cm._clear_thread.join(timeout=1.0)
         # No copy call — clipboard not modified.
         mock_pyper.copy.assert_not_called()
         # Debug log emitted.
@@ -1716,44 +1659,40 @@ class TestScheduleClipboardClearInner:
         fake_config = MagicMock()
         fake_config.clipboard_clear_delay_seconds = 0.01
         fake_config.clipboard_save_restore = False
-        with patch.object(clip_mod, "pyperclip", MagicMock()):
-            with patch.object(clip_mod, "time"):
-                with patch.object(clip_mod, "log"):
-                    with patch(
-                        "voice_typer.server.config.Config.load",
-                        return_value=fake_config,
-                    ):
-                        cm.schedule_clipboard_clear(delay=0)
-                        if cm._clear_thread is not None:
-                            cm._clear_thread.join(timeout=1.0)
+        with patch.object(clip_mod, "pyperclip", MagicMock()), patch.object(clip_mod, "time"), \
+                patch.object(clip_mod, "log"), \
+                patch(
+                    "voice_typer.server.config.Config.load",
+                    return_value=fake_config,
+                ):
+            cm.schedule_clipboard_clear(delay=0)
+            if cm._clear_thread is not None:
+                cm._clear_thread.join(timeout=1.0)
         # Test passes if no exception was raised.
 
     def test_clear_falls_back_to_5s_on_config_exception(self, fake_win32):
         """If Config.load() raises, delay defaults to 5.0."""
         cm = self._make_cm()
-        with patch.object(clip_mod, "pyperclip", MagicMock()):
-            with patch.object(clip_mod, "time") as mock_time:
-                mock_time.sleep = MagicMock()
-                with patch.object(clip_mod, "log"):
-                    with patch(
-                        "voice_typer.server.config.Config.load",
-                        side_effect=RuntimeError("config broken"),
-                    ):
-                        cm.schedule_clipboard_clear(delay=0)
-                        # Don't join — would sleep 5s. Just verify thread started.
-                        assert cm._clear_thread is not None
+        with patch.object(clip_mod, "pyperclip", MagicMock()), patch.object(clip_mod, "time") as mock_time:
+            mock_time.sleep = MagicMock()
+            with patch.object(clip_mod, "log"), patch(
+                "voice_typer.server.config.Config.load",
+                side_effect=RuntimeError("config broken"),
+            ):
+                cm.schedule_clipboard_clear(delay=0)
+                # Don't join — would sleep 5s. Just verify thread started.
+                assert cm._clear_thread is not None
 
     def test_clear_swallows_pyperclip_paste_exception(self, fake_win32):
         """If pyperclip.paste() raises during clear check, current=None."""
         cm = self._make_cm()
         mock_pyper = MagicMock()
         mock_pyper.paste.side_effect = OSError("paste failed")
-        with patch.object(clip_mod, "pyperclip", mock_pyper):
-            with patch.object(clip_mod, "time"):
-                with patch.object(clip_mod, "log"):
-                    cm.schedule_clipboard_clear(delay=0.01)
-                    if cm._clear_thread is not None:
-                        cm._clear_thread.join(timeout=1.0)
+        with patch.object(clip_mod, "pyperclip", mock_pyper), patch.object(clip_mod, "time"), \
+                patch.object(clip_mod, "log"):
+            cm.schedule_clipboard_clear(delay=0.01)
+            if cm._clear_thread is not None:
+                cm._clear_thread.join(timeout=1.0)
         # current was None, so "sensitive" != None → skip path taken.
         # No copy call.
         mock_pyper.copy.assert_not_called()
@@ -1762,13 +1701,12 @@ class TestScheduleClipboardClearInner:
         """Any unexpected exception in _clear is swallowed."""
         cm = self._make_cm()
         # Make time.sleep raise to trigger outer except.
-        with patch.object(clip_mod, "pyperclip", MagicMock()):
-            with patch.object(clip_mod, "time") as mock_time:
-                mock_time.sleep.side_effect = RuntimeError("sleep broken")
-                with patch.object(clip_mod, "log"):
-                    cm.schedule_clipboard_clear(delay=0.01)
-                    if cm._clear_thread is not None:
-                        cm._clear_thread.join(timeout=1.0)
+        with patch.object(clip_mod, "pyperclip", MagicMock()), patch.object(clip_mod, "time") as mock_time:
+            mock_time.sleep.side_effect = RuntimeError("sleep broken")
+            with patch.object(clip_mod, "log"):
+                cm.schedule_clipboard_clear(delay=0.01)
+                if cm._clear_thread is not None:
+                    cm._clear_thread.join(timeout=1.0)
         # Test passes if no exception propagates from the thread.
 
 

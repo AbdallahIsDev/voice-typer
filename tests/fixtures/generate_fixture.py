@@ -7,9 +7,9 @@ Produces: tests/fixtures/test_440hz_1s_16k.wav
 Format: 16-bit PCM, mono, 16000 Hz sample rate, 1 second duration.
 """
 
+import math
 import struct
 import wave
-import math
 
 SAMPLE_RATE = 16000
 DURATION_S = 1.0

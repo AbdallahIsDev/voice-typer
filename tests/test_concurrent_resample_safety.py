@@ -20,7 +20,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 import pytest
-
 from voice_typer.server.config import Config
 from voice_typer.server.recording import Recorder
 
@@ -87,8 +86,8 @@ class TestResampleCacheConcurrentLoadSafety:
         with ThreadPoolExecutor(max_workers=8) as pool:
             futures = [pool.submit(consumer) for _ in range(8)]
             all_results = []
-            for fut in as_completed(futures, timeout=10):
-                all_results.extend(fut.result())
+            for _fut in as_completed(futures, timeout=10):
+                all_results.extend(_fut.result())
 
         stop.set()
         prod_thread.join(timeout=2)
@@ -144,7 +143,7 @@ class TestResampleCacheConcurrentLoadSafety:
 
         with ThreadPoolExecutor(max_workers=4) as pool:
             futures = [pool.submit(consumer) for _ in range(4)]
-            for fut in as_completed(futures, timeout=10):
+            for _fut in as_completed(futures, timeout=10):
                 pass
 
         stop.set()
@@ -155,11 +154,7 @@ class TestResampleCacheConcurrentLoadSafety:
         # After all threads complete, the cache should be consistent:
         # either empty or matching the current buffer length.
         with rec._lock:
-            buffer_len = len(rec._buffer)
             if rec._cached_resampled is not None and rec._cached_resampled.size > 0:
-                # The cached prefix should not exceed the buffer length
-                # (it's a prefix of the full recording).
-                cached_samples = rec._cached_resampled.size
                 # The cached prefix is based on _cached_native_chunk_count
                 # which must be <= current _chunk_count
                 assert rec._cached_native_chunk_count <= rec._chunk_count, (
@@ -215,7 +210,7 @@ class TestResampleCacheConcurrentLoadSafety:
 
         with ThreadPoolExecutor(max_workers=6) as pool:
             futures = [pool.submit(consumer) for _ in range(6)]
-            for fut in as_completed(futures, timeout=15):
+            for _fut in as_completed(futures, timeout=15):
                 pass
 
         stop.set()

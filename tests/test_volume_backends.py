@@ -25,9 +25,7 @@ Coverage
 from __future__ import annotations
 
 import sys
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from voice_typer.server.volume_backend import VolumeState
 from voice_typer.server.volume_backends import (
@@ -35,7 +33,6 @@ from voice_typer.server.volume_backends import (
     MacVolumeBackend,
     WinVolumeBackend,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Linux backend
@@ -355,7 +352,6 @@ class TestVolumeBackendFadeTo:
     discrete set_linear calls with equal-sized sleeps."""
 
     def test_fade_to_uses_set_linear(self):
-        from voice_typer.server.volume_backend import VolumeBackend
         # Use LinuxVolumeBackend to exercise the default fade_to
         # (it doesn't override).
         b = LinuxVolumeBackend()
@@ -382,7 +378,6 @@ class TestVolumeBackendFadeTo:
         assert set_calls[-1] == 0.8
 
     def test_fade_to_zero_duration_is_single_set(self):
-        from voice_typer.server.volume_backend import VolumeBackend
         b = LinuxVolumeBackend()
         b._tool = "pactl"
         b._run = lambda cmd, timeout=2.0: "ok"

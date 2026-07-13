@@ -1,17 +1,16 @@
 """Tests for streaming transcription planning and text assembly."""
 
-import numpy as np
 from unittest.mock import MagicMock
 
+import numpy as np
 from voice_typer.server.streaming import (
     AudioWindow,
     AudioWindowPlanner,
     StreamingConfig,
-    StreamingTranscriptionSession,
     StreamingTextAssembler,
+    StreamingTranscriptionSession,
     WordTiming,
 )
-
 
 SAMPLE_RATE = 16000
 
@@ -324,7 +323,9 @@ class TestConcurrentAccess:
         import threading
 
         from voice_typer.server.streaming import (
-            StreamingTranscriptionSession, StreamingConfig, WordTiming,
+            StreamingConfig,
+            StreamingTranscriptionSession,
+            WordTiming,
         )
 
         config = StreamingConfig(enabled=True, min_first_chunk_seconds=0.0)
@@ -551,7 +552,7 @@ class TestM17TransientErrorRetry:
             )
             session._max_consecutive_failures = max_fails
 
-            for i in range(max_fails):
+            for _ in range(max_fails):
                 session.process_available_audio_once()
                 # Reset planner to allow re-processing same audio
                 session.planner = AudioWindowPlanner(session.config)
@@ -699,8 +700,9 @@ class TestHypothesisAudioPipeline:
 
     def test_pcm_conversion_preserves_length(self):
         """For any array, the int16 output has the same length."""
-        from hypothesis import given, strategies as st, settings
         import numpy as np
+        from hypothesis import given, settings
+        from hypothesis import strategies as st
 
         @given(
             length=st.integers(min_value=0, max_value=1000),
@@ -716,8 +718,9 @@ class TestHypothesisAudioPipeline:
 
     def test_pcm_conversion_clamps_to_int16_range(self):
         """For any float values, int16 output is in [-32768, 32767]."""
-        from hypothesis import given, strategies as st, settings
         import numpy as np
+        from hypothesis import given, settings
+        from hypothesis import strategies as st
 
         @given(
             values=st.lists(
@@ -736,8 +739,9 @@ class TestHypothesisAudioPipeline:
 
     def test_zero_input_produces_zero_output(self):
         """All-zero float32 → all-zero int16."""
-        from hypothesis import given, strategies as st, settings
         import numpy as np
+        from hypothesis import given, settings
+        from hypothesis import strategies as st
 
         @given(length=st.integers(min_value=1, max_value=500))
         @settings(max_examples=20, deadline=5000)

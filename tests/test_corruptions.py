@@ -7,7 +7,6 @@ graceful recovery with defaults.
 from __future__ import annotations
 
 import json
-import pytest
 
 from voice_typer.server.text_cleanup import clean_transcribed_text, configure_corrections
 
@@ -93,7 +92,7 @@ class TestCorrectionsExplicitLoad:
         from pathlib import Path
         bundled = Path(__file__).resolve().parent.parent / "voice_typer" / "server" / "corrections.json"
         assert bundled.exists(), f"Bundled corrections.json not found at {bundled}"
-        with open(bundled, "r", encoding="utf-8") as f:
+        with open(bundled, encoding="utf-8") as f:
             data = json.load(f)
         assert isinstance(data, dict)
         assert "misspellings" in data

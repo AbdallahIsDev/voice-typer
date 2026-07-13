@@ -1,20 +1,17 @@
 """Tests for platform autostart adapters and microphone listing."""
 
 import sys
-import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
 
+import pytest
 from voice_typer.server import server_platform as platform_mod
 from voice_typer.server.server_platform import (
     _autostart_command,
     _generate_icon_ico,
     create_launcher_shortcut,
-    list_microphones,
     find_microphone_by_name,
-    enable_autostart,
-    disable_autostart,
-    is_autostart_enabled,
+    list_microphones,
 )
 
 
@@ -153,7 +150,6 @@ class TestFindMicrophoneByName:
         ]
         monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: fake_mics)
 
-        from voice_typer.server.server_platform import find_microphone_by_name
         result = find_microphone_by_name("wo mic")
         assert result is not None
         assert result["name"] == "WO Mic"
@@ -164,7 +160,6 @@ class TestFindMicrophoneByName:
             "voice_typer.server.server_platform.list_microphones",
             lambda: [{"id": "0", "index": 0, "name": "Built-in", "host_api": "", "channels": 2, "default": True}],
         )
-        from voice_typer.server.server_platform import find_microphone_by_name
         assert find_microphone_by_name("nonexistent mic") is None
 
     def test_case_insensitive(self, monkeypatch):
@@ -172,7 +167,6 @@ class TestFindMicrophoneByName:
             "voice_typer.server.server_platform.list_microphones",
             lambda: [{"id": "0", "index": 0, "name": "Blue Yeti", "host_api": "MME", "channels": 2, "default": False}],
         )
-        from voice_typer.server.server_platform import find_microphone_by_name
         assert find_microphone_by_name("BLUE YETI") is not None
 
 

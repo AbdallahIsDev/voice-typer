@@ -29,13 +29,13 @@ VK_F2 = 0x71
 def simulate_f2():
     """Simulate an F2 keypress using Win32 keybd_event."""
     user32 = ctypes.windll.user32
-    KEYEVENTF_KEYUP = 0x0002
+    keyeventf_keyup = 0x0002
 
     # Key down
     user32.keybd_event(VK_F2, 0, 0, 0)
     time.sleep(0.05)
     # Key up
-    user32.keybd_event(VK_F2, 0, KEYEVENTF_KEYUP, 0)
+    user32.keybd_event(VK_F2, 0, keyeventf_keyup, 0)
     print(f"  [SIM] F2 keypress simulated at {time.strftime('%H:%M:%S')}")
 
 def tail_log(log_file, timeout=60, stop_on=None):
@@ -49,7 +49,7 @@ def tail_log(log_file, timeout=60, stop_on=None):
             time.sleep(0.5)
             continue
         try:
-            with open(log_file, "r", encoding="utf-8", errors="replace") as f:
+            with open(log_file, encoding="utf-8", errors="replace") as f:
                 f.seek(offset)
                 new_lines = f.readlines()
                 offset = f.tell()
@@ -72,13 +72,13 @@ def wait_for_log(log_file, pattern, timeout=90):
     start = time.time()
     offset = 0
     if log_file.exists():
-        with open(log_file, "r", encoding="utf-8", errors="replace") as f:
+        with open(log_file, encoding="utf-8", errors="replace") as f:
             f.seek(0, 2)  # seek to end
             offset = f.tell()
 
     while time.time() - start < timeout:
         try:
-            with open(log_file, "r", encoding="utf-8", errors="replace") as f:
+            with open(log_file, encoding="utf-8", errors="replace") as f:
                 f.seek(offset)
                 new_lines = f.readlines()
                 offset = f.tell()
@@ -87,10 +87,10 @@ def wait_for_log(log_file, pattern, timeout=90):
                         print(f"  [FOUND] Pattern matched: {line.strip()}")
                         return True
                     if new_lines:
-                        for l in new_lines:
-                            l = l.strip()
-                            if l:
-                                print(f"  [LOG] {l}")
+                        for line in new_lines:
+                            line = line.strip()
+                            if line:
+                                print(f"  [LOG] {line}")
         except Exception:
             pass
         time.sleep(0.3)
@@ -149,7 +149,7 @@ def main():
     # Print current log state
     print("\n[4] Current log state after startup:")
     if LOG_FILE.exists():
-        with open(LOG_FILE, "r", encoding="utf-8", errors="replace") as f:
+        with open(LOG_FILE, encoding="utf-8", errors="replace") as f:
             for line in f:
                 safe = line.rstrip().encode("ascii", errors="replace").decode("ascii")
                 print(f"  {safe}")
@@ -202,7 +202,7 @@ def main():
     # 10. Read the complete log
     print("\n[10] ====== FRESH RUNTIME LOG ======")
     if LOG_FILE.exists():
-        with open(LOG_FILE, "r", encoding="utf-8", errors="replace") as f:
+        with open(LOG_FILE, encoding="utf-8", errors="replace") as f:
             full_log = f.read()
             safe_log = full_log.encode("ascii", errors="replace").decode("ascii")
             print(safe_log)
@@ -218,13 +218,17 @@ def main():
     lines = full_log.strip().split("\n") if full_log else []
 
     # Check: transcribe_with_fallback exercised?
-    fallback_exercised = any("transcribe_with_fallback" in l or "GPU transcription failed" in l or "falling back to CPU" in l for l in lines)
-    fallback_mentioned = any("transcribe_with_fallback" in l or "transcription" in l.lower() for l in lines)
-    transcribe_attempted = any("Starting transcription" in l for l in lines)
-    transcribe_completed = any("Transcription complete" in l for l in lines)
-    transcribe_failed = any("Transcription FAILED" in l for l in lines)
-    no_speech = any("No speech detected" in l for l in lines)
-    audio_too_short = any("too short" in l.lower() for l in lines)
+    fallback_exercised = any(
+        "transcribe_with_fallback" in line
+        or "GPU transcription failed" in line
+        or "falling back to CPU" in line
+        for line in lines
+    )
+    transcribe_attempted = any("Starting transcription" in line for line in lines)
+    transcribe_completed = any("Transcription complete" in line for line in lines)
+    transcribe_failed = any("Transcription FAILED" in line for line in lines)
+    no_speech = any("No speech detected" in line for line in lines)
+    audio_too_short = any("too short" in line.lower() for line in lines)
 
     # Check: _busy recovered?
     # NEW-DEAD-002: the production code no longer logs "_busy reset to
@@ -232,29 +236,30 @@ def main():
     # "[TRANSCRIBE] Transcription complete" and the recovery path
     # logs "FORCE RECOVER".  We treat either as the "busy recovered"
     # signal.
-    busy_set = any("_busy=True" in l or "busy=True" in l for l in lines)
+    busy_set = any("_busy=True" in line or "busy=True" in line for line in lines)
     busy_reset = any(
-        "[TRANSCRIBE] Transcription complete" in l
-        or "Audio too short, skipping transcription" in l
-        for l in lines
+        "[TRANSCRIBE] Transcription complete" in line
+        or "Audio too short, skipping transcription" in line
+        for line in lines
     )
-    force_recover = any("FORCE RECOVER" in l for l in lines)
-    f2_blocked = any("F2 BLOCKED" in l for l in lines)
+    force_recover = any("FORCE RECOVER" in line for line in lines)
+    f2_blocked = any("F2 BLOCKED" in line for line in lines)
 
     # Check: tray recovered?
-    tray_idle = any("IDLE" in l for l in lines)
-    tray_stuck_transcribing = False
+    tray_idle = any("IDLE" in line for line in lines)
     # Check if Transcribing... was the last state
     last_tray_line = ""
-    for l in lines:
-        if "set_state" in l.lower() or "IDLE" in l or "TRANSCRIBING" in l or "RECORDING" in l or "ERROR" in l:
-            last_tray_line = l
+    for line in lines:
+        if ("set_state" in line.lower() or "IDLE" in line
+                or "TRANSCRIBING" in line or "RECORDING" in line
+                or "ERROR" in line):
+            last_tray_line = line
 
     # Check: F2 worked again after first cycle?
     second_f2_fired = False
     f2_fire_count = 0
-    for l in lines:
-        if "HOTKEY FIRED" in l:
+    for line in lines:
+        if "HOTKEY FIRED" in line:
             f2_fire_count += 1
             if f2_fire_count >= 2:
                 second_f2_fired = True

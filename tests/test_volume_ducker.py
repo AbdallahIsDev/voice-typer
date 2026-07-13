@@ -8,14 +8,11 @@ from __future__ import annotations
 
 import threading
 from pathlib import Path
-from typing import Optional
 
 import pytest
-
-from voice_typer.server.volume_backend import VolumeBackend, VolumeState
 from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
+from voice_typer.server.volume_backend import VolumeBackend, VolumeState
 from voice_typer.server.volume_ducker import VolumeDucker
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Fake backend for testing
@@ -38,7 +35,7 @@ class FakeBackend(VolumeBackend):
         self._current = current
         self._muted = muted
         self._speaker_active = speaker_active
-        self._set_calls: list[tuple[float, Optional[bool]]] = []
+        self._set_calls: list[tuple[float, bool | None]] = []
         self._fade_calls: list[tuple[float, int]] = []
         self._ducked_sessions = False
         self._restored_sessions = False
@@ -57,10 +54,10 @@ class FakeBackend(VolumeBackend):
     def initialize(self) -> bool:
         return True
 
-    def get_state(self) -> Optional[VolumeState]:
+    def get_state(self) -> VolumeState | None:
         return VolumeState(linear=self._current, muted=self._muted)
 
-    def set_linear(self, level: float, muted: Optional[bool] = None) -> bool:
+    def set_linear(self, level: float, muted: bool | None = None) -> bool:
         self._current = max(0.0, min(1.0, level))
         if muted is not None:
             self._muted = muted
@@ -99,10 +96,10 @@ class FakeFailingBackend(VolumeBackend):
     def initialize(self) -> bool:
         return False
 
-    def get_state(self) -> Optional[VolumeState]:
+    def get_state(self) -> VolumeState | None:
         return None
 
-    def set_linear(self, level: float, muted: Optional[bool] = None) -> bool:
+    def set_linear(self, level: float, muted: bool | None = None) -> bool:
         return False
 
     def fade_to(self, target_linear: float, duration_ms: int = 150, steps: int = 10) -> bool:

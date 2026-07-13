@@ -1,8 +1,11 @@
 """Tests for recording module — device resolution."""
 
-import pytest
+import sys
+from unittest.mock import MagicMock
+
 import numpy as np
-from unittest.mock import MagicMock, patch
+import pytest
+
 
 # Mock sounddevice at module level
 @pytest.fixture(autouse=True)
@@ -11,12 +14,11 @@ def mock_sounddevice(monkeypatch):
     mock_sd.query_devices.return_value = []
     monkeypatch.setitem(sys.modules, "sounddevice", mock_sd)
 
-import sys
-
 
 class TestResolveDevice:
     def test_none_config_returns_none(self):
         from voice_typer.server.recording import Recorder
+
         config = MagicMock()
         config.microphone = None
         config.sample_rate = 16000
@@ -25,6 +27,7 @@ class TestResolveDevice:
 
     def test_string_index_converts_to_int(self):
         from voice_typer.server.recording import Recorder
+
         config = MagicMock()
         config.microphone = "7"
         config.sample_rate = 16000
@@ -34,6 +37,7 @@ class TestResolveDevice:
     def test_legacy_name_string_passes_through(self):
         """If someone put a device name (not numeric), pass it as-is."""
         from voice_typer.server.recording import Recorder
+
         config = MagicMock()
         config.microphone = "Blue Yeti"
         config.sample_rate = 16000
@@ -102,8 +106,8 @@ class TestStopAudioPrep:
         get_resampler.assert_not_called()
 
     def test_start_failure_resets_recording_state(self, monkeypatch):
-        from voice_typer.server.recording import Recorder
         import voice_typer.server.recording as recording_mod
+        from voice_typer.server.recording import Recorder
 
         class FailingStream:
             def __init__(self, *args, **kwargs):
@@ -127,14 +131,38 @@ class TestStopAudioPrep:
         assert r._stream is None
 
     def test_start_falls_back_to_same_microphone_on_another_host_api(self, monkeypatch):
-        from voice_typer.server.recording import Recorder
         import voice_typer.server.recording as recording_mod
+        from voice_typer.server.recording import Recorder
 
         devices = [
-            {"index": 0, "name": "Microsoft Sound Mapper - Input", "max_input_channels": 2, "default_samplerate": 44100, "hostapi": 0},
-            {"index": 1, "name": "Microphone (WO Mic Device)", "max_input_channels": 1, "default_samplerate": 44100, "hostapi": 0},
-            {"index": 8, "name": "Primary Sound Capture Driver", "max_input_channels": 2, "default_samplerate": 44100, "hostapi": 1},
-            {"index": 9, "name": "Microphone (WO Mic Device)", "max_input_channels": 1, "default_samplerate": 44100, "hostapi": 1},
+            {
+                "index": 0,
+                "name": "Microsoft Sound Mapper - Input",
+                "max_input_channels": 2,
+                "default_samplerate": 44100,
+                "hostapi": 0,
+            },
+            {
+                "index": 1,
+                "name": "Microphone (WO Mic Device)",
+                "max_input_channels": 1,
+                "default_samplerate": 44100,
+                "hostapi": 0,
+            },
+            {
+                "index": 8,
+                "name": "Primary Sound Capture Driver",
+                "max_input_channels": 2,
+                "default_samplerate": 44100,
+                "hostapi": 1,
+            },
+            {
+                "index": 9,
+                "name": "Microphone (WO Mic Device)",
+                "max_input_channels": 1,
+                "default_samplerate": 44100,
+                "hostapi": 1,
+            },
         ]
         host_apis = {
             0: {"name": "MME", "default_input_device": 1},
@@ -182,11 +210,17 @@ class TestStopAudioPrep:
 
     def test_start_falls_back_to_all_devices_when_configured_mic_fails(self, monkeypatch):
         """When configured mic and same-name alternates all fail, try ALL input devices."""
-        from voice_typer.server.recording import Recorder
         import voice_typer.server.recording as recording_mod
+        from voice_typer.server.recording import Recorder
 
         devices = [
-            {"index": 0, "name": "Microsoft Sound Mapper - Input", "max_input_channels": 2, "default_samplerate": 44100, "hostapi": 0},
+            {
+                "index": 0,
+                "name": "Microsoft Sound Mapper - Input",
+                "max_input_channels": 2,
+                "default_samplerate": 44100,
+                "hostapi": 0,
+            },
             {"index": 1, "name": "Broken Mic", "max_input_channels": 1, "default_samplerate": 44100, "hostapi": 0},
             {"index": 2, "name": "Working Mic", "max_input_channels": 1, "default_samplerate": 44100, "hostapi": 0},
         ]
@@ -355,9 +389,7 @@ class TestStopCallbackBackoff:
         r.stop()
 
         # No sleep calls because the flag was never set
-        assert len(sleep_calls) == 0, (
-            f"Expected 0 sleep calls (flag clear), got {len(sleep_calls)}"
-        )
+        assert len(sleep_calls) == 0, f"Expected 0 sleep calls (flag clear), got {len(sleep_calls)}"
 
     def test_stream_stop_called_when_callback_in_flight(self, monkeypatch):
         """When ``_is_in_audio_callback`` IS set (callback in flight),
@@ -391,9 +423,7 @@ class TestStopCallbackBackoff:
         r.stop()
 
         # stream.stop() must have been called exactly once.
-        assert stop_called["n"] == 1, (
-            f"Expected stream.stop() called once, got {stop_called['n']}"
-        )
+        assert stop_called["n"] == 1, f"Expected stream.stop() called once, got {stop_called['n']}"
         # The flag may still be set (PortAudio cleared it internally) —
         # that's acceptable; the new contract does not poll it.
         assert r._stream is None or r._stream.stop.called
@@ -402,8 +432,8 @@ class TestStopCallbackBackoff:
         """When ``_is_in_audio_callback`` stays set (callback hung),
         ``stop()`` returns as soon as ``stream.stop()`` returns.  The
         old 300ms hard deadline is gone — PortAudio's own timeout governs."""
-        from voice_typer.server.recording import Recorder
         import voice_typer.server.recording as rec_mod
+        from voice_typer.server.recording import Recorder
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
@@ -429,12 +459,10 @@ class TestStopCallbackBackoff:
         r.stop()
 
         # No sleep calls — the manual poll loop is gone.
-        assert len(sleep_calls) == 0, (
-            f"Expected 0 sleep calls (no manual poll), got {len(sleep_calls)}"
-        )
+        assert len(sleep_calls) == 0, f"Expected 0 sleep calls (no manual poll), got {len(sleep_calls)}"
 
     def test_user_stop_pending_flag_set_during_stop(self, monkeypatch):
-        """STREAM-FIX (Round 1): stop() must set _user_stop_pending before
+        """STREAM-FIX: stop() must set _user_stop_pending before
         stream.stop() so _stream_finished_callback doesn't warn."""
         from voice_typer.server.recording import Recorder
 
@@ -459,12 +487,8 @@ class TestStopCallbackBackoff:
 
         r.stop()
 
-        assert flag_at_stop["value"] is True, (
-            "_user_stop_pending must be True when stream.stop() is called"
-        )
-        assert r._user_stop_pending is False, (
-            "_user_stop_pending must be cleared after stream.close()"
-        )
+        assert flag_at_stop["value"] is True, "_user_stop_pending must be True when stream.stop() is called"
+        assert r._user_stop_pending is False, "_user_stop_pending must be cleared after stream.close()"
 
 
 class TestCachedResampling:
@@ -479,7 +503,7 @@ class TestCachedResampling:
         def fake_resample_poly(audio, up, down):
             call_count[0] += 1
             # Simple decimation for testing
-            return audio[::down][:len(audio) * up // down]
+            return audio[::down][: len(audio) * up // down]
 
         monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", lambda: fake_resample_poly)
 
@@ -540,16 +564,25 @@ class TestH12SilenceDetection:
         assert r.on_max_duration_auto_stop is None
 
     def test_start_resets_silence_state(self, monkeypatch):
-        from voice_typer.server.recording import Recorder
         import voice_typer.server.recording as recording_mod
+        from voice_typer.server.recording import Recorder
 
         class OkStream:
-            def __init__(self, *args, **kwargs): pass
-            def start(self): pass
-            def close(self): pass
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def start(self):
+                pass
+
+            def close(self):
+                pass
 
         monkeypatch.setattr(recording_mod.sd, "InputStream", OkStream)
-        monkeypatch.setattr(recording_mod.sd, "query_devices", lambda **kw: {"max_input_channels": 1, "default_samplerate": 16000, "hostapi": 0})
+        monkeypatch.setattr(
+            recording_mod.sd,
+            "query_devices",
+            lambda **kw: {"max_input_channels": 1, "default_samplerate": 16000, "hostapi": 0},
+        )
         monkeypatch.setattr(recording_mod.sd, "query_hostapis", lambda idx=None: {"name": "MME"})
 
         config = MagicMock(sample_rate=16000, microphone=None)
@@ -622,8 +655,9 @@ class TestResampleFallback:
 
     def test_resample_retry_after_timeout(self, monkeypatch):
         """Resample should be retried after the retry interval timeout."""
-        import voice_typer.server.recording as rec_mod
         import time
+
+        import voice_typer.server.recording as rec_mod
 
         # Set the error time far enough in the past that retry is allowed
         rec_mod._resample_poly_error = RuntimeError("transient error")
@@ -649,8 +683,9 @@ class TestResampleFallback:
 
     def test_resample_not_retried_before_timeout(self, monkeypatch):
         """Resample should NOT be retried before the retry interval has elapsed."""
-        import voice_typer.server.recording as rec_mod
         import time
+
+        import voice_typer.server.recording as rec_mod
 
         # Set the error time very recently (within retry interval)
         rec_mod._resample_poly_error = RuntimeError("recent error")
@@ -741,18 +776,23 @@ class TestRecordingParametrized:
     def test_various_sample_rates_buffer_size(self, sample_rate):
         """Buffer should be created with correct sample rate config."""
         from voice_typer.server.recording import Recorder
+
         config = MagicMock(sample_rate=sample_rate, microphone=None)
         r = Recorder(config)
         assert r.config.sample_rate == sample_rate
 
-    @pytest.mark.parametrize("effective_sr,target_sr", [
-        (16000, 16000),
-        (44100, 16000),
-        (48000, 16000),
-    ])
+    @pytest.mark.parametrize(
+        "effective_sr,target_sr",
+        [
+            (16000, 16000),
+            (44100, 16000),
+            (48000, 16000),
+        ],
+    )
     def test_resample_ratio_computation(self, effective_sr, target_sr):
         """Resample ratio should be computed correctly from effective/target rates."""
         import math
+
         g = math.gcd(effective_sr, target_sr)
         up = target_sr // g
         down = effective_sr // g
@@ -762,6 +802,7 @@ class TestRecordingParametrized:
     def test_various_buffer_chunk_sizes(self, chunk_size):
         """Buffer should handle various chunk sizes."""
         from voice_typer.server.recording import Recorder
+
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
         r._recording_event.set()
@@ -777,6 +818,7 @@ class TestRecordingParametrized:
     def test_stop_concatenates_multiple_chunks(self, num_chunks):
         """stop() should concatenate all buffered chunks."""
         from voice_typer.server.recording import Recorder
+
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
         r._recording_event.set()
@@ -788,30 +830,38 @@ class TestRecordingParametrized:
         assert len(audio) == 4 * num_chunks
         assert audio.dtype == np.float32
 
-    @pytest.mark.parametrize("effective_sr,target_sr,expected_up,expected_down", [
-        (16000, 16000, 1, 1),
-        (48000, 16000, 1, 3),
-        (44100, 16000, 16000, 44100),
-        (22050, 16000, 320, 441),
-    ])
+    @pytest.mark.parametrize(
+        "effective_sr,target_sr,expected_up,expected_down",
+        [
+            (16000, 16000, 1, 1),
+            (48000, 16000, 1, 3),
+            (44100, 16000, 16000, 44100),
+            (22050, 16000, 320, 441),
+        ],
+    )
     def test_resample_gcd_ratios(self, effective_sr, target_sr, expected_up, expected_down):
         """Resample up/down ratios should be computed from GCD."""
         import math
+
         g = math.gcd(effective_sr, target_sr)
         up = target_sr // g
         down = effective_sr // g
         assert math.gcd(up, down) == 1
 
-    @pytest.mark.parametrize("device_input,expected", [
-        (None, None),
-        ("7", 7),
-        ("0", 0),
-        ("Blue Yeti", "Blue Yeti"),
-        ("", ""),
-    ])
+    @pytest.mark.parametrize(
+        "device_input,expected",
+        [
+            (None, None),
+            ("7", 7),
+            ("0", 0),
+            ("Blue Yeti", "Blue Yeti"),
+            ("", ""),
+        ],
+    )
     def test_resolve_device_various_inputs(self, device_input, expected):
         """_resolve_device should handle various input formats."""
         from voice_typer.server.recording import Recorder
+
         config = MagicMock(sample_rate=16000, microphone=device_input)
         r = Recorder(config)
         assert r._resolve_device() == expected
@@ -820,8 +870,7 @@ class TestRecordingParametrized:
     def test_silence_timer_starts_at_zero_regardless_of_threshold(self, silence_val):
         """Silence timer should always start at zero."""
         from voice_typer.server.recording import Recorder
+
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
         assert r._silence_timer == 0.0
-
-

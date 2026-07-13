@@ -17,10 +17,10 @@ sounddevice is mocked by the autouse fixture in conftest.py.
 import base64
 import io
 import wave
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
-
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -88,8 +88,7 @@ class TestIsTestActive:
 
     def test_returns_false_after_cancel(self, monkeypatch):
         """After cancel_test, is_test_active must return False."""
-        from voice_typer.server.microphone_test import start_test, cancel_test, is_test_active
-        import voice_typer.server.level_monitor as lm
+        from voice_typer.server.microphone_test import cancel_test, is_test_active, start_test
 
         _wire_working_stream(monkeypatch)
 
@@ -102,8 +101,8 @@ class TestIsTestActive:
 
     def test_returns_false_after_stop(self, monkeypatch):
         """After stop_test, is_test_active must return False."""
-        from voice_typer.server.microphone_test import start_test, stop_test, is_test_active
         import voice_typer.server.level_monitor as lm
+        from voice_typer.server.microphone_test import is_test_active, start_test, stop_test
 
         _wire_working_stream(monkeypatch)
 
@@ -122,8 +121,7 @@ class TestStartTest:
 
     def test_start_returns_success_with_defaults(self, monkeypatch):
         """A fresh start_test must return success and set test state."""
-        from voice_typer.server.microphone_test import start_test, is_test_active
-        import voice_typer.server.level_monitor as lm
+        from voice_typer.server.microphone_test import is_test_active, start_test
 
         _wire_working_stream(monkeypatch)
 
@@ -136,8 +134,7 @@ class TestStartTest:
 
     def test_start_with_custom_duration(self, monkeypatch):
         """Duration parameter must be respected and clamped."""
-        from voice_typer.server.microphone_test import start_test, cancel_test
-        import voice_typer.server.level_monitor as lm
+        from voice_typer.server.microphone_test import cancel_test, start_test
 
         _wire_working_stream(monkeypatch)
 
@@ -162,7 +159,6 @@ class TestStartTest:
     def test_start_rejects_duplicate(self, monkeypatch):
         """Starting a test while one is already running must return error."""
         from voice_typer.server.microphone_test import start_test
-        import voice_typer.server.level_monitor as lm
 
         _wire_working_stream(monkeypatch)
 
@@ -176,7 +172,6 @@ class TestStartTest:
     def test_start_with_mic_id(self, monkeypatch):
         """Passing a mic_id must resolve to an int and pass to InputStream."""
         from voice_typer.server.microphone_test import start_test
-        import voice_typer.server.level_monitor as lm
 
         opened_devices = []
         _wire_working_stream(monkeypatch, opened_devices)
@@ -187,9 +182,8 @@ class TestStartTest:
 
     def test_start_handles_stream_failure(self, monkeypatch):
         """If sd.InputStream raises, start_test must return error."""
-        from voice_typer.server.microphone_test import start_test, is_test_active
-        import voice_typer.server.level_monitor as lm
         import sounddevice as sd
+        from voice_typer.server.microphone_test import is_test_active, start_test
 
         # Make InputStream raise on construction
         sd.InputStream.side_effect = RuntimeError("No device")
@@ -214,8 +208,8 @@ class TestStopTest:
 
     def test_stop_returns_chunks_even_after_auto_stop(self, monkeypatch):
         """If auto-stop fired (test not active) but chunks exist, stop_test must return them."""
-        from voice_typer.server.microphone_test import stop_test
         import voice_typer.server.level_monitor as lm
+        from voice_typer.server.microphone_test import stop_test
 
         # Simulate auto-stop: test inactive, chunks in buffer
         lm._test_mode = False
@@ -233,7 +227,6 @@ class TestStopTest:
     def test_stop_returns_encoded_wav(self, monkeypatch):
         """After a successful recording, stop_test must return a valid WAV."""
         from voice_typer.server.microphone_test import start_test, stop_test
-        import voice_typer.server.level_monitor as lm
 
         _wire_working_stream(monkeypatch)
 
@@ -258,8 +251,8 @@ class TestStopTest:
 
     def test_stop_clears_module_state(self, monkeypatch):
         """After stop_test, module state must be reset for next recording."""
-        from voice_typer.server.microphone_test import start_test, stop_test, is_test_active
         import voice_typer.server.level_monitor as lm
+        from voice_typer.server.microphone_test import is_test_active, start_test, stop_test
 
         _wire_working_stream(monkeypatch)
 
@@ -277,7 +270,6 @@ class TestStopTest:
     def test_stop_handles_empty_chunks(self, monkeypatch):
         """If no audio chunks were captured, stop must return empty audio."""
         from voice_typer.server.microphone_test import start_test, stop_test
-        import voice_typer.server.level_monitor as lm
 
         _wire_working_stream(monkeypatch)
 
@@ -292,7 +284,6 @@ class TestStopTest:
     def test_stream_stays_open_after_test(self, monkeypatch):
         """The shared monitor stream must NOT be closed when a test ends."""
         from voice_typer.server.microphone_test import start_test, stop_test
-        import voice_typer.server.level_monitor as lm
 
         mock_stream = _wire_working_stream(monkeypatch)
 
@@ -318,8 +309,8 @@ class TestCancelTest:
 
     def test_cancel_clears_state(self, monkeypatch):
         """Cancelling a running test must reset module state."""
-        from voice_typer.server.microphone_test import start_test, cancel_test, is_test_active
         import voice_typer.server.level_monitor as lm
+        from voice_typer.server.microphone_test import cancel_test, is_test_active, start_test
 
         _wire_working_stream(monkeypatch)
 
@@ -333,8 +324,8 @@ class TestCancelTest:
 
     def test_cancel_does_not_return_audio(self, monkeypatch):
         """Cancelling a test must NOT return audio data."""
-        from voice_typer.server.microphone_test import start_test, cancel_test
         import voice_typer.server.level_monitor as lm
+        from voice_typer.server.microphone_test import cancel_test, start_test
 
         _wire_working_stream(monkeypatch)
 
@@ -352,7 +343,6 @@ class TestWavEncoding:
     def test_wav_is_valid_format(self, monkeypatch):
         """The base64 WAV must decode to a valid audio file with correct properties."""
         from voice_typer.server.microphone_test import start_test, stop_test
-        import voice_typer.server.level_monitor as lm
 
         _wire_working_stream(monkeypatch)
 
@@ -376,7 +366,6 @@ class TestWavEncoding:
     def test_wav_amplitude_range(self, monkeypatch):
         """The int16 audio must be in [-32768, 32767] range."""
         from voice_typer.server.microphone_test import start_test, stop_test
-        import voice_typer.server.level_monitor as lm
 
         _wire_working_stream(monkeypatch)
 
@@ -394,7 +383,6 @@ class TestWavEncoding:
     def test_wav_duration_matches_chunks(self, monkeypatch):
         """The reported duration_ms must match the chunk data."""
         from voice_typer.server.microphone_test import start_test, stop_test
-        import voice_typer.server.level_monitor as lm
 
         chunk_samples = 1024
         num_chunks = 5
@@ -429,10 +417,11 @@ class TestGetLevel:
 
     def test_get_level_returns_active_during_test(self, monkeypatch):
         """During a running test, get_level must return active=True."""
-        from voice_typer.server.microphone_test import start_test, get_level
-        import voice_typer.server.level_monitor as lm
         from unittest.mock import MagicMock
+
         import sounddevice as sd
+        import voice_typer.server.level_monitor as lm
+        from voice_typer.server.microphone_test import get_level, start_test
 
         mock_stream = MagicMock()
         sd.InputStream.return_value = mock_stream
@@ -448,8 +437,8 @@ class TestGetLevel:
 
     def test_get_level_reflects_recent_level(self, monkeypatch):
         """get_level must reflect the monitor's current level."""
-        from voice_typer.server.microphone_test import get_level
         import voice_typer.server.level_monitor as lm
+        from voice_typer.server.microphone_test import get_level
 
         # Manually set level values (simulating callback)
         lm._monitor_active = True
@@ -469,9 +458,8 @@ class TestSampleRateFallback:
 
     def test_fallback_to_16k_when_query_fails(self, monkeypatch):
         """If sd.query_devices raises, sample rate must fall back to 16000."""
-        from voice_typer.server.microphone_test import start_test, is_test_active
-        import voice_typer.server.level_monitor as lm
         import sounddevice as sd
+        from voice_typer.server.microphone_test import start_test
 
         # Make query_devices raise
         sd.query_devices.side_effect = RuntimeError("query failed")
@@ -484,9 +472,8 @@ class TestSampleRateFallback:
 
     def test_fallback_uses_native_rate_when_available(self, monkeypatch):
         """When query_devices succeeds, the device's native rate must be used."""
-        from voice_typer.server.microphone_test import start_test
-        import voice_typer.server.level_monitor as lm
         import sounddevice as sd
+        from voice_typer.server.microphone_test import start_test
 
         # Return a device with 44100 Hz native rate
         sd.query_devices.return_value = {
@@ -505,8 +492,6 @@ class TestSampleRateFallback:
 
 
 # ── Mock helpers ─────────────────────────────────────────────────────
-
-from unittest.mock import MagicMock
 
 
 def _wire_working_stream(monkeypatch, opened_devices=None):

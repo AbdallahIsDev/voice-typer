@@ -13,23 +13,14 @@ Merges:
 from __future__ import annotations
 
 import ast
-
+import inspect
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
-
-import inspect
-
-from voice_typer.server.hotkeys import HotkeyBackend
-
-from unittest.mock import MagicMock, patch, call
-
 from voice_typer.server import hotkeys
-
 from voice_typer.server.hotkey_dispatcher import HotkeyDispatcher
-
-from voice_typer.server import ipc_server
-
+from voice_typer.server.hotkeys import HotkeyBackend
 from voice_typer.server.ipc_server import IPCServer
 
 # === Common module-level constants (identical across files) ===

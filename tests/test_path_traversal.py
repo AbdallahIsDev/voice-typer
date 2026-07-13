@@ -1,5 +1,6 @@
 """Tests for SEC-005: Path traversal validation."""
 from pathlib import Path
+
 import pytest
 
 
@@ -18,8 +19,9 @@ def test_validate_path_safety_normal_path():
 
 def test_validate_path_safety_traversal():
     """Path traversal attempts are rejected."""
-    from voice_typer.server.config import _validate_path_safety
     import tempfile
+
+    from voice_typer.server.config import _validate_path_safety
     with tempfile.TemporaryDirectory() as tmp:
         parent = Path(tmp)
         child = parent / ".." / ".." / "etc" / "passwd"

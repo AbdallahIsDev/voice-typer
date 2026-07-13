@@ -6,8 +6,9 @@ Verifies that:
 - build_menu produces the expected menu structure
 """
 import sys
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
 
 sys.path.insert(0, '/home/z/my-project/voice-typer-repo')
 
@@ -67,10 +68,10 @@ class TestBuildMenu:
     """build_menu returns the expected menu structure."""
 
     def test_menu_has_toggle_open_models_restart_quit(self):
-        from voice_typer.server.tray_menu import build_menu
         # We need to mock pystray.MenuItem etc. since this test doesn't
         # have pystray installed.
         import voice_typer.server.tray_menu as tray_menu_mod
+        from voice_typer.server.tray_menu import build_menu
         mock_pystray = MagicMock()
         mock_pystray.Menu.SEPARATOR = "SEP"
         items_created = []
@@ -96,7 +97,7 @@ class TestBuildMenu:
         )
         labels = [it.label for it in result if hasattr(it, 'label')]
         # TRAY-008: labels now use localization keys by default
-        assert any("toggle_dictation" in l for l in labels)
+        assert any("toggle_dictation" in lbl for lbl in labels)
         assert "open_app" in labels
         assert "models" in labels
         assert "restart" in labels
@@ -104,8 +105,8 @@ class TestBuildMenu:
 
     def test_menu_uses_display_hotkey_for_toggle_label(self):
         """The 'Toggle Dictation' label must include the formatted hotkey."""
-        from voice_typer.server.tray_menu import build_menu
         import voice_typer.server.tray_menu as tray_menu_mod
+        from voice_typer.server.tray_menu import build_menu
         mock_pystray = MagicMock()
         mock_pystray.Menu.SEPARATOR = "SEP"
         items_created = []
@@ -138,8 +139,8 @@ class TestBuildMenu:
 
     def test_toggle_dictation_is_default_action(self):
         """The 'Toggle Dictation' menu item must be the default action."""
-        from voice_typer.server.tray_menu import build_menu
         import voice_typer.server.tray_menu as tray_menu_mod
+        from voice_typer.server.tray_menu import build_menu
         mock_pystray = MagicMock()
         mock_pystray.Menu.SEPARATOR = "SEP"
         items_created = []
@@ -187,17 +188,16 @@ The cache is invalidated explicitly when a model download completes
 (via ``invalidate_model_availability_cache()``).
 """
 
-import time as _time
-from contextlib import nullcontext
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+import time as _time  # noqa: E402
+from contextlib import nullcontext  # noqa: E402
+from pathlib import Path  # noqa: E402
+from unittest.mock import patch  # noqa: E402
 
-from voice_typer.server import tray_models
-from voice_typer.server.tray_models import (
+from voice_typer.server import tray_models  # noqa: E402
+from voice_typer.server.tray_models import (  # noqa: E402
+    _HF_DOWNLOAD_CACHE_TTL_SECONDS,
     _check_hf_model_downloaded,
     _check_qwen_asr_available,
-    _hf_download_cache,
-    _HF_DOWNLOAD_CACHE_TTL_SECONDS,
     invalidate_model_availability_cache,
 )
 
@@ -224,7 +224,6 @@ class TestQwenAsrCache:
         session — subsequent calls return the cached result.
         """
         # Use a counter to verify import is called only once.
-        import_calls = []
 
         # Mock the import system so "import qwen_asr" succeeds.
         import sys
@@ -331,8 +330,8 @@ class TestHfDownloadCache:
     def test_different_repos_cached_separately(self, tmp_path):
         """Each repo_id gets its own cache entry."""
         config_dir = tmp_path
-        r1 = _check_hf_model_downloaded("org/repo1", config_dir)
-        r2 = _check_hf_model_downloaded("org/repo2", config_dir)
+        _check_hf_model_downloaded("org/repo1", config_dir)
+        _check_hf_model_downloaded("org/repo2", config_dir)
 
         # Both should be False (neither exists in tmp_path) but cached
         # separately.

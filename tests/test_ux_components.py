@@ -3,12 +3,8 @@ ErrorBoundary, bubble, loading screen, vocabulary/templates dialogs."""
 
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
-
-import pytest
-
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLIENT_SRC = REPO_ROOT / "voice_typer" / "client" / "src"
@@ -104,12 +100,12 @@ class TestAppPreservesNavStateToLocalStorage:
         nav = _read("hooks/useNavigation.ts")
         assert "saveNavState(page, navHistory.current, navIndex.current)" in nav
 
-    def test_goBack_saves_state(self):
+    def test_goBack_saves_state(self):  # noqa: N802
         nav = _read("hooks/useNavigation.ts")
         count = nav.count("saveNavState(page, navHistory.current, navIndex.current)")
         assert count >= 3
 
-    def test_initial_state_loaded_from_localStorage(self):
+    def test_initial_state_loaded_from_localStorage(self):  # noqa: N802
         nav = _read("hooks/useNavigation.ts")
         assert "loadNavState()" in nav
         assert "initialNav" in nav
@@ -274,11 +270,11 @@ class TestSettingsShowsSubtleAutoSaveIndicator:
 class TestTitleBarReceivesIsMaximizedProp:
     """TitleBar accepts isMaximized prop from App."""
 
-    def test_titlebar_accepts_isMaximized_prop(self):
+    def test_titlebar_accepts_isMaximized_prop(self):  # noqa: N802
         src = _read("components/TitleBar.tsx")
         assert "isMaximized?" in src
 
-    def test_app_passes_isMaximized_to_titlebar(self):
+    def test_app_passes_isMaximized_to_titlebar(self):  # noqa: N802
         src = _read("App.tsx")
         assert "isMaximized={isMaximized}" in src
 

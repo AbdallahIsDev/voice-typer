@@ -25,12 +25,12 @@ Tests cover the key platform fixes:
   PLAT-HLEAK: Mutex handle close on shutdown
 """
 
-import sys
 import os
-import pytest
-from unittest.mock import MagicMock, patch
+import sys
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
+import pytest
 
 # ─── PLAT-027: Win32Clipboard abstraction ─────────────────────────────
 
@@ -80,8 +80,8 @@ class TestClipboardVerification:
         clip_mod.pyperclip = mock_pyperclip
 
         # Mock keyboard
-        with patch("voice_typer.server.clipboard._ensure_pynput_imported"):
-            with patch("voice_typer.server.clipboard._Controller") as mock_ctrl:
+        with patch("voice_typer.server.clipboard._ensure_pynput_imported"), \
+             patch("voice_typer.server.clipboard._Controller") as mock_ctrl:
                 mock_instance = MagicMock()
                 mock_ctrl.return_value = mock_instance
                 from voice_typer.server.clipboard import ClipboardManager
@@ -105,8 +105,8 @@ class TestClipboardVerification:
         mock_pyperclip.paste.side_effect = ["saved_content", "wrong_value", "hello world"]
         clip_mod.pyperclip = mock_pyperclip
 
-        with patch("voice_typer.server.clipboard._ensure_pynput_imported"):
-            with patch("voice_typer.server.clipboard._Controller") as mock_ctrl:
+        with patch("voice_typer.server.clipboard._ensure_pynput_imported"), \
+             patch("voice_typer.server.clipboard._Controller") as mock_ctrl:
                 mock_instance = MagicMock()
                 mock_ctrl.return_value = mock_instance
                 from voice_typer.server.clipboard import ClipboardManager
@@ -132,8 +132,8 @@ class TestSafeKeyRelease:
     """PLAT-STUCK: _safe_key_press releases modifier even on error."""
 
     def test_safe_key_press_releases_modifier_on_error(self):
-        with patch("voice_typer.server.clipboard._ensure_pynput_imported"):
-            with patch("voice_typer.server.clipboard._Controller") as mock_ctrl:
+        with patch("voice_typer.server.clipboard._ensure_pynput_imported"), \
+             patch("voice_typer.server.clipboard._Controller") as mock_ctrl:
                 mock_instance = MagicMock()
                 mock_ctrl.return_value = mock_instance
                 from voice_typer.server.clipboard import ClipboardManager
@@ -163,8 +163,8 @@ class TestClipboardSaveRestore:
         mock_pyperclip.paste.return_value = "previous content"
         clip_mod.pyperclip = mock_pyperclip
 
-        with patch("voice_typer.server.clipboard._ensure_pynput_imported"):
-            with patch("voice_typer.server.clipboard._Controller") as mock_ctrl:
+        with patch("voice_typer.server.clipboard._ensure_pynput_imported"), \
+             patch("voice_typer.server.clipboard._Controller") as mock_ctrl:
                 mock_instance = MagicMock()
                 mock_ctrl.return_value = mock_instance
                 from voice_typer.server.clipboard import ClipboardManager
@@ -184,8 +184,8 @@ class TestClipboardSaveRestore:
         mock_pyperclip.paste.side_effect = ["new text", "new text", "previous content"]
         clip_mod.pyperclip = mock_pyperclip
 
-        with patch("voice_typer.server.clipboard._ensure_pynput_imported"):
-            with patch("voice_typer.server.clipboard._Controller") as mock_ctrl:
+        with patch("voice_typer.server.clipboard._ensure_pynput_imported"), \
+             patch("voice_typer.server.clipboard._Controller") as mock_ctrl:
                 mock_instance = MagicMock()
                 mock_ctrl.return_value = mock_instance
                 from voice_typer.server.clipboard import ClipboardManager
@@ -370,7 +370,7 @@ class TestManifestIn:
 class TestSpecManifest:
     """PLAT-037: .spec file includes Windows application manifest."""
 
-    def test_spec_has_asInvoker_manifest(self):
+    def test_spec_has_as_invoker_manifest(self):
         repo_root = Path(__file__).resolve().parent.parent
         spec_path = repo_root / "scripts" / "build" / "voice-typer.spec"
         spec_content = spec_path.read_text()
@@ -449,6 +449,8 @@ class TestVKMapFallback:
 
     def test_vk_map_comment_exists(self):
         """The VK_MAP should have documentation about non-US layouts."""
+        import inspect
+
         import voice_typer.server.hotkeys as hk_mod
         source = inspect.getsource(hk_mod)
         assert "PLAT-VKMAP" in source
@@ -505,7 +507,6 @@ class TestMutexHandleClose:
         app._mutex_handle = mock_handle
 
         # Mock sys.platform for the CloseHandle call
-        original_platform = sys.platform
 
         # Just verify the attribute is checked
         assert hasattr(app, '_mutex_handle')
@@ -519,8 +520,9 @@ class TestMacOSAccessibilityGuide:
     """PLAT-030: PynputHotkey logs accessibility guide on macOS failure."""
 
     def test_macos_accessibility_warning_in_source(self):
-        import voice_typer.server.hotkeys as hk_mod
         import inspect
+
+        import voice_typer.server.hotkeys as hk_mod
         source = inspect.getsource(hk_mod.PynputHotkey.start)
         assert "Accessibility" in source or "accessibility" in source
 
@@ -532,8 +534,9 @@ class TestContentEditableComment:
     """PLAT-CONTENT: Module has documentation about contentEditable limitation."""
 
     def test_clipboard_module_documents_content_editable(self):
-        import voice_typer.server.clipboard as clip_mod
         import inspect
+
+        import voice_typer.server.clipboard as clip_mod
         source = inspect.getsource(clip_mod)
         assert "PLAT-CONTENT" in source
         assert "contentEditable" in source
@@ -560,12 +563,13 @@ class TestPynputFallbackDocumentation:
     """PLAT-001: Clipboard module documents pynput/UIPI limitation."""
 
     def test_clipboard_module_documents_uipi_limitation(self):
-        import voice_typer.server.clipboard as clip_mod
         import inspect
+
+        import voice_typer.server.clipboard as clip_mod
         source = inspect.getsource(clip_mod)
         assert "PLAT-001" in source
         assert "UIPI" in source
 
 
-# Need inspect for some tests
-import inspect
+# Need inspect for some tests — imported locally in each test function
+

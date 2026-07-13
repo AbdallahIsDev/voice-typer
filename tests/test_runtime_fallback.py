@@ -11,13 +11,8 @@ Covers:
 
 from __future__ import annotations
 
-import sys
 import threading
-import time
-from unittest.mock import MagicMock, patch
-
-import pytest
-
+from unittest.mock import MagicMock
 
 # ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -75,7 +70,7 @@ class TestAdapterInitialState:
         """The adapter should set _on_error_callback and _on_permanent_failure_callback."""
         from voice_typer.server.hotkeys import _NativeBackendAdapter
         native = _make_mock_native_backend()
-        adapter = _NativeBackendAdapter(native)
+        _NativeBackendAdapter(native)
         assert native._on_error_callback is not None
         assert native._on_permanent_failure_callback is not None
 

@@ -16,12 +16,10 @@ from __future__ import annotations
 
 import os
 import shutil
-import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
-
 
 # ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -130,7 +128,6 @@ class TestImportModelHappyPath:
 
     def test_imports_multiple_models_from_registry(self, service, tmp_path, monkeypatch):
         """Import multiple models of different types (whisper + distil)."""
-        app_hf = tmp_path / "app_hf" / "huggingface" / "hub"
         monkeypatch.setattr(
             "voice_typer.server.config._config_dir",
             lambda: tmp_path / "app_hf",
@@ -264,7 +261,10 @@ class TestImportModelEdgeCases:
         # The old marker should be gone
         assert not (app_hf / _hf_cache_dir_name("Systran/faster-whisper-tiny.en") / "old_version_marker.txt").exists()
         # The new content should be present
-        assert (app_hf / _hf_cache_dir_name("Systran/faster-whisper-tiny.en") / "new_version.txt").read_text() == "this is the new version"
+        assert (
+            (app_hf / _hf_cache_dir_name("Systran/faster-whisper-tiny.en") / "new_version.txt").read_text()
+            == "this is the new version"
+        )
 
     def test_permission_denied_on_scan(self, service, tmp_path, monkeypatch):
         """Simulate a PermissionError when reading the source directory."""
@@ -297,7 +297,6 @@ class TestImportModelEdgeCases:
     def test_partial_import_failure(self, service, tmp_path, monkeypatch):
         """One model succeeds, another fails (simulated via shutil.copytree
         raising on a specific directory)."""
-        app_hf = tmp_path / "app_hf" / "huggingface" / "hub"
         monkeypatch.setattr(
             "voice_typer.server.config._config_dir",
             lambda: tmp_path / "app_hf",
@@ -441,7 +440,6 @@ class TestImportModelIntegration:
     ):
         """``found`` list includes all models matched in the registry,
         even if some fail to import."""
-        app_hf = tmp_path / "app_hf" / "huggingface" / "hub"
         monkeypatch.setattr(
             "voice_typer.server.config._config_dir",
             lambda: tmp_path / "app_hf",

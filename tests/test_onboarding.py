@@ -2,10 +2,9 @@
 
 import json
 import sys
-import threading
-import pytest
-from pathlib import Path
 from unittest.mock import MagicMock
+
+import pytest
 
 
 @pytest.fixture
@@ -239,8 +238,8 @@ class TestOnboardingWizardE2E:
 
     def test_skip_flow(self, onboarding_dir):
         """Skip path: user clicks 'Skip' on step 0 — defaults are kept."""
-        from voice_typer.server.onboarding import OnboardingController
         from voice_typer.server.config import Config
+        from voice_typer.server.onboarding import OnboardingController
 
         ctrl = OnboardingController(config_dir=onboarding_dir)
         assert ctrl.is_first_run() is True
@@ -306,10 +305,11 @@ def app_with_service(tmp_path, monkeypatch):
 
     # Force PynputHotkey backend so tests can assert hotkey_str
     # without depending on native binaries. Patch BOTH app and
-    # hotkey_dispatcher namespaces (see TEST-033 / Round 11 fix in
+    # hotkey_dispatcher namespaces (see TEST-033 / fix in
     # tests/test_app.py for why both are required).
     from voice_typer.server.hotkeys import PynputHotkey
-    _force_pynput = lambda hotkey_str: PynputHotkey(hotkey_str)
+    def _force_pynput(hotkey_str):
+        return PynputHotkey(hotkey_str)
     monkeypatch.setattr(
         "voice_typer.server.app.create_hotkey_backend", _force_pynput
     )

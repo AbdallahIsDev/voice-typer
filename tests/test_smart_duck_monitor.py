@@ -36,18 +36,11 @@ Coverage:
 
 from __future__ import annotations
 
-import sys
 import threading
 import time
-from pathlib import Path
-from typing import Optional
-from unittest.mock import MagicMock
-
-import pytest
 
 from voice_typer.server.volume_backend import VolumeBackend, VolumeState
 from voice_typer.server.volume_ducker import VolumeDucker
-
 
 # ── Controllable FakeBackend ────────────────────────────────────────────
 
@@ -65,7 +58,7 @@ class ControllableBackend(VolumeBackend):
         self._current = current
         self._muted = muted
         self._speaker_active = speaker_active
-        self.set_calls: list[tuple[float, Optional[bool]]] = []
+        self.set_calls: list[tuple[float, bool | None]] = []
         self.fade_calls: list[tuple[float, int]] = []
         self.is_speaker_active_calls: int = 0
         # Track whether is_speaker_active has ever returned True
@@ -83,10 +76,10 @@ class ControllableBackend(VolumeBackend):
     def initialize(self) -> bool:
         return True
 
-    def get_state(self) -> Optional[VolumeState]:
+    def get_state(self) -> VolumeState | None:
         return VolumeState(linear=self._current, muted=self._muted)
 
-    def set_linear(self, level: float, muted: Optional[bool] = None) -> bool:
+    def set_linear(self, level: float, muted: bool | None = None) -> bool:
         self._current = max(0.0, min(1.0, level))
         if muted is not None:
             self._muted = muted

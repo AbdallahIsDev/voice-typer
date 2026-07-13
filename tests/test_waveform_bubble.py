@@ -1,7 +1,7 @@
 """Tests for the waveform bubble coordinator (server/waveform.py)."""
 
+import contextlib
 import threading
-import time
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -321,11 +321,12 @@ class TestModuleLevelPushHook:
         real_bubble.hide()  # must not raise
 
     def test_level_pushes_via_hook(self, bubble):
+        import queue as _queue
+        import threading as _threading
+
         from voice_typer.server import ipc_server
         from voice_typer.server.app import VoiceTyperApp
         from voice_typer.server.waveform import WaveformBubble as RealBubble
-        import queue as _queue
-        import threading as _threading
 
         real_bubble = RealBubble()
         app = MagicMock(spec=VoiceTyperApp)
@@ -373,10 +374,8 @@ class TestModuleLevelPushHook:
 
         # Cleanup: stop the worker thread
         app._bubble_level_worker_stop.set()
-        try:
+        with contextlib.suppress(_queue.Full):
             app._bubble_level_queue.put_nowait(None)
-        except _queue.Full:
-            pass
 
     def test_push_event_now_returns_false_when_no_hook(self):
         from voice_typer.server import ipc_server
@@ -420,8 +419,8 @@ class TestModuleLevelPushHook:
 
 class TestAppMainWiresIpcHook:
     def test_app_main_sets_ipc_push_hook(self, monkeypatch):
-        from voice_typer.server import ipc_server
         from voice_typer.server import app as app_module
+        from voice_typer.server import ipc_server
 
         # Reset hook
         # NEW-IPC-013: clear the registry instead of setting a single None.
@@ -617,6 +616,7 @@ class TestT021ProductionWiring:
     def test_app_on_recorder_rms_accepts_audio_chunk(self, monkeypatch):
         """app._on_recorder_rms signature must accept audio_chunk kwarg."""
         import inspect
+
         from voice_typer.server.app import VoiceTyperApp
         sig = inspect.signature(VoiceTyperApp._on_recorder_rms)
         assert "audio_chunk" in sig.parameters, (
@@ -633,6 +633,7 @@ class TestT021ProductionWiring:
         whole module source as a static check.
         """
         import inspect
+
         from voice_typer.server import recording
         src = inspect.getsource(recording)
         assert "rms_callback(chunk_rms, chunk_peak, filtered)" in src, (
@@ -643,6 +644,7 @@ class TestT021ProductionWiring:
     def test_update_level_signature_accepts_audio_chunk(self):
         """WaveformBubble.update_level must accept audio_chunk kwarg."""
         import inspect
+
         from voice_typer.server.waveform import WaveformBubble
         sig = inspect.signature(WaveformBubble.update_level)
         assert "audio_chunk" in sig.parameters, (

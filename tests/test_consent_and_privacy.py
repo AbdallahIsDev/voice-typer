@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -122,7 +121,7 @@ class TestCloudEngineRefusesWithoutConsent:
     def test_transcribe_does_not_raise_with_consent(self):
         """When consent is given, transcribe should not raise ConsentRequiredError."""
         import numpy as np
-        from voice_typer.server.cloud_engines import CloudEngine, ConsentRequiredError
+        from voice_typer.server.cloud_engines import CloudEngine
 
         eng = CloudEngine(
             provider="openai",
@@ -266,25 +265,33 @@ class TestAboutAndSettingsShowVoiceBiometricConsent:
     def test_about_cites_gdpr_article_9(self):
         about = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "pages" / "About.tsx"
         src = about.read_text(encoding="utf-8")
-        en = self._read_en_json()
         assert 't("about.voiceBiometricsDesc")' in src
         assert 't("about.voiceBiometricsTitle")' in src
 
     def test_settings_has_privacy_consent_section(self):
-        settings = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "components" / "settings" / "PrivacySettingsSection.tsx"
+        settings = (
+            REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src"
+            / "components" / "settings" / "PrivacySettingsSection.tsx"
+        )
         src = settings.read_text(encoding="utf-8")
         assert 't("settings.privacy.privacyTitle")' in src
         assert 't("settings.privacy.privacyDescription")' in src
 
     def test_settings_has_voice_biometric_consent_toggle(self):
-        settings = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "components" / "settings" / "PrivacySettingsSection.tsx"
+        settings = (
+            REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src"
+            / "components" / "settings" / "PrivacySettingsSection.tsx"
+        )
         src = settings.read_text(encoding="utf-8")
         assert "voice_biometric_consent" in src
         assert 't("settings.privacy.voiceBiometricProcessingInfo")' in src
         assert 't("settings.privacy.voiceBiometricLabel")' in src
 
     def test_settings_has_all_consent_toggles_consolidated(self):
-        settings = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "components" / "settings" / "PrivacySettingsSection.tsx"
+        settings = (
+            REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src"
+            / "components" / "settings" / "PrivacySettingsSection.tsx"
+        )
         src = settings.read_text(encoding="utf-8")
         assert "huggingface_consent" in src
         assert "voice_biometric_consent" in src
@@ -404,6 +411,7 @@ class TestEngineAcceptsConfigInRealConstructionPath:
 
     def test_pre_download_downloads_when_consent_given(self, tmp_path, monkeypatch):
         import sys
+
         from voice_typer.server.config import Config
 
         download_calls: list[dict] = []
@@ -430,6 +438,7 @@ class TestEngineAcceptsConfigInRealConstructionPath:
 
     def test_pre_download_refuses_download_without_consent(self, tmp_path, monkeypatch):
         import sys
+
         from voice_typer.server.config import Config
 
         download_calls: list[dict] = []
@@ -461,7 +470,6 @@ class TestModelManagerWiresConfigIntoWhisper:
     def test_ensure_engine_passes_config_to_whisper(self, tmp_config_dir, monkeypatch):
         from voice_typer.server.config import Config
         from voice_typer.server.model_manager import ModelManager
-        from voice_typer.server.asr_registry import AsrBackendRegistry
         from voice_typer.server.tray import AppState
 
         class FakeTray:

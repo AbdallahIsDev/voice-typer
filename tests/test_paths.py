@@ -25,10 +25,7 @@ import re
 from pathlib import Path
 
 import pytest
-
 from voice_typer.server import _paths
-from voice_typer.server.config import _config_dir
-
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SERVER_DIR = REPO_ROOT / "voice_typer" / "server"

@@ -1,8 +1,7 @@
 """Tests for clipboard copy and paste logic."""
 
 import sys
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
 
 mock_pynput = MagicMock()
 mock_pynput_kb = MagicMock()
@@ -10,7 +9,7 @@ sys.modules.setdefault("pynput", mock_pynput)
 sys.modules.setdefault("pynput.keyboard", mock_pynput_kb)
 sys.modules.setdefault("pyperclip", MagicMock())
 
-from voice_typer.server.clipboard import ClipboardManager
+from voice_typer.server.clipboard import ClipboardManager  # noqa: E402
 
 
 class TestCopy:

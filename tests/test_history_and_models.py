@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -32,7 +31,7 @@ class TestHistoryRetentionFavorites:
         for i in range(5):
             history_db.add_transcription(f"Regular entry {i}")
 
-        deleted = history_db.apply_retention(max_entries=3)
+        history_db.apply_retention(max_entries=3)
 
         favorites = history_db.get_favorites()
         assert len(favorites) >= 1
@@ -42,7 +41,7 @@ class TestHistoryRetentionFavorites:
         for i in range(5):
             history_db.add_transcription(f"Entry {i}")
 
-        deleted = history_db.apply_retention(max_entries=3)
+        history_db.apply_retention(max_entries=3)
         entries = history_db.get_recent(limit=10)
         assert len(entries) <= 3
 
@@ -121,8 +120,9 @@ class TestVocabularySaveRetry:
     """_save_user retries on PermissionError."""
 
     def test_save_retries_on_permission_error(self, tmp_path):
-        from voice_typer.server.vocabulary import VocabularyManager
         import os
+
+        from voice_typer.server.vocabulary import VocabularyManager
 
         vocab = VocabularyManager(config_dir=tmp_path)
         attempt = {"n": 0}
@@ -197,8 +197,9 @@ class TestBuildModelsSubmenuConfigProvider:
     """build_models_menu_items accepts config_provider kwarg."""
 
     def test_accepts_config_provider(self, tmp_path):
-        from voice_typer.server.tray_models import build_models_submenu_data
         from unittest.mock import MagicMock
+
+        from voice_typer.server.tray_models import build_models_submenu_data
 
         config = MagicMock()
         config.model_size = "small.en"

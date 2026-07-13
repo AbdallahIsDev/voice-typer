@@ -16,14 +16,19 @@ Merges:
 
 from __future__ import annotations
 
-import subprocess
-
+import contextlib
+import json
+import logging
+import os
+import socket
 import sys
+import threading
+import time
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
-from unittest.mock import MagicMock, patch, call
-
+import numpy as np
 import pytest
-
 from voice_typer.__main__ import (
     EXIT_BAD_ARGS,
     EXIT_CLEAN,
@@ -31,47 +36,16 @@ from voice_typer.__main__ import (
     EXIT_DUPLICATE_INSTANCE,
     EXIT_PORT_CONFLICT,
 )
-
 from voice_typer.server import ipc_server
-
-import logging
-
-from unittest.mock import MagicMock, patch
-
-import numpy as np
-
 from voice_typer.server.config import Config
-
-from voice_typer.server.recording import Recorder
-
+from voice_typer.server.ipc_server import IPCServer
 from voice_typer.server.parakeet_engine import (
     _MAX_BOUNDARY_SKIP_WORDS,
     _OVERLAP_DEDUP_WINDOW,
     ParakeetEngine,
 )
-
+from voice_typer.server.recording import Recorder
 from voice_typer.server.transcription import release_gpu_memory
-
-import io
-
-import json
-
-import os
-
-import socket
-
-import threading
-
-import time
-
-from pathlib import Path
-
-from typing import Optional
-
-from unittest.mock import MagicMock
-
-from voice_typer.server.ipc_server import IPCServer
-
 from voice_typer.server.tray import AppState
 
 # === Common module-level constants (identical across files) ===
@@ -141,7 +115,7 @@ def _read_response_line(sock: socket.socket, timeout: float = 2.0) -> dict:
     while b"\n" not in buf:
         try:
             chunk = sock.recv(4096)
-        except socket.timeout as exc:
+        except TimeoutError as exc:
             raise TimeoutError(
                 f"Timed out waiting for response. Got partial: {buf!r}"
             ) from exc
@@ -188,7 +162,7 @@ def live_server(tmp_path, monkeypatch):
             test_sock.connect(("127.0.0.1", port))
             test_sock.close()
             break
-        except (ConnectionRefusedError, socket.timeout, OSError):
+        except (TimeoutError, ConnectionRefusedError, OSError):
             time.sleep(0.02)
     else:
         server.stop()
@@ -219,10 +193,8 @@ def authenticated_client(live_server):
     # but we DO wait for the next command's response which proves auth
     # succeeded).
     yield client, server
-    try:
+    with contextlib.suppress(OSError):
         client.close()
-    except OSError:
-        pass
 
 def _read(rel: str) -> str:
     return (RENDERER_SRC / rel).read_text(encoding="utf-8")
@@ -422,7 +394,7 @@ class TestRmsCallbackErrorSuppression:
         rec = _make_recorder()
 
         with caplog.at_level(logging.DEBUG, logger="voice_typer.server.recording"):
-            for i in range(50):
+            for _i in range(50):
                 rec._rms_callback_error_count = getattr(
                     rec, "_rms_callback_error_count", 0
                 ) + 1
@@ -451,7 +423,7 @@ class TestRmsCallbackErrorSuppression:
         rec = _make_recorder()
 
         with caplog.at_level(logging.DEBUG, logger="voice_typer.server.recording"):
-            for i in range(100):
+            for _i in range(100):
                 rec._rms_callback_error_count = getattr(
                     rec, "_rms_callback_error_count", 0
                 ) + 1
@@ -474,6 +446,7 @@ class TestSourceCheck:
 
     def test_source_has_suppression_logic(self):
         import inspect
+
         from voice_typer.server import recording
 
         source = inspect.getsource(recording)
@@ -618,13 +591,13 @@ class TestMergeChunksRegression:
 
     def test_empty_chunk_skipped(self, engine_no_model):
         """An empty intermediate chunk must not blow up the merge."""
-        result = engine_no_global_chunks_safe(engine_no_model)
+        engine_no_global_chunks_safe(engine_no_model)
 
     def test_short_new_chunk_returns_at_least_one_word(self, engine_no_model):
         """A new chunk with only 1 word must not be entirely skipped."""
         chunk_a = "the quick brown fox"
         chunk_b = "jumps"
-        result = engine_no_global_chunks_safe_2(engine_no_model, chunk_a, chunk_b)
+        engine_no_global_chunks_safe_2(engine_no_model, chunk_a, chunk_b)
 
 class TestComputeOverlapSkip:
     """Direct unit tests for the helper that decides how many leading
@@ -761,6 +734,7 @@ class TestEnginesCallReleaseGpuMemory:
     def test_transcription_engine_unload_calls_release(self):
         """TranscriptionEngine.unload() must invoke release_gpu_memory()."""
         import inspect
+
         from voice_typer.server.transcription import TranscriptionEngine
         source = inspect.getsource(TranscriptionEngine.unload)
         assert "release_gpu_memory()" in source, (
@@ -771,6 +745,7 @@ class TestEnginesCallReleaseGpuMemory:
     def test_parakeet_engine_unload_calls_release(self):
         """ParakeetEngine.unload() must invoke release_gpu_memory()."""
         import inspect
+
         from voice_typer.server.parakeet_engine import ParakeetEngine
         source = inspect.getsource(ParakeetEngine.unload)
         assert "release_gpu_memory()" in source, (
@@ -781,6 +756,7 @@ class TestEnginesCallReleaseGpuMemory:
     def test_qwen_engine_unload_calls_release(self):
         """QwenEngine.unload() must invoke release_gpu_memory()."""
         import inspect
+
         from voice_typer.server.qwen_engine import QwenEngine
         source = inspect.getsource(QwenEngine.unload)
         assert "release_gpu_memory()" in source, (
@@ -793,6 +769,7 @@ class TestEnginesCallReleaseGpuMemory:
         release_gpu_memory() before reloading on CPU.
         """
         import inspect
+
         from voice_typer.server.transcription import TranscriptionEngine
         # The GPU→CPU fallback for plain transcription lives in
         # _transcribe_with_fallback_unlocked.
@@ -830,7 +807,6 @@ class TestReleaseGpuMemoryFunctional:
 
         # Build a ParakeetEngine without loading the model.
         eng = ParakeetEngine.__new__(ParakeetEngine)
-        import threading
         eng._lock = threading.Lock()
         eng._model = None
         eng._processor = None
@@ -850,7 +826,6 @@ class TestReleaseGpuMemoryFunctional:
         from voice_typer.server.qwen_engine import QwenEngine
 
         eng = QwenEngine.__new__(QwenEngine)
-        import threading
         eng._lock = threading.Lock()
         eng._model = None
 
@@ -974,7 +949,7 @@ class TestTcpAuthEnforcement:
         client.settimeout(1.0)
         try:
             data = client.recv(4096)
-        except socket.timeout:
+        except TimeoutError:
             data = b""
 
         # Acceptable outcomes:
@@ -999,7 +974,7 @@ class TestTcpAuthEnforcement:
             _send_line(client, {"id": 1, "type": "get_status"})
             client.settimeout(0.5)
             data2 = client.recv(4096)
-        except (OSError, socket.timeout):
+        except (TimeoutError, OSError):
             data2 = b""  # connection closed — expected
         assert data2 == b"", (
             f"Server processed a command after auth failure: {data2!r}"
@@ -1017,7 +992,7 @@ class TestTcpAuthEnforcement:
         client.settimeout(1.0)
         try:
             data = client.recv(4096)
-        except socket.timeout:
+        except TimeoutError:
             data = b""
 
         # The server should either:
@@ -1164,7 +1139,7 @@ class TestTcpServerStop:
                 s.connect(("127.0.0.1", port))
                 s.close()
                 break
-            except (ConnectionRefusedError, socket.timeout, OSError):
+            except (TimeoutError, ConnectionRefusedError, OSError):
                 time.sleep(0.02)
         else:
             server.stop()
@@ -1191,10 +1166,10 @@ class TestTcpServerStop:
                 assert data == b"", (
                     f"Server still responding after stop(): {data!r}"
                 )
-            except (socket.timeout, ConnectionError, OSError):
+            except (TimeoutError, ConnectionError, OSError):
                 pass  # all of these are acceptable "server is gone" signals
             c.close()
-        except (ConnectionRefusedError, socket.timeout):
+        except (TimeoutError, ConnectionRefusedError):
             pass  # ideal case — server is no longer listening
 
     def test_stop_clears_tcp_server_socket_reference(self, tmp_path, monkeypatch):
@@ -1218,7 +1193,7 @@ class TestTcpServerStop:
                 s.connect(("127.0.0.1", port))
                 s.close()
                 break
-            except (ConnectionRefusedError, socket.timeout, OSError):
+            except (TimeoutError, ConnectionRefusedError, OSError):
                 time.sleep(0.02)
 
         # Before stop: _tcp_server_socket is set.
@@ -1423,10 +1398,9 @@ class TestRecordingStateEnumHasSixBackendStates:
         # The union ends at the first blank line after the start.
         # Look for the pattern: a line with just whitespace followed
         # by a non-'|' line.
-        end = start
         lines = src[start:].splitlines()
         union_lines = []
-        for i, line in enumerate(lines[1:], 1):  # skip the first line (the export)
+        for _i, line in enumerate(lines[1:], 1):  # skip the first line (the export)
             stripped = line.strip()
             if stripped == "":
                 # Blank line — end of union if the next non-blank line
@@ -1500,8 +1474,9 @@ class TestCloudEngineFailsGracefullyOnNetworkError:
         """When ``urlopen`` raises ConnectionError, cloud transcription
         must raise a user-friendly error, not crash with a stack trace.
         """
-        from voice_typer.server.cloud_engines import CloudEngine
         from urllib.error import URLError
+
+        from voice_typer.server.cloud_engines import CloudEngine
 
         engine = CloudEngine(
             provider="openai",
@@ -1524,8 +1499,9 @@ class TestCloudEngineFailsGracefullyOnNetworkError:
         """When ``urlopen`` raises ConnectionError, LLM polish must
         return the original text unchanged (not crash).
         """
-        from voice_typer.server.llm_polish import LLMPolisher
         from urllib.error import URLError
+
+        from voice_typer.server.llm_polish import LLMPolisher
 
         polisher = LLMPolisher(
             api_key="test-key",
@@ -1551,8 +1527,9 @@ class TestCloudEngineFailsGracefullyOnNetworkError:
         """SEC-030: ``_read_capped`` must handle a network error mid-stream
         without OOM — the error should propagate, not hang or accumulate.
         """
-        from voice_typer.server.cloud_engines import _read_capped
         from urllib.error import URLError
+
+        from voice_typer.server.cloud_engines import _read_capped
 
         class FakeResp:
             def read(self, n):
@@ -1566,12 +1543,11 @@ class TestCloudEngineFailsGracefullyOnNetworkError:
         the app must not crash or hang. This verifies the offline-first
         contract: local models don't depend on network access.
         """
-        from voice_typer.server.transcription import TranscriptionEngine
         import numpy as np
+        from voice_typer.server.transcription import TranscriptionEngine
 
         # Build a mock local engine (no network calls)
         eng = TranscriptionEngine.__new__(TranscriptionEngine)
-        import threading
         eng._lock = threading.Lock()
         eng._model = MagicMock()
         mock_segment = MagicMock()
@@ -1602,9 +1578,10 @@ class TestCloudEngineFailsGracefullyOnNetworkError:
         """The error message from a cloud engine on network failure must
         be user-friendly (not a raw socket/SSL stack trace).
         """
-        from voice_typer.server.cloud_engines import CloudEngine
         from urllib.error import URLError
+
         import numpy as np
+        from voice_typer.server.cloud_engines import CloudEngine
 
         engine = CloudEngine(
             provider="openai",

@@ -14,7 +14,6 @@ Key points:
 """
 
 import logging
-import sqlite3
 import threading
 import time
 from datetime import datetime, timedelta
@@ -447,16 +446,16 @@ class TestWriterThreadArchitecture:
         SQLITE_BUSY/LOCKED errors are impossible (barring external
         writers, which aren't present in this test).
         """
-        N_THREADS = 10
-        N_PER_THREAD = 20
-        barrier = threading.Barrier(N_THREADS)
+        n_threads = 10
+        n_per_thread = 20
+        barrier = threading.Barrier(n_threads)
 
         def worker(tid):
             barrier.wait()  # release all threads at once
-            for i in range(N_PER_THREAD):
+            for i in range(n_per_thread):
                 db.add_transcription(f"thread-{tid}-row-{i}")
 
-        threads = [threading.Thread(target=worker, args=(t,)) for t in range(N_THREADS)]
+        threads = [threading.Thread(target=worker, args=(t,)) for t in range(n_threads)]
         with caplog.at_level(logging.ERROR, logger="voice_typer.server.history_db"):
             for t in threads:
                 t.start()
@@ -475,9 +474,9 @@ class TestWriterThreadArchitecture:
         )
 
         # All rows should be present.
-        entries = db.get_recent(limit=N_THREADS * N_PER_THREAD + 10)
-        assert len(entries) == N_THREADS * N_PER_THREAD, (
-            f"Expected {N_THREADS * N_PER_THREAD} rows, got {len(entries)}"
+        entries = db.get_recent(limit=n_threads * n_per_thread + 10)
+        assert len(entries) == n_threads * n_per_thread, (
+            f"Expected {n_threads * n_per_thread} rows, got {len(entries)}"
         )
 
     def test_add_transcription_is_non_blocking(self, db):

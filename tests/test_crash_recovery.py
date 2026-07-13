@@ -1,8 +1,8 @@
 """Tests for voice_typer.crash_recovery — CrashRecovery add, save, clear, check."""
 
 import json
+
 import pytest
-from pathlib import Path
 
 
 @pytest.fixture
@@ -119,7 +119,6 @@ class TestCrashRecoveryAsyncWrites:
         returns.  We can't easily measure wall-clock in a unit test,
         but we can verify the entry is visible in-memory immediately
         (before the worker has necessarily written it)."""
-        import time
         cr.add("Fast entry", pasted=False)
         # The in-memory state should be updated synchronously
         assert cr.count == 1
@@ -132,7 +131,6 @@ class TestCrashRecoveryAsyncWrites:
         # flush should complete within a reasonable timeout
         assert cr.flush(timeout=5.0) is True
         # After flush, the file should reflect the latest state
-        import json
         recovery_file = recovery_dir / "voice-typer-recovery.json"
         data = json.loads(recovery_file.read_text(encoding="utf-8"))
         # MAX_RECOVERY_ENTRIES is 10, so only the last 10 should be on disk
@@ -378,6 +376,7 @@ class TestDiagnosticsPrewarmBundle:
     def test_diagnostic_bundle_includes_prewarm_json(self, recovery_dir):
         """The bundle zip contains a prewarm.json entry."""
         import zipfile
+
         from voice_typer.server.crash_recovery import CrashRecovery
 
         cr = CrashRecovery(config_dir=recovery_dir)
@@ -392,8 +391,8 @@ class TestDiagnosticsPrewarmBundle:
 
     def test_prewarm_json_contains_status_fields(self, recovery_dir):
         """prewarm.json contains all get_prewarm_status() fields."""
-        import json
         import zipfile
+
         from voice_typer.server.crash_recovery import CrashRecovery
 
         cr = CrashRecovery(config_dir=recovery_dir)
@@ -414,8 +413,8 @@ class TestDiagnosticsPrewarmBundle:
 
     def test_prewarm_json_contains_sentinel_and_pid_paths(self, recovery_dir):
         """prewarm.json includes sentinel_path and pid_file_path."""
-        import json
         import zipfile
+
         from voice_typer.server.crash_recovery import CrashRecovery
 
         cr = CrashRecovery(config_dir=recovery_dir)
@@ -434,10 +433,10 @@ class TestDiagnosticsPrewarmBundle:
 
     def test_prewarm_json_contains_sentinel_contents(self, recovery_dir):
         """prewarm.json includes sentinel_contents (raw file contents or None)."""
-        import json
         import zipfile
-        from voice_typer.server.crash_recovery import CrashRecovery
+
         from voice_typer.server import prewarm
+        from voice_typer.server.crash_recovery import CrashRecovery
 
         # Write a sentinel file so we can verify its contents are bundled.
         sentinel = prewarm._sentinel_path()
@@ -462,8 +461,8 @@ class TestDiagnosticsPrewarmBundle:
         export. If it fails, the error is included so support engineers
         know why prewarm data is missing.
         """
-        import json
         import zipfile
+
         from voice_typer.server.crash_recovery import CrashRecovery
 
         # Make get_prewarm_status raise.

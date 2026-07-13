@@ -7,7 +7,6 @@ verify committed_text is always sorted and non-empty when words are added.
 from __future__ import annotations
 
 import pytest
-import numpy as np
 
 pytestmark = pytest.mark.skipif(
     True,  # Will be overridden below if hypothesis is available
@@ -15,7 +14,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 try:
-    from hypothesis import given, assume, settings, HealthCheck
+    from hypothesis import HealthCheck, given, settings
     from hypothesis import strategies as st
 
     HAS_HYPOTHESIS = True
@@ -29,7 +28,6 @@ except ImportError:
 
 if HAS_HYPOTHESIS:
     from voice_typer.server.streaming import (
-        StreamingConfig,
         StreamingTextAssembler,
         WordTiming,
     )

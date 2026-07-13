@@ -1,7 +1,7 @@
 """Tests for voice_typer.audio_quality — AudioQualityAnalyzer and AudioQualityReport."""
 
-import pytest
 import numpy as np
+import pytest
 
 
 @pytest.fixture

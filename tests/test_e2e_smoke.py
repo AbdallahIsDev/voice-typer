@@ -1,15 +1,14 @@
-"""Round 8 E2E verification — exercises the 10 fixes together.
+"""E2E verification — exercises the 10 fixes together.
 
 This is a sanity check that the fixes don't interfere with each other
 and the core flows still work end-to-end.
 """
-import sys
-import os
 import json
-import tempfile
+import os
+import sys
+from unittest.mock import MagicMock
+
 import pytest
-from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, '/home/z/my-project/voice-typer-repo')
 
@@ -22,11 +21,12 @@ def temp_config(tmp_path, monkeypatch):
 
 
 class TestEndToEndSmoke:
-    """End-to-end smoke tests for Round 8's 10 fixes."""
+    """End-to-end smoke tests."""
 
     def test_startup6_no_spurious_warning(self, temp_config, caplog):
         """STARTUP-6: loading default config does NOT log a spurious warning."""
         import logging
+
         from voice_typer.server.config import Config
         # Write a default config (the case that previously triggered the bug)
         (temp_config / "config.json").write_text(json.dumps({
@@ -90,8 +90,8 @@ class TestEndToEndSmoke:
 
     def test_download_model_pushes_progress_events(self, temp_config, monkeypatch):
         """UX-005: download_model pushes progress events via IPC."""
-        from voice_typer.server.service import VoiceTyperService
         import voice_typer.server.ipc_server as ipc_mod
+        from voice_typer.server.service import VoiceTyperService
         events = []
         monkeypatch.setattr(ipc_mod, "_push_event_now", lambda msg: events.append(msg) or True)
         # Mock Qwen with existing path → success path
@@ -107,6 +107,7 @@ class TestEndToEndSmoke:
     def test_recorder_rms_forwards_audio_chunk_to_waveform(self):
         """T021: app._on_recorder_rms forwards audio_chunk to update_level."""
         import inspect
+
         from voice_typer.server.app import VoiceTyperApp
         from voice_typer.server.waveform import WaveformBubble
         # Check signatures

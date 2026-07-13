@@ -25,16 +25,14 @@ Regression coverage
 
 from __future__ import annotations
 
+import contextlib
 import sys
 import time
-import threading
 from pathlib import Path
-from typing import Optional
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
-
 
 # ── Heavy mock imports (autouse) ────────────────────────────────────────
 # These must be in place before VoiceTyperApp is imported, so we apply
@@ -117,7 +115,7 @@ class FakeBackend:
         self._muted = muted
         self._per_session_capable = per_session_capable
         self._speaker_active = speaker_active
-        self.set_calls: list[tuple[float, Optional[bool]]] = []
+        self.set_calls: list[tuple[float, bool | None]] = []
         self.fade_calls: list[tuple[float, int]] = []
         self.duck_session_calls: list[float] = []
         self.restore_session_calls: int = 0
@@ -139,7 +137,7 @@ class FakeBackend:
         from voice_typer.server.volume_backend import VolumeState
         return VolumeState(linear=self._current, muted=self._muted)
 
-    def set_linear(self, level: float, muted: Optional[bool] = None) -> bool:
+    def set_linear(self, level: float, muted: bool | None = None) -> bool:
         self._current = max(0.0, min(1.0, level))
         if muted is not None:
             self._muted = muted
@@ -470,15 +468,11 @@ class TestRestartRestoresBeforeExiting:
             # a @property delegate on VoiceTyperApp).
             app.recording._transcription_thread = None
             # Spy on sys.exit to record that exit happened AFTER restore.
-            real_sys_exit = app_mod.sys.exit
             def spy_exit(code=0):
                 events.append("sys.exit")
                 raise SystemExit(code)
-            with patch.object(app_mod.sys, "exit", spy_exit):
-                try:
-                    app.restart_app()
-                except SystemExit:
-                    pass
+            with patch.object(app_mod.sys, "exit", spy_exit), contextlib.suppress(SystemExit):
+                app.restart_app()
 
         # Restore must happen BEFORE sys.exit
         assert "restore" in events, "restart_app() should have called restore"
@@ -501,8 +495,8 @@ class TestCrashRecoveryOnStartup:
         then construct a fresh VolumeDucker and verify initialize()
         restores the saved volume."""
         from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
-        from voice_typer.server.volume_ducker import VolumeDucker
         from voice_typer.server.volume_backend import VolumeState
+        from voice_typer.server.volume_ducker import VolumeDucker
 
         crash_recovery = DuckCrashRecovery(config_dir=tmp_config_dir)
         # Simulate the previous session having crashed while ducked at 0.25,

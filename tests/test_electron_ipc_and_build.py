@@ -3,6 +3,7 @@ and type-safety fixes."""
 
 from __future__ import annotations
 
+import contextlib
 import inspect
 import json
 import re
@@ -11,7 +12,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLIENT_SRC = REPO_ROOT / "voice_typer" / "client" / "src"
@@ -567,8 +567,8 @@ class TestTypeIgnoreBugsFixed:
     def test_volume_backends_bare_type_ignore_fixed(self):
         path = REPO_ROOT / "voice_typer" / "server" / "volume_backends.py"
         src = path.read_text(encoding="utf-8")
-        lines = [l for l in src.split("\n") if "type: ignore" in l and "import-not-found" not in l]
-        bare_ignores = [l for l in lines if l.rstrip().endswith("# type: ignore")]
+        lines = [ln for ln in src.split("\n") if "type: ignore" in ln and "import-not-found" not in ln]
+        bare_ignores = [ln for ln in lines if ln.rstrip().endswith("# type: ignore")]
         assert not bare_ignores
 
     def test_no_malformed_type_ignore_isc(self):
@@ -661,10 +661,8 @@ class TestRestartAppStopsBackends:
             app.recorder.discard = MagicMock()
             app.tray = MagicMock()
             app._do_restart = MagicMock()
-            try:
+            with contextlib.suppress(BaseException):
                 app.restart_app()
-            except BaseException:
-                pass
 
             stops_called = sum(
                 1 for be in (app.hotkeys._hotkey_backend, app.hotkeys._esc_backend, app.hotkeys._repaste_backend)

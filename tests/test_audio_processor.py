@@ -8,13 +8,9 @@ quality callback wiring.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
 import numpy as np
 import pytest
-
 from voice_typer.server.audio_processor import AudioProcessor
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Fixtures

@@ -23,7 +23,6 @@ from voice_typer.server.model_registry import (
     get_models_by_backend,
 )
 
-
 # ── Expected variants ───────────────────────────────────────────────
 #
 # Source of truth: the spec in Task 9 (P6).  Any drift between this
@@ -209,7 +208,7 @@ class TestTurboModelHasCorrectMetadata:
         assert turbo.repo_id == full.repo_id
         assert turbo.download_size_mb == full.download_size_mb
 
-    def test_turbo_size_matches_MODEL_SIZE_MB(self):
+    def test_turbo_size_matches_model_size_mb(self):
         """The registry's download_size_mb must match the
         ``_MODEL_SIZE_MB`` table in transcription.py so the disk-space
         pre-check and the renderer's UI agree."""

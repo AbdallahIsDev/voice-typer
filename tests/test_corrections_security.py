@@ -16,7 +16,7 @@ def test_corrections_capped_at_5000():
         }
         path = Path(tmp) / "corrections.json"
         path.write_text(json.dumps(data), encoding="utf-8")
-        
+
         result = _load_external_corrections(
             corrections_path=str(path)
         )
@@ -37,7 +37,7 @@ def test_long_strings_filtered():
         }
         path = Path(tmp) / "corrections.json"
         path.write_text(json.dumps(data), encoding="utf-8")
-        
+
         result = _load_external_corrections(
             corrections_path=str(path)
         )

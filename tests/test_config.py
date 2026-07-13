@@ -1,13 +1,12 @@
 """Tests for config load/save and field behavior."""
 
+import contextlib
 import json
 import sys
-import pytest
-from pathlib import Path
 from unittest.mock import patch
 
-from voice_typer.server.config import Config, _CURRENT_SCHEMA_VERSION, _config_dir, _default_hotkey_for_platform
-
+import pytest
+from voice_typer.server.config import _CURRENT_SCHEMA_VERSION, Config, _default_hotkey_for_platform
 
 # NATIVE-001: the default hotkey is now platform-aware
 # (Fn on macOS, Caps Lock on Windows/Linux, F2 on unknown platforms).
@@ -160,7 +159,7 @@ class TestConfigLoadSave:
         config_file.write_text("NOT VALID JSON {{{")
 
         with caplog.at_level(logging.ERROR, logger="voice_typer.server.config"):
-            c = Config.load()
+            Config.load()
 
         assert any("corrupted" in r.message.lower() or "failed to load" in r.message.lower()
                     for r in caplog.records)
@@ -335,11 +334,8 @@ class TestAtomicConfigSave:
         with patch(
             "voice_typer.server.config._secure_atomic_write",
             side_effect=OSError("disk full"),
-        ):
-            try:
-                c2.save()
-            except OSError:
-                pass
+        ), contextlib.suppress(OSError):
+            c2.save()
 
         assert config_file.read_text() == original_data
 
@@ -443,13 +439,13 @@ class TestM3ConfigSchemaVersion:
     """M3: No config schema versioning."""
 
     def test_config_has_schema_version_field(self):
-        from voice_typer.server.config import Config, _CURRENT_SCHEMA_VERSION
+        from voice_typer.server.config import Config
         c = Config()
         assert hasattr(c, "schema_version")
         assert c.schema_version == _CURRENT_SCHEMA_VERSION
 
     def test_config_save_load_preserves_schema_version(self, tmp_path, monkeypatch):
-        from voice_typer.server.config import Config, _CURRENT_SCHEMA_VERSION
+        from voice_typer.server.config import Config
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         c = Config()
         c.save()
@@ -457,8 +453,9 @@ class TestM3ConfigSchemaVersion:
         assert loaded.schema_version == _CURRENT_SCHEMA_VERSION
 
     def test_config_migration_from_version_0(self, tmp_path, monkeypatch):
-        from voice_typer.server.config import Config, _CURRENT_SCHEMA_VERSION
         import json
+
+        from voice_typer.server.config import Config
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"hotkey": "<f3>", "model_size": "small.en"}))
@@ -471,10 +468,9 @@ class TestM4SaveErrorHandling:
     """M4: save() has no error handling."""
 
     def test_save_returns_false_on_permission_error(self, tmp_path, monkeypatch):
-        from voice_typer.server.config import Config, _CURRENT_SCHEMA_VERSION
+        from voice_typer.server.config import Config
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         c = Config()
-        import json
         # NEW-SEC-008: save() now uses json.dumps (string) not json.dump (file).
         # Mock json.dumps to raise OSError so the test verifies save()
         # returns False on error.
@@ -485,7 +481,7 @@ class TestM4SaveErrorHandling:
         assert result is False
 
     def test_save_returns_true_on_success(self, tmp_path, monkeypatch):
-        from voice_typer.server.config import Config, _CURRENT_SCHEMA_VERSION
+        from voice_typer.server.config import Config
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         c = Config()
         result = c.save()
@@ -504,8 +500,10 @@ class TestConfigSaveEnforcesPosixFilePermissions:
 
     @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
     def test_save_creates_config_file_with_0600_permissions(self, tmp_path, monkeypatch):
-        import os, stat
-        from voice_typer.server.config import Config, _CURRENT_SCHEMA_VERSION
+        import os
+        import stat
+
+        from voice_typer.server.config import Config
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         cfg = Config()
         cfg.cloud_api_key = "sk-test-secret"
@@ -517,8 +515,10 @@ class TestConfigSaveEnforcesPosixFilePermissions:
 
     @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
     def test_save_creates_config_dir_with_0700_permissions(self, tmp_path, monkeypatch):
-        import os, stat
-        from voice_typer.server.config import Config, _CURRENT_SCHEMA_VERSION
+        import os
+        import stat
+
+        from voice_typer.server.config import Config
         # Use a subdir that doesn't exist yet so save() creates it
         config_dir = tmp_path / "nested" / ".voice-typer"
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: config_dir)
@@ -532,8 +532,10 @@ class TestConfigSaveEnforcesPosixFilePermissions:
     def test_save_preserves_0600_on_existing_file(self, tmp_path, monkeypatch):
         """A second save() must keep the 0o600 permissions, not drift
         back to default umask."""
-        import os, stat
-        from voice_typer.server.config import Config, _CURRENT_SCHEMA_VERSION
+        import os
+        import stat
+
+        from voice_typer.server.config import Config
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         cfg = Config()
         cfg.cloud_api_key = "first"

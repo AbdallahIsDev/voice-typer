@@ -4,13 +4,11 @@ and cross-platform behavior."""
 from __future__ import annotations
 
 import inspect
-import json
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
-
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -157,7 +155,7 @@ class TestElectronUserDataPathMatchesConfigDir:
     def test_gitignore_does_not_ignore_scripts_build(self):
         gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
         assert "/build/" in gitignore
-        lines = [l.strip() for l in gitignore.splitlines()]
+        lines = [ln.strip() for ln in gitignore.splitlines()]
         for line in lines:
             if line == "build/":
                 pytest.fail(".gitignore still has unanchored 'build/' pattern")
@@ -223,7 +221,7 @@ class TestIoprioSetUsesSyscallNotLibcSymbol:
     def test_no_hasattr_ioprio_set_check(self):
         from voice_typer.server import prewarm
         src = inspect.getsource(prewarm._lower_io_priority)
-        code_lines = [l for l in src.split('\n') if not l.strip().startswith('#')]
+        code_lines = [ln for ln in src.split('\n') if not ln.strip().startswith('#')]
         code = '\n'.join(code_lines)
         assert 'hasattr(libc, "ioprio_set")' not in code
         assert "libc.syscall" in code
@@ -232,6 +230,7 @@ class TestIoprioSetUsesSyscallNotLibcSymbol:
         if sys.platform != "linux":
             pytest.skip("Linux-only test")
         import ctypes
+
         from voice_typer.server import prewarm
         syscall_called = []
         fake_libc = MagicMock()
@@ -253,15 +252,15 @@ class TestPlatformChecksUseExactMatchNotStartswith:
     def test_no_startswith_linux_in_task_scheduler(self):
         from voice_typer.server import task_scheduler
         src = inspect.getsource(task_scheduler)
-        lines = [l for l in src.split('\n')
-                 if 'startswith("linux")' in l and not l.strip().startswith('#')]
+        lines = [ln for ln in src.split('\n')
+                 if 'startswith("linux")' in ln and not ln.strip().startswith('#')]
         assert not lines
 
     def test_no_startswith_linux_in_prewarm(self):
         from voice_typer.server import prewarm
         src = inspect.getsource(prewarm)
-        lines = [l for l in src.split('\n')
-                 if 'startswith("linux")' in l and not l.strip().startswith('#')]
+        lines = [ln for ln in src.split('\n')
+                 if 'startswith("linux")' in ln and not ln.strip().startswith('#')]
         assert not lines
 
 
@@ -360,6 +359,8 @@ class TestResetToDefaultsPreservesOnboardingCompleted:
     """Reset to Defaults preserves onboarding_completed."""
 
     def test_reset_skips_onboarding(self):
-        settings = (REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "pages" / "Settings.tsx").read_text(encoding="utf-8")
+        settings = (
+            REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "pages" / "Settings.tsx"
+        ).read_text(encoding="utf-8")
         assert "onboarding_completed" in settings
         assert "intentionally preserved" in settings or "skip" in settings.lower()

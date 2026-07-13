@@ -15,18 +15,15 @@ Electron as a subprocess and passes it the connection info via env vars
 from __future__ import annotations
 
 import os
-import sys
-import subprocess
 import signal
+import subprocess
+import sys
 import time
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
-
-from voice_typer.server import electron_launcher
 from voice_typer.server import app as app_module
-
+from voice_typer.server import electron_launcher
 
 # ── is_spawned_by_electron ──────────────────────────────────────────────
 

@@ -7,7 +7,6 @@ Verifies:
 """
 
 import pytest
-
 from voice_typer.server import _secrets
 from voice_typer.server._secrets import (
     assert_url_allowed,

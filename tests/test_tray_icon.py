@@ -9,8 +9,9 @@ import pytest
 # Use real PIL for these tests (conftest.py mocks PIL by default)
 pytestmark = pytest.mark.real_pil
 
-from unittest.mock import MagicMock, patch
-from PIL import Image
+from unittest.mock import MagicMock  # noqa: E402
+
+from PIL import Image  # noqa: E402
 
 
 class TestDrawShape:
@@ -143,6 +144,7 @@ class TestDrawShapeIndicator:
     def test_indicator_invalid_size_returns_image_with_warning(self, caplog):
         """When image has invalid .size, return image unchanged and log warning."""
         import logging
+
         from voice_typer.server.tray_icon import _draw_shape_indicator
 
         # Create a real image but make its .size return None by
@@ -165,6 +167,7 @@ class TestDrawShapeIndicator:
     def test_indicator_empty_size_tuple_returns_image_with_warning(self, caplog):
         """When image has empty size tuple, return image and log warning."""
         import logging
+
         from voice_typer.server.tray_icon import _draw_shape_indicator
 
         real_img = Image.new("RGBA", (32, 32), (0, 0, 0, 255))
@@ -183,6 +186,7 @@ class TestDrawShapeIndicator:
     def test_indicator_3_tuple_size_returns_image_with_warning(self, caplog):
         """When image has 3-element size tuple, return image and log warning."""
         import logging
+
         from voice_typer.server.tray_icon import _draw_shape_indicator
 
         real_img = Image.new("RGBA", (32, 32), (0, 0, 0, 255))
@@ -223,7 +227,7 @@ class TestMakeIcon:
 
     def test_make_icon_shape_fallback_when_no_png(self, monkeypatch):
         """When no PNG icon is available, _make_icon falls back to shape-only."""
-        from voice_typer.server.tray_icon import _make_icon, _icon_cache
+        from voice_typer.server.tray_icon import _icon_cache, _make_icon
         from voice_typer.server.tray_types import AppState
 
         # Clear the cache
@@ -242,7 +246,7 @@ class TestMakeIcon:
 
     def test_make_icon_caches_result(self, monkeypatch):
         """_make_icon should cache and return the same image for same state+size."""
-        from voice_typer.server.tray_icon import _make_icon, _icon_cache
+        from voice_typer.server.tray_icon import _icon_cache, _make_icon
         from voice_typer.server.tray_types import AppState
 
         _icon_cache.clear()
@@ -276,10 +280,10 @@ state change).
 The fix caches the result after the first call.
 """
 
-import ctypes
+import ctypes  # noqa: E402
 
-from voice_typer.server import tray_icon
-from voice_typer.server.tray_icon import (
+from voice_typer.server import tray_icon  # noqa: E402
+from voice_typer.server.tray_icon import (  # noqa: E402
     _get_dpi_aware_icon_size,
     invalidate_dpi_cache,
 )

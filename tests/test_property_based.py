@@ -8,12 +8,12 @@ TEST-013: Fuzzing for corrections.json parser with random JSON structures.
 from __future__ import annotations
 
 import json
-import pytest
 
-from voice_typer.server.text_cleanup import clean_transcribed_text, configure_corrections
+import pytest
+from voice_typer.server.text_cleanup import clean_transcribed_text
 
 try:
-    from hypothesis import given, assume, settings, HealthCheck
+    from hypothesis import HealthCheck, assume, given, settings
     from hypothesis import strategies as st
     HAS_HYPOTHESIS = True
 except ImportError:
@@ -25,14 +25,14 @@ except ImportError:
         return decorator
     def assume(condition):
         pass
-    class settings:
+    class settings:  # noqa: N801 — matches hypothesis.settings name
         def __init__(self, **kwargs):
             pass
         def __call__(self, func):
             return func
     class HealthCheck:
         too_slow = None
-    class st:
+    class st:  # noqa: N801 — matches hypothesis.strategies alias
         @staticmethod
         def text(**kwargs):
             return None
