@@ -3,8 +3,9 @@
 Requires PIL (Pillow).  Run from project root:
     python scripts/generate_icons_new.py
 """
-from PIL import Image, ImageDraw
 import os
+
+from PIL import Image, ImageDraw
 
 # ── Paths (relative to project root) ─────────────────────────────────
 ASSETS_DIR = "voice_typer/server/assets"

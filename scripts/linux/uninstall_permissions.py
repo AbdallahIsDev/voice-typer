@@ -14,6 +14,7 @@ Exit codes: same as install_permissions.py.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -24,5 +25,4 @@ if not installer_path.is_file():
     sys.exit(1)
 
 # Use exec to replace this process — cleaner than subprocess for a wrapper
-import os  # noqa: E402
 os.execv(sys.executable, [sys.executable, str(installer_path), "--uninstall"])

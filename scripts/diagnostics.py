@@ -87,7 +87,7 @@ def export_diagnostics() -> str:
     import tempfile
     from datetime import datetime, timezone
     from pathlib import Path
-    from zipfile import ZipFile, ZIP_DEFLATED
+    from zipfile import ZIP_DEFLATED, ZipFile
 
     timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     zip_filename = f"voice-typer-diagnostics-{timestamp}.zip"
@@ -154,11 +154,11 @@ def export_diagnostics() -> str:
                 config_text = config_file.read_text(encoding="utf-8")
                 config_data = json.loads(config_text)
                 # Redact sensitive fields
-                _REDACT_KEYS = {
+                _redact_keys = {
                     "llm_api_key", "openai_api_key", "api_key",
                     "deepgram_api_key", "assemblyai_api_key",
                 }
-                for key in _REDACT_KEYS:
+                for key in _redact_keys:
                     if key in config_data and config_data[key]:
                         config_data[key] = "***REDACTED***"
                 (tmpdir_path / "config_redacted.json").write_text(
@@ -176,7 +176,7 @@ def export_diagnostics() -> str:
                 # Copy only the last 1MB to avoid huge files
                 log_size = log_file.stat().st_size
                 if log_size > 1024 * 1024:
-                    with open(log_file, "r", encoding="utf-8", errors="replace") as f:
+                    with open(log_file, encoding="utf-8", errors="replace") as f:
                         f.seek(log_size - 1024 * 1024)
                         f.readline()  # skip partial first line
                         (tmpdir_path / "voice-typer.log").write_text(

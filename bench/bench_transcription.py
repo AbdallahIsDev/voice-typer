@@ -11,9 +11,10 @@ Usage:
 """
 
 import argparse
-import time
-import sys
 import os
+import sys
+import time
+
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -30,7 +31,7 @@ def bench_model_load(model_size: str, device: str) -> float:
     """Benchmark model loading time. Returns seconds."""
     from voice_typer.server.transcription import TranscriptionEngine
     t0 = time.perf_counter()
-    engine = TranscriptionEngine(model_size=model_size, device=device)
+    TranscriptionEngine(model_size=model_size, device=device)
     elapsed = time.perf_counter() - t0
     return elapsed
 
@@ -70,7 +71,7 @@ def main():
     parser.add_argument("--load-only", action="store_true", help="Only benchmark model load time")
     args = parser.parse_args()
 
-    print(f"=== Voice Typer Benchmark ===")
+    print("=== Voice Typer Benchmark ===")
     print(f"Model: {args.model}")
     print(f"Device: {args.device}")
     print(f"Iterations: {args.iterations}")
