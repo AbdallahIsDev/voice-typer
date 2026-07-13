@@ -1,6 +1,7 @@
 import { PlayIcon, RefreshIcon, StopIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@/components/ui/button";
+import { t } from "@/i18n/i18n";
 
 interface QualityData {
 	volume_level: "good" | "low" | "very_low";
@@ -66,12 +67,15 @@ export function TestReviewPanel({
 		<div className="mt-4 rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-3">
 			{/* Header */}
 			<div className="flex items-center justify-between">
+				{" "}
 				<div>
 					<p className="text-sm font-semibold text-(--text-primary)">
-						Test Complete
+						{t("microphoneTest.title")}
 					</p>
 					<p className="text-xs text-(--text-muted)">
-						Duration: {(durationMs / 1000).toFixed(1)}s
+						{t("microphoneTest.duration", {
+							duration: (durationMs / 1000).toFixed(1),
+						})}
 					</p>
 				</div>
 				<Button
@@ -85,7 +89,7 @@ export function TestReviewPanel({
 						strokeWidth={1.625}
 						className="h-3.5 w-3.5"
 					/>
-					Retest
+					{t("microphoneTest.retest")}
 				</Button>
 			</div>
 
@@ -94,7 +98,7 @@ export function TestReviewPanel({
 				<>
 					<div className="flex items-center justify-between">
 						<span className="text-xs font-medium text-(--text-muted)">
-							Estimated Transcription Quality
+							{t("microphoneTest.estimatedQuality")}
 						</span>
 						<span
 							className={`text-sm font-bold tabular-nums ${
@@ -112,7 +116,9 @@ export function TestReviewPanel({
 					{/* Detailed metrics */}
 					<div className="grid grid-cols-2 gap-2 text-[10px]">
 						<div>
-							<span className="text-(--text-muted)">Volume</span>
+							<span className="text-(--text-muted)">
+								{t("microphoneTest.volume")}
+							</span>
 							<div className="flex items-center gap-1.5">
 								<span
 									className={`w-1.5 h-1.5 rounded-full ${
@@ -123,15 +129,17 @@ export function TestReviewPanel({
 								/>
 								<span>
 									{quality.volume_level === "good"
-										? "Good ✓"
+										? t("microphoneTest.good")
 										: quality.volume_level === "low"
-											? "Low ⚠"
-											: "Very Low ⚠"}
+											? t("microphoneTest.low")
+											: t("microphoneTest.veryLow")}
 								</span>
 							</div>
 						</div>
 						<div>
-							<span className="text-(--text-muted)">Background Noise</span>
+							<span className="text-(--text-muted)">
+								{t("microphoneTest.backgroundNoise")}
+							</span>
 							<div className="flex items-center gap-1.5">
 								<span
 									className={`w-1.5 h-1.5 rounded-full ${
@@ -144,23 +152,31 @@ export function TestReviewPanel({
 								/>
 								<span>
 									{quality.noise_level === "low"
-										? "Low ✓"
+										? t("microphoneTest.lowNoise")
 										: quality.noise_level === "moderate"
-											? "Moderate ⚠"
-											: "High ⚠"}
+											? t("microphoneTest.moderateNoise")
+											: t("microphoneTest.highNoise")}
 								</span>
 							</div>
 						</div>
 						<div>
-							<span className="text-(--text-muted)">Clipping</span>
-							<span className="ml-1">
-								{quality.has_clipping ? "Detected ⚠" : "None ✓"}
+							<span className="text-(--text-muted)">
+								{t("microphoneTest.clipping")}
+							</span>
+							<span className="ms-1">
+								{quality.has_clipping
+									? t("microphoneTest.clippingDetected")
+									: t("microphoneTest.clippingNone")}
 							</span>
 						</div>
 						<div>
-							<span className="text-(--text-muted)">Voice</span>
-							<span className="ml-1">
-								{quality.has_voice ? "Detected ✓" : "Not detected ⚠"}
+							<span className="text-(--text-muted)">
+								{t("microphoneTest.voice")}
+							</span>
+							<span className="ms-1">
+								{quality.has_voice
+									? t("microphoneTest.voiceDetected")
+									: t("microphoneTest.voiceNotDetected")}
 							</span>
 						</div>
 					</div>
@@ -169,7 +185,7 @@ export function TestReviewPanel({
 					{quality.detected_issues.length > 0 && (
 						<div className="text-[10px] text-(--text-muted) space-y-0.5">
 							<span className="font-medium text-amber-500">
-								Detected Issues:
+								{t("microphoneTest.detectedIssues")}
 							</span>
 							{quality.detected_issues.map((issue) => (
 								<div key={issue} className="flex items-center gap-1">
@@ -196,7 +212,9 @@ export function TestReviewPanel({
 							strokeWidth={1.625}
 							className="h-3.5 w-3.5"
 						/>
-						{playing && !playingOriginal ? "Stop" : "Play Enhanced"}
+						{playing && !playingOriginal
+							? t("microphoneTest.stop")
+							: t("microphoneTest.playEnhanced")}
 					</Button>
 				)}
 
@@ -212,7 +230,9 @@ export function TestReviewPanel({
 							strokeWidth={1.625}
 							className="h-3.5 w-3.5"
 						/>
-						{playing && playingOriginal ? "Stop" : "Play Original"}
+						{playing && playingOriginal
+							? t("microphoneTest.stop")
+							: t("microphoneTest.playOriginal")}
 					</Button>
 				)}
 
@@ -228,7 +248,9 @@ export function TestReviewPanel({
 							strokeWidth={1.625}
 							className="h-3.5 w-3.5"
 						/>
-						{playing ? "Stop" : "Play Recording"}
+						{playing
+							? t("microphoneTest.stop")
+							: t("microphoneTest.playRecording")}
 					</Button>
 				)}
 			</div>

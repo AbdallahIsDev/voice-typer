@@ -39,6 +39,8 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 	const { showSnack, Snackbar } = useSnackbar();
 	const [step, setStep] = useState<StepInfo | null>(null);
 	const [loading, setLoading] = useState(true);
+	const [initError, setInitError] = useState<string | null>(null);
+	const [retryCounter, setRetryCounter] = useState(0);
 	const [microphones, setMicrophones] = useState<
 		{ id: string; name: string }[]
 	>([]);
@@ -48,7 +50,15 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 	const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
 	const [selectedModel, setSelectedModel] = useState("small.en");
 
+	const retryInit = useCallback(() => {
+		setInitError(null);
+		setLoading(true);
+		setStep(null);
+		setRetryCounter((c) => c + 1);
+	}, []);
+
 	useEffect(() => {
+		void retryCounter;
 		async function init() {
 			try {
 				const started = await call<StepInfo>("onboarding_start");
@@ -72,12 +82,13 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 				setModelOptions(models.models || []);
 			} catch (err) {
 				console.error("Failed to start onboarding:", err);
+				setInitError(err instanceof Error ? err.message : "Unknown error");
 			} finally {
 				setLoading(false);
 			}
 		}
 		init();
-	}, [call]);
+	}, [call, retryCounter]);
 
 	const handleNext = useCallback(async () => {
 		try {
@@ -142,6 +153,41 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 		);
 	}
 
+	if (initError) {
+		return (
+			<div className="mx-auto flex min-h-full w-full max-w-lg flex-col items-center justify-center px-6">
+				<div className="w-full rounded-xl border border-red-400/40 bg-red-50 dark:bg-red-950/20 p-8 text-center">
+					<h2 className="mb-2 text-lg font-semibold text-(--text-primary)">
+						{t("errorBoundary.title")}
+					</h2>
+					<p className="mb-4 text-sm text-(--text-muted)">{initError}</p>
+					<div className="flex items-center justify-center gap-3">
+						<Button variant="default" onClick={retryInit}>
+							{t("errorBoundary.tryAgain")}
+						</Button>
+						<Button
+							variant="ghost"
+							onClick={async () => {
+								try {
+									await call("onboarding_skip");
+									showSnack(t("onboarding.skippedSnack"), "warning");
+									if (onComplete) onComplete();
+								} catch {
+									// Even if skip fails, navigate away
+									if (onComplete) onComplete();
+								}
+							}}
+							aria-label={t("onboarding.skipAria")}
+						>
+							{t("onboarding.skip")}
+						</Button>
+					</div>
+				</div>
+				<Snackbar />
+			</div>
+		);
+	}
+
 	if (!step) return null;
 
 	const progress = ((step.step + 1) / step.total_steps) * 100;
@@ -166,6 +212,9 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 					/>
 				</div>
 			</div>
+
+			{/* Screen-reader-only page heading for correct heading hierarchy */}
+			<h1 className="sr-only">{step.step_name}</h1>
 
 			{/* Step content */}
 			<div className="w-full rounded-xl border border-border bg-(--bg) p-8">

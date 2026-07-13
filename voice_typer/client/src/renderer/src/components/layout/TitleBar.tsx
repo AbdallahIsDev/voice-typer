@@ -98,12 +98,11 @@ function TitleBarButton({
 			type="button"
 			onClick={onClick}
 			aria-label={ariaLabel}
-			tabIndex={-1}
 			className={cn(
 				"no-drag press-scale group flex items-center justify-center",
 				"h-8 w-11.5",
 				"text-(--text-muted) transition-colors duration-75",
-				"focus:outline-none",
+				"focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none",
 				isClose
 					? cn(
 							"hover:bg-[#C42B1C] hover:text-white",
@@ -171,7 +170,7 @@ export function TitleBar({
 					"no-drag press-scale flex h-10 w-10 items-center justify-center",
 					"text-(--text-muted)",
 					"hover:text-(--text-primary)",
-					"focus:outline-none",
+					"focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none",
 				)}
 			>
 				<HugeiconsIcon
@@ -194,7 +193,7 @@ export function TitleBar({
 					"hover:bg-black/5 hover:text-(--text-primary)",
 					"dark:hover:bg-white/5",
 					"disabled:opacity-30 disabled:cursor-not-allowed",
-					"focus:outline-none",
+					"focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none",
 				)}
 			>
 				<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
@@ -220,7 +219,7 @@ export function TitleBar({
 					"hover:bg-black/5 hover:text-(--text-primary)",
 					"dark:hover:bg-white/5",
 					"disabled:opacity-30 disabled:cursor-not-allowed",
-					"focus:outline-none",
+					"focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none",
 				)}
 			>
 				<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>

@@ -5,10 +5,11 @@ import {
 	PencilEdit02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import ExportFormatMenu from "@/components/common/ExportFormatMenu";
+import { Modal, ModalFooter } from "@/components/common/Modal";
 import PageHeading from "@/components/common/PageHeading";
 import { SearchField } from "@/components/common/SearchField";
 import { EmptyState } from "@/components/feedback/EmptyState";
@@ -25,7 +26,6 @@ import {
 import { usePython } from "@/hooks/usePython";
 import { showUndoableToast, useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
-import { cn } from "@/lib/utils";
 import type { VocabularyData, VocabularyEntry } from "@/types/ipc";
 
 // ── Backend categories (kept internally for save-back, hidden from UI) ──
@@ -165,8 +165,6 @@ export default function VocabularyPage() {
 	// #7: ConfirmDialog state for entry deletion
 	const [deleteEntryTarget, setDeleteEntryTarget] =
 		useState<VocabularyEntry | null>(null);
-	const dialogRef = useRef<HTMLDivElement>(null);
-
 	const handleSearchChange = (value: string) => setSearchQuery(value);
 
 	const handleTriggerChange = (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -178,33 +176,6 @@ export default function VocabularyPage() {
 	const handleCloseDialog = () => setShowDialog(false);
 
 	const handleCancelDelete = () => setDeleteEntryTarget(null);
-
-	const handleBackdropClick = (e: React.MouseEvent) => {
-		if (e.target === e.currentTarget) setShowDialog(false);
-	};
-
-	const handleDialogKeyDown = useCallback((e: React.KeyboardEvent) => {
-		if (e.key === "Escape") {
-			setShowDialog(false);
-			return;
-		}
-		if (e.key !== "Tab") return;
-		const dialog = dialogRef.current;
-		if (!dialog) return;
-		const focusable = dialog.querySelectorAll<HTMLElement>(
-			'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-		);
-		if (focusable.length === 0) return;
-		const first = focusable[0];
-		const last = focusable[focusable.length - 1];
-		if (e.shiftKey && document.activeElement === first) {
-			e.preventDefault();
-			last.focus();
-		} else if (!e.shiftKey && document.activeElement === last) {
-			e.preventDefault();
-			first.focus();
-		}
-	}, []);
 
 	const doExport = useCallback(
 		async (format: "json" | "csv") => {
@@ -556,130 +527,111 @@ export default function VocabularyPage() {
 				<Snackbar />
 			</div>
 
-			{/* Add/Edit Dialog */}
-			{showDialog && (
-				<div
-					ref={dialogRef}
-					role="dialog"
-					aria-modal="true"
-					aria-labelledby="vocabulary-dialog-title"
-					className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-					onClick={handleBackdropClick}
-					onKeyDown={handleDialogKeyDown}
-				>
-					<div
-						className={cn(
-							"animate-scale-in w-105 rounded-xl border border-border",
-							"bg-(--bg) p-6",
-						)}
-					>
-						<h2
-							id="vocabulary-dialog-title"
-							className="mb-5 text-lg font-semibold text-(--text-primary)"
+			{/* Add/Edit Dialog — migrated to shared Modal (F-3) */}
+			<Modal
+				open={showDialog}
+				onClose={handleCloseDialog}
+				title={
+					editingEntry
+						? t("vocabulary.editEntryTitle")
+						: t("vocabulary.addEntryTitle")
+				}
+				className="w-105"
+			>
+				<div className="space-y-4">
+					<div>
+						<label
+							htmlFor="vocab-trigger"
+							className="mb-1.5 block text-sm font-medium text-(--text-primary)"
 						>
-							{editingEntry
-								? t("vocabulary.editEntryTitle")
-								: t("vocabulary.addEntryTitle")}
-						</h2>
+							{t("vocabulary.whatYouSay")}
+						</label>
+						<Input
+							id="vocab-trigger"
+							value={trigger}
+							onChange={handleTriggerChange}
+							placeholder="treat three, mynameis"
+							className="w-full"
+							autoFocus
+						/>
+						<p className="mt-1.5 text-xs text-(--text-muted)">
+							{t("vocabulary.triggerHelp")}
+						</p>
+					</div>
 
-						<div className="space-y-4">
-							<div>
-								<label
-									htmlFor="vocab-trigger"
-									className="mb-1.5 block text-sm font-medium text-(--text-primary)"
-								>
-									{t("vocabulary.whatYouSay")}
-								</label>
-								<Input
-									id="vocab-trigger"
-									value={trigger}
-									onChange={handleTriggerChange}
-									placeholder="treat three, mynameis"
-									className="w-full"
-									autoFocus
-								/>
-								{/* NEW-UX-026: help text explaining what to type. */}
-								<p className="mt-1.5 text-xs text-(--text-muted)">
-									{t("vocabulary.triggerHelp")}
-								</p>
-							</div>
+					<div>
+						<label
+							htmlFor="vocab-replacement"
+							className="mb-1.5 block text-sm font-medium text-(--text-primary)"
+						>
+							{t("vocabulary.whatGetsTyped")}
+						</label>
+						<Input
+							id="vocab-replacement"
+							value={replacement}
+							onChange={handleReplacementChange}
+							placeholder="treat this, My Name Is"
+							className="w-full"
+						/>
+						<p className="mt-1.5 text-xs text-(--text-muted)">
+							{t("vocabulary.replacementHelp")}
+						</p>
+					</div>
 
-							<div>
-								<label
-									htmlFor="vocab-replacement"
-									className="mb-1.5 block text-sm font-medium text-(--text-primary)"
-								>
-									{t("vocabulary.whatGetsTyped")}
-								</label>
-								<Input
-									id="vocab-replacement"
-									value={replacement}
-									onChange={handleReplacementChange}
-									placeholder="treat this, My Name Is"
-									className="w-full"
-								/>
-								{/* NEW-UX-026: help text for the replacement field. */}
-								<p className="mt-1.5 text-xs text-(--text-muted)">
-									{t("vocabulary.replacementHelp")}
-								</p>
-							</div>
-
-							{/* NEW-UX-039: explicit category picker. */}
-							<div>
-								<span className="mb-1.5 block text-sm font-medium text-(--text-primary)">
-									{t("vocabulary.categoryLabel")}
-								</span>
-								<Select value={category} onValueChange={setCategory}>
-									<SelectTrigger
-										className="w-full"
-										aria-label={t("vocabulary.categoryAria")}
-									>
-										<SelectValue />
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value="auto">
-											<span className="flex flex-col">
-												<span>{t("vocabulary.category.autoDetect")}</span>
-												<span className="text-xs text-(--text-muted)">
-													{t("vocabulary.category.autoDetectDesc")}
-												</span>
-											</span>
-										</SelectItem>
-										{CATEGORIES.map((cat) => (
-											<SelectItem key={cat} value={cat}>
-												<span className="flex flex-col">
-													<span>{CATEGORY_LABELS[cat]?.label ?? cat}</span>
-													<span className="text-xs text-(--text-muted)">
-														{CATEGORY_LABELS[cat]?.example ?? ""}
-													</span>
-												</span>
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-								{category !== "auto" && CATEGORY_LABELS[category] && (
-									<p className="mt-1.5 text-xs text-(--text-muted)">
-										{CATEGORY_LABELS[category].description}
-									</p>
-								)}
-							</div>
-						</div>
-
-						<div className="mt-6 flex justify-end gap-3">
-							<Button variant="ghost" onClick={handleCloseDialog}>
-								{t("common.cancel")}
-							</Button>
-							<Button
-								variant="default"
-								onClick={saveEntry}
-								disabled={!trigger.trim() || !replacement.trim()}
+					{/* NEW-UX-039: explicit category picker. */}
+					<div>
+						<span className="mb-1.5 block text-sm font-medium text-(--text-primary)">
+							{t("vocabulary.categoryLabel")}
+						</span>
+						<Select value={category} onValueChange={setCategory}>
+							<SelectTrigger
+								className="w-full"
+								aria-label={t("vocabulary.categoryAria")}
 							>
-								{t("common.save")}
-							</Button>
-						</div>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="auto">
+									<span className="flex flex-col">
+										<span>{t("vocabulary.category.autoDetect")}</span>
+										<span className="text-xs text-(--text-muted)">
+											{t("vocabulary.category.autoDetectDesc")}
+										</span>
+									</span>
+								</SelectItem>
+								{CATEGORIES.map((cat) => (
+									<SelectItem key={cat} value={cat}>
+										<span className="flex flex-col">
+											<span>{CATEGORY_LABELS[cat]?.label ?? cat}</span>
+											<span className="text-xs text-(--text-muted)">
+												{CATEGORY_LABELS[cat]?.example ?? ""}
+											</span>
+										</span>
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+						{category !== "auto" && CATEGORY_LABELS[category] && (
+							<p className="mt-1.5 text-xs text-(--text-muted)">
+								{CATEGORY_LABELS[category].description}
+							</p>
+						)}
 					</div>
 				</div>
-			)}
+
+				<ModalFooter>
+					<Button variant="ghost" onClick={handleCloseDialog}>
+						{t("common.cancel")}
+					</Button>
+					<Button
+						variant="default"
+						onClick={saveEntry}
+						disabled={!trigger.trim() || !replacement.trim()}
+					>
+						{t("common.save")}
+					</Button>
+				</ModalFooter>
+			</Modal>
 
 			{/* #7: ConfirmDialog for entry deletion */}
 			<ConfirmDialog

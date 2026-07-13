@@ -734,7 +734,7 @@ function createMainWindow(forceShow = false) {
 	mainWindow.on("maximize", () => broadcastMaximized(true));
 	mainWindow.on("unmaximize", () => broadcastMaximized(false));
 
-	// CONSOLE-FIX (Round 1): Electron 30+ deprecated the multi-argument
+	// CONSOLE-FIX: Electron 30+ deprecated the multi-argument
 	// console-message signature `(_e, level, message, line, source)`.
 	// The new signature is a single Event object with properties:
 	//   e.level, e.message, e.lineNumber, e.sourceId
@@ -893,7 +893,7 @@ function createBubbleWindow(): BrowserWindow {
 			err,
 		);
 	});
-	// CONSOLE-FIX (Round 1): new Electron console-message signature.
+	// CONSOLE-FIX: new Electron console-message signature.
 	win.webContents.on("console-message", (e) => {
 		const level = Number(e.level);
 		if (level >= 2) {

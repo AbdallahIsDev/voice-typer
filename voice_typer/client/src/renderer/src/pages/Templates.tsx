@@ -5,8 +5,9 @@ import {
 	PencilEdit02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
+import { Modal, ModalFooter } from "@/components/common/Modal";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { Spinner } from "@/components/feedback/Spinner";
@@ -187,31 +188,6 @@ export default function TemplatesPage() {
 
 	// #7: ConfirmDialog state for template deletion
 	const [deleteTarget, setDeleteTarget] = useState<TemplateRow | null>(null);
-	const dialogRef = useRef<HTMLDivElement>(null);
-
-	const handleDialogKeyDown = useCallback((e: React.KeyboardEvent) => {
-		if (e.key === "Escape") {
-			setShowDialog(false);
-			return;
-		}
-		if (e.key !== "Tab") return;
-		const dialog = dialogRef.current;
-		if (!dialog) return;
-		const focusable = dialog.querySelectorAll<HTMLElement>(
-			'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-		);
-		if (focusable.length === 0) return;
-		const first = focusable[0];
-		const last = focusable[focusable.length - 1];
-		if (e.shiftKey && document.activeElement === first) {
-			e.preventDefault();
-			last.focus();
-		} else if (!e.shiftKey && document.activeElement === last) {
-			e.preventDefault();
-			first.focus();
-		}
-	}, []);
-
 	// NEW-UX-008: load from the Python backend (the new source of truth).
 	// On first run after upgrade, if the backend has no templates but
 	// localStorage does, push the localStorage data to the backend so the
@@ -426,10 +402,6 @@ export default function TemplatesPage() {
 		[call, loadRows, showSnack],
 	);
 
-	const handleBackdropClick = (e: React.MouseEvent) => {
-		if (e.target === e.currentTarget) setShowDialog(false);
-	};
-
 	const handleTriggerChange = (e: React.ChangeEvent<HTMLInputElement>) =>
 		setTrigger(e.target.value);
 
@@ -566,115 +538,94 @@ export default function TemplatesPage() {
 				<Snackbar />
 			</div>
 
-			{/* Add/Edit Dialog — full-viewport backdrop with centered dialog */}
-			{showDialog && (
-				<div
-					ref={dialogRef}
-					role="dialog"
-					aria-modal="true"
-					aria-labelledby="template-dialog-title"
-					className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-					onClick={handleBackdropClick}
-					onKeyDown={handleDialogKeyDown}
-				>
-					<div
-						className={cn(
-							"animate-scale-in w-105 rounded-xl border border-border",
-							"bg-(--bg) p-6",
-						)}
-					>
-						<h2
-							id="template-dialog-title"
-							className="mb-5 text-lg font-semibold text-(--text-primary)"
+			{/* Add/Edit Dialog — migrated to shared Modal (F-3) */}
+			<Modal
+				open={showDialog}
+				onClose={handleCloseDialog}
+				title={
+					editingTemplate ? t("templates.editTitle") : t("templates.addTitle")
+				}
+				className="w-105"
+			>
+				<div className="space-y-4">
+					<div>
+						<label
+							htmlFor="template-trigger"
+							className="mb-1.5 block text-sm font-medium text-(--text-primary)"
 						>
-							{editingTemplate
-								? t("templates.editTitle")
-								: t("templates.addTitle")}
-						</h2>
+							{t("templates.triggerPhrase")}
+						</label>
+						<Input
+							id="template-trigger"
+							value={trigger}
+							onChange={handleTriggerChange}
+							placeholder="my email"
+							className="w-full"
+							// autoFocus removed — Radix Dialog handles first-focus automatically
+						/>
+						<p className="mt-1.5 text-xs text-(--text-muted)">
+							{t("templates.triggerHelp")}
+						</p>
+					</div>
 
-						<div className="space-y-4">
-							<div>
-								<label
-									htmlFor="template-trigger"
-									className="mb-1.5 block text-sm font-medium text-(--text-primary)"
-								>
-									{t("templates.triggerPhrase")}
-								</label>
-								<Input
-									id="template-trigger"
-									value={trigger}
-									onChange={handleTriggerChange}
-									placeholder="my email"
-									className="w-full"
-									autoFocus
-								/>
-								{/* NEW-UX-026: help text explaining what to type. */}
-								<p className="mt-1.5 text-xs text-(--text-muted)">
-									{t("templates.triggerHelp")}
-								</p>
-							</div>
+					<div>
+						<label
+							htmlFor="template-output"
+							className="mb-1.5 block text-sm font-medium text-(--text-primary)"
+						>
+							{t("templates.outputText")}
+						</label>
+						<textarea
+							id="template-output"
+							value={expansion}
+							onChange={handleExpansionChange}
+							placeholder="john.doe@example.com"
+							rows={5}
+							className={cn(
+								"w-full resize-y rounded-lg border border-border",
+								"bg-transparent px-3 py-2 text-sm text-(--text-primary)",
+								"placeholder:text-(--text-muted)",
+								"focus:border-accent focus:outline-none",
+							)}
+						/>
+						<p className="mt-1.5 text-xs text-(--text-muted)">
+							{t("templates.outputHelp")}
+							<code className="mx-1 rounded bg-(--bg-subtle) px-1">{`{today}`}</code>
+							<code className="mx-1 rounded bg-(--bg-subtle) px-1">{`{now}`}</code>
+							<code className="mx-1 rounded bg-(--bg-subtle) px-1">{`{clipboard}`}</code>
+							<code className="mx-1 rounded bg-(--bg-subtle) px-1">{`{username}`}</code>
+						</p>
+					</div>
 
-							<div>
-								<label
-									htmlFor="template-output"
-									className="mb-1.5 block text-sm font-medium text-(--text-primary)"
-								>
-									{t("templates.outputText")}
-								</label>
-								<textarea
-									id="template-output"
-									value={expansion}
-									onChange={handleExpansionChange}
-									placeholder="john.doe@example.com"
-									rows={5}
-									className={cn(
-										"w-full resize-y rounded-lg border border-border",
-										"bg-transparent px-3 py-2 text-sm text-(--text-primary)",
-										"placeholder:text-(--text-muted)",
-										"focus:border-accent focus:outline-none",
-									)}
-								/>
-								{/* NEW-UX-026: help text + variable list. */}
-								<p className="mt-1.5 text-xs text-(--text-muted)">
-									{t("templates.outputHelp")}
-									<code className="mx-1 rounded bg-(--bg-subtle) px-1">{`{today}`}</code>
-									<code className="mx-1 rounded bg-(--bg-subtle) px-1">{`{now}`}</code>
-									<code className="mx-1 rounded bg-(--bg-subtle) px-1">{`{clipboard}`}</code>
-									<code className="mx-1 rounded bg-(--bg-subtle) px-1">{`{username}`}</code>
-								</p>
-							</div>
-
-							<div>
-								<span className="mb-1.5 block text-sm font-medium text-(--text-primary)">
-									{t("templates.matchMode")}
-								</span>
-								<Select value={matchMode} onValueChange={handleMatchModeChange}>
-									<SelectTrigger className="w-full">
-										<SelectValue />
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value="exact">
-											{t("templates.exactMatch")}
-										</SelectItem>
-										<SelectItem value="contains">
-											{t("templates.contains")}
-										</SelectItem>
-									</SelectContent>
-								</Select>
-							</div>
-						</div>
-
-						<div className="mt-6 flex justify-end gap-3">
-							<Button variant="ghost" onClick={handleCloseDialog}>
-								{t("common.cancel")}
-							</Button>
-							<Button variant="default" onClick={saveTemplate}>
-								{t("common.save")}
-							</Button>
-						</div>
+					<div>
+						<span className="mb-1.5 block text-sm font-medium text-(--text-primary)">
+							{t("templates.matchMode")}
+						</span>
+						<Select value={matchMode} onValueChange={handleMatchModeChange}>
+							<SelectTrigger className="w-full">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="exact">
+									{t("templates.exactMatch")}
+								</SelectItem>
+								<SelectItem value="contains">
+									{t("templates.contains")}
+								</SelectItem>
+							</SelectContent>
+						</Select>
 					</div>
 				</div>
-			)}
+
+				<ModalFooter>
+					<Button variant="ghost" onClick={handleCloseDialog}>
+						{t("common.cancel")}
+					</Button>
+					<Button variant="default" onClick={saveTemplate}>
+						{t("common.save")}
+					</Button>
+				</ModalFooter>
+			</Modal>
 
 			{/* #7: ConfirmDialog for template deletion */}
 			<ConfirmDialog

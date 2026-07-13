@@ -77,7 +77,7 @@ export const KEY_CODE_TO_PYNPUT: Record<string, string> = {
 	// canonical name-to-name transformer — if you add a name here,
 	// add it there too so the native backends can recognize it.
 	//
-	// HOTKEY-FIX-002 (Round 1): letters and digits were missing from
+	// HOTKEY-FIX-002: letters and digits were missing from
 	// this table, so capturing combos like Alt+Q, Ctrl+Alt+V, or even
 	// the default repaste hotkey Ctrl+Alt+V would fail with "Key 'v'
 	// is not supported" — despite the error message literally

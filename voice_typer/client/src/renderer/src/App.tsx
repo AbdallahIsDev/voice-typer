@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Modal } from "@/components/common/Modal";
 // NEW-UX-015: ErrorBoundary catches render errors so a single bad
 // config or component crash doesn't white-screen the entire app.
 import { ErrorBoundary } from "@/components/feedback/ErrorBoundary";
@@ -263,14 +264,7 @@ export default function App() {
 		}
 	});
 
-	// ── Help overlay + sidebar toggle handlers ──────────────────────
-	const handleHelpBackdropClick = () => setShowHelpOverlay(false);
-	const handleHelpKeyDown = (e: React.KeyboardEvent) => {
-		if (e.key === "Escape") setShowHelpOverlay(false);
-	};
-	const handleHelpStopPropagation = (e: React.MouseEvent) => {
-		e.stopPropagation();
-	};
+	// ── Sidebar toggle handler ──────────────────────────────────────
 	const handleToggleSidebar = () => setSidebarCollapsed((c) => !c);
 
 	// ── Page renderer ─────────────────────────────────────────────
@@ -433,75 +427,65 @@ export default function App() {
 				</div>
 				<Toaster />
 
-				{/* NEW-UX-043: "?" help overlay */}
-				{showHelpOverlay && (
-					<div
-						className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-						onClick={handleHelpBackdropClick}
-						onKeyDown={handleHelpKeyDown}
-						role="dialog"
-						aria-modal="true"
-						aria-labelledby="help-overlay-title"
-					>
-						<div
-							role="document"
-							className="animate-scale-in w-110 rounded-xl border border-border bg-(--bg) p-6 shadow-2xl"
-							onClick={handleHelpStopPropagation}
-							onKeyDown={handleHelpKeyDown}
-						>
-							<h2
-								id="help-overlay-title"
-								className="mb-4 text-lg font-semibold text-(--text-primary)"
+				{/* NEW-UX-043: "?" help overlay — migrated to shared Modal (F-3) */}
+				<Modal
+					open={showHelpOverlay}
+					onClose={() => setShowHelpOverlay(false)}
+					title={t("help.title")}
+					size="sm"
+					className="w-110"
+				>
+					<div className="space-y-2 text-sm">
+						{[
+							{
+								keys: t("help.keys.dictation"),
+								desc: t("help.dictation"),
+							},
+							{
+								keys: t("help.keys.cancel"),
+								desc: t("help.cancel"),
+							},
+							{ keys: t("help.keys.repaste"), desc: t("help.repaste") },
+							{
+								keys: t("help.keys.toggleSidebar"),
+								desc: t("help.toggleSidebar"),
+							},
+							{
+								keys: t("help.keys.openSettings"),
+								desc: t("help.openSettings"),
+							},
+							{ keys: t("help.keys.goHome"), desc: t("help.goHome") },
+							{
+								keys: t("help.keys.navigate"),
+								desc: t("help.navigate"),
+							},
+							{ keys: t("help.keys.toggle"), desc: t("help.toggle") },
+							{ keys: t("help.keys.activate"), desc: t("help.activate") },
+							{
+								keys: t("help.keys.zoomTextSize"),
+								desc: t("help.zoomTextSize"),
+							},
+							{ keys: t("help.keys.openHelp"), desc: t("help.openHelp") },
+							{
+								keys: t("help.keys.navBack"),
+								desc: t("help.navBack"),
+							},
+						].map((shortcut) => (
+							<div
+								key={shortcut.keys}
+								className="flex items-center justify-between gap-4"
 							>
-								{t("help.title")}
-							</h2>
-							<div className="space-y-2 text-sm">
-								{[
-									{
-										keys: "Caps Lock (or your hotkey)",
-										desc: t("help.dictation"),
-									},
-									{
-										keys: "Esc",
-										desc: t("help.cancel"),
-									},
-									{ keys: "Ctrl+Alt+V", desc: t("help.repaste") },
-									{ keys: "Ctrl+B", desc: t("help.toggleSidebar") },
-									{ keys: "Ctrl+,", desc: t("help.openSettings") },
-									{ keys: "Ctrl+H", desc: t("help.goHome") },
-									{
-										keys: "Tab / Shift+Tab",
-										desc: t("help.navigate"),
-									},
-									{ keys: "Space", desc: t("help.toggle") },
-									{ keys: "Enter", desc: t("help.activate") },
-									{
-										keys: "Ctrl+Plus / Ctrl+Minus",
-										desc: t("help.zoomTextSize"),
-									},
-									{ keys: "?", desc: t("help.openHelp") },
-									{
-										keys: "Alt+Left / Alt+Right",
-										desc: t("help.navBack"),
-									},
-								].map((shortcut) => (
-									<div
-										key={shortcut.keys}
-										className="flex items-center justify-between gap-4"
-									>
-										<span className="text-(--text-muted)">{shortcut.desc}</span>
-										<kbd className="rounded border border-border bg-(--bg-subtle) px-2 py-0.5 font-mono text-xs text-(--text-primary)">
-											{shortcut.keys}
-										</kbd>
-									</div>
-								))}
+								<span className="text-(--text-muted)">{shortcut.desc}</span>
+								<kbd className="rounded border border-border bg-(--bg-subtle) px-2 py-0.5 font-mono text-xs text-(--text-primary)">
+									{shortcut.keys}
+								</kbd>
 							</div>
-							<p className="mt-4 text-xs text-(--text-muted)">
-								{t("help.closeHint", { key: "Esc" })}
-							</p>
-						</div>
+						))}
 					</div>
-				)}
+					<p className="text-xs text-(--text-muted)">
+						{t("help.closeHint", { key: "Esc" })}
+					</p>
+				</Modal>
 
 				{/* #9: Screen reader live region for dynamic status updates.
           NEW-A11Y-002: NVDA/JAWS/VoiceOver users press F2, hear nothing,

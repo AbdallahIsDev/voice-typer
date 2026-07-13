@@ -8,6 +8,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import ConfirmDialog from "@/components/common/ConfirmDialog";
 import PageHeading from "@/components/common/PageHeading";
 import { SearchField } from "@/components/common/SearchField";
 import { SettingsSection } from "@/components/common/SettingsSection";
@@ -28,7 +29,6 @@ import { usePython, usePythonEvent } from "@/hooks/usePython";
 // cleared on unmount (a leak risk if the page unmounted mid-toast).
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
-import { cn } from "@/lib/utils";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { Page } from "@/types/ipc";
 
@@ -41,66 +41,20 @@ let _cachedConfig: VoiceTyperConfig | null = null;
  *  reference it. */
 type SettingsTab = "appearance" | "general" | "aiAudio" | "privacy";
 
-/** Keyword-to-tab mapping for the search auto-switch feature.
- *  Each tab has lowercase keywords that uniquely identify it.
- *  Module-level constant — never recreated on re-render. */
-const SEARCH_TAB_HINTS: Record<SettingsTab, string[]> = {
-	appearance: [
-		"theme",
-		"appearance",
-		"color",
-		"dark",
-		"light",
-		"text size",
-		"font",
-	],
-	general: [
-		"language",
-		"notification",
-		"tray",
-		"bubble",
-		"overlay",
-		"startup",
-		"login",
-		"launch",
-		"hotkey",
-		"shortcut",
-		"dictation key",
-		"recording mode",
-		"push to talk",
-	],
-	aiAudio: [
-		"model",
-		"llm",
-		"audio",
-		"volume",
-		"ducking",
-		"noise",
-		"filter",
-		"post-processing",
-		"ai enhancement",
-		"vocabulary",
-		"api key",
-		"polish",
-		"transcription",
-		"preset",
-		"snippet",
-	],
-	privacy: [
-		"privacy",
-		"recovery",
-		"crash",
-		"export",
-		"consent",
-		"troubleshooting",
-		"diagnostics",
-		"reset",
-		"log",
-		"bug",
-		"help",
-		"faq",
-	],
-};
+/**
+ * F-5: Keyword-to-tab mapping for the search auto-switch feature.
+ * Each tab has lowercase keywords that uniquely identify it.
+ * Keywords are now loaded from i18n so non-English locales can provide
+ * translated search keywords (e.g. Spanish "tema" → appearance tab).
+ */
+function getSearchTabHints(): Record<SettingsTab, string[]> {
+	return {
+		appearance: t("settings.searchHints.appearance").split(", "),
+		general: t("settings.searchHints.general").split(", "),
+		aiAudio: t("settings.searchHints.aiAudio").split(", "),
+		privacy: t("settings.searchHints.privacy").split(", "),
+	};
+}
 
 interface SettingsPageProps {
 	themeMode?: VoiceTyperConfig["theme_mode"];
@@ -148,7 +102,7 @@ export default function SettingsPage({
 		let bestTab: SettingsTab | null = null;
 		let bestScore = 0;
 
-		for (const [tab, hints] of Object.entries(SEARCH_TAB_HINTS)) {
+		for (const [tab, hints] of Object.entries(getSearchTabHints())) {
 			const score = hints.filter(
 				(hint) => hint.includes(q) || q.includes(hint),
 			).length;
@@ -810,6 +764,7 @@ export default function SettingsPage({
 								t("settings.troubleshooting.diagnostics"),
 								t("settings.troubleshooting.helpFaq"),
 								t("settings.troubleshooting.reportBug"),
+								t("settings.troubleshooting.reRunWizard"),
 								t("settings.troubleshooting.resetToDefaults"),
 							].some((label) =>
 								_filter_settings(
@@ -891,6 +846,30 @@ export default function SettingsPage({
 										/>
 										{t("settings.troubleshooting.reportBug")}
 									</Button>
+									{/* F-6: Re-run setup wizard */}
+									<Button
+										variant="outline"
+										className="gap-2"
+										onClick={async () => {
+											await updateConfig({
+												onboarding_completed: false,
+											});
+											showSnack(
+												t("settings.troubleshooting.reRunWizardToast"),
+												"success",
+											);
+											onNavigate?.("onboarding");
+										}}
+										aria-label={t("settings.troubleshooting.reRunWizardAria")}
+										title={t("settings.troubleshooting.reRunWizardHint")}
+									>
+										<HugeiconsIcon
+											icon={RefreshIcon}
+											strokeWidth={2}
+											className="h-4 w-4"
+										/>
+										{t("settings.troubleshooting.reRunWizard")}
+									</Button>
 									<Button
 										variant="destructive"
 										className="gap-2"
@@ -957,58 +936,17 @@ export default function SettingsPage({
 				</p>
 			</div>
 
-			{/* Reset Confirmation Dialog */}
-			{showResetDialog && (
-				<div
-					className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-					onClick={() => setShowResetDialog(false)}
-					onKeyDown={(e) => {
-						if (e.key === "Escape") setShowResetDialog(false);
-					}}
-					role="dialog"
-					aria-modal="true"
-					aria-labelledby="reset-dialog-title"
-				>
-					<div
-						role="document"
-						className={cn(
-							"animate-scale-in w-100 rounded-xl border border-border",
-							"bg-(--bg) p-6 shadow-2xl",
-						)}
-						onClick={(e) => e.stopPropagation()}
-						onKeyDown={(e) => {
-							if (e.key === "Escape") setShowResetDialog(false);
-						}}
-					>
-						<h2
-							id="reset-dialog-title"
-							className="text-lg font-semibold text-(--text-primary) mb-3"
-						>
-							{t("settings.troubleshooting.resetToDefaults")}
-						</h2>
-						<p className="text-sm text-(--text-muted) mb-6">
-							{t("settings.troubleshooting.resetDialogMessage")}
-						</p>
-						<div className="flex justify-end gap-3">
-							<Button
-								variant="ghost"
-								onClick={() => setShowResetDialog(false)}
-								autoFocus
-								aria-label={t("settings.troubleshooting.cancelResetAria")}
-							>
-								{t("common.cancel")}
-							</Button>
-							<Button
-								variant="destructive"
-								onClick={resetToDefaults}
-								aria-label={t("settings.troubleshooting.confirmResetAria")}
-							>
-								{t("settings.troubleshooting.resetToDefaults")}
-							</Button>
-						</div>
-					</div>
-				</div>
-			)}
+			{/* Reset Confirmation Dialog — uses shared ConfirmDialog (F-8) */}
+			<ConfirmDialog
+				open={showResetDialog}
+				title={t("settings.troubleshooting.resetToDefaults")}
+				message={t("settings.troubleshooting.resetDialogMessage")}
+				confirmLabel={t("settings.troubleshooting.resetToDefaults")}
+				cancelLabel={t("common.cancel")}
+				variant="destructive"
+				onConfirm={resetToDefaults}
+				onCancel={() => setShowResetDialog(false)}
+			/>
 
 			{/* NEW-TS-004: use the shared Snackbar component from useSnackbar. */}
 			<Snackbar />

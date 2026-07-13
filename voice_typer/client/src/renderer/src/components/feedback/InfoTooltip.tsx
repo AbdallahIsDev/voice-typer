@@ -29,7 +29,7 @@ export function InfoTooltip({ text }: InfoTooltipProps) {
 							fill="none"
 							xmlns="http://www.w3.org/2000/svg"
 						>
-							<title>More info</title>
+							<title>{t("a11y.moreInfo")}</title>
 							<circle
 								cx="8"
 								cy="8"

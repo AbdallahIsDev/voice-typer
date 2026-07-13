@@ -444,7 +444,7 @@ export default function DashboardPage({
 			</div>
 
 			{/* ── Hidden share image capture target ──────────────── */}
-			{/* EXPORT-FIX (Round 2): removed clipPath:inset(50%) —
+			{/* EXPORT-FIX: removed clipPath:inset(50%) —
                             html-to-image copied it onto the cloned node and
                             clipped the PNG to 0×0. See Home.tsx for full
                             rationale. The toPng style override (clipPath:none)

@@ -498,7 +498,7 @@ export default function Home({
 			)}
 
 			{/* ── Hidden share image capture target ──────────────── */}
-			{/* EXPORT-FIX (Round 1): replaced `position:fixed; left:-9999`
+			{/* EXPORT-FIX: replaced `position:fixed; left:-9999`
                             with a painted-but-hidden pattern. The old off-screen
                             positioning caused Chromium's paint optimization to skip
                             painting the element, so html-to-image captured a 0×0

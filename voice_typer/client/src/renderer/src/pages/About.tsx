@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
+import PageHeading from "@/components/common/PageHeading";
 import { SettingsSection } from "@/components/common/SettingsSection";
 import { Button } from "@/components/ui/button";
 import { usePython } from "@/hooks/usePython";
@@ -127,10 +128,13 @@ export function formatRelativeTime(iso: string | null): string {
 		const diffMin = Math.floor(diffMs / 60000);
 		const diffHr = Math.floor(diffMin / 60);
 		const diffDay = Math.floor(diffHr / 24);
-		if (diffMin < 1) return "<1 min ago";
-		if (diffMin < 60) return `${diffMin} min ago`;
-		if (diffHr < 24) return `${diffHr} h ago`;
-		if (diffDay < 7) return `${diffDay} d ago`;
+		if (diffMin < 1) return t("about.relativeTime.lessThanMinute");
+		if (diffMin < 60)
+			return t("about.relativeTime.minutesAgo", { count: String(diffMin) });
+		if (diffHr < 24)
+			return t("about.relativeTime.hoursAgo", { count: String(diffHr) });
+		if (diffDay < 7)
+			return t("about.relativeTime.daysAgo", { count: String(diffDay) });
 		return iso;
 	} catch {
 		return iso;
@@ -391,15 +395,10 @@ export default function AboutPage() {
 	return (
 		<div className="min-h-full">
 			<div className="mx-auto max-w-2xl space-y-8 px-6 pt-28 pb-6">
-				{/* Header */}
-				<div className="space-y-1 pb-5">
-					<h1 className="font-sans text-2xl font-semibold tracking-tight text-(--text-primary)">
-						{t("about.title")}
-					</h1>
-					<p className="text-sm text-(--text-muted)">
-						{t("about.description")}
-					</p>
-				</div>
+				<PageHeading
+					title={t("about.title")}
+					description={t("about.description")}
+				/>
 
 				{/* ── Diagnostics ───────────────────────────────────────── */}
 				<SettingsSection

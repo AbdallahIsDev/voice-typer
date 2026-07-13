@@ -667,7 +667,7 @@ export function HotkeyPicker({
 		],
 	);
 
-	// HOTKEY-FIX-004 (Round 1): "Custom" sentinel. When the current
+	// HOTKEY-FIX-004: "Custom" sentinel. When the current
 	// hotkey is not one of the preset values, the Select would render
 	// an empty trigger (Radix Select quirk: a non-empty value that
 	// matches no SelectItem suppresses the placeholder). We detect

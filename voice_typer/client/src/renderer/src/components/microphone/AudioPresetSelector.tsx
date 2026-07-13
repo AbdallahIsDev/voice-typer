@@ -38,33 +38,39 @@ interface AudioPresetSelectorProps {
 	onConfigChange: (updates: Partial<VoiceTyperConfig>) => void;
 }
 
-const PRESET_OPTIONS: {
+function getPresetOptions(): {
 	value: AudioPreset;
 	label: string;
 	description: string;
-}[] = [
-	{
-		value: "auto",
-		label: "Auto (recommended)",
-		description: "All filters ON with RNNoise",
-	},
-	{
-		value: "studio",
-		label: "Studio",
-		description: "Clean environment, minimal",
-	},
-	{
-		value: "noisy_room",
-		label: "Noisy Room",
-		description: "Keyboard/fan/HVAC, DeepFilterNet",
-	},
-	{ value: "off", label: "Off", description: "Raw audio, no filtering" },
-	{
-		value: "custom",
-		label: "Custom",
-		description: "Advanced — configure each filter",
-	},
-];
+}[] {
+	return [
+		{
+			value: "auto",
+			label: t("settings.audioEnhancement.presetAuto"),
+			description: t("settings.audioEnhancement.microphoneQualityInfo"),
+		},
+		{
+			value: "studio",
+			label: t("settings.audioEnhancement.presetStudio"),
+			description: t("settings.audioEnhancement.presetStudio"),
+		},
+		{
+			value: "noisy_room",
+			label: t("settings.audioEnhancement.presetNoisyRoom"),
+			description: t("settings.audioEnhancement.presetNoisyRoom"),
+		},
+		{
+			value: "off",
+			label: t("settings.audioEnhancement.presetOff"),
+			description: t("settings.audioEnhancement.presetOff"),
+		},
+		{
+			value: "custom",
+			label: t("settings.audioEnhancement.presetCustom"),
+			description: t("settings.audioEnhancement.presetCustom"),
+		},
+	];
+}
 
 function ToggleRow({
 	label,
@@ -179,6 +185,8 @@ export function AudioPresetSelector({
 	const handleNotchToggle = (v: boolean) =>
 		onConfigChange({ noise_filter_notch: v });
 
+	const panelId = "audio-preset-panel";
+
 	return (
 		<div className="rounded-lg border border-border overflow-hidden">
 			<button
@@ -186,6 +194,7 @@ export function AudioPresetSelector({
 				className="flex w-full items-center justify-between px-4 py-2.5 text-xs font-medium text-(--text-primary) hover:bg-(--accent)/5 transition-colors cursor-pointer"
 				onClick={onToggleAdvanced}
 				aria-expanded={showAdvanced}
+				aria-controls={panelId}
 			>
 				<span className="flex items-center gap-2 font-medium tracking-wide">
 					<HugeiconsIcon
@@ -193,20 +202,25 @@ export function AudioPresetSelector({
 						strokeWidth={2}
 						className="h-4 w-4 text-(--text-muted)"
 					/>
-					Audio Enhancement
+					{t("settings.audioEnhancement.title")}
 				</span>
 				<span className="text-xs font-medium tracking-wide text-(--text-muted)">
-					{PRESET_OPTIONS.find((o) => o.value === preset)?.label ??
-						(preset === "custom" ? "Custom" : preset.replace("_", " "))}
+					{getPresetOptions().find((o) => o.value === preset)?.label ??
+						(preset === "custom"
+							? t("settings.audioEnhancement.presetCustom")
+							: preset.replace("_", " "))}
 				</span>
 			</button>
 
 			{showAdvanced && (
-				<div className="divide-y divide-border border-t border-border">
+				<div
+					id={panelId}
+					className="divide-y divide-border border-t border-border"
+				>
 					{/* Preset selector */}
 					<div className="px-4 py-3 space-y-2">
 						<p className="text-[10px] font-semibold uppercase tracking-wide text-(--text-muted)">
-							Microphone Quality
+							{t("settings.audioEnhancement.microphoneQuality")}
 						</p>
 						<Select value={preset} onValueChange={handlePresetChange}>
 							<SelectTrigger
@@ -216,7 +230,7 @@ export function AudioPresetSelector({
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
-								{PRESET_OPTIONS.map((option) => (
+								{getPresetOptions().map((option) => (
 									<SelectItem key={option.value} value={option.value}>
 										{option.label}
 									</SelectItem>
@@ -224,8 +238,8 @@ export function AudioPresetSelector({
 							</SelectContent>
 						</Select>
 						<p className="text-[10px] text-(--text-muted)">
-							{PRESET_OPTIONS.find((o) => o.value === preset)?.description ??
-								""}
+							{getPresetOptions().find((o) => o.value === preset)
+								?.description ?? ""}
 						</p>
 					</div>
 
@@ -233,16 +247,18 @@ export function AudioPresetSelector({
 					{isCustom && (
 						<div className="divide-y divide-border">
 							<ToggleRow
-								label="High-Pass Filter"
-								description="Remove low-frequency rumble (HVAC, traffic)."
+								label={t("settings.audioEnhancement.highPassFilter")}
+								description={t("settings.audioEnhancement.highPassFilterInfo")}
 								checked={config.noise_filter_highpass ?? true}
 								onChange={handleHighPassToggle}
 								ariaLabel={t("audioPreset.highPassFilter")}
 							/>
 							{(config.noise_filter_highpass ?? true) && (
 								<SliderRow
-									label="High-Pass Cutoff"
-									description="Frequencies below this are attenuated."
+									label={t("settings.audioEnhancement.highPassCutoff")}
+									description={t(
+										"settings.audioEnhancement.highPassCutoffInfo",
+									)}
 									value={config.noise_filter_highpass_cutoff_hz ?? 80}
 									min={20}
 									max={500}
@@ -257,10 +273,10 @@ export function AudioPresetSelector({
 							<div className="flex items-center justify-between px-4 py-2 pl-10">
 								<div className="flex flex-col gap-1">
 									<p className="text-xs font-medium text-(--text-primary)">
-										Noise Suppression
+										{t("settings.audioEnhancement.noiseSuppression")}
 									</p>
 									<p className="text-xs text-(--text-muted)">
-										Neural network denoiser backend.
+										{t("settings.audioEnhancement.noiseSuppressionInfo")}
 									</p>
 								</div>
 								<Select
@@ -277,14 +293,16 @@ export function AudioPresetSelector({
 										<SelectItem value="rnnoise">RNNoise</SelectItem>
 										<SelectItem value="deepfilternet">DeepFilterNet</SelectItem>
 										<SelectItem value="speex">Speex</SelectItem>
-										<SelectItem value="none">None</SelectItem>
+										<SelectItem value="none">
+											{t("settings.audioEnhancement.noneOption")}
+										</SelectItem>
 									</SelectContent>
 								</Select>
 							</div>
 
 							<ToggleRow
-								label="Noise Gate"
-								description="Silence audio below a threshold."
+								label={t("settings.audioEnhancement.noiseGate")}
+								description={t("settings.audioEnhancement.noiseGateInfo")}
 								checked={config.noise_filter_gate ?? true}
 								onChange={handleGateToggle}
 								ariaLabel={t("audioPreset.noiseGate")}
@@ -292,8 +310,10 @@ export function AudioPresetSelector({
 							{(config.noise_filter_gate ?? true) && (
 								<>
 									<SliderRow
-										label="Gate Open Threshold"
-										description="Level above which the gate opens."
+										label={t("settings.audioEnhancement.gateOpenThreshold")}
+										description={t(
+											"settings.audioEnhancement.gateOpenThresholdInfo",
+										)}
 										value={config.noise_filter_gate_open_threshold_db ?? -26}
 										min={-96}
 										max={0}
@@ -303,8 +323,10 @@ export function AudioPresetSelector({
 										ariaLabel={t("audioPreset.gateOpenThreshold")}
 									/>
 									<SliderRow
-										label="Gate Close Threshold"
-										description="Level below which the gate closes."
+										label={t("settings.audioEnhancement.gateCloseThreshold")}
+										description={t(
+											"settings.audioEnhancement.gateCloseThresholdInfo",
+										)}
 										value={config.noise_filter_gate_close_threshold_db ?? -32}
 										min={-96}
 										max={0}
@@ -317,8 +339,8 @@ export function AudioPresetSelector({
 							)}
 
 							<ToggleRow
-								label="Equalizer"
-								description="3-band EQ for tone shaping."
+								label={t("settings.audioEnhancement.equalizer")}
+								description={t("settings.audioEnhancement.equalizerInfo")}
 								checked={config.noise_filter_eq ?? true}
 								onChange={handleEqToggle}
 								ariaLabel={t("audioPreset.equalizer")}
@@ -326,8 +348,8 @@ export function AudioPresetSelector({
 							{(config.noise_filter_eq ?? true) && (
 								<>
 									<SliderRow
-										label="EQ — Low (bass)"
-										description="Boost/cut below 800Hz."
+										label={t("settings.audioEnhancement.eqLow")}
+										description={t("settings.audioEnhancement.eqLowInfo")}
 										value={config.noise_filter_eq_low_db ?? -3}
 										min={-20}
 										max={20}
@@ -337,8 +359,8 @@ export function AudioPresetSelector({
 										ariaLabel={t("audioPreset.eqLow")}
 									/>
 									<SliderRow
-										label="EQ — Mid (speech)"
-										description="Boost/cut 800Hz–5kHz."
+										label={t("settings.audioEnhancement.eqMid")}
+										description={t("settings.audioEnhancement.eqMidInfo")}
 										value={config.noise_filter_eq_mid_db ?? 3}
 										min={-20}
 										max={20}
@@ -348,8 +370,8 @@ export function AudioPresetSelector({
 										ariaLabel={t("audioPreset.eqMid")}
 									/>
 									<SliderRow
-										label="EQ — High (treble)"
-										description="Boost/cut above 5kHz."
+										label={t("settings.audioEnhancement.eqHigh")}
+										description={t("settings.audioEnhancement.eqHighInfo")}
 										value={config.noise_filter_eq_high_db ?? 2}
 										min={-20}
 										max={20}
@@ -362,8 +384,8 @@ export function AudioPresetSelector({
 							)}
 
 							<ToggleRow
-								label="Compressor"
-								description="Even out loud/quiet speech."
+								label={t("settings.audioEnhancement.compressor")}
+								description={t("settings.audioEnhancement.compressorInfo")}
 								checked={config.noise_filter_compressor ?? true}
 								onChange={handleCompressorToggle}
 								ariaLabel={t("audioPreset.compressor")}
@@ -371,8 +393,10 @@ export function AudioPresetSelector({
 							{(config.noise_filter_compressor ?? true) && (
 								<>
 									<SliderRow
-										label="Compressor Threshold"
-										description="Level above which compression starts."
+										label={t("settings.audioEnhancement.compressorThreshold")}
+										description={t(
+											"settings.audioEnhancement.compressorThresholdInfo",
+										)}
 										value={config.noise_filter_compressor_threshold_db ?? -18}
 										min={-60}
 										max={0}
@@ -382,8 +406,10 @@ export function AudioPresetSelector({
 										ariaLabel={t("audioPreset.compressorThreshold")}
 									/>
 									<SliderRow
-										label="Compressor Ratio"
-										description="How hard to compress. 3:1 gentle, 10:1 aggressive."
+										label={t("settings.audioEnhancement.compressorRatio")}
+										description={t(
+											"settings.audioEnhancement.compressorRatioInfo",
+										)}
 										value={config.noise_filter_compressor_ratio ?? 3}
 										min={1}
 										max={32}
@@ -396,16 +422,18 @@ export function AudioPresetSelector({
 							)}
 
 							<ToggleRow
-								label="Limiter"
-								description="Brick-wall ceiling to prevent clipping."
+								label={t("settings.audioEnhancement.limiter")}
+								description={t("settings.audioEnhancement.limiterInfo")}
 								checked={config.noise_filter_limiter ?? true}
 								onChange={handleLimiterToggle}
 								ariaLabel={t("audioPreset.limiter")}
 							/>
 							{(config.noise_filter_limiter ?? true) && (
 								<SliderRow
-									label="Limiter Ceiling"
-									description="Absolute maximum output level."
+									label={t("settings.audioEnhancement.limiterCeiling")}
+									description={t(
+										"settings.audioEnhancement.limiterCeilingInfo",
+									)}
 									value={config.noise_filter_limiter_ceiling_db ?? -6}
 									min={-60}
 									max={0}
@@ -417,8 +445,8 @@ export function AudioPresetSelector({
 							)}
 
 							<ToggleRow
-								label="Notch Filter (hum)"
-								description="Remove 50/60Hz electrical mains hum."
+								label={t("settings.audioEnhancement.notchFilter")}
+								description={t("settings.audioEnhancement.notchFilterInfo")}
 								checked={config.noise_filter_notch ?? false}
 								onChange={handleNotchToggle}
 								ariaLabel={t("audioPreset.notchFilter")}
