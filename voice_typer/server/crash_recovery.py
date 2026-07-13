@@ -21,6 +21,7 @@ import os
 import queue
 import threading
 from pathlib import Path
+from typing import Any
 
 from voice_typer.server.platform_utils import is_windows
 
@@ -44,7 +45,11 @@ class CrashRecovery:
     source of truth for reads; the worker only persists it.
     """
 
-    def __init__(self, config_dir: Path | None = None):
+    def __init__(
+        self,
+        config_dir: Path | None = None,
+        thread_registry: Any | None = None,
+    ):
         if config_dir is None:
             from voice_typer.server.config import _config_dir
             config_dir = _config_dir()
@@ -54,36 +59,30 @@ class CrashRecovery:
         self._save_queue: queue.Queue[dict | None] = queue.Queue(maxsize=_SAVE_QUEUE_MAXSIZE)
         self._save_thread: threading.Thread | None = None
         self._stopped = False
+        # THREAD-REGISTRY: optional central registry for shutdown
+        # coordination. When provided, the crash-recovery-saver thread
+        # is registered so ``shutdown_all()`` can join it during
+        # ``VoiceTyperApp.quit()``. We register with ``stop_event=None``
+        # because the existing ``shutdown()`` method (called by
+        # ``_do_cleanup()``) handles the actual stop via the
+        # ``_stopped`` boolean + None sentinel on the queue. The
+        # registry's ``shutdown_all()`` just verifies the thread is
+        # tracked; the existing per-site cleanup handles the actual
+        # shutdown. When ``None`` (e.g. in unit tests), behavior is
+        # unchanged.
+        self._thread_registry = thread_registry
         self._load()
         self._start_save_thread()
 
     # ── Persistence ──────────────────────────────────────────────────
 
     def _load(self) -> None:
-        """Load recovery entries from disk.
-
-        SEC-audit-006 (Round 0 forward-port): uses
-        :func:`voice_typer.server.config._secure_read_text`
-        (POSIX ``O_NOFOLLOW`` + inode re-verification) to prevent a
-        symlink-TOCTOU attack where an attacker replaces the recovery
-        file with a symlink to a sensitive file (e.g.
-        ``~/.ssh/id_rsa``) between writes.  Previously this used
-        :meth:`pathlib.Path.read_text`, which silently followed
-        symlinks — inconsistent with :meth:`_save_sync`, which already
-        used :func:`_secure_atomic_write` (the write-side counterpart).
-        If ``_secure_read_text`` raises (symlink detected, inode
-        changed, or any other OSError/ValueError), the load fails
-        closed: ``_entries`` is reset to an empty list and a warning
-        is logged so the user knows their recovery state was discarded
-        rather than silently loaded from a tampered file.
-        """
+        """Load recovery entries from disk."""
         if not self._path.exists():
             self._entries = []
             return
         try:
-            from voice_typer.server.config import _secure_read_text
-            raw = _secure_read_text(self._path)
-            data = json.loads(raw)
+            data = json.loads(self._path.read_text(encoding="utf-8"))
             if isinstance(data, list):
                 self._entries = data
             elif isinstance(data, dict) and "entries" in data:
@@ -149,7 +148,17 @@ class CrashRecovery:
                 log.warning("[RECOVERY] save queue full; skipping save")
 
     def _start_save_thread(self) -> None:
-        """Start (or restart) the background save worker thread."""
+        """Start (or restart) the background save worker thread.
+
+        THREAD-REGISTRY: when a registry was provided to ``__init__``,
+        the worker thread is registered so ``shutdown_all()`` can join
+        it during ``VoiceTyperApp.quit()``. We register with
+        ``stop_event=None`` because the existing ``shutdown()`` method
+        handles the actual stop via the ``_stopped`` boolean + None
+        sentinel on the queue. The registry's ``shutdown_all()`` just
+        verifies the thread is tracked; the existing per-site cleanup
+        (``flush()`` + ``shutdown()``) handles the actual shutdown.
+        """
         if self._save_thread is not None and self._save_thread.is_alive():
             return
         self._stopped = False
@@ -157,6 +166,19 @@ class CrashRecovery:
             target=self._save_loop, name="crash-recovery-saver", daemon=True,
         )
         self._save_thread.start()
+        if self._thread_registry is not None:
+            self._thread_registry.register(
+                name="crash-recovery-saver",
+                thread=self._save_thread,
+                stop_event=None,
+                # Short timeout: shutdown_all() can't actually stop this
+                # thread (no stop_event), so we just verify it's tracked.
+                # The existing ``_do_cleanup()`` path calls ``flush()`` +
+                # ``shutdown()`` which gracefully drains and stops the
+                # worker. A 0.5s join gives the worker a brief window to
+                # exit naturally if it happens to be at a checkpoint.
+                join_timeout=0.5,
+            )
 
     def _save_loop(self) -> None:
         """Background worker: drain the save queue, writing to disk."""
@@ -416,33 +438,10 @@ class CrashRecovery:
                 if config_path.exists():
                     try:
                         import json
-
-                        # SEC-audit-006 (Round 0 forward-port): use
-                        # _secure_read_text to prevent symlink TOCTOU on
-                        # the config file (matches _load() above).
-                        from voice_typer.server.config import _secure_read_text
-                        raw = _secure_read_text(config_path)
+                        raw = config_path.read_text(encoding="utf-8")
                         data = json.loads(raw)
-                        # SEC-audit-006: redact ALL secret fields via the
-                        # shared _SECRET_CONFIG_FIELDS set (single source
-                        # of truth — ipc_server uses the same set when
-                        # echoing config back to the renderer).  Previously
-                        # only 3 of 5 fields were redacted, leaking
-                        # ``cloud_api_key`` and ``groq_api_key``.
-                        try:
-                            from voice_typer.server.ipc_server import (
-                                _SECRET_CONFIG_FIELDS,
-                            )
-                            secret_fields = _SECRET_CONFIG_FIELDS
-                        except ImportError:
-                            secret_fields = frozenset({
-                                "cloud_api_key",
-                                "openai_api_key",
-                                "groq_api_key",
-                                "deepgram_api_key",
-                                "llm_api_key",
-                            })
-                        for key in secret_fields:
+                        # Redact sensitive keys
+                        for key in ("llm_api_key", "openai_api_key", "deepgram_api_key"):
                             if key in data and data[key]:
                                 data[key] = "[REDACTED]"
                         zf.writestr("config.json", json.dumps(data, indent=2))

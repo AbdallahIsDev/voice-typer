@@ -419,6 +419,7 @@ class StreamingTranscriptionSession:
         config: StreamingConfig,
         sample_rate: int,
         poll_interval_seconds: float = 0.25,
+        thread_registry=None,
     ):
         self.recorder = recorder
         self.transcriber = transcriber
@@ -442,6 +443,13 @@ class StreamingTranscriptionSession:
         self._consecutive_failures = 0
         self._max_consecutive_failures = 3
         self._finalizing = False
+        # THREAD-REGISTRY: optional central registry for shutdown
+        # coordination. When provided, the streaming worker thread is
+        # registered so ``shutdown_all()`` can signal and join it during
+        # ``VoiceTyperApp.quit()``. When ``None`` (e.g. in unit tests),
+        # behavior is unchanged — the worker is still tracked locally
+        # via ``self._thread`` and stopped by ``cancel()`` / ``finalize()``.
+        self._thread_registry = thread_registry
 
     @property
     def confirmed_text(self) -> str:
@@ -458,6 +466,12 @@ class StreamingTranscriptionSession:
         or .start() (e.g. out of fd, can't start daemon) was silently
         swallowed, leaving the session in a half-initialized state.
         We now catch + record the failure so ``cancel()`` can clean up.
+
+        THREAD-REGISTRY: when a registry was provided to ``__init__``,
+        the worker thread is registered so ``shutdown_all()`` can
+        signal and join it during ``VoiceTyperApp.quit()``. The
+        registry entry is removed by ``cancel()`` (after the join, if
+        blocking) so a subsequent ``start()`` re-registers cleanly.
         """
         if self.is_running:
             return
@@ -480,6 +494,17 @@ class StreamingTranscriptionSession:
             # Signal cancelled so any pending cancel() / finalize()
             # doesn't hang waiting on a thread that never started.
             self._stopped_event.set()
+            return
+        # THREAD-REGISTRY: register the freshly-started worker so the
+        # central registry can signal/join it on shutdown. The join
+        # timeout matches the worst-case cancel() / finalize() path.
+        if self._thread_registry is not None and self._thread is not None:
+            self._thread_registry.register(
+                name="StreamingTranscription",
+                thread=self._thread,
+                stop_event=self._cancel_event,
+                join_timeout=10.0,
+            )
 
     def cancel(self, *, blocking: bool = False, timeout: float = 10.0):
         """Stop background streaming work.
@@ -490,11 +515,22 @@ class StreamingTranscriptionSession:
         signal the cancel event and let the worker self-terminate. The
         ``finalize()`` path that needs to wait for the worker still
         passes ``blocking=True``.
+
+        THREAD-REGISTRY: unregisters the worker after a blocking join
+        so a subsequent ``start()`` re-registers cleanly. Non-blocking
+        cancel leaves the entry in place — ``shutdown_all()`` may still
+        need to signal/join the worker if it hasn't exited yet.
         """
         self._cancel_event.set()
         thread = self._thread
         if blocking and thread is not None and thread.is_alive():
             thread.join(timeout=timeout)
+            # THREAD-REGISTRY: remove the entry after a blocking join
+            # so a subsequent start() re-registers cleanly. If the
+            # thread didn't exit in time, leave the entry in place so
+            # shutdown_all() can still attempt to join it.
+            if self._thread_registry is not None and not thread.is_alive():
+                self._thread_registry.unregister("StreamingTranscription")
 
     def finalize(self, full_audio: np.ndarray) -> str:
         """Return final transcript, using batch fallback if streaming is unsafe."""
