@@ -24,12 +24,13 @@ This catches regressions that unit tests miss:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import socket
 import sys
-import threading
 import time
+import weakref
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -44,9 +45,8 @@ _mock_pystray.MenuItem = MagicMock
 _mock_pystray.Icon = MagicMock
 sys.modules.setdefault("pystray", _mock_pystray)
 
-from voice_typer.server.ipc_server import IPCServer
-from voice_typer.server.tray import AppState
-
+from voice_typer.server.ipc_server import IPCServer  # noqa: E402
+from voice_typer.server.tray import AppState  # noqa: E402
 
 # ── Mock app ──────────────────────────────────────────────────────────
 
@@ -122,23 +122,61 @@ def _free_port() -> int:
     return port
 
 
+# Per-socket read buffer for _read_line. TCP may coalesce multiple
+# newline-terminated JSON responses into a single recv() call; without
+# a persistent buffer, the bytes after the first newline would be lost
+# across _read_line invocations (the previous implementation did
+# `line, _ = buf.split(b"\n", 1)` and discarded the tail). The buffer
+# is keyed by id(sock) and auto-evicted when the socket is GC'd via
+# weakref.finalize, so id() reuse cannot surface a stale buffer.
+_SOCKET_READ_BUFFERS: dict[int, bytearray] = {}
+
+
+def _sock_read_buf(sock: socket.socket) -> bytearray:
+    """Return the persistent read buffer for ``sock``, creating it if needed.
+
+    The returned bytearray is the live buffer used by ``_read_line``;
+    callers should treat it as private to the helper.
+    """
+    key = id(sock)
+    buf = _SOCKET_READ_BUFFERS.get(key)
+    if buf is None:
+        buf = bytearray()
+        _SOCKET_READ_BUFFERS[key] = buf
+        # Auto-evict when the socket is garbage-collected so that a
+        # future id() reuse doesn't surface a stale buffer.
+        weakref.finalize(sock, _SOCKET_READ_BUFFERS.pop, key, None)
+    return buf
+
+
 def _read_line(sock: socket.socket, timeout: float = 3.0) -> dict:
-    """Read one newline-terminated JSON line from sock."""
+    """Read one newline-terminated JSON line from ``sock``.
+
+    Maintains a persistent per-socket buffer so that TCP-coalesced
+    responses are preserved across calls. When a single ``recv()``
+    returns multiple newline-terminated JSON lines, the bytes beyond
+    the first newline are stashed in the buffer and returned by
+    subsequent ``_read_line`` calls without hitting the wire again.
+    """
+    buf = _sock_read_buf(sock)
     sock.settimeout(timeout)
-    buf = b""
     while b"\n" not in buf:
         try:
             chunk = sock.recv(4096)
-        except socket.timeout as exc:
+        except TimeoutError as exc:
             raise TimeoutError(
-                f"Timed out waiting for response. Partial: {buf!r}"
+                f"Timed out waiting for response. Partial: {bytes(buf)!r}"
             ) from exc
         if not chunk:
             raise ConnectionError(
-                f"Server closed connection. Partial: {buf!r}"
+                f"Server closed connection. Partial: {bytes(buf)!r}"
             )
-        buf += chunk
-    line, _ = buf.split(b"\n", 1)
+        buf.extend(chunk)
+    line, rest = buf.split(b"\n", 1)
+    # Replace buffer contents with leftover bytes (preserves the same
+    # bytearray object so the dict still references the live buffer).
+    del buf[:]
+    buf.extend(rest)
     return json.loads(line.decode("utf-8"))
 
 
@@ -148,13 +186,19 @@ def _send_line(sock: socket.socket, obj: dict) -> None:
 
 
 def _read_all_pending(sock: socket.socket, timeout: float = 0.5) -> list[dict]:
-    """Read all pending lines from sock (non-blocking after first read)."""
-    results = []
+    """Read all pending lines from ``sock`` (non-blocking after first read).
+
+    Inherits ``_read_line``'s per-socket buffer, so coalesced responses
+    that arrived in a previous ``recv()`` are drained from the buffer
+    before any new network read is attempted.
+    """
+    results: list[dict] = []
+    current_timeout = timeout
     try:
         while True:
-            line = _read_line(sock, timeout=timeout)
+            line = _read_line(sock, timeout=current_timeout)
             results.append(line)
-            timeout = 0.2  # Shorter timeout for subsequent reads
+            current_timeout = 0.2  # Shorter timeout for subsequent reads
     except (TimeoutError, ConnectionError):
         pass
     return results
@@ -201,7 +245,7 @@ def e2e_server(tmp_path, monkeypatch):
             test_sock.connect(("127.0.0.1", port))
             test_sock.close()
             break
-        except (ConnectionRefusedError, socket.timeout):
+        except (TimeoutError, ConnectionRefusedError):
             time.sleep(0.1)
     else:
         server.stop()
@@ -219,16 +263,12 @@ def e2e_server(tmp_path, monkeypatch):
         server._push_fn = None
     # Close the listening socket to unblock the accept loop
     if server._tcp_server_socket is not None:
-        try:
+        with contextlib.suppress(OSError):
             server._tcp_server_socket.close()
-        except OSError:
-            pass
     # Close any connected client
     if server._tcp_client is not None:
-        try:
+        with contextlib.suppress(Exception):
             server._tcp_client.close()
-        except Exception:
-            pass
         server._tcp_client = None
     # Brief pause to let the OS release the port before the next test
     time.sleep(0.2)
@@ -309,9 +349,10 @@ class TestE2EFullPipeline:
               truly hang — the assertion just failed on the wrong
               response.
 
-        Fix: read all responses within a deadline and assert that
-        both the ``config_changed`` push and the ``ack`` arrive,
-        instead of assuming the ack arrives first.
+        Fix: ``_read_line`` now maintains a persistent per-socket buffer
+        so coalesced responses are preserved across calls. We read up to
+        two lines (push + ack) and assert that both arrive, instead of
+        assuming the ack arrives first.
         """
         server, port, token, app = e2e_server
         # Mock config.save() to avoid disk I/O and path traversal issues
@@ -330,29 +371,12 @@ class TestE2EFullPipeline:
             # FIRST (written from inside _handle_set_config), followed
             # by the ack (written by the dispatcher after the handler
             # returns). Both lines may be coalesced into a single TCP
-            # segment by the OS, so we cannot use the ``_read_line``
-            # helper (which discards data after the first newline).
-            # Instead we recv into a buffer and split on newlines.
-            sock.settimeout(2.0)
-            data = b""
-            deadline = time.time() + 5.0
-            while time.time() < deadline:
-                try:
-                    chunk = sock.recv(4096)
-                except socket.timeout:
-                    break
-                if not chunk:
-                    break
-                data += chunk
-                # Stop once we have both expected lines.
-                if data.count(b"\n") >= 2:
-                    break
-
-            responses: list[dict] = [
-                json.loads(line.decode("utf-8"))
-                for line in data.split(b"\n")
-                if line.strip()
-            ]
+            # segment by the OS; _read_line's per-socket buffer ensures
+            # the second line is not lost across calls.
+            responses: list[dict] = []
+            with contextlib.suppress(TimeoutError, ConnectionError):
+                while len(responses) < 2:
+                    responses.append(_read_line(sock, timeout=2.0))
 
             # The ack MUST be present with id=2.
             acks = [r for r in responses if r.get("id") == 2]
@@ -549,13 +573,10 @@ class TestE2EAuthEnforcement:
         _send_line(sock, {"type": "auth", "token": "wrong-token"})
 
         # Server should send an error response then close
-        try:
+        with contextlib.suppress(ConnectionError, TimeoutError):
             resp = _read_line(sock, timeout=3.0)
             assert resp["type"] == "error"
             assert "auth" in resp["data"]["message"].lower()
-        except (ConnectionError, TimeoutError):
-            # Connection closed immediately is also acceptable
-            pass
 
         sock.close()
 
@@ -572,9 +593,7 @@ class TestE2EAuthEnforcement:
 
         # Server should drop the connection (the command is read as the
         # auth line, fails validation, and the connection is closed)
-        try:
+        with contextlib.suppress(ConnectionError, TimeoutError):
             _read_line(sock, timeout=3.0)
-        except (ConnectionError, TimeoutError):
-            pass  # Expected — connection dropped
 
         sock.close()

@@ -151,6 +151,38 @@ class VolumeBackend(ABC):
         """
         return True
 
+    # ── Polling hints ────────────────────────────────────────────────
+    #
+    # Smart-duck background monitor polls ``is_speaker_active()`` every
+    # ``poll_interval_ms``.  Backends that can answer this query cheaply
+    # (in-process C call, <1ms) can advertise a faster safe cadence;
+    # backends that shell out to a subprocess (200-500ms per call)
+    # should keep the conservative default so the monitor doesn't
+    # starve the audio callback.
+    #
+    # ``VolumeDucker.initialize`` uses ``min(user_config, recommended)``
+    # so the backend's recommendation acts as a *floor* on polling
+    # speed: the monitor never polls *slower* than the backend
+    # recommends, but the user can always go faster via config.
+    #
+
+    @property
+    def recommended_poll_interval_ms(self) -> int:
+        """Recommended smart-duck poll interval in milliseconds.
+
+        Backends can override to advertise a faster safe cadence.
+        ``VolumeDucker`` uses ``min(user_value, recommended)`` so the
+        recommendation acts as a *floor* on polling speed (the monitor
+        never polls *slower* than the backend recommends).  Users can
+        always go faster via ``config.volume_duck_smart_poll_interval_ms``.
+
+        Default of 500ms is conservative; backends with in-process
+        queries (Windows IAudioMeterInformation ~0ms, macOS
+        CoreAudio ~<1ms, Linux pactl ~50ms) may override with a
+        smaller value.
+        """
+        return 500
+
     # ── Per-session support (Windows only) ──────────────────────────
 
     def get_other_sessions(self) -> list:

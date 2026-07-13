@@ -37,6 +37,13 @@ kAudioHardwareServiceDeviceProperty_VirtualMasterBalance: Any
 # ``missing-module-attribute`` on the Linux CI runner.
 kAudioHardwarePropertyDevices: Any
 
+# TASK-11: ``kAudioHardwarePropertyDefaultOutputDevice`` is the system-
+# level selector used by ``MacVolumeBackend._get_default_output_device``
+# to fetch the AudioDeviceID of the current default output device.
+# Queried on ``kAudioObjectSystemObject`` with scope
+# ``kAudioObjectPropertyScopeGlobal``.  Returns a UInt32 (AudioDeviceID).
+kAudioHardwarePropertyDefaultOutputDevice: Any
+
 # AudioObject scopes (UInt32).
 kAudioObjectPropertyScopeGlobal: Any
 kAudioObjectPropertyScopeOutput: Any

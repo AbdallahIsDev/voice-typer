@@ -69,6 +69,13 @@ _MANUAL_OVERRIDE_THRESHOLD = 0.05
 # slow enough to not spam the backend (macOS osascript is 200-500ms
 # per call; Windows IAudioMeterInformation is ~0ms; Linux pactl is
 # ~50ms).  Override via set_smart_duck_poll_interval().
+#
+# TASK-11: ``VolumeDucker.initialize()`` further clamps this down to
+# ``backend.recommended_poll_interval_ms`` when the backend advertises
+# a faster safe cadence (e.g. macOS CoreAudio path → 100ms, since the
+# in-process ``kAudioDevicePropertyDeviceIsRunning`` query is <1ms).
+# The user's explicit ``set_smart_duck_poll_interval()`` value is
+# respected if it is *faster* than the backend's recommendation.
 _DEFAULT_SMART_DUCK_POLL_MS = 500
 
 
@@ -156,6 +163,32 @@ class VolumeDucker:
             self._ready = False
             return False
         self._ready = True
+
+        # TASK-11: apply the backend's recommended poll interval as a
+        # *floor* on polling speed — the monitor never polls *slower*
+        # than the backend recommends, but the user can always go
+        # faster via ``config.volume_duck_smart_poll_interval_ms``.
+        # This lets the macOS CoreAudio path (in-process, <1ms) cut
+        # the default 500ms poll down to 100ms, while leaving the
+        # slower osascript / pactl paths at their conservative default.
+        #
+        # ``getattr`` is used (rather than direct attribute access) so
+        # duck-typed test fakes that don't extend ``VolumeBackend`` —
+        # and therefore don't inherit the property — fall back to the
+        # conservative 500ms default rather than raising
+        # ``AttributeError``.
+        recommended = getattr(
+            self._backend, "recommended_poll_interval_ms", 500
+        )
+        if recommended < self._smart_duck_poll_ms:
+            log.info(
+                "[VOLUME] Backend %s recommends %dms poll interval "
+                "(was %dms) — adopting",
+                self._backend.name,
+                recommended,
+                self._smart_duck_poll_ms,
+            )
+            self._smart_duck_poll_ms = recommended
 
         log.info(
             "[VOLUME] Backend ready: %s (per_session=%s)",
