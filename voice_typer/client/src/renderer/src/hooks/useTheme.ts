@@ -264,16 +264,48 @@ export function useTheme(
 	// fire 3 separate set_config IPC calls. The local UI updates
 	// immediately (setThemeMode); the backend save is deferred 300ms
 	// and only the LAST selected mode is persisted.
+	//
+	// QUIT-FLUSH-FIX: previously, if the user changed the theme and
+	// then closed the app (close-to-tray → tray Quit, or window close)
+	// during the 300ms debounce window, the pending save was dropped
+	// and the next launch loaded the old theme from the backend. Added
+	// a flush-on-unmount effect + a `beforeunload` listener so the
+	// pending save fires synchronously before the renderer tears down.
 	const themeSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const pendingThemeModeRef = useRef<VoiceTyperConfig["theme_mode"] | null>(
+		null,
+	);
+
+	const flushPendingThemeSave = useCallback(() => {
+		if (themeSaveTimerRef.current) {
+			clearTimeout(themeSaveTimerRef.current);
+			themeSaveTimerRef.current = null;
+		}
+		const mode = pendingThemeModeRef.current;
+		if (mode !== null) {
+			pendingThemeModeRef.current = null;
+			// Fire-and-forget — the renderer may be tearing down, so we
+			// can't await. The IPC layer queues the write before the
+			// process exits.
+			try {
+				void call("set_config", { theme_mode: mode });
+			} catch {
+				// Theme is local-only if backend unavailable
+			}
+		}
+	}, [call]);
+
 	const handleThemeChange = useCallback(
 		async (mode: VoiceTyperConfig["theme_mode"]): Promise<void> => {
 			setThemeMode(mode);
+			pendingThemeModeRef.current = mode;
 			// Cancel any pending save and schedule a new one.
 			if (themeSaveTimerRef.current) {
 				clearTimeout(themeSaveTimerRef.current);
 			}
 			themeSaveTimerRef.current = setTimeout(async () => {
 				themeSaveTimerRef.current = null;
+				pendingThemeModeRef.current = null;
 				try {
 					await call("set_config", { theme_mode: mode });
 				} catch {
@@ -283,6 +315,17 @@ export function useTheme(
 		},
 		[call],
 	);
+
+	// QUIT-FLUSH-FIX: flush the pending theme save on unmount + before
+	// the renderer unloads (close-to-tray, window close, app quit).
+	useEffect(() => {
+		const onBeforeUnload = () => flushPendingThemeSave();
+		window.addEventListener("beforeunload", onBeforeUnload);
+		return () => {
+			window.removeEventListener("beforeunload", onBeforeUnload);
+			flushPendingThemeSave();
+		};
+	}, [flushPendingThemeSave]);
 
 	return {
 		themeMode,

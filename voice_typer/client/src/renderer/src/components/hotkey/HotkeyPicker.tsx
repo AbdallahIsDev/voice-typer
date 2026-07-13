@@ -203,6 +203,10 @@ export function HotkeyPicker({
 		handleKeyDownRef.current = handleKeyDown;
 		handleKeyUpRef.current = handleKeyUp;
 		cancelRecordingRef.current = cancelRecording;
+		// No deps array → runs after every commit. This is intentional: the
+		// refs must stay in sync with the latest prop values so the
+		// always-attached keyboard listener (registered once in a separate
+		// useEffect with `[]` deps) reads fresh handlers via the refs.
 	});
 
 	// ESC-FIX-003: always-attached keyboard listener — NEVER re-register,

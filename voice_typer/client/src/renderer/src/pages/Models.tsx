@@ -377,6 +377,7 @@ export default function ModelsPage() {
 	// Sync accordion after async config load completes (first visit only).
 	// Uses a ref to fire exactly once in the component lifecycle.
 	const syncGuardRef = useRef(false);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: intentional fire-once semantics — the syncGuardRef guard ensures the body executes exactly once on the first render where _initialLoading is false. Adding models would not change behavior (the ref still blocks re-execution), but omitting it makes the fire-once intent explicit and avoids spurious effect re-runs every time the models list updates.
 	useEffect(() => {
 		if (!_initialLoading && !syncGuardRef.current) {
 			syncGuardRef.current = true;
@@ -391,7 +392,7 @@ export default function ModelsPage() {
 				}
 			}
 		}
-	}, [_initialLoading, models.find, models]);
+	}, [_initialLoading]);
 
 	const loadConfig = useCallback(async () => {
 		setInitialLoading(true);

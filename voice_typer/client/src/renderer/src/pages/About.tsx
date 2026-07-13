@@ -7,6 +7,15 @@ import { usePython } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";
 
+// VERSION-SOURCE-FIX: import the version directly from package.json so
+// it stays in sync with the single source of truth. Previously this
+// was a hardcoded constant `const APP_VERSION = "1.0.0"` that silently
+// drifted from package.json#version on every release bump. The Vite
+// build resolves JSON imports at build time (tsconfig.web.json has
+// resolveJsonModule: true), so the bundled output contains the literal
+// string — no runtime file read.
+import pkg from "../../../../package.json";
+
 // ADR-0009 Issue 3: shape of the ``get_prewarm_status`` IPC response.
 // Mirrors the dict returned by voice_typer.server.prewarm.get_prewarm_status().
 interface PrewarmStatus {
@@ -19,11 +28,10 @@ interface PrewarmStatus {
 	prewarm_running: boolean;
 }
 
-// App version. The package.json is two directories above the
-// renderer src tree, and the alias `@/../package.json` does not
-// resolve cleanly under every TS config — fall back to a hardcoded
-// constant matching package.json#version.
-const APP_VERSION = "1.0.0";
+// App version. Read directly from package.json (see VERSION-SOURCE-FIX
+// comment at the top of the file) so this never drifts from the
+// canonical source of truth on a release bump.
+const APP_VERSION = pkg.version as string;
 
 const GITHUB_REPO = "https://github.com/AbdallahIsDev/voice-typer";
 const GITHUB_ISSUES = "https://github.com/AbdallahIsDev/voice-typer/issues";

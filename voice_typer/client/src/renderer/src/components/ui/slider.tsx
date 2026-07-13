@@ -42,16 +42,20 @@ function Slider({
 					className={cn("absolute h-full bg-primary", rangeClassName)}
 				/>
 			</SliderPrimitive.Track>
-			{(props.value ?? props.defaultValue ?? [0]).map((v) => (
-				<SliderPrimitive.Thumb
-					key={v}
-					data-slot="slider-thumb"
-					className={cn(
-						"block size-4 rounded-full border-2 border-primary bg-background shadow-sm ring-0 transition-[box-shadow,transform] hover:scale-110 focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none active:scale-105",
-						thumbClassName,
-					)}
-				/>
-			))}
+			{Array.from(
+				{ length: (props.value ?? props.defaultValue ?? [0]).length },
+				(_, i) => (
+					<SliderPrimitive.Thumb
+						// biome-ignore lint/suspicious/noArrayIndexKey: slider thumbs have a fixed count (one per value in props.value / props.defaultValue) and never reorder; the array index is the canonical stable key for radix-ui SliderThumb rendering.
+						key={`thumb-${i}`}
+						data-slot="slider-thumb"
+						className={cn(
+							"block size-4 rounded-full border-2 border-primary bg-background shadow-sm ring-0 transition-[box-shadow,transform] hover:scale-110 focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none active:scale-105",
+							thumbClassName,
+						)}
+					/>
+				),
+			)}
 		</SliderPrimitive.Root>
 	);
 }

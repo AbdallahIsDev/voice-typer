@@ -147,15 +147,31 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 // IMPL-C: status labels resolved via i18n so they honour the user's UI locale.
-// Resolved at module load (matching the existing pattern in GeneralSettingsSection).
-const STATUS_LABELS: Record<string, string> = {
-	idle: t("home.ready"),
-	recording: t("home.recording"),
-	transcribing: t("home.transcribing"),
-	loading: t("home.loading"),
-	cancelling: t("home.cancelling"),
-	error: t("home.error"),
-};
+// NEW-I18N-FIX: previously this was a module-level constant built once at
+// import time, which froze the labels at whatever locale was active when
+// the module was first imported (almost always "en" because the locale
+// is restored from localStorage AFTER Home.tsx is imported). Switching
+// UI language in Settings did not update the home-page status pill.
+// Replaced with a function that resolves the label at call time so the
+// pill honors the current locale on every render.
+function statusLabelFor(key: string): string {
+	switch (key) {
+		case "recording":
+			return t("home.recording");
+		case "transcribing":
+			return t("home.transcribing");
+		case "loading":
+			return t("home.loading");
+		case "cancelling":
+			return t("home.cancelling");
+		case "error":
+			return t("home.error");
+		default:
+			// Includes "idle" and any unknown state — both fall back to
+			// the "ready" label.
+			return t("home.ready");
+	}
+}
 
 function statusKeyFor(state: RecordingState, hasError: boolean): string {
 	// NEW-IPC-010: removed the ``listening → idle`` normalization —
@@ -169,9 +185,11 @@ function statusKeyFor(state: RecordingState, hasError: boolean): string {
 // SOUND-FIX-004: the sound feedback logic (AudioContext singleton,
 // initAudioContext, playSoundCue) has been moved to
 // ``@/hooks/useSoundFeedback`` and is now subscribed at the App root
-// so cues fire on every page, not just Home.  These re-exports keep
-// backward compatibility for any external importer.
-export { initAudioContext, playSoundCue } from "@/hooks/useSoundFeedback";
+// so cues fire on every page, not just Home.
+// (DEAD-CODE: the previous `export { initAudioContext, playSoundCue }`
+// re-exports had zero importers in the repo and forced Home.tsx to be
+// a module that re-exports non-component functions, which breaks React
+// Fast Refresh. Deleted in this round.)
 
 export default function Home({
 	recordingState,
@@ -351,7 +369,11 @@ export default function Home({
 
 	const shareStats = useCallback(() => {
 		if (!stats || !cfg) return;
-		const _share = computeShareStats(stats, cfg.asr_backend);
+		// Note: computeShareStats is also called at line 536 to render
+		// <StatsShareImage stats={...}/> — that call is the source of
+		// truth for the rendered image. shareAsImage captures the DOM
+		// element which already contains the rendered stats, so no need
+		// to compute them again here.
 		shareAsImage("voice-typer-stats");
 	}, [stats, cfg, shareAsImage]);
 
@@ -369,7 +391,7 @@ export default function Home({
 	const isRecording = recordingState === "recording";
 	const key = statusKeyFor(recordingState, !!lastError);
 	const statusColor = STATUS_COLORS[key] ?? STATUS_COLORS.idle;
-	const statusLabel = STATUS_LABELS[key] ?? t("home.ready");
+	const statusLabel = statusLabelFor(key);
 
 	return (
 		<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col items-center justify-center gap-5 px-6 py-4">

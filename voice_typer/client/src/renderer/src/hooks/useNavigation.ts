@@ -47,7 +47,12 @@ function loadNavState(): NavState {
  * browser's back/forward navigation.
  */
 export function useNavigation() {
-	const initialNav = loadNavState();
+	// PERF-FIX: previously `loadNavState()` was called on every render,
+	// parsing localStorage + JSON.parse each time even though only the
+	// first call's result is used (passed to useState/useRef initializers
+	// which ignore subsequent values). Wrapped in a useState initializer
+	// so React calls it exactly once and caches the result.
+	const [initialNav] = useState(loadNavState);
 	const [currentPage, setCurrentPage] = useState<Page>(initialNav.page);
 	const navHistory = useRef<Page[]>(initialNav.history);
 	const navIndex = useRef(initialNav.index);

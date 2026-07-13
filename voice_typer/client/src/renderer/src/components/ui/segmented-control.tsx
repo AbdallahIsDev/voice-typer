@@ -1,5 +1,5 @@
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "#utils";
 
 /**
@@ -130,12 +130,29 @@ export function SegmentedControl<T extends string>({
 	}, [value, measureElement]);
 
 	// Use a ResizeObserver so the indicator repositions on container resize.
+	// MEM-LEAK-FIX: the previous implementation created the ResizeObserver
+	// via `useState(() => new ResizeObserver(...))` and only called
+	// `resizeObserver.disconnect()` inside the container ref callback when
+	// the ref CHANGED. React calls the ref with `null` AFTER effect
+	// cleanup on unmount, but the ref-callback's `if (containerRef.current
+	// !== el)` guard short-circuits when `el === null` and the ref was
+	// already non-null, leaving the observer observing a detached DOM node
+	// forever (memory leak). Added an explicit unmount cleanup effect
+	// below that disconnects the observer on component teardown.
 	const [resizeObserver] = useState(
 		() =>
 			new ResizeObserver(() => {
 				requestAnimationFrame(() => updateIndicator());
 			}),
 	);
+
+	// Unmount cleanup: disconnect the observer so it stops polling the
+	// (potentially detached) DOM node and releases its callback closure.
+	useEffect(() => {
+		return () => {
+			resizeObserver.disconnect();
+		};
+	}, [resizeObserver]);
 
 	return (
 		<div
