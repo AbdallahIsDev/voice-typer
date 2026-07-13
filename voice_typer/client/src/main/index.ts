@@ -404,8 +404,12 @@ function ts(): string {
  */
 
 function pythonArgs(): [string, string[]] {
-	const home = os.homedir();
-	const base = path.join(home, ".voice-typer", "venv");
+	// RW-15: use computeConfigDir() so the venv path always matches the
+	// Python backend's _config_dir()-based venv_pythonw() (_paths.py).
+	// Previously hardcoded ~/.voice-typer/venv, which diverged on
+	// non-Windows and fresh installs (config dir may be %APPDATA%
+	// or ~/Library/Application Support rather than ~/.voice-typer).
+	const base = path.join(computeConfigDir(), "venv");
 	const exe =
 		process.platform === "win32"
 			? path.join(base, "Scripts", "pythonw.exe")
