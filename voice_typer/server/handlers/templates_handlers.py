@@ -47,6 +47,7 @@ class TemplatesHandlersMixin:
             })
             if error:
                 return error
+            assert validated is not None  # narrowed by the error guard above
             self.service.save_templates(validated["templates"])
             resp["type"] = "ack"
             resp["data"] = {"saved": len(validated["templates"])}

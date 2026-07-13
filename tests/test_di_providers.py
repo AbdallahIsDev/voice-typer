@@ -27,16 +27,14 @@ also exercised to confirm it returns a working ``IPCServer``.
 from __future__ import annotations
 
 import ast
-import threading
-from pathlib import Path
-from unittest.mock import MagicMock
-
-import pytest
 
 # Mock heavy imports BEFORE importing the server stack — mirrors the
 # pattern in tests/test_server.py.  Without this, pystray tries to
 # connect to an X display on Linux and crashes in headless CI.
 import sys
+import threading
+from pathlib import Path
+from unittest.mock import MagicMock
 
 _mock_pystray = MagicMock()
 _mock_pystray.Menu.SEPARATOR = "SEP"
@@ -52,7 +50,6 @@ from voice_typer.server.providers import (  # noqa: E402
 )
 from voice_typer.server.service import VoiceTyperService  # noqa: E402
 
-
 # ── Helpers ─────────────────────────────────────────────────────────────
 
 
@@ -67,7 +64,7 @@ def _protocol_declared_names(proto_cls) -> set:
     Combines:
 
     - Annotated data attributes (``__annotations__`` keys) — e.g.
-      ``config``, ``history_db``, ``_config_mutation_lock``.
+      ``config``, ``history_db``, ``_shutting_down``.
     - Methods defined directly on the class (callable values in
       ``__dict__``) — e.g. ``change_model``, ``toggle_dictation``.
 
@@ -221,7 +218,7 @@ class TestBackwardCompat:
         """
         import inspect
 
-        sig = inspect.signature(IPPCServer := IPCServer.__init__)
+        sig = inspect.signature(IPCServer.__init__)
         service_param = sig.parameters["service"]
         assert service_param.default is None, (
             "service= must default to None so IPCServer(app) keeps working."
@@ -338,10 +335,21 @@ class TestProtocolDrift:
         """Smoke test: ``AppProtocol`` declares the key documented members.
 
         Catches accidental removal of a member during a refactor.
-        The set below mirrors the task description's enumeration:
-        ``config, history_db, models, recording, hotkeys, recorder,
-        audio_processor, volume_ducker`` plus the private attributes
-        handlers actually reach into.
+        The set below mirrors the post-ADR-0008-§3.1 surface: the
+        public domain objects (``config``, ``history_db``, ``models``,
+        ``recording``, ``hotkeys``, ``recorder``, ``tray``), the
+        private attributes handlers / ipc_server still access
+        (``_ipc_server``, ``_shutting_down``, ``_esc_cancel_paused``),
+        and the methods the service layer delegates to the app
+        (``change_model``, ``toggle_dictation``, ``undo_last``,
+        ``repaste_last``, ``restart_app``, ``quit_app``, ``quit``,
+        ``start``).
+
+        TASK-2 (ADR 0008 §3.1) removed ``_audio_processor``,
+        ``_volume_ducker``, and ``_config_mutation_lock`` — those
+        private attrs are no longer accessed by handlers because the
+        ``get_audio_status``, ``get_volume_backend_status``, and
+        ``apply_config`` paths now go through :class:`ServiceProtocol`.
         """
         declared = _protocol_declared_names(AppProtocol)
         # Public domain objects mentioned in the task description.
@@ -358,13 +366,12 @@ class TestProtocolDrift:
                 f"AppProtocol must declare `{required}` — it's a core "
                 f"domain object the IPC layer exposes."
             )
-        # Private attributes handlers / ipc_server actually access.
+        # Private attributes handlers / ipc_server still access
+        # post-ADR-0008-§3.1.
         for required in (
-            "_audio_processor",
-            "_volume_ducker",
             "_ipc_server",
-            "_config_mutation_lock",
             "_shutting_down",
+            "_esc_cancel_paused",
         ):
             assert required in declared, (
                 f"AppProtocol must declare `{required}` — handlers or "
@@ -378,11 +385,28 @@ class TestProtocolDrift:
             "repaste_last",
             "restart_app",
             "quit_app",
+            "quit",
             "start",
         ):
             assert required in declared, (
                 f"AppProtocol must declare `{required}()` — the service "
                 f"layer delegates this call to the app."
+            )
+        # TASK-2: private attrs removed from AppProtocol because the
+        # service layer now wraps their access.  These MUST NOT be
+        # re-added — handlers reaching into them is a smell that ADR
+        # 0008 §3.1 explicitly prohibits.
+        for forbidden in (
+            "_audio_processor",
+            "_volume_ducker",
+            "_config_mutation_lock",
+        ):
+            assert forbidden not in declared, (
+                f"AppProtocol must NOT declare `{forbidden}` post-"
+                f"ADR-0008-§3.1 — the service layer (get_audio_status / "
+                f"get_volume_backend_status / apply_config) wraps its "
+                f"access.  Re-adding it would re-introduce the leaky "
+                f"abstraction the refactor removed."
             )
 
     def test_service_protocol_declares_core_methods(self):
@@ -410,6 +434,13 @@ class TestProtocolDrift:
             "quit",
             "export_diagnostics",
             "apply_config_side_effects",
+            # TASK-2 (ADR 0008 §3.1): new service-layer wrappers for
+            # private-attr access previously done in handlers.
+            "get_audio_status",
+            "change_model",
+            "set_active_backend",
+            "apply_config",
+            "force_cancel_transcription",
         ):
             assert required in declared, (
                 f"ServiceProtocol must declare `{required}()` — "
@@ -481,10 +512,7 @@ def _structurally_satisfies(obj, proto_cls) -> bool:
     ``hasattr``-based check is correct for both real objects and
     MagicMock-based fakes.
     """
-    for name in _protocol_declared_names(proto_cls):
-        if not hasattr(obj, name):
-            return False
-    return True
+    return all(hasattr(obj, name) for name in _protocol_declared_names(proto_cls))
 
 
 class TestProtocolStructuralCompat:

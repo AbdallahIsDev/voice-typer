@@ -64,6 +64,7 @@ class HistoryHandlersMixin:
             })
             if error:
                 return error
+            assert validated is not None  # narrowed by the error guard above
             self.service.delete_history(validated["id"])
             resp["type"] = "ack"
         except Exception as e:
@@ -82,6 +83,7 @@ class HistoryHandlersMixin:
             })
             if error:
                 return error
+            assert validated is not None  # narrowed by the error guard above
             new_id = self.service.restore_history(validated["record"])
             resp["type"] = "ack"
             resp["data"] = {"id": new_id}
@@ -110,6 +112,7 @@ class HistoryHandlersMixin:
             })
             if error:
                 return error
+            assert validated is not None  # narrowed by the error guard above
             new_val = self.service.toggle_favorite(validated["id"])
             resp["type"] = "ack"
             resp["data"] = {"favorite": new_val}

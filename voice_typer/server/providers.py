@@ -82,12 +82,21 @@ class AppProtocol(Protocol):
     object with these attributes satisfies the protocol — including
     ``MagicMock`` instances, which respond to every attribute access.
 
-    The members below are a superset of what handlers access today.
-    They include both public attributes (``config``, ``history_db``,
-    ``models``, ``recording``, ``hotkeys``, ``recorder``, ``tray``)
-    and the private attributes the handlers / IPC server reach into
-    (``_audio_processor``, ``_volume_ducker``, ``_ipc_server``,
-    ``_config_mutation_lock``, ``_shutting_down``).
+    The members below are the post-ADR-0008-§3.1 surface: handlers
+    reach the app only through public domain objects (``config``,
+    ``history_db``, ``models``, ``recording``, ``hotkeys``,
+    ``recorder``, ``tray``) and a small set of private attributes
+    that are still accessed by ``ipc_server.py`` itself
+    (``_ipc_server``, ``_shutting_down``) or by handlers not yet
+    refactored (``_esc_cancel_paused``).
+
+    The private attributes ``_audio_processor``, ``_volume_ducker``,
+    and ``_config_mutation_lock`` were removed in TASK-2: the
+    ``get_audio_status`` and ``apply_config`` IPC paths now go
+    through :class:`ServiceProtocol` methods (``get_audio_status``,
+    ``apply_config``, ``change_model``, ``set_active_backend``)
+    which encapsulate the private-attribute access inside the
+    service layer.
     """
 
     # ── Public application state ───────────────────────────────────
@@ -101,7 +110,12 @@ class AppProtocol(Protocol):
     """Transcription history DB (``voice_typer.server.history_db.HistoryDB``)."""
 
     models: Any
-    """Model manager (``voice_typer.server.model_manager.ModelManager``)."""
+    """Model manager (``voice_typer.server.model_manager.ModelManager``).
+
+    Accessed by ``ServiceProtocol.set_active_backend`` (which wraps
+    ``self._app.models.set_active_backend()``); no IPC handler reads
+    ``self.app.models`` directly post-ADR-0008-§3.1.
+    """
 
     recording: Any
     """Recording controller (``voice_typer.server.recording_controller.RecordingController``)."""
@@ -115,39 +129,25 @@ class AppProtocol(Protocol):
     tray: Any
     """Tray icon controller (``voice_typer.server.tray_icon.TrayIcon``)."""
 
-    # ── Private attributes accessed by handlers / IPC server ───────
+    # ── Private attributes still accessed by ipc_server / handlers ─
     # These are private on VoiceTyperApp (leading underscore) but are
     # part of the IPC layer's effective contract.  Declaring them
     # here keeps the introspection test honest: if a handler starts
     # reading ``self.app._foo``, the test fails until ``_foo`` is
     # added here, forcing an explicit decision about whether the new
     # access is a smell or an accepted widening of the surface.
-
-    _audio_processor: Any
-    """Filter-chain audio processor (``voice_typer.server.audio_processor.AudioProcessor``).
-
-    Accessed by ``status_handlers._handle_get_audio_status`` via
-    ``self.service._app._audio_processor``.
-    """
-
-    _volume_ducker: Any
-    """Volume ducker (``voice_typer.server.volume_ducker.VolumeDucker``).
-
-    Read by ``service.get_volume_backend_status``.
-    """
+    #
+    # TASK-2 (ADR 0008 §3.1) removed ``_audio_processor``,
+    # ``_volume_ducker``, and ``_config_mutation_lock`` from this
+    # list — the service layer now wraps those accesses via
+    # ``get_audio_status``, ``get_volume_backend_status``, and
+    # ``apply_config`` respectively, so handlers no longer need to
+    # reach into them directly.
 
     _ipc_server: Any
     """Back-reference set by ``IPCServer.start()`` so other modules
     (waveform bubble, streaming partials) can push events without an
     explicit reference being threaded through every call site.
-    """
-
-    _config_mutation_lock: Any
-    """``threading.RLock`` serializing config mutations between the IPC
-    ``set_config`` handler (IPC server thread) and the deprecated
-    tkinter SettingsController (tkinter main thread).  Held for the
-    full read-modify-save sequence so concurrent mutations don't
-    produce a torn config (RACE-011).
     """
 
     _shutting_down: bool
@@ -168,7 +168,12 @@ class AppProtocol(Protocol):
     # MagicMock, which auto-stubs any method call).
 
     def change_model(self, model_size: str) -> None:
-        """Switch the active ASR model to ``model_size``."""
+        """Switch the active ASR model to ``model_size``.
+
+        Wrapped by :meth:`ServiceProtocol.change_model`; no IPC
+        handler calls ``self.app.change_model()`` directly
+        post-ADR-0008-§3.1.
+        """
         ...
 
     def toggle_dictation(self) -> None:
@@ -188,7 +193,24 @@ class AppProtocol(Protocol):
         ...
 
     def quit_app(self) -> None:
-        """Initiate application shutdown."""
+        """Initiate application shutdown via the tray controller path.
+
+        Called by :meth:`ServiceProtocol.quit`.  Distinguished from
+        :meth:`quit` below: ``quit_app`` pushes a ``quit_app`` IPC
+        event to Electron first, while ``quit`` skips that (used by
+        the heartbeat watchdog when Electron is already dead).
+        """
+        ...
+
+    def quit(self) -> None:
+        """Run the audited cleanup path and exit.
+
+        Called directly by the heartbeat watchdog in
+        ``ipc_server.py:_check_heartbeat_timeout`` when Electron has
+        stopped sending heartbeats.  ``quit_app`` delegates here
+        after notifying Electron; the watchdog skips the notification
+        because Electron is already gone.
+        """
         ...
 
     def start(self) -> None:
@@ -219,11 +241,13 @@ class ServiceProtocol(Protocol):
     def get_rms_level(self) -> dict: ...
     def get_volume_backend_status(self) -> dict: ...
     def get_model_status(self) -> dict: ...
+    def get_audio_status(self) -> dict: ...
 
     # ── Dictation ──────────────────────────────────────────────────
     def toggle_dictation(self) -> None: ...
     def undo_last(self) -> None: ...
     def repaste_last(self) -> None: ...
+    def force_cancel_transcription(self) -> dict: ...
 
     # ── Config ─────────────────────────────────────────────────────
     def get_config(self) -> dict: ...
@@ -231,6 +255,9 @@ class ServiceProtocol(Protocol):
     def set_config(self, updates: dict) -> tuple: ...
     def save_config(self) -> bool: ...
     def apply_config_side_effects(self, updates: dict) -> None: ...
+    def apply_config(self, updates: dict) -> None: ...
+    def change_model(self, model_size: str) -> None: ...
+    def set_active_backend(self, backend: str) -> None: ...
 
     # ── History ────────────────────────────────────────────────────
     def get_history(self, limit: int = 50, offset: int = 0) -> list: ...

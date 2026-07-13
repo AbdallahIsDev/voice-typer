@@ -92,6 +92,7 @@ class OnboardingHandlersMixin:
             })
             if error:
                 return error
+            assert validated is not None  # narrowed by the error guard above
             result = self.service.onboarding_set_microphone(validated["mic_id"])
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
@@ -109,6 +110,7 @@ class OnboardingHandlersMixin:
             })
             if error:
                 return error
+            assert validated is not None  # narrowed by the error guard above
             result = self.service.onboarding_set_hotkey(validated["hotkey"])
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
@@ -126,6 +128,7 @@ class OnboardingHandlersMixin:
             })
             if error:
                 return error
+            assert validated is not None  # narrowed by the error guard above
             result = self.service.onboarding_set_model(validated["model"])
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result

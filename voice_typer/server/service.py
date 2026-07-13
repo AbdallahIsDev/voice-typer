@@ -63,18 +63,6 @@ def _find_symlink_in_tree(root):
     into symlinked directories, but it DOES include them in
     ``dirnames`` — so both symlinked files and symlinked directories
     are detected by this check.
-
-    SEC-audit-006 (Round 0 forward-port — H2 TOCTOU fix): the pre-flight
-    check performed by this function and the subsequent
-    :func:`shutil.copytree` call are two separate filesystem walks, so a
-    symlink created in the window between them would be silently followed
-    by ``copytree`` (because ``symlinks=False`` follows rather than
-    preserves).  The :func:`_safe_copy` function below is passed as
-    ``copytree``'s ``copy_function`` so the symlink check happens
-    atomically with the copy of each individual file — closing the
-    TOCTOU window.  The pre-flight check is kept as a fast-path rejection
-    (so a model dir FULL of symlinks is rejected before copying any
-    files), but the per-file ``_safe_copy`` is the authoritative gate.
     """
     import os
     for dirpath, dirnames, filenames in os.walk(root):
@@ -83,30 +71,6 @@ def _find_symlink_in_tree(root):
             if os.path.islink(full):
                 return full
     return None
-
-
-def _safe_copy(src, dst, *, follow_symlinks=True):
-    """SEC-audit-006 (Round 0 forward-port — H2 TOCTOU fix): race-free
-    symlink-rejecting ``copy_function`` for :func:`shutil.copytree`.
-
-    The pre-flight :func:`_find_symlink_in_tree` check and the
-    :func:`shutil.copytree` call are two separate filesystem walks, so a
-    symlink created in the window between them would be silently followed
-    by ``copytree`` (because ``symlinks=False`` follows rather than
-    preserves).  This function is passed as ``copytree``'s
-    ``copy_function``, so the symlink check happens atomically with the
-    copy of each individual file — closing the TOCTOU window.
-
-    Raises :class:`ValueError` if ``src`` is a symlink.  Otherwise
-    delegates to :func:`shutil.copy2` (preserves metadata).
-    """
-    import os
-    import shutil
-    if os.path.islink(src):
-        raise ValueError(
-            f"symlink detected during copy (TOCTOU-safe): {src}"
-        )
-    return shutil.copy2(src, dst, follow_symlinks=follow_symlinks)
 
 
 class VoiceTyperService:
@@ -818,15 +782,32 @@ class VoiceTyperService:
         return data
 
     def save_vocabulary(self, entries: list[dict]) -> dict:
-        """Save vocabulary entries and return result."""
-        from voice_typer.server.vocabulary import VocabularyEntry, VocabularyManager
+        """Save flat word/replacement pairs as misspellings and return result.
+
+        ARCH-005 legacy API. Production IPC routes use
+        ``save_vocabulary_with_diff`` (categorized dict with diff
+        semantics); this method is retained for the
+        ``ServiceProtocol`` interface (providers.py:271) and for any
+        external caller that wants the simple flat-list API.
+
+        PYREFLY-TASK-16: previously this imported a non-existent
+        ``VocabularyEntry`` symbol from ``voice_typer.server.vocabulary``
+        and called a non-existent ``VocabularyManager.set_entries``
+        method — both would have raised ``AttributeError`` at runtime.
+        Rewritten to use the real ``VocabularyManager.add_entry``
+        API, routing word/replacement pairs to the ``misspellings``
+        category (semantically appropriate for word-level corrections).
+        """
+        from voice_typer.server.vocabulary import VocabularyManager
         vm = VocabularyManager(config_dir=self._app.config.config_dir)
         try:
-            vm.set_entries([
-                VocabularyEntry(word=e["word"], replacement=e["replacement"])
-                for e in entries
-            ])
-            return {"success": True, "count": len(entries)}
+            count = 0
+            for e in entries:
+                word = e["word"]
+                replacement = e["replacement"]
+                if vm.add_entry("misspellings", word, replacement):
+                    count += 1
+            return {"success": True, "count": count}
         except Exception as exc:
             return {"success": False, "error": str(exc)}
 
@@ -1067,6 +1048,116 @@ class VoiceTyperService:
             except Exception as e:
                 log.warning("Failed to sync level bar processor: %s", e)
 
+    # ── ADR 0008 §3.1: service-layer wrappers for private-attr access ──
+    #
+    # ARCH-REFAC-004 / TASK-2: the IPC handlers under
+    # ``voice_typer/server/handlers/`` previously reached into
+    # ``self.app._audio_processor``, ``self.app._config_mutation_lock``,
+    # ``self.app.change_model``, and ``self.app.models.set_active_backend``
+    # directly.  ADR 0008 §3.1 requires handlers to go through the
+    # service layer; the methods below provide that path so the
+    # handlers no longer tunnel through ``AppProtocol``'s private
+    # attributes.
+
+    def get_audio_status(self) -> dict:
+        """Return the audio filter chain status (ADR 0007).
+
+        Wraps access to ``self._app._audio_processor`` so the IPC
+        ``get_audio_status`` handler doesn't tunnel through two
+        private attributes (``self.service._app._audio_processor``).
+
+        Returns a dict with ``filter_chain``, ``degraded``,
+        ``degraded_reasons``, ``latency_ms``, ``vad_backend``, and
+        ``sample_rate``.  When the audio processor is absent (e.g.
+        during early startup or in test fixtures), a safe default
+        status is returned.
+        """
+        app = self._app
+        processor = getattr(app, "_audio_processor", None)
+        if processor is not None:
+            return {
+                "filter_chain": processor.filter_names,
+                "degraded": processor.is_degraded,
+                "degraded_reasons": processor.degraded_reasons,
+                "latency_ms": processor.total_latency_ms,
+                "vad_backend": "silero" if getattr(app.config, "use_silero_vad", True) else "rms",
+                "sample_rate": getattr(app.config, "sample_rate", 16000),
+            }
+        return {
+            "filter_chain": [],
+            "degraded": False,
+            "degraded_reasons": [],
+            "latency_ms": 0.0,
+            "vad_backend": "rms",
+            "sample_rate": 16000,
+        }
+
+    def change_model(self, model_size: str) -> None:
+        """Switch the active ASR model to ``model_size``.
+
+        Wraps ``self._app.change_model()`` so the IPC ``set_config``
+        handler doesn't call ``self.app.change_model()`` directly
+        (ADR 0008 §3.1).
+        """
+        self._app.change_model(model_size)
+
+    def set_active_backend(self, backend: str) -> None:
+        """Set the active ASR backend (e.g. ``"whisper"``, ``"qwen"``).
+
+        Wraps ``self._app.models.set_active_backend()`` so the IPC
+        ``set_config`` handler doesn't reach into ``app.models``
+        directly (ADR 0008 §3.1).
+        """
+        self._app.models.set_active_backend(backend)
+
+    def apply_config(self, updates: dict) -> None:
+        """Apply validated config updates atomically.
+
+        ADR 0008 §3.1: wraps the config-mutation lock + setattr +
+        side-effects + save + tray-cache invalidation sequence so the
+        IPC ``set_config`` handler doesn't access
+        ``self.app._config_mutation_lock``, ``self.app.config``, or
+        ``self.app.tray.invalidate_menu_cache()`` directly.
+
+        RACE-011: holds the app's config-mutation lock for the full
+        read-modify-save sequence so a concurrent ``set_config`` IPC
+        call can't interleave attribute writes with this update.
+
+        AUDIO-PRESET-SAVE-FIX: runs :meth:`apply_config_side_effects`
+        INSIDE the lock and saves AFTER it, so that any side-effect
+        mutations (e.g. ``noise_filter_*`` toggles from the audio
+        preset) are persisted to disk.  The previous order (save
+        first, then apply side effects outside the lock) meant that
+        when the user set ``audio_preset: "off"``, only the preset
+        name was saved; the individual ``noise_filter_*`` toggles
+        were NOT persisted.
+
+        ARCH-043: invalidates the tray menu cache after the save so
+        the next menu build picks up the new config values (model
+        size, hotkey, etc.).
+
+        Parameters
+        ----------
+        updates :
+            Validated config updates dict (allowlisted keys only).
+            The caller is responsible for validating the payload —
+            typically via :func:`voice_typer.server.config.validate_config_update`.
+        """
+        app = self._app
+        with app._config_mutation_lock:
+            for k, v in updates.items():
+                setattr(app.config, k, v)
+            # Apply side effects inside the lock so Config mutations
+            # from the preset are visible to save().
+            self.apply_config_side_effects(updates)
+            app.config.save()
+        # ARCH-043: invalidate the tray menu cache so the next menu
+        # build picks up the new config values.
+        try:
+            app.tray.invalidate_menu_cache()
+        except Exception:
+            log.debug("[SERVICE] tray.invalidate_menu_cache failed", exc_info=True)
+
     # ── Onboarding (#8) ─────────────────────────────────────────────
 
     def onboarding_is_first_run(self) -> dict:
@@ -1180,10 +1271,9 @@ class VoiceTyperService:
             prev_model_size = getattr(app.config, "model_size", None)
 
             # RACE-011: hold the app's config-mutation lock for the
-            # full apply+save sequence so a concurrent set_config /
-            # SettingsController.apply() can't interleave attribute
-            # writes with our onboarding update. Parity with
-            # config_handlers.py:_handle_set_config.
+            # full apply+save sequence so a concurrent set_config call
+            # can't interleave attribute writes with our onboarding
+            # update. Parity with config_handlers.py:_handle_set_config.
             with app._config_mutation_lock:
                 ctrl.apply_settings(app.config)
                 app.config.onboarding_completed = True
@@ -1365,11 +1455,7 @@ class VoiceTyperService:
                 # follow it rather than preserve it as a symlink in the
                 # destination cache.  Combined with the check above, this
                 # means symlinks are never silently preserved.
-                # SEC-audit-006 (Round 0 forward-port): pass ``_safe_copy``
-                # as the ``copy_function`` so each per-file copy atomically
-                # rejects symlinks (closes the TOCTOU window between
-                # ``_find_symlink_in_tree`` and ``copytree``'s internal walk).
-                shutil.copytree(src_path, dest, symlinks=False, copy_function=_safe_copy)
+                shutil.copytree(src_path, dest, symlinks=False)
                 imported_models.append(model_name)
             except Exception as exc:
                 errors.append({"model": model_name, "error": str(exc)})

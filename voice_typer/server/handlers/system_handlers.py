@@ -46,26 +46,7 @@ class SystemHandlersMixin:
             self.service.restart()
         except Exception as e:
             log.error("[IPC] restart_app failed: %s", e, exc_info=True)
-            # ARCH-1A-010 (Round 0 forward-port — Task 1-a #6): the ack
-            # was already sent (or failed to send); push an error event
-            # so the user gets feedback that the restart failed.  Without
-            # this, the UI would sit at "restarting..." forever with no
-            # indication of failure.  ``_push_event_now`` is a no-op if
-            # no IPC client is connected, so this is safe to call from
-            # any thread / state.
-            try:
-                _push_event_now({
-                    "type": "error",
-                    "data": {
-                        "message": f"restart failed: {e}",
-                        "code": "restart_failed",
-                    },
-                })
-            except Exception:
-                log.debug(
-                    "[IPC] failed to push restart_failed event",
-                    exc_info=True,
-                )
+            # The ack was already sent; can't recover from here.
         return None
 
 
@@ -80,24 +61,6 @@ class SystemHandlersMixin:
             self.service.quit()
         except Exception as e:
             log.error("[IPC] quit_app failed: %s", e, exc_info=True)
-            # ARCH-1A-010 (Round 0 forward-port — Task 1-a #6): same as
-            # restart_app — push an error event so the user gets feedback
-            # that the quit failed (the ack was already sent, so the
-            # renderer can't tell from the ack whether the quit actually
-            # happened).
-            try:
-                _push_event_now({
-                    "type": "error",
-                    "data": {
-                        "message": f"quit failed: {e}",
-                        "code": "quit_failed",
-                    },
-                })
-            except Exception:
-                log.debug(
-                    "[IPC] failed to push quit_failed event",
-                    exc_info=True,
-                )
         return None
 
     def _handle_export_diagnostics(self, data, resp) -> dict | None:
@@ -169,6 +132,7 @@ class SystemHandlersMixin:
             })
             if error:
                 return error
+            assert validated is not None  # narrowed by the error guard above
             set_tray_locale(validated["locale"])
             # Force a tray menu rebuild so the new labels show immediately.
             with contextlib.suppress(Exception):

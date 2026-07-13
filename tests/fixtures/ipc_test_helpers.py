@@ -44,8 +44,7 @@ standard mock API (``assert_called_once``, ``return_value``, etc.).
 
 from __future__ import annotations
 
-import threading
-from typing import Any, Tuple
+from typing import Any
 from unittest.mock import MagicMock
 
 
@@ -63,28 +62,33 @@ def make_fake_app() -> MagicMock:
 
     - ``config``, ``history_db``, ``models``, ``recording``,
       ``hotkeys``, ``recorder``, ``tray``: child ``MagicMock()``.
-    - ``_audio_processor``, ``_volume_ducker``: child ``MagicMock()``.
     - ``_ipc_server``: ``None`` (matches the real app's state before
       ``IPCServer.start()`` sets the back-reference).
-    - ``_config_mutation_lock``: a real ``threading.RLock()`` — the
-      IPC ``set_config`` handler uses ``with self.app._config_mutation_lock:``
-      and a MagicMock's ``__enter__`` / ``__exit__`` would work but a
-      real RLock better exercises the lock semantics (a test that
-      tries to acquire it re-entrantly from the same thread should
-      succeed, which RLock does and a MagicMock wouldn't naturally
-      validate).
     - ``_shutting_down``: ``False`` (matches the real app's running
       state — the IPC ``_send`` path checks
       ``getattr(self.app, '_shutting_down', False) is True`` and a
       child mock would be truthy but not ``is True``, so the shutdown
       short-circuit must be tested by setting ``_shutting_down = True``
       explicitly).
+    - ``_esc_cancel_paused``: ``False`` so the ESC cancel handler
+      doesn't skip cancel when the frontend isn't in capture mode.
 
     The methods declared on ``AppProtocol`` (``change_model``,
     ``toggle_dictation``, ``undo_last``, ``repaste_last``,
-    ``restart_app``, ``quit_app``, ``start``) are auto-stubbed by
-    ``MagicMock`` — calling them returns a child mock and records the
-    call for later assertion.  No explicit configuration is needed.
+    ``restart_app``, ``quit_app``, ``quit``, ``start``) are
+    auto-stubbed by ``MagicMock`` — calling them returns a child mock
+    and records the call for later assertion.  No explicit
+    configuration is needed.
+
+    TASK-2 (ADR 0008 §3.1): the ``_audio_processor``,
+    ``_volume_ducker``, and ``_config_mutation_lock`` attributes were
+    REMOVED from this fake.  They are no longer on ``AppProtocol``
+    because the ``get_audio_status``, ``get_volume_backend_status``,
+    and ``apply_config`` IPC paths now go through :class:`ServiceProtocol`
+    methods that wrap the private-attribute access inside the service
+    layer.  Tests that exercise those code paths against a fake app
+    should configure a fake service (see :func:`make_fake_service`)
+    and inject it via ``IPCServer(app, service=fake_service)``.
 
     Returns
     -------
@@ -107,13 +111,9 @@ def make_fake_app() -> MagicMock:
     app.recorder = MagicMock(name="fake_app.recorder")
     app.tray = MagicMock(name="fake_app.tray")
 
-    # Private attributes accessed by handlers / IPC server.
-    app._audio_processor = MagicMock(name="fake_app._audio_processor")
-    app._volume_ducker = MagicMock(name="fake_app._volume_ducker")
+    # Private attributes still accessed by ipc_server / handlers.
     # _ipc_server is set by IPCServer.start(); pre-None to match real app.
     app._ipc_server = None
-    # Real RLock so `with` semantics are exercised correctly.
-    app._config_mutation_lock = threading.RLock()
     # _shutting_down must be `False` (not a truthy child mock) so the
     # IPC _send shutdown short-circuit logic gates correctly.
     app._shutting_down = False
@@ -166,6 +166,18 @@ def make_fake_service() -> MagicMock:
         "supports_per_session": False,
     }
     service.get_model_status.return_value = {}
+    service.get_audio_status.return_value = {
+        "filter_chain": [],
+        "degraded": False,
+        "degraded_reasons": [],
+        "latency_ms": 0.0,
+        "vad_backend": "rms",
+        "sample_rate": 16000,
+    }
+    service.force_cancel_transcription.return_value = {
+        "success": True,
+        "message": "Transcription cancelled.",
+    }
     service.get_vocabulary.return_value = {"entries": []}
     service.save_vocabulary.return_value = {"ok": True}
     service.save_vocabulary_with_diff.return_value = {"ok": True, "added": 0, "removed": 0}
@@ -175,7 +187,7 @@ def make_fake_service() -> MagicMock:
     return service
 
 
-def make_ipc_server_with_fakes() -> Tuple[Any, MagicMock, MagicMock]:
+def make_ipc_server_with_fakes() -> tuple[Any, MagicMock, MagicMock]:
     """Construct an ``IPCServer`` with a fake app and fake service.
 
     This is the canonical DI-mode construction for tests that want to

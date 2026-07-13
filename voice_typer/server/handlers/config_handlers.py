@@ -85,90 +85,40 @@ class ConfigHandlersMixin:
             # and which were silently dropped (unknown keys).
             accepted_keys = list(validated.keys())
             rejected_keys = [k for k in data if k not in validated]
-            # ARCH-1A-009 (Round 0 forward-port — Task 1-a #5):
-            # ``change_model`` / ``set_active_backend`` previously ran
-            # BEFORE the ``setattr`` loop, so they read STALE config
-            # state (``app.config.model_size`` was still the old value).
-            # We now capture the pre-mutation values here and run the
-            # engine-switch calls AFTER ``setattr`` + ``save()``
-            # (inside the same ``_config_mutation_lock`` block) so
-            # they observe the updated config.  The "did it actually
-            # change?" guard is preserved by comparing against the
-            # captured old value, not the post-setattr new value.
-            old_model_size = getattr(self.app.config, "model_size", None)
-            old_asr_backend = getattr(self.app.config, "asr_backend", None)
+            # NEW-IPC-016: when model_size or asr_backend changes,
+            # apply it to the active engine so the next dictation
+            # uses the new model without requiring a restart.
+            # ADR 0008 §3.1: route through the service layer rather
+            # than calling ``self.app.change_model()`` /
+            # ``self.app.models.set_active_backend()`` directly.
+            if (
+                "model_size" in validated
+                and validated["model_size"]
+                    != getattr(self.app.config, "model_size", None)
+            ):
+                try:
+                    self.service.change_model(validated["model_size"])
+                except Exception as e:
+                    log.warning("[IPC] change_model failed: %s", e)
+            if (
+                "asr_backend" in validated
+                and validated["asr_backend"]
+                    != getattr(self.app.config, "asr_backend", None)
+            ):
+                try:
+                    self.service.set_active_backend(validated["asr_backend"])
+                except Exception as e:
+                    log.warning("[IPC] set_active_backend failed: %s", e)
             # Apply only allowlisted, validated values.
-            # RACE-011: hold the app's config-mutation lock for the
-            # full apply+save sequence so a concurrent
-            # SettingsController.apply() (from the deprecated
-            # tkinter settings window) can't interleave attribute
-            # writes with this IPC-driven update. Without this
-            # lock, half the fields could come from IPC and half
-            # from the tkinter window, producing a torn config.
-            # AUDIO-PRESET-SAVE-FIX: run apply_config_side_effects INSIDE
-            # the config-mutation lock and save AFTER it, so that any
-            # side-effect mutations (e.g. noise_filter_* toggles from
-            # the audio preset) are persisted to disk.
-            #
-            # The previous order (save first, then apply side effects
-            # outside the lock) meant that when the user set
-            # ``audio_preset: "off"``, only the preset name was saved;
-            # the individual ``noise_filter_*`` toggles (set to False
-            # by ``_apply_audio_preset``) were NOT persisted. On
-            # restart, ``Config.load()`` found ``audio_preset: "off"``
-            # but the ``noise_filter_*`` fields were still at their
-            # default ``True`` values, so the filter chain was built
-            # with all filters ON — the preset appeared to reset to
-            # Auto even though the UI showed Off.
-            with self.app._config_mutation_lock:
-                for k, v in validated.items():
-                    setattr(self.app.config, k, v)
-                # ARCH-1A-008 (Round 0 forward-port — Task 1-a #4 / SEC M5):
-                # pass ``validated`` (the allowlisted, type-checked subset)
-                # instead of the raw ``data`` to ``apply_config_side_effects``.
-                # Side effects must only fire for fields the caller was
-                # permitted to mutate; passing ``data`` lets a caller
-                # trigger side effects on fields outside the IPC
-                # allowlist by including them in the payload (even though
-                # they wouldn't be ``setattr``'d onto Config, the
-                # side-effect dispatch checks ``if key in updates: ...``
-                # so the side effect would still fire).
-                self.service.apply_config_side_effects(validated)
-                self.app.config.save()
-                # ARCH-1A-009 (Round 0 forward-port — Task 1-a #5):
-                # now that the config is updated AND saved, apply the
-                # engine-switch side effects.  Running them here (inside
-                # the lock, after save) ensures ``change_model`` and
-                # ``set_active_backend`` see the new config values.
-                # The "did it actually change?" guard compares against
-                # the captured pre-mutation value so we don't reload the
-                # same model/backend unnecessarily.
-                if (
-                    "model_size" in validated
-                    and validated["model_size"] != old_model_size
-                ):
-                    try:
-                        self.app.change_model(validated["model_size"])
-                    except Exception as e:
-                        log.warning("[IPC] change_model failed: %s", e)
-                if (
-                    "asr_backend" in validated
-                    and validated["asr_backend"] != old_asr_backend
-                ):
-                    try:
-                        self.app.models.set_active_backend(
-                            validated["asr_backend"]
-                        )
-                    except Exception as e:
-                        log.warning("[IPC] set_active_backend failed: %s", e)
-            # ARCH-043: invalidate the tray menu cache so the next
-            # menu build picks up the new config values (model size,
-            # hotkey, etc.). Without this, the tray menu shows stale
-            # state until the next state-changed event.
-            try:
-                self.app.tray.invalidate_menu_cache()
-            except Exception:
-                log.debug("[IPC] tray.invalidate_menu_cache failed", exc_info=True)
+            # RACE-011 + AUDIO-PRESET-SAVE-FIX + ARCH-043:
+            # ``service.apply_config`` holds the app's config-mutation
+            # lock for the full setattr + side-effects + save sequence
+            # so concurrent set_config IPC calls can't interleave, and
+            # so side-effect mutations (e.g. noise_filter_* toggles
+            # from the audio preset) are persisted to disk.  It then
+            # invalidates the tray menu cache so the next menu build
+            # picks up the new config values.
+            self.service.apply_config(validated)
             # ARCH-007: also invalidate the tray models submenu's
             # HF download cache so the next right-click reflects the
             # current model download/active state immediately (rather
