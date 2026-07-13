@@ -64,12 +64,12 @@ class TestLLMPolisherPolish:
         mock_response.__enter__ = lambda s: s
         mock_response.__exit__ = MagicMock(return_value=False)
 
-        with patch("voice_typer.server.llm_polish.urlopen", return_value=mock_response):
+        with patch("voice_typer.server.llm_polish._opener.open", return_value=mock_response):
             result = polisher.polish("This is some raw transcribed text that needs polishing")
             assert result == "Polished text here"
 
     def test_polish_failure_returns_original(self, polisher):
-        with patch("voice_typer.server.llm_polish.urlopen", side_effect=Exception("API error")):
+        with patch("voice_typer.server.llm_polish._opener.open", side_effect=Exception("API error")):
             result = polisher.polish("This is some raw transcribed text that needs polishing")
             assert result == "This is some raw transcribed text that needs polishing"
 
@@ -83,7 +83,7 @@ class TestLLMPolisherPolish:
         mock_response.__enter__ = lambda s: s
         mock_response.__exit__ = MagicMock(return_value=False)
 
-        with patch("voice_typer.server.llm_polish.urlopen", return_value=mock_response):
+        with patch("voice_typer.server.llm_polish._opener.open", return_value=mock_response):
             result = polisher.polish("Raw text here", preset="casual")
             assert result == "Casual text"
 
@@ -105,12 +105,12 @@ class TestLLMPolisherTestConnection:
         mock_response.__enter__ = lambda s: s
         mock_response.__exit__ = MagicMock(return_value=False)
 
-        with patch("voice_typer.server.llm_polish.urlopen", return_value=mock_response):
+        with patch("voice_typer.server.llm_polish._opener.open", return_value=mock_response):
             success, msg = polisher.test_connection()
             assert success is True
 
     def test_test_connection_failure(self, polisher):
-        with patch("voice_typer.server.llm_polish.urlopen", side_effect=Exception("timeout")):
+        with patch("voice_typer.server.llm_polish._opener.open", side_effect=Exception("timeout")):
             success, msg = polisher.test_connection()
             assert success is False
 
@@ -163,7 +163,7 @@ class TestLLMPolishUrlAllowlist:
         # but HTTP fails (no network).  We just verify the error is
         # NOT a ValueError from the allowlist.
         with patch(
-            "voice_typer.server.llm_polish.urlopen",
+            "voice_typer.server.llm_polish._opener.open",
             side_effect=URLError("no network"),
         ):
             success, msg = p.test_connection()

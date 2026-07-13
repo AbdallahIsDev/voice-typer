@@ -1512,7 +1512,7 @@ class TestCloudEngineFailsGracefullyOnNetworkError:
         audio = np.zeros(1600, dtype=np.float32)
 
         # Monkeypatch urlopen to simulate network outage
-        with patch("voice_typer.server.cloud_engines.urlopen") as mock_urlopen:
+        with patch("voice_typer.server.cloud_engines._opener.open") as mock_urlopen:
             mock_urlopen.side_effect = URLError("Network is unreachable")
             with pytest.raises(Exception) as exc_info:
                 engine.transcribe(audio)
@@ -1536,7 +1536,7 @@ class TestCloudEngineFailsGracefullyOnNetworkError:
 
         original_text = "Hello world this is a test"
 
-        with patch("voice_typer.server.llm_polish.urlopen") as mock_urlopen:
+        with patch("voice_typer.server.llm_polish._opener.open") as mock_urlopen:
             mock_urlopen.side_effect = URLError("Network is unreachable")
             # LLMPolisher.polish must return the original text on failure
             result = polisher.polish(original_text)
@@ -1613,7 +1613,7 @@ class TestCloudEngineFailsGracefullyOnNetworkError:
         )
         audio = np.zeros(1600, dtype=np.float32)
 
-        with patch("voice_typer.server.cloud_engines.urlopen") as mock_urlopen:
+        with patch("voice_typer.server.cloud_engines._opener.open") as mock_urlopen:
             mock_urlopen.side_effect = URLError("Network is unreachable")
             try:
                 engine.transcribe(audio)
