@@ -468,7 +468,21 @@ def _resolve_hf_cache_dir() -> Path:
     if primary_candidate is None and (is_linux() or is_macos()):
         try:
             import pwd
-            pw = pwd.getpwuid(os.getuid())
+            # PYREFLY-TASK-16: Windows false positive. This whole block
+            # is guarded by ``is_linux() or is_macos()`` above, so on
+            # Windows the body never executes (the guard short-circuits
+            # to False before ``import pwd`` even runs). However pyrefly
+            # on Windows does not propagate the guard's narrowing, so it
+            # flags ``pwd.getpwuid`` and ``os.getuid`` as
+            # ``missing-attribute`` (both are POSIX-only stdlib surface).
+            # The inline ``# type: ignore[attr-defined]`` matches the
+            # pattern used for the symmetric Windows-only ``os.startfile``
+            # call at app.py:1141. ``except (KeyError, ImportError)`` is
+            # the runtime safety net (ImportError fires on any platform
+            # where the ``pwd`` module is somehow unavailable).
+            pw = pwd.getpwuid(  # type: ignore[attr-defined]
+                os.getuid()  # type: ignore[attr-defined]
+            )
             if pw.pw_dir:
                 return Path(pw.pw_dir) / ".voice-typer" / "huggingface"
         except (KeyError, ImportError):

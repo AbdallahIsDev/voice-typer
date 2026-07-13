@@ -6,7 +6,14 @@ AppState without pulling in pystray/PIL.
 """
 
 from enum import Enum
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    # TYPE_CHECKING-only import avoids a runtime cycle:
+    #   recording_controller -> tray_types (via app)
+    # At runtime only the string annotation below is needed for
+    # pyrefly's structural Protocol check.
+    from voice_typer.server.recording_controller import RecordingController
 
 
 class AppState(Enum):
@@ -36,13 +43,31 @@ class TrayController(Protocol):
     VoiceTyperApp to declare them. We keep the Protocol permissive —
     the tray only calls the methods it needs; if a method is missing,
     the tray raises AttributeError at the call site (clear failure).
+
+    PYREFLY-TASK-16: ``set_hotkey`` was previously declared here but
+    is NOT called on the controller from anywhere in tray.py (the
+    tray calls its own ``TrayIcon.set_hotkey`` at tray.py:244 — a
+    different method on a different object). VoiceTyperApp never
+    implemented ``set_hotkey``, so the declaration made the Protocol
+    unsatisfiable and caused a pyrefly ``bad-argument-type`` error at
+    ``TrayIcon.__init__`` (app.py:262). Removed.
+
+    PYREFLY-TASK-16: ``recording`` attribute added — tray.py:599
+    accesses ``self._controller.recording._force_recover_from_stuck_transcription``
+    in the "Force cancel transcription" tray menu callback. The
+    attribute is typed as ``RecordingController`` (the type
+    VoiceTyperApp assigns at app.py:240: ``self.recording:
+    RecordingController = RecordingController(self)``).
     """
+
+    # Tray menu's "Force cancel transcription" item accesses
+    # ``controller.recording._force_recover_from_stuck_transcription``.
+    recording: "RecordingController"
 
     def toggle_dictation(self) -> None: ...
     def change_microphone(self, mic_id: str | None) -> None: ...
     def change_model(self, model: str) -> None: ...
     def change_hotkey(self, hotkey: str) -> None: ...
     def quit_app(self) -> None: ...
-    def set_hotkey(self, hotkey: str) -> None: ...
     def restart_app(self) -> None: ...
     def repaste_last(self) -> None: ...
