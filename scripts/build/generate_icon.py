@@ -20,6 +20,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
+
 def make_mic_icon(size=64):
     color = (120, 120, 120, 255)
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))

@@ -176,7 +176,10 @@ def main() -> int:
         return 0
 
     if all_hits:
-        print(f"ERROR: Found {len(all_hits)} hardcoded reference(s) to '{APP_NAME}' that should use the branding constant.")
+        print(
+            f"ERROR: Found {len(all_hits)} hardcoded reference(s) to "
+            f"'{APP_NAME}' that should use the branding constant."
+        )
         print()
         for filepath, lineno, text in sorted(all_hits):
             print(f"  {filepath}:{lineno}:  {text}")

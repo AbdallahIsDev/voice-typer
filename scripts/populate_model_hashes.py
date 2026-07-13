@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Populate file-level SHA-256 hashes in voice_typer/server/model_hashes.json.
 
-SEC-audit-005 / Task 7 (Round 6): The manifest previously pinned only the
+SEC-audit-005 / Task 7: The manifest previously pinned only the
 immutable HuggingFace commit SHA per repo (the ``revision`` field) and, at
 most, a single ``config.json`` hash in the ``files`` dict.  This script
 extends the manifest so that *every* file in each pinned revision has a

@@ -268,7 +268,7 @@ testpaths = ["tests"]
 # CQ-018: -v --tb=short for readable CI output; previously -q was too terse
 # for diagnosing failures in long test suites.
 # TEST-011: --cov=voice_typer --cov-fail-under=65 for coverage threshold.
-# COV-002 (Round 19): clipboard.py now at 100% coverage (was 40%) via
+# COV-002: clipboard.py now at 100% coverage (was 40%) via
 # tests/test_clipboard_win32_coverage.py (110 new tests mocking ctypes.windll
 # on Linux). Global coverage is 65.23% — kept threshold at 65% to avoid
 # breaking CI. Aspirational target: 70% (blocked by streaming.py, transcription.py,

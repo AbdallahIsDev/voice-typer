@@ -1,6 +1,6 @@
 name: Populate model hashes
 
-# SEC-audit-005 / Task 7 (Round 6): On-demand workflow that re-fetches
+# SEC-audit-005 / Task 7: On-demand workflow that re-fetches
 # file-level SHA-256 hashes for every HuggingFace repo pinned in
 # voice_typer/server/model_hashes.json and rewrites both the JSON
 # manifest and the hardcoded fallback dict in voice_typer/server/security.py

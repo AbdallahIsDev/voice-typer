@@ -66,6 +66,43 @@ jobs:
           uv pip install --system pyrefly
           pyrefly check voice_typer/
 
+      # S-12: pyrefly baseline audit.  The baseline file tracks
+      # intentionally-suppressed platform-specific false positives.
+      # This step diffs the current baseline against the base ref
+      # (on PRs) or the previous commit (on push) and fails if
+      # entries were ADDED without justification — the baseline
+      # should only shrink over time.
+      - name: Audit pyrefly baseline changes
+        run: |
+          if [ ! -f pyrefly-baseline.json ]; then
+            echo "No baseline file found — skipping audit"
+            exit 0
+          fi
+          # Determine the comparison ref
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_REF="origin/${{ github.base_ref }}"
+          else
+            BASE_REF="HEAD~1"
+          fi
+          git fetch origin ${{ github.base_ref || '' }} 2>/dev/null || true
+          if git show "$BASE_REF:pyrefly-baseline.json" > /dev/null 2>&1; then
+            OLD_BASELINE=$(git show "$BASE_REF:pyrefly-baseline.json" | python -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('suppressed', []) if isinstance(d, dict) else d))" 2>/dev/null)
+            NEW_BASELINE=$(python -c "import json; d=json.load(open('pyrefly-baseline.json')); print(len(d.get('suppressed', []) if isinstance(d, dict) else d))" 2>/dev/null)
+            if [ -n "$OLD_BASELINE" ] && [ -n "$NEW_BASELINE" ] && [ "$NEW_BASELINE" -gt "$OLD_BASELINE" ]; then
+              echo "ERROR: pyrefly baseline grew from $OLD_BASELINE to $NEW_BASELINE suppressed entries."
+              echo "Each new entry must be justified in a comment. Run 'pyrefly check' locally"
+              echo "and update pyrefly-baseline.json with only genuinely platform-specific errors."
+              echo ""
+              echo "Added entries:"
+              git show "$BASE_REF:pyrefly-baseline.json" > /tmp/old_baseline.json 2>/dev/null
+              python -c "import json;o=json.load(open('/tmp/old_baseline.json'));n=json.load(open('pyrefly-baseline.json'));os_={(d.get('file',''),d.get('line',0),d.get('code','')) for d in (o if isinstance(o,list) else o.get('suppressed',[]))};ns_={(d.get('file',''),d.get('line',0),d.get('code','')) for d in (n if isinstance(n,list) else n.get('suppressed',[]))};[print(f'  {e[0]}:{e[1]} [{e[2]}]') for e in sorted(ns_-os_)]" 2>/dev/null || echo "  (could not diff)"
+              exit 1
+            fi
+            echo "Baseline audit passed: $NEW_BASELINE suppressed entries"
+          else
+            echo "No previous baseline to compare against — skipping audit"
+          fi
+
       - name: Run tests with coverage
         run: |
           python -m pytest tests/ -v --tb=short -q \

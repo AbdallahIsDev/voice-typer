@@ -212,7 +212,7 @@ a = Analysis(
         "multiprocessing.spawn",
         "concurrent.futures.process",
         "concurrent.futures.thread",
-        # BUILD-003 Round 5: additional safe exclusions (verified app.py
+        # BUILD-003: additional safe exclusions (verified app.py
         # does not import these; logging.handlers and http.client are
         # intentionally kept because the app depends on them)
         "pydoc",
