@@ -8,6 +8,7 @@ Falls back gracefully on missing deps, CUDA errors, etc.
 import logging
 import os
 import threading
+import time
 import unicodedata
 from collections.abc import Callable
 from typing import Any
@@ -70,6 +71,10 @@ def _is_likely_english(text: str) -> bool:
     return True
 
 _PARAKERT_MODEL_ID = "nvidia/parakeet-tdt-0.6b-v3"
+
+# PW-4: approximate model weight size in MB for MB/s read-speed logging.
+# The model.safetensors file is ~2.4 GB on disk.
+_PARAKERT_WEIGHTS_MB = 2400
 
 # SEC-audit-005: Allowlist of file patterns permitted in Parakeet model downloads.
 # Prevents supply-chain attacks where a compromised HF repo could include
@@ -317,18 +322,26 @@ class ParakeetEngine:
                 if effective_device == "cuda" and self._should_force_cpu():
                     effective_device = "cpu"
 
+                # PW-4: time from_pretrained() calls to measure prewarm
+                # cache-hit effectiveness.  <5s suggests OS page-cache
+                # hit (warm), >=5s suggests cold disk read.
+                _load_start = time.perf_counter()
+
                 # Suppress Transformers' tqdm progress bar
                 import io as _io
                 from contextlib import redirect_stderr
 
                 _stderr_buf = _io.StringIO()
                 with redirect_stderr(_stderr_buf):
+                    _t0 = time.perf_counter()
                     self._processor = self._AutoProcessor.from_pretrained(
                         _PARAKERT_MODEL_ID,
                         local_files_only=True,
                     )
+                    _proc_elapsed = time.perf_counter() - _t0
 
                     try:
+                        _t1 = time.perf_counter()
                         self._model = self._AutoModelForTDT.from_pretrained(
                             _PARAKERT_MODEL_ID,
                             dtype=self._torch.float16 if effective_device == "cuda" else self._torch.float32,
@@ -336,6 +349,7 @@ class ParakeetEngine:
                             low_cpu_mem_usage=True,
                             local_files_only=True,
                         )
+                        _model_elapsed = time.perf_counter() - _t1
                     except Exception as cuda_exc:
                         err_str = str(cuda_exc).lower()
                         if effective_device == "cuda" and ("1455" in err_str or "paging file" in err_str):
@@ -345,6 +359,7 @@ class ParakeetEngine:
                             )
                             if progress_callback:
                                 progress_callback("CUDA memory error, retrying on CPU...")
+                            _t1 = time.perf_counter()
                             self._model = self._AutoModelForTDT.from_pretrained(
                                 _PARAKERT_MODEL_ID,
                                 dtype=self._torch.float32,
@@ -352,10 +367,23 @@ class ParakeetEngine:
                                 low_cpu_mem_usage=True,
                                 local_files_only=True,
                             )
+                            _model_elapsed = time.perf_counter() - _t1
                         else:
                             raise
 
-                log.info("[PARAKEET] Model loaded successfully")
+                _total_elapsed = time.perf_counter() - _load_start
+                # PW-4: classify load as "warm (page-cache)" if under 5s,
+                # "cold (disk)" otherwise.
+                # PW-4: approximate weights read speed from the known
+                # model file size (~2.4 GB for model.safetensors).
+                _read_speed_mbs = _PARAKERT_WEIGHTS_MB / max(_model_elapsed, 0.1)
+                _warm_label = "warm (page-cache)" if _total_elapsed < 5.0 else "cold (disk)"
+                log.info(
+                    "[PARAKEET] Model loaded successfully (%s) — "
+                    "processor=%.1fs, model=%.1fs, total=%.1fs (%.0f MB/s)",
+                    _warm_label, _proc_elapsed, _model_elapsed,
+                    _total_elapsed, _read_speed_mbs,
+                )
                 if progress_callback:
                     progress_callback("Parakeet model ready")
                 return True

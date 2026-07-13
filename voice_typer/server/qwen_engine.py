@@ -14,6 +14,7 @@ import contextlib
 import logging
 import os
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -173,10 +174,18 @@ class QwenEngine:
                     self.model_path,
                     self.device,
                 )
+                # PW-4: time from_pretrained() to measure prewarm
+                # cache-hit effectiveness.
+                _t0 = time.perf_counter()
                 self._model = qwen_asr.Qwen3ASRModel.from_pretrained(
                     self.model_path,
                 )
-                log.info("[QWEN] Model loaded successfully from %s", self.model_path)
+                _load_elapsed = time.perf_counter() - _t0
+                _warm_label = "warm (page-cache)" if _load_elapsed < 5.0 else "cold (disk)"
+                log.info(
+                    "[QWEN] Model loaded successfully from %s (%s) — %.1fs",
+                    self.model_path, _warm_label, _load_elapsed,
+                )
                 return True
             except ImportError as exc:
                 log.error(

@@ -407,7 +407,10 @@ class ModelManager:
                 if not prewarm_finished:
                     log.info("[MODEL] prewarm timed out — spawning background prewarm for next launch")
                     try:
-                        spawn_background_prewarm(force=True)
+                        # PW-2: pass trigger="manual" so the prewarm log
+                        # records that this background re-spawn was
+                        # triggered by the app (prewarm timed out).
+                        spawn_background_prewarm(force=True, trigger="manual")
                     except Exception as bg_exc:
                         # Defensive: never let the background spawn
                         # failure block model loading. It's an

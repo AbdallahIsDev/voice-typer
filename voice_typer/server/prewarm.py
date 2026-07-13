@@ -1238,7 +1238,7 @@ def wait_for_prewarm(timeout_s: float = 60.0) -> bool:
     return False
 
 
-def spawn_background_prewarm(force: bool = True) -> int | None:
+def spawn_background_prewarm(force: bool = True, trigger: str = "manual") -> int | None:
     """Spawn a detached prewarm subprocess for the next app launch.
 
     Task 5: when ``wait_for_prewarm()`` times out (prewarm is still
@@ -1274,6 +1274,7 @@ def spawn_background_prewarm(force: bool = True) -> int | None:
     cmd = [python_bin, "-m", "voice_typer.server.prewarm"]
     if force:
         cmd.append("--force")
+    cmd.extend(["--trigger", trigger])
 
     log.info("[PREWARM] spawning background prewarm: %s", " ".join(cmd))
 
@@ -1443,6 +1444,7 @@ def run(
     min_ram_mb: int = DEFAULT_MIN_FREE_RAM_MB,
     force: bool = False,
     delay: float = 0.0,
+    trigger: str = "manual",
 ) -> int:
     """Run the prewarm pipeline.  Returns an exit code (see module docstring).
 
@@ -1469,7 +1471,10 @@ def run(
     if delay > 0:
         log.info("[PREWARM] delaying %.0fs to let login settle", delay)
         time.sleep(delay)
-    log.info("[PREWARM] starting (force=%s, min_ram_mb=%d)", force, min_ram_mb)
+    log.info(
+        "[PREWARM] starting (trigger=%s, force=%s, min_ram_mb=%d)",
+        trigger, force, min_ram_mb,
+    )
     t_start = time.perf_counter()
 
     if not force and not _fast_startup_enabled():
@@ -1653,6 +1658,14 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "block on the ~50s warming pipeline."
         ),
     )
+    p.add_argument(
+        "--trigger", choices=["boot", "logon", "manual"], default="manual",
+        help=(
+            "Why this prewarm run was started. Logged so operators can "
+            "verify which trigger fired (boot, logon, or manual). "
+            "Default: manual (CLI / IPC button)."
+        ),
+    )
     return p.parse_args(argv)
 
 
@@ -1710,16 +1723,22 @@ def main() -> int:
             # Uses spawn_background_prewarm() for consistent detachment
             # behavior (CREATE_NO_WINDOW on Windows, start_new_session
             # on POSIX). Prints the spawned PID so scripts can track it.
-            pid = spawn_background_prewarm(force=True)
+            pid = spawn_background_prewarm(force=True, trigger=args.trigger)
             if pid is not None:
                 print(f"prewarm spawned in background (pid={pid})")
                 return EXIT_OK
             log.error("[PREWARM] --run --background: failed to spawn subprocess")
             return EXIT_IMPORT_FAILED  # no better code for "spawn failed"
         # --run without --background: run inline (same as --force).
-        return run(min_ram_mb=args.min_ram_mb, force=True, delay=args.delay)
+        return run(
+            min_ram_mb=args.min_ram_mb, force=True, delay=args.delay,
+            trigger=args.trigger,
+        )
 
-    return run(min_ram_mb=args.min_ram_mb, force=args.force, delay=args.delay)
+    return run(
+        min_ram_mb=args.min_ram_mb, force=args.force, delay=args.delay,
+        trigger=args.trigger,
+    )
 
 
 if __name__ == "__main__":

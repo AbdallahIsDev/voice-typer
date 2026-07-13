@@ -6,6 +6,7 @@ import os
 import site
 import sys
 import threading
+import time
 from typing import Any, Protocol, runtime_checkable
 
 import numpy as np
@@ -515,11 +516,16 @@ class TranscriptionEngine:
                 )
                 if progress_callback:
                     progress_callback(f"{verb} model '{model_size}'...")
+                # PW-4: time WhisperModel construction to measure
+                # prewarm cache-hit effectiveness.
+                _t0 = time.perf_counter()
                 model = WhisperModel(
                     model_size,
                     device=device,
                     compute_type=compute_type,
                 )
+                _load_elapsed = time.perf_counter() - _t0
+                _warm_label = "warm (page-cache)" if _load_elapsed < 5.0 else "cold (disk)"
                 if acquire_lock:
                     with self._lock:
                         if self._model is not None:
@@ -536,7 +542,10 @@ class TranscriptionEngine:
                     self._compute_type = compute_type
                     self._loaded_model_size = model_size
                     self.model_size = self._configured_model_size
-                log.info("[MODEL] Model %s via %s", verb.lower(), self.loaded_via)
+                log.info(
+                    "[MODEL] Model %s via %s (%s) — %.1fs",
+                    verb.lower(), self.loaded_via, _warm_label, _load_elapsed,
+                )
 
                 # CUDA probe: force a tiny transcription to smoke-test
                 # cuBLAS loading at startup, so failures surface here

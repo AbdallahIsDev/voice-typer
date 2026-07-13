@@ -153,7 +153,12 @@ class StatusHandlersMixin:
                 if pythonw.exists():
                     python_bin = str(pythonw)
 
-            cmd = [python_bin, "-m", "voice_typer.server.prewarm", "--force"]
+            # PW-2: pass --trigger manual so the prewarm log records
+            # that the user explicitly clicked "Run Prewarm Now".
+            cmd = [
+                python_bin, "-m", "voice_typer.server.prewarm",
+                "--force", "--trigger", "manual",
+            ]
             log.info("[IPC] run_prewarm: spawning %s", " ".join(cmd))
 
             # Detached subprocess so it survives the app's lifetime.

@@ -136,7 +136,10 @@ def _prewarm_command() -> str | None:
 
 # Arguments passed to the pythonw interpreter for the prewarm action.
 # Kept as a module constant so tests can verify the XML uses it.
-_PREWARM_ARGS = "-m voice_typer.server.prewarm"
+# Arguments passed to the pythonw interpreter for the prewarm action.
+# PW-2: includes --trigger boot so the log records whether the task
+# fired via BootTrigger / EventTrigger (both are system-start triggers).
+_PREWARM_ARGS = "-m voice_typer.server.prewarm --trigger boot"
 
 
 def _prewarm_pythonw() -> str | None:
@@ -174,7 +177,8 @@ def _registry_command() -> str | None:
         return None
     return (
         f'"{pythonw}" -m voice_typer.server.prewarm '
-        f'--delay {_RUN_KEY_DELAY_SECONDS}'
+        f'--delay {_RUN_KEY_DELAY_SECONDS} '
+        '--trigger logon'
     )
 
 

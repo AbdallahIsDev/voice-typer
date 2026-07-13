@@ -35,7 +35,7 @@ from typing import TYPE_CHECKING
 
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.config import _config_dir
-from voice_typer.server.platform_utils import is_linux, is_macos
+from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
 from voice_typer.server.server_platform import is_autostart_enabled
 from voice_typer.server.text_cleanup import configure_corrections
 
@@ -318,6 +318,20 @@ class StartupSequence:
         # RACE-020: pass the shutdown event to executor tasks so they
         # can abort early if the app is quitting during startup.
         _shutdown_event = app._shutting_down_event if hasattr(app, "_shutting_down_event") else None
+
+        # PW-2: log the trigger regime that will be registered, so
+        # operators can verify from the app-start logs which triggers
+        # are in effect.  On Windows the XML task uses BootTrigger +
+        # EventTrigger (both system-start), and the Run-key fallback
+        # fires at logon.  On POSIX, prewarm_scheduler_posix uses
+        # RunAtLoad (macOS) or OnBootSec (Linux).
+        _triggers = (
+            "boot + event (Task Scheduler XML)" if is_windows()
+            else "logon (Run-key fallback) or OnBootSec/RunAtLoad (POSIX)"
+        )
+        log.info(
+            "[STARTUP] Syncing prewarm task (triggers: %s)", _triggers,
+        )
 
         def _startup_parallel_work() -> None:
             with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
