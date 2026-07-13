@@ -218,6 +218,10 @@ jobs:
         working-directory: voice_typer/client
         run: npm run lint
 
+      - name: Test
+        working-directory: voice_typer/client
+        run: npm run test
+
       - name: Format check
         working-directory: voice_typer/client
         run: npm run format:check
