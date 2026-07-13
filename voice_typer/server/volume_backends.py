@@ -13,6 +13,7 @@ if its native library is unavailable.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -145,13 +146,41 @@ class WinVolumeBackend(VolumeBackend):
         try:
             from pycaw.pycaw import AudioUtilities
 
+            # PROC-FILTER-FIX: previously only excluded processes whose
+            # name CONTAINED "voice_typer" or whose name was EXACTLY
+            # "python". The bundled app is "VoiceTyper.exe" (no
+            # underscore — the install name uses CamelCase), and dev
+            # mode runs as "python3" / "python3.12" / "pythonw.exe".
+            # None of those matched, so the app ducked ITS OWN audio
+            # output during dictation (audible volume dip when the user
+            # spoke). Broadened to cover all common variants AND to
+            # exclude the current process by PID as a definitive
+            # backstop (works regardless of process name).
+            own_pid = os.getpid()
             sessions = []
             for session in AudioUtilities.GetAllSessions():
                 proc = session.Process
                 if proc is None:
                     continue
+                # Definitive backstop: never duck ourselves by PID.
+                try:
+                    if proc.pid == own_pid:
+                        continue
+                except (AttributeError, OSError):
+                    pass
                 proc_name = proc.name().lower()
-                if "voice_typer" in proc_name or proc_name == "python":
+                # Substring match covers: voice_typer.exe (dev mode
+                # launched via python -m voice_typer), voice-typer.exe
+                # (hyphen variant), voicetyper.exe (bundled CamelCase
+                # lowercased). Plus the exact-match list for python
+                # interpreters that don't contain "voice_typer".
+                if (
+                    "voice_typer" in proc_name
+                    or "voice-typer" in proc_name
+                    or "voicetyper" in proc_name
+                    or proc_name in ("python", "python3", "pythonw", "pythonw.exe")
+                    or re.match(r"^python\d+(\.\d+)*(\.exe)?$", proc_name)
+                ):
                     continue
                 sessions.append(session)
             return sessions

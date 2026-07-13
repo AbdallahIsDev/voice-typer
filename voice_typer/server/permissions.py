@@ -34,6 +34,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 from collections.abc import Callable
 from enum import Enum
 from typing import Any
@@ -154,7 +155,15 @@ PERMISSION_RETRY_MAX_ATTEMPTS = 5
 # at the stub level — older Python's threading.Timer is not annotated).
 _retry_timer: Any | None = None  # threading.Timer
 _retry_count = 0
-_retry_lock_used = False  # module-level guard against concurrent retries
+# RETRY-LOCK-FIX: previously a dead ``_retry_lock_used = False`` flag
+# that was never read or set anywhere. ``schedule_permission_retry`` and
+# ``cancel_permission_retry`` were not lock-guarded — two concurrent
+# callers could both cancel the old timer, both create new timers, and
+# the second assignment orphans the first Timer reference (thread leak).
+# RLock (not Lock) because ``schedule_permission_retry`` calls
+# ``cancel_permission_retry`` while holding the lock — non-reentrant
+# Lock deadlocked; verified by test failure.
+_retry_lock = threading.RLock()
 
 
 def schedule_permission_retry(
@@ -174,56 +183,59 @@ def schedule_permission_retry(
     After ``max_attempts`` checks, the timer gives up. This prevents
     infinite polling if the user never grants permission.
     """
-    import threading
-
     global _retry_timer, _retry_count
 
-    # Cancel any existing retry timer
-    cancel_permission_retry()
+    # RETRY-LOCK-FIX: guard the cancel-and-reschedule sequence so two
+    # concurrent callers cannot both create orphaned Timer threads.
+    with _retry_lock:
+        # Cancel any existing retry timer
+        cancel_permission_retry()
 
-    _retry_count = 0
+        _retry_count = 0
 
-    def _poll() -> None:
-        global _retry_count
-        _retry_count += 1
-        state = check_keyboard_permission()
-        log.info(
-            "[PERMISSION] Retry %d/%d: state=%s",
-            _retry_count, max_attempts, state.value,
-        )
-        if state == PermissionState.GRANTED:
-            log.info("[PERMISSION] Permission granted — invoking callback")
-            try:
-                callback()
-            except Exception:
-                log.exception("[PERMISSION] Retry callback raised")
-            return
-        if _retry_count >= max_attempts:
+        def _poll() -> None:
+            global _retry_count
+            _retry_count += 1
+            state = check_keyboard_permission()
             log.info(
-                "[PERMISSION] Giving up after %d attempts "
-                "(will retry on next hotkey failure)",
-                max_attempts,
+                "[PERMISSION] Retry %d/%d: state=%s",
+                _retry_count, max_attempts, state.value,
             )
-            return
-        # Schedule next poll
-        global _retry_timer
+            if state == PermissionState.GRANTED:
+                log.info("[PERMISSION] Permission granted — invoking callback")
+                try:
+                    callback()
+                except Exception:
+                    log.exception("[PERMISSION] Retry callback raised")
+                return
+            if _retry_count >= max_attempts:
+                log.info(
+                    "[PERMISSION] Giving up after %d attempts "
+                    "(will retry on next hotkey failure)",
+                    max_attempts,
+                )
+                return
+            # Schedule next poll
+            global _retry_timer
+            with _retry_lock:
+                _retry_timer = threading.Timer(interval, _poll)
+                _retry_timer.daemon = True
+                _retry_timer.start()
+
         _retry_timer = threading.Timer(interval, _poll)
         _retry_timer.daemon = True
         _retry_timer.start()
-
-    _retry_timer = threading.Timer(interval, _poll)
-    _retry_timer.daemon = True
-    _retry_timer.start()
 
 
 def cancel_permission_retry() -> None:
     """Cancel any pending permission retry timer. Safe to call multiple times."""
     global _retry_timer, _retry_count
-    if _retry_timer is not None:
-        with contextlib.suppress(Exception):
-            _retry_timer.cancel()
-        _retry_timer = None
-    _retry_count = 0
+    with _retry_lock:
+        if _retry_timer is not None:
+            with contextlib.suppress(Exception):
+                _retry_timer.cancel()
+            _retry_timer = None
+        _retry_count = 0
 
 
 # ─── macOS implementation ──────────────────────────────────────────────────

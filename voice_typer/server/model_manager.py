@@ -107,6 +107,16 @@ class ModelManager:
         self._model_access_times: dict[str, float] = {}
         self._model_lru_lock = threading.Lock()
 
+        # LAZY-INIT-LOCK-FIX: previously created lazily via
+        # ``if not hasattr(self, "_lazy_init_lock"): self._lazy_init_lock =
+        # __import__("threading").Lock()`` in ensure_active_engine_loaded.
+        # The ``hasattr`` check is itself a race — two threads could both
+        # see ``not hasattr`` and both create a Lock, then one wins the
+        # assignment and the other holds a stale Lock that protects
+        # nothing. Moving to ``__init__`` guarantees the lock exists
+        # before any thread can call ``active_transcriber``.
+        self._lazy_init_lock = threading.Lock()
+
     # ── Registry access ────────────────────────────────────────────────
 
     @property
@@ -598,8 +608,7 @@ class ModelManager:
         # ERR-024: race-safe lazy init. The check inside _ensure_engine
         # is also guarded, but we need to guard the whole check-then-init
         # sequence so two threads don't both create the engine.
-        if not hasattr(self, "_lazy_init_lock"):
-            self._lazy_init_lock = __import__("threading").Lock()
+        # _lazy_init_lock is created in __init__ (LAZY-INIT-LOCK-FIX).
         with self._lazy_init_lock:
             if self._registry.get(backend) is None:
                 self._ensure_engine(backend)
