@@ -122,6 +122,40 @@ DEFAULT_MAX_BUFFER_CHUNKS = 30000
 BUFFER_WARNING_THRESHOLD = 5000
 TELEMETRY_LOG_INTERVAL = 1000
 
+# ── RT-SAFE-001: Audio callback → worker thread architecture ────────
+# The PortAudio callback (recording.py:start()._callback_impl) MUST
+# complete before the next buffer arrives (~32ms at 512 blocksize /
+# 16kHz). To meet this real-time deadline, the callback now ONLY:
+#   1. Captures pre-roll when not recording (fast, RT-safe)
+#   2. Copies the indata buffer into a lock-free SPSC ring buffer
+#   3. Signals the worker thread via threading.Event
+# All heavy work (filter chain, Silero VAD, scipy resample, VAD state
+# machine, silence timer, callbacks) is done by the audio worker
+# thread (see _audio_worker_loop / _process_audio_chunk).
+#
+# The ring buffer is a collections.deque(maxlen=N). Under CPython's
+# GIL, deque.append() and deque.popleft() are atomic for the SPSC
+# (single-producer single-consumer) pattern: the audio callback is the
+# single producer, the worker thread is the single consumer. No locks
+# are needed on the ring buffer itself.
+#
+# Capacity: 64 chunks * ~2KB/chunk = ~128KB. At 16Hz (512-sample
+# blocks at 16kHz), 64 chunks ≈ 4 seconds of headroom — enough to
+# absorb VAD inference latency spikes (Silero VAD ~1-5ms per chunk on
+# CPU) without dropping audio. If the worker falls behind, the deque's
+# maxlen silently evicts the oldest chunk and the callback logs a
+# "ring buffer full" warning.
+_AUDIO_RING_BUFFER_CAPACITY = 64
+_AUDIO_WORKER_THREAD_NAME = "audio-worker"
+# Worker thread join timeout for stop() — generous to allow the worker
+# to drain the ring buffer (up to 64 chunks * ~5ms VAD = ~320ms) plus
+# headroom for VAD inference on the final chunks.
+_AUDIO_WORKER_JOIN_TIMEOUT_S = 2.0
+# Worker thread join timeout for discard() — shorter because discard()
+# clears the ring buffer first, so the worker only needs to finish the
+# current chunk (if any) before exiting.
+_AUDIO_WORKER_DISCARD_JOIN_TIMEOUT_S = 1.0
+
 _resample_poly = None
 _resample_poly_error: Exception | None = None
 # AUDIO-003: track when the error was cached so we can retry after a timeout
@@ -146,11 +180,38 @@ def _preload_resample_poly() -> None:
         pass
 
 
-threading.Thread(
-    target=_preload_resample_poly,
-    name="scipy-preloader",
-    daemon=True,
-).start()
+# THREAD-REGISTRY: store the preloader thread reference so Recorder can
+# register it with the application's ThreadRegistry if one is provided.
+# The thread is started eagerly at module import (preserving the existing
+# PERF-001 cold-start behavior); the reference is just exposed for
+# optional tracking. The thread is a one-shot daemon with no stop
+# mechanism (it just imports scipy and exits), so it registers with
+# stop_event=None — shutdown_all() will join it but won't try to signal
+# it. On a fast system the thread has already exited by the time the
+# first Recorder is constructed; on a slow system it may still be
+# loading scipy, in which case the registry's join gives it up to
+# ``_SCIPY_PRELOADER_JOIN_TIMEOUT_S`` to finish before continuing.
+_scipy_preloader_thread: threading.Thread | None = None
+_SCIPY_PRELOADER_JOIN_TIMEOUT_S = 2.0
+
+
+def _start_scipy_preloader() -> None:
+    """Start the scipy preloader thread (module-import-time eager load).
+
+    Stored in ``_scipy_preloader_thread`` so ``Recorder.__init__`` can
+    register it with the application's ``ThreadRegistry`` if one is
+    provided. Called once at module import below.
+    """
+    global _scipy_preloader_thread
+    _scipy_preloader_thread = threading.Thread(
+        target=_preload_resample_poly,
+        name="scipy-preloader",
+        daemon=True,
+    )
+    _scipy_preloader_thread.start()
+
+
+_start_scipy_preloader()
 
 
 class ResampleUnavailableError(RuntimeError):
@@ -161,6 +222,15 @@ class ResampleUnavailableError(RuntimeError):
     exception at the scipy tier so the caller knows the high-quality
     path is unavailable and can decide whether to use linear interp.
     """
+
+
+# Backward-compatibility alias. The class was renamed from
+# ``ResampleUnavailable`` to ``ResampleUnavailableError`` to match the
+# project's exception naming convention, but several historical test
+# modules still import the old name. Re-exporting the alias keeps those
+# tests working without requiring a coordinated rename across the test
+# suite. The alias is part of the module's public surface.
+ResampleUnavailable = ResampleUnavailableError
 
 
 def _get_resample_poly():
@@ -207,9 +277,22 @@ def _get_resample_poly():
 class Recorder:
     """Records audio from microphone into a buffer. Session-based: start, accumulate, stop, get data."""
 
-    def __init__(self, config: Config, audio_processor: Any | None = None):
+    def __init__(
+        self,
+        config: Config,
+        audio_processor: Any | None = None,
+        thread_registry: Any | None = None,
+    ):
         self.config = config
         self._audio_processor = audio_processor  # AudioProcessor or None
+        # THREAD-REGISTRY: optional central registry for shutdown
+        # coordination. When provided, the audio-worker thread (and the
+        # module-import-time scipy-preloader thread, if still alive) is
+        # registered so ``shutdown_all()`` can signal and join it during
+        # ``VoiceTyperApp.quit()``. When ``None`` (e.g. in unit tests),
+        # behavior is unchanged — threads are still tracked locally via
+        # ``self._worker_thread`` and stopped by ``_stop_audio_worker()``.
+        self._thread_registry = thread_registry
         self._stream: sd.InputStream | None = None
         self._buffer: collections.deque = collections.deque(maxlen=DEFAULT_MAX_BUFFER_CHUNKS)
         self._lock = threading.Lock()
@@ -327,6 +410,25 @@ class Recorder:
         # AUDIO-009/AUDIO-015: guard flag for in-flight audio callback
         self._is_in_audio_callback: threading.Event = threading.Event()
 
+        # RT-SAFE-001: SPSC ring buffer for callback → worker handoff.
+        # The audio callback (single producer) pushes (indata_copy,
+        # frames, time_info, status, perf_timestamp) tuples; the audio
+        # worker thread (single consumer) pops and processes them.
+        # collections.deque is atomic for append/popleft under CPython's
+        # GIL, so no lock is needed on the ring buffer itself.
+        self._ring_buffer: collections.deque = collections.deque(
+            maxlen=_AUDIO_RING_BUFFER_CAPACITY
+        )
+        # Worker thread that drains _ring_buffer and runs the heavy
+        # audio processing pipeline (filter chain, VAD, resample, state
+        # machine). Started by start(), stopped by stop()/discard().
+        self._worker_thread: threading.Thread | None = None
+        self._worker_stop_event: threading.Event = threading.Event()
+        self._worker_wake_event: threading.Event = threading.Event()
+        # Counter for chunks dropped because the ring buffer was full
+        # (worker couldn't keep up). Logged with throttling.
+        self._dropped_ring_chunks: int = 0
+
         # AUDIO-CH: actual channel count of the input stream
         self._actual_channels: int = 1
 
@@ -351,18 +453,10 @@ class Recorder:
         self._device_disconnected: bool = False
         self._device_disconnect_retries: int = 0
         self._max_disconnect_retries: int = 3
-        # AUDIO-HOT (Round 0 forward-port): device availability is now
-        # tracked solely by the ``MicrophoneDeviceWatcher`` (OS-level
-        # plug/unplug events: WM_DEVICECHANGE on Windows, /dev/snd dir
-        # inotify on Linux) and the zero-filled ``indata`` check in the
-        # audio callback. The previous ``sd.query_devices()`` poll
-        # (every ~500 chunks ≈ 32 s at 16 Hz) was removed because on
-        # Windows MME it blocks the audio thread for 50–200 ms,
-        # guaranteeing xruns (audio glitches / dropped frames) every
-        # ~32 s during recording. The OS-event watcher covers the same
-        # use case (USB unplug, BT disconnect) with zero callback-thread
-        # overhead, so the periodic poll was redundant. See the callback
-        # comment below for the full rationale.
+        # AUDIO-HOT: periodic device availability check — every N chunks,
+        # verify the current device is still present in sd.query_devices().
+        self._device_check_interval: int = 500  # check every ~500 chunks (~32s at 16Hz)
+        self._device_check_counter: int = 0
 
         # NOTE (RW-0): dead_air_timeout / _dead_air_speech_detected /
         # _dead_air_silence_start were REMOVED — redundant with
@@ -428,6 +522,26 @@ class Recorder:
         # run Silero VAD. Older callbacks that only accept (rms, peak) still
         # work because Python ignores extra positional args when the callable
         # uses *args or accepts the new signature explicitly.
+
+        # THREAD-REGISTRY: register the module-import-time scipy-preloader
+        # thread if it's still alive AND a registry was provided. The
+        # preloader is a one-shot daemon (no stop mechanism), so it
+        # registers with stop_event=None. On a fast system it has
+        # already exited by this point and registration is skipped; on
+        # a slow system it may still be loading scipy, in which case
+        # shutdown_all()'s join gives it up to
+        # ``_SCIPY_PRELOADER_JOIN_TIMEOUT_S`` to finish before continuing.
+        if (
+            self._thread_registry is not None
+            and _scipy_preloader_thread is not None
+            and _scipy_preloader_thread.is_alive()
+        ):
+            self._thread_registry.register(
+                name="scipy-preloader",
+                thread=_scipy_preloader_thread,
+                stop_event=None,
+                join_timeout=_SCIPY_PRELOADER_JOIN_TIMEOUT_S,
+            )
 
     @property
     def recording(self) -> bool:
@@ -1112,12 +1226,17 @@ class Recorder:
         # AUDIO-HOT: reset disconnect state
         self._device_disconnected = False
         self._device_disconnect_retries = 0
-        # PERF-011: reset frame-skip state
+        # PERF-011: reset frame-skip state. RT-SAFE-001: the
+        # _previous_chunk_pending flag is no longer used (replaced by
+        # ring buffer overflow detection), but we keep resetting it for
+        # diagnostic cleanliness. _skipped_frames is now incremented by
+        # the callback when the ring buffer overflows.
         self._previous_chunk_pending = False
         self._skipped_frames = 0
-        # AUDIO-HOT (Round 0 forward-port): _device_check_counter was
-        # removed along with the per-callback sd.query_devices() poll.
-        # See __init__ and the audio callback comment for full rationale.
+        # RT-SAFE-001: reset ring buffer drop counter for the new session
+        self._dropped_ring_chunks = 0
+        # AUDIO-HOT: reset periodic device check counter
+        self._device_check_counter = 0
         # PERF-NEW-021: cache the target sample rate once at start()
         # so the audio callback / snapshot() doesn't re-read
         # self.config.sample_rate on every call.
@@ -1158,383 +1277,25 @@ class Recorder:
         device = self._resolve_device()
         candidates = self._same_physical_microphone_candidates(device)
 
+        # RT-SAFE-001: The PortAudio callback is now a thin wrapper
+        # around _audio_callback_dispatch (a method on self). The
+        # dispatch method does ONLY pre-roll capture + ring buffer
+        # push + worker signal — all heavy work (filter chain, VAD,
+        # resample, state machine) is done by the audio worker thread.
+        # See _audio_callback_dispatch / _audio_worker_loop /
+        # _process_audio_chunk for the full architecture.
         def callback(indata, frames, time_info, status):
-            # AUDIO-009/AUDIO-015: guard flag for in-flight callback
+            # AUDIO-009/AUDIO-015: guard flag for in-flight callback.
+            # _teardown_stream() polls this flag for up to 300ms before
+            # calling stream.close() to avoid use-after-free if the
+            # callback is still running. With the RT-safe refactor, the
+            # callback is ~10µs (copy + deque append + Event.set), so
+            # the flag is almost always clear by the time teardown runs.
             self._is_in_audio_callback.set()
             try:
-                _callback_impl(indata, frames, time_info, status)
+                self._audio_callback_dispatch(indata, frames, time_info, status)
             finally:
                 self._is_in_audio_callback.clear()
-
-        def _callback_impl(indata, frames, time_info, status):
-            # ARCH-026: PortAudio can deliver a callback before start()
-            # finishes setting self._recording_start_time and other
-            # per-session state. Bail out early so the silence/max-
-            # duration callbacks don't compute against a None timestamp.
-            if not self._recording_event.is_set():
-                # AUDIO-PRE: capture pre-roll even when not officially recording
-                if self._preroll_active:
-                    mono_preroll = self._ensure_mono(indata.copy())
-                    self._preroll_buffer.append(mono_preroll)
-                return
-
-            # HOTKEY-CRASH: detect device disconnect (zero-filled indata
-            # when device is still "open" but USB/BT was unplugged).
-            # Guard against false positives during rapid hotkey toggling:
-            # when stop() clears _recording_event, PortAudio may deliver
-            # zero-filled frames as the stream drains. We must NOT treat
-            # those as device disconnects, because _handle_device_disconnect
-            # would race with the deliberate stop() to close the stream.
-            if not indata.any() and self._chunk_count > 10:
-                # HOTKEY-CRASH: double-check that recording is still active.
-                # The early-return check at the top of this callback passed,
-                # but stop() may have cleared _recording_event between that
-                # check and this point (both run on the same audio thread,
-                # but the Event flag change is visible immediately).
-                if not self._recording_event.is_set():
-                    return  # deliberate stop, not a disconnect
-                self._device_disconnected = True
-                log.warning("[RECORDING] Zero-filled indata detected — possible device disconnect")
-                # Schedule disconnect handling off the audio thread
-                # HOTKEY-CRASH: capture the current stop_generation so the
-                # handler can bail if a stop/start cycle happened in between.
-                _captured_gen = self._stop_generation
-                with contextlib.suppress(Exception):
-                    threading.Thread(
-                        target=self._handle_device_disconnect,
-                        kwargs={"_captured_generation": _captured_gen},
-                        name="device-disconnect-handler",
-                        daemon=True,
-                    ).start()
-                return
-
-            # AUDIO-HOT (Round 0 forward-port): the previous per-callback
-            # ``sd.query_devices()`` poll (every ~500 chunks ≈ 32 s) was
-            # REMOVED. On Windows MME, ``sd.query_devices()`` blocks the
-            # audio thread for 50–200 ms, guaranteeing xruns (audio
-            # glitches / dropped frames) every ~32 s during recording.
-            # Device-availability is now handled entirely by the
-            # ``MicrophoneDeviceWatcher`` (started in ``__init__``),
-            # which receives OS-level plug/unplug notifications
-            # (WM_DEVICECHANGE on Windows, /dev/snd dir inotify on
-            # Linux). The zero-filled ``indata`` check above still
-            # catches the case where PortAudio delivers silent frames
-            # before the watcher fires. The ``_device_check_counter``
-            # and ``_device_check_interval`` fields were removed from
-            # ``__init__`` and from ``start()`` (line ~1119).
-
-            # NOTE: Dead-air timeout was REMOVED in RW-0.
-            # Redundant with stop_on_silence_seconds (auto-stop already resets on
-            # speech). The _update_dead_air_simple() method was also removed along
-            # with _dead_air_timeout / _dead_air_speech_detected / _dead_air_silence_start.
-            # Do NOT re-add — it added no unique behavior.
-
-            # AUDIO-002: Check PortAudio status flags for XRUNs.
-            # Use a rolling window of xrun timestamps to reduce log spam
-            # while still alerting on sustained issues.
-            if status:
-                self._xruns += 1
-                now = time.monotonic()
-                self._xrun_timestamps.append(now)
-                # AUDIO-002: check rolling window — only log if threshold
-                # exceeded within the alert period
-                window_start = now - _XRUN_ALERT_PERIOD
-                recent_count = sum(1 for t in self._xrun_timestamps if t >= window_start)
-                if recent_count >= _XRUN_ALERT_THRESHOLD or self._xruns == 1:
-                    log.warning(
-                        "[RECORDING] PortAudio status flag: %s (xrun_count=%d, recent=%d/%.0fs)",
-                        status, self._xruns, recent_count, _XRUN_ALERT_PERIOD,
-                    )
-                # Item 1: fire threshold callback for tray notification
-                if self._xruns == self._xrun_threshold and self.on_xrun_threshold:
-                    with contextlib.suppress(Exception):
-                        self.on_xrun_threshold(self._xruns)
-
-            # PERF-011: frame-skip under CPU load — if the previous
-            # chunk is still being processed, skip this one to prevent
-            # buffer bloat.
-            if self._previous_chunk_pending:
-                self._skipped_frames += 1
-                if self._skipped_frames == 1 or self._skipped_frames % 100 == 0:
-                    log.warning(
-                        "[RECORDING] Skipping frame under CPU load (skipped=%d)",
-                        self._skipped_frames,
-                    )
-                return
-            self._previous_chunk_pending = True
-
-            # AUDIO-CH: convert multi-channel input to mono
-            indata_mono = self._ensure_mono(indata)
-
-            # AUDIO-PROC: apply real-time noise filtering BEFORE the
-            # buffer append so (a) `filtered` is defined when we use it
-            # inside the lock, and (b) the stored audio, silence
-            # detection, and waveform bubble all see the cleaned signal
-            # that the transcriber will receive.  This runs OUTSIDE the
-            # lock — process_chunk() is non-blocking and operates only
-            # on the local `indata` copy.  See recording.py callback
-            # ordering in the auto-volume-duck architecture doc §6.4.
-            if self._audio_processor is not None:
-                filtered = self._audio_processor.process_chunk(indata_mono.copy())
-            else:
-                filtered = indata_mono
-
-            # RACE-001: minimize lock scope — only buffer append and
-            # counter need atomicity. Callback refs and silence state
-            # are read outside the lock — these are set once at start()
-            # and cleared at stop(), so a torn read just means we miss
-            # one callback or fire one extra, which is acceptable. The
-            # alternative (holding the lock while calling user code)
-            # risks deadlocks.
-            with self._lock:
-                # Store FILTERED audio so the transcriber receives
-                # the cleaned signal. The .copy() is needed because
-                # the filter chain may return the same array (passthrough
-                # mode), and the buffer must own its data.
-                self._buffer.append(filtered.copy())
-                self._chunk_count += 1
-                chunk_count = self._chunk_count
-                buffer_len = len(self._buffer)
-                # RACE-003: snapshot _recent_rms_values INSIDE the lock
-                # so the post-lock code can iterate without a torn read
-                # from a concurrent callback. Pre-fix, the deque
-                # reference was read outside the lock and could be
-                # mutated mid-iteration (append + maxlen eviction).
-                # list() copies the references in O(k) where k is the
-                # deque maxlen (default 50) — negligible.
-                recent_rms_snapshot = list(self._recent_rms_values)
-
-            # AUDIO-019: Backpressure detection — if the deque dropped chunks
-            # (maxlen exceeded), increment a counter and warn the user
-            if self._buffer.maxlen is not None and buffer_len >= self._buffer.maxlen - 1:
-                self._dropped_chunks = getattr(self, '_dropped_chunks', 0) + 1
-                if self._dropped_chunks == 1 or self._dropped_chunks % 100 == 0:
-                    log.warning(
-                        "[RECORDING] Buffer full — oldest audio dropped (total=%d). "
-                        "ASR is slower than real-time.",
-                        self._dropped_chunks,
-                    )
-
-            # Read callback refs outside the lock — these are set once
-            # at start() and cleared at stop(), so a torn read just
-            # means we miss one callback or fire one extra, which is
-            # acceptable. The alternative (holding the lock while
-            # calling user code) risks deadlocks.
-            rms_callback = self.on_rms_level
-            silence_warning_cb = self.on_silence_warning
-            silence_auto_stop_cb = self.on_silence_auto_stop
-            max_duration_cb = self.on_max_duration_auto_stop
-            # RACE-003: use the snapshot taken inside the lock above;
-            # do NOT re-read _recent_rms_values here.
-            recent_rms = recent_rms_snapshot
-            recording_start = self._recording_start_time
-
-            # ── Everything below runs OUTSIDE the lock ──
-
-            # RMS / peak computation (operates on FILTERED audio so the
-            # waveform bubble and silence detection see what the
-            # transcriber will see, not raw mic input).
-            # AUDIO-NP: use np.dot instead of np.mean(indata**2) to
-            # avoid the intermediate squared array allocation.
-            if filtered.size:
-                # AUDIO-NP: single-pass RMS using np.dot — avoids
-                # creating the intermediate abs_filtered**2 array.
-                flat = filtered.reshape(-1)
-                chunk_rms = float(np.sqrt(np.dot(flat, flat) / flat.size))
-                abs_filtered = np.abs(filtered)
-                chunk_peak = float(abs_filtered.max())
-            else:
-                chunk_peak = 0.0
-                chunk_rms = 0.0
-            chunk_duration = len(filtered) / self._effective_sr
-
-            # ADR 0007 §3.5: the old per-chunk AGC (_agc_update, C1)
-            # has been removed. It duplicated the Compressor filter in
-            # the new audio filter chain. The Compressor now handles
-            # dynamic range compression with proper attack/release.
-            # _last_rms stores the post-filter RMS for UI/IPC.
-
-            with self._lock:
-                self._last_rms = chunk_rms
-
-            # AUDIO-CLIP: Track clipping
-            if chunk_peak >= 0.99:
-                self._clip_count += 1
-                if chunk_peak > self._peak:
-                    self._peak = chunk_peak
-                now = time.perf_counter()
-                if now - self._last_clip_log_time >= 1.0:
-                    log.debug(
-                        "[RECORDING] Clipping detected: peak=%.4f, count=%d chunks.",
-                        chunk_peak, self._clip_count
-                    )
-                    self._last_clip_log_time = now
-                    # AUDIO-CLIP: push a real-time IPC event so the
-                    # Electron UI can flash a red level-bar / show a
-                    # "Clipping!" toast while recording. Pre-fix the
-                    # only notification was post-recording via
-                    # _finalize_audio_quality_report, which is too late
-                    # for the user to adjust mic gain mid-dictation.
-                    # The event is throttled to 1 Hz (same as the log)
-                    # to avoid flooding the IPC channel.
-                    try:
-                        from voice_typer.server.ipc_server import _push_event_now
-                        _push_event_now({
-                            "type": "audio_clip",
-                            "data": {
-                                "peak": float(chunk_peak),
-                                "count": int(self._clip_count),
-                            },
-                        })
-                    except Exception:
-                        pass
-
-            recent_rms.append(chunk_rms)
-
-            # AUDIO-014: auto-calibrate VAD thresholds from ambient noise
-            self._vad_auto_calibrate(chunk_rms, chunk_duration)
-
-            # AUDIO-013: compute Silero VAD probability if enabled.
-            # This runs in the audio callback (~1ms for 512 samples on CPU)
-            # and is only used when use_silero_vad=True in config.
-            # VAD-GATE: skip Silero inference when VAD is disabled (all audio
-            # enhancements off) to avoid wasting CPU.
-            vad_prob = None
-            if self._vad_enabled and self._use_silero_vad and self._silero_available:
-                try:
-                    from voice_typer.server.vad import compute_vad_prob
-                    # impl-vad-fix: Silero VAD only accepts {8000, 16000} Hz.
-                    # The mic's native rate (self._effective_sr) may be 44100
-                    # or 48000, which previously raised:
-                    #   ValueError: Supported sampling rates: [8000, 16000]
-                    # Resample to 16000 using the same scipy resample_poly
-                    # path as _resample_audio_impl (gcd up/down pattern).
-                    if self._effective_sr not in (8000, 16000):
-                        try:
-                            resample_poly = _get_resample_poly()
-                            gcd = math.gcd(self._effective_sr, 16000)
-                            up = 16000 // gcd
-                            down = self._effective_sr // gcd
-                            vad_audio = resample_poly(
-                                filtered.ravel(), up, down
-                            ).astype(np.float32)
-                            vad_sr = 16000
-                        except Exception:
-                            # scipy unavailable or resample failed — fall
-                            # back to RMS rather than crashing the audio
-                            # callback. compute_vad_prob will likely still
-                            # raise on the unsupported rate, but it is
-                            # caught by the outer except below.
-                            vad_audio = filtered
-                            vad_sr = self._effective_sr
-                    else:
-                        vad_audio = filtered
-                        vad_sr = self._effective_sr
-                    vad_prob = compute_vad_prob(vad_audio, vad_sr)
-                except Exception:
-                    vad_prob = None  # fall back to RMS
-
-            # AUDIO-013: VAD state machine with hysteresis
-            # Convert RMS to dBFS for VAD thresholds
-            chunk_rms_db = 20.0 * math.log10(chunk_rms) if chunk_rms > 0 else -90.0
-            vad_state = self._vad_update(chunk_rms_db, vad_prob=vad_prob)
-
-            # Use VAD state machine for silence detection
-            # Voice detected by loudness → reset silence timer
-            if vad_state == VadState.SILENCE:
-                if self._silence_start_time is None:
-                    self._silence_start_time = time.perf_counter()
-                self._silence_timer = time.perf_counter() - self._silence_start_time
-            else:
-                self._silence_start_time = None
-                self._silence_timer = 0.0
-
-            # PERF-011: clear frame-skip flag after processing
-            self._previous_chunk_pending = False
-
-            # Use cached config values (PERF-NEW-006)
-            silence_warning_seconds = self._cached_silence_warning
-            stop_on_silence_seconds = self._cached_stop_on_silence
-
-            # H12a: Repeating silence warnings with exponential backoff
-            if self._silence_timer >= silence_warning_seconds:
-                time_since_first_warning = self._silence_timer - silence_warning_seconds
-                expected_warnings = 0
-                cumulative = 0.0
-                wait = 10.0
-                while cumulative <= time_since_first_warning:
-                    expected_warnings += 1
-                    cumulative += wait
-                    wait *= 2
-                if expected_warnings > self._silence_warning_count:
-                    self._silence_warning_count = expected_warnings
-                    if silence_warning_cb is not None:
-                        with contextlib.suppress(Exception):
-                            silence_warning_cb()
-
-            if self._silence_timer >= stop_on_silence_seconds and silence_auto_stop_cb is not None:
-                with contextlib.suppress(Exception):
-                    silence_auto_stop_cb()
-
-            # H12b: Maximum recording duration auto-stop
-            recording_duration = time.perf_counter() - recording_start
-            max_recording_time_seconds = self._cached_max_recording_time
-            if recording_duration >= max_recording_time_seconds and max_duration_cb is not None:
-                with contextlib.suppress(Exception):
-                    max_duration_cb()
-
-            if chunk_count == BUFFER_WARNING_THRESHOLD:
-                log.warning(
-                    "[RECORDING] Buffer is large (5k chunks, ~5 min). "
-                    "Consider stopping recording."
-                )
-            if chunk_count % TELEMETRY_LOG_INTERVAL == 0:
-                log.debug(
-                    "[RECORDING] Buffer telemetry: chunks=%d, buffer_count=%d",
-                    chunk_count, buffer_len,
-                )
-
-            # Fire RMS callback OUTSIDE the lock
-            # T021: forward the filtered audio chunk so downstream
-            # consumers (WaveformBubble via app._on_recorder_rms) can
-            # run Silero VAD on it. The chunk is a numpy float32 array
-            # of the same shape as `filtered` (channels x samples).
-            # Callers that don't care about VAD simply ignore the
-            # third argument (backwards-compatible).
-            if rms_callback is not None:
-                try:
-                    rms_callback(chunk_rms, chunk_peak, filtered)
-                except Exception:
-                    # NEW-CONC-004: previously this called
-                    # ``log.debug(..., exc_info=True)`` on EVERY
-                    # callback raise.  The audio callback fires at
-                    # ~16 Hz; a buggy downstream consumer (e.g. a VAD
-                    # that throws on every chunk) would trigger full
-                    # traceback formatting 16 times per second, which
-                    # is a significant CPU cost on the audio thread
-                    # and can cause XRUNs.  We now only format the
-                    # traceback on the FIRST raise and every 100th
-                    # subsequent raise; the rest are logged without
-                    # exc_info so the formatting cost is avoided.
-                    self._rms_callback_error_count = getattr(
-                        self, "_rms_callback_error_count", 0
-                    ) + 1
-                    if (
-                        self._rms_callback_error_count == 1
-                        or self._rms_callback_error_count % 100 == 0
-                    ):
-                        log.debug(
-                            "[RECORDING] on_rms_level callback raised "
-                            "(occurrence #%d)",
-                            self._rms_callback_error_count,
-                            exc_info=True,
-                        )
-                    else:
-                        log.debug(
-                            "[RECORDING] on_rms_level callback raised "
-                            "(occurrence #%d, traceback suppressed)",
-                            self._rms_callback_error_count,
-                        )
 
         # AUDIO-HOT: store callback reference for device restart
         self._current_callback = callback
@@ -1760,30 +1521,31 @@ class Recorder:
             # Warm up synchronously to avoid racing with stop()
             self.warm_up_resampler()
 
+        # RT-SAFE-001: Start the audio worker thread AFTER the pre-roll
+        # buffer has been prepended (so the worker doesn't race with
+        # start()'s appendleft) and AFTER _recording_event.set() (so the
+        # callback will actually push to the ring buffer). The worker
+        # drains the ring buffer and runs the heavy processing pipeline
+        # (filter chain, VAD, resample, state machine) off the real-time
+        # audio thread.
+        self._start_audio_worker()
+
     def _teardown_stream(self) -> None:
-        """Stop + close the PortAudio stream.
+        """Stop + close the PortAudio stream, draining any in-flight callback.
 
         17-H-FIX-2: extracted from ``stop()`` so ``discard()`` shares the
-        same teardown contract. 17-H-FIX-2 originally added a
-        ``_is_in_audio_callback`` poll loop (300 ms / 5 ms interval)
-        between ``stream.stop()`` and ``stream.close()`` to drain the
-        in-flight callback. That poll was redundant (Round 0 forward-port):
-        PortAudio's ``Pa_StopStream`` (called by
-        ``sounddevice.Stream.stop()``) already blocks until the in-flight
-        callback returns, so by the time ``stream.stop()`` returns the
-        callback is guaranteed not to be running. The manual poll added
-        up to 300 ms of latency per dictation on the (rare) path where
-        the flag was stuck set, and contributed nothing on the common
-        path (flag already clear → 0 ms wait). The AUDIO-009/AUDIO-015
-        safety contract (no callback during/after ``stream.close()``) is
-        preserved by PortAudio's ``Pa_StopStream`` blocking contract.
+        same callback-drain contract. Without the poll, ``discard()``
+        could call ``stream.close()`` while the audio callback (firing
+        ~16×/s) was still running — risking use-after-free or deadlock
+        when ESC-cancel landed mid-callback.
 
         Behavior:
           1. If ``self._stream`` is None, return immediately (idempotent).
-          2. Call ``stream.stop()`` (blocks until in-flight callback
-             returns — PortAudio contract).
-          3. Call ``stream.close()`` to free PortAudio resources.
-          4. Set ``self._stream = None``.
+          2. Call ``stream.stop()`` to halt PortAudio's callback dispatch.
+          3. Poll ``_is_in_audio_callback`` for up to 300ms (5ms interval)
+             until the in-flight callback (if any) returns.
+          4. Call ``stream.close()`` to free PortAudio resources.
+          5. Set ``self._stream = None``.
 
         Idempotent: safe to call when the stream is already None (e.g.
         when ``discard()`` is invoked twice, or after ``stop()``).
@@ -1791,8 +1553,677 @@ class Recorder:
         if not self._stream:
             return
         self._stream.stop()
+        # AUDIO-009/AUDIO-015: wait briefly for any in-flight audio
+        # callback to complete before closing the stream. This prevents
+        # PortAudio from calling the callback during/after stream.stop()
+        # which can cause use-after-free or deadlock.
+        #
+        # PERF-FIX-002 (Round 0): the previous "exponential backoff"
+        # implementation was inverted. It used::
+        #
+        #     if self._is_in_audio_callback.wait(timeout=_timeout):
+        #         break  # callback completed
+        #
+        # but ``threading.Event.wait(timeout)`` returns ``True`` when the
+        # flag is *set* — and the flag is set while the callback is
+        # *running* (see lines 1082/1086: set on entry, clear on exit).
+        # So the loop broke immediately when the callback WAS running
+        # (defeating the safety guard) and blocked for the full
+        # 20+30+50+80+130+200 = 510ms when the callback was NOT running
+        # (the common case).  Every dictation paid a half-second penalty.
+        #
+        # The fix: poll for the flag to become *clear* (callback not
+        # running), with a 5ms interval and a 300ms hard budget (matching
+        # the original 6×50ms worst case).  On a healthy system the flag
+        # is already clear on the first check → 0ms wait.  When the
+        # callback genuinely runs past ``stream.stop()``, the poll loop
+        # waits for it to finish (restoring the AUDIO-009/AUDIO-015
+        # safety contract).
+        _backoff_budget_s = 0.300  # total worst-case wait, same as pre-fix
+        _poll_interval_s = 0.005   # 5ms poll
+        _deadline = time.perf_counter() + _backoff_budget_s
+        while self._is_in_audio_callback.is_set():
+            remaining = _deadline - time.perf_counter()
+            if remaining <= 0:
+                break
+            time.sleep(min(_poll_interval_s, remaining))
         self._stream.close()
         self._stream = None
+
+    # ── RT-SAFE-001: Audio worker thread lifecycle ──────────────────
+
+    def _start_audio_worker(self) -> None:
+        """Start the audio worker thread that drains the ring buffer.
+
+        Called by ``start()`` AFTER the PortAudio stream is successfully
+        opened and the pre-roll buffer has been prepended, but BEFORE
+        ``_recording_event.set()`` is... actually, it's called AFTER
+        ``_recording_event.set()`` because the callback needs the event
+        to be set before it will push to the ring buffer. The worker
+        thread is a daemon so it never blocks process exit.
+
+        Idempotent: if the worker is already running, this is a no-op.
+
+        THREAD-REGISTRY: when a registry was provided to ``__init__``,
+        the worker thread is registered so ``shutdown_all()`` can
+        signal and join it during ``VoiceTyperApp.quit()``. The
+        registry entry is removed by ``_stop_audio_worker()`` after
+        the join completes (or times out) so a subsequent start()
+        re-registers cleanly without triggering the
+        "Re-registering name" warning.
+        """
+        if self._worker_thread is not None and self._worker_thread.is_alive():
+            return
+        # Reset stop event (in case a previous stop() left it set)
+        self._worker_stop_event.clear()
+        self._worker_wake_event.clear()
+        # Clear the ring buffer of any stale chunks from a previous session
+        self._ring_buffer.clear()
+        self._worker_thread = threading.Thread(
+            target=self._audio_worker_loop,
+            name=_AUDIO_WORKER_THREAD_NAME,
+            daemon=True,
+        )
+        self._worker_thread.start()
+        # THREAD-REGISTRY: register the freshly-started worker so the
+        # central registry can signal/join it on shutdown. The join
+        # timeout matches the worst-case stop() path (drain=True).
+        if self._thread_registry is not None:
+            self._thread_registry.register(
+                name=_AUDIO_WORKER_THREAD_NAME,
+                thread=self._worker_thread,
+                stop_event=self._worker_stop_event,
+                join_timeout=_AUDIO_WORKER_JOIN_TIMEOUT_S,
+            )
+
+    def _stop_audio_worker(self, *, timeout: float, drain: bool = True) -> None:
+        """Signal the audio worker thread to stop and join it.
+
+        Parameters
+        ----------
+        timeout : float
+            Maximum seconds to wait for the worker to exit.
+        drain : bool
+            If True (default, used by ``stop()``), the worker drains the
+            ring buffer fully before exiting so no in-flight audio is
+            lost. If False (used by ``discard()``), the ring buffer is
+            cleared first so the worker exits immediately after its
+            current chunk.
+
+        Safe to call when the worker is not running (no-op).
+
+        THREAD-REGISTRY: unregisters the worker after the join so a
+        subsequent ``_start_audio_worker()`` re-registers cleanly.
+        """
+        if self._worker_thread is None:
+            # Still reset the stop event so the next start() is clean.
+            self._worker_stop_event.clear()
+            return
+        if not drain:
+            # discard() path: clear the ring buffer so the worker has
+            # nothing left to process. It will finish its current chunk
+            # (if any) and then exit on the next iteration.
+            self._ring_buffer.clear()
+        # Signal the worker to stop.
+        self._worker_stop_event.set()
+        # Wake the worker in case it's blocked on the wait event.
+        self._worker_wake_event.set()
+        # Join with timeout. If the worker doesn't exit in time (e.g.,
+        # stuck in VAD inference), we proceed anyway — the worker is a
+        # daemon, so it won't block process exit. A stale worker is
+        # harmless because the stop event is set; it will exit on its
+        # next iteration boundary.
+        self._worker_thread.join(timeout=timeout)
+        if self._worker_thread.is_alive():
+            log.warning(
+                "[RECORDING] Audio worker thread did not exit within %.1fs "
+                "(it will exit as a daemon on next iteration)",
+                timeout,
+            )
+        else:
+            log.debug("[RECORDING] Audio worker thread exited cleanly")
+        # THREAD-REGISTRY: remove the entry so a subsequent start()
+        # re-registers cleanly. If shutdown_all() already ran and
+        # joined the thread, this is a no-op (the entry was already
+        # used). Safe to call when no entry exists.
+        if self._thread_registry is not None:
+            self._thread_registry.unregister(_AUDIO_WORKER_THREAD_NAME)
+        # Clear the stop event so the next start() can reuse the fields.
+        self._worker_stop_event.clear()
+        self._worker_wake_event.clear()
+        self._worker_thread = None
+
+    def _audio_worker_loop(self) -> None:
+        """Audio worker thread main loop.
+
+        Consumes chunks from the SPSC ring buffer and runs the heavy
+        processing pipeline (filter chain, VAD, resample, state machine,
+        callbacks). This thread is the SINGLE consumer — the audio
+        callback is the single producer, so no locks are needed for the
+        ring buffer access (collections.deque append/popleft are atomic
+        under CPython's GIL for SPSC).
+
+        Shutdown: exits when ``_worker_stop_event`` is set. The loop
+        drains the ring buffer fully before exiting so ``stop()``
+        doesn't lose in-flight audio (unless ``drain=False`` was passed
+        to ``_stop_audio_worker``, in which case the ring buffer was
+        already cleared by the caller).
+        """
+        while True:
+            # Wait for work or stop signal. The 50ms timeout ensures we
+            # notice the stop flag even if the wake event is missed
+            # (e.g., if the callback sets the event between the worker's
+            # wait() return and the clear() call — a rare race that the
+            # timeout covers).
+            if not self._worker_stop_event.is_set():
+                self._worker_wake_event.wait(timeout=0.05)
+            self._worker_wake_event.clear()
+
+            # Drain all available chunks. Each chunk is processed by
+            # _process_audio_chunk which does the heavy lifting.
+            while True:
+                try:
+                    chunk_data = self._ring_buffer.popleft()
+                except IndexError:
+                    break
+                try:
+                    self._process_audio_chunk(*chunk_data)
+                except Exception:
+                    # Log and continue — a single bad chunk must NOT kill
+                    # the worker (otherwise all subsequent audio is lost
+                    # until the next start()). The exception is logged
+                    # with exc_info for debugging.
+                    log.exception(
+                        "[RECORDING] Audio worker thread error processing chunk"
+                    )
+
+            # Check for shutdown. We drain the ring buffer fully before
+            # exiting so stop() doesn't lose in-flight audio. For the
+            # discard() path, the ring buffer was already cleared by the
+            # caller, so the drain loop above was a no-op.
+            if self._worker_stop_event.is_set():
+                return
+
+    def _audio_callback_dispatch(
+        self, indata: np.ndarray, frames: int, time_info: Any, status: Any
+    ) -> None:
+        """Real-time audio callback entry point — RT-safe path.
+
+        This method is invoked by PortAudio from the real-time audio
+        thread. It must complete well before the next buffer arrives
+        (~32ms at 512 blocksize / 16kHz). To meet this deadline, it
+        does ONLY:
+
+        1. Pre-roll capture when not recording (small, fast: ~10µs for
+           copy + mono downmix + deque append).
+        2. Copy the indata buffer into the SPSC ring buffer (~2KB
+           allocation for 512 float32 samples — negligible).
+        3. Signal the worker thread via ``_worker_wake_event.set()``.
+
+        All heavy work (filter chain, Silero VAD, scipy resample, VAD
+        state machine, silence timer, callbacks, AUDIO-CLIP IPC event
+        push) is done by the audio worker thread (see
+        ``_audio_worker_loop`` / ``_process_audio_chunk``).
+        """
+        # ARCH-026: PortAudio can deliver a callback before start()
+        # finishes setting self._recording_start_time and other
+        # per-session state. Bail out early so the silence/max-
+        # duration callbacks don't compute against a None timestamp.
+        if not self._recording_event.is_set():
+            # AUDIO-PRE: capture pre-roll even when not officially
+            # recording. This is a fast path (~10µs): copy + mono
+            # downmix + deque append. Stays in the callback so pre-roll
+            # latency is minimal — the worker thread isn't started until
+            # after start() finishes, so pre-roll capture MUST happen
+            # here.
+            if self._preroll_active:
+                mono_preroll = self._ensure_mono(indata.copy())
+                self._preroll_buffer.append(mono_preroll)
+            return
+
+        # Recording is active — push to the SPSC ring buffer for the
+        # worker thread to process. The callback's only job is to copy
+        # + enqueue.
+        #
+        # PERF-RT-001: the indata buffer is owned by PortAudio and
+        # reused for the next callback, so we MUST copy. ~2KB
+        # allocation for 512 float32 samples — negligible compared to
+        # the 32ms deadline.
+        chunk_copy = indata.copy()
+
+        # Detect ring buffer overflow (worker can't keep up). The
+        # deque's maxlen will silently evict the oldest chunk, but we
+        # want to log it so the user knows audio is being dropped.
+        # This replaces the old PERF-011 frame-skip logic
+        # (_previous_chunk_pending) which was a single-slot queue — the
+        # ring buffer is a 64-slot queue, so we have much more headroom
+        # before dropping.
+        ring_maxlen = self._ring_buffer.maxlen
+        if ring_maxlen is not None and len(self._ring_buffer) >= ring_maxlen:
+            self._dropped_ring_chunks += 1
+            self._skipped_frames += 1  # preserve old counter for diagnostics
+            if (
+                self._dropped_ring_chunks == 1
+                or self._dropped_ring_chunks % 100 == 0
+            ):
+                log.warning(
+                    "[RECORDING] Audio ring buffer full — dropping incoming "
+                    "chunk (total=%d). Worker thread cannot keep up.",
+                    self._dropped_ring_chunks,
+                )
+
+        # Push (copy, frames, time_info, status, perf_timestamp) to the
+        # ring buffer. The timestamp is captured here (not in the worker)
+        # so silence-timer calculations reflect when the audio arrived,
+        # not when the worker happened to process it.
+        self._ring_buffer.append(
+            (chunk_copy, frames, time_info, status, time.perf_counter())
+        )
+        # Signal the worker thread to drain the buffer. Event.set() is
+        # a fast atomic operation — safe to call from the RT thread.
+        self._worker_wake_event.set()
+
+    def _process_audio_chunk(
+        self,
+        indata: np.ndarray,
+        frames: int,
+        time_info: Any,
+        status: Any,
+        perf_ts: float,
+    ) -> None:
+        """Process a single audio chunk — runs on the worker thread.
+
+        This method contains the heavy processing pipeline that was
+        previously in the PortAudio callback (``_callback_impl``). It
+        is called by ``_audio_worker_loop`` for each chunk popped from
+        the ring buffer.
+
+        Operations (in order):
+        - HOTKEY-CRASH: device disconnect detection (zero-fill + periodic)
+        - AUDIO-002: XRUN status flag handling + on_xrun_threshold callback
+        - AUDIO-CH: mono conversion
+        - AUDIO-PROC: filter chain application
+        - Buffer append + chunk count + backpressure detection
+        - RMS / peak computation
+        - AUDIO-CLIP: clipping detection + IPC event push
+        - AUDIO-014: VAD auto-calibration
+        - AUDIO-013: Silero VAD probability (with resample to 16kHz)
+        - AUDIO-013: VAD state machine + silence timer
+        - H12: silence warning / auto-stop / max-duration callbacks
+        - T021: on_rms_level callback (filtered chunk forwarded)
+        - Telemetry logs
+
+        All of this previously ran on the real-time audio thread,
+        violating the ~32ms deadline (scipy resample + Silero VAD can
+        take 5-50ms combined). Moving it to the worker thread restores
+        real-time safety.
+        """
+        # HOTKEY-CRASH: detect device disconnect (zero-filled indata
+        # when device is still "open" but USB/BT was unplugged).
+        # Guard against false positives during rapid hotkey toggling:
+        # when stop() clears _recording_event, PortAudio may deliver
+        # zero-filled frames as the stream drains. We must NOT treat
+        # those as device disconnects, because _handle_device_disconnect
+        # would race with the deliberate stop() to close the stream.
+        if not indata.any() and self._chunk_count > 10:
+            # HOTKEY-CRASH: double-check that recording is still active.
+            # The early-return check in the callback passed, but stop()
+            # may have cleared _recording_event between that check and
+            # this point (the callback and worker run on different
+            # threads, so the Event flag change is visible immediately).
+            if not self._recording_event.is_set():
+                return  # deliberate stop, not a disconnect
+            self._device_disconnected = True
+            log.warning("[RECORDING] Zero-filled indata detected — possible device disconnect")
+            # Schedule disconnect handling off the worker thread
+            # HOTKEY-CRASH: capture the current stop_generation so the
+            # handler can bail if a stop/start cycle happened in between.
+            _captured_gen = self._stop_generation
+            with contextlib.suppress(Exception):
+                threading.Thread(
+                    target=self._handle_device_disconnect,
+                    kwargs={"_captured_generation": _captured_gen},
+                    name="device-disconnect-handler",
+                    daemon=True,
+                ).start()
+            return
+
+        # AUDIO-HOT: periodic device availability check — verify
+        # the current device is still present in sd.query_devices().
+        # This catches cases where PortAudio doesn't deliver zeros
+        # but the device is already gone (e.g. USB unplug on some
+        # drivers). Runs every ~500 chunks to avoid per-chunk overhead.
+        self._device_check_counter += 1
+        if self._device_check_counter >= self._device_check_interval:
+            self._device_check_counter = 0
+            try:
+                current_device = self._resolve_device()
+                if current_device is not None:
+                    try:
+                        sd.query_devices(current_device)
+                    except Exception:
+                        # HOTKEY-CRASH: double-check recording is still active
+                        if not self._recording_event.is_set():
+                            return
+                        log.warning("[RECORDING] Current device no longer available "
+                        "in query_devices — disconnect detected")
+                        self._device_disconnected = True
+                        _captured_gen = self._stop_generation
+                        with contextlib.suppress(Exception):
+                            threading.Thread(
+                                target=self._handle_device_disconnect,
+                                kwargs={"_captured_generation": _captured_gen},
+                                name="device-disconnect-check",
+                                daemon=True,
+                            ).start()
+                        return
+            except Exception:
+                pass
+
+        # NOTE: Dead-air timeout was REMOVED in RW-0.
+        # Redundant with stop_on_silence_seconds (auto-stop already resets on
+        # speech). The _update_dead_air_simple() method was also removed along
+        # with _dead_air_timeout / _dead_air_speech_detected / _dead_air_silence_start.
+        # Do NOT re-add — it added no unique behavior.
+
+        # AUDIO-002: Check PortAudio status flags for XRUNs.
+        # Use a rolling window of xrun timestamps to reduce log spam
+        # while still alerting on sustained issues.
+        if status:
+            self._xruns += 1
+            now = time.monotonic()
+            self._xrun_timestamps.append(now)
+            # AUDIO-002: check rolling window — only log if threshold
+            # exceeded within the alert period
+            window_start = now - _XRUN_ALERT_PERIOD
+            recent_count = sum(1 for t in self._xrun_timestamps if t >= window_start)
+            if recent_count >= _XRUN_ALERT_THRESHOLD or self._xruns == 1:
+                log.warning(
+                    "[RECORDING] PortAudio status flag: %s (xrun_count=%d, recent=%d/%.0fs)",
+                    status, self._xruns, recent_count, _XRUN_ALERT_PERIOD,
+                )
+            # Item 1: fire threshold callback for tray notification
+            if self._xruns == self._xrun_threshold and self.on_xrun_threshold:
+                with contextlib.suppress(Exception):
+                    self.on_xrun_threshold(self._xruns)
+
+        # RT-SAFE-001: the old PERF-011 frame-skip logic
+        # (_previous_chunk_pending) is replaced by ring buffer overflow
+        # detection in the callback. If the ring buffer was full, the
+        # callback already logged a warning and dropped the chunk. By
+        # the time we reach here, the chunk is in the ring buffer and
+        # we must process it.
+
+        # AUDIO-CH: convert multi-channel input to mono
+        indata_mono = self._ensure_mono(indata)
+
+        # AUDIO-PROC: apply real-time noise filtering BEFORE the
+        # buffer append so (a) `filtered` is defined when we use it
+        # inside the lock, and (b) the stored audio, silence
+        # detection, and waveform bubble all see the cleaned signal
+        # that the transcriber will receive.  This runs OUTSIDE the
+        # lock — process_chunk() is non-blocking and operates only
+        # on the local `indata` copy.  See recording.py callback
+        # ordering in the auto-volume-duck architecture doc §6.4.
+        if self._audio_processor is not None:
+            filtered = self._audio_processor.process_chunk(indata_mono.copy())
+        else:
+            filtered = indata_mono
+
+        # RACE-001: minimize lock scope — only buffer append and
+        # counter need atomicity. Callback refs and silence state
+        # are read outside the lock — these are set once at start()
+        # and cleared at stop(), so a torn read just means we miss
+        # one callback or fire one extra, which is acceptable. The
+        # alternative (holding the lock while calling user code)
+        # risks deadlocks.
+        with self._lock:
+            # Store FILTERED audio so the transcriber receives
+            # the cleaned signal. The .copy() is needed because
+            # the filter chain may return the same array (passthrough
+            # mode), and the buffer must own its data.
+            self._buffer.append(filtered.copy())
+            self._chunk_count += 1
+            chunk_count = self._chunk_count
+            buffer_len = len(self._buffer)
+            # RACE-003: snapshot _recent_rms_values INSIDE the lock
+            # so the post-lock code can iterate without a torn read
+            # from a concurrent callback. Pre-fix, the deque
+            # reference was read outside the lock and could be
+            # mutated mid-iteration (append + maxlen eviction).
+            # list() copies the references in O(k) where k is the
+            # deque maxlen (default 50) — negligible.
+            recent_rms_snapshot = list(self._recent_rms_values)
+
+        # AUDIO-019: Backpressure detection — if the deque dropped chunks
+        # (maxlen exceeded), increment a counter and warn the user
+        if self._buffer.maxlen is not None and buffer_len >= self._buffer.maxlen - 1:
+            self._dropped_chunks = getattr(self, '_dropped_chunks', 0) + 1
+            if self._dropped_chunks == 1 or self._dropped_chunks % 100 == 0:
+                log.warning(
+                    "[RECORDING] Buffer full — oldest audio dropped (total=%d). "
+                    "ASR is slower than real-time.",
+                    self._dropped_chunks,
+                )
+
+        # Read callback refs outside the lock — these are set once
+        # at start() and cleared at stop(), so a torn read just
+        # means we miss one callback or fire one extra, which is
+        # acceptable. The alternative (holding the lock while
+        # calling user code) risks deadlocks.
+        rms_callback = self.on_rms_level
+        silence_warning_cb = self.on_silence_warning
+        silence_auto_stop_cb = self.on_silence_auto_stop
+        max_duration_cb = self.on_max_duration_auto_stop
+        # RACE-003: use the snapshot taken inside the lock above;
+        # do NOT re-read _recent_rms_values here.
+        recent_rms = recent_rms_snapshot
+        recording_start = self._recording_start_time
+
+        # ── Everything below runs OUTSIDE the lock ──
+
+        # RMS / peak computation (operates on FILTERED audio so the
+        # waveform bubble and silence detection see what the
+        # transcriber will see, not raw mic input).
+        # AUDIO-NP: use np.dot instead of np.mean(indata**2) to
+        # avoid the intermediate squared array allocation.
+        if filtered.size:
+            # AUDIO-NP: single-pass RMS using np.dot — avoids
+            # creating the intermediate abs_filtered**2 array.
+            flat = filtered.reshape(-1)
+            chunk_rms = float(np.sqrt(np.dot(flat, flat) / flat.size))
+            abs_filtered = np.abs(filtered)
+            chunk_peak = float(abs_filtered.max())
+        else:
+            chunk_peak = 0.0
+            chunk_rms = 0.0
+        chunk_duration = len(filtered) / self._effective_sr
+
+        # ADR 0007 §3.5: the old per-chunk AGC (_agc_update, C1)
+        # has been removed. It duplicated the Compressor filter in
+        # the new audio filter chain. The Compressor now handles
+        # dynamic range compression with proper attack/release.
+        # _last_rms stores the post-filter RMS for UI/IPC.
+
+        with self._lock:
+            self._last_rms = chunk_rms
+
+        # AUDIO-CLIP: Track clipping
+        if chunk_peak >= 0.99:
+            self._clip_count += 1
+            if chunk_peak > self._peak:
+                self._peak = chunk_peak
+            now = time.perf_counter()
+            if now - self._last_clip_log_time >= 1.0:
+                log.debug(
+                    "[RECORDING] Clipping detected: peak=%.4f, count=%d chunks.",
+                    chunk_peak, self._clip_count
+                )
+                self._last_clip_log_time = now
+                # AUDIO-CLIP: push a real-time IPC event so the
+                # Electron UI can flash a red level-bar / show a
+                # "Clipping!" toast while recording. Pre-fix the
+                # only notification was post-recording via
+                # _finalize_audio_quality_report, which is too late
+                # for the user to adjust mic gain mid-dictation.
+                # The event is throttled to 1 Hz (same as the log)
+                # to avoid flooding the IPC channel.
+                try:
+                    from voice_typer.server.ipc_server import _push_event_now
+                    _push_event_now({
+                        "type": "audio_clip",
+                        "data": {
+                            "peak": float(chunk_peak),
+                            "count": int(self._clip_count),
+                        },
+                    })
+                except Exception:
+                    pass
+
+        recent_rms.append(chunk_rms)
+
+        # AUDIO-014: auto-calibrate VAD thresholds from ambient noise
+        self._vad_auto_calibrate(chunk_rms, chunk_duration)
+
+        # AUDIO-013: compute Silero VAD probability if enabled.
+        # RT-SAFE-001: this previously ran in the audio callback
+        # (~1-5ms for 512 samples on CPU) and was a real-time safety
+        # violation. It now runs on the worker thread.
+        # VAD-GATE: skip Silero inference when VAD is disabled (all audio
+        # enhancements off) to avoid wasting CPU.
+        vad_prob = None
+        if self._vad_enabled and self._use_silero_vad and self._silero_available:
+            try:
+                from voice_typer.server.vad import compute_vad_prob
+                # impl-vad-fix: Silero VAD only accepts {8000, 16000} Hz.
+                # The mic's native rate (self._effective_sr) may be 44100
+                # or 48000, which previously raised:
+                #   ValueError: Supported sampling rates: [8000, 16000]
+                # Resample to 16000 using the same scipy resample_poly
+                # path as _resample_audio_impl (gcd up/down pattern).
+                if self._effective_sr not in (8000, 16000):
+                    try:
+                        resample_poly = _get_resample_poly()
+                        gcd = math.gcd(self._effective_sr, 16000)
+                        up = 16000 // gcd
+                        down = self._effective_sr // gcd
+                        vad_audio = resample_poly(
+                            filtered.ravel(), up, down
+                        ).astype(np.float32)
+                        vad_sr = 16000
+                    except Exception:
+                        # scipy unavailable or resample failed — fall
+                        # back to RMS rather than crashing the worker.
+                        # compute_vad_prob will likely still raise on
+                        # the unsupported rate, but it is caught by the
+                        # outer except below.
+                        vad_audio = filtered
+                        vad_sr = self._effective_sr
+                else:
+                    vad_audio = filtered
+                    vad_sr = self._effective_sr
+                vad_prob = compute_vad_prob(vad_audio, vad_sr)
+            except Exception:
+                vad_prob = None  # fall back to RMS
+
+        # AUDIO-013: VAD state machine with hysteresis
+        # Convert RMS to dBFS for VAD thresholds
+        chunk_rms_db = 20.0 * math.log10(chunk_rms) if chunk_rms > 0 else -90.0
+        vad_state = self._vad_update(chunk_rms_db, vad_prob=vad_prob)
+
+        # Use VAD state machine for silence detection
+        # Voice detected by loudness → reset silence timer
+        if vad_state == VadState.SILENCE:
+            if self._silence_start_time is None:
+                self._silence_start_time = time.perf_counter()
+            self._silence_timer = time.perf_counter() - self._silence_start_time
+        else:
+            self._silence_start_time = None
+            self._silence_timer = 0.0
+
+        # Use cached config values (PERF-NEW-006)
+        silence_warning_seconds = self._cached_silence_warning
+        stop_on_silence_seconds = self._cached_stop_on_silence
+
+        # H12a: Repeating silence warnings with exponential backoff
+        if self._silence_timer >= silence_warning_seconds:
+            time_since_first_warning = self._silence_timer - silence_warning_seconds
+            expected_warnings = 0
+            cumulative = 0.0
+            wait = 10.0
+            while cumulative <= time_since_first_warning:
+                expected_warnings += 1
+                cumulative += wait
+                wait *= 2
+            if expected_warnings > self._silence_warning_count:
+                self._silence_warning_count = expected_warnings
+                if silence_warning_cb is not None:
+                    with contextlib.suppress(Exception):
+                        silence_warning_cb()
+
+        if self._silence_timer >= stop_on_silence_seconds and silence_auto_stop_cb is not None:
+            with contextlib.suppress(Exception):
+                silence_auto_stop_cb()
+
+        # H12b: Maximum recording duration auto-stop
+        recording_duration = time.perf_counter() - recording_start
+        max_recording_time_seconds = self._cached_max_recording_time
+        if recording_duration >= max_recording_time_seconds and max_duration_cb is not None:
+            with contextlib.suppress(Exception):
+                max_duration_cb()
+
+        if chunk_count == BUFFER_WARNING_THRESHOLD:
+            log.warning(
+                "[RECORDING] Buffer is large (5k chunks, ~5 min). "
+                "Consider stopping recording."
+            )
+        if chunk_count % TELEMETRY_LOG_INTERVAL == 0:
+            log.debug(
+                "[RECORDING] Buffer telemetry: chunks=%d, buffer_count=%d",
+                chunk_count, buffer_len,
+            )
+
+        # Fire RMS callback OUTSIDE the lock
+        # T021: forward the filtered audio chunk so downstream
+        # consumers (WaveformBubble via app._on_recorder_rms) can
+        # run Silero VAD on it. The chunk is a numpy float32 array
+        # of the same shape as `filtered` (channels x samples).
+        # Callers that don't care about VAD simply ignore the
+        # third argument (backwards-compatible).
+        if rms_callback is not None:
+            try:
+                rms_callback(chunk_rms, chunk_peak, filtered)
+            except Exception:
+                # NEW-CONC-004: previously this called
+                # ``log.debug(..., exc_info=True)`` on EVERY
+                # callback raise.  The audio callback fires at
+                # ~16 Hz; a buggy downstream consumer (e.g. a VAD
+                # that throws on every chunk) would trigger full
+                # traceback formatting 16 times per second, which
+                # is a significant CPU cost on the audio thread
+                # and can cause XRUNs.  We now only format the
+                # traceback on the FIRST raise and every 100th
+                # subsequent raise; the rest are logged without
+                # exc_info so the formatting cost is avoided.
+                self._rms_callback_error_count = getattr(
+                    self, "_rms_callback_error_count", 0
+                ) + 1
+                if (
+                    self._rms_callback_error_count == 1
+                    or self._rms_callback_error_count % 100 == 0
+                ):
+                    log.debug(
+                        "[RECORDING] on_rms_level callback raised "
+                        "(occurrence #%d)",
+                        self._rms_callback_error_count,
+                        exc_info=True,
+                    )
+                else:
+                    log.debug(
+                        "[RECORDING] on_rms_level callback raised "
+                        "(occurrence #%d, traceback suppressed)",
+                        self._rms_callback_error_count,
+                    )
 
     def stop(self) -> np.ndarray:
         """Stop recording and return the complete audio array."""
@@ -1822,6 +2253,16 @@ class Recorder:
         # unexpected (device disconnect).
         self._user_stop_pending = False
         stream_ms = (time.perf_counter() - stop_started) * 1000
+
+        # RT-SAFE-001: stop the audio worker thread. drain=True so the
+        # worker finishes processing any chunks still in the ring buffer
+        # — those chunks end up in self._buffer, which we concatenate
+        # below. Without this drain, the last few hundred ms of audio
+        # (chunks pushed to the ring buffer but not yet processed by the
+        # worker) would be lost.
+        self._stop_audio_worker(
+            timeout=_AUDIO_WORKER_JOIN_TIMEOUT_S, drain=True
+        )
 
         concat_started = time.perf_counter()
         with self._lock:
@@ -2231,6 +2672,14 @@ class Recorder:
         # (which fires ~16×/s). The helper polls for up to 300ms before
         # close() and is idempotent if the stream was already None.
         self._teardown_stream()
+        # RT-SAFE-001: stop the audio worker thread. drain=False because
+        # discard() doesn't need the in-flight audio — it's about to
+        # clear self._buffer anyway. The worker clears the ring buffer
+        # and exits after its current chunk (if any). Any chunk the
+        # worker appends to self._buffer before exiting is cleared below.
+        self._stop_audio_worker(
+            timeout=_AUDIO_WORKER_DISCARD_JOIN_TIMEOUT_S, drain=False
+        )
         with self._lock:
             # SEC-audit-008: Zero the buffer contents before clearing to prevent
             # forensic recovery of audio data from process memory
