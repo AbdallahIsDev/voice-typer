@@ -5,8 +5,11 @@ environment, including GPU detection, dependency checking, and model
 weight downloading.
 
 ARCH-001: ``pip_install`` and ``download_weights`` were removed from
-this module.  See ``archive/asr_setup_dead_code.py`` for the verbatim
-bodies in case they're needed for the future UX-005 on-demand
+this module.  The verbatim bodies were previously retained in
+``archive/asr_setup_dead_code.py`` for reference; that archive file
+has been deleted as part of dead-code cleanup since zero production
+call sites referenced it.  The historical implementation can be
+recovered from git history if needed for the future UX-005 on-demand
 dependency install feature.
 
 NEW-PAUSE-001: pause/resume flag for in-progress model downloads.
