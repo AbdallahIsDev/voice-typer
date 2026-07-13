@@ -785,13 +785,30 @@ class TranscriptionEngine:
             _check_disk_space_for_download(repo_id, model_size)
 
             # PROD-004: download with retry and exponential backoff
-            _download_with_retry(
+            local_dir = _download_with_retry(
                 snapshot_download,
                 repo_id=repo_id,
                 revision=whisper_revision,
                 allow_patterns=_whisper_allow_patterns,
                 resume_download=True,
             )
+            # PROD-006: Verify model integrity after download.  Parakeet
+            # and Qwen both verify (see asr_setup.py:316); Whisper
+            # previously skipped this check, leaving it vulnerable to a
+            # tampered or truncated download.  On failure we log + raise
+            # so the outer except surfaces the failure and WhisperModel
+            # retries (rather than silently loading a bad model).
+            from voice_typer.server.security import verify_model_integrity
+            if not verify_model_integrity(local_dir, repo_id):
+                log.error(
+                    "[MODEL] Model '%s' integrity check failed after download",
+                    model_size,
+                )
+                if progress_callback:
+                    progress_callback("Download completed but integrity check failed")
+                raise RuntimeError(
+                    f"Model integrity verification failed for {repo_id}"
+                )
             log.info("[MODEL] Model '%s' download complete", model_size)
         except ImportError:
             log.debug("[MODEL] huggingface_hub not available, skipping pre-download")

@@ -11,8 +11,9 @@ import socket
 import sys
 import threading
 import time
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock, call, patch
 
 # Mock pystray before importing tray (which is imported by ipc_server
 # transitively).  Without this, pystray tries to connect to an X display on
@@ -29,13 +30,12 @@ _mock_pystray.MenuItem = MagicMock
 _mock_pystray.Icon = MagicMock
 sys.modules.setdefault("pystray", _mock_pystray)
 
-from voice_typer.server import ipc_server
-from voice_typer.server.ipc_server import (
-    IPCServer,
+from voice_typer.server import ipc_server  # noqa: E402
+from voice_typer.server.ipc_server import (  # noqa: E402
     _TCP_WRITE_TIMEOUT_SECONDS,
+    IPCServer,
 )
-from voice_typer.server.tray import AppState
-
+from voice_typer.server.tray import AppState  # noqa: E402
 
 # ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -1386,7 +1386,7 @@ class TestPendingTcpBufferCappedAtThousand:
         server._tcp_mode = True
         server._tcp_client = None
         server._pending_tcp.clear()
-        for i in range(10000):
+        for _ in range(10000):
             server.push({"type": "test"})
         assert len(server._pending_tcp) <= 1000
 
@@ -1505,7 +1505,6 @@ class TestTcpIpcAuthHandshake:
 
         # Mock the socket and _TCPLineIO so we can simulate the
         # client side without a real network connection.
-        mock_conn = MagicMock()
         auth_line = _json.dumps({"type": "auth", "token": token}) + "\n"
         status_line = _json.dumps({"type": "get_status", "id": 1}) + "\n"
         # The readline mock needs to return the auth line first,
@@ -1550,7 +1549,7 @@ class TestTcpIpcAuthHandshake:
         app = MagicMock()
         app.tray.state = MagicMock()
         app.tray.state.value = "idle"
-        server = IPCServer(app)
+        _ = IPCServer(app)
 
         # We can't easily run the full _accept_tcp loop in a unit test
         # (it binds a real socket).  Instead, verify the token-checking
@@ -1616,7 +1615,6 @@ class TestGetDefaultsIpc:
 
     def test_get_defaults_does_not_modify_app_config(self, server, mock_app):
         """get_defaults must not mutate the app's actual config."""
-        original_hotkey = mock_app.config.hotkey
         mock_app.config.hotkey = "<f9>"  # non-default value
         result = server._dispatch({"id": 1, "type": "get_defaults"})
         # The defaults should show the platform-aware default hotkey,
@@ -1659,8 +1657,8 @@ class TestServerFloodResistance:
         stdin = io.StringIO()
         stdout = io.StringIO()
         # 100 malformed JSON lines
-        for i in range(100):
-            stdin.write(f'{{"invalid": "json", missing_colon}}\n')
+        for _ in range(100):
+            stdin.write('{"invalid": "json", missing_colon}\n')
         stdin.seek(0)
         server._running = True
         server._run(_stdin=stdin, _stdout=stdout)
@@ -1809,27 +1807,20 @@ class TestDispatchNonDictDataRobustness:
         assert result["type"] == "history"
 
     def test_delete_history_with_non_dict_data_returns_error(self, server, mock_app):
-        """delete_history with data=[1,2] should return an error, not crash.
-
-        ARCH-1A-002 (Round 0 forward-port): the @overload on
-        ``_validate_dict_payload`` makes the schema validator reject
-        non-dict data early with ``'data must be an object'`` (the
-        previous implementation fell through to the handler's per-field
-        ``Missing 'id'`` check).  Both responses are correct rejections;
-        the message just moved earlier in the pipeline.
-        """
+        """delete_history with data=[1,2] should return an error, not crash."""
         result = server._dispatch({
             "id": 1, "type": "delete_history", "data": [1, 2],
         })
         assert result["type"] == "error"
+        # ADR-0008 refactor: _validate_dict_payload now returns a structural
+        # "data must be an object" message for non-dict input (previously it
+        # returned "Missing 'id'" because the old validator only checked for
+        # the 'id' key after assuming dict-ness). Both messages are valid
+        # error responses; the new one is more precise about the root cause.
         assert "data must be an object" in result["data"]["message"]
 
     def test_toggle_favorite_with_string_data_returns_error(self, server, mock_app):
-        """toggle_favorite with data="bad" should return an error.
-
-        ARCH-1A-002 (Round 0 forward-port): same early-rejection change as
-        ``test_delete_history_with_non_dict_data_returns_error`` above.
-        """
+        """toggle_favorite with data="bad" should return an error."""
         result = server._dispatch({
             "id": 1, "type": "toggle_favorite", "data": "bad",
         })
@@ -2007,7 +1998,6 @@ class TestStopUnblocksAcceptLoop:
         that mentions the old pattern doesn't trip the assertion.
         """
         import inspect
-        import re
         source = inspect.getsource(IPCServer._accept_tcp)
         # Strip comment lines (lines whose first non-whitespace is #).
         code_lines = []

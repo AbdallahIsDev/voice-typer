@@ -11,8 +11,9 @@ The fix (RW-10) adds:
   1. A ``heartbeat`` IPC handler in ``ipc_server.py`` that updates
      ``self._last_heartbeat_at = time.monotonic()``.
   2. A daemon thread (``_heartbeat_loop``) that wakes every 5 seconds
-     and calls ``_check_heartbeat_timeout``.  If more than 15 seconds
-     (3 missed heartbeats) have elapsed since the last heartbeat,
+     and calls ``_check_heartbeat_timeout``.  If more than
+     ``_HEARTBEAT_TIMEOUT_SECONDS`` (24 missed heartbeats at the
+     default 120s timeout) have elapsed since the last heartbeat,
      the watchdog calls ``self.app.quit()`` — which runs the shared
      ``_do_cleanup()`` path from RW-3 (restores volume, flushes
      recovery, releases the mutex, closes PortAudio).
@@ -26,11 +27,11 @@ These tests exercise:
   - The ``heartbeat`` command is registered in the dispatch table.
   - ``_check_heartbeat_timeout`` returns False / does NOT call
     ``app.quit()`` when no heartbeat has been received yet.
-  - ``_check_heartbeat_timeout`` returns False within the 15s grace
-    period after a heartbeat.
+  - ``_check_heartbeat_timeout`` returns False within the grace
+    period (``_HEARTBEAT_TIMEOUT_SECONDS``) after a heartbeat.
   - ``_check_heartbeat_timeout`` returns True and calls ``app.quit()``
     when the heartbeat is overdue (mocked ``time.monotonic`` to
-    advance past the 15s timeout).
+    advance past the timeout).
   - The ``_heartbeat_loop`` thread is started by ``start()`` as a
     daemon (so it doesn't block shutdown).
   - ``stop()`` signals the watchdog to exit (best-effort wakeup).
@@ -41,21 +42,21 @@ These tests exercise:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import socket
 import threading
 import time
-from unittest.mock import MagicMock, patch
+import typing
+from unittest.mock import patch
 
 import pytest
-
 from voice_typer.server.ipc_server import (
-    _HEARTBEAT_INTERVAL_SECONDS,
     _HEARTBEAT_TIMEOUT_SECONDS,
     IPCServer,
 )
-from tests.fixtures.ipc_test_helpers import make_fake_app, make_fake_service
 
+from tests.fixtures.ipc_test_helpers import make_fake_app, make_fake_service
 
 # ── Fixtures ────────────────────────────────────────────────────────────
 
@@ -87,10 +88,8 @@ def server() -> typing.Iterator[IPCServer]:
         # Defensive teardown: stop the heartbeat thread + unregister
         # the push function even if the test called start() without
         # a matching stop().
-        try:
+        with contextlib.suppress(Exception):
             s.stop()
-        except Exception:
-            pass
 
 
 # ── Handler tests ───────────────────────────────────────────────────────
@@ -192,11 +191,10 @@ class TestHeartbeatWatchdog:
         server.app.quit.assert_not_called()
 
     def test_does_not_fire_within_grace_period(self, server: IPCServer) -> None:
-        """Within the 15s grace period, the watchdog must not fire.
+        """Within the grace period, the watchdog must not fire.
 
         A heartbeat received recently means Electron is alive — even
-        if we're 14.9s past it, we're still inside the 15s timeout
-        (3 missed heartbeats).
+        if we're 0.1s shy of the timeout, we're still inside it.
         """
         # Heartbeat at t=100.
         with patch(
@@ -204,7 +202,7 @@ class TestHeartbeatWatchdog:
         ):
             server._handle_heartbeat(None, {"id": 1})
 
-        # 14.9s later — just inside the 15s timeout.
+        # 0.1s before the timeout — still inside the grace period.
         with patch(
             "voice_typer.server.ipc_server.time.monotonic",
             return_value=100.0 + _HEARTBEAT_TIMEOUT_SECONDS - 0.1,
@@ -215,10 +213,10 @@ class TestHeartbeatWatchdog:
         server.app.quit.assert_not_called()
 
     def test_fires_after_timeout(self, server: IPCServer) -> None:
-        """The watchdog fires ``app.quit()`` after the 15s timeout.
+        """The watchdog fires ``app.quit()`` after the timeout elapses.
 
         Mocks ``time.monotonic`` so we can simulate the timeout
-        without waiting 15 real seconds.  This is the core regression
+        without waiting real seconds.  This is the core regression
         test: a crashed Electron (no more heartbeats) must cause the
         backend to clean up and exit via the normal ``app.quit()``
         path.
@@ -229,10 +227,11 @@ class TestHeartbeatWatchdog:
         ):
             server._handle_heartbeat(None, {"id": 1})
 
-        # Simulate that 20 seconds have passed (5s past the 15s
-        # timeout = 3 missed heartbeats + 1 grace heartbeat).
+        # Simulate that the timeout + 5s has elapsed (clearly past
+        # the boundary so the strictly-greater-than comparison fires).
         with patch(
-            "voice_typer.server.ipc_server.time.monotonic", return_value=120.0
+            "voice_typer.server.ipc_server.time.monotonic",
+            return_value=100.0 + _HEARTBEAT_TIMEOUT_SECONDS + 5.0,
         ):
             fired = server._check_heartbeat_timeout()
 
@@ -279,7 +278,8 @@ class TestHeartbeatWatchdog:
         server.app.quit.side_effect = RuntimeError("quit failed")
 
         with patch(
-            "voice_typer.server.ipc_server.time.monotonic", return_value=120.0
+            "voice_typer.server.ipc_server.time.monotonic",
+            return_value=100.0 + _HEARTBEAT_TIMEOUT_SECONDS + 5.0,
         ):
             # Must NOT raise.
             fired = server._check_heartbeat_timeout()
@@ -314,7 +314,8 @@ class TestHeartbeatWatchdog:
             server._handle_heartbeat(None, {"id": 1})
 
         with patch(
-            "voice_typer.server.ipc_server.time.monotonic", return_value=120.0
+            "voice_typer.server.ipc_server.time.monotonic",
+            return_value=100.0 + _HEARTBEAT_TIMEOUT_SECONDS + 5.0,
         ):
             fired = server._check_heartbeat_timeout()
 
@@ -473,10 +474,8 @@ class TestHeartbeatThreadLifecycle:
         # function remains registered and interferes with
         # test_server.py::TestPushEventNow tests that assert on the
         # registry state.
-        try:
+        with contextlib.suppress(Exception):
             s.stop()
-        except Exception:
-            pass
 
         assert len(check_calls) == 1, (
             f"watchdog loop should have called _check_heartbeat_timeout "

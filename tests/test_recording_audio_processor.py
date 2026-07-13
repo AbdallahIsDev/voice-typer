@@ -86,6 +86,25 @@ class FakeInputStream:
         self.callback(samples, frames, None, 0)
 
 
+def _drain_ring_buffer(rec, timeout_s: float = 2.0) -> None:
+    """Wait for the audio worker thread to drain the SPSC ring buffer.
+
+    RT-SAFE-001: the PortAudio callback now pushes chunks to a ring
+    buffer and returns immediately; a daemon worker thread processes
+    them asynchronously. Tests that push chunks via ``FakeInputStream``
+    must call this helper before asserting on ``rec._buffer`` —
+    otherwise the worker may not have processed the chunks yet.
+    """
+    import time
+    deadline = time.perf_counter() + timeout_s
+    while time.perf_counter() < deadline:
+        if len(rec._ring_buffer) == 0:
+            return
+        time.sleep(0.005)
+    # If we get here, the worker didn't drain in time — let the caller's
+    # assertion fail with a clear message rather than timing out here.
+
+
 def _make_sine(freq: float, duration_s: float, sr: int = 16000,
                amp: float = 0.5) -> np.ndarray:
     """Generate a mono sine wave reshaped to (frames, 1) for PortAudio."""
@@ -174,6 +193,11 @@ class TestRecorderCallbackWithAudioProcessor:
         for _ in range(5):
             chunk = _make_sine(freq=440, duration_s=1024 / 16000, amp=0.3)
             stream.push_chunk(chunk)
+
+        # RT-SAFE-001: the callback pushes to the ring buffer and returns
+        # immediately; the worker thread processes asynchronously. Wait
+        # for the worker to drain before asserting on _buffer.
+        _drain_ring_buffer(r)
 
         # If the callback had raised, the buffer would be empty.
         assert len(r._buffer) == 5, \
@@ -344,6 +368,9 @@ class TestRecorderCallbackWithAudioProcessor:
         for _ in range(3):
             stream.push_chunk(_make_sine(freq=440, duration_s=0.05, amp=0.3))
 
+        # RT-SAFE-001: wait for the worker to drain the ring buffer.
+        _drain_ring_buffer(r)
+
         assert len(r._buffer) == 3
         r.stop()
 
@@ -382,6 +409,9 @@ class TestRecorderCallbackWithAudioProcessor:
         # We use the string "input overflow" which is what sounddevice
         # actually passes — but any truthy value exercises the path.
         stream.callback(chunk, chunk.shape[0], None, "input overflow")
+
+        # RT-SAFE-001: wait for the worker to drain the ring buffer.
+        _drain_ring_buffer(r)
 
         # Buffer should still have grown.
         assert len(r._buffer) == 1
