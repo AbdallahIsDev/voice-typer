@@ -141,9 +141,6 @@ class _MockController:
     def change_hotkey(self, hotkey: str) -> None:
         pass
 
-    def open_settings(self) -> None:
-        pass
-
     def quit_app(self) -> None:
         pass
 
@@ -162,7 +159,7 @@ def tray():
     controller = _MockController()
     for method_name in [
         "toggle_dictation", "change_microphone", "change_model",
-        "change_hotkey", "open_settings", "quit_app",
+        "change_hotkey", "quit_app",
         "restart_app",
     ]:
         setattr(controller, method_name, MagicMock())

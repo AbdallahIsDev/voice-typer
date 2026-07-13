@@ -695,6 +695,12 @@ class RecordingController:
                 transcriber=app.models.active_transcriber(),
                 config=self._streaming_config(),
                 sample_rate=app.config.sample_rate,
+                # THREAD-REGISTRY: pass the app's registry so the
+                # streaming worker is tracked for coordinated shutdown.
+                # ``getattr`` with default ``None`` keeps this robust
+                # if a test constructs RecordingController with a mock
+                # app that doesn't have ``_thread_registry``.
+                thread_registry=getattr(app, "_thread_registry", None),
             )
             session.start()
             self.set_streaming_session(session)
