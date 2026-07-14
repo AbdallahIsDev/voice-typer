@@ -1,0 +1,503 @@
+"""Multi-format clipboard snapshot/restore.
+
+ADR-0010 §4: standalone module that captures and restores **all** clipboard
+formats. Platform-dispatched. No dependency on ``pyperclip`` (which is
+text-only).
+
+Design principles (ADR-0010 §3):
+
+* DP1 — every borrow is paired with a restore.
+* DP4 — snapshots are passed as values, not stored as instance state.
+* DP5 — capture all formats on Windows and macOS; text-only on Linux
+  (X11 and Wayland). Linux limitations are documented, not hidden.
+
+The snapshot is an immutable ``@dataclass``. ``capture()`` is a classmethod
+returning a new instance (or ``None``). ``restore()`` dispatches on
+``self.platform`` — the platform tag is captured at creation time and travels
+with the snapshot, so no global state is consulted at restore time.
+
+Cross-platform safety: every platform branch is wrapped so that an import
+failure or API misuse on a non-target platform logs and returns ``None``
+rather than crashing the caller. The transcription pipeline treats
+``None`` as "no snapshot to restore" — a degraded but safe mode.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import time
+from dataclasses import dataclass, field
+from typing import Any
+
+from voice_typer.server.platform_utils import is_macos, is_windows
+
+log = logging.getLogger(__name__)
+
+
+# ─── Windows builtin clipboard format IDs ─────────────────────────────────
+# https://learn.microsoft.com/en-us/windows/win32/dataxchg/standard-clipboard-formats
+_CF_TEXT = 1
+_CF_BITMAP = 2
+_CF_METAFILEPICT = 3
+_CF_SYLK = 4
+_CF_DIF = 5
+_CF_TIFF = 6
+_CF_OEMTEXT = 7
+_CF_DIB = 8
+_CF_PALETTE = 9
+_CF_PENDATA = 10
+_CF_RIFF = 11
+_CF_WAVE = 12
+_CF_UNICODETEXT = 13
+_CF_ENHMETAFILE = 14
+_CF_HDROP = 15
+_CF_LOCALE = 16
+_CF_DIBV5 = 17
+
+# Builtin format ID → human-readable name. Used when GetClipboardFormatNameW
+# returns 0 (which means the format is a builtin and has no registered name).
+_BUILTIN_FORMAT_NAMES: dict[int, str] = {
+    _CF_TEXT: "CF_TEXT",
+    _CF_BITMAP: "CF_BITMAP",
+    _CF_METAFILEPICT: "CF_METAFILEPICT",
+    _CF_SYLK: "CF_SYLK",
+    _CF_DIF: "CF_DIF",
+    _CF_TIFF: "CF_TIFF",
+    _CF_OEMTEXT: "CF_OEMTEXT",
+    _CF_DIB: "CF_DIB",
+    _CF_PALETTE: "CF_PALETTE",
+    _CF_PENDATA: "CF_PENDATA",
+    _CF_RIFF: "CF_RIFF",
+    _CF_WAVE: "CF_WAVE",
+    _CF_UNICODETEXT: "CF_UNICODETEXT",
+    _CF_ENHMETAFILE: "CF_ENHMETAFILE",
+    _CF_HDROP: "CF_HDROP",
+    _CF_LOCALE: "CF_LOCALE",
+    _CF_DIBV5: "CF_DIBV5",
+}
+
+# Formats that cannot be round-tripped through GlobalAlloc + memmove because
+# they are GDI handles, not byte streams. The actual image data is preserved
+# via CF_DIB / CF_DIBV5 (which ARE byte streams), so images are not lost.
+# ADR-0010 §4.3, §11.3.
+_NON_RESTORABLE_FORMATS: frozenset[int] = frozenset(
+    {
+        _CF_BITMAP,
+        _CF_METAFILEPICT,
+        _CF_ENHMETAFILE,
+    }
+)
+
+
+def _builtin_format_name(fmt: int) -> str:
+    """Return the standard name for a builtin clipboard format, or ''."""
+    return _BUILTIN_FORMAT_NAMES.get(fmt, "")
+
+
+@dataclass
+class ClipboardSnapshot:
+    """A captured snapshot of clipboard content at a point in time.
+
+    Captures all formats (text, RTF, HTML, image, file lists) on Windows
+    and macOS. Captures text-only on Linux (X11 and Wayland) due to CLI
+    tool limitations — see ADR-0010 §4.5 and §4.6.
+
+    Usage::
+
+        snap = ClipboardSnapshot.capture()
+        if snap is not None:
+            try:
+                pyperclip.copy(transcription_text)
+                send_paste_keystroke()
+                time.sleep(0.15)
+            finally:
+                snap.restore()
+
+    The dataclass is intentionally simple — ``items`` is a list of
+    platform-specific tuples (the platform knows how to interpret them).
+    No methods on the dataclass mutate state; ``restore()`` only reads
+    ``self.platform`` and ``self.items``.
+    """
+
+    platform: str  # "windows" | "macos" | "linux-x11" | "linux-wayland"
+    items: list[tuple[Any, ...]] = field(default_factory=list)
+    captured_at: float = 0.0
+
+    # ─── Public API ────────────────────────────────────────────────────
+
+    @classmethod
+    def capture(cls) -> ClipboardSnapshot | None:
+        """Capture the current clipboard across all formats.
+
+        Returns ``None`` if the clipboard cannot be opened (another app
+        holds the lock) or if no formats are present. The caller treats
+        ``None`` as "no snapshot to restore" — a degraded but safe mode.
+        """
+        try:
+            if is_windows():
+                return cls._capture_windows()
+            if is_macos():
+                return cls._capture_macos()
+            # Linux: dispatch on XDG_SESSION_TYPE (default x11).
+            session = os.environ.get("XDG_SESSION_TYPE", "x11").lower()
+            if session == "wayland":
+                snap = cls._capture_wayland()
+                # XWayland fallback: if wl-paste fails (e.g. running under
+                # XWayland without a Wayland compositor), try xclip.
+                if snap is None or not snap.items:
+                    snap = cls._capture_x11()
+                return snap
+            return cls._capture_x11()
+        except Exception:
+            log.exception("[CLIPBOARD-SNAPSHOT] capture failed")
+            return None
+
+    def restore(self) -> bool:
+        """Restore all captured formats.
+
+        Returns ``True`` if the restore completed without raising,
+        ``False`` on failure. Best-effort: per-item failures are logged
+        but do not abort the loop (we restore as many formats as we can).
+        """
+        if self.platform == "windows":
+            return self._restore_windows()
+        if self.platform == "macos":
+            return self._restore_macos()
+        if self.platform == "linux-x11":
+            return self._restore_x11()
+        if self.platform == "linux-wayland":
+            return self._restore_wayland()
+        log.warning("[CLIPBOARD-SNAPSHOT] unknown platform: %s", self.platform)
+        return False
+
+    # ─── Windows (Win32 API) ───────────────────────────────────────────
+
+    @classmethod
+    def _capture_windows(cls) -> ClipboardSnapshot | None:
+        """Capture all formats from the Windows clipboard via Win32 API.
+
+        Walks ``EnumClipboardFormats`` and reads every available format
+        as raw bytes via ``GetClipboardData`` + ``GlobalLock`` +
+        ``GlobalSize``. Returns ``None`` if the clipboard cannot be
+        opened (another app holds it).
+        """
+        import ctypes
+
+        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+
+        # OpenClipboard(0) — pass NULL owner so we don't associate the
+        # clipboard with our window (we have none; we're a tray app).
+        if not user32.OpenClipboard(0):
+            log.debug("[CLIPBOARD-SNAPSHOT] OpenClipboard failed")
+            return None
+        try:
+            items: list[tuple[int, str, bytes]] = []
+            fmt = 0
+            while True:
+                fmt = user32.EnumClipboardFormats(fmt)
+                if fmt == 0:
+                    break
+
+                # Get human-readable name (for registered formats).
+                name_buf = ctypes.create_unicode_buffer(256)
+                name_len = user32.GetClipboardFormatNameW(fmt, name_buf, 256)
+                name = name_buf.value if name_len > 0 else _builtin_format_name(fmt)
+
+                handle = user32.GetClipboardData(fmt)
+                if not handle:
+                    continue
+
+                size = kernel32.GlobalSize(handle)
+                if size == 0:
+                    continue
+
+                ptr = kernel32.GlobalLock(handle)
+                if not ptr:
+                    continue
+                try:
+                    data = ctypes.string_at(ptr, size)
+                finally:
+                    kernel32.GlobalUnlock(handle)
+
+                items.append((fmt, name, data))
+
+            if not items:
+                # Empty clipboard — return None so the caller skips restore.
+                return None
+
+            return cls(
+                platform="windows",
+                items=items,
+                captured_at=time.monotonic(),
+            )
+        finally:
+            user32.CloseClipboard()
+
+    def _restore_windows(self) -> bool:
+        """Restore all captured formats to the Windows clipboard.
+
+        Re-registers registered formats by name (the ID may differ from
+        the original because Windows assigns IDs dynamically). Skips
+        GDI-handle formats (CF_BITMAP, CF_METAFILEPICT, CF_ENHMETAFILE)
+        which cannot be round-tripped through GlobalAlloc.
+        """
+        import ctypes
+
+        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+
+        # GMEM_MOVEABLE — required by SetClipboardData.
+        gmem_moveable = 0x0002
+
+        if not user32.OpenClipboard(0):
+            log.debug("[CLIPBOARD-SNAPSHOT] OpenClipboard for restore failed")
+            return False
+        try:
+            user32.EmptyClipboard()
+            for fmt, name, data in self.items:
+                # Skip GDI-handle formats — they cannot be restored from
+                # raw bytes. Image data is preserved via CF_DIB / CF_DIBV5.
+                if fmt in _NON_RESTORABLE_FORMATS:
+                    continue
+
+                target_fmt = fmt
+                # Re-register registered formats by name so the ID matches
+                # what the consuming app expects (the original ID may
+                # differ across processes / sessions).
+                if name:
+                    registered = user32.RegisterClipboardFormatW(name)
+                    if registered:
+                        target_fmt = registered
+                    else:
+                        log.debug(
+                            "[CLIPBOARD-SNAPSHOT] RegisterClipboardFormatW failed for %r — skipping",
+                            name,
+                        )
+                        continue
+
+                h_mem = kernel32.GlobalAlloc(gmem_moveable, len(data))
+                if not h_mem:
+                    continue
+                ptr = kernel32.GlobalLock(h_mem)
+                if not ptr:
+                    kernel32.GlobalFree(h_mem)
+                    continue
+                try:
+                    ctypes.memmove(ptr, data, len(data))
+                finally:
+                    kernel32.GlobalUnlock(h_mem)
+
+                # SetClipboardData takes ownership of h_mem on success.
+                # On failure, we must free it ourselves.
+                if not user32.SetClipboardData(target_fmt, h_mem):
+                    kernel32.GlobalFree(h_mem)
+                    log.debug(
+                        "[CLIPBOARD-SNAPSHOT] SetClipboardData failed for fmt=%d name=%r",
+                        target_fmt,
+                        name,
+                    )
+            return True
+        finally:
+            user32.CloseClipboard()
+
+    # ─── macOS (NSPasteboard) ──────────────────────────────────────────
+
+    @classmethod
+    def _capture_macos(cls) -> ClipboardSnapshot | None:
+        """Capture all formats from the macOS pasteboard via NSPasteboard.
+
+        Records the pasteboard item index so multi-item pasteboards
+        (e.g. multiple files copied from Finder) can be restored as
+        separate NSPasteboardItem objects.
+        """
+        try:
+            import AppKit  # type: ignore[import-not-found]
+        except ImportError:
+            log.debug("[CLIPBOARD-SNAPSHOT] AppKit unavailable")
+            return None
+
+        pb = AppKit.NSPasteboard.generalPasteboard()
+        items: list[tuple[int, str, bytes]] = []
+
+        for idx, item in enumerate(pb.pasteboardItems()):
+            for type_name in item.types():
+                nsdata = item.dataForType_(type_name)
+                if nsdata is None:
+                    continue
+                length = nsdata.length()
+                # NSData.bytes() returns a pointer; .as_buffer(n) gives
+                # us a buffer we can convert to bytes.
+                data = b"" if length == 0 else bytes(nsdata.bytes().as_buffer(length))
+                items.append((idx, str(type_name), data))
+
+        if not items:
+            return None
+
+        return cls(
+            platform="macos",
+            items=items,
+            captured_at=time.monotonic(),
+        )
+
+    def _restore_macos(self) -> bool:
+        """Restore all captured formats to the macOS pasteboard.
+
+        Groups items by their original pasteboard item index and writes
+        one NSPasteboardItem per original index, preserving multi-item
+        pasteboards.
+        """
+        try:
+            import AppKit  # type: ignore[import-not-found]
+            import Foundation  # type: ignore[import-not-found]
+        except ImportError:
+            log.debug("[CLIPBOARD-SNAPSHOT] AppKit/Foundation unavailable for restore")
+            return False
+
+        pb = AppKit.NSPasteboard.generalPasteboard()
+        pb.clearContents()
+
+        # Group items by pasteboard item index so multi-item pasteboards
+        # are restored as separate NSPasteboardItem objects.
+        from collections import defaultdict
+
+        grouped: dict[int, list[tuple[str, bytes]]] = defaultdict(list)
+        for idx, type_name, data in self.items:
+            grouped[idx].append((type_name, data))
+
+        ns_items = []
+        for idx in sorted(grouped.keys()):
+            item = AppKit.NSPasteboardItem.alloc().init()
+            for type_name, data in grouped[idx]:
+                nsdata = Foundation.NSData.dataWithBytes_length_(data, len(data)) if data else Foundation.NSData.data()
+                item.setData_forType_(nsdata, type_name)
+            ns_items.append(item)
+
+        if ns_items:
+            pb.writeObjects_(ns_items)
+        return True
+
+    # ─── Linux X11 (xclip, text-only — documented limitation) ──────────
+
+    @classmethod
+    def _capture_x11(cls) -> ClipboardSnapshot | None:
+        """Capture text targets from the X11 clipboard via xclip.
+
+        Documented limitation (ADR-0010 §4.5, §11.1): xclip can only
+        hold one target per clipboard selection. A full multi-format X11
+        implementation requires Gtk.Clipboard via PyGObject, which is
+        not a dependency of this project. Images and file lists are not
+        preserved.
+        """
+        import subprocess
+
+        text_targets = [
+            "text/plain;charset=utf-8",
+            "UTF8_STRING",
+            "text/plain",
+            "STRING",
+        ]
+
+        items: list[tuple[str, bytes]] = []
+        for target in text_targets:
+            try:
+                result = subprocess.run(
+                    ["xclip", "-selection", "clipboard", "-t", target, "-o"],
+                    capture_output=True,
+                    timeout=2.0,
+                )
+                if result.returncode == 0 and result.stdout:
+                    items.append((target, result.stdout))
+                    break  # first available text target is sufficient
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                continue
+
+        if not items:
+            return None
+
+        return cls(
+            platform="linux-x11",
+            items=items,
+            captured_at=time.monotonic(),
+        )
+
+    def _restore_x11(self) -> bool:
+        """Restore text content to the X11 clipboard via xclip."""
+        import subprocess
+
+        if not self.items:
+            return True  # nothing to restore
+
+        target, data = self.items[0]
+        try:
+            subprocess.run(
+                ["xclip", "-selection", "clipboard", "-t", target, "-i"],
+                input=data,
+                timeout=2.0,
+            )
+            return True
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            log.debug("[CLIPBOARD-SNAPSHOT] xclip restore failed")
+            return False
+
+    # ─── Linux Wayland (wl-copy/wl-paste, text-only — documented) ──────
+
+    @classmethod
+    def _capture_wayland(cls) -> ClipboardSnapshot | None:
+        """Capture text targets from the Wayland clipboard via wl-paste.
+
+        Documented limitation (ADR-0010 §4.6, §11.2): wl-copy can only
+        serve one stdin stream for all --type flags. A full multi-format
+        Wayland implementation requires a custom wl_data_source client,
+        which is out of scope.
+        """
+        import subprocess
+
+        text_targets = [
+            "text/plain;charset=utf-8",
+            "text/plain",
+            "UTF8_STRING",
+        ]
+
+        items: list[tuple[str, bytes]] = []
+        for target in text_targets:
+            try:
+                result = subprocess.run(
+                    ["wl-paste", "--type", target],
+                    capture_output=True,
+                    timeout=2.0,
+                )
+                if result.returncode == 0 and result.stdout:
+                    items.append((target, result.stdout))
+                    break
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                continue
+
+        if not items:
+            return None
+
+        return cls(
+            platform="linux-wayland",
+            items=items,
+            captured_at=time.monotonic(),
+        )
+
+    def _restore_wayland(self) -> bool:
+        """Restore text content to the Wayland clipboard via wl-copy."""
+        import subprocess
+
+        if not self.items:
+            return True
+
+        target, data = self.items[0]
+        try:
+            subprocess.run(
+                ["wl-copy", "--type", target],
+                input=data,
+                timeout=2.0,
+            )
+            return True
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            log.debug("[CLIPBOARD-SNAPSHOT] wl-copy restore failed")
+            return False
