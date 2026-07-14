@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import tailwind from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
+import { cspEmissionPlugin } from "./csp-plugin";
 
 export default defineConfig({
 	main: {
@@ -41,7 +42,7 @@ export default defineConfig({
 				},
 			},
 		},
-		plugins: [react(), tailwind()],
+		plugins: [react(), tailwind(), cspEmissionPlugin()],
 		resolve: {
 			alias: {
 				"@": resolve(__dirname, "src/renderer/src"),
