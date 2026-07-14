@@ -124,9 +124,7 @@ class TestCspPluginConstants:
         assert CSP_PLUGIN_PATH.is_file(), f"Missing: {CSP_PLUGIN_PATH}"
 
     def test_csp_prod_has_no_unsafe_eval(self, csp_prod: str):
-        assert "'unsafe-eval'" not in csp_prod, (
-            f"CSP_PROD must not contain 'unsafe-eval' — got: {csp_prod}"
-        )
+        assert "'unsafe-eval'" not in csp_prod, f"CSP_PROD must not contain 'unsafe-eval' — got: {csp_prod}"
 
     def test_csp_prod_has_no_unsafe_inline_for_script_src(self, csp_prod: str):
         script_src = _script_src_directives(csp_prod)
@@ -158,23 +156,17 @@ class TestCspPluginConstants:
 
     def test_csp_dev_has_unsafe_eval(self, csp_dev: str):
         # Required for Vite HMR + eval-based sourcemaps.
-        assert "'unsafe-eval'" in csp_dev, (
-            f"CSP_DEV must contain 'unsafe-eval' for Vite HMR — got: {csp_dev}"
-        )
+        assert "'unsafe-eval'" in csp_dev, f"CSP_DEV must contain 'unsafe-eval' for Vite HMR — got: {csp_dev}"
 
     def test_csp_dev_has_unsafe_inline_for_script_src(self, csp_dev: str):
         # Required for React Refresh preamble (inline script injected by Vite).
         script_src = _script_src_directives(csp_dev)
-        assert "'unsafe-inline'" in script_src, (
-            f"CSP_DEV script-src must contain 'unsafe-inline' — got: {script_src}"
-        )
+        assert "'unsafe-inline'" in script_src, f"CSP_DEV script-src must contain 'unsafe-inline' — got: {script_src}"
 
     def test_csp_dev_has_ws_localhost_for_hmr(self, csp_dev: str):
         # The HMR websocket uses ws://localhost:<port>. 'self' (http://localhost)
         # does NOT cover ws:// because the scheme differs.
-        assert "ws://localhost" in csp_dev, (
-            f"CSP_DEV must include ws://localhost for HMR websocket — got: {csp_dev}"
-        )
+        assert "ws://localhost" in csp_dev, f"CSP_DEV must include ws://localhost for HMR websocket — got: {csp_dev}"
 
     def test_csp_dev_has_http_localhost(self, csp_dev: str):
         # Dev server fetches from http://localhost:* — explicit allowlist avoids
@@ -187,9 +179,7 @@ class TestCspPluginWiredIn:
 
     def test_electron_vite_config_imports_plugin(self):
         src = ELECTRON_VITE_CONFIG_PATH.read_text(encoding="utf-8")
-        assert "cspEmissionPlugin" in src, (
-            f"{ELECTRON_VITE_CONFIG_PATH.name} must import cspEmissionPlugin"
-        )
+        assert "cspEmissionPlugin" in src, f"{ELECTRON_VITE_CONFIG_PATH.name} must import cspEmissionPlugin"
 
     def test_electron_vite_config_uses_plugin_in_renderer(self):
         src = ELECTRON_VITE_CONFIG_PATH.read_text(encoding="utf-8")
@@ -200,9 +190,7 @@ class TestCspPluginWiredIn:
         ), "renderer plugins array must call cspEmissionPlugin()"
 
     def test_csp_plugin_has_transform_index_html_hook(self, csp_plugin_source: str):
-        assert "transformIndexHtml" in csp_plugin_source, (
-            "csp-plugin.ts must define a transformIndexHtml hook"
-        )
+        assert "transformIndexHtml" in csp_plugin_source, "csp-plugin.ts must define a transformIndexHtml hook"
 
     def test_csp_plugin_branches_on_mode(self, csp_plugin_source: str):
         # The plugin must branch on `isProduction` (set via configResolved).
@@ -229,8 +217,7 @@ class TestSourceHtmlFailSafeDefault:
         csp = _extract_csp_value(src)
         script_src = _script_src_directives(csp)
         assert "'unsafe-eval'" not in csp, (
-            f"index.html source CSP must not contain 'unsafe-eval' (fail-safe "
-            f"default must be strict) — got: {csp}"
+            f"index.html source CSP must not contain 'unsafe-eval' (fail-safe default must be strict) — got: {csp}"
         )
         assert "'unsafe-inline'" not in script_src, (
             f"index.html source CSP script-src must not contain 'unsafe-inline' "
@@ -242,8 +229,7 @@ class TestSourceHtmlFailSafeDefault:
         csp = _extract_csp_value(src)
         script_src = _script_src_directives(csp)
         assert "'unsafe-eval'" not in csp, (
-            f"bubble.html source CSP must not contain 'unsafe-eval' (fail-safe "
-            f"default must be strict) — got: {csp}"
+            f"bubble.html source CSP must not contain 'unsafe-eval' (fail-safe default must be strict) — got: {csp}"
         )
         assert "'unsafe-inline'" not in script_src, (
             f"bubble.html source CSP script-src must not contain 'unsafe-inline' "
@@ -254,16 +240,14 @@ class TestSourceHtmlFailSafeDefault:
         src = INDEX_HTML_PATH.read_text(encoding="utf-8")
         csp = _extract_csp_value(src)
         assert _normalize_csp(csp) == _normalize_csp(csp_prod), (
-            f"index.html source CSP must equal CSP_PROD (modulo trailing ;).\n"
-            f"  source: {csp}\n  CSP_PROD: {csp_prod}"
+            f"index.html source CSP must equal CSP_PROD (modulo trailing ;).\n  source: {csp}\n  CSP_PROD: {csp_prod}"
         )
 
     def test_bubble_html_csp_matches_csp_prod(self, csp_prod: str):
         src = BUBBLE_HTML_PATH.read_text(encoding="utf-8")
         csp = _extract_csp_value(src)
         assert _normalize_csp(csp) == _normalize_csp(csp_prod), (
-            f"bubble.html source CSP must equal CSP_PROD (modulo trailing ;).\n"
-            f"  source: {csp}\n  CSP_PROD: {csp_prod}"
+            f"bubble.html source CSP must equal CSP_PROD (modulo trailing ;).\n  source: {csp}\n  CSP_PROD: {csp_prod}"
         )
 
 
@@ -276,17 +260,13 @@ class TestMainIndexOnHeadersReceivedStrict:
 
     def test_main_uses_on_headers_received(self):
         src = MAIN_INDEX_TS_PATH.read_text(encoding="utf-8")
-        assert "onHeadersReceived" in src, (
-            "main/index.ts must register onHeadersReceived to set CSP via HTTP header"
-        )
+        assert "onHeadersReceived" in src, "main/index.ts must register onHeadersReceived to set CSP via HTTP header"
 
     def test_main_csp_conditional_on_app_is_packaged(self):
         src = MAIN_INDEX_TS_PATH.read_text(encoding="utf-8")
         # The script-src directive must be conditionally permissive only when
         # app.isPackaged === false (i.e. dev mode).
-        assert "app.isPackaged" in src, (
-            "main/index.ts CSP must branch on app.isPackaged"
-        )
+        assert "app.isPackaged" in src, "main/index.ts CSP must branch on app.isPackaged"
         # Find the script-src line — it should reference app.isPackaged.
         m = re.search(r"script-src[^;]*", src)
         assert m, "main/index.ts must contain a script-src directive"
@@ -341,8 +321,8 @@ def built_html_files():
             text=True,
             timeout=60,
         )
-    except subprocess.TimeoutExpired as exc:
-        pytest.skip(f"electron-vite build timed out: {exc}")
+    except (OSError, subprocess.SubprocessError) as exc:
+        pytest.skip(f"electron-vite build could not run: {exc!r}")
         return None, None  # pragma: no cover
 
     if proc.returncode != 0:
@@ -357,9 +337,7 @@ def built_html_files():
         pytest.skip(f"Built HTML files not found in {out_dir}")
         return None, None  # pragma: no cover
 
-    return built_index.read_text(encoding="utf-8"), built_bubble.read_text(
-        encoding="utf-8"
-    )
+    return built_index.read_text(encoding="utf-8"), built_bubble.read_text(encoding="utf-8")
 
 
 @pytest.mark.usefixtures("built_html_files")
@@ -369,45 +347,33 @@ class TestBuiltHtmlHasStrictCsp:
     def test_built_index_html_has_strict_csp(self, built_html_files):
         index_html, _ = built_html_files
         csp = _extract_csp_value(index_html)
-        assert "'unsafe-eval'" not in csp, (
-            f"Built index.html CSP must NOT contain 'unsafe-eval' — got: {csp}"
-        )
+        assert "'unsafe-eval'" not in csp, f"Built index.html CSP must NOT contain 'unsafe-eval' — got: {csp}"
         script_src = _script_src_directives(csp)
         assert "'unsafe-inline'" not in script_src, (
-            f"Built index.html CSP script-src must NOT contain 'unsafe-inline' "
-            f"— got: {script_src}"
+            f"Built index.html CSP script-src must NOT contain 'unsafe-inline' — got: {script_src}"
         )
 
     def test_built_bubble_html_has_strict_csp(self, built_html_files):
         _, bubble_html = built_html_files
         csp = _extract_csp_value(bubble_html)
-        assert "'unsafe-eval'" not in csp, (
-            f"Built bubble.html CSP must NOT contain 'unsafe-eval' — got: {csp}"
-        )
+        assert "'unsafe-eval'" not in csp, f"Built bubble.html CSP must NOT contain 'unsafe-eval' — got: {csp}"
         script_src = _script_src_directives(csp)
         assert "'unsafe-inline'" not in script_src, (
-            f"Built bubble.html CSP script-src must NOT contain 'unsafe-inline' "
-            f"— got: {script_src}"
+            f"Built bubble.html CSP script-src must NOT contain 'unsafe-inline' — got: {script_src}"
         )
 
-    def test_built_index_html_csp_matches_csp_prod(
-        self, built_html_files, csp_prod: str
-    ):
+    def test_built_index_html_csp_matches_csp_prod(self, built_html_files, csp_prod: str):
         index_html, _ = built_html_files
         csp = _extract_csp_value(index_html)
         assert _normalize_csp(csp) == _normalize_csp(csp_prod), (
-            f"Built index.html CSP must equal CSP_PROD (modulo trailing ;).\n"
-            f"  built: {csp}\n  CSP_PROD: {csp_prod}"
+            f"Built index.html CSP must equal CSP_PROD (modulo trailing ;).\n  built: {csp}\n  CSP_PROD: {csp_prod}"
         )
 
-    def test_built_bubble_html_csp_matches_csp_prod(
-        self, built_html_files, csp_prod: str
-    ):
+    def test_built_bubble_html_csp_matches_csp_prod(self, built_html_files, csp_prod: str):
         _, bubble_html = built_html_files
         csp = _extract_csp_value(bubble_html)
         assert _normalize_csp(csp) == _normalize_csp(csp_prod), (
-            f"Built bubble.html CSP must equal CSP_PROD (modulo trailing ;).\n"
-            f"  built: {csp}\n  CSP_PROD: {csp_prod}"
+            f"Built bubble.html CSP must equal CSP_PROD (modulo trailing ;).\n  built: {csp}\n  CSP_PROD: {csp_prod}"
         )
 
     def test_built_html_has_no_inline_event_handlers(self, built_html_files):
@@ -429,14 +395,9 @@ class TestBuiltHtmlHasStrictCsp:
             # Inline <script> blocks (without src attribute) would need
             # 'unsafe-inline' in script-src. Allow empty <script></script>
             # (unusual but harmless) and JSON-LD blocks (we don't use those).
-            inline_scripts = re.findall(
-                r"<script(?![^>]*\bsrc=)[^>]*>.*?</script>", html, flags=re.DOTALL
-            )
+            inline_scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>.*?</script>", html, flags=re.DOTALL)
             # Filter out truly empty <script></script>.
-            non_empty_inline = [
-                s for s in inline_scripts if re.sub(r"<[^>]+>", "", s).strip()
-            ]
+            non_empty_inline = [s for s in inline_scripts if re.sub(r"<[^>]+>", "", s).strip()]
             assert not non_empty_inline, (
-                f"Built HTML must not contain non-empty inline <script> blocks "
-                f"— found: {non_empty_inline}"
+                f"Built HTML must not contain non-empty inline <script> blocks — found: {non_empty_inline}"
             )
