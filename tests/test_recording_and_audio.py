@@ -35,12 +35,15 @@ class TestResampleError:
         from voice_typer.server.recording import Recorder, ResampleError, ResampleUnavailable
 
         recorder = Recorder.__new__(Recorder)
-        with patch(
-            "voice_typer.server.recording._get_resample_poly",
-            side_effect=ResampleUnavailable("scipy is missing"),
-        ), patch(
-            "voice_typer.server.recording.np.interp",
-            side_effect=ValueError("interp boom"),
+        with (
+            patch(
+                "voice_typer.server.recording._get_resample_poly",
+                side_effect=ResampleUnavailable("scipy is missing"),
+            ),
+            patch(
+                "voice_typer.server.recording.np.interp",
+                side_effect=ValueError("interp boom"),
+            ),
         ):
             audio = np.ones(1024, dtype=np.float32)
             with pytest.raises(ResampleError):
@@ -248,6 +251,7 @@ class TestPendingTimersLockGuarded:
         app = MagicMock()
         app._pending_timers = []
         import threading
+
         app._pending_timers_lock = threading.Lock()
         app._timer_generation = 0
 
@@ -322,6 +326,7 @@ class TestResampleCacheInvalidation:
         import inspect
 
         from voice_typer.server.recording import Recorder
+
         src = inspect.getsource(Recorder.__init__)
         assert "_cached_resample_key" in src
 
@@ -337,13 +342,17 @@ class TestPrepareAudioNarrowExcept:
         recorder = Recorder.__new__(Recorder)
         recorder.config = MagicMock()
         recorder.config.sample_rate = 16000
-        with patch(
-            "voice_typer.server.recording._get_resample_poly",
-            side_effect=MemoryError("out of RAM"),
-        ), patch(
-            "voice_typer.server.recording.np.interp",
-            side_effect=MemoryError("out of RAM"),
-        ), pytest.raises(MemoryError):
+        with (
+            patch(
+                "voice_typer.server.recording._get_resample_poly",
+                side_effect=MemoryError("out of RAM"),
+            ),
+            patch(
+                "voice_typer.server.recording.np.interp",
+                side_effect=MemoryError("out of RAM"),
+            ),
+            pytest.raises(MemoryError),
+        ):
             recorder._prepare_audio(
                 np.ones(1024, dtype=np.float32),
                 effective_sr=48000,
@@ -486,6 +495,11 @@ class TestSetConfigInvalidatesTrayCache:
 
         app = MagicMock()
         app.config = cfg
+        # RW-9 Phase 1: the app-level test-seam delegates have been removed;
+        # the IPC server's apply_config_side_effects now calls
+        # ``startup_tasks.sync_autostart(app)``, ``app.hotkeys.register_esc()``
+        # etc. directly. On a MagicMock these are auto-stubbed, so the
+        # explicit assignments below are no-ops kept for documentation.
         app._sync_prewarm_task = MagicMock()
         app._sync_autostart = MagicMock()
         app._register_esc_hotkey = MagicMock()
@@ -494,10 +508,13 @@ class TestSetConfigInvalidatesTrayCache:
         app.tray.invalidate_menu_cache = MagicMock()
 
         server = IPCServer(app)
-        server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"beam_size": 5},
-        })
+        server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"beam_size": 5},
+            }
+        )
 
         app.tray.invalidate_menu_cache.assert_called_once()
 
@@ -507,6 +524,7 @@ class TestStreamingSessionLock:
 
     def test_lock_exists(self):
         from voice_typer.server.recording_controller import RecordingController
+
         src = inspect.getsource(RecordingController.__init__)
         assert "_streaming_session_lock" in src
 
@@ -516,6 +534,7 @@ class TestConsecutiveFailuresLock:
 
     def test_lock_exists(self):
         from voice_typer.server.streaming import StreamingTranscriptionSession
+
         src = inspect.getsource(StreamingTranscriptionSession.__init__)
         assert "_consecutive_failures_lock" in src
 
@@ -525,6 +544,7 @@ class TestCancelNonBlocking:
 
     def test_cancel_signature_has_blocking_kwarg(self):
         from voice_typer.server.streaming import StreamingTranscriptionSession
+
         sig = inspect.signature(StreamingTranscriptionSession.cancel)
         assert "blocking" in sig.parameters
         assert sig.parameters["blocking"].default is False
@@ -535,6 +555,7 @@ class TestLoadTranscriberImplExists:
 
     def test_method_exists(self):
         from voice_typer.server.transcription import TranscriptionEngine
+
         assert hasattr(TranscriptionEngine, "_load_transcriber_impl")
 
     def test_reload_under_lock_delegates(self):
@@ -545,9 +566,11 @@ class TestLoadTranscriberImplExists:
         engine = TranscriptionEngine.__new__(TranscriptionEngine)
         engine._build_fallback_chain = MagicMock(return_value=[])
         called = {"n": 0}
+
         def fake_impl(chain, *, acquire_lock, **kw):
             called["n"] += 1
             called["acquire_lock"] = acquire_lock
+
         engine._load_transcriber_impl = fake_impl
         engine._reload_under_lock()
         assert called["n"] == 1
@@ -575,9 +598,7 @@ class TestFinalizeSkipsTailRetranscribe:
             config=StreamingConfig(),
             sample_rate=16000,
         )
-        session.assembler._words.append(
-            WordTiming("hello", start_seconds=0.0, end_seconds=4.5)
-        )
+        session.assembler._words.append(WordTiming("hello", start_seconds=0.0, end_seconds=4.5))
         session.assembler.last_committed_time = 4.5
         audio = np.zeros(5 * 16000, dtype=np.float32)
         result = session._finalize_impl(audio)
@@ -591,6 +612,7 @@ class TestWatchdogTimerTracked:
 
     def test_watchdog_added_to_pending_timers(self):
         from voice_typer.server import recording_controller
+
         src = inspect.getsource(recording_controller)
         assert "_watchdog_event" in src
         assert "_watchdog_stop_event" in src
@@ -638,6 +660,7 @@ class TestFreeNvidiaDllHandles:
 
     def test_function_exists(self):
         from voice_typer.server.transcription import _free_nvidia_dll_path_handles
+
         assert callable(_free_nvidia_dll_path_handles)
 
     def test_frees_handles_without_error(self):
@@ -657,7 +680,7 @@ class TestAudioProcessorNullChecksFunctional:
 
     def test_quality_callback_null_does_not_crash(self):
         """When _quality_callback is None, _run_quality_check should
-            be a no-op, not crash."""
+        be a no-op, not crash."""
         from voice_typer.server.audio_processor import AudioProcessor
 
         class _Cfg:
@@ -667,7 +690,8 @@ class TestAudioProcessorNullChecksFunctional:
             noise_filter_compressor = False
             noise_filter_limiter = False
             noise_filter_notch = False
-            noise_suppression_method = 'none'
+            noise_suppression_method = "none"
+
         proc = AudioProcessor(_Cfg(), sample_rate=16000)
         proc._quality_callback = None
         chunk = np.ones(1024, dtype=np.float32) * 0.1
@@ -679,10 +703,12 @@ class TestServerPackageInit:
 
     def test_init_py_exists(self):
         import voice_typer.server
+
         assert voice_typer.server.__file__ is not None
 
     def test_main_py_exists(self):
         import importlib.util
+
         spec = importlib.util.find_spec("voice_typer.server.__main__")
         assert spec is not None
 
@@ -692,6 +718,7 @@ class TestGetVoiceTyperPythonRemoved:
 
     def test_function_not_present(self):
         from voice_typer.server import asr_setup
+
         assert not hasattr(asr_setup, "get_voice_typer_python")
 
 
@@ -735,9 +762,7 @@ class TestAudioWorkerThreadLifecycle:
                 "hostapi": 0,
             },
         )
-        monkeypatch.setattr(
-            recording_mod.sd, "query_hostapis", lambda idx=None: {"name": "MME"}
-        )
+        monkeypatch.setattr(recording_mod.sd, "query_hostapis", lambda idx=None: {"name": "MME"})
         return OkStream
 
     def test_worker_thread_not_running_before_start(self):
@@ -760,19 +785,11 @@ class TestAudioWorkerThreadLifecycle:
         r.start()
 
         try:
-            assert r._worker_thread is not None, (
-                "start() must create the audio worker thread"
-            )
-            assert r._worker_thread.is_alive(), (
-                "audio worker thread must be alive after start()"
-            )
-            assert r._worker_thread.daemon, (
-                "audio worker thread must be a daemon so it never blocks "
-                "process exit"
-            )
+            assert r._worker_thread is not None, "start() must create the audio worker thread"
+            assert r._worker_thread.is_alive(), "audio worker thread must be alive after start()"
+            assert r._worker_thread.daemon, "audio worker thread must be a daemon so it never blocks process exit"
             assert r._worker_thread.name == "audio-worker", (
-                "audio worker thread must be named 'audio-worker' for "
-                "diagnostics (matches _AUDIO_WORKER_THREAD_NAME)"
+                "audio worker thread must be named 'audio-worker' for diagnostics (matches _AUDIO_WORKER_THREAD_NAME)"
             )
         finally:
             r.stop()
@@ -791,9 +808,7 @@ class TestAudioWorkerThreadLifecycle:
 
         r.stop()
 
-        assert r._worker_thread is None, (
-            "stop() must set _worker_thread to None after joining"
-        )
+        assert r._worker_thread is None, "stop() must set _worker_thread to None after joining"
 
     def test_worker_thread_stops_on_discard(self, monkeypatch):
         """discard() must join the worker thread and set _worker_thread
@@ -811,9 +826,7 @@ class TestAudioWorkerThreadLifecycle:
 
         r.discard()
 
-        assert r._worker_thread is None, (
-            "discard() must set _worker_thread to None after joining"
-        )
+        assert r._worker_thread is None, "discard() must set _worker_thread to None after joining"
 
     def test_worker_thread_can_restart_after_stop(self, monkeypatch):
         """After stop(), a subsequent start() must start a NEW worker
@@ -841,8 +854,7 @@ class TestAudioWorkerThreadLifecycle:
         assert second_thread is not None
         assert second_thread.is_alive()
         assert second_thread is not first_thread, (
-            "start() after stop() must create a NEW worker thread, not "
-            "reuse the dead one"
+            "start() after stop() must create a NEW worker thread, not reuse the dead one"
         )
         r.stop()
         assert r._worker_thread is None
@@ -877,13 +889,9 @@ class TestAudioWorkerThreadLifecycle:
                 time.sleep(0.01)
 
             assert len(r._ring_buffer) == 0, (
-                "worker thread must drain the ring buffer after the "
-                "callback pushes a chunk"
+                "worker thread must drain the ring buffer after the callback pushes a chunk"
             )
-            assert r._chunk_count >= 1, (
-                "worker thread must increment _chunk_count after "
-                "processing the chunk"
-            )
+            assert r._chunk_count >= 1, "worker thread must increment _chunk_count after processing the chunk"
         finally:
             r.stop()
 
@@ -896,17 +904,14 @@ class TestAudioWorkerThreadLifecycle:
         the ~32ms PortAudio deadline."""
         from voice_typer.server import recording
 
-        callback_src = inspect.getsource(
-            recording.Recorder._audio_callback_dispatch
-        )
+        callback_src = inspect.getsource(recording.Recorder._audio_callback_dispatch)
         # The callback must NOT call these heavy operations
         assert "compute_vad_prob" not in callback_src, (
             "RT-SAFE-001: the audio callback must NOT call Silero VAD "
             "(compute_vad_prob) — that runs on the worker thread"
         )
         assert "_get_resample_poly" not in callback_src, (
-            "RT-SAFE-001: the audio callback must NOT call scipy "
-            "resample_poly — that runs on the worker thread"
+            "RT-SAFE-001: the audio callback must NOT call scipy resample_poly — that runs on the worker thread"
         )
         assert "process_chunk" not in callback_src, (
             "RT-SAFE-001: the audio callback must NOT call the filter "
@@ -917,12 +922,8 @@ class TestAudioWorkerThreadLifecycle:
             "machine (_vad_update) — that runs on the worker thread"
         )
         # The callback MUST push to the ring buffer and signal the worker
-        assert "_ring_buffer.append" in callback_src, (
-            "RT-SAFE-001: the audio callback must push to the ring buffer"
-        )
-        assert "_worker_wake_event" in callback_src, (
-            "RT-SAFE-001: the audio callback must signal the worker thread"
-        )
+        assert "_ring_buffer.append" in callback_src, "RT-SAFE-001: the audio callback must push to the ring buffer"
+        assert "_worker_wake_event" in callback_src, "RT-SAFE-001: the audio callback must signal the worker thread"
 
     def test_worker_thread_processes_heavy_pipeline(self, monkeypatch):
         """RT-SAFE-001: the worker thread (_process_audio_chunk) must
@@ -931,20 +932,9 @@ class TestAudioWorkerThreadLifecycle:
         architecture: the heavy work must be on the worker thread."""
         from voice_typer.server import recording
 
-        worker_src = inspect.getsource(
-            recording.Recorder._process_audio_chunk
-        )
+        worker_src = inspect.getsource(recording.Recorder._process_audio_chunk)
         # The worker thread MUST run these heavy operations
-        assert "compute_vad_prob" in worker_src, (
-            "RT-SAFE-001: Silero VAD must run on the worker thread"
-        )
-        assert "_get_resample_poly" in worker_src, (
-            "RT-SAFE-001: scipy resample must run on the worker thread"
-        )
-        assert "process_chunk" in worker_src, (
-            "RT-SAFE-001: the filter chain must run on the worker thread"
-        )
-        assert "_vad_update" in worker_src, (
-            "RT-SAFE-001: the VAD state machine must run on the worker thread"
-        )
-
+        assert "compute_vad_prob" in worker_src, "RT-SAFE-001: Silero VAD must run on the worker thread"
+        assert "_get_resample_poly" in worker_src, "RT-SAFE-001: scipy resample must run on the worker thread"
+        assert "process_chunk" in worker_src, "RT-SAFE-001: the filter chain must run on the worker thread"
+        assert "_vad_update" in worker_src, "RT-SAFE-001: the VAD state machine must run on the worker thread"

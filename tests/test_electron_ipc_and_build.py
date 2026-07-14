@@ -27,17 +27,11 @@ class TestElectronExposesDataExportHandlers:
 
     def test_main_has_templates_export_handler(self):
         main_ts = (CLIENT_SRC / "main" / "index.ts").read_text(encoding="utf-8")
-        assert (
-            'ipcMain.handle("templates:export"' in main_ts
-            or '"templates:export"' in main_ts
-        )
+        assert 'ipcMain.handle("templates:export"' in main_ts or '"templates:export"' in main_ts
 
     def test_main_has_config_export_handler(self):
         main_ts = (CLIENT_SRC / "main" / "index.ts").read_text(encoding="utf-8")
-        assert (
-            'ipcMain.handle("config:export"' in main_ts
-            or '"config:export"' in main_ts
-        )
+        assert 'ipcMain.handle("config:export"' in main_ts or '"config:export"' in main_ts
 
     def test_preload_exposes_export_templates(self):
         preload = (CLIENT_SRC / "preload" / "index.ts").read_text(encoding="utf-8")
@@ -57,17 +51,11 @@ class TestElectronExposesDataExportHandlers:
 
     def test_history_export_still_present(self):
         main_ts = (CLIENT_SRC / "main" / "index.ts").read_text(encoding="utf-8")
-        assert (
-            'ipcMain.handle("history:export"' in main_ts
-            or '"history:export"' in main_ts
-        )
+        assert 'ipcMain.handle("history:export"' in main_ts or '"history:export"' in main_ts
 
     def test_vocabulary_export_still_present(self):
         main_ts = (CLIENT_SRC / "main" / "index.ts").read_text(encoding="utf-8")
-        assert (
-            'ipcMain.handle("vocabulary:export"' in main_ts
-            or '"vocabulary:export"' in main_ts
-        )
+        assert 'ipcMain.handle("vocabulary:export"' in main_ts or '"vocabulary:export"' in main_ts
 
 
 class TestTypeScriptWebConfigClean:
@@ -112,7 +100,7 @@ class TestPyprojectHasStandardMetadataFields:
 
     def test_has_license(self):
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
-        assert 'license = ' in pyproject
+        assert "license = " in pyproject
 
     def test_has_classifiers(self):
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
@@ -124,7 +112,7 @@ class TestPyprojectHasStandardMetadataFields:
 
     def test_has_readme(self):
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
-        assert 'readme = ' in pyproject
+        assert "readme = " in pyproject
 
 
 class TestPackageJsonDeclaresKeywords:
@@ -146,6 +134,7 @@ class TestVersionReadsFromPackageMetadata:
 
     def test_version_uses_importlib_metadata(self):
         from voice_typer import __version__
+
         assert __version__ is not None
         assert isinstance(__version__, str)
         assert len(__version__) > 0
@@ -272,6 +261,11 @@ class TestSetConfigRejectsSensitiveAttrs:
 
         app = MagicMock()
         app.config = cfg
+        # RW-9 Phase 1: the app-level test-seam delegates have been removed;
+        # the IPC server's apply_config_side_effects now calls
+        # ``startup_tasks.sync_autostart(app)``, ``app.hotkeys.register_esc()``
+        # etc. directly. On a MagicMock these are auto-stubbed, so the
+        # explicit assignments below are no-ops kept for documentation.
         app._sync_prewarm_task = MagicMock()
         app._sync_autostart = MagicMock()
         app._register_esc_hotkey = MagicMock()
@@ -284,16 +278,18 @@ class TestSetConfigRejectsSensitiveAttrs:
         original_parakeet = cfg.parakeet_model_path
         original_corrections = cfg.corrections_path
 
-        result = server._dispatch({
-            "id": 1,
-            "type": "set_config",
-            "data": {
-                "qwen_model_path": "/etc/passwd",
-                "parakeet_model_path": "/tmp/evil",
-                "corrections_path": "/tmp/evil-corrections.json",
-                "beam_size": 7,
-            },
-        })
+        result = server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {
+                    "qwen_model_path": "/etc/passwd",
+                    "parakeet_model_path": "/tmp/evil",
+                    "corrections_path": "/tmp/evil-corrections.json",
+                    "beam_size": 7,
+                },
+            }
+        )
 
         assert result["type"] == "ack"
         assert cfg.qwen_model_path == original_qwen
@@ -327,15 +323,18 @@ class TestEntryPointImportable:
 
     def test_ipc_server_main_importable(self):
         from voice_typer.server.ipc_server import main
+
         assert callable(main)
 
     def test_app_main_re_export_exists(self):
         import voice_typer.server.app as app_mod
+
         assert hasattr(app_mod, "main")
         assert callable(app_mod.main)
 
     def test_dunder_main_imports_from_ipc_server(self):
         import voice_typer.server.__main__ as main_mod
+
         assert hasattr(main_mod, "main")
         assert callable(main_mod.main)
 
@@ -350,14 +349,13 @@ class TestAllowlistCorrectness:
 
     @pytest.fixture
     def allowlist_entries(self):
-        idx_path = (
-            REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "index.ts"
-        )
+        idx_path = REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "index.ts"
         src = idx_path.read_text(encoding="utf-8")
         start = src.index("ALLOWED_COMMANDS = new Set([")
         end = src.index("]);", start)
         block = src[start:end]
         import re
+
         entries = re.findall(r'"([a-z_]+)"', block)
         return set(entries)
 
@@ -387,9 +385,8 @@ class TestAllowlistCorrectness:
 
     def test_allowlist_matches_server_commands(self, allowlist_entries):
         import re
-        ipc_path = (
-            REPO_ROOT / "voice_typer" / "server" / "ipc_server.py"
-        )
+
+        ipc_path = REPO_ROOT / "voice_typer" / "server" / "ipc_server.py"
         src = ipc_path.read_text(encoding="utf-8")
         old_cmds = set(re.findall(r'cmd == "([a-z_]+)"', src))
         new_cmds = set(re.findall(r'"([a-z_]+)": "_handle_', src))
@@ -413,17 +410,21 @@ class TestGetVocabularyHandler:
 
     def test_vocabulary_manager_has_no_list_entries(self):
         from voice_typer.server.vocabulary import VocabularyManager
+
         assert not hasattr(VocabularyManager, "list_entries")
 
     def test_vocabulary_manager_has_get_all(self):
         from voice_typer.server.vocabulary import VocabularyManager
+
         assert hasattr(VocabularyManager, "get_all")
 
     def test_service_get_vocabulary_uses_get_all(self, tmp_path, monkeypatch):
         from voice_typer.server import config as config_module
+
         monkeypatch.setattr(config_module, "_config_dir", lambda: tmp_path)
 
         from voice_typer.server.service import VoiceTyperService
+
         app = MagicMock()
         app.config.config_dir = tmp_path
         service = VoiceTyperService(app)
@@ -434,9 +435,11 @@ class TestGetVocabularyHandler:
 
     def test_ipc_dispatch_get_vocabulary_returns_vocabulary_type(self, tmp_path, monkeypatch):
         from voice_typer.server import config as config_module
+
         monkeypatch.setattr(config_module, "_config_dir", lambda: tmp_path)
 
         from voice_typer.server.ipc_server import IPCServer
+
         app = MagicMock()
         app.config = config_module.Config()
         server = IPCServer(app)
@@ -451,15 +454,18 @@ class TestVoiceTyperAppSingleton:
 
     def test_ensure_single_instance_exists(self):
         from voice_typer.server import app as app_module
+
         assert hasattr(app_module, "_ensure_single_instance")
 
     def test_main_calls_ensure_single_instance(self):
         from voice_typer.server import ipc_server
+
         src = inspect.getsource(ipc_server.main)
         assert "_ensure_single_instance" in src or "single_instance" in src
 
     def test_singleton_via_request_single_instance_lock(self):
         from voice_typer.server import app as app_module
+
         assert hasattr(app_module, "_ensure_single_instance") or hasattr(app_module, "main")
 
 
@@ -474,9 +480,7 @@ class TestIPCDispatchInvalidData:
         app.config = config_module.Config()
         server = IPCServer(app)
 
-        result = server._dispatch({
-            "id": 1, "type": "set_config", "data": "not a dict"
-        })
+        result = server._dispatch({"id": 1, "type": "set_config", "data": "not a dict"})
         assert result["type"] in ("ack", "error")
 
     def test_set_config_with_string_data(self, tmp_path, monkeypatch):
@@ -488,9 +492,7 @@ class TestIPCDispatchInvalidData:
         app.config = config_module.Config()
         server = IPCServer(app)
 
-        result = server._dispatch({
-            "id": 1, "type": "set_config", "data": "not a dict"
-        })
+        result = server._dispatch({"id": 1, "type": "set_config", "data": "not a dict"})
         assert result["type"] in ("ack", "error")
 
     def test_set_config_with_list_data(self, tmp_path, monkeypatch):
@@ -502,9 +504,7 @@ class TestIPCDispatchInvalidData:
         app.config = config_module.Config()
         server = IPCServer(app)
 
-        result = server._dispatch({
-            "id": 1, "type": "set_config", "data": ["not", "a", "dict"]
-        })
+        result = server._dispatch({"id": 1, "type": "set_config", "data": ["not", "a", "dict"]})
         assert result["type"] in ("ack", "error")
 
     def test_set_config_with_none_data(self, tmp_path, monkeypatch):
@@ -516,9 +516,7 @@ class TestIPCDispatchInvalidData:
         app.config = config_module.Config()
         server = IPCServer(app)
 
-        result = server._dispatch({
-            "id": 1, "type": "set_config", "data": None
-        })
+        result = server._dispatch({"id": 1, "type": "set_config", "data": None})
         assert result["type"] in ("ack", "error")
 
     def test_set_config_with_integer_data(self, tmp_path, monkeypatch):
@@ -530,9 +528,7 @@ class TestIPCDispatchInvalidData:
         app.config = config_module.Config()
         server = IPCServer(app)
 
-        result = server._dispatch({
-            "id": 1, "type": "set_config", "data": 42
-        })
+        result = server._dispatch({"id": 1, "type": "set_config", "data": 42})
         assert result["type"] in ("ack", "error")
 
 
@@ -551,16 +547,19 @@ class TestTypeIgnoreBugsFixed:
 
     def test_audio_processor_quality_callback_null_check(self):
         from voice_typer.server.audio_processor import AudioProcessor
+
         src = inspect.getsource(AudioProcessor._run_quality_check)
         assert "if self._quality_callback is not None" in src
 
     def test_volume_ducker_backend_null_check_in_monitor(self):
         from voice_typer.server.volume_ducker import VolumeDucker
+
         src = inspect.getsource(VolumeDucker._smart_duck_monitor_loop)
         assert "if self._backend is None" in src
 
     def test_volume_ducker_backend_null_check_in_duck(self):
         from voice_typer.server.volume_ducker import VolumeDucker
+
         src = inspect.getsource(VolumeDucker.duck)
         assert "self._backend is not None" in src
 
@@ -609,6 +608,7 @@ class TestVadStderrRedirect:
 
     def test_vad_redirects_both_streams(self):
         from voice_typer.server import vad
+
         src = inspect.getsource(vad)
         assert "redirect_stderr" in src
 
@@ -624,12 +624,14 @@ class TestMacOSAccessibilityCheck:
 
     def test_accessibility_check_in_startup_source(self):
         from voice_typer.server.startup_sequence import StartupSequence
+
         src = inspect.getsource(StartupSequence.run)
         has_macos_guard = "darwin" in src or "is_macos()" in src
         assert has_macos_guard and "accessibility" in src.lower()
 
     def test_accessibility_check_notifies_on_missing(self):
         from voice_typer.server.startup_sequence import StartupSequence
+
         src = inspect.getsource(StartupSequence.run)
         assert "tray.notify" in src
 
@@ -641,18 +643,26 @@ class TestRestartAppStopsBackends:
         from voice_typer.server import app as app_module
 
         for mod_name in [
-            "sounddevice", "faster_whisper", "faster_whisper.WhisperModel",
-            "pynput", "pynput.keyboard", "pystray",
-            "PIL", "PIL.Image", "PIL.ImageDraw",
+            "sounddevice",
+            "faster_whisper",
+            "faster_whisper.WhisperModel",
+            "pynput",
+            "pynput.keyboard",
+            "pystray",
+            "PIL",
+            "PIL.Image",
+            "PIL.ImageDraw",
             "pyperclip",
         ]:
             sys.modules.setdefault(mod_name, MagicMock())
 
-        with patch.object(app_module, "_config_dir", return_value=tmp_path), \
-             patch.object(app_module, "is_autostart_enabled", return_value=False), \
-             patch.object(app_module, "enable_autostart"), \
-             patch.object(app_module, "disable_autostart"), \
-             patch.object(app_module, "list_microphones", return_value=[]):
+        with (
+            patch.object(app_module, "_config_dir", return_value=tmp_path),
+            patch.object(app_module, "is_autostart_enabled", return_value=False),
+            patch.object(app_module, "enable_autostart"),
+            patch.object(app_module, "disable_autostart"),
+            patch.object(app_module, "list_microphones", return_value=[]),
+        ):
             app = app_module.VoiceTyperApp()
             app.hotkeys._hotkey_backend = MagicMock()
             app.hotkeys._esc_backend = MagicMock()
@@ -665,7 +675,8 @@ class TestRestartAppStopsBackends:
                 app.restart_app()
 
             stops_called = sum(
-                1 for be in (app.hotkeys._hotkey_backend, app.hotkeys._esc_backend, app.hotkeys._repaste_backend)
+                1
+                for be in (app.hotkeys._hotkey_backend, app.hotkeys._esc_backend, app.hotkeys._repaste_backend)
                 if be.stop.called
             )
             assert stops_called >= 1
@@ -676,6 +687,7 @@ class TestRestartFiltersEnvVarsWithAllowlist:
 
     def test_app_uses_env_allowlist(self):
         from voice_typer.server.app import VoiceTyperApp
+
         for name in ("_restart_app", "restart_app", "_do_restart"):
             if hasattr(VoiceTyperApp, name):
                 source = inspect.getsource(getattr(VoiceTyperApp, name))

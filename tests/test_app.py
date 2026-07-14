@@ -228,9 +228,17 @@ class TestAppStateTransitions:
         app.clipboard.copy.assert_called_once_with("Can we test this now?")
 
     def test_clipboard_copy_failure_prevents_paste(self, app):
-        """Regression test for Finding 1: stale clipboard must not be pasted."""
+        """Regression test for Finding 1: stale clipboard must not be pasted.
+
+        ADR-0010 §5.2: copy() now raises ClipboardCopyError on genuine
+        copy failure (instead of returning False). The dictation
+        pipeline's _copy_and_paste() catches it and short-circuits —
+        paste() is never called.
+        """
+        from voice_typer.server.clipboard import ClipboardCopyError
+
         app.clipboard = MagicMock()
-        app.clipboard.copy = MagicMock(return_value=False)  # copy FAILS
+        app.clipboard.copy = MagicMock(side_effect=ClipboardCopyError("simulated copy failure"))
         app.clipboard.paste = MagicMock(return_value=True)
 
         app.models.transcriber = MagicMock()
@@ -314,7 +322,9 @@ class TestAppStateTransitions:
         app._busy_event.clear()  # set busy
         app.tray = MagicMock()
 
-        app._force_recover_from_stuck_transcription()
+        # RW-9 Phase 1: was ``app._force_recover_from_stuck_transcription()``
+        # (test-seam delegate removed); call the controller method directly.
+        app.recording._force_recover_from_stuck_transcription()
 
         assert app._busy_event.is_set()
         app.tray.set_state.assert_called()
@@ -387,7 +397,9 @@ class TestAppStateTransitions:
         app._busy_event.set()  # not busy
         app.tray = MagicMock()
 
-        app._force_recover_from_stuck_transcription()
+        # RW-9 Phase 1: was ``app._force_recover_from_stuck_transcription()``
+        # (test-seam delegate removed); call the controller method directly.
+        app.recording._force_recover_from_stuck_transcription()
 
         # No state change should have been made
         app.tray.set_state.assert_not_called()
@@ -401,7 +413,9 @@ class TestAppStateTransitions:
         app.recording._transcription_thread = MagicMock()
         app.recording._transcription_thread.is_alive.return_value = True
 
-        app._force_recover_from_stuck_transcription()
+        # RW-9 Phase 1: was ``app._force_recover_from_stuck_transcription()``
+        # (test-seam delegate removed); call the controller method directly.
+        app.recording._force_recover_from_stuck_transcription()
 
         assert not app._busy_event.is_set()  # Still busy
         app.tray.set_state.assert_called()
@@ -544,11 +558,13 @@ class TestConfigWiring:
 
         app = VoiceTyperApp()
         # TranscriptionEngine is now created in _do_startup (background), not __init__
-        app._sync_autostart = MagicMock()
-        app._sync_prewarm_task = MagicMock()
-        app._load_microphones = MagicMock()
-        app._register_hotkey = MagicMock()
-        app._try_load_model = MagicMock()
+        # RW-9 Phase 1: the app-level test-seam delegates have been removed;
+        # patch the controllers / module-level functions directly.
+        monkeypatch.setattr("voice_typer.server.startup_tasks.sync_autostart", MagicMock())
+        monkeypatch.setattr("voice_typer.server.startup_tasks.sync_prewarm_task", MagicMock())
+        monkeypatch.setattr("voice_typer.server.startup_tasks.load_microphones", MagicMock())
+        app.hotkeys.register = MagicMock()
+        app.models.try_load = MagicMock()
         app._do_startup()
         # Model load now runs in a daemon thread — wait for it so the
         # assertions below don't race with the background worker.
@@ -572,10 +588,13 @@ class TestConfigWiring:
         monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
         monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
 
+        from voice_typer.server import startup_tasks
         from voice_typer.server.app import VoiceTyperApp
 
         app = VoiceTyperApp()
-        app._sync_autostart()
+        # RW-9 Phase 1: was ``app._sync_autostart()`` (test-seam delegate
+        # removed); call the standalone function directly.
+        startup_tasks.sync_autostart(app)
 
         assert len(called) == 1  # enable_autostart was called
 
@@ -589,10 +608,13 @@ class TestConfigWiring:
         monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: called.append(True) or True)
         monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
 
+        from voice_typer.server import startup_tasks
         from voice_typer.server.app import VoiceTyperApp
 
         app = VoiceTyperApp()
-        app._sync_autostart()
+        # RW-9 Phase 1: was ``app._sync_autostart()`` (test-seam delegate
+        # removed); call the standalone function directly.
+        startup_tasks.sync_autostart(app)
 
         assert len(called) == 1  # disable_autostart was called
 
@@ -611,7 +633,9 @@ class TestSettingsWindowIntegration:
         # Monkeypatch the dispatcher method directly.
         app.hotkeys.register = MagicMock()
 
-        app._restart_hotkey("<f3>")
+        # RW-9 Phase 2: was ``app._restart_hotkey("<f3>")`` (test-seam
+        # delegate removed); call the dispatcher method directly.
+        app.hotkeys.restart("<f3>")
 
         assert app.config.hotkey == "<f3>"
         old_backend.stop.assert_called_once()
@@ -699,7 +723,9 @@ class TestSettingsWindowIntegration:
         monkeypatch.setattr("voice_typer.server.transcription.TranscriptionEngine", transcriber_cls)
 
         app.config.device = "cpu"
-        app._change_model("medium.en")
+        # RW-9 Phase 2: was ``app._change_model("medium.en")`` (test-seam
+        # delegate removed); call the ModelManager method directly.
+        app.models.change_model("medium.en")
 
         assert app.config.model_size == "medium.en"
         assert app.models._model_load_attempted is False
@@ -729,8 +755,10 @@ class TestQuitAppCleanShutdown:
         # Stub out clean-shutdown side effects so quit() can run without
         # actually joining threads / stopping pystray.
         app._cancel_pending_timers = MagicMock()
-        app._get_streaming_session = MagicMock(return_value=None)
-        app._set_streaming_session = MagicMock()
+        # RW-9 Phase 1: was ``app._get_streaming_session`` / ``app._set_streaming_session``
+        # (test-seam delegates removed); patch the controller methods directly.
+        app.recording.get_streaming_session = MagicMock(return_value=None)
+        app.recording.set_streaming_session = MagicMock()
         app.recorder = MagicMock()
         # ARCH-REFAC-003: write to RecordingController directly (was a
         # @property delegate on VoiceTyperApp).
@@ -796,8 +824,10 @@ class TestQuitAppCleanShutdown:
         """RELIABILITY-003: quit() (called by quit_app) must stop
         esc_backend and repaste_backend, not just hotkey_backend."""
         app._cancel_pending_timers = MagicMock()
-        app._get_streaming_session = MagicMock(return_value=None)
-        app._set_streaming_session = MagicMock()
+        # RW-9 Phase 1: was ``app._get_streaming_session`` / ``app._set_streaming_session``
+        # (test-seam delegates removed); patch the controller methods directly.
+        app.recording.get_streaming_session = MagicMock(return_value=None)
+        app.recording.set_streaming_session = MagicMock()
         app.recorder = MagicMock()
         # ARCH-REFAC-003: write to RecordingController directly (was a
         # @property delegate on VoiceTyperApp).
@@ -934,7 +964,9 @@ class TestHotkeyMapping:
         # pyrefly: ignore [missing-attribute]
         mock_kb.GlobalHotKeys = mock_ghk_cls
 
-        app._register_hotkey()
+        # RW-9 Phase 1: was ``app._register_hotkey()`` (test-seam delegate
+        # removed); call the dispatcher method directly.
+        app.hotkeys.register()
 
         assert app.hotkeys._hotkey_backend is not None
         # Main hotkey + repaste hotkey both call GlobalHotKeys.start
@@ -950,7 +982,9 @@ class TestHotkeyMapping:
         mock_kb.Listener = MagicMock(side_effect=Exception("no input"))
 
         # Should not raise
-        app._register_hotkey()
+        # RW-9 Phase 1: was ``app._register_hotkey()`` (test-seam delegate
+        # removed); call the dispatcher method directly.
+        app.hotkeys.register()
         # Backend was created but start() failed -> not alive or None
         if app.hotkeys._hotkey_backend is not None:
             assert app.hotkeys._hotkey_backend.is_alive() is False
@@ -972,7 +1006,9 @@ class TestHotkeyMapping:
         mock_kb.GlobalHotKeys = mock_ghk_cls
 
         assert app.hotkeys._esc_backend is None
-        app._register_esc_hotkey()
+        # RW-9 Phase 1: was ``app._register_esc_hotkey()`` (test-seam delegate
+        # removed); call the dispatcher method directly.
+        app.hotkeys.register_esc()
 
         assert app.hotkeys._esc_backend is not None
         # The callback is now a closure (ARCH-ESC-001), so accept any
@@ -995,10 +1031,13 @@ class TestHotkeyMapping:
             MagicMock(return_value=mock_backend),
         )
 
-        app._register_esc_hotkey()
+        # RW-9 Phase 1: was ``app._register_esc_hotkey()`` /
+        # ``app._unregister_esc_hotkey()`` (test-seam delegates removed);
+        # call the dispatcher methods directly.
+        app.hotkeys.register_esc()
         assert app.hotkeys._esc_backend is mock_backend
 
-        app._unregister_esc_hotkey()
+        app.hotkeys.unregister_esc()
 
         assert app.hotkeys._esc_backend is None
         mock_backend.stop.assert_called_once()
@@ -1006,7 +1045,9 @@ class TestHotkeyMapping:
     def test_unregister_esc_hotkey_noop_when_none(self, app):
         """_unregister_esc_hotkey should not crash when _esc_backend is None."""
         app.hotkeys._esc_backend = None
-        app._unregister_esc_hotkey()  # Must not raise
+        # RW-9 Phase 1: was ``app._unregister_esc_hotkey()`` (test-seam
+        # delegate removed); call the dispatcher method directly.
+        app.hotkeys.unregister_esc()  # Must not raise
 
     def test_register_esc_hotkey_failure_does_not_crash(self, app, monkeypatch):
         """If ESC hotkey registration fails, app should not crash."""
@@ -1018,7 +1059,9 @@ class TestHotkeyMapping:
         # hotkey_dispatcher, so monkeypatch it there.
         monkeypatch.setattr("voice_typer.server.hotkey_dispatcher.create_hotkey_backend", failing_create)
         # Should not raise even though create_hotkey_backend raises
-        app._register_esc_hotkey()
+        # RW-9 Phase 1: was ``app._register_esc_hotkey()`` (test-seam delegate
+        # removed); call the dispatcher method directly.
+        app.hotkeys.register_esc()
         assert app.hotkeys._esc_backend is None
 
     def test_register_hotkey_includes_esc_when_enabled(self, app, monkeypatch):
@@ -1032,7 +1075,9 @@ class TestHotkeyMapping:
         mock_kb.GlobalHotKeys = mock_ghk_cls
 
         app.config.esc_cancel_enabled = True
-        app._register_hotkey()
+        # RW-9 Phase 1: was ``app._register_hotkey()`` (test-seam delegate
+        # removed); call the dispatcher method directly.
+        app.hotkeys.register()
 
         assert app.hotkeys._esc_backend is not None
 
@@ -1102,7 +1147,9 @@ class TestHotkeyMapping:
         mock_kb.GlobalHotKeys = mock_ghk_cls
 
         app.config.esc_cancel_enabled = False
-        app._register_hotkey()
+        # RW-9 Phase 1: was ``app._register_hotkey()`` (test-seam delegate
+        # removed); call the dispatcher method directly.
+        app.hotkeys.register()
 
         assert app.hotkeys._esc_backend is None
 
@@ -1288,8 +1335,11 @@ class TestModelLoadingQueue:
         app.tray = MagicMock()
         # Stub the engine init so the loader body doesn't do real work.
         app.models._ensure_engine = MagicMock()
-        app._try_load_model = MagicMock()
-        app._fallback_to_whisper = MagicMock()
+        # RW-9 Phase 2: was ``app._try_load_model = MagicMock()`` /
+        # ``app._fallback_to_whisper = MagicMock()`` (delegates removed);
+        # patch the ModelManager methods directly.
+        app.models.try_load = MagicMock()
+        app.models.fallback_to_whisper = MagicMock()
 
         # Simulate a queued F2 press.
         app.models._pending_dictation = True
@@ -1318,8 +1368,11 @@ class TestModelLoadingQueue:
         """If the user did NOT press F2 during load, nothing is scheduled."""
         app.tray = MagicMock()
         app.models._ensure_engine = MagicMock()
-        app._try_load_model = MagicMock()
-        app._fallback_to_whisper = MagicMock()
+        # RW-9 Phase 2: was ``app._try_load_model = MagicMock()`` /
+        # ``app._fallback_to_whisper = MagicMock()`` (delegates removed);
+        # patch the ModelManager methods directly.
+        app.models.try_load = MagicMock()
+        app.models.fallback_to_whisper = MagicMock()
         app.models._pending_dictation = False
 
         scheduled = []
@@ -1439,7 +1492,9 @@ class TestHotkeyCallbackChain:
         app._busy_event.set()  # not busy
 
         # Register hotkey - this captures the mapping
-        app._register_hotkey()
+        # RW-9 Phase 1: was ``app._register_hotkey()`` (test-seam delegate
+        # removed); call the dispatcher method directly.
+        app.hotkeys.register()
 
         # The default hotkey is platform-aware (Fn on macOS, Caps Lock on
         # Windows/Linux, F2 on unknown). Use the actual config value.
@@ -1510,7 +1565,9 @@ class TestAppStartupIntegration:
         app = VoiceTyperApp()
 
         # Run _do_startup directly (normally called in a thread by tray.start)
-        app._sync_prewarm_task = MagicMock()
+        # RW-9 Phase 1: was ``app._sync_prewarm_task = MagicMock()`` (test-seam
+        # delegate removed); patch the standalone function directly.
+        monkeypatch.setattr("voice_typer.server.startup_tasks.sync_prewarm_task", MagicMock())
         app._do_startup()
         # Model load runs in a background thread now — wait for it so the
         # test doesn't tear down while the loader is mid-flight.
@@ -1587,7 +1644,9 @@ class TestTryLoadModel:
         app.models.transcriber.device_info = "cpu (int8)"
         app.models.transcriber.loaded_via = "cpu/int8/small.en"
 
-        app._try_load_model()
+        # RW-9 Phase 2: was ``app._try_load_model()`` (delegate removed);
+        # call the ModelManager method directly.
+        app.models.try_load()
 
         app.models.transcriber.load.assert_called_once()
         app.tray.set_state.assert_called()
@@ -1605,7 +1664,9 @@ class TestTryLoadModel:
         app.models.transcriber.load = MagicMock(side_effect=RuntimeError("OOM"))
         app.models.transcriber.is_loaded = False
 
-        app._try_load_model()
+        # RW-9 Phase 2: was ``app._try_load_model()`` (delegate removed);
+        # call the ModelManager method directly.
+        app.models.try_load()
 
         from voice_typer.server.tray import AppState
 
@@ -1620,7 +1681,9 @@ class TestTryLoadModel:
         app.models.transcriber.load = MagicMock(side_effect=RuntimeError("OOM"))
         app.models.transcriber.is_loaded = False
 
-        app._try_load_model(notify_on_failure=True)
+        # RW-9 Phase 2: was ``app._try_load_model(notify_on_failure=True)``
+        # (delegate removed); call the ModelManager method directly.
+        app.models.try_load(notify_on_failure=True)
 
         app.tray.notify.assert_called_once()
         notify_args = app.tray.notify.call_args[0]
@@ -1633,7 +1696,9 @@ class TestTryLoadModel:
         app.models.transcriber.load = MagicMock(side_effect=RuntimeError("OOM"))
         app.models.transcriber.is_loaded = False
 
-        app._try_load_model(notify_on_failure=False)
+        # RW-9 Phase 2: was ``app._try_load_model(notify_on_failure=False)``
+        # (delegate removed); call the ModelManager method directly.
+        app.models.try_load(notify_on_failure=False)
 
         app.tray.notify.assert_not_called()
 
@@ -1644,7 +1709,9 @@ class TestTryLoadModel:
         app.models.transcriber.load = MagicMock()
 
         assert app.models._model_load_attempted is False
-        app._try_load_model()
+        # RW-9 Phase 2: was ``app._try_load_model()`` (delegate removed);
+        # call the ModelManager method directly.
+        app.models.try_load()
         # pyrefly: ignore [unnecessary-comparison]
         assert app.models._model_load_attempted is True
 
@@ -1669,12 +1736,23 @@ class TestTryLoadModel:
             "voice_typer.server.prewarm.wait_for_prewarm",
             lambda timeout_s=60.0: False,  # simulate timeout
         )
+
+        # PW-2: production call is spawn_background_prewarm(force=True,
+        # trigger="manual") — the mock must accept the trigger kwarg or
+        # the TypeError is silently swallowed by model_manager's
+        # ``except Exception as bg_exc`` block, making the test pass
+        # vacuously (spawn_called stays empty).
+        def _spawn(force=True, trigger="manual"):
+            spawn_called.append(force)
+
         monkeypatch.setattr(
             "voice_typer.server.prewarm.spawn_background_prewarm",
-            lambda force=True: spawn_called.append(force),
+            _spawn,
         )
 
-        app._try_load_model()
+        # RW-9 Phase 2: was ``app._try_load_model()`` (delegate removed);
+        # call the ModelManager method directly.
+        app.models.try_load()
 
         assert spawn_called, (
             "Task 5: try_load() must call spawn_background_prewarm() when "
@@ -1709,7 +1787,9 @@ class TestTryLoadModel:
             lambda force=True: spawn_called.append(force),
         )
 
-        app._try_load_model()
+        # RW-9 Phase 2: was ``app._try_load_model()`` (delegate removed);
+        # call the ModelManager method directly.
+        app.models.try_load()
 
         assert not spawn_called, (
             "Task 5: spawn_background_prewarm must NOT be called when "
@@ -1764,7 +1844,9 @@ class TestStreamingIntegration:
 
         session = MagicMock()
         session.finalize = MagicMock(return_value="streamed text")
-        app._set_streaming_session(session)
+        # RW-9 Phase 1: was ``app._set_streaming_session(session)`` (test-seam
+        # delegate removed); call the controller method directly.
+        app.recording.set_streaming_session(session)
 
         app._stop_dictation()
         _wait_for_busy_clear(app)
@@ -1790,11 +1872,15 @@ class TestStreamingIntegration:
         app._start_dictation()
 
         session_cls.assert_not_called()
-        assert app._get_streaming_session() is None
+        # RW-9 Phase 1: was ``app._get_streaming_session()`` (test-seam
+        # delegate removed); call the controller method directly.
+        assert app.recording.get_streaming_session() is None
 
     def test_quit_cancels_active_streaming_session(self, app):
         session = MagicMock()
-        app._set_streaming_session(session)
+        # RW-9 Phase 1: was ``app._set_streaming_session(session)`` (test-seam
+        # delegate removed); call the controller method directly.
+        app.recording.set_streaming_session(session)
         app.recorder = MagicMock()
         app.recorder.recording = False
         app.tray = MagicMock()
@@ -1841,9 +1927,12 @@ class TestStartupResilience:
         # a @property delegate on VoiceTyperApp).
         app.models._registry = MagicMock()
         app.models.registry.load_with_fallback = track_model_load
-        app._sync_autostart = MagicMock()
-        app._sync_prewarm_task = MagicMock()
-        app._load_microphones = MagicMock()
+        # RW-9 Phase 1: was ``app._sync_autostart = MagicMock()`` etc.
+        # (test-seam delegates removed); patch the standalone functions
+        # directly so production callers see the no-op.
+        monkeypatch.setattr("voice_typer.server.startup_tasks.sync_autostart", MagicMock())
+        monkeypatch.setattr("voice_typer.server.startup_tasks.sync_prewarm_task", MagicMock())
+        monkeypatch.setattr("voice_typer.server.startup_tasks.load_microphones", MagicMock())
         app.tray = MagicMock()
 
         app._do_startup()
@@ -1855,17 +1944,22 @@ class TestStartupResilience:
 
         assert call_order == ["hotkey", "model"], f"Expected hotkey before model, got {call_order}"
 
-    def test_startup_survives_model_load_exception(self, app):
+    def test_startup_survives_model_load_exception(self, app, monkeypatch):
         """Even if model load raises, _do_startup should not crash."""
-        app._sync_autostart = MagicMock()
-        app._sync_prewarm_task = MagicMock()
-        app._load_microphones = MagicMock()
+        # RW-9 Phase 1: was ``app._sync_autostart = MagicMock()`` etc.
+        # (test-seam delegates removed); patch the standalone functions
+        # directly so production callers see the no-op.
+        monkeypatch.setattr("voice_typer.server.startup_tasks.sync_autostart", MagicMock())
+        monkeypatch.setattr("voice_typer.server.startup_tasks.sync_prewarm_task", MagicMock())
+        monkeypatch.setattr("voice_typer.server.startup_tasks.load_microphones", MagicMock())
         # RW-9 Phase 2: production callers invoke ``app.hotkeys.register()``
         # directly — monkeypatch the real call site (not the delegate).
         app.hotkeys.register = MagicMock()
         # _try_load_model runs inside the background loader thread; make it
         # raise to simulate a model-load failure.  The loader catches it.
-        app._try_load_model = MagicMock(side_effect=RuntimeError("OOM"))
+        # RW-9 Phase 2: was ``app._try_load_model = MagicMock(...)``
+        # (delegate removed); patch the ModelManager method directly.
+        app.models.try_load = MagicMock(side_effect=RuntimeError("OOM"))
         app.tray = MagicMock()
 
         # Should not raise — the exception is caught inside the loader thread.
@@ -2055,8 +2149,10 @@ class TestTrayControllerProtocolCompliance:
         "_toggle_autostart",
         "_set_notifications",
         "_select_microphone",
-        "_change_model",
-        "_restart_hotkey",
+        # RW-9 Phase 2: ``_change_model`` and ``_restart_hotkey`` removed —
+        # the tray now calls ``change_model`` / ``change_hotkey`` (the
+        # TrayController Protocol methods), which internally invoke
+        # ``self.models.change_model`` / ``self.hotkeys.restart`` directly.
     ]
 
     def test_app_has_all_traycontroller_public_methods(self, app):
@@ -2094,7 +2190,9 @@ class TestExternalCorrectionsWiring:
         monkeypatch.setattr("voice_typer.server.startup_sequence.configure_corrections", spy)
         monkeypatch.setattr("voice_typer.server.app.configure_corrections", spy)
         app._settings_window = None
-        app._sync_prewarm_task = MagicMock()
+        # RW-9 Phase 1: was ``app._sync_prewarm_task = MagicMock()``
+        # (test-seam delegate removed); patch the standalone function.
+        monkeypatch.setattr("voice_typer.server.startup_tasks.sync_prewarm_task", MagicMock())
         # Prevent the background model loader from doing real work — we
         # only care that configure_corrections ran synchronously in Step 0.
         app.models.load_background = MagicMock()

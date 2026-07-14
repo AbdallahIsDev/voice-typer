@@ -70,6 +70,7 @@ def mock_heavy_imports(monkeypatch):
 
     # Force PynputHotkey backend so tests can mock pynput.keyboard.GlobalHotKeys.
     from voice_typer.server.hotkeys import PynputHotkey
+
     monkeypatch.setattr(
         "voice_typer.server.app.create_hotkey_backend",
         lambda hotkey_str: PynputHotkey(hotkey_str),
@@ -108,9 +109,9 @@ class FakeBackend:
     ABC's abstract-method machinery getting in the way).
     """
 
-    def __init__(self, current: float = 0.5, muted: bool = False,
-                 per_session_capable: bool = False,
-                 speaker_active: bool = True) -> None:
+    def __init__(
+        self, current: float = 0.5, muted: bool = False, per_session_capable: bool = False, speaker_active: bool = True
+    ) -> None:
         self._current = current
         self._muted = muted
         self._per_session_capable = per_session_capable
@@ -135,6 +136,7 @@ class FakeBackend:
 
     def get_state(self):
         from voice_typer.server.volume_backend import VolumeState
+
         return VolumeState(linear=self._current, muted=self._muted)
 
     def set_linear(self, level: float, muted: bool | None = None) -> bool:
@@ -144,8 +146,7 @@ class FakeBackend:
         self.set_calls.append((level, muted))
         return True
 
-    def fade_to(self, target_linear: float, duration_ms: int = 150,
-                steps: int = 10) -> bool:
+    def fade_to(self, target_linear: float, duration_ms: int = 150, steps: int = 10) -> bool:
         self._current = max(0.0, min(1.0, target_linear))
         self.fade_calls.append((target_linear, duration_ms))
         return True
@@ -178,6 +179,7 @@ def app_with_fake_ducker(tmp_config_dir, monkeypatch):
     monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
 
     from voice_typer.server.app import VoiceTyperApp
+
     instance = VoiceTyperApp()
     instance.config.esc_cancel_enabled = False
     # NEW-PRIV-009 (revised): RecordingController.start() now enforces
@@ -194,6 +196,7 @@ def app_with_fake_ducker(tmp_config_dir, monkeypatch):
     # initialize() runs (which sets _ready=True).
     backend = FakeBackend(current=0.5, muted=False)
     from voice_typer.server.volume_ducker import VolumeDucker
+
     instance._volume_ducker = VolumeDucker(
         backend=backend,
         crash_recovery=instance._duck_crash_recovery,
@@ -268,15 +271,18 @@ class TestStartDictationDucksVolume:
         app.recorder.start = MagicMock(side_effect=lambda: call_order.append("recorder.start"))
         # _duck_volume → backend.fade_to — we hook that to record the order
         original_fade = backend.fade_to
+
         def spy_fade(target, duration_ms=200, steps=10):
             call_order.append("volume.duck")
             return original_fade(target, duration_ms, steps)
+
         backend.fade_to = spy_fade
 
         app._start_dictation()
 
-        assert call_order.index("recorder.start") < call_order.index("volume.duck"), \
+        assert call_order.index("recorder.start") < call_order.index("volume.duck"), (
             "recorder.start() must happen BEFORE volume.duck()"
+        )
 
 
 class TestStopDictationRestoresVolume:
@@ -316,14 +322,18 @@ class TestStopDictationRestoresVolume:
 
         events = []
         original_fade = backend.fade_to
+
         def spy_fade(target, duration_ms=200, steps=10):
             events.append("restore")
             return original_fade(target, duration_ms, steps)
+
         backend.fade_to = spy_fade
         original_transcribe = app.models.transcriber.transcribe_with_fallback
+
         def spy_transcribe(*a, **kw):
             events.append("transcribe")
             return original_transcribe(*a, **kw)
+
         app.models.transcriber.transcribe_with_fallback = spy_transcribe
 
         app._stop_dictation()
@@ -331,8 +341,9 @@ class TestStopDictationRestoresVolume:
 
         # Restore should appear before transcribe
         if "transcribe" in events:
-            assert events.index("restore") < events.index("transcribe"), \
+            assert events.index("restore") < events.index("transcribe"), (
                 f"restore must happen before transcribe; got {events}"
+            )
 
     def test_stop_does_not_restore_when_disabled(self, app_with_fake_ducker):
         app, backend = app_with_fake_ducker
@@ -410,8 +421,11 @@ class TestQuitRestoresVolumeInstantly:
         # Patch out the parts of quit() that would actually exit the
         # process or block on hotkey backends.
         app._cancel_pending_timers = MagicMock()
-        app._get_streaming_session = MagicMock(return_value=None)
-        app._set_streaming_session = MagicMock()
+        # RW-9 Phase 1: was ``app._get_streaming_session`` /
+        # ``app._set_streaming_session`` (test-seam delegates removed);
+        # patch the controller methods directly.
+        app.recording.get_streaming_session = MagicMock(return_value=None)
+        app.recording.set_streaming_session = MagicMock()
         app.hotkeys._hotkey_backend = MagicMock()
         app.hotkeys._esc_backend = MagicMock()
         app.hotkeys._repaste_backend = MagicMock()
@@ -425,8 +439,7 @@ class TestQuitRestoresVolumeInstantly:
             app.quit()
 
         # Restore should have used fade_ms=0
-        assert (0.5, 0) in backend.fade_calls, \
-            f"quit() must restore with fade_ms=0; got {backend.fade_calls}"
+        assert (0.5, 0) in backend.fade_calls, f"quit() must restore with fade_ms=0; got {backend.fade_calls}"
 
 
 class TestRestartRestoresBeforeExiting:
@@ -447,9 +460,11 @@ class TestRestartRestoresBeforeExiting:
 
         events = []
         original_fade = backend.fade_to
+
         def spy_fade(target, duration_ms=0, steps=10):
             events.append("restore")
             return original_fade(target, duration_ms, steps)
+
         backend.fade_to = spy_fade
 
         # fix-restart-tcp: restart_app() no longer calls subprocess.Popen.
@@ -457,6 +472,7 @@ class TestRestartRestoresBeforeExiting:
         # test environment (no IPC server wired up).
         # B-1: production code now calls event_bus.publish directly.
         import voice_typer.server.app as app_mod
+
         with patch("voice_typer.server.event_bus.publish"):
             # Also stub the rest of restart_app() that would block or kill
             app._cancel_pending_timers = MagicMock()
@@ -468,18 +484,19 @@ class TestRestartRestoresBeforeExiting:
             # ARCH-REFAC-003: write to RecordingController directly (was
             # a @property delegate on VoiceTyperApp).
             app.recording._transcription_thread = None
+
             # Spy on sys.exit to record that exit happened AFTER restore.
             def spy_exit(code=0):
                 events.append("sys.exit")
                 raise SystemExit(code)
+
             with patch.object(app_mod.sys, "exit", spy_exit), contextlib.suppress(SystemExit):
                 app.restart_app()
 
         # Restore must happen BEFORE sys.exit
         assert "restore" in events, "restart_app() should have called restore"
         assert "sys.exit" in events, "restart_app() should have called sys.exit"
-        assert events.index("restore") < events.index("sys.exit"), \
-            f"restore must precede sys.exit; got {events}"
+        assert events.index("restore") < events.index("sys.exit"), f"restore must precede sys.exit; got {events}"
         # And restore must use fade_ms=0 (instant — no ping-pong window)
         assert (0.5, 0) in backend.fade_calls
 
@@ -489,9 +506,7 @@ class TestCrashRecoveryOnStartup:
     VolumeDucker.initialize() must restore the saved volume and warn
     the user via the on_crash_restore callback."""
 
-    def test_stale_crash_recovery_file_triggers_restore_on_init(
-        self, tmp_config_dir, monkeypatch
-    ):
+    def test_stale_crash_recovery_file_triggers_restore_on_init(self, tmp_config_dir, monkeypatch):
         """Simulate a crash: write a stale duck_crash_recovery.json,
         then construct a fresh VolumeDucker and verify initialize()
         restores the saved volume."""
@@ -516,8 +531,9 @@ class TestCrashRecoveryOnStartup:
         ok = ducker.initialize()
         assert ok
         # Volume should be restored to 0.7 (the saved pre-duck value)
-        assert backend._current == 0.7, \
+        assert backend._current == 0.7, (
             f"stale crash-recovery file should have restored volume to 0.7; got {backend._current}"
+        )
         # Stale file should be cleared
         assert crash_recovery.load_stale() is None
         # Callback should have been invoked once with the saved state
@@ -582,6 +598,7 @@ class TestPerSessionDuckGatedOnSupport:
         per-session ducking — it always uses master-volume ducking
         cross-platform."""
         from voice_typer.server.app import VoiceTyperApp
+
         monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
         monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
         monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
@@ -598,6 +615,7 @@ class TestPerSessionDuckGatedOnSupport:
 
         backend = FakeBackend(current=0.5, per_session_capable=True)
         from voice_typer.server.volume_ducker import VolumeDucker
+
         instance._volume_ducker = VolumeDucker(
             backend=backend,
             crash_recovery=instance._duck_crash_recovery,
@@ -614,9 +632,7 @@ class TestPerSessionDuckGatedOnSupport:
         instance._start_dictation()
 
         # UX-2: per-session duck should NOT be attempted — master fade instead
-        assert backend.duck_session_calls == [], (
-            "per-session ducking was removed (UX-2); master fade should be used"
-        )
+        assert backend.duck_session_calls == [], "per-session ducking was removed (UX-2); master fade should be used"
         assert len(backend.fade_calls) > 0, "master fade_to should have been called"
 
 
@@ -629,8 +645,7 @@ class TestDuckCrashRecoveryPersistsOnDuck:
         app._volume_ducker.duck(0.25)
 
         recovery_path = tmp_config_dir / "duck_crash_recovery.json"
-        assert recovery_path.exists(), \
-            "duck() should have persisted pre-duck state for crash recovery"
+        assert recovery_path.exists(), "duck() should have persisted pre-duck state for crash recovery"
 
     def test_restore_clears_recovery_file(self, app_with_fake_ducker, tmp_config_dir):
         app, backend = app_with_fake_ducker
@@ -640,5 +655,4 @@ class TestDuckCrashRecoveryPersistsOnDuck:
 
         app._volume_ducker.restore()
 
-        assert not recovery_path.exists(), \
-            "restore() should have cleared the crash-recovery file"
+        assert not recovery_path.exists(), "restore() should have cleared the crash-recovery file"

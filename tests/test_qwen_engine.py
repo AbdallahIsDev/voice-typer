@@ -12,6 +12,7 @@ class TestQwenEngineUnit:
 
     def _make_engine(self, model_path="/fake/qwen/model", **kwargs):
         from voice_typer.server.qwen_engine import QwenEngine
+
         return QwenEngine(model_path=model_path, **kwargs)
 
     def test_init_defaults(self):
@@ -37,6 +38,7 @@ class TestQwenEngineUnit:
         # config.json before importing qwen_asr. Use a real tmp dir with a
         # config.json so the security gates pass.
         import json as _json
+
         model_dir = tmp_path / "qwen_model"
         model_dir.mkdir()
         (model_dir / "config.json").write_text(_json.dumps({"arch": "qwen3"}))
@@ -119,16 +121,19 @@ class TestQwenConfigKeys:
 
     def test_asr_backend_default_is_whisper(self):
         from voice_typer.server.config import Config
+
         c = Config()
         assert c.asr_backend == "whisper"
 
     def test_qwen_model_path_default_is_none(self):
         from voice_typer.server.config import Config
+
         c = Config()
         assert c.qwen_model_path is None
 
     def test_asr_backend_persists(self, tmp_path, monkeypatch):
         from voice_typer.server.config import Config
+
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         model_dir = tmp_path / "qwen_model"
         model_dir.mkdir()
@@ -144,6 +149,7 @@ class TestQwenBackendSelection:
 
     def test_qwen_backend_requires_model_path(self):
         from voice_typer.server.config import Config
+
         c = Config(asr_backend="qwen", qwen_model_path=None)
         # Without a model path, Qwen can't load
         assert c.qwen_model_path is None
@@ -159,6 +165,7 @@ class TestQwenIntegration:
     def test_real_qwen_transcribe(self):
         """Test with real Qwen model. Requires VOICE_TYPER_TEST_QWEN=1."""
         from voice_typer.server.qwen_engine import QwenEngine
+
         model_path = os.environ.get("VOICE_TYPER_QWEN_PATH", "Qwen3-ASR-1.7B")
         engine = QwenEngine(model_path=model_path)
         engine.load()
@@ -203,6 +210,7 @@ class TestP1WhisperSkipWhenQwenActive:
         monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
         monkeypatch.setattr("voice_typer.server.app.atexit.register", lambda *a, **kw: None)
         from voice_typer.server.hotkeys import PynputHotkey
+
         monkeypatch.setattr(
             "voice_typer.server.app.create_hotkey_backend",
             lambda hotkey_str: PynputHotkey(hotkey_str),
@@ -210,19 +218,25 @@ class TestP1WhisperSkipWhenQwenActive:
 
         # Write a config with Qwen backend
         import json
+
         config_file = tmp_path / "config.json"
-        config_file.write_text(json.dumps({
-            "asr_backend": "qwen",
-            "qwen_model_path": str(tmp_path / "qwen_model"),
-            # PRIV-001: dictation now requires explicit voice-biometric
-            # consent — without this the recorder refuses to start.
-            "voice_biometric_consent": True,
-        }))
+        config_file.write_text(
+            json.dumps(
+                {
+                    "asr_backend": "qwen",
+                    "qwen_model_path": str(tmp_path / "qwen_model"),
+                    # PRIV-001: dictation now requires explicit voice-biometric
+                    # consent — without this the recorder refuses to start.
+                    "voice_biometric_consent": True,
+                }
+            )
+        )
 
         # Create the Qwen model dir so path validation passes
         (tmp_path / "qwen_model").mkdir(exist_ok=True)
 
         from voice_typer.server.app import VoiceTyperApp
+
         app = VoiceTyperApp()
 
         # Mock the Qwen engine
@@ -235,14 +249,19 @@ class TestP1WhisperSkipWhenQwenActive:
     def test_startup_skips_whisper_when_qwen_active(self, monkeypatch, tmp_path):
         """When Qwen backend is active and loaded, Whisper should NOT be loaded during startup."""
         app = self._make_app_with_qwen(monkeypatch, tmp_path, qwen_loaded=True)
-        app._sync_autostart = MagicMock()
-        app._load_microphones = MagicMock()
-        app._register_hotkey = MagicMock()
+        # RW-9 Phase 1: the app-level test-seam delegates have been removed;
+        # patch the controllers / module-level functions directly.
+        monkeypatch.setattr("voice_typer.server.startup_tasks.sync_autostart", MagicMock())
+        monkeypatch.setattr("voice_typer.server.startup_tasks.load_microphones", MagicMock())
+        app.hotkeys.register = MagicMock()
         app.recorder.warm_up_resampler = MagicMock()
 
         # Track if Whisper load was attempted
         whisper_load_called = []
-        original_try_load = app._try_load_model
+        # RW-9 Phase 2: ``app._try_load_model`` delegate removed; patch
+        # the ModelManager method directly.
+        original_try_load = app.models.try_load
+
         def track_try_load(*args, **kwargs):
             whisper_load_called.append(True)
             # Simulate successful load so it doesn't loop
@@ -254,7 +273,7 @@ class TestP1WhisperSkipWhenQwenActive:
             app.models.transcriber.loaded_via = "cpu/int8/small.en"
             original_try_load(*args, **kwargs)
 
-        app._try_load_model = track_try_load
+        app.models.try_load = track_try_load
 
         app._do_startup()
 
@@ -271,9 +290,11 @@ class TestP1WhisperSkipWhenQwenActive:
     def test_startup_falls_back_to_whisper_when_qwen_fails(self, monkeypatch, tmp_path):
         """When Qwen backend fails to load, Whisper should be loaded as fallback."""
         app = self._make_app_with_qwen(monkeypatch, tmp_path, qwen_loaded=False)
-        app._sync_autostart = MagicMock()
-        app._load_microphones = MagicMock()
-        app._register_hotkey = MagicMock()
+        # RW-9 Phase 1: the app-level test-seam delegates have been removed;
+        # patch the controllers / module-level functions directly.
+        monkeypatch.setattr("voice_typer.server.startup_tasks.sync_autostart", MagicMock())
+        monkeypatch.setattr("voice_typer.server.startup_tasks.load_microphones", MagicMock())
+        app.hotkeys.register = MagicMock()
         app.recorder.warm_up_resampler = MagicMock()
 
         # Mock TranscriptionEngine so _do_startup creates a mock
@@ -319,6 +340,7 @@ class TestP1WhisperSkipWhenQwenActive:
         def mock_load(**kwargs):
             # pyrefly: ignore [read-only]
             app.models.transcriber.is_loaded = True
+
         app.models.transcriber.load = mock_load
 
         app._start_dictation()
@@ -332,6 +354,7 @@ class TestM23LoadReturnValues:
 
     def _make_engine(self, model_path="/fake/qwen/model", **kwargs):
         from voice_typer.server.qwen_engine import QwenEngine
+
         return QwenEngine(model_path=model_path, **kwargs)
 
     def test_load_returns_true_on_success(self, tmp_path):
@@ -339,6 +362,7 @@ class TestM23LoadReturnValues:
         # config.json before importing qwen_asr. Use a real tmp dir with
         # a config.json so the security gates pass.
         import json as _json
+
         model_dir = tmp_path / "qwen_model"
         model_dir.mkdir()
         (model_dir / "config.json").write_text(_json.dumps({"arch": "qwen3"}))
@@ -379,6 +403,7 @@ class TestM13HallucinationDetection:
 
     def _make_engine(self, model_path="/fake/qwen/model", **kwargs):
         from voice_typer.server.qwen_engine import QwenEngine
+
         return QwenEngine(model_path=model_path, **kwargs)
 
     def test_rejects_hallucination_on_silence(self):

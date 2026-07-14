@@ -50,6 +50,7 @@ Findings covered
 - AUDIO-AGC      _last_rms stored post-AGC (consistent with VAD)
 """
 
+
 class TestModelIntegrityWarnsOnEmptyHashes:
     """SEC-audit-005.
 
@@ -138,8 +139,7 @@ class TestModelIntegrityWarnsOnEmptyHashes:
         commit_sha_re = re.compile(r"^[0-9a-f]{40}$")
         sha256_re = re.compile(r"^[0-9a-f]{64}$")
 
-        manifest_path = Path(__file__).resolve().parent.parent / \
-            "voice_typer" / "server" / "model_hashes.json"
+        manifest_path = Path(__file__).resolve().parent.parent / "voice_typer" / "server" / "model_hashes.json"
         with open(manifest_path) as f:
             data = json.load(f)
 
@@ -148,20 +148,13 @@ class TestModelIntegrityWarnsOnEmptyHashes:
             if repo_id.startswith("_"):
                 continue  # skip _comment and other metadata keys
             assert isinstance(entry, dict), (
-                f"model_hashes.json entry {repo_id!r} must be a dict, "
-                f"got {type(entry).__name__}"
+                f"model_hashes.json entry {repo_id!r} must be a dict, got {type(entry).__name__}"
             )
-            assert "revision" in entry, (
-                f"model_hashes.json entry {repo_id!r} must have a 'revision' key"
-            )
-            assert "files" in entry, (
-                f"model_hashes.json entry {repo_id!r} must have a 'files' key"
-            )
+            assert "revision" in entry, f"model_hashes.json entry {repo_id!r} must have a 'revision' key"
+            assert "files" in entry, f"model_hashes.json entry {repo_id!r} must have a 'files' key"
 
             if repo_id == "qwen":
-                assert entry["revision"] == "local", (
-                    f"qwen entry revision should be 'local', got {entry['revision']!r}"
-                )
+                assert entry["revision"] == "local", f"qwen entry revision should be 'local', got {entry['revision']!r}"
                 continue
 
             hf_repos_found += 1
@@ -175,18 +168,14 @@ class TestModelIntegrityWarnsOnEmptyHashes:
                 f"verify_model_integrity() is a no-op for this repo. "
                 f"Pin at least config.json."
             )
-            assert "config.json" in entry["files"], (
-                f"model_hashes.json entry {repo_id!r} must pin config.json"
-            )
+            assert "config.json" in entry["files"], f"model_hashes.json entry {repo_id!r} must pin config.json"
             assert sha256_re.match(entry["files"]["config.json"]), (
                 f"model_hashes.json entry {repo_id!r} config.json hash "
                 f"{entry['files']['config.json']!r} is not a 64-char hex SHA-256."
             )
 
-        assert hf_repos_found >= 5, (
-            f"Expected at least 5 HuggingFace repos with pinned SHAs, "
-            f"found {hf_repos_found}"
-        )
+        assert hf_repos_found >= 5, f"Expected at least 5 HuggingFace repos with pinned SHAs, found {hf_repos_found}"
+
 
 class TestTranscriptionLoggingRedactsPii:
     """SEC-009.
@@ -199,21 +188,52 @@ class TestTranscriptionLoggingRedactsPii:
     """
 
     def test_store_result_calls_redact_pii_when_log_transcriptions_true(self):
-        """``DictationPipeline._store_result`` source must call
-        ``redact_pii`` on the transcription text before logging when
-        ``log_transcriptions`` is enabled.
+        """SEC-009: when ``log_transcriptions`` is enabled,
+        ``DictationPipeline._store_result`` must pipe the transcription
+        text through ``redact_pii()`` before logging so PII patterns
+        (email, phone, SSN, credit card) don't leak to the log file.
+        Pre-fix, raw text was logged.
+
+        RW-8: ported from a source-string meta-test (which inspected
+        ``_store_result`` source for the substring ``redact_pii``) to a
+        behavioral test that mocks ``redact_pii`` and verifies it is
+        invoked with the transcription text. The behavioral test is
+        robust to refactors — if ``redact_pii`` is renamed or inlined,
+        the test still catches the regression as long as PII would
+        leak to the log.
         """
+        from unittest.mock import MagicMock, patch
+
         from voice_typer.server.dictation_pipeline import DictationPipeline
 
-        src = inspect.getsource(DictationPipeline._store_result)
-        assert "redact_pii" in src, (
-            "DictationPipeline._store_result must call redact_pii() on the "
-            "transcription text before logging when log_transcriptions=True. "
-            "Pre-fix, raw text was logged, leaking PII to the log file."
+        # Build a minimal app mock. ``_store_result`` touches:
+        # ``history_db.add_transcription`` / ``flush``,
+        # ``config.crash_recovery_enabled`` (False → skip crash recovery),
+        # ``config.log_transcriptions`` (True → trigger the redaction path),
+        # ``config.model_size`` / ``config.device`` (passed to add_transcription),
+        # ``_last_transcription`` (assigned), ``tray.notify`` (only on errors),
+        # and ``event_bus.publish`` (transcription_final push event — the
+        # MagicMock makes this a no-op).
+        app = MagicMock()
+        app.config.log_transcriptions = True
+        app.config.crash_recovery_enabled = False
+        app.config.model_size = "tiny.en"
+        app.config.device = "cpu"
+
+        pipeline = DictationPipeline(app)
+
+        # Patch ``redact_pii`` at its source module so the local import
+        # inside ``_store_result`` picks up the mock.
+        with patch("voice_typer.server.security.redact_pii") as mock_redact:
+            mock_redact.return_value = "[REDACTED]"
+            pipeline._store_result("Contact john.doe@example.com")
+
+        mock_redact.assert_called_once()
+        args, _ = mock_redact.call_args
+        assert "john.doe@example.com" in args[0], (
+            "SEC-009: _store_result must pass the raw transcription text "
+            "to redact_pii() so PII patterns are masked before logging."
         )
-        # The redact_pii call must be inside the log_transcriptions branch
-        assert "log_transcriptions" in src
-        assert "redact_pii(text[:200])" in src or "redact_pii(text" in src
 
     def test_redact_pii_masks_email_phone_ssn_cc(self):
         """``redact_pii`` must mask the four documented PII patterns."""
@@ -233,6 +253,7 @@ class TestTranscriptionLoggingRedactsPii:
 
         text = "Hello world, this is a test transcription."
         assert redact_pii(text) == text
+
 
 class TestReadCappedAbortsOnOverflow:
     """SEC-030.
@@ -303,6 +324,7 @@ class TestReadCappedAbortsOnOverflow:
 
         with pytest.raises(RuntimeError):
             _read_capped(FakeResp(), max_bytes=100)
+
 
 class TestAudioCallbackUsesMinimalLockScope:
     """RACE-001.
@@ -388,6 +410,7 @@ class TestAudioCallbackUsesMinimalLockScope:
         # RACE-003: the recent_rms snapshot must be taken INSIDE the lock
         assert "recent_rms_snapshot = list(self._recent_rms_values)" in src
 
+
 class TestRmsSnapshotReadsInsideLock:
     """RACE-003.
 
@@ -423,6 +446,7 @@ class TestRmsSnapshotReadsInsideLock:
             "directly outside the lock — use the snapshot taken inside "
             "the lock instead."
         )
+
 
 class TestConfigMutationLockSharedAcrossIpc:
     """RACE-011.
@@ -486,7 +510,10 @@ class TestConfigMutationLockSharedAcrossIpc:
 
         handler_path = (
             pathlib.Path(__file__).resolve().parent.parent
-            / "voice_typer" / "server" / "handlers" / "config_handlers.py"
+            / "voice_typer"
+            / "server"
+            / "handlers"
+            / "config_handlers.py"
         )
         handler_src = handler_path.read_text(encoding="utf-8")
         assert "self.service.apply_config" in handler_src, (
@@ -517,30 +544,22 @@ class TestRecordingTestsUseMonotonicClock:
         import tests.test_recording as test_recording_mod
 
         # Find the two relevant test methods (in TestResampleFallback)
-        retry_src = inspect.getsource(
-            test_recording_mod.TestResampleFallback.test_resample_retry_after_timeout
-        )
+        retry_src = inspect.getsource(test_recording_mod.TestResampleFallback.test_resample_retry_after_timeout)
         no_retry_src = inspect.getsource(
             test_recording_mod.TestResampleFallback.test_resample_not_retried_before_timeout
         )
 
         # Both must use time.monotonic()
         assert "time.monotonic()" in retry_src, (
-            "test_resample_retry_after_timeout must use time.monotonic() "
-            "to match the source code at recording.py:163."
+            "test_resample_retry_after_timeout must use time.monotonic() to match the source code at recording.py:163."
         )
-        assert "time.monotonic()" in no_retry_src, (
-            "test_resample_not_retried_before_timeout must use time.monotonic()."
-        )
+        assert "time.monotonic()" in no_retry_src, "test_resample_not_retried_before_timeout must use time.monotonic()."
 
         # Neither should use time.time()
         # (Strip comments before checking to avoid false positives from
         # comments that mention time.time().)
         def code_only(src: str) -> str:
-            return "\n".join(
-                line for line in src.splitlines()
-                if not line.lstrip().startswith("#")
-            )
+            return "\n".join(line for line in src.splitlines() if not line.lstrip().startswith("#"))
 
         assert "time.time()" not in code_only(retry_src), (
             "test_resample_retry_after_timeout must NOT use time.time() — "
@@ -549,6 +568,7 @@ class TestRecordingTestsUseMonotonicClock:
         assert "time.time()" not in code_only(no_retry_src), (
             "test_resample_not_retried_before_timeout must NOT use time.time()."
         )
+
 
 class TestInCallbackDeadFieldRemoved:
     """AUDIO-009/AUDIO-015.
@@ -574,9 +594,8 @@ class TestInCallbackDeadFieldRemoved:
         from voice_typer.server import recording as rec_mod
 
         src = inspect.getsource(rec_mod.Recorder.__init__)
-        assert "_is_in_audio_callback" in src, (
-            "The live guard ``_is_in_audio_callback`` must remain declared."
-        )
+        assert "_is_in_audio_callback" in src, "The live guard ``_is_in_audio_callback`` must remain declared."
+
 
 class TestVadGreyZonePreservesCounters:
     """AUDIO-013.
@@ -600,11 +619,10 @@ class TestVadGreyZonePreservesCounters:
         assert audio013_idx >= 0, "AUDIO-013 grey-zone comment not found"
         # Extract a generous window after the comment to capture the
         # full else body (the comment block + the actual `pass` line).
-        following = src[audio013_idx:audio013_idx + 800]
+        following = src[audio013_idx : audio013_idx + 800]
         # The grey zone block must contain 'pass' (the fix)
         assert "pass" in following, (
-            "AUDIO-013 fix: the grey-zone else block must use 'pass' "
-            "instead of resetting both counters."
+            "AUDIO-013 fix: the grey-zone else block must use 'pass' instead of resetting both counters."
         )
         # The else block must NOT contain counter resets in the lines
         # immediately following the AUDIO-013 comment (before the next
@@ -657,6 +675,7 @@ class TestVadGreyZonePreservesCounters:
         )
         assert rec._vad_consecutive_silence_frames == 0
 
+
 class TestVadAutoCalibrationBehavior:
     """AUDIO-014.
 
@@ -700,8 +719,7 @@ class TestVadAutoCalibrationBehavior:
         #   silence_threshold = noise_db + 6 dB  = -34 dB
         #   speech_threshold  = noise_db + 18 dB = -22 dB
         assert rec._vad_calibrated is True, (
-            "VAD auto-calibration must set _vad_calibrated=True after "
-            "collecting enough samples."
+            "VAD auto-calibration must set _vad_calibrated=True after collecting enough samples."
         )
         # Speech threshold should be above the noise floor
         assert rec._vad_speech_threshold_db > -40.0, (
@@ -720,10 +738,9 @@ class TestVadAutoCalibrationBehavior:
             "VAD speech threshold must be above silence threshold."
         )
         # Thresholds must have changed from defaults
-        assert rec._vad_speech_threshold_db != default_speech_db or \
-               rec._vad_silence_threshold_db != default_silence_db, (
-            "VAD thresholds must change from defaults after calibration."
-        )
+        assert (
+            rec._vad_speech_threshold_db != default_speech_db or rec._vad_silence_threshold_db != default_silence_db
+        ), "VAD thresholds must change from defaults after calibration."
 
     def test_vad_auto_calibrate_resets_on_start(self):
         """``Recorder.start()`` must reset the calibration state so a
@@ -735,9 +752,9 @@ class TestVadAutoCalibrationBehavior:
         # The start() method must reset _vad_calibration_rms_values
         # and _vad_calibrated.
         assert "_vad_calibration_rms_values" in src or "_vad_calibrated" in src, (
-            "Recorder.start() must reset VAD calibration state so each "
-            "session re-calibrates from ambient noise."
+            "Recorder.start() must reset VAD calibration state so each session re-calibrates from ambient noise."
         )
+
 
 class TestStreamingAssemblerUsesDequeEviction:
     """AUDIO-019.
@@ -754,12 +771,10 @@ class TestStreamingAssemblerUsesDequeEviction:
 
         asm = StreamingTextAssembler()
         assert isinstance(asm._words, __import__("collections").deque), (
-            "StreamingTextAssembler._words must be a collections.deque "
-            "(not a plain list) for O(1) eviction."
+            "StreamingTextAssembler._words must be a collections.deque (not a plain list) for O(1) eviction."
         )
         assert asm._words.maxlen == StreamingTextAssembler._MAX_WORDS, (
-            f"deque maxlen must be _MAX_WORDS ({StreamingTextAssembler._MAX_WORDS}); "
-            f"got {asm._words.maxlen}"
+            f"deque maxlen must be _MAX_WORDS ({StreamingTextAssembler._MAX_WORDS}); got {asm._words.maxlen}"
         )
 
     def test_base_offset_starts_at_zero(self):
@@ -794,8 +809,7 @@ class TestStreamingAssemblerUsesDequeEviction:
         )
         # The pre-fix typo must NOT be present
         assert "evited" not in src, (
-            "AUDIO-019 regression: the 'evited' typo (missing 'c') is back "
-            "— use 'evicted_word'."
+            "AUDIO-019 regression: the 'evited' typo (missing 'c') is back — use 'evicted_word'."
         )
 
     def test_eviction_preserves_word_key_index_correctness(self):
@@ -830,6 +844,7 @@ class TestStreamingAssemblerUsesDequeEviction:
         # The evicted words should NOT be in the committed text
         assert "word0" not in committed
         assert "word1" not in committed
+
 
 class TestAudioAgcLastRmsPostAgc:
     """ADR 0007 §3.5: The old per-chunk AGC (_agc_update, C1) has been
@@ -877,6 +892,7 @@ class TestAudioAgcLastRmsPostAgc:
         )
         assert last_rms_idx >= 0, "_last_rms assignment must still exist for UI/IPC"
 
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
 
@@ -911,6 +927,7 @@ Findings covered
 - RACE-001       concurrent callback test exists (already fixed — pin)
 """
 
+
 class TestConfigEditHoldsMutationLock:
     """SEC-audit-011.
 
@@ -934,9 +951,9 @@ class TestConfigEditHoldsMutationLock:
         lock_idx = src.find("with self._config_mutation_lock:")
         reload_idx = src.find("type(self.config).load()")
         assert lock_idx < popen_idx < reload_idx, (
-            "SEC-audit-011: _config_mutation_lock must be acquired before "
-            "Popen and held through the config reload."
+            "SEC-audit-011: _config_mutation_lock must be acquired before Popen and held through the config reload."
         )
+
 
 class TestPlatformUtilsDeadCodeRemoved:
     """PLAT-008.
@@ -953,12 +970,8 @@ class TestPlatformUtilsDeadCodeRemoved:
             "PLAT-008: validate_env_vars must be removed from platform_utils "
             "(it was dead code duplicating app.py::_validate_env_vars)."
         )
-        assert not hasattr(platform_utils, "_init_env_var_schema"), (
-            "PLAT-008: _init_env_var_schema must be removed."
-        )
-        assert not hasattr(platform_utils, "_ENV_VAR_SCHEMA"), (
-            "PLAT-008: _ENV_VAR_SCHEMA must be removed."
-        )
+        assert not hasattr(platform_utils, "_init_env_var_schema"), "PLAT-008: _init_env_var_schema must be removed."
+        assert not hasattr(platform_utils, "_ENV_VAR_SCHEMA"), "PLAT-008: _ENV_VAR_SCHEMA must be removed."
 
     def test_app_validate_env_vars_still_exists(self):
         from voice_typer.server import app
@@ -966,8 +979,7 @@ class TestPlatformUtilsDeadCodeRemoved:
         # The canonical implementation must still exist in app.py
         # (it's a module-level function, not a method)
         assert hasattr(app, "_validate_env_vars"), (
-            "PLAT-008: app.py must still have _validate_env_vars as the "
-            "single source of truth for env-var validation."
+            "PLAT-008: app.py must still have _validate_env_vars as the single source of truth for env-var validation."
         )
 
     def test_platform_utils_still_exports_platform_helpers(self):
@@ -985,6 +997,7 @@ class TestPlatformUtilsDeadCodeRemoved:
         assert isinstance(is_windows(), bool)
         assert isinstance(is_macos(), bool)
         assert isinstance(platform_name(), str)
+
 
 class TestDuplicateDiskSpaceCheckRemoved:
     """PROD-005.
@@ -1013,13 +1026,52 @@ class TestDuplicateDiskSpaceCheckRemoved:
         assert callable(_check_disk_space_for_download)
 
     def test_asr_setup_delegates_to_canonical(self):
+        """PROD-005: ``asr_setup.download_parakeet_weights`` must delegate
+        disk-space checking to the canonical
+        ``_check_disk_space_for_download`` from ``transcription.py``
+        (rather than a local duplicate that previously diverged in size
+        tables and return semantics).
+
+        RW-8: ported from a source-string meta-test (which inspected
+        ``download_parakeet_weights`` source for the substring
+        ``_check_disk_space_for_download``) to a behavioral test that
+        mocks the canonical function and verifies it is invoked. The
+        behavioral test is robust to refactors — if the call is moved
+        into a helper or renamed, the test still catches the regression
+        as long as disk-space checking is bypassed.
+        """
+        from unittest.mock import patch
+
         from voice_typer.server import asr_setup
 
-        src = inspect.getsource(asr_setup.download_parakeet_weights)
-        assert "_check_disk_space_for_download" in src, (
-            "PROD-005: asr_setup must delegate to the canonical "
-            "_check_disk_space_for_download from transcription.py."
+        # Mock ``snapshot_download`` to raise (cache miss) so the
+        # function proceeds past the cache-check block to the
+        # disk-space check. Mock ``_check_disk_space_for_download`` to
+        # raise ``RuntimeError`` so the function short-circuits after
+        # the check (no actual download attempt).
+        with (
+            patch(
+                "huggingface_hub.snapshot_download",
+                side_effect=Exception("cache miss"),
+            ),
+            patch(
+                "voice_typer.server.transcription._check_disk_space_for_download",
+                side_effect=RuntimeError("insufficient space"),
+            ) as mock_check,
+        ):
+            result = asr_setup.download_parakeet_weights()
+
+        # The function returns False on insufficient space.
+        assert result is False, (
+            "PROD-005: download_parakeet_weights should return False when "
+            "the canonical disk-space check raises RuntimeError."
         )
+        # The canonical check must have been invoked.
+        assert mock_check.call_count == 1, (
+            "PROD-005: download_parakeet_weights must delegate disk-space "
+            "checking to _check_disk_space_for_download from transcription.py."
+        )
+
 
 class TestDaemonThreadRationaleDocumented:
     """RACE-008.
@@ -1034,8 +1086,7 @@ class TestDaemonThreadRationaleDocumented:
 
         src = inspect.getsource(WindowsNativeHotkey.start)
         assert "RACE-008" in src, (
-            "RACE-008: WindowsNativeHotkey.start must have a RACE-008 "
-            "rationale comment on the daemon thread."
+            "RACE-008: WindowsNativeHotkey.start must have a RACE-008 rationale comment on the daemon thread."
         )
 
     def test_hotkeys_ipc_thread_has_rationale(self):
@@ -1046,8 +1097,7 @@ class TestDaemonThreadRationaleDocumented:
         # called from start(). Check the whole class source.
         class_src = inspect.getsource(WaylandHotkey)
         assert "RACE-008" in class_src, (
-            "RACE-008: WaylandHotkey must have a RACE-008 rationale on "
-            "the socket-accept daemon thread."
+            "RACE-008: WaylandHotkey must have a RACE-008 rationale on the socket-accept daemon thread."
         )
 
     def test_tray_bg_thread_has_rationale(self):
@@ -1055,8 +1105,7 @@ class TestDaemonThreadRationaleDocumented:
 
         src = inspect.getsource(TrayIcon.start)
         assert "RACE-008" in src, (
-            "RACE-008: TrayIcon.start must have a RACE-008 rationale on "
-            "each daemon thread spawn site."
+            "RACE-008: TrayIcon.start must have a RACE-008 rationale on each daemon thread spawn site."
         )
 
     def test_service_download_thread_has_rationale(self):
@@ -1064,10 +1113,8 @@ class TestDaemonThreadRationaleDocumented:
 
         # The download thread is inside a method — search the whole module.
         src = inspect.getsource(service)
-        assert "RACE-008" in src, (
-            "RACE-008: service.py must have a RACE-008 rationale on the "
-            "download daemon thread."
-        )
+        assert "RACE-008" in src, "RACE-008: service.py must have a RACE-008 rationale on the download daemon thread."
+
 
 class TestElectronLogFilesCaptured:
     """RACE-009.
@@ -1119,6 +1166,7 @@ class TestElectronLogFilesCaptured:
             "RACE-009: all 3 Electron launch sites must call _electron_log_files()."
         )
 
+
 class TestAudioMicDeviceChangePoller:
     """AUDIO-MIC.
 
@@ -1136,15 +1184,58 @@ class TestAudioMicDeviceChangePoller:
     """
 
     def test_load_microphones_pushes_ipc_event_on_change(self):
-        from voice_typer.server.app import VoiceTyperApp
+        """AUDIO-MIC: when ``load_microphones`` detects that the device
+        set has changed (USB mic plugged/unplugged), it must push a
+        ``microphones_changed`` IPC event so the Electron renderer can
+        refresh its microphone dropdown without a manual "Refresh" click.
 
-        src = inspect.getsource(VoiceTyperApp._load_microphones)
-        assert "microphones_changed" in src, (
-            "AUDIO-MIC: _load_microphones must push a 'microphones_changed' "
-            "IPC event when the device set changes."
+        RW-8: ported from a source-string meta-test (which inspected
+        ``load_microphones`` source for ``microphones_changed`` /
+        ``old_ids`` / ``new_ids`` substrings) to a behavioral test
+        that mocks ``list_microphones`` to return a different device
+        set on successive calls and asserts ``event_bus.publish`` was
+        invoked with a ``microphones_changed`` event. The behavioral
+        test is robust to refactors — if the comparison logic is
+        restructured or the event payload field names change, the test
+        still catches the regression as long as the IPC event is no
+        longer published on device-set change.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from voice_typer.server import startup_tasks
+
+        # Build a minimal app mock with a non-empty initial microphone
+        # list so ``old_ids`` is non-empty and the change-detection
+        # branch fires.
+        app = MagicMock()
+        app._microphones = [
+            {"id": 1, "name": "Mic A"},
+            {"id": 2, "name": "Mic B"},
+        ]
+
+        # Mock ``list_microphones`` to return a DIFFERENT device set
+        # (Mic B removed, Mic C added) — the device-id set changes
+        # from {1, 2} to {1, 3}, which must trigger the
+        # ``microphones_changed`` IPC event.
+        with (
+            patch(
+                "voice_typer.server.app.list_microphones",
+                return_value=[
+                    {"id": 1, "name": "Mic A"},
+                    {"id": 3, "name": "Mic C"},
+                ],
+            ),
+            patch("voice_typer.server.event_bus.publish") as mock_publish,
+        ):
+            startup_tasks.load_microphones(app)
+
+        assert mock_publish.call_count == 1, (
+            "AUDIO-MIC: load_microphones must publish exactly one IPC event "
+            "when the device set changes (no spurious extra publishes)."
         )
-        assert "old_ids" in src and "new_ids" in src, (
-            "AUDIO-MIC: _load_microphones must compare old vs new device IDs."
+        args, _ = mock_publish.call_args
+        assert args[0]["type"] == "microphones_changed", (
+            "AUDIO-MIC: load_microphones must push a 'microphones_changed' IPC event when the device set changes."
         )
 
     def test_poller_not_started_in_startup(self):
@@ -1162,6 +1253,7 @@ class TestAudioMicDeviceChangePoller:
             "PERF-FIX-2: StartupSequence.run must NOT call _start_device_change_poller "
             "(redundant with the event-driven MicrophoneDeviceWatcher)."
         )
+
 
 class TestAudioClipRealtimeIpcEvent:
     """AUDIO-CLIP.
@@ -1181,8 +1273,7 @@ class TestAudioClipRealtimeIpcEvent:
         # there — the invariant is preserved.
         src = inspect.getsource(recording.Recorder._process_audio_chunk)
         assert "audio_clip" in src, (
-            "AUDIO-CLIP: recording callback must push an 'audio_clip' IPC "
-            "event when clipping is detected."
+            "AUDIO-CLIP: recording callback must push an 'audio_clip' IPC event when clipping is detected."
         )
         # B-1 + RW-8: production code now enqueues the event on
         # ``self._event_queue`` (a queue.Queue) instead of calling
@@ -1191,15 +1282,12 @@ class TestAudioClipRealtimeIpcEvent:
         # audio hot path. The invariant — "the recording callback
         # pushes an event to the IPC channel" — is preserved (just
         # async via the queue).
-        assert (
-            "_event_queue.put" in src
-            or "event_bus.publish" in src
-            or "_push_event_now" in src
-        ), (
+        assert "_event_queue.put" in src or "event_bus.publish" in src or "_push_event_now" in src, (
             "AUDIO-CLIP: recording callback must enqueue the audio_clip "
             "event via _event_queue.put (RW-8 worker queue) OR call "
             "event_bus.publish / _push_event_now directly."
         )
+
 
 class TestTrayIconBaseIcoLookup:
     """PLAT-024.
@@ -1214,24 +1302,19 @@ class TestTrayIconBaseIcoLookup:
 
         src = inspect.getsource(_get_icon_path)
         assert "tray-mic.ico" in src, (
-            "PLAT-024: _get_icon_path must look for the base tray-mic.ico "
-            "as a fallback on Windows."
+            "PLAT-024: _get_icon_path must look for the base tray-mic.ico as a fallback on Windows."
         )
 
     def test_generate_icons_mjs_emits_tray_ico(self):
         """generate-icons.mjs must call generateIco for tray-mic.ico."""
         from pathlib import Path
 
-        mjs_path = Path(__file__).resolve().parent.parent / "voice_typer" / \
-            "client" / "scripts" / "generate-icons.mjs"
+        mjs_path = Path(__file__).resolve().parent.parent / "voice_typer" / "client" / "scripts" / "generate-icons.mjs"
         with open(mjs_path) as f:
             src = f.read()
-        assert "tray-mic.ico" in src, (
-            "PLAT-024: generate-icons.mjs must emit tray-mic.ico."
-        )
-        assert "PLAT-024" in src, (
-            "PLAT-024: generate-icons.mjs must reference PLAT-024 in a comment."
-        )
+        assert "tray-mic.ico" in src, "PLAT-024: generate-icons.mjs must emit tray-mic.ico."
+        assert "PLAT-024" in src, "PLAT-024: generate-icons.mjs must reference PLAT-024 in a comment."
+
 
 class TestAccessibilityIpcEndpointExists:
     """PLAT-030.
@@ -1248,15 +1331,9 @@ class TestAccessibilityIpcEndpointExists:
         assert "check_accessibility" in ipc_server.IPCServer._COMMAND_REGISTRY, (
             "PLAT-030: IPC _COMMAND_REGISTRY must include 'check_accessibility'."
         )
-        src = inspect.getsource(
-            ipc_server.IPCServer._handle_check_accessibility
-        )
-        assert "accessibility_status" in src, (
-            "PLAT-030: handler must return 'accessibility_status' response type."
-        )
-        assert "AXIsProcessTrusted" in src, (
-            "PLAT-030: handler must use AXIsProcessTrusted() on macOS."
-        )
+        src = inspect.getsource(ipc_server.IPCServer._handle_check_accessibility)
+        assert "accessibility_status" in src, "PLAT-030: handler must return 'accessibility_status' response type."
+        assert "AXIsProcessTrusted" in src, "PLAT-030: handler must use AXIsProcessTrusted() on macOS."
 
     def test_check_accessibility_returns_granted_on_non_macos(self, monkeypatch):
         """On non-macOS platforms, the handler must return granted=True."""
@@ -1281,6 +1358,7 @@ class TestAccessibilityIpcEndpointExists:
         assert resp["type"] == "accessibility_status"
         assert resp["data"]["granted"] is True
         assert resp["data"]["platform"] == sys.platform
+
 
 class TestAudioDtypeEdgeCases:
     """AUDIO-006.
@@ -1338,6 +1416,7 @@ class TestAudioDtypeEdgeCases:
         result = rec._resample_chunk(sliced, 16000, 16000)
         assert result is not None
 
+
 class TestNumpyVectorizedOpsRegression:
     """AUDIO-007.
 
@@ -1368,14 +1447,13 @@ class TestNumpyVectorizedOpsRegression:
         rms_dot = float(np.sqrt(np.dot(flat, flat) / flat.size))
 
         # Naive RMS
-        rms_naive = float(np.sqrt(np.mean(audio ** 2)))
+        rms_naive = float(np.sqrt(np.mean(audio**2)))
 
         # Must match to floating-point precision
-        assert abs(rms_dot - rms_naive) < 1e-6, (
-            f"np.dot RMS ({rms_dot}) != naive RMS ({rms_naive})"
-        )
+        assert abs(rms_dot - rms_naive) < 1e-6, f"np.dot RMS ({rms_dot}) != naive RMS ({rms_naive})"
         # Expected RMS for 0.5-amplitude sine = 0.5 / sqrt(2) ≈ 0.3536
         assert abs(rms_dot - 0.5 / np.sqrt(2)) < 0.01
+
 
 class TestAudioDeviceDisconnectHandling:
     """AUDIO-008.
@@ -1423,14 +1501,11 @@ class TestAudioDeviceDisconnectHandling:
         # thread instead of the real-time audio thread).
         src = inspect.getsource(recording.Recorder._process_audio_chunk)
         assert "_device_disconnected" in src
-        assert (
-            "np.all(indata == 0)" in src
-            or "np.all(indata==0)" in src
-            or "not indata.any()" in src
-        ), (
+        assert "np.all(indata == 0)" in src or "np.all(indata==0)" in src or "not indata.any()" in src, (
             "_process_audio_chunk must check for zero-filled indata to detect "
             "device disconnect (via np.all(indata == 0) or not indata.any())"
         )
+
 
 class TestBackpressureDetectionOnDequeOverflow:
     """AUDIO-010.
@@ -1462,27 +1537,23 @@ class TestBackpressureDetectionOnDequeOverflow:
             rec._dropped_chunks = getattr(rec, "_dropped_chunks", 0) + 1
 
         assert hasattr(rec, "_dropped_chunks"), "Backpressure counter must be set"
-        assert rec._dropped_chunks >= 1, (
-            "AUDIO-010: _dropped_chunks must be incremented when buffer is full."
-        )
+        assert rec._dropped_chunks >= 1, "AUDIO-010: _dropped_chunks must be incremented when buffer is full."
 
     def test_backpressure_source_uses_maxlen_check(self):
         from voice_typer.server import recording
 
         # RT-SAFE-001: the callback body moved to _process_audio_chunk.
         src = inspect.getsource(recording.Recorder._process_audio_chunk)
-        assert "_dropped_chunks" in src, (
-            "AUDIO-010: recording callback must track _dropped_chunks."
-        )
-        assert "self._buffer.maxlen" in src, (
-            "AUDIO-010: backpressure check must compare against _buffer.maxlen."
-        )
+        assert "_dropped_chunks" in src, "AUDIO-010: recording callback must track _dropped_chunks."
+        assert "self._buffer.maxlen" in src, "AUDIO-010: backpressure check must compare against _buffer.maxlen."
+
 
 # ADR-0007: AGC removed; test deleted because the feature no longer exists.
 # The per-chunk AGC (_agc_update, C1) and its constants (_AGC_TARGET_RMS,
 # _AGC_ATTACK_ALPHA, _AGC_MIN_GAIN, _AGC_MAX_GAIN) were replaced by the
 # Compressor filter in the audio filter chain. See voice_typer/server/
 # recording.py §3.5 and audio_filters.py for the current chain.
+
 
 class TestDynamicSampleRateResolution:
     """AUDIO-016.
@@ -1523,6 +1594,7 @@ class TestDynamicSampleRateResolution:
                 # assertion is that the method exists and is callable.
                 pass
 
+
 class TestPeakMeterAccuracy:
     """AUDIO-017.
 
@@ -1558,9 +1630,7 @@ class TestPeakMeterAccuracy:
                     rec._peak = chunk_peak
 
         # _peak must be the maximum of all test peaks
-        assert rec._peak == 0.95, (
-            f"AUDIO-017: _peak must be 0.95 (max of {test_peaks}), got {rec._peak}"
-        )
+        assert rec._peak == 0.95, f"AUDIO-017: _peak must be 0.95 (max of {test_peaks}), got {rec._peak}"
 
     def test_peak_source_uses_abs_max(self):
         from voice_typer.server import recording
@@ -1571,6 +1641,7 @@ class TestPeakMeterAccuracy:
         assert "abs_filtered.max()" in src or "np.abs(filtered).max()" in src, (
             "AUDIO-017: peak computation must use abs().max() on the audio."
         )
+
 
 class TestVadBoundaryConditions:
     """AUDIO-018.
@@ -1598,9 +1669,7 @@ class TestVadBoundaryConditions:
         # Feed threshold-1 loud frames → must NOT transition
         for _ in range(4):
             rec._vad_update(-20.0)  # loud
-        assert rec._vad_state == VadState.UNKNOWN, (
-            "AUDIO-018: at threshold-1 frames, state must remain UNKNOWN"
-        )
+        assert rec._vad_state == VadState.UNKNOWN, "AUDIO-018: at threshold-1 frames, state must remain UNKNOWN"
         assert rec._vad_consecutive_speech_frames == 4
 
         # Feed one more loud frame → must transition to SPEECH
@@ -1628,9 +1697,7 @@ class TestVadBoundaryConditions:
         # Feed hangover-1 quiet frames → must NOT transition
         for _ in range(4):
             rec._vad_update(-60.0)  # quiet
-        assert rec._vad_state == VadState.SPEECH, (
-            "AUDIO-018: at hangover-1 frames, state must remain SPEECH"
-        )
+        assert rec._vad_state == VadState.SPEECH, "AUDIO-018: at hangover-1 frames, state must remain SPEECH"
 
         # Feed one more quiet frame → must transition to SILENCE
         rec._vad_update(-60.0)
@@ -1661,9 +1728,8 @@ class TestVadBoundaryConditions:
 
         # 1 grey-zone frame → counters must NOT reset
         rec._vad_update(-40.0)  # grey zone (between -50 and -30)
-        assert rec._vad_consecutive_speech_frames == 2, (
-            "AUDIO-018/AUDIO-013: grey-zone must preserve speech counter"
-        )
+        assert rec._vad_consecutive_speech_frames == 2, "AUDIO-018/AUDIO-013: grey-zone must preserve speech counter"
+
 
 class TestManifestInExists:
     """PLAT-036.
@@ -1677,9 +1743,7 @@ class TestManifestInExists:
         from pathlib import Path
 
         manifest = Path(__file__).resolve().parent.parent / "MANIFEST.in"
-        assert manifest.exists(), (
-            "PLAT-036: MANIFEST.in must exist at the repo root."
-        )
+        assert manifest.exists(), "PLAT-036: MANIFEST.in must exist at the repo root."
 
     def test_manifest_in_includes_key_files(self):
         from pathlib import Path
@@ -1687,11 +1751,10 @@ class TestManifestInExists:
         manifest = Path(__file__).resolve().parent.parent / "MANIFEST.in"
         content = manifest.read_text()
         # Must include the critical data files
-        assert "corrections.json" in content, (
-            "PLAT-036: MANIFEST.in must include corrections.json"
-        )
+        assert "corrections.json" in content, "PLAT-036: MANIFEST.in must include corrections.json"
         assert "LICENSE" in content
         assert "README.md" in content
+
 
 class TestWindowsManifestAsInvoker:
     """PLAT-037.
@@ -1705,17 +1768,13 @@ class TestWindowsManifestAsInvoker:
     def test_manifest_file_exists(self):
         from pathlib import Path
 
-        manifest = Path(__file__).resolve().parent.parent / "scripts" / "build" / \
-            "voice-typer.manifest"
-        assert manifest.exists(), (
-            "PLAT-037: voice-typer.manifest must exist in scripts/build/."
-        )
+        manifest = Path(__file__).resolve().parent.parent / "scripts" / "build" / "voice-typer.manifest"
+        assert manifest.exists(), "PLAT-037: voice-typer.manifest must exist in scripts/build/."
 
     def test_manifest_declares_as_invoker(self):
         from pathlib import Path
 
-        manifest = Path(__file__).resolve().parent.parent / "scripts" / "build" / \
-            "voice-typer.manifest"
+        manifest = Path(__file__).resolve().parent.parent / "scripts" / "build" / "voice-typer.manifest"
         content = manifest.read_text()
         assert 'requestedExecutionLevel level="asInvoker"' in content, (
             "PLAT-037: manifest must declare requestedExecutionLevel asInvoker."
@@ -1724,12 +1783,10 @@ class TestWindowsManifestAsInvoker:
     def test_spec_file_embeds_manifest(self):
         from pathlib import Path
 
-        spec = Path(__file__).resolve().parent.parent / "scripts" / "build" / \
-            "voice-typer.spec"
+        spec = Path(__file__).resolve().parent.parent / "scripts" / "build" / "voice-typer.spec"
         content = spec.read_text()
-        assert "manifest" in content.lower(), (
-            "PLAT-037: .spec file must reference the manifest."
-        )
+        assert "manifest" in content.lower(), "PLAT-037: .spec file must reference the manifest."
+
 
 class TestMutexHardenedWithSecurityDescriptor:
     r"""PLAT-040.
@@ -1745,23 +1802,20 @@ class TestMutexHardenedWithSecurityDescriptor:
         import inspect
 
         from voice_typer.server import app
+
         src = inspect.getsource(app)
         # Check for the mutex name substring (no backslash counting)
-        assert "VoiceTyperSingleInstance" in src, (
-            "PLAT-040: mutex name must contain VoiceTyperSingleInstance."
-        )
-        assert "install_hash" not in src, (
-            "PLAT-040-FIXED: no install-path hash in app module."
-        )
+        assert "VoiceTyperSingleInstance" in src, "PLAT-040: mutex name must contain VoiceTyperSingleInstance."
+        assert "install_hash" not in src, "PLAT-040-FIXED: no install-path hash in app module."
 
     def test_mutex_uses_restrictive_security_attributes(self):
         from voice_typer.server import app
 
         src = inspect.getsource(app)
         assert "_create_restrictive_security_attributes" in src, (
-            "PLAT-040: mutex must use _create_restrictive_security_attributes "
-            "for a non-NULL DACL."
+            "PLAT-040: mutex must use _create_restrictive_security_attributes for a non-NULL DACL."
         )
+
 
 class TestPlatRunAutostartTaskHashed:
     """PLAT-RUN.
@@ -1775,14 +1829,12 @@ class TestPlatRunAutostartTaskHashed:
         from voice_typer.server import server_platform as platform
 
         src = inspect.getsource(platform)
-        assert "_install_hash_suffix" in src, (
-            "PLAT-RUN: _install_hash_suffix helper must exist."
-        )
+        assert "_install_hash_suffix" in src, "PLAT-RUN: _install_hash_suffix helper must exist."
         # The task name must be an f-string that includes the hash
-        assert "f\"VoiceTyperAutostart{_install_hash_suffix()}\"" in src or \
-               "f'VoiceTyperAutostart{_install_hash_suffix()}'" in src, (
-            "PLAT-RUN: _APP_AUTOSTART_TASK_NAME must include the hash suffix."
-        )
+        assert (
+            'f"VoiceTyperAutostart{_install_hash_suffix()}"' in src
+            or "f'VoiceTyperAutostart{_install_hash_suffix()}'" in src
+        ), "PLAT-RUN: _APP_AUTOSTART_TASK_NAME must include the hash suffix."
 
     def test_install_hash_suffix_returns_underscore_prefix(self):
         """The hash suffix must start with '_' so the task name reads
@@ -1792,13 +1844,9 @@ class TestPlatRunAutostartTaskHashed:
 
         suffix = _install_hash_suffix()
         # Must start with '_' (or be empty on failure)
-        assert suffix == "" or suffix.startswith("_"), (
-            f"PLAT-RUN: hash suffix must start with '_', got {suffix!r}"
-        )
+        assert suffix == "" or suffix.startswith("_"), f"PLAT-RUN: hash suffix must start with '_', got {suffix!r}"
         # Must be 9 chars: '_' + 8 hex chars (or empty)
-        assert suffix == "" or len(suffix) == 9, (
-            f"PLAT-RUN: hash suffix must be '_XXXXXXXX' (9 chars), got {suffix!r}"
-        )
+        assert suffix == "" or len(suffix) == 9, f"PLAT-RUN: hash suffix must be '_XXXXXXXX' (9 chars), got {suffix!r}"
 
     def test_two_different_executables_get_different_hashes(self):
         """Two different install paths must produce different hash suffixes."""
@@ -1808,9 +1856,7 @@ class TestPlatRunAutostartTaskHashed:
             hash1 = _install_hash_suffix()
         with patch("sys.executable", "/path/to/install2/voice-typer.exe"):
             hash2 = _install_hash_suffix()
-        assert hash1 != hash2, (
-            "PLAT-RUN: different install paths must produce different hashes"
-        )
+        assert hash1 != hash2, "PLAT-RUN: different install paths must produce different hashes"
 
 
 class TestConcurrentCallbackTestCoverageExists:
@@ -1830,6 +1876,7 @@ class TestConcurrentCallbackTestCoverageExists:
         """
         try:
             from tests.test_bugfix_regressions import TestAudioCallbackUsesMinimalLockScope
+
             assert hasattr(TestAudioCallbackUsesMinimalLockScope, "test_concurrent_audio_callback_does_not_crash"), (
                 "RACE-001: concurrent callback test must exist."
             )
@@ -1837,9 +1884,9 @@ class TestConcurrentCallbackTestCoverageExists:
             # If the test module isn't present, this test should fail
             # to alert the maintainer.
             pytest.fail(
-                "RACE-001: tests/test_bugfix_regressions.py must exist with "
-                "TestAudioCallbackUsesMinimalLockScope."
+                "RACE-001: tests/test_bugfix_regressions.py must exist with TestAudioCallbackUsesMinimalLockScope."
             )
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
@@ -1876,6 +1923,7 @@ False positives pinned (6):
 - TEST-024      WAV fixtures exist
 """
 
+
 class TestPlatWaylandSocketPermissions:
     """PLAT-WAYLAND.
 
@@ -1889,23 +1937,14 @@ class TestPlatWaylandSocketPermissions:
 
         src = inspect.getsource(hotkeys.WaylandHotkey._start_socket_server)
         # Must use stat.S_IRUSR | stat.S_IWUSR (0o600)
-        assert "stat.S_IRUSR | stat.S_IWUSR" in src, (
-            "PLAT-WAYLAND: socket must be restricted to owner-only (0o600)"
-        )
+        assert "stat.S_IRUSR | stat.S_IWUSR" in src, "PLAT-WAYLAND: socket must be restricted to owner-only (0o600)"
         # Must NOT include group/other bits
         chmod_block = src.split("os.chmod")[1].split(")")[0] if "os.chmod" in src else ""
-        assert "S_IRGRP" not in chmod_block, (
-            "PLAT-WAYLAND: socket must NOT be group-readable"
-        )
-        assert "S_IWGRP" not in chmod_block, (
-            "PLAT-WAYLAND: socket must NOT be group-writable"
-        )
-        assert "S_IROTH" not in chmod_block, (
-            "PLAT-WAYLAND: socket must NOT be world-readable"
-        )
-        assert "S_IWOTH" not in chmod_block, (
-            "PLAT-WAYLAND: socket must NOT be world-writable"
-        )
+        assert "S_IRGRP" not in chmod_block, "PLAT-WAYLAND: socket must NOT be group-readable"
+        assert "S_IWGRP" not in chmod_block, "PLAT-WAYLAND: socket must NOT be group-writable"
+        assert "S_IROTH" not in chmod_block, "PLAT-WAYLAND: socket must NOT be world-readable"
+        assert "S_IWOTH" not in chmod_block, "PLAT-WAYLAND: socket must NOT be world-writable"
+
 
 class TestClipboardRetryNarrowedException:
     """PLAT-007.
@@ -1920,13 +1959,9 @@ class TestClipboardRetryNarrowedException:
 
         src = inspect.getsource(clipboard)
         # Must use `except OSError as copy_err` (narrowed)
-        assert "except OSError as copy_err" in src, (
-            "PLAT-007: clipboard retry must catch OSError, not broad Exception"
-        )
+        assert "except OSError as copy_err" in src, "PLAT-007: clipboard retry must catch OSError, not broad Exception"
         # Must check winerror == 5
-        assert "winerror == 5" in src, (
-            "PLAT-007: clipboard retry must check winerror == 5 (ERROR_ACCESS_DENIED)"
-        )
+        assert "winerror == 5" in src, "PLAT-007: clipboard retry must check winerror == 5 (ERROR_ACCESS_DENIED)"
 
     def test_broad_exception_catch_removed(self):
         """The pre-fix ``except Exception as copy_err`` must NOT be
@@ -1944,6 +1979,7 @@ class TestClipboardRetryNarrowedException:
             "clipboard retry block (use 'except OSError as copy_err' instead)"
         )
 
+
 class TestComtypesFallbackFailsClosed:
     """PLAT-014.
 
@@ -1956,8 +1992,7 @@ class TestComtypesFallbackFailsClosed:
         from voice_typer.server import clipboard
 
         assert hasattr(clipboard, "_CRED_DIALOG_CLASSES"), (
-            "PLAT-014: _CRED_DIALOG_CLASSES constant must exist for the "
-            "comtypes-absence fallback."
+            "PLAT-014: _CRED_DIALOG_CLASSES constant must exist for the comtypes-absence fallback."
         )
         assert isinstance(clipboard._CRED_DIALOG_CLASSES, set)
         assert len(clipboard._CRED_DIALOG_CLASSES) > 0
@@ -1986,13 +2021,12 @@ class TestComtypesFallbackFailsClosed:
         from voice_typer.server import clipboard
 
         src = inspect.getsource(clipboard._is_password_field)
-        assert "log.warning" in src, (
-            "PLAT-014: comtypes-absence must log at WARNING level (not INFO)"
-        )
+        assert "log.warning" in src, "PLAT-014: comtypes-absence must log at WARNING level (not INFO)"
         # Must call the credential-dialog fallback
         assert "_focused_window_is_credential_dialog" in src, (
             "PLAT-014: comtypes-absence path must call _focused_window_is_credential_dialog"
         )
+
 
 class TestPlatHleakDeadCodeRemoved:
     """PLAT-HLEAK.
@@ -2010,9 +2044,7 @@ class TestPlatHleakDeadCodeRemoved:
     def test_close_mutex_handle_removed(self):
         from voice_typer.server import app
 
-        assert not hasattr(app, "_close_mutex_handle"), (
-            "PLAT-HLEAK: _close_mutex_handle must be removed (dead code)."
-        )
+        assert not hasattr(app, "_close_mutex_handle"), "PLAT-HLEAK: _close_mutex_handle must be removed (dead code)."
 
     def test_instance_hash_removed(self):
         """PLAT-HLEAK: ``_instance_hash`` was also dead code (zero call
@@ -2033,14 +2065,10 @@ class TestPlatHleakDeadCodeRemoved:
         import inspect
 
         from voice_typer.server import app as app_mod
-        src = inspect.getsource(app_mod._ensure_single_instance)
-        assert "VoiceTyperSingleInstance" in src, (
-            "Mutex name must contain VoiceTyperSingleInstance."
-        )
-        assert "hashlib.sha256(sys.executable.encode())" not in src, (
-            "Mutex name must NOT depend on sys.executable."
-        )
 
+        src = inspect.getsource(app_mod._ensure_single_instance)
+        assert "VoiceTyperSingleInstance" in src, "Mutex name must contain VoiceTyperSingleInstance."
+        assert "hashlib.sha256(sys.executable.encode())" not in src, "Mutex name must NOT depend on sys.executable."
 
 
 class TestPlatPumpImportHoisted:
@@ -2061,8 +2089,7 @@ class TestPlatPumpImportHoisted:
         assert while_idx >= 0
         assert import_idx >= 0
         assert import_idx < while_idx, (
-            "PLAT-PUMP: 'import win32gui' must be hoisted BEFORE the while loop, "
-            "not inside it."
+            "PLAT-PUMP: 'import win32gui' must be hoisted BEFORE the while loop, not inside it."
         )
 
     def test_pump_messages_stored_in_local(self):
@@ -2073,15 +2100,13 @@ class TestPlatPumpImportHoisted:
         from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         src = inspect.getsource(WindowsNativeHotkey._run_polling_loop)
-        assert "_pump_messages = win32gui.PumpWaitingMessages" in src or \
-               "_pump_messages = None" in src, (
+        assert "_pump_messages = win32gui.PumpWaitingMessages" in src or "_pump_messages = None" in src, (
             "PLAT-PUMP: PumpWaitingMessages must be stored in _pump_messages local."
         )
         # Inside the loop, must call _pump_messages(), not win32gui.PumpWaitingMessages()
-        loop_body = src[src.find("while not self._stop_event"):]
-        assert "_pump_messages()" in loop_body, (
-            "PLAT-PUMP: loop body must call _pump_messages(), not re-import."
-        )
+        loop_body = src[src.find("while not self._stop_event") :]
+        assert "_pump_messages()" in loop_body, "PLAT-PUMP: loop body must call _pump_messages(), not re-import."
+
 
 class TestVkLookupBenchmarkExists:
     """PLAT-002.
@@ -2099,9 +2124,7 @@ class TestVkLookupBenchmarkExists:
         t0 = time.perf_counter()
         _init_vk_map()
         elapsed_ms = (time.perf_counter() - t0) * 1000
-        assert elapsed_ms < 100, (
-            f"PLAT-002: VK map init took {elapsed_ms:.1f}ms (target < 100ms)"
-        )
+        assert elapsed_ms < 100, f"PLAT-002: VK map init took {elapsed_ms:.1f}ms (target < 100ms)"
 
     def test_vk_lookup_is_o1_dict_get(self):
         """VK lookup must use dict.get (O(1)), not a linear scan."""
@@ -2109,9 +2132,7 @@ class TestVkLookupBenchmarkExists:
 
         src = inspect.getsource(hotkeys)
         # The lookup uses _VK_MAP.get(key_name)
-        assert "_VK_MAP.get" in src or "_VK_MAP[" in src, (
-            "PLAT-002: VK lookup must use dict.get (O(1))"
-        )
+        assert "_VK_MAP.get" in src or "_VK_MAP[" in src, "PLAT-002: VK lookup must use dict.get (O(1))"
 
     def test_vk_lookup_returns_correct_code_for_f2(self):
         """VK_F2 = 0x71 (113)."""
@@ -2122,6 +2143,7 @@ class TestVkLookupBenchmarkExists:
         assert _VK_MAP.get("f2") == 113 or _VK_MAP.get("F2") == 113, (
             f"PLAT-002: VK lookup for 'f2' must return 113, got {_VK_MAP.get('f2')}"
         )
+
 
 class TestWindowsPathMigrationCoverage:
     """PLAT-005.
@@ -2134,9 +2156,7 @@ class TestWindowsPathMigrationCoverage:
     def test_migrate_from_legacy_function_exists(self):
         from voice_typer.server import config as cfg_mod
 
-        assert hasattr(cfg_mod, "_migrate_from_legacy"), (
-            "PLAT-005: _migrate_from_legacy function must exist."
-        )
+        assert hasattr(cfg_mod, "_migrate_from_legacy"), "PLAT-005: _migrate_from_legacy function must exist."
 
     def test_migrate_copies_files_from_legacy_to_new(self, tmp_path, monkeypatch):
         """Create a file in the legacy location, run migration, verify
@@ -2152,7 +2172,7 @@ class TestWindowsPathMigrationCoverage:
 
         # Create a test file in the legacy location
         (legacy_dir / "config.json").write_text('{"test": true}')
-        (legacy_dir / "corrections.json").write_text('{}')
+        (legacy_dir / "corrections.json").write_text("{}")
 
         # Patch _config_dir to return new_dir
         monkeypatch.setattr(cfg_mod, "_config_dir", lambda: new_dir)
@@ -2170,9 +2190,8 @@ class TestWindowsPathMigrationCoverage:
         from voice_typer.server import config as cfg_mod
 
         src = inspect.getsource(cfg_mod._config_dir)
-        assert "VOICE_TYPER_CONFIG_DIR" in src, (
-            "PLAT-005: _config_dir must check VOICE_TYPER_CONFIG_DIR env var"
-        )
+        assert "VOICE_TYPER_CONFIG_DIR" in src, "PLAT-005: _config_dir must check VOICE_TYPER_CONFIG_DIR env var"
+
 
 class TestMutexAcquisitionHasRetryAndTimeout:
     """PLAT-011.
@@ -2193,11 +2212,7 @@ class TestMutexAcquisitionHasRetryAndTimeout:
         # numeric value 183 assigned to a lowercase variable
         # ``error_already_exists`` — both are valid representations of
         # the Windows system error code.
-        assert (
-            "ERROR_ALREADY_EXISTS" in src
-            or "error_already_exists" in src
-            or "183" in src
-        ), (
+        assert "ERROR_ALREADY_EXISTS" in src or "error_already_exists" in src or "183" in src, (
             "PLAT-011: _ensure_single_instance must check ERROR_ALREADY_EXISTS"
         )
         # The immediate-exit behavior is intentional — no retry loop
@@ -2206,6 +2221,7 @@ class TestMutexAcquisitionHasRetryAndTimeout:
             "PLAT-011: _ensure_single_instance intentionally does NOT retry. "
             "Adding retry would delay the 'already running' message to the user."
         )
+
 
 class TestSystemRootValidationFunctional:
     """PLAT-016.
@@ -2248,6 +2264,7 @@ class TestSystemRootValidationFunctional:
 
         assert callable(_validate_systemroot)
 
+
 class TestWslDetectionLogic:
     """PLAT-020.
 
@@ -2283,6 +2300,7 @@ class TestWslDetectionLogic:
         # _pump_messages must default to None (no crash when win32gui missing)
         assert "_pump_messages = None" in src
 
+
 class TestTrayRecordingColorIsGreen:
     """TRAY-006.
 
@@ -2296,27 +2314,21 @@ class TestTrayRecordingColorIsGreen:
 
         src = inspect.getsource(tray_icon)
         # RECORDING must be green (46, 204, 113)
-        assert "(46, 204, 113" in src, (
-            "TRAY-006: RECORDING color must be green (46, 204, 113), not red"
-        )
+        assert "(46, 204, 113" in src, "TRAY-006: RECORDING color must be green (46, 204, 113), not red"
 
     def test_error_color_is_red(self):
         from voice_typer.server import tray_icon
 
         src = inspect.getsource(tray_icon)
         # ERROR must be red (231, 76, 60)
-        assert "(231, 76, 60" in src, (
-            "TRAY-006: ERROR color must be red (231, 76, 60)"
-        )
+        assert "(231, 76, 60" in src, "TRAY-006: ERROR color must be red (231, 76, 60)"
 
     def test_cancelling_color_is_orange(self):
         from voice_typer.server import tray_icon
 
         src = inspect.getsource(tray_icon)
         # CANCELLING must be orange (243, 156, 18)
-        assert "(243, 156, 18" in src, (
-            "TRAY-006: CANCELLING color must be orange (243, 156, 18)"
-        )
+        assert "(243, 156, 18" in src, "TRAY-006: CANCELLING color must be orange (243, 156, 18)"
 
     def test_recording_and_error_colors_are_distinct(self):
         """RECORDING (green) and ERROR (red) must be visually distinct."""
@@ -2328,9 +2340,9 @@ class TestTrayRecordingColorIsGreen:
         # The RGB values must differ significantly
         diff = sum(abs(a - b) for a, b in zip(recording_rgb, error_rgb, strict=False))
         assert diff > 100, (
-            f"TRAY-006: RECORDING and ERROR colors must be visually distinct "
-            f"(RGB diff = {diff}, need > 100)"
+            f"TRAY-006: RECORDING and ERROR colors must be visually distinct (RGB diff = {diff}, need > 100)"
         )
+
 
 class TestPytestBenchmarkCoverageExists:
     """TEST-012.
@@ -2344,18 +2356,15 @@ class TestPytestBenchmarkCoverageExists:
 
         pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
         content = pyproject.read_text(encoding="utf-8")
-        assert "pytest-benchmark" in content, (
-            "TEST-012: pytest-benchmark must be in pyproject.toml test deps"
-        )
+        assert "pytest-benchmark" in content, "TEST-012: pytest-benchmark must be in pyproject.toml test deps"
 
     def test_benchmark_tests_exist(self):
 
         bench_test = Path(__file__).resolve().parent / "test_benchmarks.py"
         if bench_test.exists():
             content = bench_test.read_text(encoding="utf-8")
-            assert "benchmark(" in content, (
-                "TEST-012: test_benchmarks.py must use benchmark() fixture"
-            )
+            assert "benchmark(" in content, "TEST-012: test_benchmarks.py must use benchmark() fixture"
+
 
 class TestFuzzTestCoverageExists:
     """TEST-013.
@@ -2370,12 +2379,9 @@ class TestFuzzTestCoverageExists:
         hypo_test = Path(__file__).resolve().parent / "test_text_cleanup_hypothesis.py"
         if hypo_test.exists():
             content = hypo_test.read_text(encoding="utf-8")
-            assert "TestCorrectionsJsonFuzzing" in content, (
-                "TEST-013: TestCorrectionsJsonFuzzing class must exist"
-            )
-            assert "@given" in content, (
-                "TEST-013: hypothesis @given decorator must be used"
-            )
+            assert "TestCorrectionsJsonFuzzing" in content, "TEST-013: TestCorrectionsJsonFuzzing class must exist"
+            assert "@given" in content, "TEST-013: hypothesis @given decorator must be used"
+
 
 class TestCorrectionsRecoveryCoverageExists:
     """TEST-016.
@@ -2397,6 +2403,7 @@ class TestCorrectionsRecoveryCoverageExists:
                 "TEST-016: corrupted-file-still-applies-builtin test must exist"
             )
 
+
 class TestRtlEmojiTestCoverageExists:
     """TEST-021.
 
@@ -2409,24 +2416,17 @@ class TestRtlEmojiTestCoverageExists:
         cjk_test = Path(__file__).resolve().parent / "test_text_cleanup_cjk.py"
         if cjk_test.exists():
             content = cjk_test.read_text(encoding="utf-8")
-            assert "TestRTLText" in content, (
-                "TEST-021: TestRTLText class must exist in test_text_cleanup_cjk.py"
-            )
-            assert "test_arabic_text_not_mangled" in content, (
-                "TEST-021: Arabic text test must exist"
-            )
+            assert "TestRTLText" in content, "TEST-021: TestRTLText class must exist in test_text_cleanup_cjk.py"
+            assert "test_arabic_text_not_mangled" in content, "TEST-021: Arabic text test must exist"
 
     def test_emoji_tests_exist(self):
 
         cjk_test = Path(__file__).resolve().parent / "test_text_cleanup_cjk.py"
         if cjk_test.exists():
             content = cjk_test.read_text(encoding="utf-8")
-            assert "TestEmojiInPatterns" in content, (
-                "TEST-021: TestEmojiInPatterns class must exist"
-            )
-            assert "test_emoji_preserved" in content, (
-                "TEST-021: emoji preserved test must exist"
-            )
+            assert "TestEmojiInPatterns" in content, "TEST-021: TestEmojiInPatterns class must exist"
+            assert "test_emoji_preserved" in content, "TEST-021: emoji preserved test must exist"
+
 
 class TestWavFixturesCoverageExists:
     """TEST-024.
@@ -2439,9 +2439,7 @@ class TestWavFixturesCoverageExists:
 
         fixtures_dir = Path(__file__).resolve().parent / "fixtures"
         wav_files = list(fixtures_dir.glob("*.wav"))
-        assert len(wav_files) >= 3, (
-            f"TEST-024: at least 3 WAV fixtures must exist, found {len(wav_files)}"
-        )
+        assert len(wav_files) >= 3, f"TEST-024: at least 3 WAV fixtures must exist, found {len(wav_files)}"
 
     def test_silence_wav_exists(self):
 
@@ -2452,6 +2450,7 @@ class TestWavFixturesCoverageExists:
 
         tone = Path(__file__).resolve().parent / "fixtures" / "tone.wav"
         assert tone.exists(), "TEST-024: tone.wav fixture must exist"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
@@ -2477,6 +2476,7 @@ False positives pinned (4):
 - NEW-CONC-003 concurrent cancel tests already exist
 """
 
+
 class TestSpanishTranslationComplete:
     """UX-015.
 
@@ -2486,16 +2486,31 @@ class TestSpanishTranslationComplete:
     """
 
     def test_es_json_exists(self):
-        es_path = Path(__file__).resolve().parent.parent / "voice_typer" / \
-            "client" / "src" / "renderer" / "src" / "i18n" / "translations" / "es.json"
-        assert es_path.exists(), (
-            "UX-015: Spanish translation file (es.json) must exist"
+        es_path = (
+            Path(__file__).resolve().parent.parent
+            / "voice_typer"
+            / "client"
+            / "src"
+            / "renderer"
+            / "src"
+            / "i18n"
+            / "translations"
+            / "es.json"
         )
+        assert es_path.exists(), "UX-015: Spanish translation file (es.json) must exist"
 
     def test_es_json_has_same_keys_as_en(self):
         """Spanish translation must have the same key structure as English."""
-        translations_dir = Path(__file__).resolve().parent.parent / "voice_typer" / \
-            "client" / "src" / "renderer" / "src" / "i18n" / "translations"
+        translations_dir = (
+            Path(__file__).resolve().parent.parent
+            / "voice_typer"
+            / "client"
+            / "src"
+            / "renderer"
+            / "src"
+            / "i18n"
+            / "translations"
+        )
         en = json.loads((translations_dir / "en.json").read_text(encoding="utf-8"))
         es = json.loads((translations_dir / "es.json").read_text(encoding="utf-8"))
 
@@ -2512,34 +2527,40 @@ class TestSpanishTranslationComplete:
         en_keys = collect_keys(en)
         es_keys = collect_keys(es)
         missing = en_keys - es_keys
-        assert not missing, (
-            f"UX-015: es.json is missing keys that en.json has: {sorted(missing)}"
-        )
+        assert not missing, f"UX-015: es.json is missing keys that en.json has: {sorted(missing)}"
 
     def test_i18n_ts_registers_spanish(self):
-        i18n_path = Path(__file__).resolve().parent.parent / "voice_typer" / \
-            "client" / "src" / "renderer" / "src" / "i18n" / "i18n.ts"
-        src = i18n_path.read_text(encoding="utf-8")
-        assert 'import es from "./translations/es.json"' in src, (
-            "UX-015: i18n.ts must import Spanish translations"
+        i18n_path = (
+            Path(__file__).resolve().parent.parent
+            / "voice_typer"
+            / "client"
+            / "src"
+            / "renderer"
+            / "src"
+            / "i18n"
+            / "i18n.ts"
         )
+        src = i18n_path.read_text(encoding="utf-8")
+        assert 'import es from "./translations/es.json"' in src, "UX-015: i18n.ts must import Spanish translations"
         assert '"en"' in src or '"es"' in src or '"en", "es"' in src or '"en","es"' in src, (
             "UX-015: SUPPORTED_LOCALES must include 'es'"
         )
-        assert '_translations.set("es"' in src, (
-            "UX-015: i18n.ts must register Spanish translations"
-        )
+        assert '_translations.set("es"' in src, "UX-015: i18n.ts must register Spanish translations"
 
     def test_i18n_ts_exports_locale_helpers(self):
-        i18n_path = Path(__file__).resolve().parent.parent / "voice_typer" / \
-            "client" / "src" / "renderer" / "src" / "i18n" / "i18n.ts"
+        i18n_path = (
+            Path(__file__).resolve().parent.parent
+            / "voice_typer"
+            / "client"
+            / "src"
+            / "renderer"
+            / "src"
+            / "i18n"
+            / "i18n.ts"
+        )
         src = i18n_path.read_text(encoding="utf-8")
-        assert "export { SUPPORTED_LOCALES }" in src, (
-            "UX-015: i18n.ts must export SUPPORTED_LOCALES"
-        )
-        assert "export function getLocaleLabel" in src, (
-            "UX-015: i18n.ts must export getLocaleLabel"
-        )
+        assert "export { SUPPORTED_LOCALES }" in src, "UX-015: i18n.ts must export SUPPORTED_LOCALES"
+        assert "export function getLocaleLabel" in src, "UX-015: i18n.ts must export getLocaleLabel"
 
     def test_settings_tsx_has_ui_language_selector(self):
         # UX-015: The UI language selector was refactored out of
@@ -2548,34 +2569,41 @@ class TestSpanishTranslationComplete:
         # We assert against the new location.
         # Note: the label is now translated via t("settings.appLanguage")
         # instead of the hardcoded "UI Language" string.
-        settings_path = Path(__file__).resolve().parent.parent / "voice_typer" / \
-            "client" / "src" / "renderer" / "src" / "components" / "settings" / \
-            "GeneralSettingsSection.tsx"
+        settings_path = (
+            Path(__file__).resolve().parent.parent
+            / "voice_typer"
+            / "client"
+            / "src"
+            / "renderer"
+            / "src"
+            / "components"
+            / "settings"
+            / "GeneralSettingsSection.tsx"
+        )
         src = settings_path.read_text(encoding="utf-8")
         assert "settings.appLanguage" in src, (
             "UX-015: GeneralSettingsSection.tsx must have an App Language selector (translated key)"
         )
-        assert "setLocale" in src, (
-            "UX-015: GeneralSettingsSection.tsx must call setLocale when language changes"
-        )
-        assert "getLocale()" in src, (
-            "UX-015: GeneralSettingsSection.tsx must use getLocale() for the current value"
-        )
-        assert "SUPPORTED_LOCALES" in src, (
-            "UX-015: GeneralSettingsSection.tsx must iterate SUPPORTED_LOCALES"
-        )
-        assert "voice-typer-ui-locale" in src, (
-            "UX-015: Settings.tsx must persist locale to localStorage"
-        )
+        assert "setLocale" in src, "UX-015: GeneralSettingsSection.tsx must call setLocale when language changes"
+        assert "getLocale()" in src, "UX-015: GeneralSettingsSection.tsx must use getLocale() for the current value"
+        assert "SUPPORTED_LOCALES" in src, "UX-015: GeneralSettingsSection.tsx must iterate SUPPORTED_LOCALES"
+        assert "voice-typer-ui-locale" in src, "UX-015: Settings.tsx must persist locale to localStorage"
 
     def test_i18n_ts_restores_locale_from_local_storage(self):
-        i18n_path = Path(__file__).resolve().parent.parent / "voice_typer" / \
-            "client" / "src" / "renderer" / "src" / "i18n" / "i18n.ts"
-        src = i18n_path.read_text(encoding="utf-8")
-        assert "localStorage" in src, (
-            "UX-015: i18n.ts must restore locale from localStorage on startup"
+        i18n_path = (
+            Path(__file__).resolve().parent.parent
+            / "voice_typer"
+            / "client"
+            / "src"
+            / "renderer"
+            / "src"
+            / "i18n"
+            / "i18n.ts"
         )
+        src = i18n_path.read_text(encoding="utf-8")
+        assert "localStorage" in src, "UX-015: i18n.ts must restore locale from localStorage on startup"
         assert "voice-typer-ui-locale" in src
+
 
 class TestTrayLocaleSwitchingRebuildsMenu:
     """TRAY-008.
@@ -2590,33 +2618,25 @@ class TestTrayLocaleSwitchingRebuildsMenu:
     def test_set_tray_locale_exists(self):
         from voice_typer.server import tray
 
-        assert hasattr(tray, "set_tray_locale"), (
-            "TRAY-008: set_tray_locale function must exist"
-        )
+        assert hasattr(tray, "set_tray_locale"), "TRAY-008: set_tray_locale function must exist"
         assert callable(tray.set_tray_locale)
 
     def test_get_tray_locale_exists(self):
         from voice_typer.server import tray
 
-        assert hasattr(tray, "get_tray_locale"), (
-            "TRAY-008: get_tray_locale function must exist"
-        )
+        assert hasattr(tray, "get_tray_locale"), "TRAY-008: get_tray_locale function must exist"
 
     def test_spanish_labels_dict_exists(self):
         from voice_typer.server import tray
 
-        assert hasattr(tray, "_TRAY_LABELS_ES"), (
-            "TRAY-008: _TRAY_LABELS_ES dict must exist"
-        )
+        assert hasattr(tray, "_TRAY_LABELS_ES"), "TRAY-008: _TRAY_LABELS_ES dict must exist"
         assert isinstance(tray._TRAY_LABELS_ES, dict)
         assert len(tray._TRAY_LABELS_ES) > 0
 
     def test_locales_map_exists(self):
         from voice_typer.server import tray
 
-        assert hasattr(tray, "_TRAY_LABELS_LOCALES"), (
-            "TRAY-008: _TRAY_LABELS_LOCALES map must exist"
-        )
+        assert hasattr(tray, "_TRAY_LABELS_LOCALES"), "TRAY-008: _TRAY_LABELS_LOCALES map must exist"
         assert "en" in tray._TRAY_LABELS_LOCALES
         assert "es" in tray._TRAY_LABELS_LOCALES
 
@@ -2662,13 +2682,12 @@ class TestTrayLocaleSwitchingRebuildsMenu:
         assert "set_tray_locale" in ipc_server.IPCServer._COMMAND_REGISTRY, (
             "TRAY-008: IPC _COMMAND_REGISTRY must include 'set_tray_locale'"
         )
-        handler_src = inspect.getsource(
-            ipc_server.IPCServer._handle_set_tray_locale
-        )
+        handler_src = inspect.getsource(ipc_server.IPCServer._handle_set_tray_locale)
         assert "set_tray_locale" in handler_src
         assert "invalidate_menu_cache" in handler_src, (
             "TRAY-008: IPC handler must rebuild the tray menu after locale change"
         )
+
 
 class TestMutmutCommandIncludesAllModules:
     """TEST-010.
@@ -2695,8 +2714,7 @@ class TestMutmutCommandIncludesAllModules:
         ]
         for tf in required_test_files:
             assert tf in src, (
-                f"TEST-010: TEST_COMMAND must include {tf} "
-                f"(corresponding to a module in MODULES_TO_MUTATE)"
+                f"TEST-010: TEST_COMMAND must include {tf} (corresponding to a module in MODULES_TO_MUTATE)"
             )
 
     def test_modules_to_mutate_has_7_modules(self):
@@ -2713,6 +2731,7 @@ class TestMutmutCommandIncludesAllModules:
         assert "voice_typer/server/tray_icon.py" in src
         assert "voice_typer/server/recording.py" in src
         assert "voice_typer/server/app.py" in src
+
 
 class TestElectronNotificationIpcEndpoint:
     """TRAY-035.
@@ -2736,18 +2755,10 @@ class TestElectronNotificationIpcEndpoint:
         from voice_typer.server import ipc_server
 
         # REFACTOR: check the handler method source instead of _dispatch.
-        src = inspect.getsource(
-            ipc_server.IPCServer._handle_show_electron_notification
-        )
-        assert "electron_notification" in src, (
-            "TRAY-035: handler must push an 'electron_notification' event"
-        )
-        assert "duration_ms" in src, (
-            "TRAY-035: handler must support a duration_ms parameter"
-        )
-        assert "critical" in src, (
-            "TRAY-035: handler must support a critical flag"
-        )
+        src = inspect.getsource(ipc_server.IPCServer._handle_show_electron_notification)
+        assert "electron_notification" in src, "TRAY-035: handler must push an 'electron_notification' event"
+        assert "duration_ms" in src, "TRAY-035: handler must support a duration_ms parameter"
+        assert "critical" in src, "TRAY-035: handler must support a critical flag"
 
     def test_handler_validates_data_is_dict(self):
         """The handler must reject non-dict data with an error response."""
@@ -2764,6 +2775,7 @@ class TestElectronNotificationIpcEndpoint:
         resp = server._dispatch({"type": "show_electron_notification", "data": "not a dict", "id": "test"})
         assert resp["type"] == "error"
         assert "data: object" in resp["data"]["message"]
+
 
 class TestElectronNotificationFieldValidation:
     """SEC-VALIDATE-001: per-field input validation on the
@@ -2802,11 +2814,13 @@ class TestElectronNotificationFieldValidation:
     def test_non_numeric_duration_ms_returns_invalid_field(self):
         """``duration_ms: "abc"`` must return code=invalid_field, not a ValueError echo."""
         server = self._make_server()
-        resp = server._dispatch({
-            "type": "show_electron_notification",
-            "data": {"title": "Hi", "message": "Body", "duration_ms": "abc"},
-            "id": "t1",
-        })
+        resp = server._dispatch(
+            {
+                "type": "show_electron_notification",
+                "data": {"title": "Hi", "message": "Body", "duration_ms": "abc"},
+                "id": "t1",
+            }
+        )
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "invalid_field"
         assert resp["data"]["field"] == "duration_ms"
@@ -2816,11 +2830,13 @@ class TestElectronNotificationFieldValidation:
     def test_stringly_critical_is_rejected(self):
         """``critical: "false"`` (string) must be rejected, not silently coerced to True."""
         server = self._make_server()
-        resp = server._dispatch({
-            "type": "show_electron_notification",
-            "data": {"title": "Hi", "message": "Body", "critical": "false"},
-            "id": "t2",
-        })
+        resp = server._dispatch(
+            {
+                "type": "show_electron_notification",
+                "data": {"title": "Hi", "message": "Body", "critical": "false"},
+                "id": "t2",
+            }
+        )
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "invalid_field"
         assert resp["data"]["field"] == "critical"
@@ -2828,11 +2844,13 @@ class TestElectronNotificationFieldValidation:
     def test_non_string_title_is_rejected(self):
         """``title: 42`` must be rejected with code=invalid_field rather than silently stringified."""
         server = self._make_server()
-        resp = server._dispatch({
-            "type": "show_electron_notification",
-            "data": {"title": 42, "message": "Body"},
-            "id": "t3",
-        })
+        resp = server._dispatch(
+            {
+                "type": "show_electron_notification",
+                "data": {"title": 42, "message": "Body"},
+                "id": "t3",
+            }
+        )
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "invalid_field"
         assert resp["data"]["field"] == "title"
@@ -2840,43 +2858,49 @@ class TestElectronNotificationFieldValidation:
     def test_duration_ms_is_clamped_to_24h(self):
         """A huge ``duration_ms`` is clamped, not rejected — callers can pass any int."""
         from unittest.mock import patch
+
         server = self._make_server()
         captured = {}
         with patch(
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            resp = server._dispatch({
-                "type": "show_electron_notification",
-                "data": {
-                    "title": "Hi",
-                    "message": "Body",
-                    "duration_ms": 10_000_000_000,  # ~115 days — well over the 24h cap
-                },
-                "id": "t4",
-            })
+            resp = server._dispatch(
+                {
+                    "type": "show_electron_notification",
+                    "data": {
+                        "title": "Hi",
+                        "message": "Body",
+                        "duration_ms": 10_000_000_000,  # ~115 days — well over the 24h cap
+                    },
+                    "id": "t4",
+                }
+            )
         assert resp["type"] == "ack"
         assert captured["data"]["duration_ms"] == 24 * 60 * 60 * 1000
 
     def test_well_formed_payload_still_works(self):
         """Sanity: a well-formed payload must still push the event and ack."""
         from unittest.mock import patch
+
         server = self._make_server()
         captured = {}
         with patch(
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            resp = server._dispatch({
-                "type": "show_electron_notification",
-                "data": {
-                    "title": "Hello",
-                    "message": "World",
-                    "duration_ms": 5000,
-                    "critical": True,
-                },
-                "id": "t5",
-            })
+            resp = server._dispatch(
+                {
+                    "type": "show_electron_notification",
+                    "data": {
+                        "title": "Hello",
+                        "message": "World",
+                        "duration_ms": 5000,
+                        "critical": True,
+                    },
+                    "id": "t5",
+                }
+            )
         assert resp["type"] == "ack"
         assert captured["type"] == "electron_notification"
         assert captured["data"] == {
@@ -2889,17 +2913,20 @@ class TestElectronNotificationFieldValidation:
     def test_default_values_when_fields_omitted(self):
         """Sanity: omitted fields default to title='Voice Typer', message='', duration_ms=0, critical=False."""
         from unittest.mock import patch
+
         server = self._make_server()
         captured = {}
         with patch(
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            resp = server._dispatch({
-                "type": "show_electron_notification",
-                "data": {},
-                "id": "t6",
-            })
+            resp = server._dispatch(
+                {
+                    "type": "show_electron_notification",
+                    "data": {},
+                    "id": "t6",
+                }
+            )
         assert resp["type"] == "ack"
         assert captured["data"] == {
             "title": "Voice Typer",
@@ -2907,6 +2934,7 @@ class TestElectronNotificationFieldValidation:
             "duration_ms": 0,
             "critical": False,
         }
+
 
 class TestUpxDisabledInPyinstallerSpec:
     """TEST-034.
@@ -2919,12 +2947,10 @@ class TestUpxDisabledInPyinstallerSpec:
     def test_upx_is_false_in_spec(self):
         from pathlib import Path
 
-        spec_path = Path(__file__).resolve().parent.parent / "scripts" / "build" / \
-            "voice-typer.spec"
+        spec_path = Path(__file__).resolve().parent.parent / "scripts" / "build" / "voice-typer.spec"
         src = spec_path.read_text(encoding="utf-8")
-        assert "upx=False" in src, (
-            "TEST-034: voice-typer.spec must set upx=False to prevent AV false positives"
-        )
+        assert "upx=False" in src, "TEST-034: voice-typer.spec must set upx=False to prevent AV false positives"
+
 
 class TestReleaseChecksumsCoverageExists:
     """TEST-037.
@@ -2939,24 +2965,17 @@ class TestReleaseChecksumsCoverageExists:
 
         build_yml = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "build.yml"
         src = build_yml.read_text(encoding="utf-8")
-        assert "SHA-256" in src or "SHA256" in src, (
-            "TEST-037: build.yml must have a SHA-256 checksum generation step"
-        )
-        assert "SHA256SUMS" in src, (
-            "TEST-037: build.yml must generate a SHA256SUMS file"
-        )
-        assert "Get-FileHash" in src, (
-            "TEST-037: build.yml must use Get-FileHash to compute checksums"
-        )
+        assert "SHA-256" in src or "SHA256" in src, "TEST-037: build.yml must have a SHA-256 checksum generation step"
+        assert "SHA256SUMS" in src, "TEST-037: build.yml must generate a SHA256SUMS file"
+        assert "Get-FileHash" in src, "TEST-037: build.yml must use Get-FileHash to compute checksums"
 
     def test_checksum_upload_step_exists(self):
         from pathlib import Path
 
         build_yml = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "build.yml"
         src = build_yml.read_text(encoding="utf-8")
-        assert "Upload checksums to release" in src, (
-            "TEST-037: build.yml must upload SHA256SUMS.txt to the release"
-        )
+        assert "Upload checksums to release" in src, "TEST-037: build.yml must upload SHA256SUMS.txt to the release"
+
 
 class TestReconnectTestCoverageExists:
     """NEW-IPC-004.
@@ -2975,19 +2994,12 @@ class TestReconnectTestCoverageExists:
         # Assert the file exists and contains the required test
         # functions so a future refactor can't silently drop them.
         test_file = Path(__file__).resolve().parent / "test_feature_hardening_regressions.py"
-        assert test_file.exists(), (
-            f"NEW-IPC-004: required test file {test_file.name} was deleted (regression)"
-        )
+        assert test_file.exists(), f"NEW-IPC-004: required test file {test_file.name} was deleted (regression)"
         src = test_file.read_text(encoding="utf-8")
-        assert "test_reconnect_after_disconnect" in src, (
-            "NEW-IPC-004: test_reconnect_after_disconnect must exist"
-        )
-        assert "test_server_survives_client_crash" in src, (
-            "NEW-IPC-004: test_server_survives_client_crash must exist"
-        )
-        assert "live_server" in src, (
-            "NEW-IPC-004: tests must use a live_server fixture (real TCP)"
-        )
+        assert "test_reconnect_after_disconnect" in src, "NEW-IPC-004: test_reconnect_after_disconnect must exist"
+        assert "test_server_survives_client_crash" in src, "NEW-IPC-004: test_server_survives_client_crash must exist"
+        assert "live_server" in src, "NEW-IPC-004: tests must use a live_server fixture (real TCP)"
+
 
 class TestConcurrentCancelTestCoverageExists:
     """NEW-CONC-003.
@@ -3007,9 +3019,7 @@ class TestConcurrentCancelTestCoverageExists:
         # both files exist and contain the required test functions so
         # a future refactor can't silently drop them.
         ducker_test = Path(__file__).resolve().parent / "test_volume_ducker.py"
-        assert ducker_test.exists(), (
-            f"NEW-CONC-003: required test file {ducker_test.name} was deleted (regression)"
-        )
+        assert ducker_test.exists(), f"NEW-CONC-003: required test file {ducker_test.name} was deleted (regression)"
         src = ducker_test.read_text(encoding="utf-8")
         assert "test_concurrent_cancel_and_stop" in src, (
             "NEW-CONC-003: test_concurrent_cancel_and_stop must exist in test_volume_ducker.py"
@@ -3023,6 +3033,7 @@ class TestConcurrentCancelTestCoverageExists:
         assert "test_schedule_and_cancel_are_threadsafe" in src, (
             "NEW-CONC-003: test_schedule_and_cancel_are_threadsafe must exist"
         )
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
@@ -3049,6 +3060,7 @@ False positives pinned (6):
 - TEST-020     np.interp fallback IS tested
 """
 
+
 class TestSettingsRendererCallsPythonBridgeCall:
     """TypeScript error: Property 'ipc' does not exist on type 'PythonBridge'.
 
@@ -3061,9 +3073,17 @@ class TestSettingsRendererCallsPythonBridgeCall:
         # The Settings UI was refactored: ``window.python?.call(...)`` now
         # lives in the dedicated GeneralSettingsSection component
         # (formerly inline in Settings.tsx).
-        settings_path = Path(__file__).resolve().parent.parent / "voice_typer" / \
-            "client" / "src" / "renderer" / "src" / "components" / "settings" / \
-            "GeneralSettingsSection.tsx"
+        settings_path = (
+            Path(__file__).resolve().parent.parent
+            / "voice_typer"
+            / "client"
+            / "src"
+            / "renderer"
+            / "src"
+            / "components"
+            / "settings"
+            / "GeneralSettingsSection.tsx"
+        )
         src = settings_path.read_text(encoding="utf-8")
         # Must use .call( not .ipc(
         assert "window.python?.call(" in src, (
@@ -3077,8 +3097,16 @@ class TestSettingsRendererCallsPythonBridgeCall:
 
     def test_python_bridge_type_has_no_ipc_method(self):
         """The PythonBridge interface must NOT expose an 'ipc' method."""
-        ipc_types_path = Path(__file__).resolve().parent.parent / "voice_typer" / \
-            "client" / "src" / "renderer" / "src" / "types" / "ipc.ts"
+        ipc_types_path = (
+            Path(__file__).resolve().parent.parent
+            / "voice_typer"
+            / "client"
+            / "src"
+            / "renderer"
+            / "src"
+            / "types"
+            / "ipc.ts"
+        )
         src = ipc_types_path.read_text(encoding="utf-8")
         # Extract the PythonBridge interface block
         bridge_start = src.find("export interface PythonBridge")
@@ -3087,12 +3115,9 @@ class TestSettingsRendererCallsPythonBridgeCall:
         brace_start = src.find("{", bridge_start)
         brace_end = src.find("}", brace_start)
         bridge_block = src[bridge_start:brace_end]
-        assert "ipc" not in bridge_block, (
-            "TS error: PythonBridge interface must NOT have an 'ipc' method"
-        )
-        assert "call:" in bridge_block, (
-            "PythonBridge must have a 'call' method"
-        )
+        assert "ipc" not in bridge_block, "TS error: PythonBridge interface must NOT have an 'ipc' method"
+        assert "call:" in bridge_block, "PythonBridge must have a 'call' method"
+
 
 class TestStreamingSessionAtomicPopOnCancel:
     """ARCH-018.
@@ -3119,8 +3144,7 @@ class TestStreamingSessionAtomicPopOnCancel:
         src = inspect.getsource(RecordingController.pop_streaming_session)
         # Must contain exactly one `with self._streaming_session_lock:` block
         assert src.count("with self._streaming_session_lock:") == 1, (
-            "ARCH-018: pop_streaming_session must acquire the lock exactly once "
-            "(atomic get-and-clear)"
+            "ARCH-018: pop_streaming_session must acquire the lock exactly once (atomic get-and-clear)"
         )
 
     def test_cancel_uses_pop_not_get_then_set(self):
@@ -3131,14 +3155,11 @@ class TestStreamingSessionAtomicPopOnCancel:
 
         src = inspect.getsource(RecordingController._cancel_streaming_session)
         assert "self.pop_streaming_session()" in src, (
-            "ARCH-018: _cancel_streaming_session must use pop_streaming_session() "
-            "(atomic) instead of get+set (TOCTOU)"
+            "ARCH-018: _cancel_streaming_session must use pop_streaming_session() (atomic) instead of get+set (TOCTOU)"
         )
         # Must NOT contain the pre-fix pattern
-        assert "self.get_streaming_session()" not in src or \
-               "self.set_streaming_session(None)" not in src, (
-            "ARCH-018: _cancel_streaming_session must NOT use the pre-fix "
-            "get+set pattern (TOCTOU race)"
+        assert "self.get_streaming_session()" not in src or "self.set_streaming_session(None)" not in src, (
+            "ARCH-018: _cancel_streaming_session must NOT use the pre-fix get+set pattern (TOCTOU race)"
         )
 
     def test_pop_returns_and_clears_session(self):
@@ -3155,9 +3176,7 @@ class TestStreamingSessionAtomicPopOnCancel:
         # Pop must return the session AND clear the field
         session = ctrl.pop_streaming_session()
         assert session is ctrl._streaming_session or session is not None
-        assert ctrl._streaming_session is None, (
-            "ARCH-018: pop_streaming_session must clear the session field"
-        )
+        assert ctrl._streaming_session is None, "ARCH-018: pop_streaming_session must clear the session field"
 
     def test_pop_returns_none_when_no_session(self):
         """pop_streaming_session must return None when no session exists."""
@@ -3217,6 +3236,7 @@ class TestStreamingSessionAtomicPopOnCancel:
             "is not working."
         )
 
+
 class TestCommittedTextSortOrderCoverageExists:
     """TEST-009.
 
@@ -3230,9 +3250,7 @@ class TestCommittedTextSortOrderCoverageExists:
         test_path = Path(__file__).resolve().parent / "test_streaming_hypothesis.py"
         src = test_path.read_text(encoding="utf-8")
         # Must contain the TEST-009 fix comment
-        assert "TEST-009" in src, (
-            "TEST-009: test file must reference the fix"
-        )
+        assert "TEST-009" in src, "TEST-009: test file must reference the fix"
         # Must contain sort-order verification logic. The TEST-009 fix
         # originally used a single-key sort; the test was later refined
         # to break ties using a (start_seconds, end_seconds) tuple, so
@@ -3240,15 +3258,10 @@ class TestCommittedTextSortOrderCoverageExists:
         assert (
             "sorted(words, key=lambda w: w.start_seconds)" in src
             or "sorted(words, key=lambda w: (w.start_seconds, w.end_seconds))" in src
-        ), (
-            "TEST-009: test must sort input words by start_seconds for comparison"
-        )
-        assert "emitted_words" in src, (
-            "TEST-009: test must extract emitted words from committed_text"
-        )
-        assert "expected_words" in src, (
-            "TEST-009: test must build expected word sequence"
-        )
+        ), "TEST-009: test must sort input words by start_seconds for comparison"
+        assert "emitted_words" in src, "TEST-009: test must extract emitted words from committed_text"
+        assert "expected_words" in src, "TEST-009: test must build expected word sequence"
+
 
 class TestParametrizeUsageCountAboveThirty:
     """TEST-032.
@@ -3273,10 +3286,8 @@ class TestParametrizeUsageCountAboveThirty:
                 count += content.count("@pytest.mark.parametrize")
             except Exception:
                 pass
-        assert count >= 30, (
-            f"TEST-032: expected at least 30 @pytest.mark.parametrize uses, "
-            f"found {count}"
-        )
+        assert count >= 30, f"TEST-032: expected at least 30 @pytest.mark.parametrize uses, found {count}"
+
 
 class TestNoImportMockInTests:
     """TEST-033.
@@ -3298,9 +3309,7 @@ class TestNoImportMockInTests:
         violations = []
         for py_file in tests_dir.rglob("*.py"):
             try:
-                for line_num, line in enumerate(
-                    py_file.read_text(encoding="utf-8").splitlines(), 1
-                ):
+                for line_num, line in enumerate(py_file.read_text(encoding="utf-8").splitlines(), 1):
                     if line.strip() == "import mock":
                         violations.append(f"{py_file}:{line_num}")
             except Exception:
@@ -3318,6 +3327,7 @@ class TestNoImportMockInTests:
                 "TEST-033: CONTRIBUTING.md must document the mock convention"
             )
 
+
 class TestPyreflyRunsInCi:
     """TEST-036.
 
@@ -3330,19 +3340,14 @@ class TestPyreflyRunsInCi:
         build_yml = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "build.yml"
         if build_yml.exists():
             src = build_yml.read_text(encoding="utf-8")
-            assert "pyrefly" in src, (
-                "TEST-036: build.yml must run pyrefly in CI"
-            )
-            assert "pyrefly check" in src, (
-                "TEST-036: build.yml must run 'pyrefly check'"
-            )
+            assert "pyrefly" in src, "TEST-036: build.yml must run pyrefly in CI"
+            assert "pyrefly check" in src, "TEST-036: build.yml must run 'pyrefly check'"
 
     def test_pyrefly_configured_in_pyproject(self):
         pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
         src = pyproject.read_text(encoding="utf-8")
-        assert "[tool.pyrefly]" in src, (
-            "TEST-036: pyproject.toml must have [tool.pyrefly] section"
-        )
+        assert "[tool.pyrefly]" in src, "TEST-036: pyproject.toml must have [tool.pyrefly] section"
+
 
 class TestCorrectionsExplicitLoadCoverageExists:
     """TEST-039.
@@ -3356,12 +3361,11 @@ class TestCorrectionsExplicitLoadCoverageExists:
         test_path = Path(__file__).resolve().parent / "test_corruptions.py"
         if test_path.exists():
             src = test_path.read_text(encoding="utf-8")
-            assert "TestCorrectionsExplicitLoad" in src, (
-                "TEST-039: TestCorrectionsExplicitLoad class must exist"
-            )
+            assert "TestCorrectionsExplicitLoad" in src, "TEST-039: TestCorrectionsExplicitLoad class must exist"
             assert "test_bundled_corrections_json_loads" in src, (
                 "TEST-039: test_bundled_corrections_json_loads must exist"
             )
+
 
 class TestTextCleanupUnicodeCoverageExists:
     """TEST-008.
@@ -3375,25 +3379,20 @@ class TestTextCleanupUnicodeCoverageExists:
         test_path = Path(__file__).resolve().parent / "test_text_cleanup.py"
         if test_path.exists():
             src = test_path.read_text(encoding="utf-8")
-            assert "TestTextCleanupUnicode" in src, (
-                "TEST-008: TestTextCleanupUnicode class must exist"
-            )
+            assert "TestTextCleanupUnicode" in src, "TEST-008: TestTextCleanupUnicode class must exist"
 
     def test_concurrent_cleanup_test_exists(self):
         test_path = Path(__file__).resolve().parent / "test_text_cleanup.py"
         if test_path.exists():
             src = test_path.read_text(encoding="utf-8")
-            assert "test_concurrent_cleanup_calls" in src, (
-                "TEST-008: concurrent cleanup test must exist"
-            )
+            assert "test_concurrent_cleanup_calls" in src, "TEST-008: concurrent cleanup test must exist"
 
     def test_boundary_inputs_test_exists(self):
         test_path = Path(__file__).resolve().parent / "test_text_cleanup.py"
         if test_path.exists():
             src = test_path.read_text(encoding="utf-8")
-            assert "test_boundary_inputs_never_crash" in src, (
-                "TEST-008: boundary inputs test must exist"
-            )
+            assert "test_boundary_inputs_never_crash" in src, "TEST-008: boundary inputs test must exist"
+
 
 class TestResampleFallbackCoverageExists:
     """TEST-020.
@@ -3410,9 +3409,8 @@ class TestResampleFallbackCoverageExists:
             assert "test_fallback_to_np_interp_when_scipy_unavailable" in src, (
                 "TEST-020: np.interp fallback test must exist"
             )
-            assert "test_resample_fallback_quality_with_known_sine" in src, (
-                "TEST-020: fallback quality test must exist"
-            )
+            assert "test_resample_fallback_quality_with_known_sine" in src, "TEST-020: fallback quality test must exist"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
@@ -3437,45 +3435,55 @@ Findings covered:
 - PLAT-MAC   (documented as blocked — needs macOS CI)
 """
 
+
 class TestAccessibilityPulseReCheckExists:
     """PLAT-009: Periodic re-check of macOS Accessibility permission."""
 
     def test_start_accessibility_pulse_exists(self):
-        from voice_typer.server.app import VoiceTyperApp
-        assert hasattr(VoiceTyperApp, "_start_accessibility_pulse")
+        # RW-9 Phase 1: ``VoiceTyperApp._start_accessibility_pulse``
+        # test-seam delegate removed; introspect the standalone function
+        # in ``startup_tasks`` instead.
+        from voice_typer.server import startup_tasks
+
+        assert hasattr(startup_tasks, "start_accessibility_pulse")
 
     def test_pulse_called_on_macos(self):
         """Source must call start_accessibility_pulse after the a11y check."""
         from voice_typer.server.startup_sequence import StartupSequence
+
         src = inspect.getsource(StartupSequence.run)
         assert "start_accessibility_pulse" in src
+
 
 class TestTrayIconHasAccessibleName:
     """PLAT-010: title serves as accessible name (pystray limitation)."""
 
     def test_tray_icon_has_non_empty_title(self):
         from voice_typer.server.tray import TrayIcon
+
         src = inspect.getsource(TrayIcon.start)
-        assert 'title=' in src
-        assert 'PLAT-010' in src
+        assert "title=" in src
+        assert "PLAT-010" in src
+
 
 class TestSubprocessCrashRecoveryHandler:
     """PLAT-012: Test the Python exit handler logic."""
 
     def test_exit_handler_logic_exists(self):
         """Electron main process must handle Python subprocess exit."""
-        main_path = Path(__file__).resolve().parent.parent / "voice_typer" / \
-            "client" / "src" / "main" / "index.ts"
+        main_path = Path(__file__).resolve().parent.parent / "voice_typer" / "client" / "src" / "main" / "index.ts"
         if main_path.exists():
             src = main_path.read_text(encoding="utf-8")
             assert 'pythonProcess.on("exit"' in src or "pythonProcess.on('exit'" in src
             assert "app.quit" in src
+
 
 class TestDesktopEnvironmentSpecificTray:
     """PLAT-015: Test tray behavior under different XDG_CURRENT_DESKTOP values."""
 
     def test_wayland_detection_exists(self):
         from voice_typer.server.tray import TrayIcon
+
         assert hasattr(TrayIcon, "_is_linux_wayland_without_sni")
 
     def test_tray_works_with_kde_desktop(self, monkeypatch):
@@ -3483,6 +3491,7 @@ class TestDesktopEnvironmentSpecificTray:
         monkeypatch.setenv("XDG_CURRENT_DESKTOP", "KDE")
         monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
         from voice_typer.server.tray import TrayIcon
+
         tray = TrayIcon.__new__(TrayIcon)
         # Must not raise
         try:
@@ -3497,6 +3506,7 @@ class TestDesktopEnvironmentSpecificTray:
         monkeypatch.setenv("XDG_CURRENT_DESKTOP", "GNOME")
         monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
         from voice_typer.server.tray import TrayIcon
+
         tray = TrayIcon.__new__(TrayIcon)
         try:
             result = tray._is_linux_wayland_without_sni()
@@ -3504,21 +3514,31 @@ class TestDesktopEnvironmentSpecificTray:
         except Exception:
             pass
 
+
 class TestTextSizeConfigWiredToCssScale:
     """PLAT-017: text_size config wired to CSS --font-scale variable."""
 
     def test_app_tsx_sets_font_scale(self):
         # PLAT-017: --font-scale / text_size application was refactored
         # out of App.tsx into the dedicated useTheme hook.
-        app_path = Path(__file__).resolve().parent.parent / "voice_typer" / \
-            "client" / "src" / "renderer" / "src" / "hooks" / "useTheme.ts"
+        app_path = (
+            Path(__file__).resolve().parent.parent
+            / "voice_typer"
+            / "client"
+            / "src"
+            / "renderer"
+            / "src"
+            / "hooks"
+            / "useTheme.ts"
+        )
         src = app_path.read_text(encoding="utf-8")
         assert "--font-scale" in src
         assert "text_size" in src
 
     def test_index_css_consumes_font_scale(self):
-        css_path = Path(__file__).resolve().parent.parent / "voice_typer" / \
-            "client" / "src" / "renderer" / "src" / "index.css"
+        css_path = (
+            Path(__file__).resolve().parent.parent / "voice_typer" / "client" / "src" / "renderer" / "src" / "index.css"
+        )
         src = css_path.read_text(encoding="utf-8")
         assert "--font-scale" in src
         assert "font-size" in src
@@ -3526,50 +3546,67 @@ class TestTextSizeConfigWiredToCssScale:
     def test_settings_has_text_size_slider(self):
         # PLAT-017: the "Text Size" slider was refactored out of
         # Settings.tsx into the ThemeSettingsSection component.
-        settings_path = Path(__file__).resolve().parent.parent / "voice_typer" / \
-            "client" / "src" / "renderer" / "src" / "components" / "settings" / \
-            "ThemeSettingsSection.tsx"
+        settings_path = (
+            Path(__file__).resolve().parent.parent
+            / "voice_typer"
+            / "client"
+            / "src"
+            / "renderer"
+            / "src"
+            / "components"
+            / "settings"
+            / "ThemeSettingsSection.tsx"
+        )
         src = settings_path.read_text(encoding="utf-8")
         assert "Text Size" in src
         assert "text_size" in src
         assert "RangeSlider" in src
+
 
 class TestSystemdUserUnitForMainApp:
     """PLAT-019: systemd user unit for the main app."""
 
     def test_register_linux_app_service_exists(self):
         from voice_typer.server import prewarm_scheduler_posix as psp
+
         assert hasattr(psp, "register_linux_app_service")
 
     def test_build_linux_app_service_has_restart(self):
         from voice_typer.server import prewarm_scheduler_posix as psp
+
         service = psp._build_linux_app_service()
         assert "Restart=on-failure" in service
         assert "Type=simple" in service
         assert "voice_typer.server.ipc_server" in service
+
 
 class TestContainerEnvironmentDetection:
     """PLAT-021: Detect container/cgroup environments."""
 
     def test_is_in_container_exists(self):
         from voice_typer.server.container_detect import is_in_container
+
         assert callable(is_in_container)
 
     def test_get_container_type_exists(self):
         from voice_typer.server.container_detect import get_container_type
+
         assert callable(get_container_type)
 
     def test_warn_if_in_container_exists(self):
         from voice_typer.server.container_detect import warn_if_in_container
+
         assert callable(warn_if_in_container)
 
     def test_is_in_container_returns_false_on_non_linux(self):
         from voice_typer.server.container_detect import is_in_container
+
         if not sys.platform.startswith("linux"):
             assert is_in_container() is False
 
     def test_get_container_type_returns_none_when_not_in_container(self):
         from voice_typer.server.container_detect import get_container_type
+
         # On CI (not in container), should return None
         # On a container, should return a string
         result = get_container_type()
@@ -3577,20 +3614,25 @@ class TestContainerEnvironmentDetection:
 
     def test_container_detect_called_in_startup(self):
         from voice_typer.server import app
+
         src = inspect.getsource(app)
         assert "warn_if_in_container" in src
+
 
 class TestPlatContentContentEditable:
     """PLAT-CONTENT: Detect contentEditable elements via UI Automation."""
 
     def test_is_content_editable_exists(self):
         from voice_typer.server.clipboard import _is_content_editable
+
         assert callable(_is_content_editable)
 
     def test_returns_false_on_non_windows(self):
         from voice_typer.server.clipboard import _is_content_editable
+
         if sys.platform != "win32":
             assert _is_content_editable() is False
+
 
 class TestApiDocumentationExists:
     """DOC-008: Formal API documentation exists."""
@@ -3603,6 +3645,7 @@ class TestApiDocumentationExists:
         api_path = Path(__file__).resolve().parent.parent / "docs" / "API.md"
         content = api_path.read_text(encoding="utf-8")
         assert "VoiceTyperApp" in content or "Config" in content
+
 
 class TestSendCatchesOSErrorSubclasses:
     """NEW-CQ-003: Test IPC error handling for various exception types."""
@@ -3632,14 +3675,13 @@ class TestSendCatchesOSErrorSubclasses:
         try:
             server._send(mock_client, {"type": "test"})
         except (BrokenPipeError, ConnectionResetError, OSError):
-            pytest.fail(
-                f"NEW-CQ-003: _send should catch {exc_class.__name__}, not propagate it"
-            )
+            pytest.fail(f"NEW-CQ-003: _send should catch {exc_class.__name__}, not propagate it")
         except Exception:
             # Other exception types (e.g. RuntimeError from the drop path)
             # are acceptable — the key is that the original OSError subclass
             # was caught.
             pass
+
 
 class TestBackpressureIncrementsOnBufferOverflow:
     """NEW-CQ-007: Backpressure detection under load exceeding buffer capacity."""
@@ -3673,12 +3715,13 @@ class TestBackpressureIncrementsOnBufferOverflow:
 
             # Backpressure check (from recording.py callback)
             if buffer_len >= rec._buffer.maxlen - 1:
-                rec._dropped_chunks = getattr(rec, '_dropped_chunks', 0) + 1
+                rec._dropped_chunks = getattr(rec, "_dropped_chunks", 0) + 1
 
-        assert getattr(rec, '_dropped_chunks', 0) >= 1, (
+        assert getattr(rec, "_dropped_chunks", 0) >= 1, (
             "NEW-CQ-007: backpressure must increment _dropped_chunks when buffer overflows"
         )
         assert len(rec._buffer) == maxlen
+
 
 class TestConcurrentConfigAccessNoCrash:
     """NEW-CQ-013: Stress test concurrent access patterns."""
@@ -3704,14 +3747,16 @@ class TestConcurrentConfigAccessNoCrash:
                 except Exception as e:
                     errors.append(e)
 
-        threads = [threading.Thread(target=writer) for _ in range(4)] + \
-                  [threading.Thread(target=reader) for _ in range(4)]
+        threads = [threading.Thread(target=writer) for _ in range(4)] + [
+            threading.Thread(target=reader) for _ in range(4)
+        ]
         for t in threads:
             t.start()
         for t in threads:
             t.join(timeout=5)
 
         assert not errors, f"Concurrent access raised: {errors}"
+
 
 class TestCrashRecoveryLoadsStaleState:
     """NEW-CQ-014: Test cleanup on abnormal termination."""
@@ -3723,6 +3768,7 @@ class TestCrashRecoveryLoadsStaleState:
         # CrashRecovery takes a config_dir, not a file path
         recovery_file = tmp_path / RECOVERY_FILENAME
         import json
+
         recovery_file.write_text(json.dumps([{"text": "stale text", "pasted": False}]))
         cr = CrashRecovery(config_dir=tmp_path)
         # Use check_on_startup to load stale state
@@ -3730,6 +3776,7 @@ class TestCrashRecoveryLoadsStaleState:
         items = cr.get_all()
         assert items is not None
         assert len(items) >= 1
+
 
 class TestConcurrentConfigWritesNoCorruption:
     """NEW-CQ-025: Test concurrent config mutation WITHOUT test-level locking."""
@@ -3750,16 +3797,15 @@ class TestConcurrentConfigWritesNoCorruption:
             cfg.hotkey = val
             cfg.model_size = "tiny.en"
 
-        threads = [threading.Thread(target=setter, args=(f"<f{i+1}>",)) for i in range(8)]
+        threads = [threading.Thread(target=setter, args=(f"<f{i + 1}>",)) for i in range(8)]
         for t in threads:
             t.start()
         for t in threads:
             t.join(timeout=5)
 
-        assert cfg.hotkey.startswith("<f"), (
-            f"Concurrent writes corrupted hotkey: {cfg.hotkey!r}"
-        )
+        assert cfg.hotkey.startswith("<f"), f"Concurrent writes corrupted hotkey: {cfg.hotkey!r}"
         assert cfg.model_size == "tiny.en"
+
 
 class TestConcurrentDispatchNoDeadlock:
     """NEW-IPC-011: Concurrent IPC message handling."""
@@ -3801,6 +3847,7 @@ class TestConcurrentDispatchNoDeadlock:
 
         assert not errors, f"Concurrent dispatch raised: {errors}"
 
+
 class TestReadlineCapsOversizedMessages:
     """NEW-IPC-012: Large IPC message handling at size boundaries."""
 
@@ -3818,10 +3865,7 @@ class TestReadlineCapsOversizedMessages:
         # convention.
         src = inspect.getsource(_TCPLineIO.readline)
         assert (
-            "_MAX_LINE_BYTES" in src
-            or "_MAX_LINE_CHARS" in src
-            or "_max_line_bytes" in src
-            or "_max_line_chars" in src
+            "_MAX_LINE_BYTES" in src or "_MAX_LINE_CHARS" in src or "_max_line_bytes" in src or "_max_line_chars" in src
         )
         # The drop condition must return empty string on overflow
         assert "return" in src
@@ -3836,6 +3880,7 @@ class TestReadlineCapsOversizedMessages:
         import socket as _socket
 
         from voice_typer.server.ipc_server import _TCPLineIO
+
         srv, cli = _socket.socketpair(_socket.AF_UNIX, _socket.SOCK_STREAM)
         try:
             # Write a small JSON message from the client side
@@ -3849,6 +3894,7 @@ class TestReadlineCapsOversizedMessages:
             assert "test" in line
         finally:
             srv.close()
+
 
 class TestSendCatchesSocketTimeout:
     """NEW-IPC-016: IPC write timeout under blocking conditions."""
@@ -3899,6 +3945,7 @@ class TestSendCatchesSocketTimeout:
         # settimeout must have been called on the connection
         mock_tcp.conn.settimeout.assert_called()
 
+
 class TestConfigPermissionTestsCoverageExists:
     """NEW-PRIV-002: Config file permission tests exist."""
 
@@ -3916,6 +3963,7 @@ class TestPlatMacBlocked:
     def test_macos_code_exists(self):
         """macOS-specific code must exist in the codebase."""
         from voice_typer.server import app
+
         src = inspect.getsource(app)
         assert "darwin" in src or "is_macos" in src
 
