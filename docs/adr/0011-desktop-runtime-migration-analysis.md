@@ -1,145 +1,144 @@
-# ADR 0011: Desktop Runtime Migration to Tauri v2 + PyO3 (Embedded Python)
+# ADR 0011: Desktop Runtime Migration to Tauri v2 + Python Sidecar
 
 ## Status
 
-Proposed
+Accepted — migration in progress. Electron is retained intact as a reversible fallback until Tauri + Sidecar is proven and cut over.
 
 ## Date
 
-2026-07-13
+2026-07-13 (decision) — 2026-07-14 (updated to Sidecar-only, actionable migration plan)
 
 ## Context
 
-Voice Typer today is **Electron (React UI) + a separate Python backend**, plus a separate prewarm helper. That is effectively **three processes**:
+Voice Typer today is **Electron (React UI) + a separate Python backend + a separate prewarm helper** — effectively **three processes**:
 
 1. Electron main process (hosts the React UI).
-2. `python -m voice_typer.server.ipc_server --port 9876` — the Python backend, spawned by `electron_launcher.py:13`, reached over a local TCP socket.
-3. `prewarm.py` — a standalone helper that warms the OS file cache at startup.
+2. `python -m voice_typer.server.ipc_server --port 9876` — the Python backend, spawned by `electron_launcher.py:13`, reached over a local TCP socket. This process does audio capture + model inference.
+3. `prewarm.py` — a standalone helper that warms the OS file cache at startup (kept intentionally separate; see ADR-0009).
 
-Two pain points drive this analysis:
+Two pain points drive this migration:
 
-- **(A) IPC middleware dislike.** The UI ↔ Python path is Electron `ipcMain`/`ipcRenderer` → TCP → Python handler mixins (`handlers/*`). The user finds this layered middleman unattractive.
-- **(B) "Two things in Task Manager."** Electron + Python ship as two separate programs that cannot be merged into one `.exe` today, so the user sees two processes and wants **one process, one icon**.
+- **(A) IPC middleware dislike.** The UI ↔ Python path is Electron `ipcMain`/`ipcRenderer` → TCP → Python handler mixins. We want to remove the hand-rolled launcher/relay.
+- **(B) "Two things in Task Manager."** Electron + Python ship as two separate programs. We want **one application** the user launches (one icon/install), not two unrelated programs.
 
-This ADR evaluates a **Tauri v2 + PyO3 (embedded Python)** desktop runtime as the replacement for Electron, and records the architecture trade-offs, the wins, the costs, and the documented workarounds. It supersedes the informal "future Rust startup scripts" note in ADR-0009 (§Future Work) by evaluating a full desktop-runtime change, while explicitly preserving the prewarm design from ADR-0009.
+This ADR adopts **Tauri v2 + a Python Sidecar** as the replacement desktop runtime, and records the ordered migration plan. The Python backend and React UI are kept substantially as-is; only the shell and the transport change.
 
-> **Plain English:** Today the app is really three programs running at once (the window, the speech brain in Python, and a helper that pre-loads the big model). The user wants the speech brain and the window to be ONE program, and dislikes the "phone line" (IPC) between them. We evaluated a Tauri v2 + PyO3 desktop runtime to see if it lets us do that without throwing away the working Python speech code.
-
----
-
-## Chosen Runtime — Tauri v2 + embedded Python (PyO3 0.29)
-
-Rust shell hosting the system webview (WebView2 on Windows) **and** an embedded CPython interpreter via PyO3. Your existing Python handler modules run *inside* the Rust binary.
-
-```
-One Rust .exe:
-  ├─ WebView2 (React UI)                 ← system webview, not bundled Chromium
-  ├─ Rust shell (Tauri v2)
-  └─ Embedded CPython (PyO3)            ← runs ipc_server / handlers/* in-process
-UI → Tauri invoke (Rust) → PyO3 call → Python function
-```
-
-| Aspect | Finding |
-|--------|--------|
-| Process model | **One host process** (Rust + embedded Python). The webview renderer is a child subprocess inherent to any webview GUI (shown under the host), not a separate "app". |
-| Single binary | Yes, ~2–10 MB app exe (+ model weights shipped separately, as today). |
-| IPC | `invoke` bridge — **lighter and in-process** vs today's TCP server. |
-| Python? | **Yes — kept as Python.** No ML rewrite. |
-| Maturity | Tauri v2 is production-grade, mobile-capable, plugin ecosystem (tray, autostart, updater). PyO3 0.29 is stable, actively maintained. |
-
-**Verdict:** The **only** candidate that delivers both "one process / one exe" **and** "Python stays Python". This is the recommended direction.
-
-> **Plain English:** Tauri is a Rust program that draws your window using the computer's built-in browser and also hides a real Python interpreter inside itself. Your speech code runs inside that one program. No second `python.exe`, no "phone line" to another program. You keep all your working Python; you only add a thin Rust "front desk" that passes requests from the window to Python.
+> **Plain English:** Today the app is three running programs (the window, the speech brain in Python, and a pre-load helper). We are moving the *window* from Electron to a smaller Tauri program, and bundling the speech brain *next to* it as a "sidecar" that Tauri starts and manages. The user still sees one app. We keep Electron working the whole time, so if the new version misbehaves we just ship Electron again — nothing is lost.
 
 ---
 
 ## Decision
 
-**Adopt Tauri v2 + PyO3 (embedded Python) as the target desktop runtime**, replacing Electron. Keep the Python backend and React UI substantially as-is; only the shell + transport change.
+**Adopt Tauri v2 + Python Sidecar as the desktop runtime, replacing Electron.** Keep the Python backend and React UI substantially as-is; only the shell + transport change.
 
-Two architectural rules are mandatory and were refined during this analysis:
+**Rationale (why Sidecar, not embedding Python in the app):** embedding Python directly inside the Rust/Tauri process would put the speech engine in the *same* process as the UI. For a continuous realtime-audio app that reintroduces a Global Interpreter Lock (GIL) freeze risk on the audio path, adds fragile Windows native DLL/ABI linking, and prevents crash isolation (a speech-engine crash would kill the whole app). The sidecar pattern keeps the speech engine in its own managed process, so the UI never freezes, crashes are isolated, and Windows native loading stays standard.
 
-1. **Keep prewarm as a SEPARATE boot helper.** Do **not** merge it into the app. The main app becomes one process (Electron + Python merged); prewarm remains a distinct, intentional boot-time process that warms the OS file cache. Net: **3 processes → 2 processes** (one app + one tiny invisible boot helper).
-2. **Preserve the current streaming model.** Background chunking/streaming stays hidden from the user until dictation ends, then pastes at once. This is a UI choice and is unaffected by the runtime change.
+**Migration is incremental and reversible.** Electron is NOT removed. We build Tauri + Sidecar *alongside* Electron, port the UI/components to Tauri's WebView2, implement the sidecar, then re-point the "wire" (UI → logic) from Electron→Python to Tauri→sidecar. At every phase the Electron app remains buildable, runnable, and shippable. Cutover is a packaging/default switch, not a destructive change.
 
-Defer the actual implementation until a **spike** proves PyO3 can embed CPython and load `torch` on the user's Windows machine (see Consequences, Risk 1).
+Three mandatory architecture rules:
 
-This decision **supersedes** the "rewrite startup scripts in Rust" future-work note in ADR-0009 — we embed Python via PyO3 rather than reimplementing logic in Rust.
+1. **Keep prewarm as a SEPARATE boot helper.** Do **not** merge it into the app. The main app becomes one Tauri app (Rust host + sidecar); prewarm remains a distinct, intentional boot-time process that warms the OS file cache. Net: **3 processes → 2 processes** (one app + one invisible boot helper). Preserves ADR-0009.
+2. **Preserve the current streaming model.** Background chunking/streaming stays hidden from the user until dictation ends, then pastes at once. Unaffected by the runtime change.
+3. **Migration must stay reversible.** Electron code is untouched; the Tauri build is additive. Ability to ship/switch back to Electron at any time, with zero loss.
 
-> **Plain English (the two rules):** Rule 1 — the pre-load helper stays its own little program so your model stays ready in RAM even after you close the app; we only fuse the *window* and the *speech brain* into one. Rule 2 — the way words are collected in the background and shown all at once does not change.
+> **Plain English (the three rules):** Rule 1 — the pre-load helper stays its own little program so the model stays ready in RAM; we only swap the *window* technology. Rule 2 — the way words are collected in the background and shown all at once does not change. Rule 3 — we never delete or break Electron; the new app is added next to it, and we can go back whenever we want.
+
+---
+
+## Target Architecture (post-migration)
+
+```
+One Tauri app (ONE icon / install / Task Manager entry):
+  ├─ WebView2 (React UI)          ← ported from Electron, same React components
+  ├─ Rust shell (Tauri v2)
+  └─ python-sidecar.exe           ← bundled externalBin, spawned & managed by Tauri
+        UI → Tauri invoke / HTTP → Rust → localhost WebSocket → Python sidecar
+        (sidecar runs faster-whisper / CTranslate2 — same Python backend as today)
+Plus: prewarm.py (separate boot helper, kept per ADR-0009)
+```
+
+The sidecar is a **normal Python program** (your existing `ipc_server` / `handlers/*` logic), compiled/bundled and launched by Tauri — no Python embedded in the Rust binary.
+
+---
+
+## Migration Plan (ordered)
+
+### Phase 0 — Spike (prove before building)
+- Bundle a working Python (via `python-build-standalone`) as a Tauri `externalBin` sidecar.
+- Confirm on the user's Windows machine: sidecar spawns on app launch, localhost WebSocket/HTTP comms work, sidecar auto-stops with the app, `kill_children` cleans the tree.
+- Confirm `faster-whisper` / `CTranslate2` loads and transcribes inside the sidecar.
+- **Gate:** do not start Phase 1 until this passes.
+
+### Phase 1 — Sidecar packaging
+- Package the Python backend as **`--onedir`** (not `--onefile`) using `python-build-standalone` — avoids PyInstaller bootloader PID/antivirus quirks.
+- Code-sign the sidecar; run with hidden console.
+- Implement **cooperative shutdown** (stdin/stdout shutdown ack + `kill_children`), not bare `process.kill()`.
+
+### Phase 2 — Transport bridge
+- Replace Electron's TCP IPC (`ipc_server --port 9876` + `electron_launcher` spawn) with a **localhost WebSocket / HTTP JSON-RPC** between Tauri (Rust) and the sidecar.
+- Map the existing handler registry (`handlers/*`) to sidecar commands; keep **one generic dispatch** to minimize Python changes.
+- Map Tauri events ↔ the current `_push_event_now` event flow so UI updates behave unchanged.
+
+### Phase 3 — UI port to Tauri WebView2
+- Move the React UI from the Electron renderer to the Tauri webview; replace `ipcMain`/`contextBridge` calls with Tauri `invoke`.
+- Port tray, global hotkey, settings, and autostart UX to Tauri plugins (`tray`, `global-shortcut`, `autostart`, `single-instance`).
+- Keep the same React components — only the shell bridge changes.
+
+### Phase 4 — Wire swap + recovery
+- Re-point the "wire" (UI → logic) from Electron→Python to Tauri→sidecar. Keep the Electron build path intact and runnable in parallel.
+- Implement **crash isolation** (tracked as FT-1 in `.workspace/TASKS.md`): a Rust supervisor respawns the sidecar on unexpected exit, shows a "reconnecting…" state, and falls back to full-app relaunch if respawn fails repeatedly.
+- Enable the `single-instance` plugin so only one app instance runs.
+
+### Phase 5 — Validation & cutover
+- Verify: one icon/install; UI never freezes (sidecar owns its own GIL); crash isolation works; prewarm still warms the cache; streaming unchanged; global hotkey + tray work.
+- Keep the Electron code path intact until satisfied; then make Tauri the default shipping app. Revert at any time by shipping the Electron build.
 
 ---
 
 ## Consequences
 
-### Great things (optimization, speed, memory) — keep
+### Wins (keep)
+- **One app / one icon.** Tauri host + sidecar bundle into one app, started/stopped together. Task Manager shows one program. Directly resolves complaint (B). Process count: today's 3 (Electron + Python + prewarm) → 2 (Tauri app + prewarm).
+- **No hand-rolled launcher.** Tauri owns the Python lifecycle; the `electron_launcher.py` relay behind complaint (A) is removed.
+- **No UI freeze.** The sidecar owns its own GIL, so continuous mic capture + inference never block the UI — matches today's smooth behavior.
+- **Crash isolation possible (FT-1).** A speech-engine crash can be recovered without killing the whole app — an upgrade over today's whole-app restart.
+- **Smaller shell.** Tauri exe ~2–10 MB using system WebView2, vs Electron's ~100 MB+ bundled Chromium.
+- **Python stays Python.** No ML rewrite; the existing backend is bundled as a sidecar.
 
-- **One process / one exe.** Electron main + Python backend become a single Rust host. Task Manager shows one app (+ a normal webview child). Directly resolves complaint (B).
-- **No separate `python.exe`, no TCP `:9876`.** The socket IPC server and its relay layer are removed; calls are in-process. Resolves complaint (A) at the transport level.
-- **Smaller + lighter.** App exe drops from ~100 MB+ (Electron + bundled Chromium) to ~2–10 MB. Uses system WebView2 (already present on Windows 11) instead of bundling a browser → lower baseline RAM/CPU than Chromium.
-- **Faster, cheaper calls.** No JSON-over-TCP serialization of audio chunks / transcripts. PyO3 passes Python objects / NumPy arrays in memory → lower per-call latency on the hot audio path.
-- **Model loads once.** Single interpreter init + one model load. The separate prewarm *process* is retained (see below), so cross-restart and boot-time warming are preserved; the prewarm *concept as a second app process competing at logon* is gone.
-- **Prewarm benefit preserved.** Prewarm warms the **OS file cache** (RAM the OS manages, not any one process). That cache survives process exit, so reopening the app is still fast. Boot-time warming (before login) is kept via the existing Task Scheduler **BootTrigger**; only the app shell changes, not the scheduler.
-- **Lower memory baseline.** One Python runtime instead of two (app + prewarm running simultaneously). GPU model RAM unchanged (~model size).
+### Costs (documented, with mitigations)
+- **Installer size:** Python + CTranslate2 + model adds ~400 MB–1 GB. Mitigation: this is model/data weight, comparable to what the app already ships; far less than Electron + Chromium overhead overall.
+- **Startup latency:** 2–5 s cold sidecar start. Mitigation: prewarm file-cache warming + background load.
+- **Two processes in Task Manager** (app + sidecar + prewarm): mitigated by Tauri-managed lifecycle + `single-instance`; users perceive one app.
+- **Lifecycle/PID bugs** (the child Python process must close cleanly or it lingers as a zombie / blocks reinstall): mitigated by four concrete measures, all to be applied:
+  1. **`--onedir` (not `--onefile`)** — ship the Python folder directly instead of unpacking a single exe at runtime → faster start, no PyInstaller bootloader-child confusion.
+  2. **`python-build-standalone`** — a clean prebuilt Python with no PyInstaller bootloader → simpler process tree, fewer antivirus false positives.
+  3. **`kill_children`** — Tauri recursively kills the whole child process tree on exit → no zombies left behind.
+  4. **Cooperative shutdown** — send the sidecar a "please stop" message over stdin/stdout so it releases the mic and exits gracefully, rather than being force-killed.
+- **Webview consistency:** WebView2 vs Chromium — minor CSS/API guardrails if macOS/Linux is later added.
 
-> **Plain English (why it's faster/smaller):** One program instead of two; no "phone line" copying data back and forth; the app is tiny because it uses the browser Windows already has; the speech model is read from fast RAM (thanks to the kept prewarm helper) instead of the slow disk.
-
-### Bad things (costs) — and the documented workarounds
-
-**Bad 1 — A thin Rust "front desk" is mandatory.**
-You don't rewrite the ML in Rust; you write a small Rust layer that embeds Python, exposes Tauri commands, and manages lifecycle. It must be compiled and version-pinned.
-*Workaround:* Expose **one generic `invoke_python(method, args)` command** that dispatches to your handler registry, instead of per-command Rust. Maximizes Python reuse, minimizes the Rust you touch. The Rust surface can stay a few hundred lines.
-
-**Bad 2 — libpython linking / "wheels" ABI match.**
-The embedded CPython must ABI-match your `torch`/`transformers` wheels, or import crashes.
-*Workaround:* Use `python-build-standalone` (portable libpython) + `maturin` to build; **pin the Python version in lockstep** with the torch wheels in CI. This is a routine "keep them matched" chore, not a blocker (confirmed by PyO3 docs: `pyo3` supports CPython 3.8+, PyPy, GraalPy; `auto-initialize` starts the interpreter inside the binary).
-
-**Bad 3 — GIL ("one cashier").**
-Python does one thing at a time inside itself; a long transcription job can block the UI if called synchronously.
-*Workaround:* Offload long Python work to a **Rust thread / back room**, and push results to the UI via **Tauri events** (a "kitchen bell"). PyO3 documents this parallelism pattern (`pyo3::sync`, detach-from-interpreter for non-Python work). Standard, supported design.
-
-**Bad 4 — Async backend (asyncio).**
-If `ipc_server` is async-driven, running its event loop inside an embedded interpreter needs a bridge.
-*Workaround:* **`pyo3-async-runtimes`** (listed in PyO3 docs) is a ready-made library bridging Python's asyncio with Rust async runtimes. No hand-rolled glue.
-
-**Bad 5 — `invoke` is still a bridge (lighter).**
-There remains a thin UI↔logic connection. The user explicitly accepts this as lighter than today's IPC. No action needed beyond keeping the generic dispatch thin.
-
-**Bad 6 — Cross-language error messages (the "error boundary").**
-A Python crash inside the embedded interpreter can surface as a Rust crash with a Python note attached — harder to read than today's separate Python process.
-*Workaround (confirmed by PyO3 docs):* PyO3 represents any Python failure as **`PyErr`**, which **captures the full Python traceback**. Wrap every Python call in one safety layer (the "error boundary" the user intuited) that: (1) catches `PyErr`, (2) writes the **complete Python traceback** to the normal log file, (3) shows the user a calm, friendly message. PyO3 also supports `create_exception!` / `import_exception!` to type and route errors cleanly. This converts the "scrambled mixed-language crash" into a clean, logged, debuggable event. Optionally set a Python `sys.excepthook`/`sys.unraisablehook` to catch any unhandled Python error globally and route it to the log.
-
-**Bad 7 — Webview consistency.**
-The UI uses the OS-built-in browser (WebView2 on Win11). Slightly different rendering across OSes vs Electron's identical bundled Chromium.
-*Workaround:* Negligible for a Windows-first app; minor CSS/API guardrails if macOS/Linux support is later added.
-
-> **Plain English (the workarounds):** Every "bad thing" has a known fix. The Rust layer can be tiny (one pass-through command). The Python version is pinned once in the build. Long jobs run in a back room and ring a bell with results. Async is handled by an existing library. And the scary mixed error becomes a clean log entry + friendly popup, exactly the "error boundary" idea — PyO3 is built to support it.
-
-### Streaming clarification (corrected during analysis)
-
-The app **does** chunk/stream in the background while talking, but the text is **hidden** until the user finishes, then pasted at once (to avoid distracting the user). This is a UI choice and carries over **unchanged** to Tauri. No architectural change required.
-
-### Prewarm clarification (corrected during analysis)
-
-The user keeps prewarm separate on purpose: closing the app leaves the model in RAM (via the OS file cache) so the next open is instant, and prewarm can start at **boot, before login**. Merging prewarm into the app would discard that benefit. Therefore prewarm **stays a separate boot helper** after migration. The migration fuses only Electron + Python into one process; prewarm remains distinct. Boot-time (pre-login) warming is preserved via the existing Task Scheduler BootTrigger. Result: **3 processes → 2** (one app + one invisible boot helper), with the original speed trick intact.
-
-> **Plain English:** The pre-load helper is a feature, not a flaw — it keeps your model ready even after you close the app, and it can start before you log in. We keep it. We only merge the window and the speech brain. So you go from three running programs down to two, and the "instant load" trick still works.
+### Reversibility
+Electron code is untouched throughout the migration. The Tauri + Sidecar build is strictly additive. At any phase the Electron app remains the shippable fallback; cutover is a packaging/default switch. No data, config, or model loss on revert.
 
 ---
 
 ## Risks / Open Questions
 
-1. **Embedding spike required.** The hardest, make-or-break step is embedding CPython + loading `torch` on Windows with correct ABI/DLL paths. **Action:** run a minimal Tauri v2 + PyO3 app that embeds Python and imports `torch` on the user's machine before any full migration is planned.
-2. **Rust toolchain added to build.** Increases CI complexity vs pure Python/Node. Mitigated by keeping Rust minimal (Bad 1 workaround) and using `maturin`.
-3. **Cross-language debugging friction** (Bad 6) is an ongoing, not one-time, cost — mitigated by the `PyErr` error boundary, but the builder must maintain it.
-4. **Webview feature parity** for any UI bits relying on Chromium-only APIs — verify during spike.
+1. **Spike must pass on the user's Windows machine** (Phase 0) before any full build — the make-or-break step.
+2. **UI port effort (Phase 3)** is the largest unknown; mitigated by keeping React components shell-agnostic.
+3. **Transport bridge (Phase 2)** must preserve all current handler behaviors and the event flow exactly.
+4. **Recovery supervisor (FT-1)** must be implemented before cutover so a sidecar crash does not strand the user.
 
 ## References
 
-- ADR-0001 (Electron + Python Architecture, Accepted) — current architecture being replaced.
-- ADR-0009 (Prewarm & Autostart Architecture) — prewarm/boot-trigger design preserved by this ADR.
-- PyO3 user guide v0.29.0 (pyo3.rs/v0.29.0) — embedding (`auto-initialize`), `PyErr`/traceback capture, `pyo3-async-runtimes`, GIL/parallelism.
-- `electron_launcher.py:13` — current spawn of `python -m voice_typer.server.ipc_server --port 9876`.
-- `voice_typer/server/prewarm.py`, `task_scheduler.py` — prewarm + BootTrigger (kept).
+- ADR-0001 (Electron + Python Architecture, Accepted) — current architecture, retained as the reversible fallback.
+- ADR-0009 (Prewarm & Autostart Architecture) — prewarm / BootTrigger design preserved by this ADR.
+- Tauri v2 sidecar guide (v2.tauri.app/develop/sidecar) — first-class `externalBin` sidecar feature.
+- Tauri discussion #1645 (github.com/tauri-apps/tauri/discussions/1645) — sidecar trade-offs.
+- `python-build-standalone` (by Gregory Szorc) — clean pre-built Python for sidecar bundling.
+- Tauri `kill_children` + `single-instance` plugin — lifecycle/cleanup correctness.
+- FT-1 in `.workspace/TASKS.md` — crash isolation (restart backend only, keep UI alive).
+- `electron_launcher.py:13` — current spawn of `python -m voice_typer.server.ipc_server --port 9876` (replaced by sidecar in Phase 2).
+- `voice_typer/server/ipc_server.py`, `voice_typer/server/handlers/*` — TCP IPC + handler registry (bridged to sidecar WebSocket in Phase 2).
+- `voice_typer/server/prewarm.py`, `voice_typer/server/task_scheduler.py` — prewarm + BootTrigger (kept).
 
 *End of document.*
