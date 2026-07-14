@@ -26,14 +26,27 @@ the paste target appears to be a rich editor (e.g. Word, LibreOffice).
 
 import contextlib
 import logging
+import threading
 import time
 from typing import Any
 
 import pyperclip
 
+from voice_typer.server.clipboard_snapshot import ClipboardSnapshot
 from voice_typer.server.platform_utils import is_macos, is_windows
 
 log = logging.getLogger(__name__)
+
+
+class ClipboardCopyError(RuntimeError):
+    """Raised when ``ClipboardManager.copy()`` fails to write text to the
+    clipboard after retries.
+
+    ADR-0010 §5.2: distinguishes "copy failed" (caller should write to
+    crash recovery) from "save/restore disabled" (caller skips the
+    clipboard). The snapshot, if captured, is restored before raising
+    so the clipboard is never left torn.
+    """
 
 
 # Lazy-import pynput at instance creation time, not module import time.
@@ -57,6 +70,7 @@ def _ensure_pynput_imported():
         return
     from pynput.keyboard import Controller as _c  # noqa: N813
     from pynput.keyboard import Key as _k  # noqa: N813
+
     _Key = _k
     _Controller = _c
 
@@ -127,12 +141,12 @@ class Win32Clipboard:
         """Open the clipboard. Returns self."""
         try:
             import ctypes
+
             user32 = ctypes.windll.user32
             if user32.OpenClipboard(self._owner):
                 self._opened = True
             else:
-                log.warning("[CLIPBOARD] OpenClipboard failed (err=%d)",
-                            ctypes.windll.kernel32.GetLastError())
+                log.warning("[CLIPBOARD] OpenClipboard failed (err=%d)", ctypes.windll.kernel32.GetLastError())
         except Exception as exc:
             log.warning("[CLIPBOARD] OpenClipboard raised: %s", exc)
         return self
@@ -142,6 +156,7 @@ class Win32Clipboard:
         if self._opened:
             try:
                 import ctypes
+
                 ctypes.windll.user32.CloseClipboard()
             except Exception:
                 pass
@@ -154,6 +169,7 @@ class Win32Clipboard:
             return False
         try:
             import ctypes
+
             return bool(ctypes.windll.user32.EmptyClipboard())
         except Exception:
             return False
@@ -168,8 +184,9 @@ class Win32Clipboard:
             return 0
         try:
             import ctypes
+
             user32 = ctypes.windll.user32
-            if hasattr(user32, 'GetClipboardSequenceNumber'):
+            if hasattr(user32, "GetClipboardSequenceNumber"):
                 return user32.GetClipboardSequenceNumber()
         except Exception:
             pass
@@ -210,6 +227,7 @@ def _is_elevated_target() -> bool:
     try:
         import ctypes
         from ctypes import wintypes
+
         user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
         advapi32 = ctypes.windll.advapi32
@@ -238,9 +256,7 @@ def _is_elevated_target() -> bool:
                 ret_len = wintypes.DWORD()
                 advapi32.GetTokenInformation(token, 20, None, 0, ctypes.byref(ret_len))
                 buf = ctypes.create_string_buffer(ret_len.value or 4)
-                if not advapi32.GetTokenInformation(
-                    token, 20, buf, ctypes.sizeof(buf), ctypes.byref(ret_len)
-                ):
+                if not advapi32.GetTokenInformation(token, 20, buf, ctypes.sizeof(buf), ctypes.byref(ret_len)):
                     return False
                 # TOKEN_ELEVATION struct: DWORD TokenIsElevated
                 target_elevated = bool(ctypes.cast(buf, ctypes.POINTER(wintypes.DWORD))[0])
@@ -265,8 +281,8 @@ def _is_elevated_target() -> bool:
             # If target is elevated and we're not, warn
             if target_elevated and not we_elevated:
                 log.warning(
-                    "[CLIPBOARD] Target window (pid=%d) is elevated but we are not — "
-                    "paste may fail due to UIPI", pid.value,
+                    "[CLIPBOARD] Target window (pid=%d) is elevated but we are not — paste may fail due to UIPI",
+                    pid.value,
                 )
                 return True
             return False
@@ -286,10 +302,10 @@ def _is_elevated_target() -> bool:
 # password fields in third-party apps. comtypes/UIA is required for
 # full coverage (see _is_password_field above).
 _CRED_DIALOG_CLASSES: set[str] = {
-    "CredentialDialog",       # Generic credential dialog
-    "CredDialogCallerWnd",    # CredUI dialog
+    "CredentialDialog",  # Generic credential dialog
+    "CredDialogCallerWnd",  # CredUI dialog
     "NN Credentials Dialog",  # Network credentials
-    "PassportWindow",         # Microsoft account
+    "PassportWindow",  # Microsoft account
 }
 
 
@@ -304,6 +320,7 @@ def _focused_window_is_credential_dialog() -> bool:
         return False
     try:
         import ctypes
+
         user32 = ctypes.windll.user32  # type: ignore[attr-defined]
         hwnd = user32.GetForegroundWindow()
         if not hwnd:
@@ -349,11 +366,11 @@ def _is_password_field() -> bool:
     if not is_windows():
         return False
     try:
-
         # Try using comtypes for UI Automation (preferred path)
         try:
             import comtypes
             import comtypes.client
+
             comtypes.CoInitialize()
             try:
                 focused = _get_uia_focused_element()
@@ -440,6 +457,7 @@ def _get_uia_singleton():
         return None
     try:
         import comtypes.client
+
         _UIA_MODULE = comtypes.client.GetModule("UIAutomationCore.dll")
         _UIA_SINGLETON = comtypes.CoCreateInstance(
             _UIA_MODULE.CUIAutomation._reg_clsid_,
@@ -491,6 +509,7 @@ def _is_content_editable() -> bool:
         return False
     try:
         import comtypes
+
         comtypes.CoInitialize()
         try:
             focused = _get_uia_focused_element()
@@ -536,30 +555,61 @@ class ClipboardManager:
         self._last_paste_time: float = 0.0
         # PLAT-CLIPRACE: clipboard sequence number for race detection on Windows
         self._clipboard_seq: int = 0
-        # PLAT-SECURE: last copied text for clipboard-clear comparison
+        # PLAT-SECURE: last copied text for seq-mismatch recovery in paste().
+        # ADR-0010 §5.1: kept (not removed) because paste() still re-copies
+        # on clipboard sequence number mismatch.
         self._last_copied_text: str = ""
-        self._clear_thread = None
-        # PLAT-SECURE: saved clipboard content for restore after paste
-        self._saved_clipboard: str | None = None
+        # ADR-0010 §5.6 / DP8: removed ``_clear_thread`` and
+        # ``_saved_clipboard`` — dead code replaced by the snapshot
+        # return value of copy() and the daemon-thread restore in paste().
         # PLAT-SECURE (revised): cached config flag for clipboard_save_restore.
         # Initialized to True (default) and refreshed via refresh_config()
-        # when the user changes the setting. Used to gate both the save
-        # (in copy()) and the restore (in schedule_clipboard_clear()).
+        # when the user changes the setting. Used to gate snapshot capture
+        # in copy() (DP7 — the flag is now actually consulted).
         self._clipboard_save_restore_enabled: bool = True
+        # ADR-0010 §5.6 / §5.3: cached restore delay in milliseconds. Read
+        # by paste() when scheduling the daemon-thread restore. Refreshed
+        # at runtime via refresh_config().
+        self._restore_delay_ms: int = 150
 
     def refresh_config(self, config) -> None:
         """Refresh cached config flags from a Config object.
 
-        PLAT-SECURE (revised): Call this whenever the user changes
-        clipboard-related settings via IPC so the cached flag is kept
-        in sync without re-reading the config on every copy().
+        ADR-0010 §5.5: called from ``service.apply_config()`` after
+        ``config.save()`` (inside the config-mutation lock). Keeps the
+        live ClipboardManager in sync with runtime config changes —
+        including the ``paste_enabled`` ↔ ``paste_on_stop`` mirror
+        (§2.12), which is otherwise stale until restart.
+
+        Without the ``paste_on_stop`` mirror, toggling auto-paste in the
+        UI leaves ``paste_enabled`` stale and auto-paste / repaste
+        silently no-op until restart (§2.12).
         """
         try:
-            self._clipboard_save_restore_enabled = bool(
-                getattr(config, "clipboard_save_restore", True)
-            )
+            self._clipboard_save_restore_enabled = bool(getattr(config, "clipboard_save_restore", True))
         except Exception:
             self._clipboard_save_restore_enabled = True  # safe default
+
+        try:
+            self._restore_delay_ms = int(getattr(config, "clipboard_restore_delay_ms", 150))
+        except Exception:
+            self._restore_delay_ms = 150
+
+        # §2.12: mirror paste_on_stop → paste_enabled so a runtime toggle
+        # of auto-paste actually takes effect. Without this, paste()'s
+        # internal gate stays stale and auto-paste (and repaste) silently
+        # no-op until restart.
+        try:
+            self.paste_enabled = bool(getattr(config, "paste_on_stop", True))
+        except Exception:
+            self.paste_enabled = True
+
+        log.debug(
+            "[CLIPBOARD] refresh_config: save_restore=%s, restore_delay=%dms, paste_enabled=%s",
+            self._clipboard_save_restore_enabled,
+            self._restore_delay_ms,
+            self.paste_enabled,
+        )
 
     @staticmethod
     def _get_clipboard_sequence_number() -> int:
@@ -582,6 +632,7 @@ class ClipboardManager:
             return True
         try:
             import ctypes
+
             user32 = ctypes.windll.user32
             hwnd = user32.GetForegroundWindow()
             if not hwnd:
@@ -615,8 +666,7 @@ class ClipboardManager:
             try:
                 if _is_elevated_target():
                     log.warning(
-                        "[CLIPBOARD] Target window is elevated but we are not — "
-                        "blocking paste to avoid UIPI failure"
+                        "[CLIPBOARD] Target window is elevated but we are not — blocking paste to avoid UIPI failure"
                     )
                     return False
             except Exception:
@@ -658,6 +708,7 @@ class ClipboardManager:
         try:
             import ctypes
             from ctypes import wintypes
+
             user32 = ctypes.windll.user32
             kernel32 = ctypes.windll.kernel32
 
@@ -686,44 +737,49 @@ class ClipboardManager:
             pass
         return None
 
-    def copy(self, text: str) -> bool:
+    def copy(self, text: str) -> "ClipboardSnapshot | None":
+        """Copy text to the clipboard. Returns a snapshot of the prior content.
+
+        ADR-0010 §5.2 / DP4 / DP7.
+
+        Returns ``None`` if:
+          * ``text`` is empty (no-op).
+          * ``clipboard_save_restore`` is disabled (no snapshot captured).
+
+        Returns a :class:`ClipboardSnapshot` (which may have an empty
+        ``items`` list if the clipboard was empty) when snapshot capture
+        succeeds. The caller is responsible for restoring the snapshot
+        after the text has been consumed — see :meth:`paste` and
+        :meth:`restore_now`.
+
+        Raises :class:`ClipboardCopyError` if the text copy/verify fails
+        after retries. The snapshot, if captured, is restored before
+        raising so the clipboard is never left torn. The caller should
+        write the transcription to crash recovery on this exception.
+        """
         if not text:
-            return False
+            return None
+
+        # ① SNAPSHOT (gated by config flag — DP7). The snapshot is a
+        # value returned to the caller; it is NOT stored on self. This
+        # makes overlapping cycles safe (DP4).
+        snapshot: ClipboardSnapshot | None = None
+        if self._clipboard_save_restore_enabled:
+            snapshot = ClipboardSnapshot.capture()
+            # snapshot may be None if capture failed (clipboard locked
+            # or empty). That's OK — we just won't restore. Log for
+            # debugging.
+            if snapshot is None:
+                log.debug("[CLIPBOARD] Snapshot capture returned None (clipboard locked or empty)")
+
         try:
-            # PLAT-006: On Windows, empty the clipboard before copying
-            # to clear rich text artifacts from the previous clipboard content.
-            # PLAT-027: uses Win32Clipboard abstraction instead of direct
-            # ctypes.windll.user32 calls.
+            # ② WIN32 EMPTY (existing PLAT-006). On Windows, empty the
+            # clipboard before copying to clear rich text artifacts from
+            # the previous clipboard content. PLAT-027: uses
+            # Win32Clipboard abstraction instead of direct ctypes calls.
             _win32_empty_clipboard()
 
-            # PLAT-SECURE / SEC-012 (revised): save existing clipboard
-            # content before overwriting, ONLY if clipboard_save_restore
-            # is enabled (default True). The previous code unconditionally
-            # called pyperclip.paste() on every copy() — even when the user
-            # had disabled save/restore. This wasted a clipboard read on
-            # every copy and stored stale content in _saved_clipboard that
-            # was never restored (because schedule_clipboard_clear checks
-            # the config flag before restoring). The fix gates the save
-            # behind the same config flag that gates the restore.
-            self._saved_clipboard = None
-            try:
-                # Cache the config flag once to avoid re-reading on every copy.
-                # _clipboard_save_restore_enabled is set in __init__ and
-                # refreshed via refresh_config() when settings change.
-                if self._clipboard_save_restore_enabled:
-                    self._saved_clipboard = pyperclip.paste()
-            except Exception:
-                pass
-            log.debug("[CLIPBOARD-AUDIT] Saved previous clipboard content for restore (len=%d, save_restore=%s)",
-                      len(self._saved_clipboard) if self._saved_clipboard else 0,
-                      self._clipboard_save_restore_enabled)
-
-            # PLAT-007: Retry clipboard access on ERROR_ACCESS_DENIED.
-            # Pre-fix this caught broad ``Exception`` which would retry
-            # on ANY error (including programming errors like
-            # AttributeError). Now we only retry on OSError/WindowsError
-            # with winerror == 5 (ERROR_ACCESS_DENIED). Other exceptions
-            # propagate immediately so real bugs aren't masked.
+            # ③ COPY TEXT (existing PLAT-007 retry on ERROR_ACCESS_DENIED).
             for attempt in range(3):
                 try:
                     pyperclip.copy(text)
@@ -738,18 +794,17 @@ class ClipboardManager:
                         continue
                     raise copy_err
 
-            # PLAT-PASTEVR: Verify the clipboard content matches what we copied.
-            # If another app modified the clipboard between our copy and
-            # verification, retry up to 3 times.
+            # ④ VERIFY (existing PLAT-PASTEVR).
             for verify_attempt in range(3):
                 try:
                     actual = pyperclip.paste()
                     if actual == text:
                         break
                     log.warning(
-                        "[CLIPBOARD] Clipboard verification failed (attempt %d/3) — "
-                        "expected %d chars, got %d.",
-                        verify_attempt + 1, len(text), len(actual) if actual else 0,
+                        "[CLIPBOARD] Clipboard verification failed (attempt %d/3) — expected %d chars, got %d.",
+                        verify_attempt + 1,
+                        len(text),
+                        len(actual) if actual else 0,
                     )
                     pyperclip.copy(text)
                 except Exception:
@@ -757,15 +812,25 @@ class ClipboardManager:
             else:
                 log.error("[CLIPBOARD] Clipboard verification still failed after 3 retries")
 
-            # PLAT-SECURE: store the text for later comparison when clearing
+            # ⑤ STORE METADATA (existing PLAT-CLIPRACE / PLAT-SECURE).
             self._last_copied_text = text
-            # PLAT-CLIPRACE: capture the clipboard sequence number after copy
             self._clipboard_seq = self._get_clipboard_sequence_number()
-            log.info("[CLIPBOARD-AUDIT] Copied %d chars to clipboard (seq=%d)", len(text), self._clipboard_seq)
-            return True
+            log.info(
+                "[CLIPBOARD-AUDIT] Copied %d chars to clipboard (seq=%d, snapshot=%s)",
+                len(text),
+                self._clipboard_seq,
+                "captured" if snapshot is not None else "none",
+            )
+            return snapshot
+
         except Exception as e:
             log.error("[CLIPBOARD] Failed to copy to clipboard: %s", e)
-            return False
+            # If copy failed, restore the snapshot immediately so we don't
+            # leave the clipboard in a torn state, then signal failure.
+            if snapshot is not None:
+                with contextlib.suppress(Exception):
+                    snapshot.restore()
+            raise ClipboardCopyError(str(e)) from e
 
     def _release_stuck_modifiers(self) -> None:
         """Release any stuck modifier keys before paste.
@@ -809,79 +874,54 @@ class ClipboardManager:
         finally:
             self._keyboard.release(modifier)
 
-    def schedule_clipboard_clear(self, delay: float = 0) -> None:
-        """Schedule clearing the clipboard after a delay.
-
-        PLAT-SECURE / SEC-012: Sensitive transcript text (passwords, PII)
-        should not remain on the clipboard indefinitely. After pasting, we
-        schedule a clear to remove the text and optionally restore the
-        previous clipboard content.
-
-        SEC-012: The default delay is read from config
-        ``clipboard_clear_delay_seconds`` (default 5 seconds). Pass 0 to
-        use the config default; pass a positive value to override.
-        ``clipboard_save_restore`` controls whether the previous clipboard
-        content is restored after clearing.
-        """
-        import threading
-
-        # SEC-012: Use config default if no explicit delay given
-        if delay <= 0:
-            try:
-                from voice_typer.server.config import Config
-                delay = float(Config.load().clipboard_clear_delay_seconds)
-            except Exception:
-                delay = 5.0
-
-        # SEC-012: Check whether save/restore is enabled
-        save_restore = True  # default
-        try:
-            from voice_typer.server.config import Config
-            save_restore = Config.load().clipboard_save_restore
-        except Exception:
-            pass
-
-        saved_text = self._last_copied_text
-        saved_clipboard = self._saved_clipboard if save_restore else None
-
-        def _clear():
-            try:
-                time.sleep(delay)
-                # Only clear if clipboard still contains our text
-                # (don't clobber if user copied something else)
-                try:
-                    current = pyperclip.paste()
-                except Exception:
-                    current = None
-                if current == saved_text:
-                    # PLAT-SECURE / SEC-012: restore previous clipboard
-                    # content if we saved it and save_restore is enabled,
-                    # otherwise clear to empty
-                    if saved_clipboard is not None:
-                        try:
-                            pyperclip.copy(saved_clipboard)
-                            log.info("[CLIPBOARD-AUDIT] Clipboard restored to previous content "
-                    "after %ds delay", int(delay))
-                        except Exception:
-                            pyperclip.copy("")
-                            log.info("[CLIPBOARD-AUDIT] Clipboard cleared (sensitive data removed, restore failed)")
-                    else:
-                        pyperclip.copy("")
-                        log.info("[CLIPBOARD-AUDIT] Clipboard cleared (sensitive data removed) "
-                    "after %ds delay", int(delay))
-                else:
-                    log.debug("[CLIPBOARD-AUDIT] Clipboard not cleared — content changed since copy")
-            except Exception:
-                pass
-        self._clear_thread = threading.Thread(target=_clear, daemon=True, name="clipboard-clear")
-        self._clear_thread.start()
-
-    def paste(self) -> bool:
+    def paste(
+        self,
+        snapshot: "ClipboardSnapshot | None" = None,
+        restore_delay: float | None = None,
+        pasted_text: str | None = None,
+        force: bool = False,
+    ) -> bool:
         """Send a paste keystroke into the focused window.
 
-        Returns True if a keystroke was sent, False if paste is disabled
-        or rate-limited.
+        ADR-0010 §5.3 / DP1 / DP2 / DP3 / DP4.
+
+        If a snapshot is provided, a delayed restore is ALWAYS scheduled
+        on a daemon thread (DP3) — even when the keystroke is later
+        skipped (pynput missing, rate-limited, paste disabled, unsafe
+        target). This guarantees the clipboard borrow is always paired
+        with a restore (DP1/DP2), so the user's original clipboard is
+        never orphaned.
+
+        ``force=True`` bypasses the ``paste_enabled`` gate. Used by
+        ``repaste_last()`` — a manual user action that must never be
+        coupled to the auto-paste (``paste_on_stop``) setting. See §2.12.
+
+        The snapshot and the expected pasted text are passed as value
+        parameters — no instance state is read or written for the
+        snapshot or the restore guard (DP4). This makes overlapping
+        cycles safe: cycle B's copy() cannot corrupt cycle A's restore,
+        because every cycle carries its own expected text. The
+        transcription thread is never blocked by the restore (it runs on
+        a daemon thread).
+
+        Returns ``True`` if a keystroke was sent, ``False`` if paste is
+        disabled, rate-limited, or blocked by the safety check.
         """
+        # ── schedule restore FIRST, before any early return (DP1/DP2) ──
+        # The borrow happened in copy(); failure to send the keystroke
+        # must not prevent the paired restore. ``_delayed_restore``
+        # re-checks the clipboard before restoring, so this is safe even
+        # if the paste never lands.
+        if snapshot is not None:
+            delay = restore_delay if restore_delay is not None else (self._restore_delay_ms / 1000.0)
+            expected = pasted_text if pasted_text is not None else self._last_copied_text
+            threading.Thread(
+                target=self._delayed_restore,
+                args=(snapshot, expected, delay),
+                daemon=True,
+                name="clipboard-restore",
+            ).start()
+
         # PLAT-STUCK: release any stuck modifier keys before pasting
         self._release_stuck_modifiers()
 
@@ -890,8 +930,8 @@ class ClipboardManager:
         # uses SendInput directly without pynput), there's no way to
         # synthesize a paste keystroke. Bail out early rather than
         # AttributeError on _Key.cmd / _Key.ctrl below.
-        if _Key is None and not is_windows():
-            log.warning("[CLIPBOARD] Cannot paste — pynput unavailable on non-Windows platform")
+        if _Controller is None and not is_windows():
+            log.warning("[CLIPBOARD] pynput unavailable — cannot paste")
             return False
 
         # PLAT-CLIPRACE (revised): verify clipboard wasn't modified between
@@ -903,13 +943,13 @@ class ClipboardManager:
         # text before pasting. This handles the case where another app
         # (clipboard manager, password manager, screenshot tool) overwrote
         # the clipboard between our copy() and the paste keystroke.
-        if is_windows() and hasattr(self, '_clipboard_seq') and self._clipboard_seq:
+        if is_windows() and hasattr(self, "_clipboard_seq") and self._clipboard_seq:
             current_seq = self._get_clipboard_sequence_number()
             if current_seq != self._clipboard_seq:
                 log.warning(
-                    "[CLIPBOARD] Clipboard modified between copy and paste "
-                    "(seq %d -> %d) — re-copying before paste",
-                    self._clipboard_seq, current_seq,
+                    "[CLIPBOARD] Clipboard modified between copy and paste (seq %d -> %d) — re-copying before paste",
+                    self._clipboard_seq,
+                    current_seq,
                 )
                 # Re-copy the text we want to paste. Use the stored
                 # _last_copied_text to avoid passing the wrong content.
@@ -924,8 +964,7 @@ class ClipboardManager:
                         self._clipboard_seq = self._get_clipboard_sequence_number()
                 except Exception as exc:
                     log.error(
-                        "[CLIPBOARD] Failed to re-copy after seq mismatch: %s — "
-                        "paste may deliver stale content",
+                        "[CLIPBOARD] Failed to re-copy after seq mismatch: %s — paste may deliver stale content",
                         exc,
                     )
 
@@ -935,13 +974,16 @@ class ClipboardManager:
         if is_windows():
             try:
                 from voice_typer.server.server_platform import is_remote_session
+
                 if is_remote_session():
                     paste_delay = 0.10
-                    log.info("[CLIPBOARD] RDP session detected — increasing paste delay "
-                    "to %dms", int(paste_delay * 1000))
+                    log.info(
+                        "[CLIPBOARD] RDP session detected — increasing paste delay to %dms", int(paste_delay * 1000)
+                    )
             except Exception:
                 pass
 
+        # rate-limit (existing lines 945–951)
         now = time.monotonic()
         if now - self._last_paste_time < self._PASTE_RATE_LIMIT:
             log.info(
@@ -950,7 +992,10 @@ class ClipboardManager:
             )
             return False
 
-        if not self.paste_enabled:
+        # §2.12: ``force`` bypasses the paste_enabled gate so repaste
+        # (a manual user action) works regardless of the auto-paste
+        # (paste_on_stop) setting.
+        if not self.paste_enabled and not force:
             log.info("[CLIPBOARD] Paste disabled by config -- skipping keystroke")
             return False
 
@@ -985,12 +1030,69 @@ class ClipboardManager:
                 self._safe_key_press(_Key.ctrl, "v")
 
             self._last_paste_time = time.monotonic()
-            log.info("[CLIPBOARD-AUDIT] Sent paste keystroke "
-                    "(terminal=%s, target=%s)", is_terminal, process_name or "unknown")
+            log.info(
+                "[CLIPBOARD-AUDIT] Sent paste keystroke (terminal=%s, target=%s, restore_scheduled=%s)",
+                is_terminal,
+                process_name or "unknown",
+                snapshot is not None,
+            )
             return True
         except Exception as e:
             log.warning("[CLIPBOARD] Auto-paste failed (clipboard still has the text): %s", e)
             return False
+
+    def _delayed_restore(
+        self,
+        snapshot: "ClipboardSnapshot",
+        pasted_text: str,
+        delay: float,
+    ) -> None:
+        """Restore a snapshot after a delay. Runs on a daemon thread.
+
+        ADR-0010 §5.3 / DP3.
+
+        Defensive check: if the clipboard no longer contains
+        ``pasted_text`` (user copied something else, or target app
+        rewrote it), skip restore to avoid clobbering the new content.
+        """
+        try:
+            time.sleep(delay)
+            try:
+                current = pyperclip.paste()
+            except Exception:
+                current = None
+            if current == pasted_text:
+                snapshot.restore()
+                log.info(
+                    "[CLIPBOARD-AUDIT] Restored snapshot after %.3fs delay",
+                    delay,
+                )
+            else:
+                log.debug(
+                    "[CLIPBOARD-AUDIT] Restore skipped — clipboard changed (current=%d chars, expected=%d chars)",
+                    len(current) if current else 0,
+                    len(pasted_text),
+                )
+        except Exception:
+            log.exception("[CLIPBOARD] Delayed restore failed")
+
+    def restore_now(self, snapshot: "ClipboardSnapshot | None") -> None:
+        """Restore a snapshot immediately (no paste keystroke, no delay).
+
+        ADR-0010 §5.4 / DP2.
+
+        Used when copy() borrowed the clipboard but no paste follows
+        (``paste_on_stop = False``). This is the critical fix for the
+        data-loss bug where ``paste_on_stop=False`` permanently
+        destroyed the user's clipboard.
+        """
+        if snapshot is None:
+            return
+        try:
+            snapshot.restore()
+            log.info("[CLIPBOARD-AUDIT] Restored snapshot immediately (no paste)")
+        except Exception:
+            log.exception("[CLIPBOARD] Immediate restore failed")
 
     def _send_keystroke_sequence(self, modifier, char) -> None:
         # PLAT-STUCK: ensure modifier is always released even on exception.
@@ -1096,13 +1198,15 @@ class ClipboardManager:
                     release_events = (INPUT * 2)(
                         INPUT(
                             INPUT.KEYBOARD,
-                            INPUT_union(ki=KEYBDINPUT(wVk=vk_v, wScan=0, dwFlags=KEYBDINPUT.KEYUP,
-                            time=0, dwExtraInfo=0)),
+                            INPUT_union(
+                                ki=KEYBDINPUT(wVk=vk_v, wScan=0, dwFlags=KEYBDINPUT.KEYUP, time=0, dwExtraInfo=0)
+                            ),
                         ),
                         INPUT(
                             INPUT.KEYBOARD,
-                            INPUT_union(ki=KEYBDINPUT(wVk=vk_control, wScan=0, dwFlags=KEYBDINPUT.KEYUP,
-                            time=0, dwExtraInfo=0)),
+                            INPUT_union(
+                                ki=KEYBDINPUT(wVk=vk_control, wScan=0, dwFlags=KEYBDINPUT.KEYUP, time=0, dwExtraInfo=0)
+                            ),
                         ),
                     )
                     SendInput(2, ctypes.byref(release_events), ctypes.sizeof(INPUT))

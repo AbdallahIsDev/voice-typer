@@ -65,6 +65,7 @@ def _find_symlink_in_tree(root):
     are detected by this check.
     """
     import os
+
     for dirpath, dirnames, filenames in os.walk(root):
         for name in list(dirnames) + list(filenames):
             full = os.path.join(dirpath, name)
@@ -158,17 +159,20 @@ class VoiceTyperService:
     def get_config(self) -> dict:
         """Return the sanitized config (API keys redacted)."""
         from voice_typer.server.ipc_server import _sanitize_config_for_ipc
+
         return _sanitize_config_for_ipc(self._app.config)
 
     def get_defaults(self) -> dict:
         """Return default config values (sanitized)."""
         from voice_typer.server.config import Config
         from voice_typer.server.ipc_server import _sanitize_config_for_ipc
+
         return _sanitize_config_for_ipc(Config())
 
     def set_config(self, updates: dict) -> tuple[dict, list]:
         """Validate and apply config updates. Returns (validated, errors)."""
         from voice_typer.server.config import validate_config_update
+
         return validate_config_update(updates)
 
     def save_config(self) -> bool:
@@ -258,6 +262,7 @@ class VoiceTyperService:
         and the tray menu.
         """
         from voice_typer.server.server_platform import list_microphones
+
         try:
             mics = list_microphones()
             self._app._microphones = mics
@@ -287,9 +292,9 @@ class VoiceTyperService:
             log.debug("[SERVICE] get_rms_level failed: %s", e)
             return {"rms": 0.0, "recording": False}
 
-    def microphone_test_start(self, mic_id: str | None = None,
-                               duration: float = 10.0,
-                               filters: dict | None = None) -> dict:
+    def microphone_test_start(
+        self, mic_id: str | None = None, duration: float = 10.0, filters: dict | None = None
+    ) -> dict:
         """Start a microphone test recording.
 
         Args:
@@ -301,6 +306,7 @@ class VoiceTyperService:
             dict with success, message, duration, sample_rate.
         """
         from voice_typer.server.microphone_test import start_test
+
         return start_test(mic_id=mic_id, duration=duration, filters=filters)
 
     def microphone_test_stop(self) -> dict:
@@ -315,6 +321,7 @@ class VoiceTyperService:
             transcription_confidence.
         """
         from voice_typer.server.microphone_test import stop_test
+
         result = stop_test()
 
         # Best-effort auto-transcription of the test recording
@@ -347,7 +354,8 @@ class VoiceTyperService:
                                 result["transcription"] = text
                                 result["transcription_confidence"] = None
                                 log.info(
-                                    "[SERVICE] Test transcription: %.60s...", text,
+                                    "[SERVICE] Test transcription: %.60s...",
+                                    text,
                                 )
                             else:
                                 log.debug("[SERVICE] Test transcription: no speech detected")
@@ -363,11 +371,13 @@ class VoiceTyperService:
     def microphone_test_cancel(self) -> dict:
         """Cancel a running microphone test without returning audio."""
         from voice_typer.server.microphone_test import cancel_test
+
         return cancel_test()
 
     def microphone_test_status(self) -> dict:
         """Check if a microphone test is currently active."""
         from voice_typer.server.microphone_test import is_test_active
+
         return {"active": is_test_active()}
 
     def microphone_test_get_level(self) -> dict:
@@ -380,6 +390,7 @@ class VoiceTyperService:
         Returns dict with level (0-1), peak (0-1), and active (bool).
         """
         from voice_typer.server.level_monitor import get_level
+
         return get_level()
 
     def level_monitor_start(self, mic_id: str | None = None) -> dict:
@@ -399,17 +410,20 @@ class VoiceTyperService:
             start_monitoring,
             update_level_processor,
         )
+
         result = start_monitoring(mic_id=mic_id)
         # Seed the level processor from the current config
         try:
             cfg = self._app.config
-            update_level_processor({
-                "noise_filter_enabled": getattr(cfg, "noise_filter_enabled", True),
-                "noise_filter_highpass": getattr(cfg, "noise_filter_highpass", True),
-                "noise_filter_gate": getattr(cfg, "noise_filter_gate", True),
-                "noise_filter_rnnoise": getattr(cfg, "noise_filter_rnnoise", False),
-                "noise_filter_post_capture": getattr(cfg, "noise_filter_post_capture", True),
-            })
+            update_level_processor(
+                {
+                    "noise_filter_enabled": getattr(cfg, "noise_filter_enabled", True),
+                    "noise_filter_highpass": getattr(cfg, "noise_filter_highpass", True),
+                    "noise_filter_gate": getattr(cfg, "noise_filter_gate", True),
+                    "noise_filter_rnnoise": getattr(cfg, "noise_filter_rnnoise", False),
+                    "noise_filter_post_capture": getattr(cfg, "noise_filter_post_capture", True),
+                }
+            )
         except Exception:
             pass
         return result
@@ -417,11 +431,13 @@ class VoiceTyperService:
     def level_monitor_stop(self) -> dict:
         """Stop continuous audio level monitoring."""
         from voice_typer.server.level_monitor import stop_monitoring
+
         return stop_monitoring()
 
     def level_monitor_status(self) -> dict:
         """Check if continuous level monitoring is active."""
         from voice_typer.server.level_monitor import is_monitoring
+
         return {"active": is_monitoring()}
 
     # ── Lifecycle ───────────────────────────────────────────────
@@ -457,6 +473,7 @@ class VoiceTyperService:
         tm = getattr(app, "_template_manager", None)
         if tm is None:
             from voice_typer.server.templates import TemplateManager
+
             tm = TemplateManager()
             app._template_manager = tm
         return tm
@@ -509,11 +526,13 @@ class VoiceTyperService:
                     continue
                 if match_mode not in ("exact", "contains"):
                     match_mode = "exact"
-                normalized.append({
-                    "trigger": trigger,
-                    "output": output,
-                    "match_mode": match_mode,
-                })
+                normalized.append(
+                    {
+                        "trigger": trigger,
+                        "output": output,
+                        "match_mode": match_mode,
+                    }
+                )
             # Use the manager's internal list + _save so the on-disk
             # format matches what TemplateManager._load expects (a
             # dict with a "templates" key).
@@ -570,14 +589,13 @@ class VoiceTyperService:
         # Whisper models — check ALL models from the registry, using
         # the same cache directory that download_model writes to.
         from voice_typer.server.model_registry import MODEL_REGISTRY, get_model_metadata
+
         cache_dir = os.path.join(str(_config_dir()), "huggingface", "hub")
         for meta in MODEL_REGISTRY.values():
             if meta.backend not in ("whisper", "distil-whisper"):
                 continue
             repo_dir_name = f"models--{meta.repo_id.replace('/', '--')}"
-            downloaded = os.path.isdir(cache_dir) and os.path.isdir(
-                os.path.join(cache_dir, repo_dir_name)
-            )
+            downloaded = os.path.isdir(cache_dir) and os.path.isdir(os.path.join(cache_dir, repo_dir_name))
             status[meta.name] = {
                 "downloaded": downloaded,
                 "deps_ok": True,  # faster-whisper is always available
@@ -589,9 +607,7 @@ class VoiceTyperService:
         qwen_meta = get_model_metadata("qwen")
         if qwen_meta is not None:
             qwen_repo_dir = f"models--{qwen_meta.repo_id.replace('/', '--')}"
-            qwen_in_cache = os.path.isdir(cache_dir) and os.path.isdir(
-                os.path.join(cache_dir, qwen_repo_dir)
-            )
+            qwen_in_cache = os.path.isdir(cache_dir) and os.path.isdir(os.path.join(cache_dir, qwen_repo_dir))
         status["qwen"] = {
             "downloaded": bool(qwen_path and os.path.isdir(qwen_path)) or qwen_in_cache,
             "deps_ok": self._check_qwen_deps(),
@@ -603,9 +619,7 @@ class VoiceTyperService:
         parakeet_meta = get_model_metadata("parakeet")
         if parakeet_meta is not None:
             parakeet_repo_dir = f"models--{parakeet_meta.repo_id.replace('/', '--')}"
-            parakeet_in_cache = os.path.isdir(cache_dir) and os.path.isdir(
-                os.path.join(cache_dir, parakeet_repo_dir)
-            )
+            parakeet_in_cache = os.path.isdir(cache_dir) and os.path.isdir(os.path.join(cache_dir, parakeet_repo_dir))
         status["parakeet"] = {
             "downloaded": bool(parakeet_path and os.path.isdir(parakeet_path)) or parakeet_in_cache,
             "deps_ok": self._check_parakeet_deps(),
@@ -658,8 +672,7 @@ class VoiceTyperService:
         current_backend = getattr(self._app.config, "asr_backend", "whisper")
         current_model = getattr(self._app.config, "model_size", "tiny.en")
         is_active = (
-            (model_name == current_model
-             and current_backend in ("whisper", "distil-whisper"))
+            (model_name == current_model and current_backend in ("whisper", "distil-whisper"))
             or (model_name == "parakeet" and current_backend == "parakeet")
             or (model_name == "qwen" and current_backend == "qwen")
         )
@@ -676,7 +689,9 @@ class VoiceTyperService:
         try:
             shutil.rmtree(model_dir)
             log.info(
-                "[SERVICE] Model '%s' deleted (repo=%s)", model_name, repo_id,
+                "[SERVICE] Model '%s' deleted (repo=%s)",
+                model_name,
+                repo_id,
             )
             # Invalidate the tray models submenu cache so the next
             # right-click reflects the deletion.
@@ -684,6 +699,7 @@ class VoiceTyperService:
                 from voice_typer.server.tray_models import (
                     invalidate_model_availability_cache,
                 )
+
                 invalidate_model_availability_cache()
             except Exception:
                 pass
@@ -718,6 +734,7 @@ class VoiceTyperService:
 
         try:
             from voice_typer.server.llm_polish import LLMPolisher
+
             polisher = LLMPolisher(
                 api_key=effective_key,
                 api_url=getattr(cfg, "llm_api_url", "") or None,
@@ -735,6 +752,7 @@ class VoiceTyperService:
         """Check if qwen_asr package is importable."""
         try:
             import importlib
+
             importlib.import_module("qwen_asr")
             return True
         except ImportError:
@@ -753,6 +771,7 @@ class VoiceTyperService:
         """
         try:
             import importlib
+
             importlib.import_module("torch")
             return True
         except ImportError:
@@ -773,6 +792,7 @@ class VoiceTyperService:
         the renderer can show "edited" indicators.
         """
         from voice_typer.server.vocabulary import VocabularyManager
+
         vm = VocabularyManager(config_dir=self._app.config.config_dir)
         data = vm.get_all()
         # Attach the user-file path so the renderer can surface it in
@@ -813,9 +833,9 @@ class VoiceTyperService:
                         if isinstance(item, (list, tuple)) and len(item) >= 2:
                             bs.add((item[0], item[1]))
                 diff = [
-                    item for item in incoming
-                    if isinstance(item, (list, tuple)) and len(item) >= 2
-                    and (item[0], item[1]) not in bs
+                    item
+                    for item in incoming
+                    if isinstance(item, (list, tuple)) and len(item) >= 2 and (item[0], item[1]) not in bs
                 ]
                 if diff:
                     user_only[cat] = diff
@@ -825,6 +845,7 @@ class VoiceTyperService:
         user_path = _config_dir() / VOCAB_FILENAME
         user_path.parent.mkdir(parents=True, exist_ok=True)
         from voice_typer.server.config import _secure_atomic_write
+
         _secure_atomic_write(
             user_path,
             json.dumps(user_only, indent=2, ensure_ascii=False),
@@ -849,6 +870,7 @@ class VoiceTyperService:
                 # RW-9 Phase 2: call controller directly (the
                 # ``app._sync_autostart`` facade is kept for test seams).
                 from voice_typer.server import startup_tasks
+
                 startup_tasks.sync_autostart(app)
             except Exception as e:
                 log.warning("Failed to sync autostart: %s", e)
@@ -862,10 +884,10 @@ class VoiceTyperService:
         if "fast_startup" in updates:
             try:
                 from voice_typer.server import startup_tasks
+
                 startup_tasks.sync_prewarm_task(app)
                 log.info(
-                    "[SERVICE] Prewarm task synced after fast_startup change "
-                    "(fast_startup=%s)",
+                    "[SERVICE] Prewarm task synced after fast_startup change (fast_startup=%s)",
                     bool(updates.get("fast_startup")),
                 )
             except Exception as e:
@@ -894,8 +916,7 @@ class VoiceTyperService:
             try:
                 app.hotkeys.restart(getattr(config, "hotkey", "<f2>"))
                 log.info(
-                    "[SERVICE] Re-registered hotkey after recording_mode/hotkey "
-                    "change (mode=%s)",
+                    "[SERVICE] Re-registered hotkey after recording_mode/hotkey change (mode=%s)",
                     getattr(config, "recording_mode", "toggle"),
                 )
             except Exception as e:
@@ -950,9 +971,7 @@ class VoiceTyperService:
         if "volume_duck_smart" in updates:
             try:
                 if hasattr(app, "_volume_ducker"):
-                    app._volume_ducker.set_smart_duck_enabled(
-                        bool(updates["volume_duck_smart"])
-                    )
+                    app._volume_ducker.set_smart_duck_enabled(bool(updates["volume_duck_smart"]))
             except Exception as e:
                 log.warning("Failed to update smart duck: %s", e)
 
@@ -960,9 +979,7 @@ class VoiceTyperService:
         if "volume_duck_smart_poll_interval_ms" in updates:
             try:
                 if hasattr(app, "_volume_ducker"):
-                    app._volume_ducker.set_smart_duck_poll_interval(
-                        int(updates["volume_duck_smart_poll_interval_ms"])
-                    )
+                    app._volume_ducker.set_smart_duck_poll_interval(int(updates["volume_duck_smart_poll_interval_ms"]))
             except Exception as e:
                 log.warning("Failed to update smart duck poll interval: %s", e)
 
@@ -987,11 +1004,15 @@ class VoiceTyperService:
             # Preset
             "audio_preset",
             # Individual filter toggles
-            "noise_filter_enabled", "noise_filter_highpass",
-            "noise_filter_gate", "noise_filter_rnnoise",
+            "noise_filter_enabled",
+            "noise_filter_highpass",
+            "noise_filter_gate",
+            "noise_filter_rnnoise",
             "noise_filter_post_capture",
-            "noise_filter_eq", "noise_filter_compressor",
-            "noise_filter_limiter", "noise_filter_notch",
+            "noise_filter_eq",
+            "noise_filter_compressor",
+            "noise_filter_limiter",
+            "noise_filter_notch",
             # Noise suppressor backend
             "noise_suppression_method",
             # Filter parameters
@@ -1001,11 +1022,16 @@ class VoiceTyperService:
             "noise_filter_gate_close_threshold_db",
             "noise_filter_gate_attack_ms",
             "noise_filter_gate_release_ms",
-            "noise_filter_eq_low_db", "noise_filter_eq_mid_db", "noise_filter_eq_high_db",
-            "noise_filter_compressor_threshold_db", "noise_filter_compressor_ratio",
-            "noise_filter_compressor_attack_ms", "noise_filter_compressor_release_ms",
+            "noise_filter_eq_low_db",
+            "noise_filter_eq_mid_db",
+            "noise_filter_eq_high_db",
+            "noise_filter_compressor_threshold_db",
+            "noise_filter_compressor_ratio",
+            "noise_filter_compressor_attack_ms",
+            "noise_filter_compressor_release_ms",
             "noise_filter_compressor_output_gain_db",
-            "noise_filter_limiter_ceiling_db", "noise_filter_limiter_release_ms",
+            "noise_filter_limiter_ceiling_db",
+            "noise_filter_limiter_release_ms",
             "noise_filter_notch_frequency_hz",
         }
         if filter_chain_keys & set(updates.keys()):
@@ -1023,6 +1049,7 @@ class VoiceTyperService:
                     update_level_processor,
                     update_test_filters,
                 )
+
                 filters_dict = {
                     "noise_filter_enabled": getattr(config, "noise_filter_enabled", True),
                     "noise_filter_highpass": getattr(config, "noise_filter_highpass", True),
@@ -1138,6 +1165,24 @@ class VoiceTyperService:
             # from the preset are visible to save().
             self.apply_config_side_effects(updates)
             app.config.save()
+
+            # ADR-0010 §8.3b: propagate clipboard config changes to the
+            # live ClipboardManager (DP7). Without this, runtime changes
+            # to ``clipboard_save_restore`` / ``clipboard_restore_delay_ms``
+            # / ``paste_on_stop`` would not take effect until app restart.
+            # The keys are only present in ``updates`` because they passed
+            # validation (see §2.11 — both keys are in
+            # ``IPC_CONFIG_ALLOWLIST``). Run inside the lock so
+            # ``refresh_config`` reads a consistent, persisted config
+            # snapshot, not a torn one from a concurrent IPC update.
+            clipboard_keys = {
+                "clipboard_save_restore",
+                "clipboard_restore_delay_ms",
+                "paste_on_stop",
+            }
+            if clipboard_keys & set(updates.keys()):
+                with contextlib.suppress(Exception):
+                    app.clipboard.refresh_config(app.config)
         # ARCH-043: invalidate the tray menu cache so the next menu
         # build picks up the new config values.
         try:
@@ -1150,12 +1195,14 @@ class VoiceTyperService:
     def onboarding_is_first_run(self) -> dict:
         """Check if this is the first run (onboarding needed)."""
         from voice_typer.server.onboarding import OnboardingController
+
         ctrl = OnboardingController()
         return {"is_first_run": ctrl.is_first_run()}
 
     def onboarding_start(self) -> dict:
         """Start the onboarding wizard. Returns step info."""
         from voice_typer.server.onboarding import OnboardingController
+
         ctrl = OnboardingController()
         self._onboarding = ctrl
         return {
@@ -1309,10 +1356,13 @@ class VoiceTyperService:
             # Parity with set_config in config_handlers.py.
             try:
                 from voice_typer.server import event_bus
-                event_bus.publish({
-                    "type": "config_changed",
-                    "data": updates,
-                })
+
+                event_bus.publish(
+                    {
+                        "type": "config_changed",
+                        "data": updates,
+                    }
+                )
             except Exception:
                 log.debug("[SERVICE] onboarding config_changed push failed", exc_info=True)
 
@@ -1323,17 +1373,20 @@ class VoiceTyperService:
     def onboarding_get_microphones(self) -> dict:
         """Get available microphones for the onboarding wizard."""
         from voice_typer.server.onboarding import OnboardingController
+
         ctrl = getattr(self, "_onboarding", OnboardingController())
         return {"microphones": ctrl.get_microphones()}
 
     def onboarding_get_model_options(self) -> dict:
         """Get model options for the onboarding wizard."""
         from voice_typer.server.onboarding import OnboardingController
+
         return {"models": OnboardingController.MODEL_OPTIONS}
 
     def onboarding_get_hotkey_presets(self) -> dict:
         """Get hotkey presets for the onboarding wizard."""
         from voice_typer.server.onboarding import OnboardingController
+
         return {"presets": OnboardingController.HOTKEY_PRESETS}
 
     # ── Model import ──────────────────────────────────────────────────────
@@ -1422,16 +1475,19 @@ class VoiceTyperService:
                         "[SERVICE] import_model: refusing to import %s — "
                         "symlink detected at %s (symlinks are not allowed "
                         "in imported model cache dirs)",
-                        model_name, symlink,
+                        model_name,
+                        symlink,
                     )
-                    errors.append({
-                        "model": model_name,
-                        "error": (
-                            f"Refusing to import model containing a symlink "
-                            f"({symlink}). Symlinks are not permitted in "
-                            f"imported model cache directories."
-                        ),
-                    })
+                    errors.append(
+                        {
+                            "model": model_name,
+                            "error": (
+                                f"Refusing to import model containing a symlink "
+                                f"({symlink}). Symlinks are not permitted in "
+                                f"imported model cache directories."
+                            ),
+                        }
+                    )
                     continue
                 if dest.exists():
                     shutil.rmtree(dest)
@@ -1454,6 +1510,7 @@ class VoiceTyperService:
                 from voice_typer.server.tray_models import (
                     invalidate_model_availability_cache,
                 )
+
                 invalidate_model_availability_cache()
             except Exception:
                 pass
@@ -1461,13 +1518,15 @@ class VoiceTyperService:
         if imported_models:
             log.info(
                 "[SERVICE] Model import: %d found, %d imported, %d errors",
-                len(found_models), len(imported_models), len(errors),
+                len(found_models),
+                len(imported_models),
+                len(errors),
             )
         elif found_models:
             log.warning(
-                "[SERVICE] Model import: %d found, 0 imported, %d errors — "
-                "all imports failed",
-                len(found_models), len(errors),
+                "[SERVICE] Model import: %d found, 0 imported, %d errors — all imports failed",
+                len(found_models),
+                len(errors),
             )
 
         return {
@@ -1503,6 +1562,7 @@ class VoiceTyperService:
         network transfer entirely they should use Cancel.
         """
         from voice_typer.server.asr_setup import set_download_paused
+
         paused = set_download_paused(True)
         if paused:
             log.info("[SERVICE] Model download pause requested")
@@ -1516,6 +1576,7 @@ class VoiceTyperService:
         it left off on the next iteration.
         """
         from voice_typer.server.asr_setup import set_download_paused
+
         set_download_paused(False)
         log.info("[SERVICE] Model download resume requested")
         return {"resumed": True}
@@ -1595,11 +1656,9 @@ class VoiceTyperService:
             # mappings.  Falls back to the legacy hard-coded tuple for
             # any registry drift.
             from voice_typer.server.model_registry import get_model_metadata
+
             model_meta = get_model_metadata(model_name)
-            is_whisper_family = (
-                model_meta is not None
-                and model_meta.backend in ("whisper", "distil-whisper")
-            )
+            is_whisper_family = model_meta is not None and model_meta.backend in ("whisper", "distil-whisper")
             if is_whisper_family:
                 log.info(
                     "[SERVICE] Starting download for '%s' (repo=%s, backend=%s)",
@@ -1616,6 +1675,7 @@ class VoiceTyperService:
                     reset_download_pause_state,
                     wait_while_paused,
                 )
+
                 reset_download_pause_state()
 
                 _push_progress(0, f"Starting download for {model_name}...")
@@ -1629,6 +1689,7 @@ class VoiceTyperService:
                     from huggingface_hub import snapshot_download
 
                     from voice_typer.server.config import _config_dir
+
                     # NEW-MODEL-001: use the registry's repo_id so
                     # distilled variants (Systran/faster-distil-whisper-*)
                     # resolve correctly.
@@ -1638,13 +1699,21 @@ class VoiceTyperService:
 
                     # SEC-audit-005: Allowlist of file patterns permitted in downloads
                     _service_allow_patterns = [
-                        "*.safetensors", "*.bin", "config.json", "tokenizer.json",
-                        "tokenizer_config.json", "special_tokens_map.json",
-                        "preprocessor_config.json", "feature_extractor_config.json",
-                        "generation_config.json", "model.safetensors.index.json", "*.model",
+                        "*.safetensors",
+                        "*.bin",
+                        "config.json",
+                        "tokenizer.json",
+                        "tokenizer_config.json",
+                        "special_tokens_map.json",
+                        "preprocessor_config.json",
+                        "feature_extractor_config.json",
+                        "generation_config.json",
+                        "model.safetensors.index.json",
+                        "*.model",
                     ]
                     # SEC-audit-005: Use pinned revision from MODEL_HASHES manifest
                     from voice_typer.server.security import MODEL_HASHES
+
                     _service_revision = MODEL_HASHES.get(repo_id, {}).get("revision", "main")
 
                     _push_progress(5, f"Checking cache for {model_name}...")
@@ -1658,18 +1727,15 @@ class VoiceTyperService:
                         )
                         log.info(
                             "[SERVICE] Model '%s' already cached (repo=%s) — skipping download",
-                            model_name, repo_id,
+                            model_name,
+                            repo_id,
                         )
                         _push_progress(100, f"{model_name} already cached")
                     except Exception:
                         # NEW-MODEL-001: pull target size from the
                         # registry instead of the hard-coded size_targets
                         # table.  Falls back to 500 MB if missing.
-                        target_mb = (
-                            model_meta.download_size_mb
-                            if model_meta.download_size_mb
-                            else 500
-                        )
+                        target_mb = model_meta.download_size_mb if model_meta.download_size_mb else 500
                         target_bytes = target_mb * 1024 * 1024
                         _push_progress(
                             10,
@@ -1680,14 +1746,17 @@ class VoiceTyperService:
                         # the cache directory size while it runs.
                         import threading
                         import time
+
                         # NEW-PRIV-011: create a cancellation event for
                         # this download.
                         self._download_cancel_event = threading.Event()
                         download_err: list = []
+
                         def _do_download():
                             try:
                                 # PROD-004: use retry-with-backoff wrapper
                                 from voice_typer.server.transcription import _download_with_retry
+
                                 _download_with_retry(
                                     snapshot_download,
                                     repo_id=repo_id,
@@ -1698,6 +1767,7 @@ class VoiceTyperService:
                                 )
                             except Exception as e:
                                 download_err.append(e)
+
                         # RACE-008: daemon=True is acceptable because
                         # _do_download only writes to the HF cache dir —
                         # no critical cleanup. The download completes or
@@ -1708,7 +1778,8 @@ class VoiceTyperService:
                         t.start()
                         log.info(
                             "[SERVICE] Download thread started for '%s' (target=%d MB)",
-                            model_name, target_mb,
+                            model_name,
+                            target_mb,
                         )
                         # Poll cache size until download thread exits OR
                         # the user cancels OR the user pauses.
@@ -1740,11 +1811,9 @@ class VoiceTyperService:
                             currently_paused = is_download_paused()
                             if currently_paused != last_paused_state:
                                 # State transition — push the event.
-                                transition_pct = max(0, min(95, int(
-                                    10 + (last_total_bytes_seen
-                                          / max(1, target_bytes))
-                                    * 85
-                                )))
+                                transition_pct = max(
+                                    0, min(95, int(10 + (last_total_bytes_seen / max(1, target_bytes)) * 85))
+                                )
                                 if currently_paused:
                                     _push_progress(
                                         transition_pct,
@@ -1770,9 +1839,7 @@ class VoiceTyperService:
                             try:
                                 if cache_dir.exists():
                                     total_bytes_seen = sum(
-                                        f.stat().st_size
-                                        for f in cache_dir.rglob("*")
-                                        if f.is_file()
+                                        f.stat().st_size for f in cache_dir.rglob("*") if f.is_file()
                                     )
                                     total_mb_seen = total_bytes_seen // (1024 * 1024)
                                     pct = min(95, int(10 + (total_mb_seen / target_mb) * 85))
@@ -1780,7 +1847,10 @@ class VoiceTyperService:
                                     if pct >= 25 and pct % 25 == 0:
                                         log.info(
                                             "[SERVICE] Download of '%s': %d%% (%d MB / ~%d MB)",
-                                            model_name, pct, total_mb_seen, target_mb,
+                                            model_name,
+                                            pct,
+                                            total_mb_seen,
+                                            target_mb,
                                         )
                                     # NEW-PAUSE-001: compute speed & ETA.
                                     now = time.monotonic()
@@ -1817,8 +1887,8 @@ class VoiceTyperService:
                                 "success": False,
                                 "cancelled": True,
                                 "message": f"Download of {model_name} cancelled. "
-                                           "Partial files remain in cache; "
-                                           "retry to resume.",
+                                "Partial files remain in cache; "
+                                "retry to resume.",
                             }
                         if download_err:
                             # B904: suppress context from the failed
@@ -1826,7 +1896,8 @@ class VoiceTyperService:
                             raise download_err[0] from None
                         log.info(
                             "[SERVICE] Download of '%s' complete (%d MB)",
-                            model_name, last_total_bytes_seen // (1024 * 1024),
+                            model_name,
+                            last_total_bytes_seen // (1024 * 1024),
                         )
                         _push_progress(100, f"{model_name} download complete")
                 except ImportError:
@@ -1848,6 +1919,7 @@ class VoiceTyperService:
                     from voice_typer.server.tray_models import (
                         invalidate_model_availability_cache,
                     )
+
                     invalidate_model_availability_cache()
                 except Exception:
                     log.debug(
@@ -1873,6 +1945,7 @@ class VoiceTyperService:
                 log.info("[SERVICE] Download requested for '%s' (Parakeet backend, ~2.5 GB)", model_name)
                 _push_progress(0, "Starting Parakeet download (~2.5 GB)...")
                 from voice_typer.server.asr_setup import download_parakeet_weights
+
                 # asr_setup.download_parakeet_weights() doesn't expose
                 # progress; we emit start/finish events.
                 _push_progress(50, "Downloading Parakeet weights from HuggingFace...")
@@ -1884,6 +1957,7 @@ class VoiceTyperService:
                     from voice_typer.server.tray_models import (
                         invalidate_model_availability_cache,
                     )
+
                     invalidate_model_availability_cache()
                 except Exception:
                     log.debug(
@@ -1902,6 +1976,7 @@ class VoiceTyperService:
             # NEW-PAUSE-001: clear the pause flag on failure too.
             try:
                 from voice_typer.server.asr_setup import clear_download_pause_state
+
                 clear_download_pause_state()
             except Exception:
                 log.debug("[SERVICE] could not clear pause flag on failure", exc_info=True)
@@ -1922,6 +1997,7 @@ class VoiceTyperService:
             recovery = self._app._crash_recovery
             if recovery is None:
                 from voice_typer.server.crash_recovery import CrashRecovery
+
                 recovery = CrashRecovery()
             path = recovery.create_diagnostic_bundle()
             if path:

@@ -19,6 +19,7 @@ call time. To keep those patches effective, the platform-helper names are
 looked up dynamically from the ``voice_typer.server.app`` module inside
 the relevant functions rather than being captured at import time.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -100,10 +101,7 @@ def sync_prewarm_task(app: Any, shutdown_event: Any | None = None) -> None:
             # it stops firing silently. Idempotent: if not registered,
             # unregister is a no-op.
             if registered:
-                log.info(
-                    "[CONFIG] fast_startup disabled — unregistering prewarm "
-                    "scheduled task"
-                )
+                log.info("[CONFIG] fast_startup disabled — unregistering prewarm scheduled task")
                 task_scheduler.unregister_prewarm_task()
     except Exception as e:
         log.warning("[CONFIG] Prewarm task sync failed: %s", e)
@@ -127,9 +125,7 @@ def ensure_desktop_shortcut(app: Any) -> None:
     # 1. Migrate: remove the legacy backend-only .bat so the broken
     #    "no bubble" shortcut stops shadowing the correct one.
     try:
-        if legacy_bat.exists() and "-m voice_typer" in legacy_bat.read_text(
-            encoding="utf-8", errors="replace"
-        ):
+        if legacy_bat.exists() and "-m voice_typer" in legacy_bat.read_text(encoding="utf-8", errors="replace"):
             legacy_bat.unlink()
             log.info("[STARTUP] Removed legacy backend-only shortcut: %s", legacy_bat)
     except OSError:
@@ -236,9 +232,15 @@ def start_device_change_poller(app: Any) -> None:
             if app._shutting_down:
                 return
             try:
-                # Re-enumerate; _load_microphones will detect
+                # Re-enumerate; load_microphones will detect
                 # changes and push the IPC event.
-                app._load_microphones()
+                #
+                # RW-9 Phase 1: was ``app._load_microphones()`` (a
+                # test-seam delegate on VoiceTyperApp). The delegate
+                # has been removed; the device-change poller (this
+                # function) is the only intra-module caller of
+                # ``load_microphones`` and now invokes it directly.
+                load_microphones(app, None)
             except Exception:
                 log.debug("[AUDIO-MIC] Device-change poll failed", exc_info=True)
 

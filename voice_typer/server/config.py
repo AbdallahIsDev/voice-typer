@@ -126,7 +126,6 @@ def _secure_atomic_write(path: Path, content: str) -> None:
         raise
 
 
-
 def _secure_read_text(path: Path, *, encoding: str = "utf-8") -> str:
     """SEC-002: Read text from a file securely, refusing to follow symlinks.
 
@@ -173,9 +172,7 @@ def _secure_read_text(path: Path, *, encoding: str = "utf-8") -> str:
                 # Must do this before f.close() since close() releases the fd
                 stat_after = os.fstat(fd)
                 if stat_before.st_ino != stat_after.st_ino or stat_before.st_dev != stat_after.st_dev:
-                    raise ValueError(
-                        f"SEC-002: inode changed during read of {path} — possible TOCTOU attack"
-                    )
+                    raise ValueError(f"SEC-002: inode changed during read of {path} — possible TOCTOU attack")
             finally:
                 f.close()
             return content
@@ -207,11 +204,8 @@ def _secure_read_text(path: Path, *, encoding: str = "utf-8") -> str:
             content = f.read()
             stat_after = os.fstat(f.fileno())
             if stat_before.st_ino != stat_after.st_ino or stat_before.st_dev != stat_after.st_dev:
-                raise ValueError(
-                    f"SEC-002: inode changed during read of {path} — possible TOCTOU attack"
-                )
+                raise ValueError(f"SEC-002: inode changed during read of {path} — possible TOCTOU attack")
             return content
-
 
 
 def _legacy_config_dir() -> Path | None:
@@ -264,6 +258,7 @@ def _is_path_within(path: Path, root: Path) -> bool:
     (``/etc`` IS within ``/``).
     """
     import os.path
+
     try:
         p_resolved = str(path.resolve())
         r_resolved = str(root.resolve())
@@ -308,6 +303,7 @@ def _validate_import_path(dir_path: str) -> str:
     """
     import os
     import tempfile
+
     resolved = Path(dir_path).resolve()
     allowed_roots = [
         Path.home().resolve(),
@@ -321,8 +317,7 @@ def _validate_import_path(dir_path: str) -> str:
         if _is_path_within(resolved, root):
             return str(resolved)
     raise ValueError(
-        f"Import path '{dir_path}' is outside the allowed roots "
-        f"(home directory, temp directory, or HF cache)."
+        f"Import path '{dir_path}' is outside the allowed roots (home directory, temp directory, or HF cache)."
     )
 
 
@@ -364,10 +359,10 @@ def _validate_systemroot() -> None:
 
     # Check for unusual characters that could indicate tampering
     import re
+
     if re.search(r'[<>|"&\'\n\r\t]', systemroot):
         log.error(
-            "[CONFIG] SystemRoot contains unusual characters: %r — "
-            "possible injection attack. Resetting to default.",
+            "[CONFIG] SystemRoot contains unusual characters: %r — possible injection attack. Resetting to default.",
             systemroot,
         )
         default = r"C:\Windows"
@@ -482,6 +477,7 @@ def _migrate_from_legacy():
     if target.exists():
         return
     import shutil
+
     shutil.copytree(legacy, target, dirs_exist_ok=True)
     log.info("[CONFIG] Migrated data from %s to %s", legacy, target)
 
@@ -597,9 +593,14 @@ class Config:
     # Logging
     log_transcriptions: bool = False
 
-    # SEC-012: Clipboard security settings
-    clipboard_clear_delay_seconds: int = 5  # seconds before clearing sensitive clipboard content
+    # SEC-012: Clipboard security settings.
+    # ADR-0010 §8.2: removed ``clipboard_clear_delay_seconds`` (dead —
+    # was only read by the now-deleted ``schedule_clipboard_clear``).
+    # Added ``clipboard_restore_delay_ms`` (now actually consulted in
+    # ``clipboard.py:paste()`` and refreshed at runtime via
+    # ``refresh_config()`` when the user changes settings).
     clipboard_save_restore: bool = True  # save/restore previous clipboard content after paste
+    clipboard_restore_delay_ms: int = 150  # delay between paste keystroke and clipboard restore (ms)
 
     # ─── P1 Features ───────────────────────────────────────────────
 
@@ -780,7 +781,7 @@ class Config:
     # ADR 0007 §4.1: use_silero_vad defaults to True (torch is installed).
     # Falls back to RMS if Silero is unavailable.
     use_silero_vad: bool = True  # ADR 0007: was False, now True (torch available)
-    vad_speech_threshold: float = 0.5   # Silero VAD prob > this → speech candidate
+    vad_speech_threshold: float = 0.5  # Silero VAD prob > this → speech candidate
     vad_silence_threshold: float = 0.3  # Silero VAD prob < this → silence candidate
 
     # AUDIO-CH: number of channels to request from the input device.
@@ -1014,10 +1015,7 @@ class Config:
                 # this, ``parsed.items()`` on a non-dict would raise
                 # AttributeError, which we deliberately let propagate.
                 if not isinstance(parsed, dict):
-                    raise TypeError(
-                        f"config root must be a JSON object, got "
-                        f"{type(parsed).__name__}"
-                    )
+                    raise TypeError(f"config root must be a JSON object, got {type(parsed).__name__}")
                 data = {k: v for k, v in parsed.items() if k in cls.__dataclass_fields__}
 
                 # M3: Schema versioning and migration
@@ -1050,13 +1048,17 @@ class Config:
                 if step >= chunk:
                     log.warning(
                         "[CONFIG] streaming_step_seconds (%.1f) >= streaming_chunk_seconds "
-                        "(%.1f); clamping step to chunk/2", step, chunk,
+                        "(%.1f); clamping step to chunk/2",
+                        step,
+                        chunk,
                     )
                     data["streaming_step_seconds"] = chunk / 2.0
                 if left_overlap >= chunk:
                     log.warning(
                         "[CONFIG] streaming_left_overlap_seconds (%.1f) >= streaming_chunk_seconds "
-                        "(%.1f); clamping overlap to chunk/3", left_overlap, chunk,
+                        "(%.1f); clamping overlap to chunk/3",
+                        left_overlap,
+                        chunk,
                     )
                     data["streaming_left_overlap_seconds"] = chunk / 3.0
                 # SIMPLIFY-001: clamp max_recording_time_seconds to valid range [300, 3600]
@@ -1064,8 +1066,8 @@ class Config:
                 max_rec = int(data.get("max_recording_time_seconds", 900))
                 if max_rec < 300 or max_rec > 3600:
                     log.warning(
-                        "[CONFIG] max_recording_time_seconds=%d outside valid range [300, 3600], "
-                        "resetting to 900", max_rec,
+                        "[CONFIG] max_recording_time_seconds=%d outside valid range [300, 3600], resetting to 900",
+                        max_rec,
                     )
                     data["max_recording_time_seconds"] = 900
 
@@ -1126,19 +1128,13 @@ class Config:
                                 Path.home().resolve(),
                                 _config_dir().resolve(),
                             ]
-                            if not any(
-                                _is_path_within(cp_resolved, root)
-                                for root in allowed_roots
-                            ):
-                                raise ValueError(
-                                    "corrections_path must be within the "
-                                    "user home or config directory"
-                                )
+                            if not any(_is_path_within(cp_resolved, root) for root in allowed_roots):
+                                raise ValueError("corrections_path must be within the user home or config directory")
                         except ValueError as exc:
                             log.warning(
-                                "[CONFIG] Config corrections_path=%s "
-                                "rejected: %s, resetting to None",
-                                corrections, exc,
+                                "[CONFIG] Config corrections_path=%s rejected: %s, resetting to None",
+                                corrections,
+                                exc,
                             )
                             data["corrections_path"] = None
 
@@ -1179,6 +1175,7 @@ class Config:
                 # despite the UI showing Off.
                 try:
                     from voice_typer.server.audio_presets import apply_preset
+
                     apply_preset(instance.audio_preset, instance)
                 except Exception:
                     log.debug("[CONFIG] apply_preset on load failed", exc_info=True)
@@ -1196,7 +1193,9 @@ class Config:
                 # system-level failures are visible.
                 log.warning(
                     "[CONFIG] %s loading config %s: %s. Using defaults.",
-                    type(e).__name__, config_file, e,
+                    type(e).__name__,
+                    config_file,
+                    e,
                 )
                 return cls()
         return cls()
@@ -1224,61 +1223,95 @@ class Config:
         """
         warnings: list[str] = []
         bool_fields = {
-            "autostart", "paste_on_stop", "unsafe_paste_on_unknown_focus", "show_notifications",
+            "autostart",
+            "paste_on_stop",
+            "unsafe_paste_on_unknown_focus",
+            "show_notifications",
             # PW-3: prewarm toggle is a bool so legacy configs that stored
             # it as "true"/"false" strings or 0/1 ints get coerced.
             "fast_startup",
             "text_cleanup_enabled",
-            "streaming_transcription", "log_transcriptions",
+            "streaming_transcription",
+            "log_transcriptions",
             "condition_on_previous_text",
-            "esc_cancel_enabled", "auto_punctuation", "llm_polish",
+            "esc_cancel_enabled",
+            "auto_punctuation",
+            "llm_polish",
             "llm_polish_consent",
             # NEW-PRIV-005/006/009: privacy consent flags are bools.
             "huggingface_consent",
-            "cloud_openai_consent", "cloud_groq_consent", "cloud_deepgram_consent",
+            "cloud_openai_consent",
+            "cloud_groq_consent",
+            "cloud_deepgram_consent",
             "voice_biometric_consent",
             # NEW-UX-029: sound feedback toggle.
             "sound_feedback_enabled",
-            "crash_recovery_enabled", "audio_quality_warnings",
-            "templates_enabled", "vocabulary_enabled",
-            "waveform_bubble", "onboarding_completed", "onboarding_failed", "wayland_warned",
-            "bubble_draggable", "bubble_show_on_startup",
-            "volume_duck_enabled", "volume_duck_per_session",
+            "crash_recovery_enabled",
+            "audio_quality_warnings",
+            "templates_enabled",
+            "vocabulary_enabled",
+            "waveform_bubble",
+            "onboarding_completed",
+            "onboarding_failed",
+            "wayland_warned",
+            "bubble_draggable",
+            "bubble_show_on_startup",
+            "volume_duck_enabled",
+            "volume_duck_per_session",
             "volume_duck_smart",
             # STARTUP-6: volume_duck_smart_poll_interval_ms is an int (50-5000),
             # NOT a bool — it was misclassified here, causing the bool validator
             # to flag the default value 500 as invalid and log a spurious
             # "resetting to default 500" warning on every startup. It already
             # has its own int validator in IPC_CONFIG_ALLOWLIST.
-            "noise_filter_enabled", "noise_filter_highpass",
-            "noise_filter_gate", "noise_filter_rnnoise",
+            "noise_filter_enabled",
+            "noise_filter_highpass",
+            "noise_filter_gate",
+            "noise_filter_rnnoise",
             "noise_filter_post_capture",
             # ADR 0007: new filter chain bool fields
-            "noise_filter_eq", "noise_filter_compressor",
-            "noise_filter_limiter", "noise_filter_notch",
+            "noise_filter_eq",
+            "noise_filter_compressor",
+            "noise_filter_limiter",
+            "noise_filter_notch",
             # P4: AI enhancement toggles.  All four are bools — the
             # master toggle defaults OFF, the three sub-toggles
             # default ON.  Include them here so legacy config files
             # that stored them as "true"/"false" strings or 0/1 ints
             # are coerced to real bools on load.
             "ai_enhancement_enabled",
-            "auto_capitalize", "auto_punctuate", "fix_grammar_basics",
+            "auto_capitalize",
+            "auto_punctuate",
+            "fix_grammar_basics",
             # P5: vocabulary automation master toggle.
             "vocabulary_automation_enabled",
         }
         str_fields = {
-            "hotkey", "language", "device", "asr_backend",
-            "recording_mode", "push_to_talk_hotkey",
-            "cloud_api_key", "cloud_api_url", "cloud_model",
-            "openai_api_key", "groq_api_key", "deepgram_api_key",
-            "llm_api_key", "llm_api_url", "llm_model", "llm_preset",
+            "hotkey",
+            "language",
+            "device",
+            "asr_backend",
+            "recording_mode",
+            "push_to_talk_hotkey",
+            "cloud_api_key",
+            "cloud_api_url",
+            "cloud_model",
+            "openai_api_key",
+            "groq_api_key",
+            "deepgram_api_key",
+            "llm_api_key",
+            "llm_api_url",
+            "llm_model",
+            "llm_preset",
             "repaste_hotkey",
             "tray_left_click_action",
             "parakeet_model_path",
-            "bubble_position", "bubble_behavior",
+            "bubble_position",
+            "bubble_behavior",
             "audio_preset",
             "noise_suppression_method",
-            "theme_mode", "theme_preset",
+            "theme_mode",
+            "theme_preset",
         }
         defaults = cls()
 
@@ -1301,10 +1334,7 @@ class Config:
                 data[field_name] = False
             else:
                 default_val = getattr(defaults, field_name)
-                msg = (
-                    f"Config field '{field_name}' had invalid value "
-                    f"{val!r}, resetting to default {default_val!r}"
-                )
+                msg = f"Config field '{field_name}' had invalid value {val!r}, resetting to default {default_val!r}"
                 log.warning("[CONFIG] %s", msg)
                 warnings.append(msg)
                 data[field_name] = default_val
@@ -1320,10 +1350,7 @@ class Config:
             if val is None and field_name in optional_str_fields:
                 continue
             default_val = getattr(defaults, field_name)
-            msg = (
-                f"Config field '{field_name}' had non-string value "
-                f"{val!r}, resetting to default {default_val!r}"
-            )
+            msg = f"Config field '{field_name}' had non-string value {val!r}, resetting to default {default_val!r}"
             log.warning("[CONFIG] %s", msg)
             warnings.append(msg)
             data[field_name] = default_val

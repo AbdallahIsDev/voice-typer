@@ -112,6 +112,7 @@ def _make_str_validator(max_len: int = _MAX_STRING_LEN) -> ValidatorFn:
         if len(v) > max_len:
             return f"exceeds maximum length {max_len}"
         return None
+
     return _validate
 
 
@@ -124,6 +125,7 @@ def _make_optional_str_validator(max_len: int = _MAX_STRING_LEN) -> ValidatorFn:
         if len(v) > max_len:
             return f"exceeds maximum length {max_len}"
         return None
+
     return _validate
 
 
@@ -140,6 +142,7 @@ def _make_int_validator(*, lo: int, hi: int) -> ValidatorFn:
         if v < lo or v > hi:
             return f"must be in [{lo}, {hi}]"
         return None
+
     return _validate
 
 
@@ -150,6 +153,7 @@ def _make_float_validator(*, lo: float, hi: float) -> ValidatorFn:
         if v < lo or v > hi:
             return f"must be in [{lo}, {hi}]"
         return None
+
     return _validate
 
 
@@ -160,6 +164,7 @@ def _make_enum_validator(allowed: set) -> ValidatorFn:
         if v not in allowed:
             return f"must be one of {sorted(allowed)}"
         return None
+
     return _validate
 
 
@@ -189,6 +194,7 @@ def _make_custom_theme_validator() -> ValidatorFn:
                 except ValueError:
                     return f"{mode}.{key} is not a valid hex colour"
         return None
+
     return _validate
 
 
@@ -199,6 +205,7 @@ def _make_url_validator(*, allow_empty: bool = False, max_len: int = _MAX_STRING
     is not ``http`` or ``https``.  Empty string is accepted iff ``allow_empty``
     (used for fields where empty means "feature disabled").
     """
+
     def _validate(v: object) -> str | None:
         if not _is_str(v):
             return f"must be a string, got {type(v).__name__}"
@@ -217,6 +224,7 @@ def _make_url_validator(*, allow_empty: bool = False, max_len: int = _MAX_STRING
         if not parsed.netloc:
             return "must include a network location (host)"
         return None
+
     return _validate
 
 
@@ -276,8 +284,7 @@ _RESERVED_DATA = _load_reserved_data()
 # (angle brackets, lowercase) so we can compare directly with
 # ``value.lower()``. Built from the JSON file at module init.
 _RESERVED_HOTKEYS: dict[str, set[str]] = {
-    platform: set(entries)
-    for platform, entries in _RESERVED_DATA["per_platform_reserved"].items()
+    platform: set(entries) for platform, entries in _RESERVED_DATA["per_platform_reserved"].items()
 }
 
 # Universal window-management shortcuts blocked on EVERY platform.
@@ -387,10 +394,7 @@ def _validate_hotkey(value: object) -> str | None:
     if len(parts) == 1:
         sole = parts[0]
         if len(sole) == 1 and sole.isalnum():
-            return (
-                f"single letters and digits can't be used as hotkeys — "
-                f"'{sole}' would interfere with typing"
-            )
+            return f"single letters and digits can't be used as hotkeys — '{sole}' would interfere with typing"
 
     # Win+* / Super+* / Cmd+* blanket blocks for system shell shortcuts.
     # HOTKEY-VALIDATION-002 (Task 2.2.5): the prior code blanket-blocked
@@ -465,103 +469,96 @@ _VALIDATOR_CLOUD_MODEL = _make_str_validator(max_len=256)
 
 IPC_CONFIG_ALLOWLIST: dict = {
     # ── Hotkey ────────────────────────────────────────────────────────
-    "hotkey":                 (str, _VALIDATOR_HOTKEY),
-    "push_to_talk_hotkey":    (str, _VALIDATOR_PUSH_TO_TALK_HOTKEY),
-    "repaste_hotkey":         (str, _VALIDATOR_REPASTE_HOTKEY),
-
+    "hotkey": (str, _VALIDATOR_HOTKEY),
+    "push_to_talk_hotkey": (str, _VALIDATOR_PUSH_TO_TALK_HOTKEY),
+    "repaste_hotkey": (str, _VALIDATOR_REPASTE_HOTKEY),
     # ── Recording ─────────────────────────────────────────────────────
-    "microphone":             ((str, type(None)), _VALIDATOR_MICROPHONE),
-
+    "microphone": ((str, type(None)), _VALIDATOR_MICROPHONE),
     # ── Transcription ─────────────────────────────────────────────────
-    "model_size":             (str, _make_enum_validator(ALLOWED_USER_MODELS)),
-    "language":               (str, _VALIDATOR_LANGUAGE),
-    "device":                 (str, _make_enum_validator({"cuda", "cpu"})),
-    "beam_size":              (int, _make_int_validator(lo=1, hi=10)),
-    "best_of":                (int, _make_int_validator(lo=1, hi=10)),
+    "model_size": (str, _make_enum_validator(ALLOWED_USER_MODELS)),
+    "language": (str, _VALIDATOR_LANGUAGE),
+    "device": (str, _make_enum_validator({"cuda", "cpu"})),
+    "beam_size": (int, _make_int_validator(lo=1, hi=10)),
+    "best_of": (int, _make_int_validator(lo=1, hi=10)),
     "condition_on_previous_text": (bool, _bool_validator),
-
     # ── Streaming (hidden) ────────────────────────────────────────────
-    "streaming_transcription":    (bool, _bool_validator),
-    "streaming_chunk_seconds":    (float, _make_float_validator(lo=0.1, hi=120.0)),
-    "streaming_step_seconds":     (float, _make_float_validator(lo=0.1, hi=60.0)),
+    "streaming_transcription": (bool, _bool_validator),
+    "streaming_chunk_seconds": (float, _make_float_validator(lo=0.1, hi=120.0)),
+    "streaming_step_seconds": (float, _make_float_validator(lo=0.1, hi=60.0)),
     "streaming_left_overlap_seconds": (float, _make_float_validator(lo=0.0, hi=60.0)),
-    "streaming_right_guard_seconds":  (float, _make_float_validator(lo=0.0, hi=30.0)),
+    "streaming_right_guard_seconds": (float, _make_float_validator(lo=0.0, hi=30.0)),
     "streaming_min_first_chunk_seconds": (float, _make_float_validator(lo=0.1, hi=60.0)),
-    "streaming_silence_threshold":   (float, _make_float_validator(lo=0.0, hi=1.0)),
-
+    "streaming_silence_threshold": (float, _make_float_validator(lo=0.0, hi=1.0)),
     # ── Behavior ──────────────────────────────────────────────────────
-    "autostart":             (bool, _bool_validator),
-    "paste_on_stop":         (bool, _bool_validator),
+    "autostart": (bool, _bool_validator),
+    "paste_on_stop": (bool, _bool_validator),
     "unsafe_paste_on_unknown_focus": (bool, _bool_validator),
-    "show_notifications":    (bool, _bool_validator),
+    "show_notifications": (bool, _bool_validator),
     # PW-3: prewarm scheduled-task master toggle. Surfaced in Settings →
     # General so users can opt out (e.g. gamers who want the RAM back).
-    "fast_startup":          (bool, _bool_validator),
-
+    "fast_startup": (bool, _bool_validator),
+    # ── Clipboard borrow/restore (ADR-0010) ───────────────────────────
+    # ADR-0010 §2.11 / §8.3a: these keys MUST be in the IPC allowlist
+    # or ``validate_config_update()`` drops them, ``service.apply_config()``
+    # never setattrs them, ``config.save()`` does not persist them, and
+    # ``refresh_config()`` never fires at runtime. Both are surfaced in
+    # the renderer config schema so the Settings UI can reach them.
+    "clipboard_save_restore": (bool, _bool_validator),
+    "clipboard_restore_delay_ms": (int, _make_int_validator(lo=0, hi=2000)),
     # ── ASR backend selection ─────────────────────────────────────────
-    "asr_backend":           (str, _make_enum_validator({"whisper", "qwen", "parakeet"})),
-
+    "asr_backend": (str, _make_enum_validator({"whisper", "qwen", "parakeet"})),
     # ── Text cleanup ──────────────────────────────────────────────────
-    "text_cleanup_enabled":  (bool, _bool_validator),
-    "auto_punctuation":      (bool, _bool_validator),
-
+    "text_cleanup_enabled": (bool, _bool_validator),
+    "auto_punctuation": (bool, _bool_validator),
     # ── Logging ───────────────────────────────────────────────────────
-    "log_transcriptions":    (bool, _bool_validator),
-
+    "log_transcriptions": (bool, _bool_validator),
     # ── P1 Features ───────────────────────────────────────────────────
-    "recording_mode":        (str, _make_enum_validator({"toggle", "push_to_talk"})),
-    "esc_cancel_enabled":    (bool, _bool_validator),
-
+    "recording_mode": (str, _make_enum_validator({"toggle", "push_to_talk"})),
+    "esc_cancel_enabled": (bool, _bool_validator),
     # ── P2 Features ───────────────────────────────────────────────────
-    "templates_enabled":     (bool, _bool_validator),
-    "vocabulary_enabled":    (bool, _bool_validator),
-
+    "templates_enabled": (bool, _bool_validator),
+    "vocabulary_enabled": (bool, _bool_validator),
     # Cloud ASR — secrets and URLs are sensitive but the renderer actively
     # manages them, so they are in the allowlist with strict validators.
-    "cloud_api_key":         (str, _VALIDATOR_API_KEY),
-    "cloud_api_url":         (str, _VALIDATOR_API_URL),
-    "cloud_model":           (str, _VALIDATOR_CLOUD_MODEL),
-    "openai_api_key":        (str, _VALIDATOR_API_KEY),
-    "groq_api_key":          (str, _VALIDATOR_API_KEY),
-    "deepgram_api_key":      (str, _VALIDATOR_API_KEY),
-
+    "cloud_api_key": (str, _VALIDATOR_API_KEY),
+    "cloud_api_url": (str, _VALIDATOR_API_URL),
+    "cloud_model": (str, _VALIDATOR_CLOUD_MODEL),
+    "openai_api_key": (str, _VALIDATOR_API_KEY),
+    "groq_api_key": (str, _VALIDATOR_API_KEY),
+    "deepgram_api_key": (str, _VALIDATOR_API_KEY),
     # LLM polish — same rationale as cloud ASR.
-    "llm_polish":            (bool, _bool_validator),
-    "llm_api_key":           (str, _VALIDATOR_API_KEY),
-    "llm_api_url":           (str, _VALIDATOR_LLM_API_URL),
-    "llm_model":             (str, _VALIDATOR_LLM_MODEL),
-    "llm_preset":            (str, _make_enum_validator({"professional", "casual", "email", "code"})),
+    "llm_polish": (bool, _bool_validator),
+    "llm_api_key": (str, _VALIDATOR_API_KEY),
+    "llm_api_url": (str, _VALIDATOR_LLM_API_URL),
+    "llm_model": (str, _VALIDATOR_LLM_MODEL),
+    "llm_preset": (str, _make_enum_validator({"professional", "casual", "email", "code"})),
     # PRIVACY-001: consent flag is user-tunable (the consent dialog
     # itself sets this), but it's still subject to type validation.
-    "llm_polish_consent":    (bool, _bool_validator),
+    "llm_polish_consent": (bool, _bool_validator),
     # NEW-PRIV-005/006/009: privacy consent flags.  All user-tunable
     # via the consent dialogs in the renderer; all subject to type
     # validation so a malicious IPC client can't set them to non-bool
     # values to bypass the consent UI.
-    "huggingface_consent":       (bool, _bool_validator),
-    "cloud_openai_consent":      (bool, _bool_validator),
-    "cloud_groq_consent":        (bool, _bool_validator),
-    "cloud_deepgram_consent":    (bool, _bool_validator),
-    "voice_biometric_consent":   (bool, _bool_validator),
+    "huggingface_consent": (bool, _bool_validator),
+    "cloud_openai_consent": (bool, _bool_validator),
+    "cloud_groq_consent": (bool, _bool_validator),
+    "cloud_deepgram_consent": (bool, _bool_validator),
+    "voice_biometric_consent": (bool, _bool_validator),
     # NEW-UX-029: sound feedback toggle.
-    "sound_feedback_enabled":    (bool, _bool_validator),
-
+    "sound_feedback_enabled": (bool, _bool_validator),
     # ── Crash recovery ────────────────────────────────────────────────
     "crash_recovery_enabled": (bool, _bool_validator),
-
     # ── Audio quality ─────────────────────────────────────────────────
-    "audio_quality_warnings":     (bool, _bool_validator),
-
+    "audio_quality_warnings": (bool, _bool_validator),
     # ── P4: AI grammar / punctuation / capitalization ───────────────
     # All four toggles are user-tunable via Settings → AI Enhancement.
     # The master toggle (``ai_enhancement_enabled``) defaults OFF;
     # the three sub-toggles default ON.  Subject to type validation
     # so a malicious IPC client can't set them to non-bool values.
-    "ai_enhancement_enabled":     (bool, _bool_validator),
-    "auto_capitalize":            (bool, _bool_validator),
-    "auto_punctuate":             (bool, _bool_validator),
-    "fix_grammar_basics":         (bool, _bool_validator),
-
+    "ai_enhancement_enabled": (bool, _bool_validator),
+    "auto_capitalize": (bool, _bool_validator),
+    "auto_punctuate": (bool, _bool_validator),
+    "fix_grammar_basics": (bool, _bool_validator),
     # ── P5: Vocabulary automation ───────────────────────────────────
     # Master toggle + two float thresholds.  The confidence threshold
     # range is [0.0, 1.0] — values outside that range are nonsense
@@ -570,99 +567,117 @@ IPC_CONFIG_ALLOWLIST: dict = {
     # but we don't enforce that here — the user may want to set
     # ``auto_apply_threshold = 1.0`` to effectively disable auto-apply
     # while still queueing suggestions for review.
-    "vocabulary_automation_enabled":      (bool, _bool_validator),
+    "vocabulary_automation_enabled": (bool, _bool_validator),
     "vocabulary_auto_confidence_threshold": (float, _make_float_validator(lo=0.0, hi=1.0)),
-    "vocabulary_auto_apply_threshold":     (float, _make_float_validator(lo=0.0, hi=1.0)),
-
+    "vocabulary_auto_apply_threshold": (float, _make_float_validator(lo=0.0, hi=1.0)),
     # ── Waveform bubble ───────────────────────────────────────────────
-    "waveform_bubble":       (bool, _bool_validator),
-    "bubble_position":       (str, _make_enum_validator({"top", "bottom"})),
-    "bubble_behavior":       (str, _make_enum_validator({"show_on_record", "always_visible"})),
-    "bubble_draggable":      (bool, _bool_validator),
+    "waveform_bubble": (bool, _bool_validator),
+    "bubble_position": (str, _make_enum_validator({"top", "bottom"})),
+    "bubble_behavior": (str, _make_enum_validator({"show_on_record", "always_visible"})),
+    "bubble_draggable": (bool, _bool_validator),
     "bubble_show_on_startup": (bool, _bool_validator),
-
     # ── History database ──────────────────────────────────────────────
-    "history_retention_days":  (int, _make_int_validator(lo=0, hi=36500)),
+    "history_retention_days": (int, _make_int_validator(lo=0, hi=36500)),
     "history_retention_count": (int, _make_int_validator(lo=0, hi=1_000_000)),
-    "history_max_entries":     (int, _make_int_validator(lo=10, hi=1_000_000)),
-
+    "history_max_entries": (int, _make_int_validator(lo=10, hi=1_000_000)),
     # ── P3 Features / UX ──────────────────────────────────────────────
     "tray_left_click_action": (str, _make_enum_validator({"open_app", "toggle_dictation"})),
-    "theme_mode":            (str, _make_enum_validator({"system", "light", "dark"})),
-            "theme_preset":          (str, _make_enum_validator({
-               "default", "amoled", "nord", "dracula", "sepia", "solarized",
-               "monokai", "ayu", "github", "catppuccin", "tokyo-night", "custom",
-           })),
-    "custom_theme":          (dict, _make_custom_theme_validator()),
-    "high_contrast":         (bool, _bool_validator),
-    "text_size":             (int, _make_int_validator(lo=8, hi=72)),
-
+    "theme_mode": (str, _make_enum_validator({"system", "light", "dark"})),
+    "theme_preset": (
+        str,
+        _make_enum_validator(
+            {
+                "default",
+                "amoled",
+                "nord",
+                "dracula",
+                "sepia",
+                "solarized",
+                "monokai",
+                "ayu",
+                "github",
+                "catppuccin",
+                "tokyo-night",
+                "custom",
+            }
+        ),
+    ),
+    "custom_theme": (dict, _make_custom_theme_validator()),
+    "high_contrast": (bool, _bool_validator),
+    "text_size": (int, _make_int_validator(lo=8, hi=72)),
     # ── Silent mic disconnection (H12) ────────────────────────────────
-    "silence_warning_seconds":    (float, _make_float_validator(lo=0.0, hi=600.0)),
-    "stop_on_silence_seconds":      (float, _make_float_validator(lo=0.0, hi=3600.0)),
-    "max_recording_time_seconds":      (int, _make_int_validator(lo=300, hi=3600)),
+    "silence_warning_seconds": (float, _make_float_validator(lo=0.0, hi=600.0)),
+    "stop_on_silence_seconds": (float, _make_float_validator(lo=0.0, hi=3600.0)),
+    "max_recording_time_seconds": (int, _make_int_validator(lo=300, hi=3600)),
     # AUDIO-014: configurable VAD/silence thresholds
-    "silence_rms_threshold":      (float, _make_float_validator(lo=0.0, hi=1.0)),
-    "silence_peak_threshold":     (float, _make_float_validator(lo=0.0, hi=1.0)),
+    "silence_rms_threshold": (float, _make_float_validator(lo=0.0, hi=1.0)),
+    "silence_peak_threshold": (float, _make_float_validator(lo=0.0, hi=1.0)),
     # AUDIO-013: Silero VAD configuration
-    "use_silero_vad":             (bool, _bool_validator),
-    "vad_speech_threshold":       (float, _make_float_validator(lo=0.0, hi=1.0)),
-    "vad_silence_threshold":      (float, _make_float_validator(lo=0.0, hi=1.0)),
+    "use_silero_vad": (bool, _bool_validator),
+    "vad_speech_threshold": (float, _make_float_validator(lo=0.0, hi=1.0)),
+    "vad_silence_threshold": (float, _make_float_validator(lo=0.0, hi=1.0)),
     # AUDIO-CH: recording channels
-    "recording_channels":         (int, _make_int_validator(lo=0, hi=8)),
+    "recording_channels": (int, _make_int_validator(lo=0, hi=8)),
     # AUDIO-PRE: pre-roll buffer
-    "pre_roll_buffer_seconds":    (float, _make_float_validator(lo=0.0, hi=30.0)),
+    "pre_roll_buffer_seconds": (float, _make_float_validator(lo=0.0, hi=30.0)),
     # AUDIO-AGC: peak normalization
-    "normalize_audio":            (bool, _bool_validator),
-    "normalize_target_peak":      (float, _make_float_validator(lo=0.1, hi=1.0)),
+    "normalize_audio": (bool, _bool_validator),
+    "normalize_target_peak": (float, _make_float_validator(lo=0.1, hi=1.0)),
     # PLAT-013/014: paste safety warnings
-    "warn_elevated_paste":        (bool, _bool_validator),
-    "warn_password_paste":        (bool, _bool_validator),
-
+    "warn_elevated_paste": (bool, _bool_validator),
+    "warn_password_paste": (bool, _bool_validator),
     # ── Volume ducking (v1.1.0) ───────────────────────────────────────
-    "volume_duck_enabled":          (bool, _bool_validator),
-    "volume_duck_level":            (float, _make_float_validator(lo=0.0, hi=1.0)),
-    "volume_duck_per_session":      (bool, _bool_validator),
-    "volume_duck_fade_ms":          (int, _make_int_validator(lo=0, hi=1000)),
-    "volume_duck_smart":            (bool, _bool_validator),
+    "volume_duck_enabled": (bool, _bool_validator),
+    "volume_duck_level": (float, _make_float_validator(lo=0.0, hi=1.0)),
+    "volume_duck_per_session": (bool, _bool_validator),
+    "volume_duck_fade_ms": (int, _make_int_validator(lo=0, hi=1000)),
+    "volume_duck_smart": (bool, _bool_validator),
     "volume_duck_smart_poll_interval_ms": (int, _make_int_validator(lo=50, hi=5000)),
-
     # ── Audio enhancement preset (ADR 0007) ───────────────────────────
-    "audio_preset": (str, _make_enum_validator({
-        "auto", "studio", "noisy_room", "off", "custom", "none", "recommended",
-    })),
-
+    "audio_preset": (
+        str,
+        _make_enum_validator(
+            {
+                "auto",
+                "studio",
+                "noisy_room",
+                "off",
+                "custom",
+                "none",
+                "recommended",
+            }
+        ),
+    ),
     # ── Noise filtering (ADR 0007 — filter chain) ────────────────────
-    "noise_filter_enabled":             (bool, _bool_validator),  # DEPRECATED
-    "noise_filter_highpass":            (bool, _bool_validator),
-    "noise_filter_highpass_cutoff_hz":  (float, _make_float_validator(lo=20.0, hi=500.0)),
-    "noise_filter_gate":                (bool, _bool_validator),
-    "noise_filter_gate_threshold":      (float, _make_float_validator(lo=0.0, hi=0.1)),  # DEPRECATED
-    "noise_filter_gate_hold_ms":        (float, _make_float_validator(lo=0.0, hi=1000.0)),
-    "noise_filter_rnnoise":             (bool, _bool_validator),  # DEPRECATED
-    "noise_filter_post_capture":        (bool, _bool_validator),  # DEPRECATED
-
+    "noise_filter_enabled": (bool, _bool_validator),  # DEPRECATED
+    "noise_filter_highpass": (bool, _bool_validator),
+    "noise_filter_highpass_cutoff_hz": (float, _make_float_validator(lo=20.0, hi=500.0)),
+    "noise_filter_gate": (bool, _bool_validator),
+    "noise_filter_gate_threshold": (float, _make_float_validator(lo=0.0, hi=0.1)),  # DEPRECATED
+    "noise_filter_gate_hold_ms": (float, _make_float_validator(lo=0.0, hi=1000.0)),
+    "noise_filter_rnnoise": (bool, _bool_validator),  # DEPRECATED
+    "noise_filter_post_capture": (bool, _bool_validator),  # DEPRECATED
     # ADR 0007 §5.1: New filter chain fields
-    "noise_suppression_method":         (str, _make_enum_validator({"rnnoise", "deepfilternet", "speex", "none"})),
-    "noise_filter_gate_open_threshold_db":  (float, _make_float_validator(lo=-96.0, hi=0.0)),
+    "noise_suppression_method": (str, _make_enum_validator({"rnnoise", "deepfilternet", "speex", "none"})),
+    "noise_filter_gate_open_threshold_db": (float, _make_float_validator(lo=-96.0, hi=0.0)),
     "noise_filter_gate_close_threshold_db": (float, _make_float_validator(lo=-96.0, hi=0.0)),
-    "noise_filter_gate_attack_ms":      (float, _make_float_validator(lo=0.0, hi=10000.0)),
-    "noise_filter_gate_release_ms":     (float, _make_float_validator(lo=0.0, hi=10000.0)),
-    "noise_filter_eq":                  (bool, _bool_validator),
-    "noise_filter_eq_low_db":           (float, _make_float_validator(lo=-20.0, hi=20.0)),
-    "noise_filter_eq_mid_db":           (float, _make_float_validator(lo=-20.0, hi=20.0)),
-    "noise_filter_eq_high_db":          (float, _make_float_validator(lo=-20.0, hi=20.0)),
-    "noise_filter_compressor":          (bool, _bool_validator),
-    "noise_filter_compressor_threshold_db":  (float, _make_float_validator(lo=-60.0, hi=0.0)),
-    "noise_filter_compressor_ratio":    (float, _make_float_validator(lo=1.0, hi=32.0)),
-    "noise_filter_compressor_attack_ms":  (float, _make_float_validator(lo=1.0, hi=500.0)),
+    "noise_filter_gate_attack_ms": (float, _make_float_validator(lo=0.0, hi=10000.0)),
+    "noise_filter_gate_release_ms": (float, _make_float_validator(lo=0.0, hi=10000.0)),
+    "noise_filter_eq": (bool, _bool_validator),
+    "noise_filter_eq_low_db": (float, _make_float_validator(lo=-20.0, hi=20.0)),
+    "noise_filter_eq_mid_db": (float, _make_float_validator(lo=-20.0, hi=20.0)),
+    "noise_filter_eq_high_db": (float, _make_float_validator(lo=-20.0, hi=20.0)),
+    "noise_filter_compressor": (bool, _bool_validator),
+    "noise_filter_compressor_threshold_db": (float, _make_float_validator(lo=-60.0, hi=0.0)),
+    "noise_filter_compressor_ratio": (float, _make_float_validator(lo=1.0, hi=32.0)),
+    "noise_filter_compressor_attack_ms": (float, _make_float_validator(lo=1.0, hi=500.0)),
     "noise_filter_compressor_release_ms": (float, _make_float_validator(lo=1.0, hi=1000.0)),
     "noise_filter_compressor_output_gain_db": (float, _make_float_validator(lo=-32.0, hi=32.0)),
-    "noise_filter_limiter":             (bool, _bool_validator),
-    "noise_filter_limiter_ceiling_db":  (float, _make_float_validator(lo=-60.0, hi=0.0)),
-    "noise_filter_limiter_release_ms":  (float, _make_float_validator(lo=1.0, hi=1000.0)),
-    "noise_filter_notch":               (bool, _bool_validator),
-    "noise_filter_notch_frequency_hz":  (float, _make_float_validator(lo=0.0, hi=500.0)),
+    "noise_filter_limiter": (bool, _bool_validator),
+    "noise_filter_limiter_ceiling_db": (float, _make_float_validator(lo=-60.0, hi=0.0)),
+    "noise_filter_limiter_release_ms": (float, _make_float_validator(lo=1.0, hi=1000.0)),
+    "noise_filter_notch": (bool, _bool_validator),
+    "noise_filter_notch_frequency_hz": (float, _make_float_validator(lo=0.0, hi=500.0)),
 }
 
 
@@ -735,9 +750,7 @@ def validate_config_update(data: dict) -> tuple[dict, list]:
                 if isinstance(expected_type, tuple)
                 else expected_type.__name__
             )
-            errors.append(
-                f"field {k!r} must be {type_name}, got {type(v).__name__}"
-            )
+            errors.append(f"field {k!r} must be {type_name}, got {type(v).__name__}")
             break
         err = validator(v)
         if err is not None:

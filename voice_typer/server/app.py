@@ -23,7 +23,7 @@ from voice_typer.server import task_scheduler
 from voice_typer.server.audio_processor import AudioProcessor
 from voice_typer.server.audio_quality import AudioQualityAnalyzer
 from voice_typer.server.branding import APP_NAME
-from voice_typer.server.clipboard import ClipboardManager
+from voice_typer.server.clipboard import ClipboardCopyError, ClipboardManager
 from voice_typer.server.config import Config, _config_dir, _migrate_from_legacy
 from voice_typer.server.crash_recovery import CrashRecovery
 from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
@@ -298,7 +298,8 @@ class VoiceTyperApp:
         # live in RecordingController. (ARCH-REFAC-003: the @property
         # delegates that used to mirror them on VoiceTyperApp have been
         # removed — callers now use `self.recording.<field>` directly,
-        # or `self._get_streaming_session()` / `self._set_streaming_session()`.)
+        # or `self.recording.get_streaming_session()` /
+        # `self.recording.set_streaming_session(...)`.)
         self._microphones: list[dict] = []
         self._busy_event = threading.Event()
         self._busy_event.set()  # SET = not busy
@@ -510,17 +511,6 @@ class VoiceTyperApp:
     # self.hotkeys._hotkey_backend / self.hotkeys._esc_backend /
     # self.hotkeys._repaste_backend directly.
 
-    # ── Model lifecycle methods (thin delegates to ModelManager) ──────
-
-    def _get_active_transcriber(self):
-        """Test seam — kept for monkeypatch compatibility.
-
-        RW-9 Phase 2: production callers invoke ``self.models.active_transcriber()``
-        directly (recording_controller.py + dictation_pipeline.py).
-        This delegate remains for tests that monkeypatch it.
-        """
-        return self.models.active_transcriber()
-
     # ─── Timer Tracking (P1) ─────────────────────────────────────────
 
     def _schedule_timer(self, delay: float, func) -> threading.Timer:
@@ -567,26 +557,6 @@ class VoiceTyperApp:
                 timer.cancel()
             except Exception:
                 log.exception("[APP] Failed to cancel scheduled timer")
-
-    # ─── Thread-Safe Streaming Session Access (P2) ───────────────────
-
-    def _get_streaming_session(self):
-        """Test seam — kept for monkeypatch compatibility.
-
-        RW-9 Phase 2: production callers invoke ``self.recording.get_streaming_session()``
-        directly (dictation_pipeline.py + _do_cleanup). This delegate
-        remains for tests that monkeypatch it.
-        """
-        return self.recording.get_streaming_session()
-
-    def _set_streaming_session(self, session_or_none):
-        """Test seam — kept for monkeypatch compatibility.
-
-        RW-9 Phase 2: production callers invoke ``self.recording.set_streaming_session(...)``
-        directly (dictation_pipeline.py + _do_cleanup). This delegate
-        remains for tests that monkeypatch it.
-        """
-        self.recording.set_streaming_session(session_or_none)
 
     # ─── Waveform Bubble (IPC push) ───────────────────────────────────
 
@@ -760,114 +730,16 @@ class VoiceTyperApp:
         the docstring on ``StartupSequence.run`` for the full rationale.
 
         Tests that call ``app._do_startup()`` directly still work; tests
-        that monkeypatch delegate methods like ``app._sync_autostart``
-        must now monkeypatch the controller instead (e.g.
+        that previously monkeypatched the now-removed delegate methods
+        (``app._sync_autostart``, ``app._load_microphones``,
+        ``app._register_hotkey``, etc.) must now monkeypatch the
+        controller instead (e.g.
         ``monkeypatch.setattr(startup_tasks, "sync_autostart", ...)``
         or ``app.hotkeys.register = MagicMock()``).
         """
         from voice_typer.server.startup_sequence import StartupSequence
 
         StartupSequence(self).run()
-
-    def _sync_autostart(self) -> None:
-        """Test seam — kept for monkeypatch compatibility.
-
-        RW-9 Phase 2: production callers (``_do_startup`` via
-        ``startup_tasks.sync_autostart(self)``) invoke the controller
-        directly. This delegate remains so existing tests that do
-        ``monkeypatch.setattr(app, "_sync_autostart", ...)`` keep working.
-        """
-        from voice_typer.server.startup_tasks import sync_autostart
-
-        sync_autostart(self)
-
-    def _sync_prewarm_task(self, shutdown_event=None) -> None:
-        """Test seam — kept for monkeypatch compatibility.
-
-        RW-9 Phase 2: production callers invoke ``startup_tasks.sync_prewarm_task``
-        directly. This delegate remains for tests that monkeypatch it.
-        """
-        from voice_typer.server.startup_tasks import sync_prewarm_task
-
-        sync_prewarm_task(self, shutdown_event)
-
-    def _ensure_desktop_shortcut(self) -> None:
-        """Test seam — kept for monkeypatch compatibility.
-
-        RW-9 Phase 2: production callers invoke ``startup_tasks.ensure_desktop_shortcut``
-        directly. This delegate remains for tests that monkeypatch it.
-        """
-        from voice_typer.server.startup_tasks import ensure_desktop_shortcut
-
-        ensure_desktop_shortcut(self)
-
-    def _load_microphones(self, shutdown_event=None) -> None:
-        """Test seam — kept for monkeypatch compatibility.
-
-        RW-9 Phase 2: production callers invoke ``startup_tasks.load_microphones``
-        directly. This delegate remains for tests that monkeypatch it.
-
-        The extracted function compares old_ids vs new_ids (the cached
-        device-id set vs the freshly enumerated one) and pushes a
-        ``microphones_changed`` IPC event when the device set changes,
-        so the Electron renderer can refresh its microphone dropdown
-        without a manual "Refresh" click.
-        """
-        from voice_typer.server.startup_tasks import load_microphones
-
-        load_microphones(self, shutdown_event)
-
-    def _start_accessibility_pulse(self, initial_state: bool) -> None:
-        """Test seam — kept for monkeypatch compatibility.
-
-        RW-9 Phase 2: production callers invoke ``startup_tasks.start_accessibility_pulse``
-        directly. This delegate remains for tests that monkeypatch it.
-        """
-        from voice_typer.server.startup_tasks import start_accessibility_pulse
-
-        start_accessibility_pulse(self, initial_state)
-
-    def _fallback_to_whisper(self, notify_on_failure: bool = False):
-        """#2 delegate to ModelManager.fallback_to_whisper()."""
-        self.models.fallback_to_whisper(notify_on_failure=notify_on_failure)
-
-    def _try_load_model(self, notify_on_failure: bool = False):
-        """#2 delegate to ModelManager.try_load()."""
-        self.models.try_load(notify_on_failure=notify_on_failure)
-
-    # ─── Hotkey ────────────────────────────────────────────────────────
-
-    def _register_hotkey(self):
-        """Test seam — kept for monkeypatch compatibility.
-
-        RW-9 Phase 2: production callers invoke ``self.hotkeys.register()``
-        directly. This delegate remains for tests that monkeypatch it.
-        """
-        self.hotkeys.register()
-
-    def _register_esc_hotkey(self):
-        """Test seam — kept for monkeypatch compatibility.
-
-        RW-9 Phase 2: production callers invoke ``self.hotkeys.register_esc()``
-        directly. This delegate remains for tests that monkeypatch it.
-        """
-        self.hotkeys.register_esc()
-
-    def _unregister_esc_hotkey(self):
-        """Test seam — kept for monkeypatch compatibility.
-
-        RW-9 Phase 2: production callers invoke ``self.hotkeys.unregister_esc()``
-        directly. This delegate remains for tests that monkeypatch it.
-        """
-        self.hotkeys.unregister_esc()
-
-    def _register_repaste_hotkey(self):
-        """Test seam — kept for monkeypatch compatibility.
-
-        RW-9 Phase 2: production callers invoke ``self.hotkeys.register_repaste()``
-        directly. This delegate remains for tests that monkeypatch it.
-        """
-        self.hotkeys.register_repaste()
 
     # ─── Dictation ─────────────────────────────────────────────────────
 
@@ -878,7 +750,6 @@ class VoiceTyperApp:
     def _start_dictation(self):
         """#2 delegate to RecordingController.start()."""
         self.recording.start()
-
 
     def _on_audio_quality_chunk(self, rms: float, peak: float) -> None:
         """Per-chunk quality callback wired to AudioProcessor.
@@ -997,38 +868,50 @@ class VoiceTyperApp:
         """#2 delegate to RecordingController._cancel_streaming_session()."""
         self.recording._cancel_streaming_session()
 
-    def _force_recover_from_stuck_transcription(self, force: bool = False):
-        """Test seam — kept for monkeypatch compatibility.
-
-        RW-9 Phase 2: production callers (tray.py force-cancel menu item)
-        invoke ``self.recording._force_recover_from_stuck_transcription(force=...)``
-        directly. This delegate remains for tests that monkeypatch it.
-
-        PR-2 Finding #3: accepts an optional ``force`` parameter.  When
-        ``True``, the recovery proceeds even if the transcription worker
-        thread is still alive, providing a manual escape hatch for users
-        whose transcription is genuinely stuck.  The tray menu's "Cancel
-        Transcription" item calls this with ``force=True``.
-        """
-        self.recording._force_recover_from_stuck_transcription(force=force)
-
     # ─── Settings / Microphone ─────────────────────────────────────────
 
     def repaste_last(self) -> None:
         """Feature: Repaste last transcription (tray menu + hotkey).
 
+        ADR-0010 §7.1 / DP6 / DP4.
+
+        Reads from ``history_db.get_latest_text()`` (primary — survives
+        app restart), falling back to ``self._last_transcription`` if
+        the DB read fails. Uses the same snapshot/restore mechanism as
+        auto-paste so the user's clipboard is preserved.
+
+        ``paste(force=True)`` bypasses the ``paste_enabled`` gate (§2.12)
+        so a manual repaste works regardless of the auto-paste
+        (``paste_on_stop``) setting.
+
         ERR-018: previously a single try/except collapsed clipboard-copy
         failures and paste-keystroke failures into one generic toast.
         We now split them so the user knows which step failed.
+
+        Fallback chain:
+          1. ``history_db.get_latest_text()``  (primary — survives restart)
+          2. ``self._last_transcription``        (fallback if DB read fails)
+          3. "No previous transcription" toast  (both empty)
         """
-        if not self._last_transcription:
+        # ① READ FROM DB (primary — survives restart)
+        text = ""
+        try:
+            text = self.history_db.get_latest_text()
+        except Exception as e:
+            log.warning("[REPASTE] DB read failed, falling back to memory: %s", e)
+            text = self._last_transcription
+
+        if not text:
             self.tray.notify(APP_NAME, "No previous transcription to re-paste.")
             return
 
-        # Step 1: copy to clipboard
+        # ② COPY (snapshot + empty + pyperclip.copy + verify).
+        # copy() returns None when save/restore is disabled; it raises
+        # ClipboardCopyError only on a genuine copy failure.
+        snapshot = None
         try:
-            self.clipboard.copy(self._last_transcription)
-        except Exception as e:
+            snapshot = self.clipboard.copy(text)
+        except ClipboardCopyError as e:
             log.warning("[REPASTE] Clipboard copy failed: %s", e)
             self.tray.notify(
                 APP_NAME,
@@ -1036,19 +919,27 @@ class VoiceTyperApp:
             )
             return
 
-        # Step 2: send paste keystrokes
-        try:
-            self.clipboard.paste()
-            log.info(
-                "[REPASTE] Repasted last transcription (%d chars)",
-                len(self._last_transcription),
-            )
+        # ③ PASTE (keystroke + delayed restore scheduled inside paste()).
+        # paste() schedules the restore of the user's ORIGINAL clipboard
+        # at its top, before any early return (DP1). It returns False
+        # (does not raise) when the keystroke is skipped/blocked/rate-
+        # limited — and the restore is still scheduled. We therefore do
+        # NOT call restore_now() here: that would be redundant and would
+        # remove the transcription from the clipboard. The transcription
+        # is safely stored in the DB. ``force=True`` bypasses the
+        # ``paste_enabled`` gate (§2.12) so a manual repaste works
+        # regardless of the auto-paste (``paste_on_stop``) setting.
+        pasted = self.clipboard.paste(snapshot, pasted_text=text, force=True)
+        if pasted:
+            log.info("[REPASTE] Repasted transcription (%d chars)", len(text))
             self.tray.notify(APP_NAME, "Last transcription re-pasted")
-        except Exception as e:
-            log.warning("[REPASTE] Paste keystroke failed: %s", e)
+        else:
+            log.warning("[REPASTE] Paste keystroke was skipped/blocked")
             self.tray.notify(
                 APP_NAME,
-                "Copied to clipboard, but the paste keystroke failed. Press Ctrl+V manually to paste.",
+                "Re-paste was blocked (unsafe target or rate-limited). "
+                "Your previous clipboard was preserved. Use the repaste "
+                "hotkey again to try pasting.",
             )
 
     def undo_last(self) -> None:
@@ -1253,14 +1144,6 @@ class VoiceTyperApp:
             log.warning("[CONFIG] Could not open editor: %s", e)
             self.tray.notify(APP_NAME, f"Config file:\n{config_file}")
 
-    def _restart_hotkey(self, hotkey: str):
-        """#2 delegate to HotkeyDispatcher.restart()."""
-        self.hotkeys.restart(hotkey)
-
-    def _change_model(self, model_size: str):
-        """#2 delegate to ModelManager.change_model()."""
-        self.models.change_model(model_size)
-
     # ─── TrayController Protocol Methods (P3) ────────────────────────
 
     def change_microphone(self, mic_id: str | None) -> None:
@@ -1275,15 +1158,20 @@ class VoiceTyperApp:
         ``change_model(self, model_size: str)`` signature. Pyrefly
         enforces parameter-name matching for Protocol members (a call
         like ``app.change_model(model_size="large")`` must be valid on
-        any AppProtocol implementation), so the names must agree. The
-        body is unchanged — ``_change_model`` accepts the value
-        positionally under either name.
+        any AppProtocol implementation), so the names must agree.
+
+        RW-9 Phase 2: the ``_change_model`` delegate has been removed;
+        this method now calls ``self.models.change_model`` directly.
         """
-        self._change_model(model_size)
+        self.models.change_model(model_size)
 
     def change_hotkey(self, hotkey: str) -> None:
-        """TrayController protocol: change hotkey."""
-        self._restart_hotkey(hotkey)
+        """TrayController protocol: change hotkey.
+
+        RW-9 Phase 2: the ``_restart_hotkey`` delegate has been removed;
+        this method now calls ``self.hotkeys.restart`` directly.
+        """
+        self.hotkeys.restart(hotkey)
 
     def quit_app(self) -> None:
         """TrayController protocol: quit the app.

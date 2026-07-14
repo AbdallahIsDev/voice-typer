@@ -106,6 +106,7 @@ class HistoryDBError(RuntimeError):
     catch this exception via the ``raise_on_error`` parameter.
     """
 
+
 _MIGRATION_V2 = """
     ALTER TABLE transcriptions ADD COLUMN favorite INTEGER DEFAULT 0;
     ALTER TABLE transcriptions ADD COLUMN language TEXT DEFAULT '';
@@ -119,12 +120,7 @@ _MIGRATIONS = {
 def _prepare_like_search_pattern(query: str) -> str:
     """Build a bounded LIKE pattern where user wildcards stay literal."""
     capped_query = query[:_MAX_SEARCH_QUERY_CHARS]
-    escaped_query = (
-        capped_query
-        .replace("\\", "\\\\")
-        .replace("%", "\\%")
-        .replace("_", "\\_")
-    )
+    escaped_query = capped_query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     return f"%{escaped_query}%"
 
 
@@ -152,6 +148,7 @@ class HistoryDB:
     def __init__(self, db_path: Path | None = None):
         if db_path is None:
             from voice_typer.server.config import _config_dir
+
             db_path = _config_dir() / "history.db"
 
         self.db_path = db_path
@@ -190,7 +187,8 @@ class HistoryDB:
             log.error(
                 "[HISTORY_DB] Writer thread did not signal ready within %.1fs "
                 "(db=%s); writes will fail until it recovers.",
-                _WRITER_READY_TIMEOUT, self.db_path,
+                _WRITER_READY_TIMEOUT,
+                self.db_path,
             )
         if self._init_error is not None:
             log.error(
@@ -259,9 +257,7 @@ class HistoryDB:
                     future.set_exception(e)
                 else:
                     # Fire-and-forget write failed — log so it's visible.
-                    log.error(
-                        "[HISTORY_DB] Fire-and-forget write failed: %s", e
-                    )
+                    log.error("[HISTORY_DB] Fire-and-forget write failed: %s", e)
             else:
                 # WAL-CHECKPOINT-FIX: After a SUCCESSFUL write, ensure
                 # no lingering transaction remains on the connection.
@@ -306,10 +302,7 @@ class HistoryDB:
                 if future is not None:
                     future.set_exception(e)
                 else:
-                    log.error(
-                        "[HISTORY_DB] Fire-and-forget write failed during "
-                        "shutdown drain: %s", e
-                    )
+                    log.error("[HISTORY_DB] Fire-and-forget write failed during shutdown drain: %s", e)
             else:
                 # WAL-CHECKPOINT-FIX: same post-write cleanup as in
                 # _writer_loop — rollback any lingering state so the
@@ -359,9 +352,10 @@ class HistoryDB:
                         )
                     else:
                         log.debug(
-                            "[HISTORY_DB] WAL checkpoint partial: %d/%d pages "
-                            "(status=%d)",
-                            pages_checkpointed, total_pages, status,
+                            "[HISTORY_DB] WAL checkpoint partial: %d/%d pages (status=%d)",
+                            pages_checkpointed,
+                            total_pages,
+                            status,
                         )
         except sqlite3.OperationalError as e:
             # This can happen when an external process (e.g. antivirus
@@ -369,11 +363,13 @@ class HistoryDB:
             # attempt in 60s will retry.
             log.debug(
                 "[HISTORY_DB] WAL checkpoint skipped (will retry in %.0fs): %s",
-                _WAL_CHECKPOINT_INTERVAL, e,
+                _WAL_CHECKPOINT_INTERVAL,
+                e,
             )
         except sqlite3.Error as e:
             log.warning(
-                "[HISTORY_DB] WAL checkpoint failed unexpectedly: %s", e,
+                "[HISTORY_DB] WAL checkpoint failed unexpectedly: %s",
+                e,
             )
 
     def _open_write_conn(self) -> sqlite3.Connection:
@@ -401,11 +397,11 @@ class HistoryDB:
                 self.db_path.parent.mkdir(parents=True, exist_ok=True)
                 os.chmod(self.db_path.parent, 0o700)
             except OSError as e:
-                log.warning(
-                    "[HISTORY_DB] Could not tighten dir perms: %s", e
-                )
+                log.warning("[HISTORY_DB] Could not tighten dir perms: %s", e)
         conn = sqlite3.connect(
-            str(self.db_path), check_same_thread=False, timeout=5.0,
+            str(self.db_path),
+            check_same_thread=False,
+            timeout=5.0,
         )
         # Safety net for external contention only (in-process contention
         # is impossible — there's only one writer thread).
@@ -416,11 +412,7 @@ class HistoryDB:
         # SEC-007: chmod the DB file (and sidecar files if present).
         if not is_windows():
             for suffix in ("", "-wal", "-shm"):
-                p = (
-                    self.db_path.with_suffix(self.db_path.suffix + suffix)
-                    if suffix
-                    else self.db_path
-                )
+                p = self.db_path.with_suffix(self.db_path.suffix + suffix) if suffix else self.db_path
                 try:
                     if p.exists():
                         os.chmod(p, 0o600)
@@ -450,7 +442,8 @@ class HistoryDB:
             log.warning(
                 "[HISTORY_DB] Could not set/check WAL mode (%s) at %s — "
                 "app will work but writes may be slower and more contended.",
-                e, self.db_path,
+                e,
+                self.db_path,
             )
             return
         mode = mode_row[0] if mode_row else ""
@@ -458,7 +451,8 @@ class HistoryDB:
             log.warning(
                 "[HISTORY_DB] WAL mode NOT enabled (got %r) at %s — "
                 "app will work but writes may be slower and more contended.",
-                mode, self.db_path,
+                mode,
+                self.db_path,
             )
 
     def _init_db_schema(self, conn: sqlite3.Connection) -> None:
@@ -526,7 +520,7 @@ class HistoryDB:
                     if stmt.upper().startswith("ALTER TABLE") and "ADD COLUMN" in stmt.upper():
                         idx = stmt.upper().find("ADD COLUMN")
                         if idx >= 0:
-                            parts_after = stmt[idx + 10:].lstrip().split()
+                            parts_after = stmt[idx + 10 :].lstrip().split()
                             col_name = parts_after[0] if parts_after else ""
                             if col_name in existing_columns:
                                 continue
@@ -537,12 +531,8 @@ class HistoryDB:
                             stmt[:60],
                         )
                     except sqlite3.Error as e:
-                        log.warning(
-                            "[HISTORY_DB] Migration statement failed: %s", e
-                        )
-                log.info(
-                    "[HISTORY_DB] Migrated schema to version %d", version
-                )
+                        log.warning("[HISTORY_DB] Migration statement failed: %s", e)
+                log.info("[HISTORY_DB] Migrated schema to version %d", version)
 
         cursor.execute(
             "INSERT OR REPLACE INTO schema_meta (key, value) VALUES (?, ?)",
@@ -561,7 +551,8 @@ class HistoryDB:
         """)
         log.info(
             "[HISTORY] History database initialized: %s (schema v%d)",
-            self.db_path, _CURRENT_SCHEMA_VERSION,
+            self.db_path,
+            _CURRENT_SCHEMA_VERSION,
         )
 
     # ──────────────────────────────────────────────────────────────
@@ -582,17 +573,17 @@ class HistoryDB:
         directory to 0o600 / 0o700 so transcription history is not
         world-readable.
         """
-        if not hasattr(self._read_local, 'conn') or self._read_local.conn is None:
+        if not hasattr(self._read_local, "conn") or self._read_local.conn is None:
             if not is_windows():
                 try:
                     self.db_path.parent.mkdir(parents=True, exist_ok=True)
                     os.chmod(self.db_path.parent, 0o700)
                 except OSError as e:
-                    log.warning(
-                        "[HISTORY_DB] Could not tighten dir perms: %s", e
-                    )
+                    log.warning("[HISTORY_DB] Could not tighten dir perms: %s", e)
             conn = sqlite3.connect(
-                str(self.db_path), check_same_thread=False, timeout=5.0,
+                str(self.db_path),
+                check_same_thread=False,
+                timeout=5.0,
             )
             conn.execute("PRAGMA busy_timeout=5000")
             conn.execute("PRAGMA synchronous=NORMAL")
@@ -656,9 +647,7 @@ class HistoryDB:
         down" can check ``self._shutdown.is_set()`` before calling.
         """
         if self._shutdown.is_set():
-            log.debug(
-                "[HISTORY_DB] Write submitted after shutdown — dropped."
-            )
+            log.debug("[HISTORY_DB] Write submitted after shutdown — dropped.")
             return None
         future: concurrent.futures.Future | None = None
         if wait:
@@ -676,15 +665,12 @@ class HistoryDB:
                 return future.result(timeout=_WRITE_FUTURE_TIMEOUT)
             except concurrent.futures.TimeoutError:
                 if not self._writer_thread.is_alive():
-                    raise HistoryDBError(
-                        "HistoryDB writer thread is dead; write did not complete"
-                    ) from None
+                    raise HistoryDBError("HistoryDB writer thread is dead; write did not complete") from None
                 # Writer still alive — keep waiting (rare; means a
                 # prior write is taking a very long time, e.g. a
                 # multi-batch retention sweep on a huge DB).
                 log.warning(
-                    "[HISTORY_DB] Write future still pending after %.0fs; "
-                    "writer is alive, continuing to wait.",
+                    "[HISTORY_DB] Write future still pending after %.0fs; writer is alive, continuing to wait.",
                     _WRITE_FUTURE_TIMEOUT,
                 )
 
@@ -749,7 +735,7 @@ class HistoryDB:
                     _WRITER_JOIN_TIMEOUT,
                 )
         # Close the current thread's read connection first (if any).
-        if hasattr(self._read_local, 'conn') and self._read_local.conn is not None:
+        if hasattr(self._read_local, "conn") and self._read_local.conn is not None:
             with contextlib.suppress(sqlite3.Error):
                 self._read_local.conn.close()
             self._read_local.conn = None
@@ -797,17 +783,18 @@ class HistoryDB:
 
             def _do_insert(conn: sqlite3.Connection) -> int:
                 cursor = conn.cursor()
-                cursor.execute("""
+                cursor.execute(
+                    """
                     INSERT INTO transcriptions
                     (text, duration, model, device, word_count, char_count, language)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (text, duration, model, device, word_count, char_count, language))
+                """,
+                    (text, duration, model, device, word_count, char_count, language),
+                )
                 conn.commit()
                 row_id = cursor.lastrowid
                 if row_id is not None:
-                    log.debug(
-                        "Added transcription %d: %d chars", row_id, char_count
-                    )
+                    log.debug("Added transcription %d: %d chars", row_id, char_count)
                 return row_id if row_id is not None else -1
 
             # Fire-and-forget: enqueue and return immediately.
@@ -828,12 +815,10 @@ class HistoryDB:
         the IPC layer cannot tell "row didn't exist" from "DB error".
         """
         try:
+
             def _do_delete(conn: sqlite3.Connection) -> bool:
                 cursor = conn.cursor()
-                cursor.execute(
-                    "DELETE FROM transcriptions WHERE id = ?",
-                    (transcription_id,)
-                )
+                cursor.execute("DELETE FROM transcriptions WHERE id = ?", (transcription_id,))
                 conn.commit()
                 return cursor.rowcount > 0
 
@@ -879,18 +864,22 @@ class HistoryDB:
 
             def _do_restore(conn: sqlite3.Connection) -> int:
                 cursor = conn.cursor()
-                cursor.execute("""
+                cursor.execute(
+                    """
                     INSERT INTO transcriptions
                     (text, duration, model, device, word_count, char_count, language, favorite)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (text, duration, model, device, word_count, char_count, language, favorite))
+                """,
+                    (text, duration, model, device, word_count, char_count, language, favorite),
+                )
                 conn.commit()
                 new_id = cursor.lastrowid
                 if new_id is None:
                     return -1
                 log.info(
                     "[HISTORY] Restored transcription as id=%d (%d chars)",
-                    new_id, char_count,
+                    new_id,
+                    char_count,
                 )
                 return new_id
 
@@ -921,13 +910,13 @@ class HistoryDB:
         ERR-013: see ``delete`` for ``raise_on_error`` semantics.
         """
         try:
+
             def _do_clear_all(conn: sqlite3.Connection) -> bool:
                 cursor = conn.cursor()
                 while True:
                     cursor.execute(
-                        "DELETE FROM transcriptions WHERE id IN ("
-                        "  SELECT id FROM transcriptions LIMIT ?"
-                        ")", (_CLEAR_ALL_BATCH_SIZE,),
+                        "DELETE FROM transcriptions WHERE id IN (  SELECT id FROM transcriptions LIMIT ?)",
+                        (_CLEAR_ALL_BATCH_SIZE,),
                     )
                     batch_deleted = cursor.rowcount
                     if batch_deleted == 0:
@@ -952,18 +941,22 @@ class HistoryDB:
             return False
 
     def toggle_favorite(
-        self, transcription_id: int, *, raise_on_error: bool = False,
+        self,
+        transcription_id: int,
+        *,
+        raise_on_error: bool = False,
     ) -> bool:
         """Toggle the favorite status of a transcription.
 
         ERR-013: see ``delete`` for ``raise_on_error`` semantics.
         """
         try:
+
             def _do_toggle(conn: sqlite3.Connection) -> bool:
                 cursor = conn.cursor()
                 cursor.execute(
                     "UPDATE transcriptions SET favorite = CASE WHEN favorite = 1 THEN 0 ELSE 1 END WHERE id = ?",
-                    (transcription_id,)
+                    (transcription_id,),
                 )
                 conn.commit()
                 return cursor.rowcount > 0
@@ -999,6 +992,7 @@ class HistoryDB:
         effective_max = max_entries or retention_count
         deleted = 0
         try:
+
             def _do_retention(conn: sqlite3.Connection) -> int:
                 nonlocal deleted
                 cursor = conn.cursor()
@@ -1011,7 +1005,8 @@ class HistoryDB:
                             "  SELECT id FROM transcriptions"
                             "  WHERE timestamp < ? AND favorite = 0"
                             "  LIMIT ?"
-                            ")", (cutoff, _RETENTION_BATCH),
+                            ")",
+                            (cutoff, _RETENTION_BATCH),
                         )
                         batch_deleted = cursor.rowcount
                         if batch_deleted == 0:
@@ -1026,7 +1021,8 @@ class HistoryDB:
                         if total <= effective_max:
                             break
                         excess = min(total - effective_max, _RETENTION_BATCH)
-                        cursor.execute("""
+                        cursor.execute(
+                            """
                             DELETE FROM transcriptions
                             WHERE id IN (
                                 SELECT id FROM transcriptions
@@ -1034,7 +1030,9 @@ class HistoryDB:
                                 ORDER BY timestamp ASC
                                 LIMIT ?
                             )
-                        """, (excess,))
+                        """,
+                            (excess,),
+                        )
                         batch_deleted = cursor.rowcount
                         if batch_deleted == 0:
                             break
@@ -1068,7 +1066,11 @@ class HistoryDB:
     # ──────────────────────────────────────────────────────────────
 
     def get_recent(
-        self, limit: int = 50, offset: int = 0, *, raise_on_error: bool = False,
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        *,
+        raise_on_error: bool = False,
     ) -> list[dict]:
         """Get recent transcriptions with offset-based pagination.
 
@@ -1080,11 +1082,14 @@ class HistoryDB:
         try:
             conn = self._get_read_conn()
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT * FROM transcriptions
                 ORDER BY timestamp DESC
                 LIMIT ? OFFSET ?
-            """, (limit, offset))
+            """,
+                (limit, offset),
+            )
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
         except Exception as e:
@@ -1093,8 +1098,41 @@ class HistoryDB:
                 raise HistoryDBError(str(e)) from e
             return []
 
+    def get_latest_text(self) -> str:
+        """Return the most recent transcription text, or ``""`` if DB is empty.
+
+        ADR-0010 §8.1 / DP6.
+
+        Uses the existing thread-local read-only connection
+        (``PRAGMA query_only=1``), so it's safe to call from the hotkey
+        handler thread. Backed by ``idx_timestamp``.
+
+        Order by the autoincrement PK (DESC), not ``timestamp DESC``:
+        ``timestamp`` defaults to ``CURRENT_TIMESTAMP``, so
+        transcriptions written within the same second tie and the
+        "latest" becomes ambiguous. The PK is monotonic and is the
+        only correct "most recent" signal.
+
+        Note: if you just called ``add_transcription()``, call
+        ``flush()`` first to guarantee the row is committed before this
+        read.
+        """
+        try:
+            conn = self._get_read_conn()
+            cur = conn.cursor()
+            cur.execute("SELECT text FROM transcriptions ORDER BY id DESC LIMIT 1")
+            row = cur.fetchone()
+            return row[0] if row else ""
+        except Exception as e:
+            log.error("[HISTORY] Failed to get latest transcription: %s", e)
+            return ""
+
     def search(
-        self, query: str, limit: int = 50, offset: int = 0, *,
+        self,
+        query: str,
+        limit: int = 50,
+        offset: int = 0,
+        *,
         raise_on_error: bool = False,
     ) -> list[dict]:
         """Search transcriptions by text with offset-based pagination.
@@ -1105,12 +1143,15 @@ class HistoryDB:
             conn = self._get_read_conn()
             cursor = conn.cursor()
             pattern = _prepare_like_search_pattern(query)
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT * FROM transcriptions
                 WHERE text LIKE ? ESCAPE '\\'
                 ORDER BY timestamp DESC
                 LIMIT ? OFFSET ?
-            """, (pattern, limit, offset))
+            """,
+                (pattern, limit, offset),
+            )
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
         except Exception as e:
@@ -1120,7 +1161,10 @@ class HistoryDB:
             return []
 
     def get_favorites(
-        self, limit: int = 50, offset: int = 0, *,
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        *,
         raise_on_error: bool = False,
     ) -> list[dict]:
         """Get favorited transcriptions with offset-based pagination.
@@ -1130,12 +1174,15 @@ class HistoryDB:
         try:
             conn = self._get_read_conn()
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT * FROM transcriptions
                 WHERE favorite = 1
                 ORDER BY timestamp DESC
                 LIMIT ? OFFSET ?
-            """, (limit, offset))
+            """,
+                (limit, offset),
+            )
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
         except Exception as e:

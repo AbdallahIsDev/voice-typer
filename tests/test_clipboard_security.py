@@ -1,4 +1,5 @@
 """Tests for PLAT-CLIPRACE, PLAT-SECURE, PLAT-STUCK, SEC-012 clipboard fixes."""
+
 import sys
 from unittest.mock import MagicMock, patch
 
@@ -8,11 +9,14 @@ import pytest
 @pytest.fixture
 def clipboard():
     """Create a ClipboardManager with mocked keyboard."""
-    with patch("voice_typer.server.clipboard._ensure_pynput_imported"), \
-            patch("voice_typer.server.clipboard._Controller") as mock_ctrl:
+    with (
+        patch("voice_typer.server.clipboard._ensure_pynput_imported"),
+        patch("voice_typer.server.clipboard._Controller") as mock_ctrl,
+    ):
         mock_instance = MagicMock()
         mock_ctrl.return_value = mock_instance
         from voice_typer.server.clipboard import ClipboardManager
+
         cm = ClipboardManager(paste_enabled=True)
         cm._keyboard = mock_instance
         return cm
@@ -28,6 +32,7 @@ def test_safe_paste_target_non_windows(clipboard):
 def test_release_stuck_modifiers(clipboard):
     """_release_stuck_modifiers calls release for each modifier key."""
     import voice_typer.server.clipboard as clip_mod
+
     # Patch _Key to have mock key objects
     mock_key = MagicMock()
     clip_mod._Key = mock_key
@@ -49,15 +54,12 @@ def test_send_keystroke_sequence_uses_finally(clipboard):
     # The last release call should be for the modifier
 
 
-def test_schedule_clipboard_clear_creates_thread(clipboard):
-    """schedule_clipboard_clear starts a daemon thread."""
-    with patch("voice_typer.server.clipboard.pyperclip") as mock_pyperclip:
-        mock_pyperclip.paste.return_value = ""
-        clipboard._last_copied_text = "test"
-        clipboard.schedule_clipboard_clear(delay=0.01)
-        # Thread was created (we can't easily verify it runs without waiting)
-        import time
-        time.sleep(0.05)
+# ADR-0010 §5.6: ``schedule_clipboard_clear`` was DELETED. The
+# ``test_schedule_clipboard_clear_creates_thread`` test that previously
+# lived here exercised a method that no longer exists. The borrow /
+# restore lifecycle is now driven by ``ClipboardSnapshot.capture()`` in
+# ``copy()`` and ``_delayed_restore()`` in ``paste()`` — covered by
+# tests/test_clipboard_borrow_restore.py.
 
 
 def test_clipboard_sequence_number_non_windows(clipboard):

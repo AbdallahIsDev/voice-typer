@@ -69,14 +69,15 @@ class TestElevatedFocusHandling:
             cm._keyboard = MagicMock()
             cm._last_paste_time = 0.0
             cm._clipboard_seq = 0
-            cm._saved_clipboard = None
             cm._clipboard_save_restore_enabled = False
             cm._last_copied_text = ""
-            cm._clear_thread = None
+            cm._restore_delay_ms = 150
             # Attempting to paste should not crash
-            with patch.object(clipboard, "is_windows", return_value=False), \
-                 patch.object(clipboard.ClipboardManager, "_is_safe_paste_target", return_value=True), \
-                 patch.object(clipboard.ClipboardManager, "_release_stuck_modifiers"):
+            with (
+                patch.object(clipboard, "is_windows", return_value=False),
+                patch.object(clipboard.ClipboardManager, "_is_safe_paste_target", return_value=True),
+                patch.object(clipboard.ClipboardManager, "_release_stuck_modifiers"),
+            ):
                 result = cm.paste()
             # Result should indicate success or failure (boolean)
             assert result is None or result is False or result is True
@@ -179,6 +180,7 @@ class TestElevatedFocusHandling:
         monkeypatch.setattr(clipboard, "is_windows", lambda: True)
 
         import ctypes
+
         with patch.object(ctypes, "windll", new=MagicMock(), create=True):
             result = clipboard._is_elevated_target()
         assert isinstance(result, bool)

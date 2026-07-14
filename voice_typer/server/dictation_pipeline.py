@@ -20,6 +20,7 @@ from typing import Any
 import numpy as np
 
 from voice_typer.server.branding import APP_NAME
+from voice_typer.server.clipboard import ClipboardCopyError
 from voice_typer.server.tray_types import AppState
 
 log = logging.getLogger(__name__)
@@ -114,11 +115,14 @@ class DictationPipeline:
             _elapsed = time.perf_counter() - _t0
             log.info(
                 "[TRANSCRIBE] Transcription complete (len=%d, took=%.1fs, cycle=%s)",
-                len(text) if text else 0, _elapsed, self._cycle_id,
+                len(text) if text else 0,
+                _elapsed,
+                self._cycle_id,
             )
             log.debug(
                 "[PIPE-PERF] transcribe: %.0f ms (cycle=%s)",
-                _transcribe_ms, self._cycle_id,
+                _transcribe_ms,
+                self._cycle_id,
             )
 
             # Step 2: Check for empty result
@@ -176,14 +180,23 @@ class DictationPipeline:
                 "[PIPE-PERF] total=%.0fms, stages: transcribe=%.0f, clean=%.0f, "
                 "vocab=%.0f, templates=%.0f, punct=%.0f, store=%.0f, "
                 "paste=%.0f (cycle=%s)",
-                _total_ms, _transcribe_ms, _clean_ms, _vocab_ms, _tmpl_ms,
-                _punct_ms, _store_ms, _paste_ms, self._cycle_id,
+                _total_ms,
+                _transcribe_ms,
+                _clean_ms,
+                _vocab_ms,
+                _tmpl_ms,
+                _punct_ms,
+                _store_ms,
+                _paste_ms,
+                self._cycle_id,
             )
             if _llm_ms > 1:
                 log.info(
-                    "[PIPE-PERF] llm_polish=%.0fms, ai_enhance=%.0fms, "
-                    "vocab_auto=%.0fms (cycle=%s)",
-                    _llm_ms, _ai_ms, _va_ms, self._cycle_id,
+                    "[PIPE-PERF] llm_polish=%.0fms, ai_enhance=%.0fms, vocab_auto=%.0fms (cycle=%s)",
+                    _llm_ms,
+                    _ai_ms,
+                    _va_ms,
+                    self._cycle_id,
                 )
 
         except Exception as e:
@@ -191,7 +204,7 @@ class DictationPipeline:
             # NEW-BUBBLE-TRANSCRIBING: Hide the bubble on transcription failure
             # so the overlay doesn't stay stuck showing "Transcribing…".
             try:
-                if self._app.config.bubble_behavior == 'always_visible':
+                if self._app.config.bubble_behavior == "always_visible":
                     self._app._waveform_bubble.set_state("idle")
                 else:
                     self._app._waveform_bubble.hide()
@@ -229,7 +242,7 @@ class DictationPipeline:
                 # (doesn't exist on VoiceTyperApp). The attribute is `recording`
                 # (a RecordingController). Previously the watchdog reset never
                 # fired from this finally block — see worklog.md bug note.
-                recording = getattr(self._app, 'recording', None)
+                recording = getattr(self._app, "recording", None)
                 if recording is not None:
                     recording._reset_watchdog()
                     recording._stop_watchdog_thread()
@@ -253,14 +266,14 @@ class DictationPipeline:
                 # Defensive: if the lock is unavailable we still want
                 # to clear the field — but log the race.
                 log.debug(
-                    "[TRANSCRIBE] could not acquire app._lock to clear "
-                    "_transcription_thread; assigning without lock",
+                    "[TRANSCRIBE] could not acquire app._lock to clear _transcription_thread; assigning without lock",
                     exc_info=True,
                 )
                 with contextlib.suppress(Exception):
                     self._app.recording._transcription_thread = None
             with contextlib.suppress(Exception):
                 import gc
+
                 gc.collect()
             log.debug("[TRANSCRIBE] busy reset to False (cycle=%s)", self._cycle_id)
 
@@ -280,9 +293,7 @@ class DictationPipeline:
             # on the same audio array (saves 1-3 ms + 3× 1.9 MB transient
             # memory per dictation).
             try:
-                text = active.transcribe_with_fallback(
-                    self._audio, audio_stats=self._audio_stats
-                )
+                text = active.transcribe_with_fallback(self._audio, audio_stats=self._audio_stats)
             except TypeError:
                 # Backend doesn't support the audio_stats kwarg yet
                 # (e.g. Qwen/Parakeet/cloud engines that haven't been
@@ -291,8 +302,7 @@ class DictationPipeline:
 
         active = self._app.models.active_transcriber()
         self._device_info = (
-            active.device_info if active is not None and hasattr(active, "device_info")
-            else "Parakeet ASR"
+            active.device_info if active is not None and hasattr(active, "device_info") else "Parakeet ASR"
         )
         return text
 
@@ -311,7 +321,7 @@ class DictationPipeline:
         # NEW-BUBBLE-TRANSCRIBING: Hide the bubble since there's nothing to
         # transcribe — no need to keep the overlay visible.
         try:
-            if self._app.config.bubble_behavior == 'always_visible':
+            if self._app.config.bubble_behavior == "always_visible":
                 self._app._waveform_bubble.set_state("idle")
             else:
                 self._app._waveform_bubble.hide()
@@ -325,7 +335,8 @@ class DictationPipeline:
             log.info(
                 "[TRANSCRIBE] No speech detected but recording was only %.1fs "
                 "(< %.0fs grace period) — suppressing notification",
-                self._duration, _grace_period,
+                self._duration,
+                _grace_period,
             )
             self._app.tray.set_state(AppState.IDLE, "No speech detected")
         elif self._recorded_rms < 0.005:
@@ -349,7 +360,9 @@ class DictationPipeline:
             vocab_enabled = getattr(self._app.config, "vocabulary_enabled", True)
             raw = text
             text = clean_transcribed_text(
-                text, auto_punctuation=False, skip_corrections=vocab_enabled,
+                text,
+                auto_punctuation=False,
+                skip_corrections=vocab_enabled,
             )
             if text != raw:
                 log.info("[CLEANUP] Text cleaned: len %d -> %d", len(raw), len(text))
@@ -367,6 +380,7 @@ class DictationPipeline:
         try:
             if self._app._vocabulary_manager is None:
                 from voice_typer.server.vocabulary import VocabularyManager
+
                 self._app._vocabulary_manager = VocabularyManager()
             text = self._app._vocabulary_manager.apply_to_text(text)
         except Exception:
@@ -389,11 +403,11 @@ class DictationPipeline:
             if getattr(self._app.config, "templates_enabled", True):
                 if self._app._template_manager is None:
                     from voice_typer.server.templates import TemplateManager
+
                     self._app._template_manager = TemplateManager()
                 expanded = self._app._template_manager.match(text)
                 if expanded is not None:
-                    log.info("[TEMPLATE] Matched template, expanded %d -> %d chars",
-                             len(text), len(expanded))
+                    log.info("[TEMPLATE] Matched template, expanded %d -> %d chars", len(text), len(expanded))
                     text = expanded
         except Exception:
             log.warning("[PIPELINE] Template matching failed", exc_info=True)
@@ -410,23 +424,18 @@ class DictationPipeline:
         """Step 6: Apply auto-punctuation."""
         if self._app.config.auto_punctuation:
             from voice_typer.server.text_cleanup import _add_safe_terminal_punctuation
+
             text = _add_safe_terminal_punctuation(text)
         return text
 
     def _apply_llm_polish(self, text: str) -> str:
         """Step 7: Apply LLM polishing (if consented)."""
-        effective_llm_key = (
-            self._app.config.llm_api_key
-            or getattr(self._app.config, "openai_api_key", "")
-        )
-        if (
-            self._app.config.llm_polish
-            and effective_llm_key
-            and getattr(self._app.config, "llm_polish_consent", False)
-        ):
+        effective_llm_key = self._app.config.llm_api_key or getattr(self._app.config, "openai_api_key", "")
+        if self._app.config.llm_polish and effective_llm_key and getattr(self._app.config, "llm_polish_consent", False):
             try:
                 if self._app._llm_polisher is None:
                     from voice_typer.server.llm_polish import LLMPolisher
+
                     self._app._llm_polisher = LLMPolisher(
                         api_key=effective_llm_key,
                         api_url=self._app.config.llm_api_url or None,
@@ -442,10 +451,7 @@ class DictationPipeline:
             and effective_llm_key
             and not getattr(self._app.config, "llm_polish_consent", False)
         ) and not getattr(self._app, "_llm_consent_warned", False):
-            log.info(
-                "[LLM_POLISH] llm_polish is enabled but "
-                "llm_polish_consent is False — skipping polish."
-            )
+            log.info("[LLM_POLISH] llm_polish is enabled but llm_polish_consent is False — skipping polish.")
             self._app._llm_consent_warned = True
         return text
 
@@ -465,6 +471,7 @@ class DictationPipeline:
         """
         try:
             from voice_typer.server.ai_enhancement import enhance_transcription
+
             return enhance_transcription(text, self._app.config)
         except Exception:
             log.warning("[AI_ENHANCE] Enhancement failed", exc_info=True)
@@ -498,9 +505,11 @@ class DictationPipeline:
                 # apply suggestions to it) and the config (for the
                 # thresholds).
                 from voice_typer.server.vocabulary_automation import VocabularyAutomation
+
                 vm = self._app._vocabulary_manager
                 if vm is None:
                     from voice_typer.server.vocabulary import VocabularyManager
+
                     vm = VocabularyManager()
                     self._app._vocabulary_manager = vm
                 automation = VocabularyAutomation(vm, self._app.config)
@@ -516,14 +525,18 @@ class DictationPipeline:
             segments = getattr(self, "_segments", None) or []
             confidence = getattr(self, "_confidence", 0.9)
             suggestions = automation.analyze_transcription(
-                text, segments, confidence,
+                text,
+                segments,
+                confidence,
             )
             if not suggestions:
                 return
 
             # Auto-apply high-confidence suggestions.
             auto_threshold = getattr(
-                self._app.config, "vocabulary_auto_apply_threshold", 0.95,
+                self._app.config,
+                "vocabulary_auto_apply_threshold",
+                0.95,
             )
             applied = automation.auto_apply_high_confidence_suggestions(auto_threshold)
             if applied > 0:
@@ -534,21 +547,24 @@ class DictationPipeline:
             if pending:
                 try:
                     from voice_typer.server import event_bus
-                    event_bus.publish({
-                        "type": "vocabulary_suggestion",
-                        "data": {
-                            "suggestions": [
-                                {
-                                    "original": s.original,
-                                    "corrected": s.corrected,
-                                    "confidence": s.confidence,
-                                    "context": s.context,
-                                    "timestamp": s.timestamp,
-                                }
-                                for s in pending
-                            ],
-                        },
-                    })
+
+                    event_bus.publish(
+                        {
+                            "type": "vocabulary_suggestion",
+                            "data": {
+                                "suggestions": [
+                                    {
+                                        "original": s.original,
+                                        "corrected": s.corrected,
+                                        "confidence": s.confidence,
+                                        "context": s.context,
+                                        "timestamp": s.timestamp,
+                                    }
+                                    for s in pending
+                                ],
+                            },
+                        }
+                    )
                 except Exception:
                     log.debug(
                         "[VOCAB_AUTO] could not push vocabulary_suggestion event",
@@ -564,6 +580,12 @@ class DictationPipeline:
         default log level) with no tray notification. We now log at
         ``exception`` level and surface a tray notice the first time
         each failure type occurs so the user knows data is being lost.
+
+        ADR-0010 §6.2: ``history_db.flush()`` is called after
+        ``add_transcription()`` to guarantee the row is committed before
+        ``repaste_last()`` could fire. ``flush()`` blocks until the
+        writer thread processes all queued writes (FIFO no-op with
+        ``wait=True``). See ``history_db.py:flush()``.
         """
         try:
             self._app.history_db.add_transcription(
@@ -572,6 +594,11 @@ class DictationPipeline:
                 model=self._app.config.model_size,
                 device=self._app.config.device,
             )
+            # ADR-0010 §6.2: flush to guarantee the row is committed
+            # before repaste could fire. flush() blocks until the writer
+            # thread processes all queued writes (FIFO no-op with
+            # wait=True). See history_db.py:flush().
+            self._app.history_db.flush()
         except Exception:
             log.exception("[PIPELINE] History DB add failed")
             if not getattr(self, "_history_fail_notified", False):
@@ -579,8 +606,7 @@ class DictationPipeline:
                 with contextlib.suppress(Exception):
                     self._app.tray.notify(
                         APP_NAME,
-                        "Could not save the transcription to history. "
-                        "Check the log file for details.",
+                        "Could not save the transcription to history. Check the log file for details.",
                     )
 
         if self._app.config.crash_recovery_enabled:
@@ -615,10 +641,13 @@ class DictationPipeline:
         # without polling.
         try:
             from voice_typer.server import event_bus
-            event_bus.publish({
-                "type": "transcription_final",
-                "data": {"text": text[:200]}  # truncated for UI preview
-            })
+
+            event_bus.publish(
+                {
+                    "type": "transcription_final",
+                    "data": {"text": text[:200]},  # truncated for UI preview
+                }
+            )
         except Exception:
             pass
 
@@ -633,6 +662,7 @@ class DictationPipeline:
             # too so a future change to the filter can't accidentally
             # expose PII from this high-volume logging path.
             from voice_typer.server.security import redact_pii
+
             log.info("[TRANSCRIBE] Transcription: %s", redact_pii(text[:200]))
         else:
             log.info("[TRANSCRIBE] Transcription: %d chars", len(text))
@@ -640,65 +670,120 @@ class DictationPipeline:
     def _copy_and_paste(self, text: str) -> None:
         """Step 9: Copy to clipboard and attempt paste.
 
+        ADR-0010 §6.1 / DP1 / DP2 / DP4.
+
+        The snapshot/restore cycle is explicit here (not hidden inside
+        copy()/paste()) so the borrow/restore pairing is visible at the
+        call site. This is the single place that orchestrates the
+        clipboard borrow lifecycle.
+
         ERR-004: If clipboard.copy() fails, we previously lost the
         transcription silently. We now write the text to the crash
         recovery buffer (which persists to disk) and notify the user
         with the path so they can recover it manually.
+
+        Optimization (ADR-0010 §6.1 / §9.2): if ``paste_on_stop`` is OFF
+        and ``clipboard_save_restore`` is ON, we would copy the
+        transcription and instantly restore the user's clipboard — a
+        redundant clipboard lock round-trip (and its error surface) for
+        zero benefit. Skip the clipboard entirely; the transcription is
+        already persisted to the DB by ``_store_result()`` and reachable
+        via the repaste hotkey. We only skip the clipboard borrow here
+        — the UI teardown below (bubble/tray/timer) still runs.
         """
-        if not self._app.clipboard.copy(text):
-            log.error("[CLIPBOARD] Clipboard copy failed (cycle=%s)", self._cycle_id)
-            recovery_path: str | None = None
-            try:
-                if self._app.config.crash_recovery_enabled:
-                    self._app._crash_recovery.add(text, pasted=False)
-                    self._app._crash_recovery.flush(timeout=2.0)
-                    # Best-effort: surface the recovery file path so the
-                    # user can locate the saved transcription.
-                    try:
-                        recovery_path = str(self._app._crash_recovery._path)
-                    except Exception:
-                        recovery_path = None
-            except Exception:
-                log.exception("[CLIPBOARD] Failed to write transcription to crash recovery")
-            # NEW-BUBBLE-TRANSCRIBING: Hide the bubble since the
-            # transcription is done (even though paste failed).
-            try:
-                if self._app.config.bubble_behavior == 'always_visible':
-                    self._app._waveform_bubble.set_state("idle")
-                else:
-                    self._app._waveform_bubble.hide()
-            except Exception:
-                log.debug("[PIPELINE] bubble hide on clipboard fail failed", exc_info=True)
-            self._app.tray.set_state(AppState.IDLE, "Done -- clipboard unavailable")
-            notice = (
-                "Transcription complete, but the clipboard was unavailable.\n"
-                "Your text was saved to the crash-recovery file so it is not lost."
-            )
-            if recovery_path:
-                notice += f"\nRecovery file: {recovery_path}"
-            self._app.tray.notify(APP_NAME, notice)
-            self._app._busy_event.set()
-            self._app._schedule_timer(
-                3.0,
-                lambda: self._app.tray.set_state(AppState.IDLE, f"Ready -- {self._device_info}"),
-            )
-            return
+        # ── OPTIMIZATION (§9.2): skip the clipboard borrow entirely when
+        #    paste_on_stop is OFF and save/restore is ON. The
+        #    transcription is already in the DB; touching the clipboard
+        #    would only add a redundant lock round-trip.
+        skip_clipboard = not self._app.config.paste_on_stop and self._app.config.clipboard_save_restore
 
         pasted = False
-        if self._app.config.paste_on_stop:
-            pasted = self._app.clipboard.paste()
+        snapshot = None
+        if not skip_clipboard:
+            # ① COPY — returns snapshot (or None when save/restore is
+            #    disabled). Raises ClipboardCopyError on genuine copy
+            #    failure (caller writes to crash recovery).
+            try:
+                snapshot = self._app.clipboard.copy(text)
+            except ClipboardCopyError:
+                log.error("[CLIPBOARD] Clipboard copy failed (cycle=%s)", self._cycle_id)
+                recovery_path: str | None = None
+                try:
+                    if self._app.config.crash_recovery_enabled:
+                        self._app._crash_recovery.add(text, pasted=False)
+                        self._app._crash_recovery.flush(timeout=2.0)
+                        # Best-effort: surface the recovery file path so the
+                        # user can locate the saved transcription.
+                        try:
+                            recovery_path = str(self._app._crash_recovery._path)
+                        except Exception:
+                            recovery_path = None
+                except Exception:
+                    log.exception("[CLIPBOARD] Failed to write transcription to crash recovery")
+                # NEW-BUBBLE-TRANSCRIBING: Hide the bubble since the
+                # transcription is done (even though paste failed).
+                try:
+                    if self._app.config.bubble_behavior == "always_visible":
+                        self._app._waveform_bubble.set_state("idle")
+                    else:
+                        self._app._waveform_bubble.hide()
+                except Exception:
+                    log.debug("[PIPELINE] bubble hide on clipboard fail failed", exc_info=True)
+                self._app.tray.set_state(AppState.IDLE, "Done -- clipboard unavailable")
+                notice = (
+                    "Transcription complete, but the clipboard was unavailable.\n"
+                    "Your text was saved to the crash-recovery file so it is not lost."
+                )
+                if recovery_path:
+                    notice += f"\nRecovery file: {recovery_path}"
+                self._app.tray.notify(APP_NAME, notice)
+                self._app._busy_event.set()
+                self._app._schedule_timer(
+                    3.0,
+                    lambda: self._app.tray.set_state(AppState.IDLE, f"Ready -- {self._device_info}"),
+                )
+                return
 
+            # ② PASTE (if enabled) — paste() schedules the restore thread
+            #    at its top, before any early return (DP1). pasted_text
+            #    is passed as a value so overlapping cycles stay isolated (DP4).
+            if self._app.config.paste_on_stop:
+                pasted = self._app.clipboard.paste(snapshot, pasted_text=text)
+            else:
+                # paste_on_stop is False + save/restore OFF: leave the
+                # transcription on the clipboard for the user to paste
+                # manually (legacy behavior). copy() returned None (no
+                # snapshot captured), so there is nothing to restore —
+                # the user's original content was never captured.
+                log.info(
+                    "[CLIPBOARD-AUDIT] paste_on_stop=False + save/restore off — "
+                    "transcription left on clipboard for manual paste"
+                )
+        else:
+            log.info(
+                "[CLIPBOARD-AUDIT] paste_on_stop=False + save/restore on — "
+                "clipboard untouched; transcription persisted to DB"
+            )
+
+        # ③ Mark crash recovery as pasted (if applicable)
         if pasted and self._app.config.crash_recovery_enabled:
             with contextlib.suppress(Exception):
                 self._app._crash_recovery.mark_latest_pasted()
 
-        status = f"Done -- {len(text)} chars (pasted)" if pasted else f"Done -- {len(text)} chars (in clipboard)"
+        # ④ Status + tray + bubble (existing lines 675–692, unchanged)
+        if pasted:
+            status = f"Done -- {len(text)} chars (pasted)"
+        elif skip_clipboard:
+            status = f"Done -- {len(text)} chars (in DB, use repaste hotkey)"
+        else:
+            # paste_on_stop=False + save/restore off: legacy "left on clipboard"
+            status = f"Done -- {len(text)} chars (in clipboard)"
 
         # NEW-BUBBLE-TRANSCRIBING: Transcription + paste complete — hide the
         # bubble (or set it to idle for always_visible mode) so the overlay
         # doesn't persist on screen after the user has their result.
         try:
-            if self._app.config.bubble_behavior == 'always_visible':
+            if self._app.config.bubble_behavior == "always_visible":
                 self._app._waveform_bubble.set_state("idle")
             else:
                 self._app._waveform_bubble.hide()

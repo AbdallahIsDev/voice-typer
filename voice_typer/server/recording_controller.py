@@ -249,7 +249,10 @@ class RecordingController:
         if active is None or not getattr(active, "is_loaded", False):
             # No engine loaded -- try to load whisper as a fallback
             log.warning("[DICTATION] No loaded engine found, lazy-loading Whisper as fallback")
-            app._fallback_to_whisper(notify_on_failure=True)
+            # RW-9 Phase 2: was ``app._fallback_to_whisper(notify_on_failure=True)``
+            # (a test-seam delegate on VoiceTyperApp, now removed). Call the
+            # ModelManager method directly.
+            app.models.fallback_to_whisper(notify_on_failure=True)
             active = app.models.active_transcriber()
             if active is None or not getattr(active, "is_loaded", False):
                 log.error("[DICTATION] Whisper fallback also failed, cannot record")

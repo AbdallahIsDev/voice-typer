@@ -17,7 +17,8 @@ Coverage gap analysis:
 - _safe_key_press (line 712): exercise with mocked keyboard
 - _send_keystroke_sequence (line 896): exercise with mocked keyboard
 - _send_ctrl_v_win32 (line 915): non-Windows no-op + Windows mocked
-- schedule_clipboard_clear (line 726): schedule + cancel
+- schedule_clipboard_clear: DELETED in ADR-0010 §5.6 (replaced by
+  ClipboardSnapshot capture/restore; see test_clipboard_borrow_restore.py)
 - paste() (line 791): rate-limit, paste_enabled=False, safe-target blocks
 - copy() (line 612): empty text, pyperclip failure, verification retry
 """
@@ -40,6 +41,7 @@ sys.modules.setdefault("pyperclip", MagicMock())
 
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server.clipboard import (  # noqa: E402
+    ClipboardCopyError,
     ClipboardManager,
     Win32Clipboard,
     _ensure_pynput_imported,
@@ -49,10 +51,12 @@ from voice_typer.server.clipboard import (  # noqa: E402
     _is_password_field,
     _win32_empty_clipboard,
 )
+from voice_typer.server.clipboard_snapshot import ClipboardSnapshot  # noqa: E402
 
 # =============================================================================
 # _ensure_pynput_imported
 # =============================================================================
+
 
 class TestEnsurePynputImported:
     def test_idempotent_when_already_imported(self):
@@ -72,9 +76,11 @@ class TestEnsurePynputImported:
         """If pynput import raises, _Key/_Controller remain None."""
         clip_mod._Key = None
         clip_mod._Controller = None
-        with patch.dict(sys.modules, {"pynput": None, "pynput.keyboard": None}), \
-             patch("builtins.__import__", side_effect=ImportError("no pynput")), \
-             contextlib.suppress(ImportError):
+        with (
+            patch.dict(sys.modules, {"pynput": None, "pynput.keyboard": None}),
+            patch("builtins.__import__", side_effect=ImportError("no pynput")),
+            contextlib.suppress(ImportError),
+        ):
             # Should not raise
             _ensure_pynput_imported()
         # After failed import, state is implementation-defined; just verify no crash
@@ -84,12 +90,15 @@ class TestEnsurePynputImported:
 # Win32Clipboard (non-Windows paths)
 # =============================================================================
 
+
 class TestWin32ClipboardNonWindows:
     def test_constructor_raises_on_non_windows(self):
         """On non-Windows, Win32Clipboard.__init__ raises RuntimeError."""
-        with patch.object(clip_mod, "is_windows", return_value=False), \
-             pytest.raises(RuntimeError, match="only available on Windows"):
-                Win32Clipboard()
+        with (
+            patch.object(clip_mod, "is_windows", return_value=False),
+            pytest.raises(RuntimeError, match="only available on Windows"),
+        ):
+            Win32Clipboard()
 
     def test_get_sequence_number_returns_zero_on_non_windows(self):
         """get_sequence_number returns 0 on non-Windows."""
@@ -102,6 +111,7 @@ class TestWin32ClipboardNonWindows:
 # _win32_empty_clipboard
 # =============================================================================
 
+
 class TestWin32EmptyClipboard:
     def test_no_op_on_non_windows(self):
         """On non-Windows, _win32_empty_clipboard should not raise."""
@@ -112,6 +122,7 @@ class TestWin32EmptyClipboard:
 # =============================================================================
 # _is_elevated_target
 # =============================================================================
+
 
 class TestIsElevatedTarget:
     def test_returns_false_on_non_windows(self):
@@ -125,6 +136,7 @@ class TestIsElevatedTarget:
 # _focused_window_is_credential_dialog
 # =============================================================================
 
+
 class TestFocusedWindowIsCredentialDialog:
     def test_returns_false_on_non_windows(self):
         """On non-Windows, there are no Win32 credential dialogs."""
@@ -136,6 +148,7 @@ class TestFocusedWindowIsCredentialDialog:
 # =============================================================================
 # _is_password_field
 # =============================================================================
+
 
 class TestIsPasswordField:
     def test_returns_false_on_non_windows(self):
@@ -149,6 +162,7 @@ class TestIsPasswordField:
 # _is_content_editable
 # =============================================================================
 
+
 class TestIsContentEditable:
     def test_returns_false_on_non_windows(self):
         """On non-Windows, content-editable detection is unavailable."""
@@ -160,6 +174,7 @@ class TestIsContentEditable:
 # =============================================================================
 # ClipboardManager._is_terminal_process / _detect_focused_process
 # =============================================================================
+
 
 class TestTerminalProcessDetection:
     def test_known_terminal_names_return_true(self):
@@ -186,6 +201,7 @@ class TestTerminalProcessDetection:
 # =============================================================================
 # ClipboardManager._release_stuck_modifiers / _safe_key_press
 # =============================================================================
+
 
 class TestModifierRelease:
     def test_release_stuck_modifiers_does_not_crash_without_keyboard(self):
@@ -235,6 +251,7 @@ class TestSafeKeyPress:
 # ClipboardManager._send_keystroke_sequence
 # =============================================================================
 
+
 class TestSendKeystrokeSequence:
     def test_presses_and_releases_in_order(self):
         """_send_keystroke_sequence should press modifier+char, release both."""
@@ -265,6 +282,7 @@ class TestSendKeystrokeSequence:
 # ClipboardManager._send_ctrl_v_win32
 # =============================================================================
 
+
 class TestSendCtrlVWin32:
     def test_invokes_send_input_with_mocked_win32_api(self):
         """_send_ctrl_v_win32 builds an INPUT batch and calls SendInput.
@@ -281,10 +299,13 @@ class TestSendCtrlVWin32:
         mock_win32_util.KEYBOARDINPUT = MagicMock
         mock_win32_util.MouseInput = MagicMock
         mock_win32_util.HardwareInput = MagicMock
-        with patch.dict(sys.modules, {
-            "pynput._util": MagicMock(),
-            "pynput._util.win32": mock_win32_util,
-        }):
+        with patch.dict(
+            sys.modules,
+            {
+                "pynput._util": MagicMock(),
+                "pynput._util.win32": mock_win32_util,
+            },
+        ):
             cm = ClipboardManager.__new__(ClipboardManager)
             cm._keyboard = None
             mock_user32 = MagicMock()
@@ -300,42 +321,21 @@ class TestSendCtrlVWin32:
 
 # =============================================================================
 # ClipboardManager.schedule_clipboard_clear
+# -----------------------------------------------------------------------------
+# ADR-0010 §5.6: ``schedule_clipboard_clear`` (and the
+# ``_clear_thread`` / ``_saved_clipboard`` instance attributes it
+# managed) was DELETED from production. The borrow/restore lifecycle
+# is now driven by ``ClipboardSnapshot.capture()`` in ``copy()`` and
+# ``_delayed_restore()`` in ``paste()``. The entire
+# ``TestScheduleClipboardClear`` class below has been removed — the
+# production method it exercised no longer exists.
 # =============================================================================
-
-class TestScheduleClipboardClear:
-    def test_schedules_clear_with_delay(self):
-        """schedule_clipboard_clear should start a timer thread."""
-        cm = ClipboardManager.__new__(ClipboardManager)
-        cm._clear_thread = None
-        cm._last_copied_text = "sensitive"
-        cm._saved_clipboard = None
-        cm._clipboard_save_restore_enabled = False  # don't actually save/restore
-        with patch.object(clip_mod, "log"):
-            cm.schedule_clipboard_clear(delay=0.05)
-        # Wait for thread to complete
-        if cm._clear_thread is not None:
-            cm._clear_thread.join(timeout=1.0)
-        # Should not raise
-
-    def test_does_not_schedule_if_already_scheduled(self):
-        """If a clear thread is already running, schedule should be a no-op."""
-        # Implementation actually always creates a new thread (no early-exit).
-        # Verify it doesn't crash with an existing thread attribute set.
-        cm = ClipboardManager.__new__(ClipboardManager)
-        existing_thread = MagicMock()
-        existing_thread.is_alive.return_value = True
-        cm._clear_thread = existing_thread
-        cm._last_copied_text = "x"
-        cm._saved_clipboard = None
-        cm._clipboard_save_restore_enabled = False
-        cm.schedule_clipboard_clear(delay=0.1)
-        # Should start a new thread (replacing the old one)
-        assert cm._clear_thread is not None
 
 
 # =============================================================================
 # ClipboardManager.paste
 # =============================================================================
+
 
 class TestPaste:
     def test_paste_returns_false_when_disabled(self):
@@ -344,6 +344,7 @@ class TestPaste:
         cm.paste_enabled = False
         cm._keyboard = None
         cm._last_paste_time = 0.0
+        cm._restore_delay_ms = 150
         result = cm.paste()
         assert result is False
 
@@ -354,11 +355,13 @@ class TestPaste:
         cm._keyboard = MagicMock()
         cm._last_paste_time = time.monotonic()  # just pasted
         cm._clipboard_seq = 0
-        cm._saved_clipboard = None
         cm._clipboard_save_restore_enabled = False
-        with patch.object(clip_mod, "is_windows", return_value=False), \
-             patch.object(ClipboardManager, "_is_safe_paste_target", return_value=True):
-                result = cm.paste()
+        cm._restore_delay_ms = 150
+        with (
+            patch.object(clip_mod, "is_windows", return_value=False),
+            patch.object(ClipboardManager, "_is_safe_paste_target", return_value=True),
+        ):
+            result = cm.paste()
         assert result is False  # rate-limited
 
     def test_paste_returns_false_when_unsafe_target(self):
@@ -368,11 +371,13 @@ class TestPaste:
         cm._keyboard = MagicMock()
         cm._last_paste_time = 0.0  # long ago, not rate limited
         cm._clipboard_seq = 0
-        cm._saved_clipboard = None
         cm._clipboard_save_restore_enabled = False
-        with patch.object(clip_mod, "is_windows", return_value=False), \
-             patch.object(ClipboardManager, "_is_safe_paste_target", return_value=False):
-                result = cm.paste()
+        cm._restore_delay_ms = 150
+        with (
+            patch.object(clip_mod, "is_windows", return_value=False),
+            patch.object(ClipboardManager, "_is_safe_paste_target", return_value=False),
+        ):
+            result = cm.paste()
         assert result is False
 
 
@@ -380,37 +385,45 @@ class TestPaste:
 # ClipboardManager.copy edge cases
 # =============================================================================
 
-class TestCopyEdgeCases:
-    def test_copy_empty_string_returns_false(self):
-        """Empty string should not be copied."""
-        cm = ClipboardManager.__new__(ClipboardManager)
-        cm._keyboard = None
-        cm._clipboard_seq = 0
-        cm._last_copied_text = ""
-        cm._clipboard_save_restore_enabled = False
-        cm._clear_thread = None
-        with patch.object(clip_mod, "pyperclip", MagicMock()):
-            result = cm.copy("")
-        assert result is False
 
-    def test_copy_handles_pyperclip_failure_gracefully(self):
-        """If pyperclip.copy raises, copy() should return False (not crash)."""
+class TestCopyEdgeCases:
+    def test_copy_empty_string_returns_none(self):
+        """Empty string should not be copied; returns None (no snapshot)."""
         cm = ClipboardManager.__new__(ClipboardManager)
         cm._keyboard = None
         cm._clipboard_seq = 0
         cm._last_copied_text = ""
         cm._clipboard_save_restore_enabled = False
-        cm._clear_thread = None
+        cm._restore_delay_ms = 150
+        with (
+            patch.object(clip_mod, "pyperclip", MagicMock()),
+            patch.object(ClipboardSnapshot, "capture", return_value=None),
+        ):
+            result = cm.copy("")
+        assert result is None
+
+    def test_copy_raises_clipboard_copy_error_on_pyperclip_failure(self):
+        """If pyperclip.copy raises, copy() raises ClipboardCopyError."""
+        cm = ClipboardManager.__new__(ClipboardManager)
+        cm._keyboard = None
+        cm._clipboard_seq = 0
+        cm._last_copied_text = ""
+        cm._clipboard_save_restore_enabled = False
+        cm._restore_delay_ms = 150
         mock_pyper = MagicMock()
         mock_pyper.copy.side_effect = Exception("clipboard locked")
-        with patch.object(clip_mod, "pyperclip", mock_pyper):
-            result = cm.copy("hello")
-        assert result is False
+        with (
+            patch.object(clip_mod, "pyperclip", mock_pyper),
+            patch.object(ClipboardSnapshot, "capture", return_value=None),
+            pytest.raises(ClipboardCopyError),
+        ):
+            cm.copy("hello")
 
 
 # =============================================================================
 # ClipboardManager.refresh_config
 # =============================================================================
+
 
 class TestRefreshConfig:
     def test_reads_clipboard_save_restore_flag(self):
@@ -434,9 +447,7 @@ class TestRefreshConfig:
         cm = ClipboardManager.__new__(ClipboardManager)
         cm._clipboard_save_restore_enabled = False
         cfg = MagicMock()
-        type(cfg).clipboard_save_restore = PropertyMock(
-            side_effect=RuntimeError("boom")
-        )
+        type(cfg).clipboard_save_restore = PropertyMock(side_effect=RuntimeError("boom"))
         cm.refresh_config(cfg)
         assert cm._clipboard_save_restore_enabled is True
 
@@ -444,6 +455,7 @@ class TestRefreshConfig:
 # =============================================================================
 # ClipboardManager._is_safe_paste_target (non-Windows path)
 # =============================================================================
+
 
 class TestIsSafePasteTarget:
     def test_returns_true_on_non_windows(self):
