@@ -430,8 +430,19 @@ class TestStopCallbackBackoff:
 
     def test_stop_returns_promptly_after_stream_stop(self, monkeypatch):
         """When ``_is_in_audio_callback`` stays set (callback hung),
-        ``stop()`` returns as soon as ``stream.stop()`` returns.  The
-        old 300ms hard deadline is gone — PortAudio's own timeout governs."""
+        ``stop()`` is bounded by the 300ms hard deadline in
+        ``_teardown_stream``. After the deadline, ``stream.close()`` is
+        called and ``stop()`` returns regardless of the flag state.
+
+        PERF-FIX-002 (Round 0 forward-port) re-introduced the manual
+        poll loop after discovering PortAudio's ``stream.stop()`` does
+        not always drain the in-flight callback before returning — the
+        poll is a safety net against use-after-free in ``stream.close()``.
+        See ``_teardown_stream`` docstring (recording.py:1563) for the
+        full AUDIO-009/AUDIO-015 history.
+        """
+        import time as real_time
+
         import voice_typer.server.recording as rec_mod
         from voice_typer.server.recording import Recorder
 
@@ -445,9 +456,11 @@ class TestStopCallbackBackoff:
         # Flag stays set (callback never completes from our perspective).
         r._is_in_audio_callback.set()
 
-        # No fake perf_counter / sleep — the new contract doesn't poll.
-        # stream.stop() (MagicMock) returns immediately, so stop() should
-        # also return immediately without sleeping.
+        # Mock time.sleep to a no-op so the test doesn't physically
+        # sleep 300ms. The poll loop's real perf_counter deadline still
+        # bounds the spin: each iteration advances perf_counter by a
+        # few µs, so the 300ms budget is exhausted after ~300ms of real
+        # time and the loop breaks via the ``remaining <= 0`` guard.
         sleep_calls = []
         monkeypatch.setattr(
             rec_mod.time,
@@ -455,11 +468,29 @@ class TestStopCallbackBackoff:
             lambda s: sleep_calls.append(s),
         )
 
-        # Should not raise, should complete promptly.
+        # stop() should return within the 300ms poll budget + small
+        # overhead. Use real perf_counter (not mocked) so the loop's
+        # deadline check actually advances.
+        t0 = real_time.perf_counter()
         r.stop()
+        elapsed = real_time.perf_counter() - t0
 
-        # No sleep calls — the manual poll loop is gone.
-        assert len(sleep_calls) == 0, f"Expected 0 sleep calls (no manual poll), got {len(sleep_calls)}"
+        # The poll loop ran — sleep was called while the callback flag
+        # was set.
+        assert len(sleep_calls) > 0, (
+            f"Expected poll loop to run with callback flag set, "
+            f"got {len(sleep_calls)} sleep calls"
+        )
+        # The 300ms hard deadline bounded the wait. 1.0s gives ample
+        # headroom over the 300ms budget + per-iteration overhead.
+        assert elapsed < 1.0, (
+            f"stop() took {elapsed:.3f}s — expected < 1.0s "
+            f"(300ms poll budget + overhead)"
+        )
+        # Stream was fully torn down: close() called, _stream set to None.
+        assert r._stream is None, (
+            f"Expected r._stream to be None after stop(), got {r._stream!r}"
+        )
 
     def test_user_stop_pending_flag_set_during_stop(self, monkeypatch):
         """STREAM-FIX: stop() must set _user_stop_pending before
@@ -874,3 +905,105 @@ class TestRecordingParametrized:
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
         assert r._silence_timer == 0.0
+
+
+# ─── B-3/S-3: scipy preloader no longer spawns at import time ────────────
+
+
+class TestScipyPreloaderDeferredSpawn:
+    """B-3/S-3: ``recording.py`` must NOT spawn a background thread at
+    module import time. The scipy preloader is now started lazily from
+    ``Recorder.__init__`` so importing the module is side-effect-free
+    (every test that imported recording.py previously triggered a real
+    scipy.signal.resample_poly import in a background thread).
+    """
+
+    def test_no_scipy_preloader_thread_after_pure_import(self):
+        """Importing the recording module does not start the preloader thread.
+
+        We verify by importing the module in a fresh subprocess and
+        checking that no thread named ``scipy-preloader`` exists. A
+        subprocess is required because the test process itself has
+        already imported recording.py (and thus may have a Recorder
+        that started the preloader).
+        """
+        import subprocess
+        code = (
+            "import threading, sys\n"
+            "from voice_typer.server import recording\n"
+            "# B-3: module import must not spawn the preloader.\n"
+            "names = [t.name for t in threading.enumerate()]\n"
+            "assert 'scipy-preloader' not in names, (\n"
+            "    f'B-3 regression: scipy-preloader thread spawned at '\n"
+            "    f'module import time. Threads: {names}'\n"
+            ")\n"
+            "assert recording._scipy_preloader_thread is None, (\n"
+            "    f'B-3 regression: _scipy_preloader_thread is set after '\n"
+            "    f'import: {recording._scipy_preloader_thread!r}'\n"
+            ")\n"
+            "print('OK')\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert result.returncode == 0, (
+            f"B-3 subprocess failed:\n"
+            f"STDOUT: {result.stdout}\n"
+            f"STDERR: {result.stderr}"
+        )
+        assert "OK" in result.stdout
+
+    def test_start_scipy_preloader_is_idempotent(self, monkeypatch):
+        """Calling ``_start_scipy_preloader`` twice does not spawn two threads.
+
+        B-3: the preloader is started from ``Recorder.__init__``, which
+        can be called many times (one per Recorder instance). The
+        function must be idempotent: if a preloader is already alive,
+        don't start a second one.
+        """
+        from voice_typer.server import recording
+
+        # Reset state — other tests may have left a preloader running.
+        monkeypatch.setattr(recording, "_scipy_preloader_thread", None)
+        monkeypatch.setattr(recording, "_resample_poly", None)
+
+        recording._start_scipy_preloader()
+        first_thread = recording._scipy_preloader_thread
+        assert first_thread is not None, "first call should start a thread"
+        assert first_thread.is_alive() or first_thread.is_alive() is False
+        # ^ Thread may have already finished (scipy import is fast on
+        # warm cache). Either way, the reference should be set.
+
+        # Second call: if first is still alive, must be a no-op.
+        # If first has exited but _resample_poly is still None (failed),
+        # a new thread is allowed — but we patch is_alive to True to
+        # simulate "still loading" and verify idempotency.
+        import unittest.mock as _mock
+        with _mock.patch.object(first_thread, "is_alive", return_value=True):
+            recording._start_scipy_preloader()
+            assert recording._scipy_preloader_thread is first_thread, (
+                "B-3 idempotency regression: second call to "
+                "_start_scipy_preloader() spawned a new thread while "
+                "the first was still alive."
+            )
+
+    def test_start_scipy_preloader_skips_when_scipy_already_loaded(
+        self, monkeypatch
+    ):
+        """If scipy already loaded successfully (cached), don't spawn a
+        new preloader thread — it would be a wasted thread.
+        """
+        from voice_typer.server import recording
+
+        # Simulate scipy already loaded.
+        monkeypatch.setattr(recording, "_scipy_preloader_thread", None)
+        monkeypatch.setattr(recording, "_resample_poly", lambda *a, **kw: None)
+
+        recording._start_scipy_preloader()
+        assert recording._scipy_preloader_thread is None, (
+            "B-3 regression: _start_scipy_preloader spawned a thread "
+            "even though _resample_poly was already cached."
+        )

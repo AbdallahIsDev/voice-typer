@@ -152,17 +152,24 @@ class TestConfigLoadSave:
         assert c.hotkey == EXPECTED_DEFAULT_HOTKEY  # defaults
 
     def test_load_logs_error_on_corrupt_file(self, tmp_path, monkeypatch, caplog):
-        """P1 fix: Config.load() must log errors instead of silently swallowing them."""
+        """P1 fix: Config.load() must log instead of silently swallowing failures.
+
+        RW-9: the level was lowered from ERROR to WARNING (recovery to
+        defaults is a recoverable event, not a fatal error) and the
+        message now includes the exception class name and file path so
+        the user can see *why* their settings were reset.
+        """
         import logging
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         config_file = tmp_path / "config.json"
         config_file.write_text("NOT VALID JSON {{{")
 
-        with caplog.at_level(logging.ERROR, logger="voice_typer.server.config"):
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             Config.load()
 
-        assert any("corrupted" in r.message.lower() or "failed to load" in r.message.lower()
-                    for r in caplog.records)
+        # RW-9: warning must include the failure-mode name and file path.
+        assert any("JSONDecodeError" in r.message for r in caplog.records)
+        assert any(str(config_file) in r.message for r in caplog.records)
 
     def test_round_trip(self, tmp_path, monkeypatch):
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)

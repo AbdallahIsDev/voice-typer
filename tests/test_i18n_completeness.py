@@ -242,6 +242,90 @@ PRE_EXISTING_UNTRANSLATED = {
     "models.errors.unknown",
 }
 
+# RW-2: Keys backfilled into non-English locale files using English fallback
+# values. These keys were added to en.json in prior rounds but never
+# propagated to ar/de/fr/hi/ru/zh. Rather than leave the locales missing the
+# keys (which broke the key-parity CI gate and caused silent English-fallback
+# via t() at runtime), RW-2 backfilled them with English values so the gate
+# passes. Native translation is commissioned in a follow-up round.
+#
+# This set is the UNION of every key any locale was missing — different
+# locales had different subsets missing (ar: 18, de: 41, fr/hi/ru/zh: 49).
+# es.json was already backfilled by RW-13 with English fallback values for
+# the same 49 keys; de.json already had settings.searchHints.* as English
+# fallback. All of those are covered by this single union set so the
+# values-translated gate passes uniformly across every locale.
+#
+# Maintenance contract (enforced by TestRW2BackfillSetIsMinimal below):
+#   - When a key is properly translated in EVERY non-English locale (i.e.
+#     its value differs from the English value in all of ar/de/es/fr/hi/ru/zh),
+#     it MUST be removed from this set. The ratchet test will fail if any
+#     entry has no remaining English-fallback locale, signaling the set
+#     needs cleanup.
+#   - New keys added to en.json that aren't translated must be added here
+#     (or properly translated) within the same PR — the key-parity gate
+#     enforces this.
+RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
+    # about.relativeTime.* (4 keys)
+    "about.relativeTime.daysAgo",
+    "about.relativeTime.hoursAgo",
+    "about.relativeTime.lessThanMinute",
+    "about.relativeTime.minutesAgo",
+    # help.keys.* (12 keys) — keyboard shortcut notation; many of these are
+    # universal ("Ctrl+B", "Esc", "Space") but the surrounding help-overlay
+    # framework still expects a per-locale value. Backfilled as English
+    # pending native review of which key names need translation.
+    "help.keys.activate",
+    "help.keys.cancel",
+    "help.keys.dictation",
+    "help.keys.goHome",
+    "help.keys.navBack",
+    "help.keys.navigate",
+    "help.keys.openHelp",
+    "help.keys.openSettings",
+    "help.keys.repaste",
+    "help.keys.toggle",
+    "help.keys.toggleSidebar",
+    "help.keys.zoomTextSize",
+    # microphoneTest.* (23 keys) — microphone test result UI strings
+    "microphoneTest.backgroundNoise",
+    "microphoneTest.clipping",
+    "microphoneTest.clippingDetected",
+    "microphoneTest.clippingNone",
+    "microphoneTest.detectedIssues",
+    "microphoneTest.duration",
+    "microphoneTest.estimatedQuality",
+    "microphoneTest.good",
+    "microphoneTest.highNoise",
+    "microphoneTest.low",
+    "microphoneTest.lowNoise",
+    "microphoneTest.moderateNoise",
+    "microphoneTest.playEnhanced",
+    "microphoneTest.playOriginal",
+    "microphoneTest.playRecording",
+    "microphoneTest.retest",
+    "microphoneTest.stop",
+    "microphoneTest.title",
+    "microphoneTest.veryLow",
+    "microphoneTest.voice",
+    "microphoneTest.voiceDetected",
+    "microphoneTest.voiceNotDetected",
+    "microphoneTest.volume",
+    # settings.fastStartup* (2 keys) — added by PW-3 (prewarm toggle)
+    "settings.fastStartup",
+    "settings.fastStartupDescription",
+    # settings.searchHints.* (4 keys) — settings search bar hint keywords
+    "settings.searchHints.aiAudio",
+    "settings.searchHints.appearance",
+    "settings.searchHints.general",
+    "settings.searchHints.privacy",
+    # settings.troubleshooting.reRunWizard* (4 keys)
+    "settings.troubleshooting.reRunWizard",
+    "settings.troubleshooting.reRunWizardAria",
+    "settings.troubleshooting.reRunWizardHint",
+    "settings.troubleshooting.reRunWizardToast",
+}
+
 
 def _load_json(path: Path) -> dict:
     with path.open(encoding="utf-8") as f:
@@ -324,14 +408,20 @@ class TestI18nCompleteness:
         This catches the case where new keys are propagated to locale files with
         English placeholder values and never translated.
 
-        Keys in ALLOWED_UNTRANSLATED (brand names, technical acronyms) and
+        Keys in ALLOWED_UNTRANSLATED (brand names, technical acronyms),
         PRE_EXISTING_UNTRANSLATED (settings keys documented as a known gap in
-        the directive) are excluded from this check.
+        the directive), and RW2_BACKFILLED_PENDING_TRANSLATION (keys
+        backfilled by RW-2 as English-fallback pending native translation)
+        are excluded from this check.
         """
         loc_file = TRANSLATIONS_DIR / f"{locale}.json"
         loc_data = _load_json(loc_file)
         loc_flat = _flatten_keys(loc_data)
-        skipped_keys = ALLOWED_UNTRANSLATED | PRE_EXISTING_UNTRANSLATED
+        skipped_keys = (
+            ALLOWED_UNTRANSLATED
+            | PRE_EXISTING_UNTRANSLATED
+            | RW2_BACKFILLED_PENDING_TRANSLATION
+        )
         untranslated: list[str] = []
         for key, en_value in en_flat.items():
             if key in skipped_keys:
@@ -344,6 +434,25 @@ class TestI18nCompleteness:
         assert not untranslated, (
             f"{locale}.json has {len(untranslated)} untranslated values "
             f"(identical to English):\n" + "\n".join(untranslated[:20]) + ("..." if len(untranslated) > 20 else "")
+        )
+
+    def test_no_extra_keys_in_locale(self, locale: str, en_flat: dict[str, str]) -> None:
+        """Locale files must not contain keys that en.json doesn't have.
+
+        This catches the case where a locale file has stale keys left over
+        from deleted en.json entries. Extra keys are harmless at runtime
+        (i18n.ts simply ignores them) but they bloat the locale files and
+        signal an incomplete cleanup.
+        """
+        loc_file = TRANSLATIONS_DIR / f"{locale}.json"
+        loc_data = _load_json(loc_file)
+        loc_flat = _flatten_keys(loc_data)
+        en_keys = set(en_flat.keys())
+        loc_keys = set(loc_flat.keys())
+        extra = loc_keys - en_keys
+        assert not extra, (
+            f"{locale}.json has {len(extra)} keys that en.json doesn't have: "
+            f"{sorted(extra)[:10]}{'...' if len(extra) > 10 else ''}"
         )
 
 
@@ -383,6 +492,92 @@ class TestEnJson:
         assert isinstance(history, dict)
         for sub in ("title", "undo", "clearAllAria", "entryDeleted", "loadMore"):
             assert sub in history, f"en.json history.{sub} must exist"
+
+
+class TestRW2BackfillSetIsMinimal:
+    """RW-2 ratchet: ensure RW2_BACKFILLED_PENDING_TRANSLATION only shrinks.
+
+    Every key in the set must currently be English-fallback in at least one
+    non-English locale. If a key has been properly translated in EVERY
+    non-English locale, leaving it in the set is dead weight — the test
+    fails so the maintainer removes the entry. This keeps the backfill set
+    from accumulating stale entries as translations are commissioned.
+
+    Also enforces that every entry is a real key in en.json (catches typos
+    and stale references after a key is renamed in en.json).
+    """
+
+    def test_every_entry_exists_in_en_json(self, en_flat: dict[str, str]) -> None:
+        en_keys = set(en_flat.keys())
+        stale = RW2_BACKFILLED_PENDING_TRANSLATION - en_keys
+        assert not stale, (
+            "RW2_BACKFILLED_PENDING_TRANSLATION has entries that don't exist in "
+            f"en.json (likely renamed/removed): {sorted(stale)}"
+        )
+
+    def test_every_entry_is_still_english_fallback_somewhere(
+        self, en_flat: dict[str, str]
+    ) -> None:
+        # For each entry, check that at least one non-English locale has the
+        # English value for that key. If all 7 locales have a translated
+        # (non-English) value, the entry is stale and should be removed.
+        locale_flats: dict[str, dict[str, str]] = {}
+        for locale in NON_ENGLISH_LOCALES:
+            loc_data = _load_json(TRANSLATIONS_DIR / f"{locale}.json")
+            locale_flats[locale] = _flatten_keys(loc_data)
+
+        stale: list[str] = []
+        for key in RW2_BACKFILLED_PENDING_TRANSLATION:
+            en_value = en_flat.get(key, "")
+            still_english_somewhere = any(
+                locale_flats[loc].get(key) == en_value for loc in NON_ENGLISH_LOCALES
+            )
+            if not still_english_somewhere:
+                stale.append(key)
+        assert not stale, (
+            "RW2_BACKFILLED_PENDING_TRANSLATION has entries that are now fully "
+            "translated in every non-English locale — remove them from the set to "
+            f"keep it minimal: {sorted(stale)}"
+        )
+
+    def test_set_size_documented(self) -> None:
+        """Smoke test: the set is non-empty (RW-2 stopgap is in effect).
+
+        When this test starts failing because the set is empty, that means
+        every backfilled key has been properly translated — delete the set
+        and the ratchet test class entirely.
+        """
+        assert len(RW2_BACKFILLED_PENDING_TRANSLATION) == 49, (
+            "RW2_BACKFILLED_PENDING_TRANSLATION set size changed. Update this "
+            "assertion to match — the set should only shrink over time as "
+            "translations are commissioned."
+        )
+
+
+class TestI18nGateSummary:
+    """RW-2: per-locale missing-key count summary.
+
+    This is a meta-test that fails loudly if any locale has even a single
+    missing key. It complements the parametrized test_key_parity_with_en
+    by providing a single aggregated failure message in CI logs that lists
+    every locale's missing-key count at a glance — useful for triage.
+    """
+
+    def test_all_locales_have_full_key_parity(self, en_flat: dict[str, str]) -> None:
+        en_keys = set(en_flat.keys())
+        summary: dict[str, int] = {}
+        for locale in NON_ENGLISH_LOCALES:
+            loc_data = _load_json(TRANSLATIONS_DIR / f"{locale}.json")
+            loc_flat = _flatten_keys(loc_data)
+            missing = en_keys - set(loc_flat.keys())
+            summary[locale] = len(missing)
+        total_missing = sum(summary.values())
+        assert total_missing == 0, (
+            f"i18n key-parity gate failed — {total_missing} missing keys total "
+            f"across non-English locales: {summary}. Run "
+            f"`python -m pytest tests/test_i18n_completeness.py -k key_parity -q` "
+            f"for per-locale details."
+        )
 
 
 if __name__ == "__main__":

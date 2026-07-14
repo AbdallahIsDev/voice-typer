@@ -381,7 +381,7 @@ class TestOpenElectronWindow:
         """The primary path should push {"type": "show_window"} via TCP."""
         pushed = []
         monkeypatch.setattr(
-            "voice_typer.server.ipc_server._push_event_now",
+            "voice_typer.server.event_bus.publish",
             lambda msg: (pushed.append(msg) or True),
         )
         tray.open_electron_window()
@@ -391,7 +391,7 @@ class TestOpenElectronWindow:
     def test_falls_back_to_bring_electron_to_front(self, tray, monkeypatch):
         """When TCP push fails, should try bring_electron_to_front."""
         monkeypatch.setattr(
-            "voice_typer.server.ipc_server._push_event_now",
+            "voice_typer.server.event_bus.publish",
             lambda msg: False,
         )
         called = []
@@ -407,7 +407,7 @@ class TestOpenElectronWindow:
     def test_falls_back_to_launching_electron(self, tray, monkeypatch):
         """When TCP push and Win32 focus both fail, should launch Electron."""
         monkeypatch.setattr(
-            "voice_typer.server.ipc_server._push_event_now",
+            "voice_typer.server.event_bus.publish",
             lambda msg: False,
         )
         import voice_typer.server.tray_window as tw_mod
@@ -428,7 +428,7 @@ class TestOpenElectronWindow:
     def test_primary_path_skips_win32_and_launch(self, tray, monkeypatch):
         """When TCP push succeeds, neither Win32 focus nor launch should run."""
         monkeypatch.setattr(
-            "voice_typer.server.ipc_server._push_event_now",
+            "voice_typer.server.event_bus.publish",
             lambda msg: True,
         )
         win32_called = []

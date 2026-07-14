@@ -68,8 +68,9 @@ def _stub_restart_environment(app, monkeypatch):
     """
     # Stub IPC push so restart_app / quit_app doesn't try to write to a
     # real TCP socket.
+    # B-1: production code now calls event_bus.publish directly.
     monkeypatch.setattr(
-        "voice_typer.server.ipc_server._push_event_now",
+        "voice_typer.server.event_bus.publish",
         lambda msg: None,
     )
     # Skip the 300ms pre-exit sleep in restart_app.

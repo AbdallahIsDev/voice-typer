@@ -87,10 +87,10 @@ class TestEndToEndSmoke:
 
     def test_download_model_pushes_progress_events(self, temp_config, monkeypatch):
         """UX-005: download_model pushes progress events via IPC."""
-        import voice_typer.server.ipc_server as ipc_mod
+        import voice_typer.server.event_bus as event_bus_mod
         from voice_typer.server.service import VoiceTyperService
         events = []
-        monkeypatch.setattr(ipc_mod, "_push_event_now", lambda msg: events.append(msg) or True)
+        monkeypatch.setattr(event_bus_mod, "publish", lambda msg: events.append(msg) or True)
         # Mock Qwen with existing path → success path
         app = MagicMock()
         app.config.qwen_model_path = str(temp_config)
@@ -102,13 +102,19 @@ class TestEndToEndSmoke:
         assert any(e["data"]["progress"] == 100 for e in progress_events)
 
     def test_recorder_rms_forwards_audio_chunk_to_waveform(self):
-        """T021: app._on_recorder_rms forwards audio_chunk to update_level."""
+        """T021: RecordingController.on_recorder_rms forwards audio_chunk to update_level.
+
+        The RMS callback was moved from VoiceTyperApp._on_recorder_rms to
+        RecordingController.on_recorder_rms as part of the RecordingController
+        extraction (commit 9e53ffe). The forwarded audio_chunk is what
+        WaveformBubble.update_level uses to run Silero VAD on the live stream.
+        """
         import inspect
 
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.recording_controller import RecordingController
         from voice_typer.server.waveform import WaveformBubble
         # Check signatures
-        app_sig = inspect.signature(VoiceTyperApp._on_recorder_rms)
+        app_sig = inspect.signature(RecordingController.on_recorder_rms)
         assert "audio_chunk" in app_sig.parameters
         bubble_sig = inspect.signature(WaveformBubble.update_level)
         assert "audio_chunk" in bubble_sig.parameters

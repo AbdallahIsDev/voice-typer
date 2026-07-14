@@ -453,10 +453,11 @@ class TestRestartRestoresBeforeExiting:
         backend.fade_to = spy_fade
 
         # fix-restart-tcp: restart_app() no longer calls subprocess.Popen.
-        # Stub _push_event_now so the TCP push doesn't blow up in the
+        # Stub event_bus.publish so the TCP push doesn't blow up in the
         # test environment (no IPC server wired up).
+        # B-1: production code now calls event_bus.publish directly.
         import voice_typer.server.app as app_mod
-        with patch("voice_typer.server.ipc_server._push_event_now"):
+        with patch("voice_typer.server.event_bus.publish"):
             # Also stub the rest of restart_app() that would block or kill
             app._cancel_pending_timers = MagicMock()
             app.hotkeys._hotkey_backend = MagicMock()

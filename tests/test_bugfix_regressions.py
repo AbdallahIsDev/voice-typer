@@ -1184,8 +1184,21 @@ class TestAudioClipRealtimeIpcEvent:
             "AUDIO-CLIP: recording callback must push an 'audio_clip' IPC "
             "event when clipping is detected."
         )
-        assert "_push_event_now" in src, (
-            "AUDIO-CLIP: recording callback must call _push_event_now."
+        # B-1 + RW-8: production code now enqueues the event on
+        # ``self._event_queue`` (a queue.Queue) instead of calling
+        # ``event_bus.publish`` directly. A dedicated worker thread
+        # drains the queue and calls ``event_bus.publish`` off the
+        # audio hot path. The invariant — "the recording callback
+        # pushes an event to the IPC channel" — is preserved (just
+        # async via the queue).
+        assert (
+            "_event_queue.put" in src
+            or "event_bus.publish" in src
+            or "_push_event_now" in src
+        ), (
+            "AUDIO-CLIP: recording callback must enqueue the audio_clip "
+            "event via _event_queue.put (RW-8 worker queue) OR call "
+            "event_bus.publish / _push_event_now directly."
         )
 
 class TestTrayIconBaseIcoLookup:
@@ -2830,7 +2843,7 @@ class TestElectronNotificationFieldValidation:
         server = self._make_server()
         captured = {}
         with patch(
-            "voice_typer.server.handlers.system_handlers._push_event_now",
+            "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
             resp = server._dispatch({
@@ -2851,7 +2864,7 @@ class TestElectronNotificationFieldValidation:
         server = self._make_server()
         captured = {}
         with patch(
-            "voice_typer.server.handlers.system_handlers._push_event_now",
+            "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
             resp = server._dispatch({
@@ -2879,7 +2892,7 @@ class TestElectronNotificationFieldValidation:
         server = self._make_server()
         captured = {}
         with patch(
-            "voice_typer.server.handlers.system_handlers._push_event_now",
+            "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
             resp = server._dispatch({

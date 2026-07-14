@@ -17,11 +17,17 @@ from voice_typer.server import prewarm
 class TestGuards:
     """Config flag and RAM budget guards short-circuit prewarming safely."""
 
-    def test_fast_startup_always_enabled_bypasses_flag(self, monkeypatch):
-        """fast_startup is always enabled — the flag check always passes.
-        Guards/import failures take over (we only assert it isn't
-        EXIT_DISABLED)."""
+    def test_fast_startup_default_enabled_bypasses_flag(self, monkeypatch, tmp_path):
+        """When fast_startup is True (the default), prewarm proceeds past the
+        flag check and reaches the RAM guard.
+
+        PW-3: ``_fast_startup_enabled`` now reads ``Config.fast_startup``
+        rather than being a stub. We patch it to True to isolate the
+        downstream guards from the user's actual config (the same way
+        the other tests in this class do).
+        """
         monkeypatch.setattr(prewarm, "_setup_logging", lambda: None)
+        monkeypatch.setattr(prewarm, "_fast_startup_enabled", lambda: True)
         # ADR-0009 Issue 2: the sentinel check now runs BEFORE the RAM
         # check. Mock _already_warmed to return False so the test is
         # machine-state-independent (matches the pattern in
@@ -30,7 +36,50 @@ class TestGuards:
         # Force a low-RAM skip so we don't do real work.
         monkeypatch.setattr(prewarm, "_free_ram_mb", lambda: 100)
         result = prewarm.run(min_ram_mb=1024)
-        assert result == prewarm.EXIT_LOW_RAM  # flag is always bypassed
+        assert result == prewarm.EXIT_LOW_RAM  # flag is bypassed when True
+
+    def test_fast_startup_disabled_returns_exit_disabled(self, monkeypatch):
+        """PW-3: when ``_fast_startup_enabled()`` returns False, ``run()``
+        short-circuits with :data:`EXIT_DISABLED` — no prewarming attempted.
+        """
+        monkeypatch.setattr(prewarm, "_setup_logging", lambda: None)
+        monkeypatch.setattr(prewarm, "_fast_startup_enabled", lambda: False)
+        # Force a high-RAM value so we know the only reason for skipping
+        # is the fast_startup flag, not the RAM guard.
+        monkeypatch.setattr(prewarm, "_free_ram_mb", lambda: 99999)
+        monkeypatch.setattr(prewarm, "_already_warmed", lambda: False)
+        result = prewarm.run()
+        assert result == prewarm.EXIT_DISABLED
+
+    def test_fast_startup_enabled_reads_config_value(self, monkeypatch, tmp_path):
+        """PW-3: ``_fast_startup_enabled()`` reads ``Config.fast_startup``.
+
+        Patches ``Config.load`` to return a config with ``fast_startup=False``
+        and asserts the function returns False. Also verifies the
+        fail-safe: when ``Config.load`` raises, the function returns True
+        so a broken config never silently disables prewarm.
+        """
+        # Branch 1: config says False → function returns False.
+        fake_config = MagicMock()
+        fake_config.fast_startup = False
+        monkeypatch.setattr(
+            "voice_typer.server.config.Config.load",
+            lambda: fake_config,
+        )
+        assert prewarm._fast_startup_enabled() is False
+
+        # Branch 2: config says True → function returns True.
+        fake_config.fast_startup = True
+        assert prewarm._fast_startup_enabled() is True
+
+        # Branch 3: Config.load raises → function falls back to True.
+        def _raise() -> None:
+            raise RuntimeError("boom")
+        monkeypatch.setattr(
+            "voice_typer.server.config.Config.load",
+            _raise,
+        )
+        assert prewarm._fast_startup_enabled() is True
 
     def test_low_ram_returns_exit_low_ram(self, monkeypatch):
         """Free RAM below budget → EXIT_LOW_RAM, no prewarming attempted."""
@@ -154,7 +203,7 @@ class TestSentinelBeforeRam:
         # RAM is below budget — if the check ran, we'd see EXIT_LOW_RAM.
         monkeypatch.setattr(prewarm, "_free_ram_mb", lambda: 100)
 
-        with caplog.at_level("INFO", logger="voice_typer.prewarm"):
+        with caplog.at_level("INFO", logger="voice_typer.server.prewarm"):
             result = prewarm.run(min_ram_mb=6144)
 
         assert result == prewarm.EXIT_OK
@@ -1025,7 +1074,7 @@ class TestCli:
         spawn_called = []
         monkeypatch.setattr(
             prewarm, "spawn_background_prewarm",
-            lambda force=True: spawn_called.append(force) or 12345,
+            lambda force=True, trigger=None: spawn_called.append(force) or 12345,
         )
         # run() must NOT be called — --background exits immediately.
         def run_must_not_be_called(*a, **kw):
@@ -1081,7 +1130,7 @@ class TestCli:
         spawn_called = []
         monkeypatch.setattr(
             prewarm, "spawn_background_prewarm",
-            lambda force=True: spawn_called.append(force) or 99,
+            lambda force=True, trigger=None: spawn_called.append(force) or 99,
         )
         monkeypatch.setattr(sys, "argv", ["prewarm", "--force", "--background"])
 

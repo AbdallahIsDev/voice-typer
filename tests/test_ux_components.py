@@ -131,9 +131,14 @@ class TestAppHasHelpOverlayForShortcuts:
     def test_help_overlay_lists_shortcuts(self):
         app = _read("App.tsx")
         assert 't("help.title")' in app
-        assert "Tab / Shift+Tab" in app or "Tab" in app
-        assert "Space" in app
-        assert "Esc" in app
+        # NEW-UX-043: shortcut key labels migrated from hardcoded English
+        # literals to i18n keys (`t("help.keys.*")`). Assert on the keys
+        # rather than the rendered strings, and verify the keys exist in
+        # en.json so the overlay actually renders something.
+        assert 't("help.keys.navigate")' in app  # "Tab / Shift+Tab"
+        assert 't("help.keys.toggle")' in app    # "Space"
+        assert 't("help.keys.cancel")' in app    # "Esc"
+        assert 't("help.keys.openHelp")' in app  # "?"
         assert 't("help.openHelp")' in app
         en = _read("i18n/translations/en.json")
         assert "Keyboard Shortcuts" in en

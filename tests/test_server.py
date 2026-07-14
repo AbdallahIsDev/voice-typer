@@ -692,16 +692,25 @@ class TestDispatchSetConfigAllowlist:
 
     # ── Side-effects still fire when allowlisted fields change ────────
 
-    def test_fast_startup_is_always_enabled_and_not_mutable(self, real_server, real_config):
-        """fast_startup field was removed — sending it via set_config
-        should silently drop it (ack, no side effects)."""
+    def test_fast_startup_is_mutable_and_syncs_prewarm_task(self, real_server, real_config, monkeypatch):
+        """PW-3: ``fast_startup`` is now a real, mutable config field.
+        Sending it via ``set_config`` applies it to the config AND fires
+        the ``sync_prewarm_task`` side-effect so the OS scheduled task
+        is unregistered immediately (no restart needed).
+        """
+        from voice_typer.server import startup_tasks
+        sync_prewarm_mock = MagicMock()
+        monkeypatch.setattr(startup_tasks, "sync_prewarm_task", sync_prewarm_mock)
         result = real_server._dispatch({
             "id": 1, "type": "set_config",
             "data": {"fast_startup": False},
         })
-        assert result["type"] == "ack"  # silently dropped
-        real_server.app._sync_prewarm_task.assert_not_called()
-        assert not hasattr(real_config, "fast_startup")  # field was removed
+        assert result["type"] == "ack"
+        # Config field should now be set.
+        assert real_config.fast_startup is False
+        # Side effect: sync_prewarm_task should fire so the OS task is
+        # unregistered immediately.
+        sync_prewarm_mock.assert_called_once()
 
     def test_side_effect_autostart_fires_on_autostart_change(self, real_server, real_config, monkeypatch):
         # RW-9 Phase 2: service now calls `startup_tasks.sync_autostart(app)` directly.

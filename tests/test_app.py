@@ -466,7 +466,7 @@ class TestAppStateTransitions:
             captured["events"].append(event)
 
         monkeypatch.setattr(
-            "voice_typer.server.ipc_server._push_event_now",
+            "voice_typer.server.event_bus.publish",
             fake_push_event_now,
         )
 
@@ -643,8 +643,9 @@ class TestSettingsWindowIntegration:
         app.tray = MagicMock()
         # Stub _push_event_now so restart_app's TCP push doesn't blow up
         # in the test environment (no IPC server wired up).
+        # B-1: production code now calls event_bus.publish directly.
         monkeypatch.setattr(
-            "voice_typer.server.ipc_server._push_event_now",
+            "voice_typer.server.event_bus.publish",
             lambda msg: None,
         )
 
@@ -678,7 +679,7 @@ class TestSettingsWindowIntegration:
         app.tray = MagicMock()
         pushed = []
         monkeypatch.setattr(
-            "voice_typer.server.ipc_server._push_event_now",
+            "voice_typer.server.event_bus.publish",
             lambda msg: pushed.append(msg),
         )
 
@@ -758,8 +759,9 @@ class TestQuitAppCleanShutdown:
         monkeypatch.setattr(app, "quit", fake_quit)
         # Stub the side-effect that runs before quit() — push_event
         # goes over IPC and is not relevant to this unit test.
+        # B-1: production code now calls event_bus.publish directly.
         monkeypatch.setattr(
-            "voice_typer.server.ipc_server._push_event_now",
+            "voice_typer.server.event_bus.publish",
             lambda msg: None,
         )
         # Belt-and-suspenders: if quit_app falls through to os._exit
@@ -777,7 +779,7 @@ class TestQuitAppCleanShutdown:
         cleanly (instead of being orphaned)."""
         pushed = []
         monkeypatch.setattr(
-            "voice_typer.server.ipc_server._push_event_now",
+            "voice_typer.server.event_bus.publish",
             lambda msg: pushed.append(msg),
         )
         # Stub self.quit() so we can verify the push happens before it.

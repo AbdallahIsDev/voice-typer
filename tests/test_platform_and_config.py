@@ -70,14 +70,44 @@ class TestMacosAutostartPlistWellFormed:
 
 
 class TestTrayWindowUsesShutilWhichNotShellTrue:
-    """tray_window.py uses shutil.which instead of shell=True."""
+    """tray_window.py uses shutil.which instead of shell=True.
+
+    S-7: Last-resort ``shell=True`` fallback was removed from
+    ``tray_window.open_electron_window``.  The function now resolves
+    npm via the shared :func:`_electron_build._npm_command` helper
+    (which uses ``shutil.which`` with PATHEXT on Windows) and logs +
+    skips when npm truly cannot be resolved.
+    """
 
     def test_tray_window_uses_shutil_which(self):
+        import ast
+
         tray_window = REPO_ROOT / "voice_typer" / "server" / "tray_window.py"
         src = tray_window.read_text(encoding="utf-8")
-        assert "shutil.which" in src
-        assert "shell=True" in src
-        assert "npm not on PATH" in src or "shell=True" in src
+        # Either the shared ``_npm_command`` helper (preferred) or an
+        # inline ``shutil.which`` call is acceptable — both resolve the
+        # binary path explicitly so we don't need a shell.
+        assert "_npm_command" in src or "shutil.which" in src
+        # S-7: no ``shell=True`` keyword argument may appear in any
+        # subprocess call.  AST-based check is robust against mentions
+        # in comments/docstrings (which are kept for context).
+        tree = ast.parse(src)
+        shell_true_calls: list[ast.Call] = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            for kw in node.keywords:
+                if (
+                    kw.arg == "shell"
+                    and isinstance(kw.value, ast.Constant)
+                    and kw.value.value is True
+                ):
+                    shell_true_calls.append(node)
+        assert not shell_true_calls, (
+            "S-7: tray_window.py must not pass shell=True to any call; "
+            f"found {len(shell_true_calls)} offending call(s)."
+        )
+        assert "npm not on PATH" in src
 
 
 class TestTrayDetectsWaylandWithoutSni:

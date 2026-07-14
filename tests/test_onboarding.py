@@ -336,11 +336,11 @@ def app_with_service(tmp_path, monkeypatch):
 
 @pytest.fixture
 def captured_events(monkeypatch):
-    """Capture all events pushed via _push_event_now."""
+    """Capture all events pushed via event_bus.publish."""
     events: list[dict] = []
-    import voice_typer.server.ipc_server as ipc_mod
+    import voice_typer.server.event_bus as event_bus_mod
     monkeypatch.setattr(
-        ipc_mod, "_push_event_now", lambda msg: events.append(msg) or True
+        event_bus_mod, "publish", lambda msg: events.append(msg) or True
     )
     return events
 
