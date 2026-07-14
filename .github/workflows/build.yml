@@ -8,6 +8,12 @@ on:
   # NEW-CI-001: also run on PRs so lint/coverage/audit gates are enforced.
   pull_request:
     branches: [main, master]
+  # S-2: weekly schedule for the pip-audit-weekly job (runs full audit
+  # without the accepted-findings ignore list, opens an issue if new
+  # findings appear).
+  schedule:
+    # 09:00 UTC every Monday — start of week triage.
+    - cron: "0 9 * * 1"
 
 # GAP-1: prevent two releases from racing on the same tag.
 concurrency:
@@ -45,8 +51,51 @@ jobs:
           uv pip install --system ruff pip-audit
           pip list
 
-      - name: Run ruff linter
-        run: python -m ruff check voice_typer/server/ --select E501
+      # ── RW-11: ruff ratchet ────────────────────────────────────────
+      # The previous step was `ruff check voice_typer/server/ --select E501`
+      # which bypassed ~99% of the rules configured in pyproject.toml's
+      # [tool.ruff.lint] select = ["E","F","W","I","N","UP","B","A","SIM"].
+      # Removing --select E501 would have surfaced ~729 errors at the
+      # time RW-11 was filed; the codebase has since been driven down to
+      # a handful of remaining violations. Rather than re-tighten to a
+      # blanket hard-fail (which breaks CI on the first new style nit),
+      # we use a ratchet:
+      #
+      #   1. HARD-FAIL on F-rules (pyflakes — real bugs: unused imports,
+      #      undefined names, redefinitions). Zero tolerance.
+      #   2. SOFT-FAIL on every other configured rule: capture the
+      #      current violation set as JSON and compare against
+      #      ruff-baseline.json. CI fails if the total OR any per-rule
+      #      count grows above the baseline. The baseline only ever
+      #      shrinks — never edit it to add violations.
+      #
+      # See docs/ruff-ratchet.md for the developer workflow.
+      - name: Ruff (F-rules hard-fail)
+        run: python -m ruff check voice_typer/server/ --select F --no-fix
+
+      - name: Ruff (ratchet compare against baseline)
+        run: |
+          python -m ruff check voice_typer/server/ --output-format=json > ruff-current.json || true
+          python scripts/ruff_ratchet_check.py
+
+      # RW-2: i18n key-completeness gate. Runs the i18n completeness suite
+      # explicitly BEFORE the full pytest sweep so a missing-key regression
+      # fails the build fast (the full test step also runs this file, but
+      # surfacing it as its own step makes the failure obvious in CI logs
+      # instead of buried in 2700+ test results). The gate enforces:
+      #   1. Every key in en.json exists in every non-English locale file.
+      #   2. Locale files have no extra keys not in en.json.
+      #   3. Every {placeholder} in en.json values exists in locale values.
+      #   4. No locale value is identical to English unless explicitly
+      #      allowlisted (ALLOWED_UNTRANSLATED, PRE_EXISTING_UNTRANSLATED,
+      #      or RW2_BACKFILLED_PENDING_TRANSLATION — the stopgap set
+      #      tracking keys backfilled as English fallback pending native
+      #      translation).
+      # See tests/test_i18n_completeness.py for the ratchet that ensures
+      # RW2_BACKFILLED_PENDING_TRANSLATION only shrinks over time.
+      - name: i18n key-completeness gate (RW-2)
+        run: |
+          python -m pytest tests/test_i18n_completeness.py --timeout=30 --no-cov -q
 
       # TEST-036: pyrefly is a fast Rust-based Python type checker.
       # It runs after ruff (cheap) and before pytest (expensive) so a
@@ -115,9 +164,80 @@ jobs:
           file: ./coverage.xml
           fail_ci_if_error: false
 
-      - name: Run pip-audit
+      # S-2: pip-audit two-tier policy.
+      #
+      # Previously this step ran `pip-audit --strict` with
+      # `continue-on-error: true`, which meant vulnerability findings in
+      # pinned dependencies NEVER failed the build — the audit was
+      # theatre. We now split into two tiers:
+      #
+      #   1. HARD-FAIL on ANY vulnerability. The accepted-findings list is
+      #      currently EMPTY (no CVEs have been triaged-and-accepted). If a
+      #      finding is reviewed and deliberately accepted, add it here as
+      #      `--ignore-vuln <GHSA>` on its own line WITH a justification
+      #      comment directly above it (see policy note below).
+      #   2. The weekly scheduled job (pip-audit-weekly below) runs the
+      #      full audit without --ignore-vuln and posts a reminder issue
+      #      if new findings appear — so we can re-triage before they
+      #      become blockers.
+      #
+      # The split prevents two failure modes:
+      #   - "ignore everything" (the old continue-on-error: true)
+      #   - "block everything" (removing continue-on-error without a
+      #     triaged ignore list would break CI on every upstream CVE)
+      - name: pip-audit (hard-fail on all findings)
+        run: |
+          pip-audit --strict \
+            || (
+              echo "::error::pip-audit found vulnerabilities." && \
+              echo "::error::If this is a new finding, triage it. If accepted, add the GHSA ID to the --ignore-vuln list with a justification comment above the ignore line." && \
+              exit 1
+            )
+
+  # S-2: weekly pip-audit sweep — runs the FULL audit (no ignore list)
+  # on a schedule so we can re-triage new findings before they become
+  # blockers. Posts a GitHub issue if any findings appear.
+  pip-audit-weekly:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/pyproject.toml"
+
+      - name: Install dependencies
+        run: |
+          uv pip install --system ".[test]"
+          uv pip install --system pip-audit
+
+      - name: Full pip-audit (no ignore list)
+        id: audit
         continue-on-error: true
-        run: pip-audit --strict
+        run: |
+          pip-audit --strict > /tmp/audit.txt 2>&1
+          echo "findings<<EOF" >> $GITHUB_OUTPUT
+          cat /tmp/audit.txt >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Open issue if findings
+        if: steps.audit.outcome == 'failure'
+        uses: peter-evans/create-issue-from-file@v5
+        with:
+          title: "[Weekly pip-audit] New vulnerabilities detected"
+          content-filepath: /tmp/audit.txt
+          labels: security,dependencies
 
   # TASK-013: optional slow-tests job. Runs the @pytest.mark.slow
   # wrappers around the manual diagnostic scripts in tests/manual/.
@@ -246,11 +366,20 @@ jobs:
     strategy:
       matrix:
         include:
+          # RW-12: macOS x64 build (macos-13 = Intel).
           - os: macos-13
-            platform: macos
+            platform: macos-x64
             script: bash scripts/build/compile_native.sh
             binary: voice_typer/server/native/macos-key-listener
-            artifact_name: macos-key-listener
+            artifact_name: macos-key-listener-x64
+          # RW-12: macOS arm64 build (macos-14 = Apple Silicon).
+          # The two macOS builds are merged into a universal binary by
+          # the build-macos-universal job below (lipo -create).
+          - os: macos-14
+            platform: macos-arm64
+            script: bash scripts/build/compile_native.sh
+            binary: voice_typer/server/native/macos-key-listener
+            artifact_name: macos-key-listener-arm64
           - os: windows-2022
             platform: windows
             script: powershell scripts/build/compile_native.ps1
@@ -278,6 +407,8 @@ jobs:
           fi
           echo "Binary compiled successfully:"
           ls -la "${{ matrix.binary }}"
+          # RW-12: record the architecture for the universal-binary merge.
+          file "${{ matrix.binary }}" || true
 
       # GAP-1 edge case: smoke test. Each platform has a different
       # expected behavior in CI (no GUI, no input devices, no
@@ -298,7 +429,7 @@ jobs:
           fi
 
       - name: Smoke test (macOS)
-        if: matrix.platform == 'macos'
+        if: startsWith(matrix.platform, 'macos')
         shell: bash
         run: |
           # macOS CI has no Accessibility permission — binary should
@@ -336,9 +467,10 @@ jobs:
             Stop-Process -Id $proc.Id -Force
           }
 
-      # GAP-1: ad-hoc sign the macOS binary so it can be granted Accessibility
+      # GAP-1: ad-hoc sign the macOS binary so it can be granted Accessibility.
+      # RW-12: applies to both macos-x64 and macos-arm64 builds.
       - name: Codesign (macOS only)
-        if: matrix.platform == 'macos'
+        if: startsWith(matrix.platform, 'macos')
         run: |
           codesign --force --sign - "${{ matrix.binary }}"
           echo "Ad-hoc signed: ${{ matrix.binary }}"
@@ -348,6 +480,53 @@ jobs:
         with:
           name: native-${{ matrix.platform }}
           path: ${{ matrix.binary }}
+          if-no-files-found: error
+
+  # RW-12: merge the x64 and arm64 macOS binaries into a universal
+  # binary. The universal binary is what build-macos downloads and
+  # bundles into the .dmg. This avoids shipping two separate .dmgs
+  # (one per architecture) and matches Apple's universal-binary
+  # convention for native helper tools.
+  build-macos-universal:
+    needs: [build-native]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download x64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: native-macos-x64
+          path: /tmp/macos-x64
+
+      - name: Download arm64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: native-macos-arm64
+          path: /tmp/macos-arm64
+
+      - name: Merge with lipo
+        run: |
+          mkdir -p voice_typer/server/native
+          lipo -create \
+            /tmp/macos-x64/macos-key-listener \
+            /tmp/macos-arm64/macos-key-listener \
+            -output voice_typer/server/native/macos-key-listener
+          chmod +x voice_typer/server/native/macos-key-listener
+          # Verify the universal binary contains both architectures.
+          lipo -info voice_typer/server/native/macos-key-listener
+          file voice_typer/server/native/macos-key-listener
+
+      - name: Codesign universal binary
+        run: |
+          codesign --force --sign - voice_typer/server/native/macos-key-listener
+          echo "Ad-hoc signed universal binary"
+
+      - name: Upload universal binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-macos
+          path: voice_typer/server/native/macos-key-listener
           if-no-files-found: error
 
   # GAP-1: build-windows (renamed from "build"). Downloads the Windows
@@ -462,8 +641,12 @@ jobs:
 
   # GAP-1: build-macos. Downloads the macOS native binary, runs
   # PyInstaller + electron-builder for .dmg.
+  # RW-12: depends on build-macos-universal (which merges x64 + arm64
+  # into a universal binary). runs on macos-13 (Intel) so the PyInstaller
+  # bundle is built and tested on the older arch; the universal native
+  # binary inside the bundle works on both architectures.
   build-macos:
-    needs: [test, client-build, version-check, build-native]
+    needs: [test, client-build, version-check, build-macos-universal]
     runs-on: macos-13
     permissions:
       contents: write
