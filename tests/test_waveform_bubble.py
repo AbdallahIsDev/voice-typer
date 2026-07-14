@@ -11,6 +11,7 @@ import pytest
 @pytest.fixture
 def bubble():
     from voice_typer.server.waveform import WaveformBubble
+
     return WaveformBubble()
 
 
@@ -24,6 +25,7 @@ def _reset_ipc_hook():
     that here and on teardown.
     """
     from voice_typer.server import ipc_server
+
     with ipc_server._push_event_registry_lock:
         ipc_server._push_event_registry.clear()
     yield
@@ -101,6 +103,7 @@ class TestWaveformBubbleLevel:
     def test_callback_swallows_exceptions(self, bubble):
         def boom(_rms, _peak):
             raise RuntimeError("nope")
+
         bubble.on_level = boom
         # Should not raise
         bubble.update_level(0.1, 0.1)
@@ -199,8 +202,10 @@ class TestWaveformBubbleSetState:
 
     def test_set_state_callback_swallows_exceptions(self, bubble):
         """A crashing on_set_state callback must not propagate."""
+
         def boom(state):
             raise RuntimeError("on_set_state boom")
+
         bubble.on_set_state = boom
         # Must not raise
         bubble.set_state("transcribing")
@@ -209,8 +214,8 @@ class TestWaveformBubbleSetState:
         """set_state() must not crash when on_set_state is None."""
         assert bubble.on_set_state is None
         bubble.set_state("transcribing")  # Must not raise
-        bubble.set_state("recording")     # Must not raise
-        bubble.set_state("idle")          # Must not raise
+        bubble.set_state("recording")  # Must not raise
+        bubble.set_state("idle")  # Must not raise
 
     def test_set_state_does_not_affect_visibility(self, bubble):
         """set_state() must not change the bubble's visible property."""
@@ -290,6 +295,11 @@ class TestModuleLevelPushHook:
         # _wire_waveform_bubble needs: just the bubble attribute.
         app = MagicMock(spec=VoiceTyperApp)
         app._waveform_bubble = real_bubble
+        # THREAD-REGISTRY: _wire_waveform_bubble registers the
+        # bubble-level worker on self._thread_registry, which is an
+        # instance attribute set in __init__ (not part of the class
+        # spec), so Mock(spec=...) doesn't expose it.  Provide one.
+        app._thread_registry = MagicMock()
         # Bypass the real __init__ and call only the wire method.
         VoiceTyperApp._wire_waveform_bubble(app)
 
@@ -310,6 +320,7 @@ class TestModuleLevelPushHook:
         real_bubble = RealBubble()
         app = MagicMock(spec=VoiceTyperApp)
         app._waveform_bubble = real_bubble
+        app._thread_registry = MagicMock()
         VoiceTyperApp._wire_waveform_bubble(app)
 
         # No hook registered.  This is the state before
@@ -339,6 +350,9 @@ class TestModuleLevelPushHook:
         app._bubble_level_queue = _queue.Queue(maxsize=64)
         app._bubble_level_worker_stop = _threading.Event()
         app._bubble_level_worker = None
+        # THREAD-REGISTRY: the worker is registered on _thread_registry
+        # (instance attr, not in the class spec) — provide it.
+        app._thread_registry = MagicMock()
         # Reset the throttle timestamp so the first update_level call
         # isn't dropped by the 16ms throttle (BUBBLE-FIX-4.1 changed it
         # from 33ms to 16ms = ~60Hz; other tests in the suite may have
@@ -357,6 +371,7 @@ class TestModuleLevelPushHook:
         # The queue has maxsize=64 so a single item drains in well
         # under 100 ms.
         import time as _time
+
         deadline = _time.monotonic() + 2.0
         while _time.monotonic() < deadline:
             if any(m.get("type") == "bubble_level" for m in sent):
@@ -364,10 +379,7 @@ class TestModuleLevelPushHook:
             _time.sleep(0.02)
         # Find the bubble_level event in the sent stream
         levels = [m for m in sent if m.get("type") == "bubble_level"]
-        assert len(levels) >= 1, (
-            f"expected >= 1 bubble_level event, got {len(levels)}; "
-            f"sent={sent}"
-        )
+        assert len(levels) >= 1, f"expected >= 1 bubble_level event, got {len(levels)}; sent={sent}"
         last = levels[-1]["data"]
         assert "rms" in last and "peak" in last
         assert 0.0 < last["rms"] <= 1.0
@@ -379,10 +391,12 @@ class TestModuleLevelPushHook:
 
     def test_push_event_now_returns_false_when_no_hook(self):
         from voice_typer.server import ipc_server
+
         assert ipc_server._push_event_now({"type": "test"}) is False
 
     def test_push_event_now_returns_true_when_hook_set(self):
         from voice_typer.server import ipc_server
+
         sent: list = []
         ipc_server._set_push_event(sent.append)
         try:
@@ -397,6 +411,7 @@ class TestModuleLevelPushHook:
 
         def bad_hook(_msg):
             raise RuntimeError("boom")
+
         ipc_server._set_push_event(bad_hook)
         try:
             # Must not raise
@@ -434,7 +449,9 @@ class TestAppMainWiresIpcHook:
 
         monkeypatch.setattr(app_module, "_setup_logging", lambda: None)
         monkeypatch.setattr(
-            app_module, "_ensure_single_instance", lambda **kw: object(),
+            app_module,
+            "_ensure_single_instance",
+            lambda **kw: object(),
         )
 
         class FakeApp:
@@ -482,7 +499,9 @@ class TestAppMainWiresIpcHook:
         # _setup_logging, _ensure_single_instance (from app), VoiceTyperApp.
         monkeypatch.setattr(app_module, "_setup_logging", lambda: None)
         monkeypatch.setattr(
-            app_module, "_ensure_single_instance", lambda **kw: object(),
+            app_module,
+            "_ensure_single_instance",
+            lambda **kw: object(),
         )
 
         try:
@@ -493,9 +512,7 @@ class TestAppMainWiresIpcHook:
             # NEW-IPC-013: the registry is a set — non-empty means at
             # least one server registered its push callable.
             with ipc_server._push_event_registry_lock:
-                assert len(ipc_server._push_event_registry) > 0, (
-                    "ipc_server.main() did not register the IPC push hook"
-                )
+                assert len(ipc_server._push_event_registry) > 0, "ipc_server.main() did not register the IPC push hook"
         finally:
             # NEW-IPC-013: clear the registry on teardown.
             with ipc_server._push_event_registry_lock:
@@ -511,12 +528,14 @@ class TestVADModule:
     def test_is_available_returns_bool(self):
         """is_available() should return True or False, not raise."""
         from voice_typer.server.vad import is_available
+
         result = is_available()
         assert isinstance(result, bool)
 
     def test_compute_vad_prob_without_torch(self, monkeypatch):
         """When torch is not available, compute_vad_prob returns None."""
         from voice_typer.server import vad
+
         monkeypatch.setitem(__import__("sys").modules, "torch", None)
         vad.reset()
         result = vad.compute_vad_prob(np.zeros(16000, dtype=np.float32))
@@ -534,6 +553,7 @@ class TestVADModule:
         regardless of whether torch/Silero is installed.
         """
         from voice_typer.server import vad
+
         vad.reset()
         # Force VAD to be unavailable so RMS fallback is exercised
         monkeypatch.setattr(vad, "_load_model", lambda: (None, None))
@@ -545,11 +565,13 @@ class TestVADModule:
     def test_is_speech_empty_audio(self):
         """Empty audio chunk should return False."""
         from voice_typer.server.vad import is_speech
+
         assert is_speech(np.array([], dtype=np.float32)) is False
 
     def test_reset_clears_model(self):
         """reset() should clear the cached model."""
         from voice_typer.server import vad
+
         vad.reset()
         assert vad._model is None
         assert vad._utils is None
@@ -608,20 +630,41 @@ class TestT021ProductionWiring:
     """T021: verify the audio_chunk path is wired end-to-end.
 
     The VAD gate existed in waveform.py but was inert in production
-    because app._on_recorder_rms(rms, peak) didn't pass audio_chunk
-    to WaveformBubble.update_level. These tests verify the wiring is
+    because the recorder RMS callback didn't pass audio_chunk to
+    WaveformBubble.update_level. These tests verify the wiring is
     now in place.
+
+    REFACTOR: the old ``VoiceTyperApp._on_recorder_rms`` was extracted
+    into ``RecordingController.on_recorder_rms`` (see
+    ``recording_controller.py``). The recorder callback is wired via
+    ``app.recorder.on_rms_level = self.on_recorder_rms`` in
+    ``RecordingController.wire()``.
     """
 
-    def test_app_on_recorder_rms_accepts_audio_chunk(self, monkeypatch):
-        """app._on_recorder_rms signature must accept audio_chunk kwarg."""
+    def test_app_on_recorder_rms_accepts_audio_chunk(self):
+        """RecordingController.on_recorder_rms must accept audio_chunk
+        and forward it to WaveformBubble.update_level for VAD gating."""
         import inspect
+        from unittest.mock import MagicMock
 
-        from voice_typer.server.app import VoiceTyperApp
-        sig = inspect.signature(VoiceTyperApp._on_recorder_rms)
+        from voice_typer.server.recording_controller import RecordingController
+
+        sig = inspect.signature(RecordingController.on_recorder_rms)
         assert "audio_chunk" in sig.parameters, (
-            "_on_recorder_rms must accept audio_chunk kwarg to forward "
+            "on_recorder_rms must accept audio_chunk kwarg to forward "
             "audio to WaveformBubble.update_level for VAD gating"
+        )
+
+        # Production wiring assertion: on_recorder_rms must route the
+        # rms/peak/audio_chunk through to the bubble's update_level.
+        controller = MagicMock(spec=RecordingController)
+        controller._app = MagicMock()
+        chunk = np.full(512, 0.1, dtype=np.float32)
+        RecordingController.on_recorder_rms(controller, 0.05, 0.12, audio_chunk=chunk)
+        controller._app._waveform_bubble.update_level.assert_called_once_with(
+            0.05,
+            0.12,
+            audio_chunk=chunk,
         )
 
     def test_recorder_callback_passes_three_args(self):
@@ -635,6 +678,7 @@ class TestT021ProductionWiring:
         import inspect
 
         from voice_typer.server import recording
+
         src = inspect.getsource(recording)
         assert "rms_callback(chunk_rms, chunk_peak, filtered)" in src, (
             "Recorder's audio callback must pass the filtered audio chunk "
@@ -646,8 +690,8 @@ class TestT021ProductionWiring:
         import inspect
 
         from voice_typer.server.waveform import WaveformBubble
+
         sig = inspect.signature(WaveformBubble.update_level)
         assert "audio_chunk" in sig.parameters, (
-            "WaveformBubble.update_level must accept audio_chunk kwarg "
-            "to run VAD on the incoming audio"
+            "WaveformBubble.update_level must accept audio_chunk kwarg to run VAD on the incoming audio"
         )
