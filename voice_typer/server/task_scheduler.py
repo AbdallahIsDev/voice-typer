@@ -86,8 +86,20 @@ _APP_AUTOSTART_DELAY_SECONDS = 15
 
 # ─── Python interpreter resolution ──────────────────────────────────────
 
+
 def _prewarm_command() -> str | None:
     """Return the pythonw.exe path for the prewarm action, or None.
+
+    PREWARM-FIX: this MUST be pythonw.exe (the windowless interpreter), not
+    the console python.exe. The task runs in the interactive user session
+    (InteractiveToken + LogonTrigger), and pythonw.exe starts with no
+    console window. A console python.exe would either flash a window or —
+    in a non-interactive session — fail to allocate a console and exit
+    without running. The previous breakage used BootTrigger/EventTrigger
+    (system-start, pre-logon); pythonw + InteractiveToken cannot launch
+    there, and neither can a headless python.exe without an interactive
+    window station. A LogonTrigger (fires at user logon) makes the
+    interactive session available, so pythonw works reliably.
 
     STARTUP-1: previously returned the *full* command line
     ``"pythonw.exe" -m voice_typer.server.prewarm`` and the XML builder
@@ -136,10 +148,9 @@ def _prewarm_command() -> str | None:
 
 # Arguments passed to the pythonw interpreter for the prewarm action.
 # Kept as a module constant so tests can verify the XML uses it.
-# Arguments passed to the pythonw interpreter for the prewarm action.
-# PW-2: includes --trigger boot so the log records whether the task
-# fired via BootTrigger / EventTrigger (both are system-start triggers).
-_PREWARM_ARGS = "-m voice_typer.server.prewarm --trigger boot"
+# PW-2: includes --trigger logon so the log records that the task fired
+# via the LogonTrigger (the user logged on).
+_PREWARM_ARGS = "-m voice_typer.server.prewarm --trigger logon"
 
 
 def _prewarm_pythonw() -> str | None:
@@ -175,14 +186,11 @@ def _registry_command() -> str | None:
     pythonw = _prewarm_pythonw()
     if pythonw is None:
         return None
-    return (
-        f'"{pythonw}" -m voice_typer.server.prewarm '
-        f'--delay {_RUN_KEY_DELAY_SECONDS} '
-        '--trigger logon'
-    )
+    return f'"{pythonw}" -m voice_typer.server.prewarm --delay {_RUN_KEY_DELAY_SECONDS} --trigger logon'
 
 
 # ─── HKCU Run-key fallback (no admin needed) ──────────────────────────────
+
 
 def _register_prewarm_registry(command: str) -> bool:
     """Register prewarm via the HKCU Run registry key (no admin needed).
@@ -200,7 +208,10 @@ def _register_prewarm_registry(command: str) -> bool:
         return False  # not Windows (e.g. test host with patched sys.platform)
     try:
         key = winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER, _RUN_KEY, 0, winreg.KEY_SET_VALUE,
+            winreg.HKEY_CURRENT_USER,
+            _RUN_KEY,
+            0,
+            winreg.KEY_SET_VALUE,
         )
         try:
             winreg.SetValueEx(key, TASK_NAME, 0, winreg.REG_SZ, command)
@@ -226,7 +237,10 @@ def _unregister_prewarm_registry() -> bool:
         return False  # not Windows
     try:
         key = winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER, _RUN_KEY, 0, winreg.KEY_SET_VALUE,
+            winreg.HKEY_CURRENT_USER,
+            _RUN_KEY,
+            0,
+            winreg.KEY_SET_VALUE,
         )
         try:
             winreg.DeleteValue(key, TASK_NAME)
@@ -251,7 +265,10 @@ def _is_prewarm_registered_registry() -> bool:
         return False  # not Windows
     try:
         key = winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER, _RUN_KEY, 0, winreg.KEY_READ,
+            winreg.HKEY_CURRENT_USER,
+            _RUN_KEY,
+            0,
+            winreg.KEY_READ,
         )
         try:
             val, _ = winreg.QueryValueEx(key, TASK_NAME)
@@ -265,6 +282,7 @@ def _is_prewarm_registered_registry() -> bool:
 
 
 # ─── Task XML definition ──────────────────────────────────────────────────
+
 
 def _build_task_xml(python_exe: str, arguments: str | None = None) -> str:
     """Build the Task Scheduler XML definition.
@@ -290,10 +308,13 @@ def _build_task_xml(python_exe: str, arguments: str | None = None) -> str:
     """
     if arguments is None:
         arguments = _PREWARM_ARGS
-    root = ET.Element("Task", {
-        "version": "1.4",
-        "xmlns": "http://schemas.microsoft.com/windows/2004/02/mit/task",
-    })
+    root = ET.Element(
+        "Task",
+        {
+            "version": "1.4",
+            "xmlns": "http://schemas.microsoft.com/windows/2004/02/mit/task",
+        },
+    )
 
     # ── RegistrationInfo ──────────────────────────────────────────────
     reg = ET.SubElement(root, "RegistrationInfo")
@@ -307,54 +328,34 @@ def _build_task_xml(python_exe: str, arguments: str | None = None) -> str:
 
     # ── Triggers ──────────────────────────────────────────────────────
     #
-    # ADR-0009 Issue 1 + Issue 2 (combined): emit a BootTrigger AND an
-    # EventTrigger (Event ID 12, "OS started"). This replaces the
-    # previous single LogonTrigger, which had two problems:
+    # PREWARM-FIX: a single LogonTrigger (fires when the user logs on).
     #
-    #   1. LogonTrigger fires only at user logon, not at system boot —
-    #      so prewarm couldn't start until the user typed their password.
-    #      BootTrigger fixes this by firing at system startup.
+    # The earlier design used BootTrigger + EventTrigger (Event ID 12,
+    # "OS started") so prewarm would run at system boot, BEFORE the user
+    # logged on. That is fundamentally incompatible with how this task
+    # runs: it uses InteractiveToken (the current interactive user) and
+    # pythonw.exe, both of which REQUIRE a live interactive session.
+    # Boot/Event triggers fire pre-logon, so the task could never start
+    # and sat at Last Result 0x41303 ("never run"). A LogonTrigger fires
+    # once the user has logged on — an interactive session now exists —
+    # so pythonw starts reliably and warms the cache well before the app
+    # is opened. The 45s delay lets login settle and avoids disk
+    # contention with other startup programs.
     #
-    #   2. LogonTrigger with Hidden=true RE-FIRES on Windows session
-    #      unlock (known quirk), causing prewarm to spawn a new Python
-    #      process every time the user unlocked their screen. The
-    #      sentinel caught it, but the log showed a confusing "free RAM
-    #      < budget" message instead of "already ran". EventTrigger
-    #      (Event ID 12) fires ONLY on the actual OS-started event,
-    #      never on screen unlock.
-    #
-    # Event ID 12 fires on both cold boot AND Fast Startup (which skips
-    # BootTrigger), so the EventTrigger alone covers both cases. We keep
-    # BootTrigger as defense-in-depth: if Event ID 12 ever fails to
-    # fire on a specific Windows build (some kernel-event-channel
-    # configurations filter it), BootTrigger still covers cold boot.
-    # The sentinel in prewarm.run() prevents the rare double-fire if
-    # both triggers fire in the same boot session.
+    # On Windows Fast Startup (which hibernates the kernel session)
+    # LogonTrigger still fires on the user's next logon, so coverage is
+    # preserved. The in-process boot sentinel (prewarm._already_warmed)
+    # dedups any re-fire on session unlock, so the work happens at most
+    # once per boot.
     triggers = ET.SubElement(root, "Triggers")
 
-    # Trigger 1: Boot — fires at system boot (cold boot + restart).
-    # Note: BootTrigger does NOT fire on Windows Fast Startup (which
-    # hibernates the kernel session rather than fully restarting). The
-    # EventTrigger below covers that case.
-    boot = ET.SubElement(triggers, "BootTrigger")
-    ET.SubElement(boot, "Enabled").text = "true"
-
-    # Trigger 2: Event — fires on Event ID 12 (Kernel-General, "OS
-    # started"). This fires once per boot, INCLUDING Fast Startup, and
-    # NEVER on screen unlock or session reconnect. The subscription
-    # XML is escaped because it lives inside the <Subscription> text
-    # node of the EventTrigger element.
-    event = ET.SubElement(triggers, "EventTrigger")
-    ET.SubElement(event, "Enabled").text = "true"
-    subscription = ET.SubElement(event, "Subscription")
-    subscription.text = (
-        "<QueryList><Query Id=\"0\" Path=\"System\">"
-        "<Select Path=\"System\">"
-        "*[System[Provider[@Name='Microsoft-Windows-Kernel-General'] "
-        "and (EventID=12)]]"
-        "</Select>"
-        "</Query></QueryList>"
-    )
+    # Logon — fires when the current user logs on.
+    logon = ET.SubElement(triggers, "LogonTrigger")
+    ET.SubElement(logon, "Enabled").text = "true"
+    # STARTUP-2: fire at logon+0 (_LOGON_DELAY == "PT0S") so prewarm gets a
+    # head start before the app's cold imports contend for disk. Low I/O
+    # priority handles any login-time contention.
+    ET.SubElement(logon, "Delay").text = _LOGON_DELAY
 
     # PREWARM-001: The IdleTrigger that previously lived here fired every
     # time the system went idle for 15+ minutes, causing prewarm to run
@@ -365,12 +366,19 @@ def _build_task_xml(python_exe: str, arguments: str | None = None) -> str:
     # optimization; running it once per login is sufficient.
 
     # ── Principal — run as the current user, no elevation, hidden ────
-    # Per the Task Scheduler schema, omitting <UserId> in a Principal
-    # with id="Author" defaults to the registering user (the current
-    # user). This avoids fragile SID extraction via ctypes that was
-    # returning None (missing argtypes declarations) and producing an
-    # empty <UserId></UserId> that Task Scheduler rejects with
-    # "(1,485):UserId: incorrectly formatted or out of range".
+    # PREWARM-FIX: keep InteractiveToken (run in the live interactive user
+    # session). This is REQUIRED because the trigger is a LogonTrigger
+    # (fires when the user logs on, an interactive session now exists) and
+    # because pythonw.exe needs an interactive window station to start.
+    # BootTrigger / EventTrigger (system-start) fire BEFORE any user logs
+    # on, where an InteractiveToken task cannot launch — that left the
+    # previous task at Last Result 0x41303 ("never run"). A LogonTrigger
+    # runs reliably once the user logs on, well before the app is opened.
+    #
+    # Omitting <UserId> in a Principal with id="Author" defaults to the
+    # registering (current) user. This avoids fragile SID extraction via
+    # ctypes that produced an empty <UserId> that Task Scheduler rejected
+    # with "(1,485):UserId incorrectly formatted".
     principal = ET.SubElement(root, "Principals")
     princ = ET.SubElement(principal, "Principal", {"id": "Author"})
     ET.SubElement(princ, "LogonType").text = "InteractiveToken"
@@ -406,9 +414,8 @@ def _build_task_xml(python_exe: str, arguments: str | None = None) -> str:
     return ET.tostring(root, encoding="unicode")
 
 
-
-
 # ─── schtasks wrappers ──────────────────────────────────────────────────
+
 
 def _schtasks(args: list[str], *, capture: bool = True) -> tuple[int, str]:
     """Run ``schtasks`` with *args*. Returns (returncode, combined output).
@@ -473,14 +480,10 @@ def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int
     sw_hide = 0
 
     # Build the arg string for schtasks
-    arg_str = " ".join(
-        f'"{a}"' if " " in a or "&" in a else a for a in args
-    )
+    arg_str = " ".join(f'"{a}"' if " " in a or "&" in a else a for a in args)
 
     # Redirect output to a temp file so we can read it back
-    with tempfile.NamedTemporaryFile(
-        mode="w+t", suffix=".txt", delete=False, encoding="utf-8"
-    ) as out_file:
+    with tempfile.NamedTemporaryFile(mode="w+t", suffix=".txt", delete=False, encoding="utf-8") as out_file:
         out_path = out_file.name
 
     try:
@@ -491,7 +494,7 @@ def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int
         sei.fMask = see_mask_noclose
         sei.lpVerb = "runas"
         sei.lpFile = "cmd.exe"
-        sei.lpParameters = f"/c \"{cmd_line}\""
+        sei.lpParameters = f'/c "{cmd_line}"'
         sei.nShow = sw_hide
 
         if not ctypes.windll.shell32.ShellExecuteExW(ctypes.byref(sei)):
@@ -499,14 +502,10 @@ def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int
             return 1223, f"UAC elevation failed: {err}"
 
         # Wait for the process to finish
-        ctypes.windll.kernel32.WaitForSingleObject(
-            sei.hProcess, timeout_ms
-        )
+        ctypes.windll.kernel32.WaitForSingleObject(sei.hProcess, timeout_ms)
 
         exit_code = ctypes.wintypes.DWORD()
-        ctypes.windll.kernel32.GetExitCodeProcess(
-            sei.hProcess, ctypes.byref(exit_code)
-        )
+        ctypes.windll.kernel32.GetExitCodeProcess(sei.hProcess, ctypes.byref(exit_code))
         ctypes.windll.kernel32.CloseHandle(sei.hProcess)
 
         # Read output from the temp file
@@ -526,6 +525,7 @@ def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int
 
 # ─── Public API ──────────────────────────────────────────────────────────
 
+
 def is_supported() -> bool:
     """Return True if prewarm scheduling is supported on this platform.
 
@@ -537,9 +537,7 @@ def is_supported() -> bool:
         True if the platform supports scheduled prewarm tasks.
     """
     if is_windows():
-        return Path(
-            os.environ.get("SYSTEMROOT", r"C:\Windows") + r"\System32\schtasks.exe"
-        ).exists()
+        return Path(os.environ.get("SYSTEMROOT", r"C:\Windows") + r"\System32\schtasks.exe").exists()
     # STARTUP-5: POSIX platforms use prewarm_scheduler_posix.
     # Bug fix: use exact match instead of startswith("linux") for
     # consistency with prewarm_scheduler_posix.is_supported().
@@ -559,6 +557,7 @@ def is_prewarm_registered() -> bool:
     if not is_windows():
         try:
             from voice_typer.server.prewarm_scheduler_posix import is_prewarm_registered as _posix_is
+
             return _posix_is()
         except Exception:
             return False
@@ -584,6 +583,7 @@ def register_prewarm_task() -> bool:
     if not is_windows():
         try:
             from voice_typer.server.prewarm_scheduler_posix import register_prewarm_task as _posix_reg
+
             return _posix_reg()
         except Exception as e:
             log.warning("[TASK] POSIX prewarm registration raised: %s", e)
@@ -602,9 +602,7 @@ def register_prewarm_task() -> bool:
     # Write XML to a temp file — schtasks /Create /XML needs a path, and
     # passing huge inline args via cmd.exe is fragile.
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".xml", delete=False, encoding="utf-8"
-        ) as tf:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False, encoding="utf-8") as tf:
             tf.write(xml_def)
             temp_xml = tf.name
     except OSError as exc:
@@ -644,8 +642,7 @@ def register_prewarm_task() -> bool:
         # admin-created install that a standard user cannot overwrite; the
         # Run key gives us a working, admin-free logon trigger regardless.
         log.warning(
-            "[TASK] schtasks registration failed (%s) — "
-            "falling back to HKCU Run key",
+            "[TASK] schtasks registration failed (%s) — falling back to HKCU Run key",
             output.strip(),
         )
         reg_cmd = _registry_command()
@@ -675,6 +672,7 @@ def unregister_prewarm_task() -> bool:
     if not is_windows():
         try:
             from voice_typer.server.prewarm_scheduler_posix import unregister_prewarm_task as _posix_unreg
+
             return _posix_unreg()
         except Exception as e:
             log.warning("[TASK] POSIX prewarm removal raised: %s", e)
@@ -687,9 +685,7 @@ def unregister_prewarm_task() -> bool:
     if rc == 0:
         log.info("[TASK] VoiceTyperPrewarm scheduled task removed")
         removed_task = True
-    elif rc == 1 and (
-        "cannot find" in output.lower() or "does not exist" in output.lower()
-    ):
+    elif rc == 1 and ("cannot find" in output.lower() or "does not exist" in output.lower()):
         log.info("[TASK] VoiceTyperPrewarm scheduled task was already absent")
         removed_task = True
     elif "access is denied" in output.lower():

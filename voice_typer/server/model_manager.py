@@ -403,9 +403,20 @@ class ModelManager:
             # completes). Safe no-op if prewarm isn't running.
             try:
                 from voice_typer.server.prewarm import (
+                    _already_warmed,
+                    is_prewarm_running,
                     spawn_background_prewarm,
                     wait_for_prewarm,
                 )
+
+                # PREWARM-FIX: detect the case where the OS scheduled task
+                # never fired at all (e.g. a misconfigured/interactive-only
+                # task). If prewarm has its own process running we'll wait
+                # for it; if it never started AND hasn't already warmed
+                # this boot, we must spawn our own so the user isn't left
+                # on a permanently cold cache.
+                prewarm_expected = bool(getattr(self._app.config, "fast_startup", True))
+                prewarm_was_running = is_prewarm_running()
 
                 prewarm_finished = wait_for_prewarm(timeout_s=60.0)
                 # Task 5: if prewarm timed out (still running after 60s),
@@ -426,6 +437,25 @@ class ModelManager:
                         # failure block model loading. It's an
                         # optimization for next time, not a correctness
                         # requirement.
+                        log.debug(
+                            "[MODEL] spawn_background_prewarm raised (non-fatal): %s",
+                            bg_exc,
+                        )
+                # PREWARM-FIX: the scheduled task didn't run this boot and
+                # prewarm never warmed the cache. Without this, the app would
+                # otherwise load cold forever until a manual "Run Prewarm
+                # Now". Spawn a detached prewarm so the NEXT launch is
+                # warm. Gated on: prewarm still expected (fast_startup on),
+                # it wasn't running when we checked, and the boot sentinel
+                # proves it hasn't already succeeded this session.
+                elif prewarm_expected and not prewarm_was_running and not _already_warmed():
+                    log.info(
+                        "[MODEL] prewarm scheduled task did not run this boot "
+                        "— spawning background prewarm for next launch"
+                    )
+                    try:
+                        spawn_background_prewarm(force=True, trigger="manual")
+                    except Exception as bg_exc:
                         log.debug(
                             "[MODEL] spawn_background_prewarm raised (non-fatal): %s",
                             bg_exc,
@@ -498,9 +528,7 @@ class ModelManager:
         self._app.config.asr_backend = new_backend
         self._app.config.model_size = model_size
         if not self._app.config.save():
-            log.warning(
-                "[MODEL] config.save() returned False — model change may not persist"
-            )
+            log.warning("[MODEL] config.save() returned False — model change may not persist")
 
         if self._app.recorder.recording or not self._app._busy_event.is_set():
             log.info(
