@@ -8,14 +8,11 @@ same UI).
 
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 
 import pytest
 
-COMPONENT_PATH = Path(
-    "voice_typer/client/src/renderer/src/components/audio/AudioFilterChain.tsx"
-)
+COMPONENT_PATH = Path("voice_typer/client/src/renderer/src/components/audio/AudioFilterChain.tsx")
 
 
 def _read_component_source() -> str:
@@ -29,25 +26,19 @@ class TestAudioFilterChainExists:
     """F-1: the shared component file exists at the canonical path."""
 
     def test_file_exists(self):
-        assert COMPONENT_PATH.exists(), (
-            "F-1: shared AudioFilterChain component must exist at "
-            f"{COMPONENT_PATH}"
-        )
+        assert COMPONENT_PATH.exists(), f"F-1: shared AudioFilterChain component must exist at {COMPONENT_PATH}"
 
     def test_exports_named_component(self):
         src = _read_component_source()
         # The file must export `export function AudioFilterChain` or
         # `export const AudioFilterChain =`.
-        assert (
-            "export function AudioFilterChain" in src
-            or "export const AudioFilterChain" in src
-        ), "F-1: AudioFilterChain must be a named export"
+        assert "export function AudioFilterChain" in src or "export const AudioFilterChain" in src, (
+            "F-1: AudioFilterChain must be a named export"
+        )
 
     def test_exports_props_interface(self):
         src = _read_component_source()
-        assert "AudioFilterChainProps" in src, (
-            "F-1: AudioFilterChainProps interface must be exported for type safety"
-        )
+        assert "AudioFilterChainProps" in src, "F-1: AudioFilterChainProps interface must be exported for type safety"
 
 
 class TestAudioFilterChainUsesSharedPrimitives:
@@ -59,37 +50,29 @@ class TestAudioFilterChainUsesSharedPrimitives:
     def test_imports_setting_row(self):
         src = _read_component_source()
         assert "SettingRow" in src, (
-            "F-1: AudioFilterChain must import SettingRow from "
-            "@/components/common/SettingRow for layout consistency"
+            "F-1: AudioFilterChain must import SettingRow from @/components/common/SettingRow for layout consistency"
         )
 
     def test_imports_range_slider(self):
         src = _read_component_source()
         assert "RangeSlider" in src, (
-            "F-1: AudioFilterChain must import RangeSlider from "
-            "@/components/common/RangeSlider"
+            "F-1: AudioFilterChain must import RangeSlider from @/components/common/RangeSlider"
         )
 
     def test_imports_switch(self):
         src = _read_component_source()
-        assert "Switch" in src, (
-            "F-1: AudioFilterChain must import Switch for toggle rows"
-        )
+        assert "Switch" in src, "F-1: AudioFilterChain must import Switch for toggle rows"
 
     def test_imports_select(self):
         src = _read_component_source()
-        assert "Select" in src, (
-            "F-1: AudioFilterChain must import Select for the noise "
-            "suppression method dropdown"
-        )
+        assert "Select" in src, "F-1: AudioFilterChain must import Select for the noise suppression method dropdown"
 
     def test_does_not_define_local_toggle_row(self):
         src = _read_component_source()
         # The shared component must NOT define its own ToggleRow helper
         # (that was the duplication F-1 eliminates).
         assert "function ToggleRow" not in src, (
-            "F-1 regression: AudioFilterChain must not define a local "
-            "ToggleRow helper — use SettingRow instead"
+            "F-1 regression: AudioFilterChain must not define a local ToggleRow helper — use SettingRow instead"
         )
 
     def test_does_not_define_local_slider_row(self):
@@ -129,9 +112,7 @@ class TestAudioFilterChainRendersAllFilters:
     )
     def test_renders_field(self, field):
         src = _read_component_source()
-        assert field in src, (
-            f"F-1: AudioFilterChain must render the {field} config field"
-        )
+        assert field in src, f"F-1: AudioFilterChain must render the {field} config field"
 
 
 class TestAudioFilterChainCallSitesUseIt:
@@ -140,15 +121,11 @@ class TestAudioFilterChainCallSitesUseIt:
     """
 
     def test_audio_settings_section_uses_shared(self):
-        p = Path(
-            "voice_typer/client/src/renderer/src/components/settings/AudioSettingsSection.tsx"
-        )
+        p = Path("voice_typer/client/src/renderer/src/components/settings/AudioSettingsSection.tsx")
         if not p.exists():
             pytest.skip("AudioSettingsSection.tsx not found")
         src = p.read_text(encoding="utf-8")
-        assert "AudioFilterChain" in src, (
-            "F-1: AudioSettingsSection must import and use AudioFilterChain"
-        )
+        assert "AudioFilterChain" in src, "F-1: AudioSettingsSection must import and use AudioFilterChain"
         # The duplicate filter UI must be gone.
         # Heuristic: the file should NOT contain more than one
         # `noise_filter_highpass` reference (the single reference is
@@ -161,15 +138,11 @@ class TestAudioFilterChainCallSitesUseIt:
         )
 
     def test_audio_preset_selector_uses_shared(self):
-        p = Path(
-            "voice_typer/client/src/renderer/src/components/microphone/AudioPresetSelector.tsx"
-        )
+        p = Path("voice_typer/client/src/renderer/src/components/microphone/AudioPresetSelector.tsx")
         if not p.exists():
             pytest.skip("AudioPresetSelector.tsx not found")
         src = p.read_text(encoding="utf-8")
-        assert "AudioFilterChain" in src, (
-            "F-1: AudioPresetSelector must import and use AudioFilterChain"
-        )
+        assert "AudioFilterChain" in src, "F-1: AudioPresetSelector must import and use AudioFilterChain"
         count = src.count("noise_filter_highpass")
         assert count <= 2, (
             f"F-1: AudioPresetSelector still has {count} references to "
@@ -185,7 +158,7 @@ class TestAudioFilterChainIStrI18nKeys:
 
     def test_uses_t_function(self):
         src = _read_component_source()
-        assert 'from "@/i18n/i18n"' in src or "from \"@/i18n/i18n\"" in src, (
+        assert 'from "@/i18n/i18n"' in src or 'from "@/i18n/i18n"' in src, (
             "F-1: AudioFilterChain must import t from @/i18n/i18n"
         )
         # Count t() calls — should be many (one per label).
