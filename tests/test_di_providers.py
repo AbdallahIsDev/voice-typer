@@ -220,16 +220,11 @@ class TestBackwardCompat:
 
         sig = inspect.signature(IPCServer.__init__)
         service_param = sig.parameters["service"]
-        assert service_param.default is None, (
-            "service= must default to None so IPCServer(app) keeps working."
-        )
+        assert service_param.default is None, "service= must default to None so IPCServer(app) keeps working."
         # app must remain the first positional parameter.
         params = list(sig.parameters.keys())
         assert params[0] == "self"
-        assert params[1] == "app", (
-            "app must remain the first positional parameter so "
-            "IPCServer(app) continues to work."
-        )
+        assert params[1] == "app", "app must remain the first positional parameter so IPCServer(app) continues to work."
 
     def test_existing_mock_app_pattern_still_works(self):
         """A plain ``MagicMock()`` app (no AppProtocol import) must work.
@@ -363,8 +358,7 @@ class TestProtocolDrift:
             "tray",
         ):
             assert required in declared, (
-                f"AppProtocol must declare `{required}` — it's a core "
-                f"domain object the IPC layer exposes."
+                f"AppProtocol must declare `{required}` — it's a core domain object the IPC layer exposes."
             )
         # Private attributes handlers / ipc_server still access
         # post-ADR-0008-§3.1.
@@ -374,8 +368,7 @@ class TestProtocolDrift:
             "_esc_cancel_paused",
         ):
             assert required in declared, (
-                f"AppProtocol must declare `{required}` — handlers or "
-                f"ipc_server.py access it via self.app.{required}."
+                f"AppProtocol must declare `{required}` — handlers or ipc_server.py access it via self.app.{required}."
             )
         # Methods the service layer delegates to the app.
         for required in (
@@ -389,8 +382,7 @@ class TestProtocolDrift:
             "start",
         ):
             assert required in declared, (
-                f"AppProtocol must declare `{required}()` — the service "
-                f"layer delegates this call to the app."
+                f"AppProtocol must declare `{required}()` — the service layer delegates this call to the app."
             )
         # TASK-2: private attrs removed from AppProtocol because the
         # service layer now wraps their access.  These MUST NOT be
@@ -427,7 +419,7 @@ class TestProtocolDrift:
             "download_model",
             "cancel_model_download",
             "get_vocabulary",
-            "save_vocabulary",
+            "save_vocabulary_with_diff",
             "get_templates",
             "save_templates",
             "restart",
@@ -443,8 +435,7 @@ class TestProtocolDrift:
             "force_cancel_transcription",
         ):
             assert required in declared, (
-                f"ServiceProtocol must declare `{required}()` — "
-                f"it's part of the service surface handlers call."
+                f"ServiceProtocol must declare `{required}()` — it's part of the service surface handlers call."
             )
 
 
@@ -557,9 +548,7 @@ class TestProtocolStructuralCompat:
         annotated = set(getattr(AppProtocol, "__annotations__", {}).keys())
         # The fake sets attributes on the instance, not the class —
         # so we check via __dict__ on the instance.
-        fake_app_dict = {
-            k: v for k, v in vars(fake_app).items() if not k.startswith("_mock")
-        }
+        fake_app_dict = {k: v for k, v in vars(fake_app).items() if not k.startswith("_mock")}
         for name in annotated:
             # Skip dunder / MagicMock-internal attrs.
             if name.startswith("__"):
@@ -579,8 +568,7 @@ class TestProtocolStructuralCompat:
 
         fake_service = make_fake_service()
         assert _structurally_satisfies(fake_service, ServiceProtocol), (
-            "make_fake_service() must return an object that has every "
-            "method declared on ServiceProtocol."
+            "make_fake_service() must return an object that has every method declared on ServiceProtocol."
         )
 
     def test_real_voice_typer_service_satisfies_service_protocol(self):
