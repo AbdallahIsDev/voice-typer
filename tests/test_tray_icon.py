@@ -19,6 +19,7 @@ class TestDrawShape:
 
     def test_draw_circle(self):
         from voice_typer.server.tray_icon import _draw_shape
+
         img = _draw_shape("circle", 32, (255, 0, 0, 255))
         assert img.size == (32, 32)
         assert img.mode == "RGBA"
@@ -28,6 +29,7 @@ class TestDrawShape:
 
     def test_draw_square(self):
         from voice_typer.server.tray_icon import _draw_shape
+
         img = _draw_shape("square", 32, (0, 255, 0, 255))
         assert img.size == (32, 32)
         assert img.mode == "RGBA"
@@ -36,6 +38,7 @@ class TestDrawShape:
 
     def test_draw_diamond(self):
         from voice_typer.server.tray_icon import _draw_shape
+
         img = _draw_shape("diamond", 32, (0, 0, 255, 255))
         assert img.size == (32, 32)
         assert img.mode == "RGBA"
@@ -45,6 +48,7 @@ class TestDrawShape:
 
     def test_draw_triangle(self):
         from voice_typer.server.tray_icon import _draw_shape
+
         img = _draw_shape("triangle", 32, (255, 255, 0, 255))
         assert img.size == (32, 32)
         assert img.mode == "RGBA"
@@ -55,6 +59,7 @@ class TestDrawShape:
     def test_unknown_shape_falls_back_to_circle(self):
         """Unknown shape names should fall back to circle without crashing."""
         from voice_typer.server.tray_icon import _draw_shape
+
         img = _draw_shape("hexagon", 32, (128, 128, 128, 255))
         assert img.size == (32, 32)
         assert img.mode == "RGBA"
@@ -65,6 +70,7 @@ class TestDrawShape:
     def test_draw_shape_various_sizes(self, size):
         """_draw_shape should produce correct size for various icon sizes."""
         from voice_typer.server.tray_icon import _draw_shape
+
         img = _draw_shape("circle", size, (255, 0, 0, 255))
         assert img.size == (size, size)
         assert img.mode == "RGBA"
@@ -72,6 +78,7 @@ class TestDrawShape:
     def test_draw_shape_preserves_color(self):
         """The drawn shape should use the provided RGBA color."""
         from voice_typer.server.tray_icon import _draw_shape
+
         color = (46, 204, 113, 255)  # green
         img = _draw_shape("square", 32, color)
         # Find a non-transparent pixel and verify its color
@@ -89,6 +96,7 @@ class TestDrawShape:
     def test_draw_shape_background_is_transparent(self):
         """The background (outside the shape) should be fully transparent."""
         from voice_typer.server.tray_icon import _draw_shape
+
         img = _draw_shape("circle", 32, (255, 0, 0, 255))
         # Top-left corner should be transparent (outside the shape margin)
         corner = img.getpixel((0, 0))
@@ -100,6 +108,7 @@ class TestDrawShapeIndicator:
 
     def test_indicator_returns_image(self):
         from voice_typer.server.tray_icon import _draw_shape_indicator
+
         base = Image.new("RGBA", (32, 32), (0, 0, 0, 255))
         result = _draw_shape_indicator(base, "circle", (255, 0, 0, 255))
         assert isinstance(result, Image.Image)
@@ -108,6 +117,7 @@ class TestDrawShapeIndicator:
     def test_indicator_does_not_modify_original(self):
         """_draw_shape_indicator should return a copy, not modify the original."""
         from voice_typer.server.tray_icon import _draw_shape_indicator
+
         base = Image.new("RGBA", (32, 32), (0, 0, 0, 255))
         original_pixel = base.getpixel((0, 0))
         _draw_shape_indicator(base, "circle", (255, 0, 0, 255))
@@ -116,6 +126,7 @@ class TestDrawShapeIndicator:
 
     def test_indicator_circle_shape(self):
         from voice_typer.server.tray_icon import _draw_shape_indicator
+
         base = Image.new("RGBA", (32, 32), (0, 0, 0, 255))
         result = _draw_shape_indicator(base, "circle", (255, 0, 0, 255))
         assert result.size == (32, 32)
@@ -125,18 +136,21 @@ class TestDrawShapeIndicator:
 
     def test_indicator_square_shape(self):
         from voice_typer.server.tray_icon import _draw_shape_indicator
+
         base = Image.new("RGBA", (32, 32), (0, 0, 0, 255))
         result = _draw_shape_indicator(base, "square", (0, 255, 0, 255))
         assert result.size == (32, 32)
 
     def test_indicator_diamond_shape(self):
         from voice_typer.server.tray_icon import _draw_shape_indicator
+
         base = Image.new("RGBA", (32, 32), (0, 0, 0, 255))
         result = _draw_shape_indicator(base, "diamond", (0, 0, 255, 255))
         assert result.size == (32, 32)
 
     def test_indicator_triangle_shape(self):
         from voice_typer.server.tray_icon import _draw_shape_indicator
+
         base = Image.new("RGBA", (32, 32), (0, 0, 0, 255))
         result = _draw_shape_indicator(base, "triangle", (255, 255, 0, 255))
         assert result.size == (32, 32)
@@ -206,6 +220,7 @@ class TestDrawShapeIndicator:
     def test_indicator_various_sizes(self, size):
         """Indicator should work with various icon sizes."""
         from voice_typer.server.tray_icon import _draw_shape_indicator
+
         base = Image.new("RGBA", (size, size), (0, 0, 0, 255))
         result = _draw_shape_indicator(base, "circle", (255, 0, 0, 255))
         assert result.size == (size, size)
@@ -213,6 +228,7 @@ class TestDrawShapeIndicator:
     def test_indicator_positioned_in_bottom_right(self):
         """The indicator should be drawn in the bottom-right corner area."""
         from voice_typer.server.tray_icon import _draw_shape_indicator
+
         base = Image.new("RGBA", (64, 64), (0, 0, 0, 0))  # transparent base
         color = (255, 0, 0, 255)
         result = _draw_shape_indicator(base, "square", color)
@@ -262,9 +278,9 @@ class TestMakeIcon:
         """Every AppState should have a shape defined in _ICON_SHAPES."""
         from voice_typer.server.tray_icon import _ICON_SHAPES
         from voice_typer.server.tray_types import AppState
+
         for state in AppState:
             assert state in _ICON_SHAPES, f"AppState.{state.name} missing from _ICON_SHAPES"
-
 
 
 # =============================================================================
@@ -326,7 +342,7 @@ class TestDpiCache:
         cached value directly.
         """
         # Mock the platform check + ctypes to detect calls.
-        monkeypatch.setattr(tray_icon.sys, "platform", "win32")
+        monkeypatch.setattr(tray_icon, "is_windows", lambda: True)
         fake_windll = _install_fake_windll(monkeypatch)
         mock_user32 = fake_windll.user32
         mock_user32.GetDC.return_value = 0  # falsy → fallback path
@@ -345,21 +361,18 @@ class TestDpiCache:
         # GetDC must only have been called ONCE (the first call).
         # The second and third calls must hit the cache.
         assert getdc_calls_after_first == 1, (
-            f"GetDC called {getdc_calls_after_first} times after first call; "
-            "expected 1"
+            f"GetDC called {getdc_calls_after_first} times after first call; expected 1"
         )
         assert getdc_calls_after_second == 1, (
-            f"GetDC called {getdc_calls_after_second} times after second call; "
-            "expected 1 (cache hit)"
+            f"GetDC called {getdc_calls_after_second} times after second call; expected 1 (cache hit)"
         )
         assert getdc_calls_after_third == 1, (
-            f"GetDC called {getdc_calls_after_third} times after third call; "
-            "expected 1 (cache hit)"
+            f"GetDC called {getdc_calls_after_third} times after third call; expected 1 (cache hit)"
         )
 
     def test_invalidate_cache_forces_requery(self, monkeypatch):
         """After invalidate_dpi_cache(), the next call must re-query."""
-        monkeypatch.setattr(tray_icon.sys, "platform", "win32")
+        monkeypatch.setattr(tray_icon, "is_windows", lambda: True)
         fake_windll = _install_fake_windll(monkeypatch)
         mock_user32 = fake_windll.user32
         mock_user32.GetDC.return_value = 0
@@ -372,13 +385,11 @@ class TestDpiCache:
         invalidate_dpi_cache()
         _get_dpi_aware_icon_size()
         calls_after_second = mock_user32.GetDC.call_count
-        assert calls_after_second == 2, (
-            "invalidate_dpi_cache() should force re-query on next call"
-        )
+        assert calls_after_second == 2, "invalidate_dpi_cache() should force re-query on next call"
 
     def test_dpi_scale_applied_correctly(self, monkeypatch):
         """When DPI > 96, the returned size must be scaled."""
-        monkeypatch.setattr(tray_icon.sys, "platform", "win32")
+        monkeypatch.setattr(tray_icon, "is_windows", lambda: True)
         fake_windll = _install_fake_windll(monkeypatch)
         mock_user32 = fake_windll.user32
         mock_user32.GetDC.return_value = 1  # truthy
@@ -392,7 +403,7 @@ class TestDpiCache:
 
     def test_default_dpi_returns_base_size(self, monkeypatch):
         """When DPI == 96 (100% scale), the returned size is the base 64."""
-        monkeypatch.setattr(tray_icon.sys, "platform", "win32")
+        monkeypatch.setattr(tray_icon, "is_windows", lambda: True)
         fake_windll = _install_fake_windll(monkeypatch)
         mock_user32 = fake_windll.user32
         mock_user32.GetDC.return_value = 1
