@@ -12,6 +12,7 @@ Findings covered
 - PERF-009   Qwen transcribe_batch is intentionally sequential (design decision)
 - PERF-EQ    AudioWindow.__eq__ layered comparison (scalar → identity → shape → array_equal)
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -58,13 +59,9 @@ class TestCleanTranscribedTextUsesPrecompiledRegex:
             "_RE_TOKEN_KEY",
             "_RE_FILE_EXT",
         ):
-            assert hasattr(tc, attr), (
-                f"text_cleanup must expose a precompiled pattern at tc.{attr}"
-            )
+            assert hasattr(tc, attr), f"text_cleanup must expose a precompiled pattern at tc.{attr}"
             pattern = getattr(tc, attr)
-            assert isinstance(pattern, re.Pattern), (
-                f"tc.{attr} must be a re.Pattern, got {type(pattern).__name__}"
-            )
+            assert isinstance(pattern, re.Pattern), f"tc.{attr} must be a re.Pattern, got {type(pattern).__name__}"
 
     def test_normalize_spacing_uses_precompiled_patterns(self):
         """``_normalize_spacing`` source must reference the precompiled
@@ -79,8 +76,7 @@ class TestCleanTranscribedTextUsesPrecompiledRegex:
         assert "_RE_SPACING_PUNCT_AFTER" in src
         # Inline re.sub with a string pattern would defeat precompilation.
         assert "re.sub(" not in src, (
-            "_normalize_spacing must not call re.sub() directly; "
-            "use the precompiled _RE_SPACING_* patterns instead"
+            "_normalize_spacing must not call re.sub() directly; use the precompiled _RE_SPACING_* patterns instead"
         )
 
     def test_fix_file_extensions_uses_precompiled_pattern(self):
@@ -88,9 +84,7 @@ class TestCleanTranscribedTextUsesPrecompiledRegex:
 
         src = inspect.getsource(tc._fix_file_extensions)
         assert "_RE_FILE_EXT" in src
-        assert "re.compile(" not in src, (
-            "_fix_file_extensions must not call re.compile() inline"
-        )
+        assert "re.compile(" not in src, "_fix_file_extensions must not call re.compile() inline"
 
     def test_cleanup_completes_quickly_for_typical_dictation(self):
         """PERF-004: cleanup runs once per dictation on a few KB of
@@ -162,15 +156,12 @@ class TestWin32PollingLoopUsesSleepOne:
         src = inspect.getsource(WindowsNativeHotkey._run_polling_loop)
         # Find every ``Sleep(N)`` call in the polling loop body.
         sleep_calls = re.findall(r"Sleep\((\d+)\)", src)
-        assert sleep_calls, (
-            "_run_polling_loop must call kernel32.Sleep(N) — no Sleep call found"
-        )
+        assert sleep_calls, "_run_polling_loop must call kernel32.Sleep(N) — no Sleep call found"
         # The main-loop sleep MUST be 1 ms.  Other Sleep calls inside
         # the loop (e.g. IME-composition branch) may be larger, but
         # the loop body's primary yield must be Sleep(1).
         assert "1" in sleep_calls, (
-            f"_run_polling_loop must call Sleep(1) for ~1ms hotkey-detection "
-            f"latency; found Sleep calls: {sleep_calls}"
+            f"_run_polling_loop must call Sleep(1) for ~1ms hotkey-detection latency; found Sleep calls: {sleep_calls}"
         )
         # The legacy 100 ms / 10 Hz behavior must NOT be present anywhere
         # in the polling loop.
@@ -193,9 +184,8 @@ class TestWin32PollingLoopUsesSleepOne:
         # The docstring must explicitly mention the previous 10 Hz /
         # 100 ms behavior was replaced — that's the audit trail showing
         # the PERF-012 fix was intentional.
-        assert ("100ms" in doc.replace(" ", "") or "10Hz" in doc.replace(" ", "")), (
-            "_run_polling_loop docstring must reference the previous 100ms/10Hz "
-            "behavior so the fix is auditable"
+        assert "100ms" in doc.replace(" ", "") or "10Hz" in doc.replace(" ", ""), (
+            "_run_polling_loop docstring must reference the previous 100ms/10Hz behavior so the fix is auditable"
         )
 
     def test_polling_loop_actually_calls_sleep_1_at_runtime(self, monkeypatch):
@@ -246,6 +236,7 @@ class TestWin32PollingLoopUsesSleepOne:
 
         # Also patch PumpWaitingMessages (imported inside the loop).
         import sys as _sys
+
         mock_win32gui = MagicMock()
         monkeypatch.setitem(_sys.modules, "win32gui", mock_win32gui)
 
@@ -253,8 +244,7 @@ class TestWin32PollingLoopUsesSleepOne:
         backend._run_polling_loop(lambda: None)
 
         assert 1 in sleep_args, (
-            f"_run_polling_loop must call kernel32.Sleep(1) at runtime; "
-            f"observed Sleep args: {sleep_args}"
+            f"_run_polling_loop must call kernel32.Sleep(1) at runtime; observed Sleep args: {sleep_args}"
         )
 
 
@@ -275,9 +265,7 @@ class TestPipeTokenKeyUsesPrecompiledRegex:
     def test_precompiled_token_key_pattern_exists(self):
         from voice_typer.server import text_cleanup as tc
 
-        assert hasattr(tc, "_RE_TOKEN_KEY"), (
-            "text_cleanup must expose _RE_TOKEN_KEY at module level"
-        )
+        assert hasattr(tc, "_RE_TOKEN_KEY"), "text_cleanup must expose _RE_TOKEN_KEY at module level"
         assert isinstance(tc._RE_TOKEN_KEY, re.Pattern), (
             f"_RE_TOKEN_KEY must be a re.Pattern; got {type(tc._RE_TOKEN_KEY).__name__}"
         )
@@ -289,16 +277,11 @@ class TestPipeTokenKeyUsesPrecompiledRegex:
         from voice_typer.server import text_cleanup as tc
 
         src = inspect.getsource(tc._token_key)
-        assert "_RE_TOKEN_KEY" in src, (
-            "_token_key must use the precompiled _RE_TOKEN_KEY pattern"
-        )
+        assert "_RE_TOKEN_KEY" in src, "_token_key must use the precompiled _RE_TOKEN_KEY pattern"
         # ``re.sub`` as a function CALL (with parenthesis) would recompile
         # the regex on every invocation. We strip comments / docstrings
         # by removing lines that look like comments before checking.
-        code_lines = [
-            line for line in src.splitlines()
-            if not line.lstrip().startswith("#")
-        ]
+        code_lines = [line for line in src.splitlines() if not line.lstrip().startswith("#")]
         code_only = "\n".join(code_lines)
         assert "re.sub(" not in code_only, (
             "_token_key must NOT call re.sub() with a string pattern — "
@@ -331,19 +314,33 @@ class TestPipeTokenKeyUsesPrecompiledRegex:
         from voice_typer.server.text_cleanup import _token_key
 
         samples = [
-            "word", "Word", "WORD",
-            "  word  ", ",word,", "...word...",
-            '"quoted"', "'quoted'", "(word)",
-            "multi-word", "word.word", "word_word",
-            "café", "naïve", "über",
-            "123", "12abc34", "abc123",
-            "", " ", "  ", "!!!", ".,;:",
+            "word",
+            "Word",
+            "WORD",
+            "  word  ",
+            ",word,",
+            "...word...",
+            '"quoted"',
+            "'quoted'",
+            "(word)",
+            "multi-word",
+            "word.word",
+            "word_word",
+            "café",
+            "naïve",
+            "über",
+            "123",
+            "12abc34",
+            "abc123",
+            "",
+            " ",
+            "  ",
+            "!!!",
+            ".,;:",
         ]
         for s in samples:
             expected = re.sub(r"^\W+|\W+$", "", s).lower()
-            assert _token_key(s) == expected, (
-                f"_token_key({s!r}) = {_token_key(s)!r} != re.sub equivalent {expected!r}"
-            )
+            assert _token_key(s) == expected, f"_token_key({s!r}) = {_token_key(s)!r} != re.sub equivalent {expected!r}"
 
 
 # ─── PERF-STATS: local ASR engines accept + reuse audio_stats ────────────
@@ -365,8 +362,10 @@ class TestAllLocalEnginesAcceptAudioStats:
 
     def _make_parakeet_engine(self):
         from voice_typer.server.parakeet_engine import ParakeetEngine
+
         eng = ParakeetEngine.__new__(ParakeetEngine)
         import threading
+
         eng._lock = threading.Lock()
         eng._model = MagicMock()
         eng._processor = MagicMock()
@@ -386,8 +385,10 @@ class TestAllLocalEnginesAcceptAudioStats:
 
     def _make_qwen_engine(self):
         from voice_typer.server.qwen_engine import QwenEngine
+
         eng = QwenEngine.__new__(QwenEngine)
         import threading
+
         eng._lock = threading.Lock()
         eng._inference_event = threading.Event()
         eng._model = MagicMock()
@@ -442,12 +443,8 @@ class TestAllLocalEnginesAcceptAudioStats:
         from voice_typer.server.parakeet_engine import ParakeetEngine
 
         src = inspect.getsource(ParakeetEngine._transcribe_segment)
-        assert "if audio_stats is not None:" in src, (
-            "_transcribe_segment must guard RMS recomputation with audio_stats"
-        )
-        assert "rms = audio_stats[0]" in src, (
-            "_transcribe_segment must reuse audio_stats[0] as RMS"
-        )
+        assert "if audio_stats is not None" in src, "_transcribe_segment must guard RMS recomputation with audio_stats"
+        assert "rms = audio_stats[0]" in src, "_transcribe_segment must reuse audio_stats[0] as RMS"
 
     def test_qwen_transcribe_skips_recomputation_when_stats_provided(self):
         from voice_typer.server.qwen_engine import QwenEngine
@@ -456,9 +453,7 @@ class TestAllLocalEnginesAcceptAudioStats:
         assert "if audio_stats is not None:" in src, (
             "QwenEngine.transcribe must guard RMS recomputation with audio_stats"
         )
-        assert "rms = audio_stats[0]" in src, (
-            "QwenEngine.transcribe must reuse audio_stats[0] as RMS"
-        )
+        assert "rms = audio_stats[0]" in src, "QwenEngine.transcribe must reuse audio_stats[0] as RMS"
 
     # ── Runtime checks (audio_stats actually prevents np.sqrt call) ──
 
@@ -587,8 +582,7 @@ class TestTranscribeBatchSequentialDesignDecision:
         from voice_typer.server.qwen_engine import QwenEngine
 
         assert hasattr(QwenEngine, "transcribe_batch"), (
-            "QwenEngine must expose transcribe_batch as the forward-looking "
-            "batch API (PERF-009)"
+            "QwenEngine must expose transcribe_batch as the forward-looking batch API (PERF-009)"
         )
 
     def test_transcribe_batch_returns_list_for_list_input(self):
@@ -600,6 +594,7 @@ class TestTranscribeBatchSequentialDesignDecision:
 
         eng = QwenEngine.__new__(QwenEngine)
         import threading
+
         eng._lock = threading.Lock()
         eng._inference_event = threading.Event()
         eng._model = MagicMock()
@@ -624,9 +619,7 @@ class TestTranscribeBatchSequentialDesignDecision:
 
         assert isinstance(out, list)
         assert len(out) == 3
-        assert out == ["one", "two", "three"], (
-            "transcribe_batch must preserve input order in the output list"
-        )
+        assert out == ["one", "two", "three"], "transcribe_batch must preserve input order in the output list"
 
     def test_transcribe_batch_empty_input_returns_empty_list(self):
         from voice_typer.server.qwen_engine import QwenEngine
@@ -646,8 +639,7 @@ class TestTranscribeBatchSequentialDesignDecision:
         doc = QwenEngine.transcribe_batch.__doc__ or ""
         doc_lower = doc.lower()
         assert "sequential" in doc_lower, (
-            "transcribe_batch docstring must explicitly say the current "
-            "implementation is sequential"
+            "transcribe_batch docstring must explicitly say the current implementation is sequential"
         )
         # The docstring must contain a "design rationale" or equivalent
         # explanation of WHY it's sequential, so the next maintainer
@@ -657,10 +649,7 @@ class TestTranscribeBatchSequentialDesignDecision:
             or "design decision" in doc_lower
             or "acceptable" in doc_lower
             or "single-user" in doc_lower
-        ), (
-            "transcribe_batch docstring must explain the design rationale "
-            "for keeping the implementation sequential"
-        )
+        ), "transcribe_batch docstring must explain the design rationale for keeping the implementation sequential"
 
 
 # ─── PERF-EQ: AudioWindow __eq__ layered comparison ──────────────────────
@@ -741,11 +730,13 @@ class TestAudioWindowEqualityUsesLayeredFastPaths:
 
         a = AudioWindow(
             audio=np.full(16000, 0.1, dtype=np.float32),
-            start_seconds=0.0, end_seconds=1.0,
+            start_seconds=0.0,
+            end_seconds=1.0,
         )
         b = AudioWindow(
             audio=np.full(8000, 0.1, dtype=np.float32),
-            start_seconds=0.0, end_seconds=1.0,
+            start_seconds=0.0,
+            end_seconds=1.0,
         )
         assert a != b
 
@@ -758,11 +749,13 @@ class TestAudioWindowEqualityUsesLayeredFastPaths:
 
         a = AudioWindow(
             audio=np.arange(16000, dtype=np.float32) * 0.001,
-            start_seconds=0.0, end_seconds=1.0,
+            start_seconds=0.0,
+            end_seconds=1.0,
         )
         b = AudioWindow(
             audio=np.arange(16000, dtype=np.float32) * 0.001,
-            start_seconds=0.0, end_seconds=1.0,
+            start_seconds=0.0,
+            end_seconds=1.0,
         )
         assert a is not b
         assert a.audio is not b.audio
@@ -776,11 +769,13 @@ class TestAudioWindowEqualityUsesLayeredFastPaths:
 
         a = AudioWindow(
             audio=np.zeros(16000, dtype=np.float32),
-            start_seconds=0.0, end_seconds=1.0,
+            start_seconds=0.0,
+            end_seconds=1.0,
         )
         b = AudioWindow(
             audio=np.ones(16000, dtype=np.float32),
-            start_seconds=0.0, end_seconds=1.0,
+            start_seconds=0.0,
+            end_seconds=1.0,
         )
         assert a != b
 
@@ -808,15 +803,15 @@ class TestAudioWindowEqualityUsesLayeredFastPaths:
 
         a = AudioWindow(
             audio=np.zeros(16000, dtype=np.float32),
-            start_seconds=1.0, end_seconds=2.0,
+            start_seconds=1.0,
+            end_seconds=2.0,
         )
         b = AudioWindow(
             audio=np.ones(16000, dtype=np.float32),
-            start_seconds=1.0, end_seconds=2.0,
+            start_seconds=1.0,
+            end_seconds=2.0,
         )
-        assert hash(a) == hash(b), (
-            "AudioWindow.__hash__ must depend only on scalar fields, not audio"
-        )
+        assert hash(a) == hash(b), "AudioWindow.__hash__ must depend only on scalar fields, not audio"
 
     def test_docstring_documents_layered_comparison(self):
         """The docstring must mention the layered comparison and
