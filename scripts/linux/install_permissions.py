@@ -63,7 +63,7 @@ def log(msg: str) -> None:
     print(f"[voice-typer-permissions] {msg}", flush=True)
 
 
-def fail(code: int, msg: str) -> "None":  # noqa: ANN401
+def fail(code: int, msg: str) -> None:  # noqa: ANN401
     log(f"ERROR: {msg}")
     sys.exit(code)
 

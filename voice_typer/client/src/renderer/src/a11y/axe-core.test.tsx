@@ -46,6 +46,9 @@ const STUB_CONFIG = {
 	autostart: false,
 	show_notifications: true,
 	paste_on_stop: true,
+	// ADR-0010: clipboard borrow/restore config keys.
+	clipboard_save_restore: true,
+	clipboard_restore_delay_ms: 150,
 	text_cleanup_enabled: true,
 	recording_mode: "toggle" as const,
 	tray_left_click: "open_app" as const,

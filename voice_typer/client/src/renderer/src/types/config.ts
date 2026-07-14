@@ -39,6 +39,10 @@ export interface VoiceTyperConfig {
 	// PW-3: prewarm scheduled-task master toggle.
 	fast_startup: boolean;
 
+	// Clipboard borrow/restore (ADR-0010)
+	clipboard_save_restore: boolean;
+	clipboard_restore_delay_ms: number;
+
 	// ASR backend
 	asr_backend: "whisper" | "qwen" | "parakeet";
 	qwen_model_path: string | null;

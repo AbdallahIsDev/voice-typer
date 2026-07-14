@@ -129,6 +129,9 @@ const baseConfig: VoiceTyperConfig = {
 	autostart: false,
 	paste_on_stop: true,
 	show_notifications: true,
+	// ADR-0010: clipboard borrow/restore config keys.
+	clipboard_save_restore: true,
+	clipboard_restore_delay_ms: 150,
 	asr_backend: "whisper",
 	qwen_model_path: null,
 	parakeet_model_path: null,
