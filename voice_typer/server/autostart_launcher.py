@@ -305,17 +305,19 @@ def _spawn_npm_run_dev(hidden: bool = False) -> subprocess.Popen | None:
         env["VT_START_HIDDEN"] = "1"
 
     try:
-        # NEW-CQ-033/NEW-SEC-009: prefer list form over shell=True
+        # NEW-CQ-033/NEW-SEC-009/S-7: prefer list form over shell=True.
         cmd = _npm_command("dev")
-        if cmd is not None:
-            child = subprocess.Popen(
-                cmd, env=env, **spawn_kwargs,
+        if cmd is None:
+            # S-7: npm truly not resolvable — log and bail (no shell=True).
+            log.error(
+                "[AUTOSTART] npm not found on PATH; cannot launch dev mode. "
+                "Install Node.js / npm or add it to PATH."
             )
-        else:
-            # Fallback: shell=True (npm not on PATH on Windows)
-            child = subprocess.Popen(
-                "npm run dev", shell=True, env=env, **spawn_kwargs,
-            )
+            _close_log_files(spawn_kwargs)
+            return None
+        child = subprocess.Popen(
+            cmd, env=env, **spawn_kwargs,
+        )
         # Close parent copies of log file handles — the child has
         # inherited them, so they remain open for the child's lifetime.
         _close_log_files(spawn_kwargs)
@@ -326,9 +328,11 @@ def _spawn_npm_run_dev(hidden: bool = False) -> subprocess.Popen | None:
         return child
     except FileNotFoundError as exc:
         log.error("[AUTOSTART] npm not found: %s", exc)
+        _close_log_files(spawn_kwargs)
         return None
     except Exception:
         log.exception("[AUTOSTART] failed to spawn npm run dev")
+        _close_log_files(spawn_kwargs)
         return None
 
 

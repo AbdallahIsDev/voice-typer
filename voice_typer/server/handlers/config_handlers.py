@@ -7,8 +7,9 @@ access ``self.app`` / ``self.service`` as before.
 
 from typing import Any
 
+from voice_typer.server import event_bus
 from voice_typer.server.config import validate_config_update
-from voice_typer.server.ipc_server import _push_event_now, log
+from voice_typer.server.ipc_server import log
 
 
 class ConfigHandlersMixin:
@@ -140,7 +141,7 @@ class ConfigHandlersMixin:
             # The event carries the validated updates so the
             # renderer doesn't need an extra get_config round-trip.
             try:
-                _push_event_now({
+                event_bus.publish({
                     "type": "config_changed",
                     "data": validated,
                 })

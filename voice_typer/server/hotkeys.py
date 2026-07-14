@@ -2259,6 +2259,19 @@ class WaylandHotkey(HotkeyBackend):
         if xdg:
             return os.path.join(xdg, "voice-typer-hotkey.sock")
         return "/tmp/voice-typer-hotkey.sock"
+
+    # RW-6 (pyrefly): expose the socket path as a read-only property so
+    # the rest of the class (and tests) can use ``self.SOCKET_PATH``
+    # attribute-style access. Previously the code referenced
+    # ``self.SOCKET_PATH`` (uppercase) but only a private
+    # ``_socket_path()`` staticmethod existed — a real bug that would
+    # have raised AttributeError at runtime on every code path. The
+    # property delegates to the staticmethod so the logic stays in one
+    # place.
+    @property
+    def SOCKET_PATH(self) -> str:  # noqa: N802 — matches existing attr-access call sites
+        return self._socket_path()
+
     PING_RESPONSE = b"pong\n"
     TOGGLE_RESPONSE = b"toggled\n"
 

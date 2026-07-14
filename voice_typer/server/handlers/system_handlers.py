@@ -9,9 +9,9 @@ access ``self.app`` / ``self.service`` as before.
 import contextlib
 from typing import Any
 
+from voice_typer.server import event_bus
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.ipc_server import (
-    _push_event_now,
     _validate_dict_payload,
     log,
 )
@@ -279,7 +279,7 @@ class SystemHandlersMixin:
                 }
                 return resp
 
-            _push_event_now({
+            event_bus.publish({
                 "type": "electron_notification",
                 "data": {
                     "title": title,

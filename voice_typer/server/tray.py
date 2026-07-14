@@ -623,9 +623,9 @@ class TrayIcon:
         _open()
 
         # 2. Push a navigate event so the renderer navigates to /models
-        from voice_typer.server.ipc_server import _push_event_now
+        from voice_typer.server import event_bus
         try:
-            _push_event_now({"type": "navigate", "data": {"path": "/models"}})
+            event_bus.publish({"type": "navigate", "data": {"path": "/models"}})
             log.info("[TRAY] Navigate-to-models push sent to Electron")
         except Exception as e:
             log.warning("[TRAY] Failed to push navigate-to-models event: %s", e)

@@ -17,12 +17,15 @@ Crash reports include:
 from __future__ import annotations
 
 import logging
+import os
 import platform
 import sys
 import threading
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
+
+from voice_typer.server.platform_utils import is_windows
 
 log = logging.getLogger(__name__)
 
@@ -70,7 +73,18 @@ def write_crash_report(
 
     try:
         reports_dir = _crash_reports_dir()
+        # SEC-003 / S-1: chmod 0o700 on POSIX only when newly created
+        # so user-configured perms on an existing dir are not silently
+        # reset (defense-in-depth without overriding intentional setup).
+        # On Windows, NTFS ACLs under %APPDATA% are already per-user and
+        # os.chmod is effectively a no-op for the group/other bits.
+        was_missing = not reports_dir.exists()
         reports_dir.mkdir(parents=True, exist_ok=True)
+        if was_missing and not is_windows():
+            try:
+                os.chmod(reports_dir, 0o700)
+            except OSError as e:
+                log.warning("[TELEMETRY] Failed to chmod reports dir: %s", e)
 
         timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         report_path = reports_dir / f"crash_{timestamp}.log"
@@ -104,7 +118,23 @@ def write_crash_report(
             tb,
         ]
 
-        report_path.write_text("\n".join(lines), encoding="utf-8")
+        # S-1: SEC-009 redact potential PII (email / phone / SSN / CC
+        # and other patterns handled by ``redact_pii``) from the
+        # assembled crash report. Tracebacks and exception messages can
+        # contain user-supplied text (e.g. transcription strings that
+        # tripped a downstream error); defence-in-depth: redact before
+        # the report is persisted to disk.
+        try:
+            from voice_typer.server.security import redact_pii
+            content = redact_pii("\n".join(lines))
+        except Exception:
+            content = "\n".join(lines)
+
+        # S-1: NEW-SEC-008 atomic write — prevents partial reads if a
+        # crash-report write is interrupted mid-stream, and prevents
+        # symlink-TOCTOU attacks on the target path.
+        from voice_typer.server.config import _secure_atomic_write
+        _secure_atomic_write(report_path, content)
         log.info("[TELEMETRY] Crash report written to %s", report_path)
 
         # Prune old reports

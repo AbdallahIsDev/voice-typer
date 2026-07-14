@@ -730,9 +730,9 @@ def _do_auto_stop_test():
 
     # Notify the frontend
     try:
-        from voice_typer.server.ipc_server import _push_event_now
+        from voice_typer.server import event_bus
 
-        _push_event_now({
+        event_bus.publish({
             "type": "microphone_test_complete",
             "data": {"duration": _test_duration},
         })

@@ -304,9 +304,9 @@ class RecordingController:
             # hears about recording_started, so the sound cue won't play
             # and the user gets no audible feedback.  This must be visible.
             try:
-                from voice_typer.server.ipc_server import _push_event_now
+                from voice_typer.server import event_bus
 
-                _push_event_now({"type": "recording_started"})
+                event_bus.publish({"type": "recording_started"})
             except Exception:
                 log.warning(
                     "[SOUND] failed to push recording_started event",
@@ -331,9 +331,9 @@ class RecordingController:
         # NEW-IPC-002: emit recording_stopped push event
         # SOUND-FIX-004: log push failures (see comment in start() above).
         try:
-            from voice_typer.server.ipc_server import _push_event_now
+            from voice_typer.server import event_bus
 
-            _push_event_now({"type": "recording_stopped"})
+            event_bus.publish({"type": "recording_stopped"})
         except Exception:
             log.warning(
                 "[SOUND] failed to push recording_stopped event",

@@ -104,15 +104,23 @@ def _npm_command(script: str = "dev") -> list[str] | None:
     -------
     list[str] | None
         The argv list to pass to :class:`subprocess.Popen`, or ``None``
-        to signal the caller to use the ``shell=True`` form (Windows
-        only, when ``npm.cmd`` can't be resolved).
+        if npm truly cannot be resolved on the current platform.  When
+        ``None`` is returned, the caller MUST log a clear error and skip
+        the operation — it MUST NOT fall back to ``shell=True`` (S-7:
+        shell=True is a shell-injection risk and breaks on paths with
+        spaces).
 
-    NEW-CQ-033 / NEW-SEC-009: On Windows, npm is ``npm.cmd`` (a batch
-    file).  Previously this returned ``None`` to signal "use
+    S-7 / NEW-CQ-033 / NEW-SEC-009: On Windows, npm is ``npm.cmd`` (a
+    batch file).  Previously this returned ``None`` to signal "use
     ``shell=True``" which propagated PATH/env to a shell.  We now
-    resolve the .cmd path directly via :func:`shutil.which` so we can
-    use the list form (no shell) on every platform.  Falls back to
-    ``shell=True`` only on Windows when ``npm.cmd`` can't be found.
+    resolve the .cmd path directly via :func:`shutil.which` (which
+    checks ``PATHEXT`` on Windows, so ``shutil.which("npm")`` already
+    resolves to ``npm.cmd``), and as a belt-and-suspenders fallback on
+    Windows we also try ``shutil.which("npm.cmd")`` explicitly in case
+    ``PATHEXT`` is misconfigured.  The result is always a list form
+    (no shell) when npm can be found, or ``None`` when it cannot —
+    the caller logs and skips in the latter case.
+
     On POSIX, when ``shutil.which`` misses, we still return the list
     form ``["npm", "run", script]`` so :func:`subprocess.Popen` does
     the PATH lookup itself (functionally equivalent to the shell form
@@ -123,9 +131,17 @@ def _npm_command(script: str = "dev") -> list[str] | None:
     npm_path = shutil.which("npm")
     if npm_path is not None:
         return [npm_path, "run", script]
-    # Fallback for unusual setups where npm isn't on PATH.
+    # Windows: ``shutil.which("npm")`` already consults PATHEXT and should
+    # resolve to ``npm.cmd``.  As a defensive fallback for misconfigured
+    # PATH/PATHEXT environments, try the ``.cmd`` extension explicitly.
     if is_windows():
-        return None  # signal: use shell=True form (npm.cmd resolution)
+        npm_cmd_path = shutil.which("npm.cmd")
+        if npm_cmd_path is not None:
+            return [npm_cmd_path, "run", script]
+        # npm truly not resolvable — caller logs and skips (no shell=True).
+        return None
+    # POSIX: shutil.which missed, but Popen's PATH lookup may still find it.
+    # Return the list form so Popen does the lookup without spawning a shell.
     return ["npm", "run", script]
 
 
@@ -218,10 +234,11 @@ def _build_electron() -> bool:
     ``out/main/index.js``, ``out/preload/index.js``, and the renderer
     bundles will all be present.
 
-    Uses :func:`_npm_command` to resolve the npm path (NEW-CQ-033 /
-    NEW-SEC-009: prefer the list form to avoid ``shell=True`` so we
-    don't propagate PATH/env to a shell).  Falls back to the shell form
-    only on Windows when ``npm.cmd`` can't be resolved.
+    Uses :func:`_npm_command` to resolve the npm path (S-7 /
+    NEW-CQ-033 / NEW-SEC-009: prefer the list form to avoid
+    ``shell=True`` so we don't propagate PATH/env to a shell).  When
+    ``_npm_command`` returns ``None`` (npm not resolvable on Windows),
+    logs an error and returns ``False`` — no ``shell=True`` fallback.
 
     Captures stdout/stderr and logs the last 500 chars of stderr on
     failure for diagnosability.  Times out after 180 seconds — long
@@ -231,22 +248,19 @@ def _build_electron() -> bool:
     log.info("[ELECTRON_BUILD] Building Electron app (npm run build)...")
     try:
         cmd = _npm_command("build")
-        if cmd is not None:
-            result = subprocess.run(
-                cmd,
-                cwd=str(CLIENT_DIR),
-                capture_output=True,
-                timeout=180,
+        if cmd is None:
+            # S-7: npm truly not resolvable — log and bail (no shell=True).
+            log.error(
+                "[ELECTRON_BUILD] npm not found on PATH; cannot build. "
+                "Install Node.js / npm or add it to PATH."
             )
-        else:
-            # Fallback: shell=True (npm.cmd not on PATH on Windows)
-            result = subprocess.run(
-                "npm run build",
-                cwd=str(CLIENT_DIR),
-                shell=True,
-                capture_output=True,
-                timeout=180,
-            )
+            return False
+        result = subprocess.run(
+            cmd,
+            cwd=str(CLIENT_DIR),
+            capture_output=True,
+            timeout=180,
+        )
         if result.returncode == 0:
             log.info("[ELECTRON_BUILD] npm run build succeeded")
             return True

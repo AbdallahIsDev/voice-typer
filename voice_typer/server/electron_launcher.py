@@ -139,12 +139,14 @@ def launch_electron_frontend(port: int, token: str) -> int | None:
     # Fallback: npm run dev (Vite dev server + Electron).
     try:
         cmd = _npm_command("dev")
-        if cmd is not None:
-            child = subprocess.Popen(cmd, env=env, **spawn_kwargs)
-        else:
-            child = subprocess.Popen(
-                "npm run dev", shell=True, env=env, **spawn_kwargs,
+        if cmd is None:
+            # S-7: npm truly not resolvable — log and bail (no shell=True).
+            log.error(
+                "[LAUNCHER] npm not found on PATH; cannot launch dev mode. "
+                "Install Node.js / npm or add it to PATH."
             )
+            return None
+        child = subprocess.Popen(cmd, env=env, **spawn_kwargs)
         pid = getattr(child, "pid", None)
         log.info(
             "[LAUNCHER] spawned npm run dev (pid=%s) on port=%d",

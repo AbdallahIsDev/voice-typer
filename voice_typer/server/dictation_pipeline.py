@@ -533,8 +533,8 @@ class DictationPipeline:
             pending = automation.get_pending_suggestions()
             if pending:
                 try:
-                    from voice_typer.server.ipc_server import _push_event_now
-                    _push_event_now({
+                    from voice_typer.server import event_bus
+                    event_bus.publish({
                         "type": "vocabulary_suggestion",
                         "data": {
                             "suggestions": [
@@ -614,8 +614,8 @@ class DictationPipeline:
         # renderer can proactively refresh Home/Dashboard/History
         # without polling.
         try:
-            from voice_typer.server.ipc_server import _push_event_now
-            _push_event_now({
+            from voice_typer.server import event_bus
+            event_bus.publish({
                 "type": "transcription_final",
                 "data": {"text": text[:200]}  # truncated for UI preview
             })

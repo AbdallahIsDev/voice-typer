@@ -175,13 +175,32 @@ def _setup_logging() -> None:
 # ─── Guards ──────────────────────────────────────────────────────────────
 
 def _fast_startup_enabled() -> bool:
-    """Always return True — fast_startup is always enabled.
+    """Return whether the user has enabled the prewarm scheduled task.
 
-    The prewarm scheduled task and RAM guard (DEFAULT_MIN_FREE_RAM_MB)
-    handle themselves: if free RAM is below the budget, prewarm skips
-    with EXIT_LOW_RAM. There is no need for a user-facing toggle.
+    PW-3: reads ``Config.fast_startup`` (defaults to True). When False,
+    the prewarm entrypoint exits early with :data:`EXIT_DISABLED` so the
+    OS scheduled task fires but does nothing — keeping the startup
+    contract simple (the task always exists; whether it does work is
+    controlled by the config flag).
+
+    On any read error (corrupt config, missing file, etc.) we fall back
+    to True so a broken config never silently disables prewarm for
+    users who rely on it. The error is logged for diagnosis.
     """
-    return True
+    try:
+        from voice_typer.server.config import Config
+        cfg = Config.load()
+        enabled = bool(getattr(cfg, "fast_startup", True))
+        if not enabled:
+            log.info("[PREWARM] fast_startup disabled by user — skipping")
+        return enabled
+    except Exception as e:
+        log.warning(
+            "[PREWARM] Failed to read fast_startup from config, "
+            "defaulting to True: %s",
+            e,
+        )
+        return True
 
 
 def _free_ram_mb() -> int | None:

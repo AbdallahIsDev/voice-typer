@@ -25,6 +25,7 @@ import time
 import typing
 from collections import deque
 
+from voice_typer.server import event_bus
 from voice_typer.server.keyboard_ownership import keyboard_ownership
 
 log = logging.getLogger("voice_typer.server.ipc_server")
@@ -365,35 +366,53 @@ def _sanitize_config_for_ipc(config) -> dict:
 # out to ALL registered servers.  Each IPCServer registers on start
 # and unregisters on stop, so the registry stays consistent across
 # any number of concurrent instances.
-_push_event_registry: "set[typing.Callable[[dict], None]]" = set()
-_push_event_registry_lock = threading.Lock()
+#
+# B-1: the registry and helpers below are now THIN SHIMS over
+# ``voice_typer.server.event_bus``.  Domain modules should call
+# ``event_bus.publish(event)`` directly; the names here are kept so
+# existing lazy imports (``from voice_typer.server.ipc_server import
+# _push_event_now``) and tests that manipulate the registry set
+# directly (``ipc_server._push_event_registry.clear()``) continue to
+# work.  The shims reference the SAME underlying set and lock objects
+# as ``event_bus._subscribers`` / ``event_bus._lock`` so manipulating
+# one affects the other.
+_push_event_registry: "set[typing.Callable[[dict], None]]" = (
+    event_bus._subscribers  # same object — mutating one mutates both
+)
+_push_event_registry_lock = event_bus._lock  # same RLock object
 
 
 def _set_push_event(fn) -> None:
     """Register *fn* as an active push target.
 
+    B-1: thin shim over ``event_bus.subscribe``.  Domain code should
+    call ``event_bus.subscribe`` directly; this function is preserved
+    so existing lazy imports and tests continue to work.
+
     NEW-IPC-013: now operates on a registry instead of a single global
     callable.  Safe to call from multiple IPCServer instances in the
     same process.
     """
-    if fn is None:
-        return
-    with _push_event_registry_lock:
-        _push_event_registry.add(fn)
+    event_bus.subscribe(fn)
 
 
 def _clear_push_event(fn) -> None:
     """Unregister *fn* from the active push target set.
 
+    B-1: thin shim over ``event_bus.unsubscribe``.
+
     Used by IPCServer.stop() to remove its own push callable without
     affecting other registered servers.
     """
-    with _push_event_registry_lock:
-        _push_event_registry.discard(fn)
+    event_bus.unsubscribe(fn)
 
 
 def _push_event_now(msg: dict) -> bool:
     """Push a raw event to ALL active IPC servers, if any are wired.
+
+    B-1: thin shim over ``event_bus.publish``.  Domain code should
+    call ``event_bus.publish`` directly; this function is preserved
+    so existing lazy imports continue to work.
 
     Returns True if at least one server accepted the event, False if
     no server is active.  Safe to call from any thread; never raises.
@@ -405,18 +424,7 @@ def _push_event_now(msg: dict) -> bool:
     the second server unable to push.  We now fan out to ALL servers
     in the registry so both receive the event.
     """
-    with _push_event_registry_lock:
-        fns = list(_push_event_registry)
-    if not fns:
-        return False
-    delivered = False
-    for fn in fns:
-        try:
-            fn(msg)
-            delivered = True
-        except Exception:
-            log.debug("[IPC] _push_event_now raised", exc_info=True)
-    return delivered
+    return event_bus.publish(msg)
 
 
 class _TCPLineIO:
@@ -631,14 +639,17 @@ class IPCServer(
         self.app._ipc_server = self
         # ALSO register the push function at module level.  This is
         # the bullet-proof path: any code (waveform listeners, hot
-        # paths, audio callback) can call ``_push_event_now(msg)``
+        # paths, audio callback) can call ``event_bus.publish(msg)``
         # without holding a reference to the app or the server.
         # NEW-IPC-013: _set_push_event now adds to a registry instead
         # of stomping a single global.  We track our own push callable
         # so stop() can unregister just ours without affecting other
         # active servers.
+        # B-1: subscribe through the event_bus directly; the
+        # _set_push_event shim is kept for back-compat with tests that
+        # call it explicitly.
         self._push_fn = self.push
-        _set_push_event(self._push_fn)
+        event_bus.subscribe(self._push_fn)
         self._hook_tray_set_state()
         # Always start the stdin listener (legacy mode).  In TCP mode
         # stdin is unused (inherited from Electron, connected to /dev/null
@@ -723,9 +734,11 @@ class IPCServer(
         self._running = False
         # Unregister our push callable.  Other servers in the registry
         # are unaffected.
+        # B-1: unsubscribe through the event_bus directly; the
+        # _clear_push_event shim is kept for back-compat with tests.
         push_fn = getattr(self, "_push_fn", None)
         if push_fn is not None:
-            _clear_push_event(push_fn)
+            event_bus.unsubscribe(push_fn)
             self._push_fn = None
         if self._tcp_client is not None:
             self._tcp_client.close()
@@ -1016,12 +1029,25 @@ class IPCServer(
                         dispatch_exc,
                         exc_info=True,
                     )
-                    self._send(
-                        {
-                            "type": "error",
-                            "data": {"message": "internal error"},
-                        }
-                    )
+                    # B-6: preserve the request ``id`` on the error
+                    # response so clients using ``id``-based
+                    # request/response correlation (the standard
+                    # JSON-RPC-like pattern) can match the error back
+                    # to the originating request.  Without this, a
+                    # buggy handler effectively orphaned every pending
+                    # request — the client received an ``{"type":
+                    # "error"}`` with no ``id`` and could not tell
+                    # which request failed.  The message stays the
+                    # generic ``"internal error"`` (we deliberately do
+                    # NOT leak ``str(dispatch_exc)`` to avoid exposing
+                    # server internals over IPC).
+                    err: dict[str, object] = {
+                        "type": "error",
+                        "data": {"message": "internal error"},
+                    }
+                    if isinstance(msg, dict) and "id" in msg:
+                        err["id"] = msg["id"]
+                    self._send(err)
                     continue
                 if result is not None:
                     self._send(result)
@@ -1262,7 +1288,16 @@ class IPCServer(
         data = msg.get("data")
         resp = {"id": msg.get("id")} if "id" in msg else {}
 
-        handler_name = self._COMMAND_REGISTRY.get(cmd)
+        # RW-6 (pyrefly): ``_COMMAND_REGISTRY`` is typed ``dict[str, str]``
+        # and ``dict.get`` requires a ``str`` key. ``msg.get("type")``
+        # returns ``Unknown | None`` because the inbound JSON dict has no
+        # static value-type, so the lookup below would be flagged
+        # ``bad-argument-type``. Coerce to ``str`` here so the registry
+        # lookup type-checks cleanly; the unknown-command path still
+        # receives the original value (including ``None``) for the error
+        # message, preserving the previous wire behaviour.
+        cmd_key = cmd if isinstance(cmd, str) else ""
+        handler_name = self._COMMAND_REGISTRY.get(cmd_key)
         if handler_name is None:
             result = self._handle_unknown_command(cmd, data, resp)
         else:

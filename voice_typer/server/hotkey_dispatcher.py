@@ -221,9 +221,9 @@ class HotkeyDispatcher:
         keyboard_ownership().set_owner("normal", reason="esc released during capture")
 
         # Push an event so the frontend exits capture mode.
-        from voice_typer.server.ipc_server import _push_event_now
+        from voice_typer.server import event_bus
 
-        _push_event_now({"type": "hotkey_capture_cancel"})
+        event_bus.publish({"type": "hotkey_capture_cancel"})
 
         # Reset the release callback so it doesn't fire again
         # on the next ESC press during normal operation.

@@ -20,6 +20,7 @@ import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 from voice_typer.server.volume_backend import VolumeBackend, VolumeState
 
@@ -71,21 +72,31 @@ class WinVolumeBackend(VolumeBackend):
             if devices is None:
                 log.warning("[VOLUME-WIN] No speakers endpoint found")
                 return False
+
+            # RW-6 (pyrefly): bind the endpoint volume pointer to a
+            # local first so pyrefly can see it is non-None when we
+            # later call .QueryInterface on it. Previously the code
+            # assigned straight to ``self._vol`` whose declared type is
+            # ``None``-compatible, so the meter lookup below triggered
+            # ``Object of class `NoneType` has no attribute
+            # `QueryInterface```.
+            vol_ptr: Any
             try:
                 # pycaw >= 20251023: EndpointVolume is a direct property
-                self._vol = devices.EndpointVolume
+                vol_ptr = devices.EndpointVolume
             except AttributeError:
                 # pycaw < 20251023: use Activate
                 interface = devices.Activate(
                     IAudioEndpointVolume._iid_, CLSCTX_ALL, None
                 )
-                self._vol = cast(interface, POINTER(IAudioEndpointVolume))
+                vol_ptr = cast(interface, POINTER(IAudioEndpointVolume))
+            self._vol = vol_ptr
             # Get IAudioMeterInformation for smart-duck detection.
             # Available on both old and new pycaw via QueryInterface
             # on the IAudioEndpointVolume pointer.
             try:
                 from pycaw.pycaw import IAudioMeterInformation
-                self._meter = self._vol.QueryInterface(IAudioMeterInformation)
+                self._meter = vol_ptr.QueryInterface(IAudioMeterInformation)
             except Exception:
                 self._meter = None
             self._com_initialized = True
@@ -267,6 +278,36 @@ def _try_import_coreaudio() -> SimpleNamespace:
             kAudioObjectPropertyScopeOutput,
             kAudioObjectSystemObject,
         )
+
+        # RW-6 (pyrefly): build the namespace inside the try-block so
+        # the imported names are obviously bound. Pyrefly 1.x does not
+        # propagate "the except branch always raises" into "the names
+        # from the import are bound on the success path", so building
+        # the namespace after the try/except triggered 11 `unbound-name`
+        # false positives. Keeping the construction here (where the
+        # names are bound by the import) preserves the runtime semantics
+        # (ImportError is still re-raised by the except clause).
+        return SimpleNamespace(
+            get_property=AudioObjectGetPropertyData,
+            set_property=AudioObjectSetPropertyData,
+            # Per-device selectors
+            prop_device_is_running=kAudioDevicePropertyDeviceIsRunning,
+            # System-object selectors
+            prop_default_output_device=kAudioHardwarePropertyDefaultOutputDevice,
+            # HardwareService (system-wide virtual master) selectors —
+            # these operate on the *default* output device via the
+            # system object, so we don't need to track the device ID
+            # for volume/mute.
+            prop_master_volume=kAudioHardwareServiceDeviceProperty_VirtualMasterVolume,
+            prop_master_mute=kAudioHardwareServiceDeviceProperty_VirtualMasterMute,
+            # Object IDs
+            system_object=kAudioObjectSystemObject,
+            hws_system_object=kAudioHardwareServiceSystemObject,
+            # Scopes / elements
+            scope_global=kAudioObjectPropertyScopeGlobal,
+            scope_output=kAudioObjectPropertyScopeOutput,
+            element_master=kAudioObjectPropertyElementMaster,
+        )
     except ImportError as exc:
         raise ImportError(
             "pyobjc-framework-CoreAudio is required for the CoreAudio "
@@ -274,27 +315,6 @@ def _try_import_coreaudio() -> SimpleNamespace:
             "pyobjc-framework-CoreAudio. The osascript fallback will "
             "be used instead."
         ) from exc
-
-    return SimpleNamespace(
-        get_property=AudioObjectGetPropertyData,
-        set_property=AudioObjectSetPropertyData,
-        # Per-device selectors
-        prop_device_is_running=kAudioDevicePropertyDeviceIsRunning,
-        # System-object selectors
-        prop_default_output_device=kAudioHardwarePropertyDefaultOutputDevice,
-        # HardwareService (system-wide virtual master) selectors — these
-        # operate on the *default* output device via the system object,
-        # so we don't need to track the device ID for volume/mute.
-        prop_master_volume=kAudioHardwareServiceDeviceProperty_VirtualMasterVolume,
-        prop_master_mute=kAudioHardwareServiceDeviceProperty_VirtualMasterMute,
-        # Object IDs
-        system_object=kAudioObjectSystemObject,
-        hws_system_object=kAudioHardwareServiceSystemObject,
-        # Scopes / elements
-        scope_global=kAudioObjectPropertyScopeGlobal,
-        scope_output=kAudioObjectPropertyScopeOutput,
-        element_master=kAudioObjectPropertyElementMaster,
-    )
 
 
 class MacVolumeBackend(VolumeBackend):

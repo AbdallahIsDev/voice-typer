@@ -69,12 +69,15 @@ def sync_autostart(app: Any) -> None:
 
 
 def sync_prewarm_task(app: Any, shutdown_event: Any | None = None) -> None:
-    """Ensure the OS prewarm scheduled task is registered.
+    """Ensure the OS prewarm scheduled task matches the user's fast_startup setting.
 
-    fast_startup is always enabled (no user toggle). The prewarm
-    task is registered at startup so the OS file cache is kept
-    warm for fast cold-boot. Falls back gracefully if the platform
-    doesn't support scheduled tasks (non-Windows).
+    PW-3: when ``app.config.fast_startup`` is False, the prewarm task is
+    UNREGISTERED so the OS scheduler doesn't fire a process that exits
+    immediately with EXIT_DISABLED. When True (the default), the task is
+    registered as before.
+
+    Falls back gracefully if the platform doesn't support scheduled
+    tasks (non-Windows).
 
     RACE-020: accepts an optional shutdown_event so the task can
     abort early if the app is quitting during startup.
@@ -84,12 +87,24 @@ def sync_prewarm_task(app: Any, shutdown_event: Any | None = None) -> None:
     if shutdown_event is not None and shutdown_event.is_set():
         return
     try:
+        fast_startup = bool(getattr(app.config, "fast_startup", True))
         registered = task_scheduler.is_prewarm_registered()
         if shutdown_event is not None and shutdown_event.is_set():
             return
-        if not registered:
-            log.info("[CONFIG] Registering prewarm scheduled task")
-            task_scheduler.register_prewarm_task()
+        if fast_startup:
+            if not registered:
+                log.info("[CONFIG] Registering prewarm scheduled task")
+                task_scheduler.register_prewarm_task()
+        else:
+            # PW-3: user disabled prewarm — unregister the OS task so
+            # it stops firing silently. Idempotent: if not registered,
+            # unregister is a no-op.
+            if registered:
+                log.info(
+                    "[CONFIG] fast_startup disabled — unregistering prewarm "
+                    "scheduled task"
+                )
+                task_scheduler.unregister_prewarm_task()
     except Exception as e:
         log.warning("[CONFIG] Prewarm task sync failed: %s", e)
 
@@ -179,9 +194,9 @@ def load_microphones(app: Any, shutdown_event: Any | None = None) -> None:
                 len(removed),
             )
             try:
-                from voice_typer.server.ipc_server import _push_event_now
+                from voice_typer.server import event_bus
 
-                _push_event_now(
+                event_bus.publish(
                     {
                         "type": "microphones_changed",
                         "data": {"count": len(mics)},

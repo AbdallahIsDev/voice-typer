@@ -1,0 +1,563 @@
+"""Tests for ``voice_typer.server.event_bus``.
+
+B-1: extracted from ``ipc_server._push_event_now`` to break the tight
+coupling between 12+ domain modules and the IPC transport layer.
+
+These tests cover the public API (``publish`` / ``subscribe`` /
+``unsubscribe``) plus the regression properties preserved from the
+previous ``_push_event_now`` semantics:
+
+- publish with no subscribers is a no-op (returns False).
+- subscribe + publish → callback called with the event.
+- multiple subscribers → all called.
+- unsubscribe → callback no longer called.
+- thread safety: concurrent publish from multiple threads → no
+  corruption, all events delivered.
+- callback that raises → does NOT block other subscribers (log and
+  continue).
+- subscribe(None) / unsubscribe(None) are safe no-ops.
+- duplicate subscribe is deduplicated (set semantics).
+- unsubscribe with an unknown callable is a safe no-op.
+- subscriber snapshot is taken under the lock so a subscriber that
+  unsubscribes itself (or another) during publish does not raise
+  ``RuntimeError: Set changed size during iteration``.
+- re-entrant publish (a subscriber that itself calls publish) does
+  not deadlock (RLock).
+"""
+
+from __future__ import annotations
+
+import threading
+
+import pytest
+from voice_typer.server import event_bus
+
+# ── Fixtures ───────────────────────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def _clean_subscribers():
+    """Snapshot and clear the event_bus subscriber set for each test.
+
+    Without this, subscribers registered by one test would leak into
+    the next (the event_bus is a process-global singleton).  We
+    snapshot, clear, yield, then restore so concurrent test runs in
+    the same process don't see each other's state.
+    """
+    with event_bus._lock:
+        original = set(event_bus._subscribers)
+        event_bus._subscribers.clear()
+    yield
+    with event_bus._lock:
+        event_bus._subscribers.clear()
+        event_bus._subscribers.update(original)
+
+
+# ── publish with no subscribers ────────────────────────────────────────
+
+
+class TestPublishNoSubscribers:
+    def test_publish_returns_false_with_no_subscribers(self):
+        """publish() returns False when no subscribers are registered."""
+        result = event_bus.publish({"type": "test"})
+        assert result is False
+
+    def test_publish_does_not_raise_with_no_subscribers(self):
+        """publish() is a no-op (no exception) when there are no subscribers."""
+        # Just verify it doesn't raise.
+        event_bus.publish({"type": "test"})
+        event_bus.publish({"type": "another", "data": {"foo": "bar"}})
+
+
+# ── subscribe + publish ────────────────────────────────────────────────
+
+
+class TestSubscribePublish:
+    def test_subscriber_receives_published_event(self):
+        """A registered subscriber is called with the published event."""
+        received: list[dict] = []
+        event_bus.subscribe(received.append)
+        event_bus.publish({"type": "test", "data": {"x": 1}})
+        assert received == [{"type": "test", "data": {"x": 1}}]
+
+    def test_publish_returns_true_when_subscriber_accepts(self):
+        """publish() returns True when at least one subscriber accepts."""
+        event_bus.subscribe(lambda _msg: None)
+        result = event_bus.publish({"type": "test"})
+        assert result is True
+
+    def test_multiple_publishes_each_delivered(self):
+        """Each publish() delivers exactly one event to each subscriber."""
+        received: list[dict] = []
+        event_bus.subscribe(received.append)
+        for i in range(5):
+            event_bus.publish({"type": "test", "i": i})
+        assert received == [
+            {"type": "test", "i": 0},
+            {"type": "test", "i": 1},
+            {"type": "test", "i": 2},
+            {"type": "test", "i": 3},
+            {"type": "test", "i": 4},
+        ]
+
+
+# ── multiple subscribers ───────────────────────────────────────────────
+
+
+class TestMultipleSubscribers:
+    def test_all_subscribers_called_in_order(self):
+        """All subscribers are called with the same event."""
+        received_a: list[dict] = []
+        received_b: list[dict] = []
+        event_bus.subscribe(received_a.append)
+        event_bus.subscribe(received_b.append)
+        event_bus.publish({"type": "broadcast"})
+        assert received_a == [{"type": "broadcast"}]
+        assert received_b == [{"type": "broadcast"}]
+
+    def test_three_subscribers_all_called(self):
+        received_a: list[dict] = []
+        received_b: list[dict] = []
+        received_c: list[dict] = []
+        event_bus.subscribe(received_a.append)
+        event_bus.subscribe(received_b.append)
+        event_bus.subscribe(received_c.append)
+        event_bus.publish({"type": "ping"})
+        assert len(received_a) == 1
+        assert len(received_b) == 1
+        assert len(received_c) == 1
+
+
+# ── unsubscribe ────────────────────────────────────────────────────────
+
+
+class TestUnsubscribe:
+    def test_unsubscribed_callback_no_longer_called(self):
+        """After unsubscribe, the callback is not invoked on publish."""
+        received: list[dict] = []
+        cb = received.append
+        event_bus.subscribe(cb)
+        event_bus.publish({"type": "first"})
+        assert received == [{"type": "first"}]
+
+        event_bus.unsubscribe(cb)
+        event_bus.publish({"type": "second"})
+        # Only the first event was received.
+        assert received == [{"type": "first"}]
+
+    def test_unsubscribe_unknown_callable_is_noop(self):
+        """Unregistering a callable that was never registered is safe."""
+        # Should not raise.
+        event_bus.unsubscribe(lambda _msg: None)
+
+    def test_other_subscribers_unaffected_by_unsubscribe(self):
+        """Unsubscribing one callback does not affect others."""
+        received_a: list[dict] = []
+        received_b: list[dict] = []
+        event_bus.subscribe(received_a.append)
+        event_bus.subscribe(received_b.append)
+        event_bus.unsubscribe(received_a.append)
+        event_bus.publish({"type": "after"})
+        assert received_a == []
+        assert received_b == [{"type": "after"}]
+
+
+# ── thread safety ──────────────────────────────────────────────────────
+
+
+class TestThreadSafety:
+    def test_concurrent_publish_no_corruption(self):
+        """Concurrent publish() calls from multiple threads must all
+        deliver their events without raising or losing any."""
+        received: list[dict] = []
+        lock = threading.Lock()
+
+        def listener(msg: dict) -> None:
+            with lock:
+                received.append(msg)
+
+        event_bus.subscribe(listener)
+
+        n_threads = 8
+        n_per_thread = 50
+
+        def worker(thread_id: int) -> None:
+            for i in range(n_per_thread):
+                event_bus.publish({"type": "test", "t": thread_id, "i": i})
+
+        threads = [threading.Thread(target=worker, args=(t,)) for t in range(n_threads)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # All 8 * 50 = 400 events should have been delivered.
+        assert len(received) == n_threads * n_per_thread
+
+    def test_concurrent_subscribe_unsubscribe(self):
+        """Concurrent subscribe/unsubscribe must not corrupt the set."""
+        # We're verifying no exception is raised; the exact state of
+        # the set afterward depends on thread scheduling.
+        n_threads = 4
+        n_iter = 100
+        barrier = threading.Barrier(n_threads)
+
+        def cb(_msg: dict) -> None:
+            pass
+
+        def worker() -> None:
+            barrier.wait()
+            for _ in range(n_iter):
+                event_bus.subscribe(cb)
+                event_bus.unsubscribe(cb)
+
+        threads = [threading.Thread(target=worker) for _ in range(n_threads)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # After all threads finish, the callable should not be registered
+        # (every subscribe was matched by an unsubscribe).
+        assert cb not in event_bus._subscribers
+
+    def test_concurrent_publish_and_subscribe(self):
+        """A thread publishing while another subscribes must not raise."""
+        received: list[dict] = []
+        lock = threading.Lock()
+        stop = threading.Event()
+
+        def listener(msg: dict) -> None:
+            with lock:
+                received.append(msg)
+
+        def publisher() -> None:
+            while not stop.is_set():
+                event_bus.publish({"type": "test"})
+
+        def subscriber() -> None:
+            for _ in range(50):
+                event_bus.subscribe(listener)
+                event_bus.unsubscribe(listener)
+
+        pub_thread = threading.Thread(target=publisher)
+        sub_thread = threading.Thread(target=subscriber)
+        pub_thread.start()
+        sub_thread.start()
+        sub_thread.join()
+        stop.set()
+        pub_thread.join(timeout=2.0)
+
+        # The test passes if no exception was raised during the run.
+
+
+# ── subscriber exception isolation ─────────────────────────────────────
+
+
+class TestSubscriberExceptionIsolation:
+    def test_subscriber_that_raises_does_not_block_others(self):
+        """A subscriber that raises must not prevent other subscribers
+        from receiving the event."""
+        received_good: list[dict] = []
+
+        def bad_subscriber(_msg: dict) -> None:
+            raise RuntimeError("subscriber exploded")
+
+        def good_subscriber(msg: dict) -> None:
+            received_good.append(msg)
+
+        event_bus.subscribe(bad_subscriber)
+        event_bus.subscribe(good_subscriber)
+        # Should not raise.
+        event_bus.publish({"type": "test"})
+        assert received_good == [{"type": "test"}]
+
+    def test_publish_returns_false_when_all_subscribers_raise(self):
+        """If every subscriber raises, publish() returns False
+        (no successful delivery)."""
+        def always_raises(_msg: dict) -> None:
+            raise RuntimeError("always fails")
+
+        event_bus.subscribe(always_raises)
+        result = event_bus.publish({"type": "test"})
+        assert result is False
+
+    def test_publish_returns_true_when_at_least_one_succeeds(self):
+        """If at least one subscriber accepts (doesn't raise), publish
+        returns True even if another subscriber raised."""
+        def bad(_msg: dict) -> None:
+            raise RuntimeError("bad")
+
+        def good(_msg: dict) -> None:
+            pass
+
+        event_bus.subscribe(bad)
+        event_bus.subscribe(good)
+        result = event_bus.publish({"type": "test"})
+        assert result is True
+
+    def test_exception_in_first_subscriber_does_not_skip_second(self, caplog):
+        """Order of registration does not affect delivery — even if
+        the first subscriber raises, the second still receives."""
+        first_called: list[bool] = []
+        second_received: list[dict] = []
+
+        def first(_msg: dict) -> None:
+            first_called.append(True)
+            raise RuntimeError("first fails")
+
+        def second(msg: dict) -> None:
+            second_received.append(msg)
+
+        event_bus.subscribe(first)
+        event_bus.subscribe(second)
+        with caplog.at_level("DEBUG", logger="voice_typer.server.event_bus"):
+            event_bus.publish({"type": "test"})
+        assert first_called == [True]
+        assert second_received == [{"type": "test"}]
+        # The exception should have been logged at DEBUG level.
+        assert any(
+            "subscriber raised" in r.getMessage()
+            for r in caplog.records
+        )
+
+
+# ── None handling ──────────────────────────────────────────────────────
+
+
+class TestNoneHandling:
+    def test_subscribe_none_is_noop(self):
+        """subscribe(None) must not register anything."""
+        event_bus.subscribe(None)
+        assert len(event_bus._subscribers) == 0
+
+    def test_unsubscribe_none_is_noop(self):
+        """unsubscribe(None) must not raise or modify state."""
+        event_bus.subscribe(lambda _msg: None)
+        before = len(event_bus._subscribers)
+        event_bus.unsubscribe(None)
+        assert len(event_bus._subscribers) == before
+
+    def test_subscribe_none_does_not_affect_existing(self):
+        """subscribe(None) must not clear or affect existing subscribers."""
+        received: list[dict] = []
+        event_bus.subscribe(received.append)
+        event_bus.subscribe(None)  # Should be a no-op.
+        event_bus.publish({"type": "test"})
+        assert received == [{"type": "test"}]
+
+
+# ── duplicate subscribe ────────────────────────────────────────────────
+
+
+class TestDuplicateSubscribe:
+    def test_duplicate_subscribe_deduplicated(self):
+        """Subscribing the same callable twice registers it once
+        (set semantics)."""
+        received: list[dict] = []
+        cb = received.append
+        event_bus.subscribe(cb)
+        event_bus.subscribe(cb)
+        assert len(event_bus._subscribers) == 1
+        event_bus.publish({"type": "test"})
+        # Only one call, not two.
+        assert received == [{"type": "test"}]
+
+    def test_unsubscribe_after_duplicate_subscribe(self):
+        """One unsubscribe removes the callable regardless of how many
+        times subscribe was called."""
+        cb = lambda _msg: None  # noqa: E731
+        event_bus.subscribe(cb)
+        event_bus.subscribe(cb)
+        event_bus.subscribe(cb)
+        assert len(event_bus._subscribers) == 1
+        event_bus.unsubscribe(cb)
+        assert len(event_bus._subscribers) == 0
+
+
+# ── subscriber mutation during publish ─────────────────────────────────
+
+
+class TestSubscriberMutationDuringPublish:
+    def test_subscriber_unsubscribing_itself_does_not_raise(self):
+        """A subscriber that unsubscribes itself during publish must not
+        trigger ``Set changed size during iteration``.
+
+        The subscriber list is snapshotted under the lock before
+        iteration, so mutations during iteration are safe.
+        """
+        call_count = [0]
+
+        def self_unsubscribing(_msg: dict) -> None:
+            call_count[0] += 1
+            event_bus.unsubscribe(self_unsubscribing)
+
+        event_bus.subscribe(self_unsubscribing)
+        # Should not raise.
+        event_bus.publish({"type": "test"})
+        assert call_count[0] == 1
+        # Second publish should be a no-op (subscriber was removed).
+        event_bus.publish({"type": "test"})
+        assert call_count[0] == 1
+
+    def test_subscriber_unsubscribing_other_does_not_raise(self):
+        """A subscriber that unsubscribes a different subscriber during
+        publish must not raise."""
+        other_received: list[dict] = []
+
+        def other(msg: dict) -> None:
+            other_received.append(msg)
+
+        def first(_msg: dict) -> None:
+            event_bus.unsubscribe(other)
+
+        # Register both — order matters for the snapshot semantics.
+        event_bus.subscribe(first)
+        event_bus.subscribe(other)
+        # Should not raise.
+        event_bus.publish({"type": "test"})
+        # `other` may or may not have been called depending on whether
+        # it appeared before or after `first` in the snapshot; both are
+        # valid. The test only verifies no exception.
+
+
+# ── re-entrant publish ─────────────────────────────────────────────────
+
+
+class TestReentrantPublish:
+    def test_subscriber_that_publishes_does_not_deadlock(self):
+        """A subscriber that calls publish() re-entrantly must not
+        deadlock.  The RLock allows the same thread to re-acquire.
+
+        The outer subscriber unsubscribes itself before re-publishing
+        to avoid infinite recursion (which would be a bug in the
+        subscriber, not the event bus).  The test verifies the RLock
+        permits re-entrant acquisition — a plain Lock would deadlock.
+        """
+        outer_received: list[dict] = []
+        inner_received: list[dict] = []
+
+        def inner_listener(msg: dict) -> None:
+            inner_received.append(msg)
+
+        def outer_listener(_msg: dict) -> None:
+            outer_received.append({"triggered": True})
+            # Unsubscribe self BEFORE re-publishing so we don't recurse
+            # infinitely.  The point of the test is that the re-entrant
+            # publish call below acquires the RLock in the same thread
+            # — a plain Lock would deadlock here.
+            event_bus.unsubscribe(outer_listener)
+            event_bus.publish({"type": "inner"})
+
+        event_bus.subscribe(outer_listener)
+        event_bus.subscribe(inner_listener)
+
+        # Should complete (not hang) — RLock allows re-entrancy.
+        event_bus.publish({"type": "outer"})
+
+        # The outer listener was called exactly once (it unsubscribed
+        # itself before re-publishing).
+        assert outer_received == [{"triggered": True}]
+
+        # The inner listener received BOTH events: the original
+        # "outer" event (delivered as part of the snapshot iteration
+        # in the outer publish) and the "inner" event (delivered by
+        # the re-entrant publish call from inside outer_listener).
+        # The order depends on set iteration order (which is not
+        # guaranteed for ``set`` in Python); we assert set-equality
+        # instead of list-equality.
+        assert len(inner_received) == 2
+        assert sorted(e["type"] for e in inner_received) == ["inner", "outer"]
+
+
+# ── back-compat shim verification ──────────────────────────────────────
+
+
+class TestBackwardCompatShim:
+    """The shim layer in ipc_server.py must preserve behavior.
+
+    B-1: ``_push_event_now`` / ``_set_push_event`` / ``_clear_push_event``
+    in ``ipc_server.py`` are now thin wrappers over ``event_bus``.
+    These tests verify the wrappers still work and reference the same
+    underlying state.
+    """
+
+    def test_push_event_now_delegates_to_event_bus_publish(self):
+        """ipc_server._push_event_now calls event_bus.publish."""
+        from voice_typer.server import ipc_server
+
+        received: list[dict] = []
+        event_bus.subscribe(received.append)
+        result = ipc_server._push_event_now({"type": "shim_test"})
+        assert result is True
+        assert received == [{"type": "shim_test"}]
+
+    def test_set_push_event_delegates_to_event_bus_subscribe(self):
+        from voice_typer.server import ipc_server
+
+        received: list[dict] = []
+        ipc_server._set_push_event(received.append)
+        event_bus.publish({"type": "shim_subscribe"})
+        assert received == [{"type": "shim_subscribe"}]
+        # Cleanup.
+        ipc_server._clear_push_event(received.append)
+
+    def test_clear_push_event_delegates_to_event_bus_unsubscribe(self):
+        from voice_typer.server import ipc_server
+
+        received: list[dict] = []
+        ipc_server._set_push_event(received.append)
+        ipc_server._clear_push_event(received.append)
+        event_bus.publish({"type": "after_clear"})
+        assert received == []
+
+    def test_registry_is_same_object_as_event_bus_subscribers(self):
+        """The back-compat _push_event_registry alias must be the SAME
+        set object as event_bus._subscribers so tests that manipulate
+        one affect the other."""
+        from voice_typer.server import ipc_server
+
+        assert ipc_server._push_event_registry is event_bus._subscribers
+
+    def test_registry_lock_is_same_object_as_event_bus_lock(self):
+        from voice_typer.server import ipc_server
+
+        assert ipc_server._push_event_registry_lock is event_bus._lock
+
+    def test_set_push_event_none_is_noop(self):
+        """_set_push_event(None) must be a no-op (back-compat with
+        the old semantics where None was rejected)."""
+        from voice_typer.server import ipc_server
+
+        before = len(event_bus._subscribers)
+        ipc_server._set_push_event(None)
+        assert len(event_bus._subscribers) == before
+
+
+# ── type / signature sanity ────────────────────────────────────────────
+
+
+class TestSignatureSanity:
+    def test_publish_accepts_any_dict(self):
+        """publish() accepts any dict regardless of keys."""
+        event_bus.subscribe(lambda _msg: None)
+        event_bus.publish({})
+        event_bus.publish({"type": "x"})
+        event_bus.publish({"type": "x", "data": {}})
+        event_bus.publish({"type": "x", "data": {"nested": [1, 2, 3]}})
+
+    def test_subscribe_accepts_callable_taking_dict(self):
+        """subscribe() accepts any callable that takes a dict."""
+        # Various callable shapes should all be accepted.
+        event_bus.subscribe(lambda msg: None)
+
+        def named(_msg: dict) -> None:
+            pass
+
+        event_bus.subscribe(named)
+
+        class _CallableSubscriber:
+            def __call__(self, _msg: dict) -> None:
+                pass
+
+        event_bus.subscribe(_CallableSubscriber())

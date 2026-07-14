@@ -600,14 +600,14 @@ class VoiceTyperApp:
         hold a reference to the app or server (avoids closure-capture
         bugs that broke the bubble on first run).
         """
-        from voice_typer.server.ipc_server import _push_event_now
+        from voice_typer.server import event_bus
 
         def _push_bubble_show() -> None:
-            sent = _push_event_now({"type": "bubble_show"})
+            sent = event_bus.publish({"type": "bubble_show"})
             log.info("[WAVEFORM] bubble.show() fired; push=%s", "OK" if sent else "NO IPC")
 
         def _push_bubble_hide() -> None:
-            _push_event_now({"type": "bubble_hide"})
+            event_bus.publish({"type": "bubble_hide"})
 
         def _push_bubble_level(rms: float, peak: float) -> None:
             # PERF-NEW-001 / PERF-NEW-015: this callback fires from the
@@ -667,7 +667,7 @@ class VoiceTyperApp:
                     continue
                 if item is None:
                     break
-                _push_event_now(item)
+                event_bus.publish(item)
                 q.task_done()
 
         if (
@@ -702,7 +702,7 @@ class VoiceTyperApp:
             )
 
         def _push_bubble_set_state(state: str) -> None:
-            _push_event_now(
+            event_bus.publish(
                 {
                     "type": "bubble_set_state",
                     "data": {"state": state},
@@ -1166,6 +1166,19 @@ class VoiceTyperApp:
         new config between Notepad reading and saving, silently
         overwriting the user's manual edits. The lock is held until
         Notepad closes and the config is reloaded.
+
+        B-4: macOS (``open``) and Linux (``xdg-open``) previously used
+        non-blocking ``Popen`` (the spawn-and-return flavor) and did NOT
+        acquire the lock, so an IPC ``set_config`` call could atomically
+        overwrite ``config.json`` while the user was editing it. On all
+        platforms now: acquire ``_config_mutation_lock`` BEFORE spawning
+        the editor, block until the editor subprocess exits, then reload
+        the config from disk. On macOS we use ``open -W`` so the spawn
+        blocks until the editor closes (vanilla ``open`` returns
+        immediately). On Linux ``xdg-open`` may return before the
+        editor closes (desktop-environment-dependent), but the lock is
+        still held for whatever duration the spawn blocks, and the
+        post-edit reload picks up any saved changes.
         """
         config_file = self.config.config_dir / "config.json"
         # Save current in-memory config so the editor sees the latest state
@@ -1184,8 +1197,10 @@ class VoiceTyperApp:
                     # Hardcoded fallback per SEC-audit-011
                     notepad = Path(r"C:\Windows\System32\notepad.exe")
                 if notepad.exists():
-                    # SEC-audit-011: Hold _config_mutation_lock for the
-                    # full editor session so IPC set_config can't race.
+                    # SEC-audit-011 / B-4: Hold _config_mutation_lock for
+                    # the full editor session so IPC set_config can't race.
+                    # On all platforms the lock is acquired BEFORE spawning
+                    # the editor and released AFTER the config is reloaded.
                     with self._config_mutation_lock:
                         # SEC-audit-011: Use Popen().wait() to block until
                         # notepad closes, then reload the config.
@@ -1200,9 +1215,40 @@ class VoiceTyperApp:
                 else:
                     os.startfile(str(config_file))  # type: ignore[attr-defined]
             elif is_macos():
-                subprocess.Popen(["open", str(config_file)])
+                # B-4: ``open -W`` blocks until the editor exits (vanilla
+                # ``open`` returns immediately after launching). Hold the
+                # lock for the full editor session so a concurrent IPC
+                # ``set_config`` call (which goes through
+                # ``service.apply_config`` → ``with app._config_mutation_lock``)
+                # blocks until the user finishes editing.
+                with self._config_mutation_lock:
+                    with contextlib.suppress(Exception):
+                        subprocess.run(
+                            ["open", "-W", str(config_file)],
+                            check=False,
+                        )
+                    try:
+                        self.config = type(self.config).load()
+                    except Exception as exc:
+                        log.warning("[CONFIG] Failed to reload config after editor: %s", exc)
             else:
-                subprocess.Popen(["xdg-open", str(config_file)])
+                # B-4: Linux. ``xdg-open`` may return before the editor
+                # closes (depends on the desktop environment — some DEs
+                # spawn the editor as a detached process), but we still
+                # block on its exit and hold the lock during that window
+                # so a concurrent IPC ``set_config`` call can't interleave
+                # with the launch. After the spawn returns we reload the
+                # config from disk so any saved edits are picked up.
+                with self._config_mutation_lock:
+                    with contextlib.suppress(Exception):
+                        subprocess.run(
+                            ["xdg-open", str(config_file)],
+                            check=False,
+                        )
+                    try:
+                        self.config = type(self.config).load()
+                    except Exception as exc:
+                        log.warning("[CONFIG] Failed to reload config after editor: %s", exc)
         except Exception as e:
             log.warning("[CONFIG] Could not open editor: %s", e)
             self.tray.notify(APP_NAME, f"Config file:\n{config_file}")
@@ -1221,9 +1267,19 @@ class VoiceTyperApp:
         """TrayController protocol: select microphone."""
         self._select_microphone(mic_id)
 
-    def change_model(self, model: str) -> None:
-        """TrayController protocol: change transcription model."""
-        self._change_model(model)
+    def change_model(self, model_size: str) -> None:
+        """TrayController protocol: change transcription model.
+
+        RW-6 (pyrefly): parameter renamed from ``model`` to
+        ``model_size`` to match :class:`voice_typer.server.providers.AppProtocol`'s
+        ``change_model(self, model_size: str)`` signature. Pyrefly
+        enforces parameter-name matching for Protocol members (a call
+        like ``app.change_model(model_size="large")`` must be valid on
+        any AppProtocol implementation), so the names must agree. The
+        body is unchanged — ``_change_model`` accepts the value
+        positionally under either name.
+        """
+        self._change_model(model_size)
 
     def change_hotkey(self, hotkey: str) -> None:
         """TrayController protocol: change hotkey."""
@@ -1269,9 +1325,9 @@ class VoiceTyperApp:
             log.debug("[QUIT] Could not discard recording", exc_info=True)
 
         # 0. Notify Electron frontend over TCP so it can quit cleanly.
-        from voice_typer.server.ipc_server import _push_event_now
+        from voice_typer.server import event_bus
 
-        _push_event_now({"type": "quit_app"})
+        event_bus.publish({"type": "quit_app"})
 
         # 1. Delegate to the audited cleanup path.  self.quit() raises
         #    SystemExit(0) at the end; _wrap re-raises it, and pystray
@@ -1346,10 +1402,10 @@ class VoiceTyperApp:
         # by wrap_callback without tray.stop() breaking the loop).
         #
         # 1. Push relaunch_electron BEFORE marking _shutting_down.
-        from voice_typer.server.ipc_server import _push_event_now
+        from voice_typer.server import event_bus
 
         try:
-            _push_event_now({"type": "relaunch_electron"})
+            event_bus.publish({"type": "relaunch_electron"})
             log.info("[RESTART] relaunch_electron pushed to Electron via TCP")
         except Exception as e:
             log.warning("[RESTART] failed to push relaunch_electron: %s", e)
@@ -1987,7 +2043,15 @@ def _create_restrictive_security_attributes():
 
             sa = SECURITY_ATTRIBUTES()
             sa.nLength = ctypes.sizeof(SECURITY_ATTRIBUTES)
-            sa.lpSecurityDescriptor = ctypes.cast(sd, wintypes.LPVOID)
+            # RW-6 (pyrefly): build the LPVOID via ``c_void_p(addressof(sd))``
+            # instead of ``cast(sd, LPVOID)``. Both produce a ``c_void_p``
+            # pointing at the security-descriptor buffer, but pyrefly 1.x
+            # rejects the ``cast`` form because it cannot prove
+            # ``c_char_Array[N]`` satisfies the ``_CanCastTo`` type-variable
+            # bound on ``ctypes.cast``. ``addressof`` returns the buffer's
+            # integer address, which ``c_void_p`` accepts unambiguously —
+            # no false positive, identical runtime behaviour.
+            sa.lpSecurityDescriptor = ctypes.c_void_p(ctypes.addressof(sd))
             sa.bInheritHandle = False
             # Keep references alive so they don't get GC'd while the mutex holds them
             sa._sd_ref = sd

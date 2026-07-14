@@ -853,6 +853,24 @@ class VoiceTyperService:
             except Exception as e:
                 log.warning("Failed to sync autostart: %s", e)
 
+        # PW-3: Sync the prewarm scheduled task when fast_startup changes.
+        # When the user toggles fast_startup in Settings → General, the
+        # OS-level scheduled task must be registered (True) or
+        # unregistered (False) immediately — otherwise the task fires
+        # silently at next logon and exits with EXIT_DISABLED, or fails
+        # to fire when the user re-enables it.
+        if "fast_startup" in updates:
+            try:
+                from voice_typer.server import startup_tasks
+                startup_tasks.sync_prewarm_task(app)
+                log.info(
+                    "[SERVICE] Prewarm task synced after fast_startup change "
+                    "(fast_startup=%s)",
+                    bool(updates.get("fast_startup")),
+                )
+            except Exception as e:
+                log.warning("Failed to sync prewarm task: %s", e)
+
         # Register/unregister ESC hotkey
         if "esc_cancel_enabled" in updates:
             try:
@@ -1290,8 +1308,8 @@ class VoiceTyperService:
             # next mount or issuing a bespoke get_config round-trip.
             # Parity with set_config in config_handlers.py.
             try:
-                from voice_typer.server.ipc_server import _push_event_now
-                _push_event_now({
+                from voice_typer.server import event_bus
+                event_bus.publish({
                     "type": "config_changed",
                     "data": updates,
                 })
@@ -1525,7 +1543,7 @@ class VoiceTyperService:
         import os
 
         # UX-005: helper to push progress events to the renderer.
-        from voice_typer.server.ipc_server import _push_event_now
+        from voice_typer.server import event_bus
 
         def _push_progress(
             progress: int,
@@ -1563,7 +1581,7 @@ class VoiceTyperService:
                 data["paused"] = bool(paused)
             if resumed is not None:
                 data["resumed"] = bool(resumed)
-            _push_event_now({"type": "download_progress", "data": data})
+            event_bus.publish({"type": "download_progress", "data": data})
 
         def _notify(title: str, message: str) -> None:
             try:

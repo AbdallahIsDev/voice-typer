@@ -602,6 +602,16 @@ class TranscriptionEngine:
         can't be loaded, catches the error at startup and falls back to
         CPU immediately instead of failing mid-recording.
         """
+        # RW-6 (pyrefly): ``self._model`` is declared ``self._model = None``
+        # in __init__ and only assigned a real model instance inside the
+        # load path. The sole caller (line ~554) only invokes us after a
+        # successful load, but pyrefly cannot prove that contract across
+        # method boundaries — so guard explicitly. Returning early here
+        # also makes the function safe to call from tests / future
+        # callers that haven't loaded a model yet.
+        if self._model is None:
+            log.warning("[CUDA-PROBE] Skipping — no model loaded")
+            return
         import numpy as np
         t = np.arange(int(_WHISPER_SAMPLE_RATE), dtype=np.float32) / _WHISPER_SAMPLE_RATE
         probe_audio: np.ndarray = np.sin(2 * np.pi * 440 * t, dtype=np.float32) * 0.1
@@ -1127,7 +1137,13 @@ class TranscriptionEngine:
                 cls = getattr(ctranslate2, attr_name, None)
                 if isinstance(cls, type) and isinstance(exc, cls):
                     return True
-        except (ImportError, AttributeError):
+        except (ImportError, AttributeError, ValueError):
+            # ImportError: ctranslate2 not installed.
+            # AttributeError: ctranslate2 installed but missing CUDAError/RuntimeError attrs.
+            # ValueError: ctranslate2's import chain (transformers → PIL vision check)
+            #   can raise ValueError("PIL.__spec__ is not set") in environments where
+            #   PIL was imported via a non-standard path. This is environment noise,
+            #   not a real GPU error — fall through to the substring/MRO check below.
             pass
         # 2. MRO-based class-name check (catches wrapped exceptions
         #    whose original class still appears in the MRO).

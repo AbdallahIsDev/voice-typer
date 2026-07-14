@@ -575,6 +575,13 @@ class Config:
     warn_elevated_paste: bool = True
     # PLAT-014: warn when pasting into a password field
     warn_password_paste: bool = True
+    # PW-3: Master toggle for the OS-level prewarm scheduled task.
+    # Defaults ON so existing users keep fast cold-boot behaviour.
+    # When False, the prewarm task is unregistered at startup and the
+    # prewarm entrypoint exits early with EXIT_DISABLED. The "Run
+    # Prewarm Now" button in the About page remains usable for
+    # on-demand warming even when scheduled prewarm is disabled.
+    fast_startup: bool = True
 
     # ASR backend selection
     asr_backend: str = "whisper"  # "whisper", "qwen", or "parakeet"
@@ -960,7 +967,39 @@ class Config:
 
     @classmethod
     def load(cls) -> "Config":
-        """Load config from disk, or return defaults."""
+        """Load config from disk, or return defaults.
+
+        RW-9: failure-mode enumeration.  The previous implementation
+        caught ``Exception`` and silently returned defaults — that hid
+        genuine bugs (e.g. ``KeyError`` from a missing ``data[key]``
+        access, or ``AttributeError`` from an unexpected ``None``) and
+        system-level failures (``MemoryError``).  We now enumerate the
+        *expected* failure modes that indicate a corrupt or unreadable
+        config file and fall back to defaults with a WARNING log so
+        the user can see *why* their settings were reset.
+
+        Caught (fall back to defaults + WARNING log):
+
+        * ``OSError`` (incl. ``PermissionError``) — file missing,
+          locked, or unreadable.
+        * ``json.JSONDecodeError`` — corrupt JSON syntax.
+        * ``TypeError`` — parsed JSON is not a dict (e.g. ``[]`` or
+          ``42``), or a field has an uncoercible type (e.g. ``null``
+          for a float field).
+        * ``ValueError`` — a field has the right type but an invalid
+          string form (e.g. ``"abc"`` for ``float()``).
+
+        Propagated (NOT caught — indicates a bug in our code or a
+        system-level failure that should not be silently hidden):
+
+        * ``KeyError`` — we use ``.get()`` everywhere; a ``KeyError``
+          means someone introduced a ``data[...]`` access without a
+          default.  Surface it as a bug.
+        * ``AttributeError`` — same reasoning; an unexpected ``None``
+          where a dict was assumed.
+        * ``MemoryError`` / ``KeyboardInterrupt`` / ``SystemExit`` —
+          system-level, never silently swallowed.
+        """
         config_file = _config_dir() / "config.json"
         if config_file.exists():
             try:
@@ -968,6 +1007,17 @@ class Config:
                 # symlink-TOCTOU attacks when reading config.json
                 raw_text = _secure_read_text(config_file)
                 parsed = json.loads(raw_text)
+                # RW-9: a valid JSON scalar (null/true/42/"x"/[]) is
+                # not a valid config — raise TypeError with a clear
+                # message so the failure mode is visible in the WARNING
+                # log below (and matches the caught tuple).  Without
+                # this, ``parsed.items()`` on a non-dict would raise
+                # AttributeError, which we deliberately let propagate.
+                if not isinstance(parsed, dict):
+                    raise TypeError(
+                        f"config root must be a JSON object, got "
+                        f"{type(parsed).__name__}"
+                    )
                 data = {k: v for k, v in parsed.items() if k in cls.__dataclass_fields__}
 
                 # M3: Schema versioning and migration
@@ -1134,11 +1184,20 @@ class Config:
                     log.debug("[CONFIG] apply_preset on load failed", exc_info=True)
 
                 return instance
-            except json.JSONDecodeError as e:
-                log.error("[CONFIG] Config file corrupted: %s. Using defaults.", e)
-                return cls()
-            except Exception as e:
-                log.error("[CONFIG] Failed to load config: %s. Using defaults.", e)
+            except (OSError, json.JSONDecodeError, TypeError, ValueError) as e:
+                # RW-9: enumerated failure modes — see the docstring
+                # above for the rationale.  The warning includes the
+                # exception class name (failure-mode indicator) and the
+                # config file path so the user can see *which* file is
+                # corrupt and *why* the app fell back to defaults.
+                # Unexpected exceptions (KeyError, AttributeError,
+                # MemoryError, KeyboardInterrupt, SystemExit) are NOT
+                # caught here — they propagate so genuine bugs and
+                # system-level failures are visible.
+                log.warning(
+                    "[CONFIG] %s loading config %s: %s. Using defaults.",
+                    type(e).__name__, config_file, e,
+                )
                 return cls()
         return cls()
 
@@ -1166,6 +1225,9 @@ class Config:
         warnings: list[str] = []
         bool_fields = {
             "autostart", "paste_on_stop", "unsafe_paste_on_unknown_focus", "show_notifications",
+            # PW-3: prewarm toggle is a bool so legacy configs that stored
+            # it as "true"/"false" strings or 0/1 ints get coerced.
+            "fast_startup",
             "text_cleanup_enabled",
             "streaming_transcription", "log_transcriptions",
             "condition_on_previous_text",

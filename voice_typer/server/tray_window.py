@@ -119,8 +119,8 @@ def open_electron_window() -> None:
     #    and works whether the window is hidden (close-to-tray) or
     #    minimized.
     try:
-        from voice_typer.server.ipc_server import _push_event_now
-        if _push_event_now({"type": "show_window"}):
+        from voice_typer.server import event_bus
+        if event_bus.publish({"type": "show_window"}):
             log.info("[TRAY] show_window pushed to Electron")
             return
     except Exception:
@@ -141,31 +141,25 @@ def open_electron_window() -> None:
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         client_dir = os.path.join(project_root, "voice_typer", "client")
         log.info("[TRAY] Build-first failed, trying dev mode from %s", client_dir)
-        # NEW-XPLAT-003: previously used ``shell=True`` here (which
-        # spawns a shell to find npm, propagating PATH/env to it).
-        # We now resolve the npm path explicitly via ``shutil.which``
-        # (same helper used by autostart_launcher._npm_command) so
-        # the list form works on Windows too (where npm is npm.cmd).
-        import shutil
-        npm_path = shutil.which("npm")
-        if npm_path is not None:
-            proc = subprocess.Popen(
-                [npm_path, "run", "dev"],
-                cwd=client_dir,
+        # NEW-XPLAT-003 / S-7: previously used ``shell=True`` here (which
+        # spawns a shell to find npm, propagating PATH/env to it — a
+        # shell-injection risk and breaks on paths with spaces).  We now
+        # resolve the npm path explicitly via the shared
+        # :func:`_electron_build._npm_command` helper, which uses
+        # ``shutil.which`` (and on Windows checks ``PATHEXT`` so ``npm``
+        # resolves to ``npm.cmd``).  When npm truly cannot be resolved,
+        # we log and skip — never fall back to ``shell=True``.
+        from voice_typer.server._electron_build import _npm_command
+        cmd = _npm_command("dev")
+        if cmd is None:
+            log.error(
+                "[TRAY] npm not on PATH; cannot launch dev mode. "
+                "Install Node.js / npm or add it to PATH."
             )
-            # PROD-003: track PID for cleanup on shutdown
-            set_electron_pid(proc.pid)
-        else:
-            # Last-resort fallback: shell=True only when npm truly
-            # can't be resolved (e.g. unusual embedded environments).
-            log.warning("[TRAY] npm not on PATH; falling back to shell=True")
-            proc = subprocess.Popen(
-                "npm run dev",
-                cwd=client_dir,
-                shell=True,
-            )
-            # PROD-003: track PID for cleanup on shutdown
-            set_electron_pid(proc.pid)
+            return
+        proc = subprocess.Popen(cmd, cwd=client_dir)
+        # PROD-003: track PID for cleanup on shutdown
+        set_electron_pid(proc.pid)
         log.info("[TRAY] Electron app launched (dev mode fallback)")
     except Exception as e:
         log.error("[TRAY] Failed to launch Electron app: %s", e)

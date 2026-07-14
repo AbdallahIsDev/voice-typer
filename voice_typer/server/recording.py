@@ -7,6 +7,7 @@ import contextlib
 import enum
 import logging
 import math
+import queue
 import threading
 import time
 from collections.abc import Callable
@@ -26,8 +27,29 @@ import numpy as np
 # mock)`` — keep working unchanged. The ``from __future__ import
 # annotations`` above stringifies the ``Optional[sd.InputStream]``
 # annotation in Recorder.__init__ so it no longer forces an eager import.
+from voice_typer.server import event_bus
 from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server.config import Config
+from voice_typer.server.log_rate_limit import log_rate_limited
+from voice_typer.server.vad import compute_vad_prob
+
+# RW-8: ``event_bus`` and ``compute_vad_prob`` are hoisted to module
+# top-level (instead of being imported inline inside _process_audio_chunk
+# on every chunk) for two reasons:
+#   1. The audio worker hot path (16 Hz) was paying a per-chunk
+#      ``sys.modules`` dict lookup + ``importlib`` resolution cost for
+#      ``event_bus`` and ``vad`` — negligible individually but
+#      cumulative when combined with the rest of the pipeline. Both
+#      modules are leaf-safe to import at module top: ``event_bus``
+#      imports only stdlib; ``vad`` imports only stdlib + numpy (the
+#      heavy ``torch`` import is lazily deferred inside ``vad`` itself).
+#   2. ``event_bus.publish`` was called synchronously from the worker
+#      thread, blocking it on the IPC transport (TCP write to the
+#      Electron renderer). A slow subscriber could stall the worker,
+#      causing the ring buffer to overflow and audio to be dropped.
+#      The publish call is now routed through ``self._event_queue``
+#      and drained by a dedicated ``_event_worker_thread`` (see
+#      ``_start_event_worker`` / ``_event_worker_loop``).
 
 sd = lazy_module("sounddevice")
 
@@ -158,6 +180,19 @@ _AUDIO_WORKER_JOIN_TIMEOUT_S = 2.0
 # current chunk (if any) before exiting.
 _AUDIO_WORKER_DISCARD_JOIN_TIMEOUT_S = 1.0
 
+# RW-8: IPC event worker thread — drains ``_event_queue`` and calls
+# ``event_bus.publish`` off the audio worker thread. Started by
+# ``start()``, stopped by ``stop()`` / ``discard()``.
+_EVENT_WORKER_THREAD_NAME = "event-worker"
+# Join timeout for stop() — generous so the worker drains the queue
+# (publishing every queued event to the IPC bus) before exiting. The
+# queue is tiny (events throttled at 1 Hz source-side), so this is
+# headroom, not a tight bound.
+_EVENT_WORKER_JOIN_TIMEOUT_S = 2.0
+# Join timeout for discard() — shorter because discard() clears the
+# queue first, so the worker exits after its current publish (if any).
+_EVENT_WORKER_DISCARD_JOIN_TIMEOUT_S = 1.0
+
 _resample_poly = None
 _resample_poly_error: Exception | None = None
 # AUDIO-003: track when the error was cached so we can retry after a timeout
@@ -185,36 +220,57 @@ def _preload_resample_poly() -> None:
 
 # THREAD-REGISTRY: store the preloader thread reference so Recorder can
 # register it with the application's ThreadRegistry if one is provided.
-# The thread is started eagerly at module import (preserving the existing
-# PERF-001 cold-start behavior); the reference is just exposed for
-# optional tracking. The thread is a one-shot daemon with no stop
-# mechanism (it just imports scipy and exits), so it registers with
-# stop_event=None — shutdown_all() will join it but won't try to signal
-# it. On a fast system the thread has already exited by the time the
-# first Recorder is constructed; on a slow system it may still be
-# loading scipy, in which case the registry's join gives it up to
+# B-3/S-3: previously this thread was started eagerly at module import
+# time, which meant every test that imported recording.py triggered a
+# background thread doing real scipy imports. The spawn is now deferred
+# to ``Recorder.__init__`` so module imports are side-effect-free; the
+# first Recorder instance triggers the preloader exactly when needed.
+# The thread is a one-shot daemon with no stop mechanism (it just
+# imports scipy and exits), so it registers with stop_event=None —
+# shutdown_all() will join it but won't try to signal it. On a fast
+# system the thread has already exited by the time the first Recorder
+# finishes constructing; on a slow system it may still be loading
+# scipy, in which case the registry's join gives it up to
 # ``_SCIPY_PRELOADER_JOIN_TIMEOUT_S`` to finish before continuing.
 _scipy_preloader_thread: threading.Thread | None = None
 _SCIPY_PRELOADER_JOIN_TIMEOUT_S = 2.0
+_scipy_preloader_lock = threading.Lock()
 
 
 def _start_scipy_preloader() -> None:
-    """Start the scipy preloader thread (module-import-time eager load).
+    """Start the scipy preloader thread (idempotent, deferred to first Recorder).
+
+    B-3/S-3: called from :meth:`Recorder.__init__` (not at module import)
+    so importing ``recording`` does not spawn a thread. Idempotent: if
+    the preloader has already been started (and is still alive), this is
+    a no-op. If a previous preloader thread exited (scipy import
+    finished), a new one is started only if the cached
+    ``_resample_poly`` is still None — i.e. the previous attempt failed
+    and we want to retry on the next Recorder construction.
 
     Stored in ``_scipy_preloader_thread`` so ``Recorder.__init__`` can
     register it with the application's ``ThreadRegistry`` if one is
-    provided. Called once at module import below.
+    provided.
     """
     global _scipy_preloader_thread
-    _scipy_preloader_thread = threading.Thread(
-        target=_preload_resample_poly,
-        name="scipy-preloader",
-        daemon=True,
-    )
-    _scipy_preloader_thread.start()
-
-
-_start_scipy_preloader()
+    with _scipy_preloader_lock:
+        # Idempotent: don't start a second preloader if one is still alive.
+        if (
+            _scipy_preloader_thread is not None
+            and _scipy_preloader_thread.is_alive()
+        ):
+            return
+        # Don't re-spawn if scipy already loaded successfully — the
+        # cached _resample_poly is set, so a new preloader would be a
+        # wasted thread.
+        if _resample_poly is not None:
+            return
+        _scipy_preloader_thread = threading.Thread(
+            target=_preload_resample_poly,
+            name="scipy-preloader",
+            daemon=True,
+        )
+        _scipy_preloader_thread.start()
 
 
 class ResampleUnavailableError(RuntimeError):
@@ -426,6 +482,23 @@ class Recorder:
         # (worker couldn't keep up). Logged with throttling.
         self._dropped_ring_chunks: int = 0
 
+        # RW-8: IPC event queue + dedicated worker thread. The audio
+        # worker thread (``_audio_worker_loop``) enqueues IPC events
+        # (e.g. ``audio_clip``) on this queue via a non-blocking
+        # ``put``; the event worker thread (``_event_worker_loop``)
+        # drains the queue and calls ``event_bus.publish``. This keeps
+        # the audio worker off the IPC transport so a slow TCP
+        # subscriber cannot stall the audio pipeline and cause
+        # ring-buffer overflows / dropped audio.
+        #
+        # Unbounded (no ``maxsize``) — events are tiny dicts (~100 B)
+        # and throttled at source (1 Hz for ``audio_clip``); a bounded
+        # queue would introduce a blocking put on the audio worker,
+        # which we explicitly want to avoid.
+        self._event_queue: queue.Queue[dict] = queue.Queue()
+        self._event_worker_thread: threading.Thread | None = None
+        self._event_stop_event: threading.Event = threading.Event()
+
         # AUDIO-CH: actual channel count of the input stream
         self._actual_channels: int = 1
 
@@ -476,8 +549,16 @@ class Recorder:
                 MicrophoneDeviceWatcher,
             )
 
-            self._mic_watcher = MicrophoneDeviceWatcher(on_change=self._invalidate_device_cache)
-            self._mic_watcher.start()
+            # RW-6 (pyrefly): bind to a local so pyrefly can see the
+            # value is non-None when we call .start() on it. Assigning
+            # straight to ``self._mic_watcher`` (typed ``Any | None``)
+            # made pyrefly think ``self._mic_watcher.start()`` could be
+            # called on None.
+            watcher: Any = MicrophoneDeviceWatcher(
+                on_change=self._invalidate_device_cache
+            )
+            watcher.start()
+            self._mic_watcher = watcher
         except Exception:
             # Watcher is best-effort — the 30s TTL cache covers the
             # case where the watcher fails to start.
@@ -518,14 +599,18 @@ class Recorder:
         # work because Python ignores extra positional args when the callable
         # uses *args or accepts the new signature explicitly.
 
-        # THREAD-REGISTRY: register the module-import-time scipy-preloader
-        # thread if it's still alive AND a registry was provided. The
-        # preloader is a one-shot daemon (no stop mechanism), so it
-        # registers with stop_event=None. On a fast system it has
-        # already exited by this point and registration is skipped; on
-        # a slow system it may still be loading scipy, in which case
-        # shutdown_all()'s join gives it up to
+        # THREAD-REGISTRY: B-3/S-3 — the scipy-preloader thread is now
+        # started lazily from Recorder.__init__ (not at module import).
+        # The first Recorder instance triggers the preloader exactly
+        # when needed; subsequent Recorders see the cached thread and
+        # skip the spawn (see _start_scipy_preloader's idempotency
+        # guard). The preloader is a one-shot daemon (no stop
+        # mechanism), so it registers with stop_event=None. On a fast
+        # system it has already exited by this point and registration
+        # is skipped; on a slow system it may still be loading scipy,
+        # in which case shutdown_all()'s join gives it up to
         # ``_SCIPY_PRELOADER_JOIN_TIMEOUT_S`` to finish before continuing.
+        _start_scipy_preloader()
         if (
             self._thread_registry is not None
             and _scipy_preloader_thread is not None
@@ -1466,10 +1551,20 @@ class Recorder:
                 selected_device = candidate
                 effective_sr = candidate_sr
                 used_fallback = True
+                # RW-6 (pyrefly): ``dev_info_extra`` is typed
+                # ``dict | None`` because ``_resolve_effective_sample_rate``
+                # may return None when PortAudio can't enumerate the
+                # device. The earlier ``if dev_info_extra:`` gate
+                # protects the first access (logging at line ~1505),
+                # but this post-success log was unguarded — calling
+                # ``["name"]`` on None would raise ``TypeError`` here
+                # after a *successful* stream open. Fall back to a
+                # placeholder so the log line still fires.
+                fb_name = dev_info_extra["name"] if dev_info_extra else "(unknown)"
                 log.info(
                     "[RECORDING] Fallback succeeded with device [%s] %s",
                     candidate,
-                    dev_info_extra["name"],
+                    fb_name,
                 )
                 break
 
@@ -1533,6 +1628,12 @@ class Recorder:
         # (filter chain, VAD, resample, state machine) off the real-time
         # audio thread.
         self._start_audio_worker()
+
+        # RW-8: Start the IPC event worker thread AFTER the audio worker
+        # so the audio worker can enqueue IPC events (e.g. audio_clip)
+        # as soon as it begins processing chunks. The event worker is
+        # stopped by stop()/discard() — see _stop_event_worker.
+        self._start_event_worker()
 
     def _teardown_stream(self) -> None:
         """Stop + close the PortAudio stream, draining any in-flight callback.
@@ -1697,6 +1798,156 @@ class Recorder:
         self._worker_wake_event.clear()
         self._worker_thread = None
 
+    # ── RW-8: IPC event worker thread lifecycle ─────────────────────
+
+    def _start_event_worker(self) -> None:
+        """Start the IPC event worker thread that drains ``_event_queue``.
+
+        RW-8: called by ``start()`` AFTER the audio worker is started
+        so the audio worker can enqueue IPC events (e.g. ``audio_clip``)
+        as soon as it begins processing chunks. The event worker is a
+        daemon so it never blocks process exit.
+
+        Idempotent: if the event worker is already running, this is a
+        no-op. Any stale events left in the queue from a previous
+        session are drained before the worker starts so they are not
+        re-published (matches the audio worker's ring-buffer clear in
+        ``_start_audio_worker``).
+
+        THREAD-REGISTRY: when a registry was provided to ``__init__``,
+        the event worker thread is registered so ``shutdown_all()`` can
+        signal and join it during ``VoiceTyperApp.quit()``.
+        """
+        if self._event_worker_thread is not None and self._event_worker_thread.is_alive():
+            return
+        self._event_stop_event.clear()
+        # Drain any stale events from a previous session.
+        with contextlib.suppress(Exception):
+            while True:
+                try:
+                    self._event_queue.get_nowait()
+                except queue.Empty:
+                    break
+        self._event_worker_thread = threading.Thread(
+            target=self._event_worker_loop,
+            name=_EVENT_WORKER_THREAD_NAME,
+            daemon=True,
+        )
+        self._event_worker_thread.start()
+        if self._thread_registry is not None:
+            self._thread_registry.register(
+                name=_EVENT_WORKER_THREAD_NAME,
+                thread=self._event_worker_thread,
+                stop_event=self._event_stop_event,
+                join_timeout=_EVENT_WORKER_JOIN_TIMEOUT_S,
+            )
+
+    def _stop_event_worker(self, *, timeout: float, drain: bool = True) -> None:
+        """Signal the event worker thread to stop and join it.
+
+        Parameters
+        ----------
+        timeout : float
+            Maximum seconds to wait for the worker to exit.
+        drain : bool
+            If True (default, used by ``stop()``), the worker drains the
+            event queue fully (publishing every queued event) before
+            exiting so no in-flight IPC event is lost. If False (used by
+            ``discard()``), the queue is cleared first so the worker
+            exits immediately after its current publish (if any) —
+            cancelled recordings don't need their queued events
+            published.
+
+        THREAD-REGISTRY: unregisters the worker after the join so a
+        subsequent ``_start_event_worker()`` re-registers cleanly.
+
+        Safe to call when the worker is not running (no-op).
+        """
+        if self._event_worker_thread is None:
+            # Still reset the stop event so the next start() is clean.
+            self._event_stop_event.clear()
+            return
+        if not drain:
+            # discard() path: clear the queue so the worker has nothing
+            # left to publish. It will finish its current publish (if
+            # any) and then exit on the next iteration.
+            with contextlib.suppress(Exception):
+                while True:
+                    try:
+                        self._event_queue.get_nowait()
+                    except queue.Empty:
+                        break
+        # Signal the worker to stop.
+        self._event_stop_event.set()
+        # Join with timeout. If the worker doesn't exit in time (e.g.,
+        # stuck in a slow publish), we proceed anyway — the worker is a
+        # daemon, so it won't block process exit. A stale worker is
+        # harmless because the stop event is set; it will exit on its
+        # next iteration boundary.
+        self._event_worker_thread.join(timeout=timeout)
+        if self._event_worker_thread.is_alive():
+            log.warning(
+                "[RECORDING] Event worker thread did not exit within %.1fs "
+                "(it will exit as a daemon on next iteration)",
+                timeout,
+            )
+        else:
+            log.debug("[RECORDING] Event worker thread exited cleanly")
+        if self._thread_registry is not None:
+            self._thread_registry.unregister(_EVENT_WORKER_THREAD_NAME)
+        self._event_stop_event.clear()
+        self._event_worker_thread = None
+
+    def _event_worker_loop(self) -> None:
+        """IPC event worker thread main loop (RW-8).
+
+        Consumes events from ``_event_queue`` and calls
+        ``event_bus.publish`` so the IPC transport (TCP / stdout) can
+        forward them to the Electron renderer. This thread is the
+        SINGLE consumer — the audio worker thread is the single
+        producer, so no locks are needed on the queue (``queue.Queue``
+        is already thread-safe for MPSC).
+
+        Shutdown: exits when ``_event_stop_event`` is set. The loop
+        drains the queue fully before exiting so ``stop()`` doesn't
+        lose in-flight IPC events. For the ``discard()`` path, the
+        queue was already cleared by the caller, so the drain loop is
+        a no-op.
+        """
+        while True:
+            if not self._event_stop_event.is_set():
+                # Wait for work with a short timeout so we notice the
+                # stop flag even if an event is enqueued between the
+                # worker's ``get`` return and the next loop iteration
+                # (a rare race that the timeout covers — same pattern as
+                # ``_audio_worker_loop``'s 50ms wait).
+                try:
+                    event = self._event_queue.get(timeout=0.05)
+                except queue.Empty:
+                    continue
+            else:
+                # Stop signal received — drain remaining events before
+                # exiting (for the ``stop()`` path). For ``discard()``
+                # the queue was already cleared by the caller, so this
+                # loop is a no-op.
+                try:
+                    event = self._event_queue.get_nowait()
+                except queue.Empty:
+                    return
+            try:
+                event_bus.publish(event)
+            except Exception:
+                # A bad event or a buggy subscriber must NOT kill the
+                # event worker (otherwise all subsequent IPC events
+                # are lost until the next start()). event_bus.publish
+                # already isolates subscriber exceptions, so this is a
+                # belt-and-suspenders guard for unexpected failures
+                # (e.g. a TypeError from a malformed event dict).
+                log.debug(
+                    "[RECORDING] Event worker thread error publishing event",
+                    exc_info=True,
+                )
+
     def _audio_worker_loop(self) -> None:
         """Audio worker thread main loop.
 
@@ -1735,9 +1986,23 @@ class Recorder:
                 except Exception:
                     # Log and continue — a single bad chunk must NOT kill
                     # the worker (otherwise all subsequent audio is lost
-                    # until the next start()). The exception is logged
-                    # with exc_info for debugging.
-                    log.exception("[RECORDING] Audio worker thread error processing chunk")
+                    # until the next start()).
+                    #
+                    # B-5: this worker runs at ~16 Hz (the audio callback
+                    # pushes a chunk per PortAudio block).  A persistent
+                    # error (e.g. a bad filter config) would flood the
+                    # log at ERROR 16 times/sec ≈ 960 lines/min.
+                    # ``log_rate_limited`` emits the 1st occurrence and
+                    # every 100th thereafter at ERROR with the full
+                    # traceback; all other occurrences go to DEBUG (no
+                    # traceback) so a persistent error remains visible
+                    # in debug mode without spamming the default log.
+                    log_rate_limited(
+                        log,
+                        logging.ERROR,
+                        "[RECORDING] Audio worker thread error processing chunk",
+                        exc_info=True,
+                    )
 
             # Check for shutdown. We drain the ring buffer fully before
             # exiting so stop() doesn't lose in-flight audio. For the
@@ -1861,6 +2126,29 @@ class Recorder:
         # those as device disconnects, because _handle_device_disconnect
         # would race with the deliberate stop() to close the stream.
         if not indata.any() and self._chunk_count > 10:
+            # RW-7: re-entrancy guard — if a previous chunk already
+            # detected the disconnect and scheduled a handler thread,
+            # don't spawn another. Pre-fix, every subsequent zero-filled
+            # chunk would re-enter this block, set the flag again
+            # (no-op), and spawn ANOTHER device-disconnect-handler
+            # thread — a thread-spawn storm on truly silent (or
+            # disconnected) input. With 100 zero-filled callbacks after
+            # the warmup window, this would spawn ~89 threads.
+            #
+            # The flag is cleared by _handle_device_disconnect on
+            # successful stream restart (see line ~804) and by start()
+            # (see line ~1253), so this guard only suppresses the storm
+            # during the retry window — it does NOT suppress a
+            # legitimate re-detection after a successful restart.
+            #
+            # Silence tracking (vad_state / silence_timer /
+            # on_silence_warning) is unaffected: those run later in
+            # this method for NON-zero chunks. For zero-filled chunks
+            # the existing `return` below already skipped them; this
+            # guard just ensures we don't ALSO spawn a handler thread
+            # on every such chunk.
+            if self._device_disconnected:
+                return
             # HOTKEY-CRASH: double-check that recording is still active.
             # The early-return check in the callback passed, but stop()
             # may have cleared _recording_event between that check and
@@ -1891,30 +2179,36 @@ class Recorder:
         self._device_check_counter += 1
         if self._device_check_counter >= self._device_check_interval:
             self._device_check_counter = 0
-            try:
-                current_device = self._resolve_device()
-                if current_device is not None:
-                    try:
-                        sd.query_devices(current_device)
-                    except Exception:
-                        # HOTKEY-CRASH: double-check recording is still active
-                        if not self._recording_event.is_set():
+            # RW-7: skip the periodic check if we've already detected a
+            # disconnect and scheduled a handler — avoids spawning a
+            # redundant device-disconnect-check thread every 500 chunks
+            # during the retry window. The flag is cleared by
+            # _handle_device_disconnect on successful restart.
+            if not self._device_disconnected:
+                try:
+                    current_device = self._resolve_device()
+                    if current_device is not None:
+                        try:
+                            sd.query_devices(current_device)
+                        except Exception:
+                            # HOTKEY-CRASH: double-check recording is still active
+                            if not self._recording_event.is_set():
+                                return
+                            log.warning(
+                                "[RECORDING] Current device no longer available in query_devices — disconnect detected"
+                            )
+                            self._device_disconnected = True
+                            _captured_gen = self._stop_generation
+                            with contextlib.suppress(Exception):
+                                threading.Thread(
+                                    target=self._handle_device_disconnect,
+                                    kwargs={"_captured_generation": _captured_gen},
+                                    name="device-disconnect-check",
+                                    daemon=True,
+                                ).start()
                             return
-                        log.warning(
-                            "[RECORDING] Current device no longer available in query_devices — disconnect detected"
-                        )
-                        self._device_disconnected = True
-                        _captured_gen = self._stop_generation
-                        with contextlib.suppress(Exception):
-                            threading.Thread(
-                                target=self._handle_device_disconnect,
-                                kwargs={"_captured_generation": _captured_gen},
-                                name="device-disconnect-check",
-                                daemon=True,
-                            ).start()
-                        return
-            except Exception:
-                pass
+                except Exception:
+                    pass
 
         # NOTE: Dead-air timeout was REMOVED in RW-0.
         # Redundant with stop_on_silence_seconds (auto-stop already resets on
@@ -2063,10 +2357,17 @@ class Recorder:
                 # for the user to adjust mic gain mid-dictation.
                 # The event is throttled to 1 Hz (same as the log)
                 # to avoid flooding the IPC channel.
-                try:
-                    from voice_typer.server.ipc_server import _push_event_now
-
-                    _push_event_now(
+                #
+                # RW-8: the event is enqueued on a non-blocking
+                # ``queue.Queue`` and drained by a dedicated
+                # ``_event_worker_thread`` (see ``_event_worker_loop``).
+                # This keeps the audio worker thread off the IPC
+                # transport — a slow TCP subscriber (or a blocked
+                # Electron renderer) can no longer stall the worker
+                # and cause ring-buffer overflows / dropped audio.
+                # ``event_bus`` is now imported at module top.
+                with contextlib.suppress(Exception):
+                    self._event_queue.put(
                         {
                             "type": "audio_clip",
                             "data": {
@@ -2075,8 +2376,6 @@ class Recorder:
                             },
                         }
                     )
-                except Exception:
-                    pass
 
         recent_rms.append(chunk_rms)
 
@@ -2092,8 +2391,6 @@ class Recorder:
         vad_prob = None
         if self._vad_enabled and self._use_silero_vad and self._silero_available:
             try:
-                from voice_typer.server.vad import compute_vad_prob
-
                 # impl-vad-fix: Silero VAD only accepts {8000, 16000} Hz.
                 # The mic's native rate (self._effective_sr) may be 44100
                 # or 48000, which previously raised:
@@ -2249,6 +2546,15 @@ class Recorder:
         # (chunks pushed to the ring buffer but not yet processed by the
         # worker) would be lost.
         self._stop_audio_worker(timeout=_AUDIO_WORKER_JOIN_TIMEOUT_S, drain=True)
+
+        # RW-8: stop the IPC event worker thread AFTER the audio worker
+        # so the audio worker has finished enqueuing IPC events (e.g.
+        # audio_clip from the final chunks). drain=True so every queued
+        # event is published to the IPC bus before stop() returns —
+        # the UI sees the final state. Without this, a queued audio_clip
+        # event could be lost if stop() returned before the event worker
+        # drained it.
+        self._stop_event_worker(timeout=_EVENT_WORKER_JOIN_TIMEOUT_S, drain=True)
 
         concat_started = time.perf_counter()
         with self._lock:
@@ -2670,6 +2976,11 @@ class Recorder:
         # and exits after its current chunk (if any). Any chunk the
         # worker appends to self._buffer before exiting is cleared below.
         self._stop_audio_worker(timeout=_AUDIO_WORKER_DISCARD_JOIN_TIMEOUT_S, drain=False)
+        # RW-8: stop the IPC event worker with drain=False — the
+        # recording was cancelled, so queued IPC events (e.g.
+        # audio_clip from the discarded audio) don't need to be
+        # published. The queue is cleared so the worker exits promptly.
+        self._stop_event_worker(timeout=_EVENT_WORKER_DISCARD_JOIN_TIMEOUT_S, drain=False)
         with self._lock:
             # SEC-audit-008: Zero the buffer contents before clearing to prevent
             # forensic recovery of audio data from process memory

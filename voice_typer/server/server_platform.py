@@ -5,10 +5,13 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from voice_typer.server import _paths
 from voice_typer.server.branding import APP_NAME
+
+if TYPE_CHECKING:  # pragma: no cover - type-checker-only
+    from voice_typer.server.volume_backend import VolumeBackend
 
 log = logging.getLogger(__name__)
 
@@ -66,13 +69,24 @@ def is_remote_session() -> bool:
 # ─── Volume backend factory ────────────────────────────────────────────
 
 
-def get_volume_backend() -> Optional["object"]:
+def get_volume_backend() -> "VolumeBackend | None":
     """Return the appropriate :class:`VolumeBackend` for this platform.
 
     Returns ``None`` if the platform is not supported (no backend class
     exists).  The returned backend is **not yet initialised** — the
     caller must call ``initialize()`` to verify that native libraries
     are available.
+
+    RW-6 (pyrefly): return type tightened from ``Optional[object]`` to
+    ``Optional[VolumeBackend]``. All three concrete backends
+    (``WinVolumeBackend``, ``MacVolumeBackend``, ``LinuxVolumeBackend``)
+    inherit from :class:`voice_typer.server.volume_backend.VolumeBackend`,
+    so the looser ``object`` annotation was both inaccurate and the
+    root cause of the ``bad-assignment`` downstream in
+    :mod:`voice_typer.server.volume_ducker` (``self._backend`` is typed
+    ``VolumeBackend | None``). ``VolumeBackend`` is imported under
+    ``TYPE_CHECKING`` to avoid a circular import at runtime — the
+    concrete backend classes already import it themselves.
 
     Selection:
       - ``win32``  → :class:`WinVolumeBackend` (pycaw)
@@ -777,8 +791,14 @@ def _enable_autostart_macos() -> bool:
     log_dir.mkdir(parents=True, exist_ok=True)
     with contextlib.suppress(OSError):
         os.chmod(log_dir, 0o700)
+    # RW-6 (pyrefly): import subprocess BEFORE the try block so the
+    # ``except subprocess.TimeoutExpired`` clause has a guaranteed-bound
+    # name. Previously the import was inside the try, so if the import
+    # itself failed (extremely unlikely, but pyrefly cannot prove
+    # otherwise) the except clause would have raised UnboundLocalError
+    # instead of catching the intended exception.
+    import subprocess
     try:
-        import subprocess
         # NEW-XPLAT-005: previously ``launchctl load`` had no timeout,
         # so a hung launchd (rare but possible after a macOS upgrade
         # or in a stuck boot) would block this thread forever.  The

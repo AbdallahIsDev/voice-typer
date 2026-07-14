@@ -488,7 +488,7 @@ class ModelManager:
 
         old_backend = self._app.config.asr_backend
         log.info(
-            "[MODEL] Changing model: %s (%s) → %s (%s)",
+            "[MODEL] Changing model: %s (%s) -> %s (%s)",
             self._app.config.model_size,
             old_backend,
             model_size,
@@ -629,8 +629,21 @@ class ModelManager:
             if len(self._model_access_times) <= self._MAX_LOADED_MODELS:
                 return
 
-            # Find the oldest (least recently used) backend
-            oldest_backend = min(self._model_access_times, key=self._model_access_times.get)
+            # Find the oldest (least recently used) backend.
+            # RW-6 (pyrefly): use a lambda instead of passing
+            # ``self._model_access_times.get`` directly. ``dict.get``
+            # is typed as returning ``float | None`` (because callers
+            # may pass a key that isn't present), but ``min(key=...)``
+            # requires a function returning ``SupportsRichComparison``
+            # — pyrefly rejects ``None`` as not orderable. The lambda
+            # resolves this by giving an explicit ``0.0`` default that
+            # can never actually be returned here (every key in
+            # ``_model_access_times`` has a real ``float`` value), but
+            # satisfies the type system without changing behaviour.
+            oldest_backend = min(
+                self._model_access_times,
+                key=lambda k: self._model_access_times.get(k, 0.0),
+            )
             oldest_time = self._model_access_times[oldest_backend]
             log.info(
                 "[PERF-015] Evicting LRU model '%s' (last used %.1fs ago) — %d models loaded, max is %d",

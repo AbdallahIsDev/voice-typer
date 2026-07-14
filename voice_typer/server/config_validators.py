@@ -494,6 +494,9 @@ IPC_CONFIG_ALLOWLIST: dict = {
     "paste_on_stop":         (bool, _bool_validator),
     "unsafe_paste_on_unknown_focus": (bool, _bool_validator),
     "show_notifications":    (bool, _bool_validator),
+    # PW-3: prewarm scheduled-task master toggle. Surfaced in Settings →
+    # General so users can opt out (e.g. gamers who want the RAM back).
+    "fast_startup":          (bool, _bool_validator),
 
     # ── ASR backend selection ─────────────────────────────────────────
     "asr_backend":           (str, _make_enum_validator({"whisper", "qwen", "parakeet"})),
