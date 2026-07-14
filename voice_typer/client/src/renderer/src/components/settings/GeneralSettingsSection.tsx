@@ -61,6 +61,10 @@ const TRAY_CLICK_LABEL = t("settings.trayClick");
 const TRAY_CLICK_INFO = t("settings.trayClickDescription");
 const APP_LANGUAGE_LABEL = t("settings.appLanguage");
 const APP_LANGUAGE_INFO = t("settings.appLanguageDescription");
+// PW-3: prewarm / fast_startup toggle. Lives under General because it's
+// a startup-behaviour setting alongside "Launch at Login". Defaults ON.
+const FAST_STARTUP_LABEL = t("settings.fastStartup");
+const FAST_STARTUP_INFO = t("settings.fastStartupDescription");
 
 export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 	config,
@@ -76,6 +80,7 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 		{ label: APP_LANGUAGE_LABEL, info: APP_LANGUAGE_INFO },
 		{ label: NOTIFICATIONS_LABEL, info: NOTIFICATIONS_INFO },
 		{ label: TRAY_CLICK_LABEL, info: TRAY_CLICK_INFO },
+		{ label: FAST_STARTUP_LABEL, info: FAST_STARTUP_INFO },
 	];
 	const generalVisible = generalItems.some((item) =>
 		isVisible(item.label, item.info, generalSectionTitle),
@@ -108,6 +113,8 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 	// ── Inline handler extraction ─────────────────────────────────
 	const handleAutostartChange = (checked: boolean) =>
 		updateConfig({ autostart: checked });
+	const handleFastStartupChange = (checked: boolean) =>
+		updateConfig({ fast_startup: checked });
 	const handleNotificationsChange = (checked: boolean) =>
 		updateConfig({ show_notifications: checked });
 	const handleTrayClickChange = (v: string) =>
@@ -153,11 +160,29 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 							/>
 						</SettingRow>
 					)}
+					{/* PW-3: Fast Startup (prewarm) toggle — defaults ON.
+                                                Disabling saves ~6 GB of disk reads at boot for users who
+                                                don't want the prewarm process (gamers, low-RAM machines).
+                                                The "Run Prewarm Now" button on the About page remains
+                                                available for on-demand warming. */}
+					{isVisible(
+						FAST_STARTUP_LABEL,
+						FAST_STARTUP_INFO,
+						generalSectionTitle,
+					) && (
+						<SettingRow label={FAST_STARTUP_LABEL} info={FAST_STARTUP_INFO}>
+							<Switch
+								checked={config.fast_startup ?? true}
+								onCheckedChange={handleFastStartupChange}
+								aria-label={FAST_STARTUP_LABEL}
+							/>
+						</SettingRow>
+					)}
 					{/* UX-015: App Language selector — distinct from the spoken-language
-						selector in Post-Processing. This controls the Electron UI
-						language via the i18n framework. The choice is persisted to
-						localStorage so it survives restarts, and pushed to the
-						Python backend so the tray menu labels also switch language. */}
+                                                selector in Post-Processing. This controls the Electron UI
+                                                language via the i18n framework. The choice is persisted to
+                                                localStorage so it survives restarts, and pushed to the
+                                                Python backend so the tray menu labels also switch language. */}
 					{isVisible(
 						APP_LANGUAGE_LABEL,
 						APP_LANGUAGE_INFO,

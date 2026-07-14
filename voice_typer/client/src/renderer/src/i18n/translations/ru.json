@@ -291,7 +291,13 @@
 		"viewPrewarmLog": "Просмотреть журнал предпрогрева",
 		"prewarmLogNotFound": "Журнал предпрогрева не найден",
 		"prewarmLogOpened": "Журнал предпрогрева открыт",
-		"prewarmLogOpenFailed": "Не удалось открыть журнал предпрогрева"
+		"prewarmLogOpenFailed": "Не удалось открыть журнал предпрогрева",
+		"relativeTime": {
+			"lessThanMinute": "<1 min ago",
+			"minutesAgo": "{count} min ago",
+			"hoursAgo": "{count} h ago",
+			"daysAgo": "{count} d ago"
+		}
 	},
 	"settings": {
 		"title": "Настройки",
@@ -739,8 +745,20 @@
 			"resetToDefaultsHint": "Сбросить все настройки к значениям по умолчанию (нельзя отменить)",
 			"cancelResetAria": "Отменить сброс",
 			"confirmResetAria": "Подтвердить сброс к значениям по умолчанию",
-			"resetDialogMessage": "Вы уверены, что хотите сбросить все настройки к значениям по умолчанию? Это действие нельзя отменить."
-		}
+			"resetDialogMessage": "Вы уверены, что хотите сбросить все настройки к значениям по умолчанию? Это действие нельзя отменить.",
+			"reRunWizard": "Re-run Setup Wizard",
+			"reRunWizardAria": "Re-run setup wizard",
+			"reRunWizardHint": "Restart the onboarding wizard to re-configure microphone, hotkey, and model",
+			"reRunWizardToast": "Setup wizard re-enabled — navigating there now"
+		},
+		"searchHints": {
+			"appearance": "theme, appearance, color, dark, light, text size, font",
+			"general": "language, notification, tray, bubble, overlay, startup, login, launch, hotkey, shortcut, dictation key, recording mode, push to talk",
+			"aiAudio": "model, llm, audio, volume, ducking, noise, filter, post-processing, ai enhancement, vocabulary, api key, polish, transcription, preset, snippet",
+			"privacy": "privacy, recovery, crash, export, consent, troubleshooting, diagnostics, reset, log, bug, help, faq"
+		},
+		"fastStartup": "Fast Startup (Prewarm)",
+		"fastStartupDescription": "Warm the OS file cache at boot so the speech model loads in seconds instead of 30+ seconds. Disable if you need the disk/RAM headroom for other apps. You can still warm on demand from the About page."
 	},
 	"models": {
 		"asrTitle": "Модели ASR",
@@ -961,7 +979,21 @@
 		"openHelp": "Открыть эту справку",
 		"navBack": "Навигация назад / вперёд",
 		"closeHint": "Нажмите {key} или щёлкните снаружи, чтобы закрыть.",
-		"zoomTextSize": "Размер текста"
+		"zoomTextSize": "Размер текста",
+		"keys": {
+			"dictation": "Caps Lock (or your hotkey)",
+			"cancel": "Esc",
+			"repaste": "Ctrl+Alt+V",
+			"toggleSidebar": "Ctrl+B",
+			"openSettings": "Ctrl+,",
+			"goHome": "Ctrl+H",
+			"navigate": "Tab / Shift+Tab",
+			"toggle": "Space",
+			"activate": "Enter",
+			"zoomTextSize": "Ctrl+Plus / Ctrl+Minus",
+			"openHelp": "?",
+			"navBack": "Alt+Left / Alt+Right"
+		}
 	},
 	"history": {
 		"title": "История",
@@ -1104,5 +1136,30 @@
 		"limiter": "Лимитер",
 		"limiterCeiling": "Потолок лимитера",
 		"notchFilter": "Режекторный фильтр (гул)"
+	},
+	"microphoneTest": {
+		"title": "Test Complete",
+		"duration": "Duration: {duration}s",
+		"retest": "Retest",
+		"estimatedQuality": "Estimated Transcription Quality",
+		"volume": "Volume",
+		"good": "Good ✓",
+		"low": "Low ⚠",
+		"veryLow": "Very Low ⚠",
+		"backgroundNoise": "Background Noise",
+		"lowNoise": "Low ✓",
+		"moderateNoise": "Moderate ⚠",
+		"highNoise": "High ⚠",
+		"clipping": "Clipping",
+		"clippingDetected": "Detected ⚠",
+		"clippingNone": "None ✓",
+		"voice": "Voice",
+		"voiceDetected": "Detected ✓",
+		"voiceNotDetected": "Not detected ⚠",
+		"detectedIssues": "Detected Issues:",
+		"playEnhanced": "Play Enhanced",
+		"playOriginal": "Play Original",
+		"playRecording": "Play Recording",
+		"stop": "Stop"
 	}
 }

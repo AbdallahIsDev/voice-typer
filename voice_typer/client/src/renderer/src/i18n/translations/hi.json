@@ -291,7 +291,13 @@
 		"viewPrewarmLog": "प्रीवार्म लॉग देखें",
 		"prewarmLogNotFound": "कोई प्रीवार्म लॉग नहीं मिला",
 		"prewarmLogOpened": "प्रीवार्म लॉग खुला",
-		"prewarmLogOpenFailed": "प्रीवार्म लॉग नहीं खुल सका"
+		"prewarmLogOpenFailed": "प्रीवार्म लॉग नहीं खुल सका",
+		"relativeTime": {
+			"lessThanMinute": "<1 min ago",
+			"minutesAgo": "{count} min ago",
+			"hoursAgo": "{count} h ago",
+			"daysAgo": "{count} d ago"
+		}
 	},
 	"settings": {
 		"title": "सेटिंग्स",
@@ -739,8 +745,20 @@
 			"resetToDefaultsHint": "सभी सेटिंग्स को उनके डिफ़ॉल्ट मानों पर रीसेट करता है (पूर्ववत नहीं किया जा सकता)",
 			"cancelResetAria": "रीसेट रद्द करें",
 			"confirmResetAria": "डिफ़ॉल्ट पर रीसेट की पुष्टि करें",
-			"resetDialogMessage": "क्या आप वाकई सभी सेटिंग्स को उनके डिफ़ॉल्ट मानों पर रीसेट करना चाहते हैं? इसे पूर्ववत नहीं किया जा सकता।"
-		}
+			"resetDialogMessage": "क्या आप वाकई सभी सेटिंग्स को उनके डिफ़ॉल्ट मानों पर रीसेट करना चाहते हैं? इसे पूर्ववत नहीं किया जा सकता।",
+			"reRunWizard": "Re-run Setup Wizard",
+			"reRunWizardAria": "Re-run setup wizard",
+			"reRunWizardHint": "Restart the onboarding wizard to re-configure microphone, hotkey, and model",
+			"reRunWizardToast": "Setup wizard re-enabled — navigating there now"
+		},
+		"searchHints": {
+			"appearance": "theme, appearance, color, dark, light, text size, font",
+			"general": "language, notification, tray, bubble, overlay, startup, login, launch, hotkey, shortcut, dictation key, recording mode, push to talk",
+			"aiAudio": "model, llm, audio, volume, ducking, noise, filter, post-processing, ai enhancement, vocabulary, api key, polish, transcription, preset, snippet",
+			"privacy": "privacy, recovery, crash, export, consent, troubleshooting, diagnostics, reset, log, bug, help, faq"
+		},
+		"fastStartup": "Fast Startup (Prewarm)",
+		"fastStartupDescription": "Warm the OS file cache at boot so the speech model loads in seconds instead of 30+ seconds. Disable if you need the disk/RAM headroom for other apps. You can still warm on demand from the About page."
 	},
 	"models": {
 		"asrTitle": "ASR मॉडल",
@@ -961,7 +979,21 @@
 		"openHelp": "यह सहायता ओवरले खोलें",
 		"navBack": "पीछे / आगे नेविगेट करें",
 		"closeHint": "बंद करने के लिए {key} दबाएं या बाहर क्लिक करें।",
-		"zoomTextSize": "टेक्स्ट आकार"
+		"zoomTextSize": "टेक्स्ट आकार",
+		"keys": {
+			"dictation": "Caps Lock (or your hotkey)",
+			"cancel": "Esc",
+			"repaste": "Ctrl+Alt+V",
+			"toggleSidebar": "Ctrl+B",
+			"openSettings": "Ctrl+,",
+			"goHome": "Ctrl+H",
+			"navigate": "Tab / Shift+Tab",
+			"toggle": "Space",
+			"activate": "Enter",
+			"zoomTextSize": "Ctrl+Plus / Ctrl+Minus",
+			"openHelp": "?",
+			"navBack": "Alt+Left / Alt+Right"
+		}
 	},
 	"history": {
 		"title": "इतिहास",
@@ -1104,5 +1136,30 @@
 		"limiter": "लिमिटर",
 		"limiterCeiling": "लिमिटर छत",
 		"notchFilter": "नॉच फ़िल्टर (गुंजन)"
+	},
+	"microphoneTest": {
+		"title": "Test Complete",
+		"duration": "Duration: {duration}s",
+		"retest": "Retest",
+		"estimatedQuality": "Estimated Transcription Quality",
+		"volume": "Volume",
+		"good": "Good ✓",
+		"low": "Low ⚠",
+		"veryLow": "Very Low ⚠",
+		"backgroundNoise": "Background Noise",
+		"lowNoise": "Low ✓",
+		"moderateNoise": "Moderate ⚠",
+		"highNoise": "High ⚠",
+		"clipping": "Clipping",
+		"clippingDetected": "Detected ⚠",
+		"clippingNone": "None ✓",
+		"voice": "Voice",
+		"voiceDetected": "Detected ✓",
+		"voiceNotDetected": "Not detected ⚠",
+		"detectedIssues": "Detected Issues:",
+		"playEnhanced": "Play Enhanced",
+		"playOriginal": "Play Original",
+		"playRecording": "Play Recording",
+		"stop": "Stop"
 	}
 }

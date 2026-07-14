@@ -11,9 +11,11 @@ import { usePython, usePythonEvent } from "@/hooks/usePython";
 // SOUND-FIX-004: sound feedback logic moved to App-level hook so cues
 // play on every page, not just Home.  Home no longer subscribes to
 // recording_started / recording_stopped for sound — the App root does.
-// The local playSoundCue / initAudioContext functions below are kept
-// only as thin re-exports for backward compatibility with any external
-// importer, but they are no longer called from Home's event handlers.
+// RW-10 (sound consolidation): the AudioContext / playSoundCue logic
+// that previously lived inside @/hooks/useSoundFeedback was a parallel
+// implementation of the canonical one in @/lib/sound-manager. The hook
+// now delegates to sound-manager so there is a single sound system in
+// production (and tests exercise the same path the runtime exercises).
 import { computeShareStats, useStatsShare } from "@/hooks/useStatsShare";
 // SOUND-FIX-006 (Round 0): removed dead imports from @/lib/sound-manager.
 // These were imported but never used inside Home.tsx — the sound feedback
@@ -186,6 +188,9 @@ function statusKeyFor(state: RecordingState, hasError: boolean): string {
 // initAudioContext, playSoundCue) has been moved to
 // ``@/hooks/useSoundFeedback`` and is now subscribed at the App root
 // so cues fire on every page, not just Home.
+// RW-10: as of the sound-consolidation rewrite, useSoundFeedback is
+// itself a thin wrapper that delegates to the canonical implementation
+// in @/lib/sound-manager. See hooks/useSoundFeedback.ts for details.
 // (DEAD-CODE: the previous `export { initAudioContext, playSoundCue }`
 // re-exports had zero importers in the repo and forced Home.tsx to be
 // a module that re-exports non-component functions, which breaks React

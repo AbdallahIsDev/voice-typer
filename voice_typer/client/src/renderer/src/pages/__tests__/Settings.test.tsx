@@ -109,6 +109,7 @@ import type { VoiceTyperConfig } from "@/types/config";
  *  defaults so the various Settings sections don't blow up on render. */
 const baseConfig: VoiceTyperConfig = {
 	schema_version: 1,
+	fast_startup: true,
 	hotkey: "F2",
 	sample_rate: 16000,
 	microphone: null,

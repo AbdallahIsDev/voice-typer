@@ -291,7 +291,13 @@
 		"viewPrewarmLog": "عرض سجل التسخين المسبق",
 		"prewarmLogNotFound": "لا يوجد سجل تسخين مسبق",
 		"prewarmLogOpened": "تم فتح سجل التسخين المسبق",
-		"prewarmLogOpenFailed": "تعذر فتح سجل التسخين المسبق"
+		"prewarmLogOpenFailed": "تعذر فتح سجل التسخين المسبق",
+		"relativeTime": {
+			"lessThanMinute": "<1 min ago",
+			"minutesAgo": "{count} min ago",
+			"hoursAgo": "{count} h ago",
+			"daysAgo": "{count} d ago"
+		}
 	},
 	"settings": {
 		"title": "الإعدادات",
@@ -750,7 +756,9 @@
 			"reRunWizardAria": "إعادة تشغيل معالج الإعداد",
 			"reRunWizardHint": "إعادة تشغيل معالج الإعداد لإعادة تكوين الميكروفون والاختصار والنموذج",
 			"reRunWizardToast": "تم إعادة تمكين معالج الإعداد — جارٍ التنقل إليه الآن"
-		}
+		},
+		"fastStartup": "Fast Startup (Prewarm)",
+		"fastStartupDescription": "Warm the OS file cache at boot so the speech model loads in seconds instead of 30+ seconds. Disable if you need the disk/RAM headroom for other apps. You can still warm on demand from the About page."
 	},
 	"models": {
 		"asrTitle": "نماذج ASR",
@@ -971,7 +979,21 @@
 		"openHelp": "فتح هذه المساعدة",
 		"navBack": "التنقل للخلف / للأمام",
 		"closeHint": "اضغط {key} أو انقر خارجًا للإغلاق.",
-		"zoomTextSize": "حجم النص"
+		"zoomTextSize": "حجم النص",
+		"keys": {
+			"dictation": "Caps Lock (or your hotkey)",
+			"cancel": "Esc",
+			"repaste": "Ctrl+Alt+V",
+			"toggleSidebar": "Ctrl+B",
+			"openSettings": "Ctrl+,",
+			"goHome": "Ctrl+H",
+			"navigate": "Tab / Shift+Tab",
+			"toggle": "Space",
+			"activate": "Enter",
+			"zoomTextSize": "Ctrl+Plus / Ctrl+Minus",
+			"openHelp": "?",
+			"navBack": "Alt+Left / Alt+Right"
+		}
 	},
 	"history": {
 		"title": "السجل",

@@ -413,6 +413,8 @@
 		"transcriptionLanguageDescription": "Auto-detect the spoken language, or pick one for better accuracy.",
 		"launchAtLogin": "Launch at Login",
 		"launchAtLoginDescription": "Automatically start Voice Typer when you log into Windows.",
+		"fastStartup": "Fast Startup (Prewarm)",
+		"fastStartupDescription": "Warm the OS file cache at boot so the speech model loads in seconds instead of 30+ seconds. Disable if you need the disk/RAM headroom for other apps. You can still warm on demand from the About page.",
 		"notifications": "Notifications",
 		"notificationsDescription": "Show a desktop notification when transcription completes or an error occurs.",
 		"trayClick": "Tray Click",

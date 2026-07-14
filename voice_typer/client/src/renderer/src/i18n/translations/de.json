@@ -291,7 +291,13 @@
 		"viewPrewarmLog": "Präwarming-Protokoll anzeigen",
 		"prewarmLogNotFound": "Kein Präwarming-Protokoll gefunden",
 		"prewarmLogOpened": "Präwarming-Protokoll geöffnet",
-		"prewarmLogOpenFailed": "Präwarming-Protokoll konnte nicht geöffnet werden"
+		"prewarmLogOpenFailed": "Präwarming-Protokoll konnte nicht geöffnet werden",
+		"relativeTime": {
+			"lessThanMinute": "<1 min ago",
+			"minutesAgo": "{count} min ago",
+			"hoursAgo": "{count} h ago",
+			"daysAgo": "{count} d ago"
+		}
 	},
 	"settings": {
 		"title": "Einstellungen",
@@ -750,7 +756,9 @@
 			"reRunWizardAria": "Setup-Assistent erneut ausführen",
 			"reRunWizardHint": "Setup-Assistent neu starten, um Mikrofon, Hotkey und Modell neu zu konfigurieren",
 			"reRunWizardToast": "Setup-Assistent wieder aktiviert — navigiere dorthin"
-		}
+		},
+		"fastStartup": "Fast Startup (Prewarm)",
+		"fastStartupDescription": "Warm the OS file cache at boot so the speech model loads in seconds instead of 30+ seconds. Disable if you need the disk/RAM headroom for other apps. You can still warm on demand from the About page."
 	},
 	"models": {
 		"asrTitle": "ASR-Modelle",
@@ -971,7 +979,21 @@
 		"openHelp": "Diese Hilfe öffnen",
 		"navBack": "Vorwärts / rückwärts navigieren",
 		"closeHint": "Drücken Sie {key} oder klicken Sie außerhalb, um zu schließen.",
-		"zoomTextSize": "Textgröße"
+		"zoomTextSize": "Textgröße",
+		"keys": {
+			"dictation": "Caps Lock (or your hotkey)",
+			"cancel": "Esc",
+			"repaste": "Ctrl+Alt+V",
+			"toggleSidebar": "Ctrl+B",
+			"openSettings": "Ctrl+,",
+			"goHome": "Ctrl+H",
+			"navigate": "Tab / Shift+Tab",
+			"toggle": "Space",
+			"activate": "Enter",
+			"zoomTextSize": "Ctrl+Plus / Ctrl+Minus",
+			"openHelp": "?",
+			"navBack": "Alt+Left / Alt+Right"
+		}
 	},
 	"history": {
 		"title": "Verlauf",
@@ -1114,5 +1136,30 @@
 		"limiter": "Begrenzer",
 		"limiterCeiling": "Limiter-Decke",
 		"notchFilter": "Kerfilter (Brummen)"
+	},
+	"microphoneTest": {
+		"title": "Test Complete",
+		"duration": "Duration: {duration}s",
+		"retest": "Retest",
+		"estimatedQuality": "Estimated Transcription Quality",
+		"volume": "Volume",
+		"good": "Good ✓",
+		"low": "Low ⚠",
+		"veryLow": "Very Low ⚠",
+		"backgroundNoise": "Background Noise",
+		"lowNoise": "Low ✓",
+		"moderateNoise": "Moderate ⚠",
+		"highNoise": "High ⚠",
+		"clipping": "Clipping",
+		"clippingDetected": "Detected ⚠",
+		"clippingNone": "None ✓",
+		"voice": "Voice",
+		"voiceDetected": "Detected ✓",
+		"voiceNotDetected": "Not detected ⚠",
+		"detectedIssues": "Detected Issues:",
+		"playEnhanced": "Play Enhanced",
+		"playOriginal": "Play Original",
+		"playRecording": "Play Recording",
+		"stop": "Stop"
 	}
 }

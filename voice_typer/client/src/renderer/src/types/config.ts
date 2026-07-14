@@ -36,6 +36,8 @@ export interface VoiceTyperConfig {
 	autostart: boolean;
 	paste_on_stop: boolean;
 	show_notifications: boolean;
+	// PW-3: prewarm scheduled-task master toggle.
+	fast_startup: boolean;
 
 	// ASR backend
 	asr_backend: "whisper" | "qwen" | "parakeet";

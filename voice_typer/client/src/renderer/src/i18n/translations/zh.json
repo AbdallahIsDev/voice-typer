@@ -291,7 +291,13 @@
 		"viewPrewarmLog": "查看预热日志",
 		"prewarmLogNotFound": "未找到预热日志",
 		"prewarmLogOpened": "已打开预热日志",
-		"prewarmLogOpenFailed": "无法打开预热日志"
+		"prewarmLogOpenFailed": "无法打开预热日志",
+		"relativeTime": {
+			"lessThanMinute": "<1 min ago",
+			"minutesAgo": "{count} min ago",
+			"hoursAgo": "{count} h ago",
+			"daysAgo": "{count} d ago"
+		}
 	},
 	"settings": {
 		"title": "设置",
@@ -739,8 +745,20 @@
 			"resetToDefaultsHint": "将所有设置重置为默认值（无法撤销）",
 			"cancelResetAria": "取消重置",
 			"confirmResetAria": "确认重置为默认值",
-			"resetDialogMessage": "确定要将所有设置重置为默认值吗？此操作无法撤销。"
-		}
+			"resetDialogMessage": "确定要将所有设置重置为默认值吗？此操作无法撤销。",
+			"reRunWizard": "Re-run Setup Wizard",
+			"reRunWizardAria": "Re-run setup wizard",
+			"reRunWizardHint": "Restart the onboarding wizard to re-configure microphone, hotkey, and model",
+			"reRunWizardToast": "Setup wizard re-enabled — navigating there now"
+		},
+		"searchHints": {
+			"appearance": "theme, appearance, color, dark, light, text size, font",
+			"general": "language, notification, tray, bubble, overlay, startup, login, launch, hotkey, shortcut, dictation key, recording mode, push to talk",
+			"aiAudio": "model, llm, audio, volume, ducking, noise, filter, post-processing, ai enhancement, vocabulary, api key, polish, transcription, preset, snippet",
+			"privacy": "privacy, recovery, crash, export, consent, troubleshooting, diagnostics, reset, log, bug, help, faq"
+		},
+		"fastStartup": "Fast Startup (Prewarm)",
+		"fastStartupDescription": "Warm the OS file cache at boot so the speech model loads in seconds instead of 30+ seconds. Disable if you need the disk/RAM headroom for other apps. You can still warm on demand from the About page."
 	},
 	"models": {
 		"asrTitle": "ASR 模型",
@@ -961,7 +979,21 @@
 		"openHelp": "打开此帮助叠加层",
 		"navBack": "向后 / 向前导航",
 		"closeHint": "按 {key} 或点击外部以关闭。",
-		"zoomTextSize": "文本大小"
+		"zoomTextSize": "文本大小",
+		"keys": {
+			"dictation": "Caps Lock (or your hotkey)",
+			"cancel": "Esc",
+			"repaste": "Ctrl+Alt+V",
+			"toggleSidebar": "Ctrl+B",
+			"openSettings": "Ctrl+,",
+			"goHome": "Ctrl+H",
+			"navigate": "Tab / Shift+Tab",
+			"toggle": "Space",
+			"activate": "Enter",
+			"zoomTextSize": "Ctrl+Plus / Ctrl+Minus",
+			"openHelp": "?",
+			"navBack": "Alt+Left / Alt+Right"
+		}
 	},
 	"history": {
 		"title": "历史记录",
@@ -1104,5 +1136,30 @@
 		"limiter": "限制器",
 		"limiterCeiling": "限制器上限",
 		"notchFilter": "陷波滤波器（嗡声）"
+	},
+	"microphoneTest": {
+		"title": "Test Complete",
+		"duration": "Duration: {duration}s",
+		"retest": "Retest",
+		"estimatedQuality": "Estimated Transcription Quality",
+		"volume": "Volume",
+		"good": "Good ✓",
+		"low": "Low ⚠",
+		"veryLow": "Very Low ⚠",
+		"backgroundNoise": "Background Noise",
+		"lowNoise": "Low ✓",
+		"moderateNoise": "Moderate ⚠",
+		"highNoise": "High ⚠",
+		"clipping": "Clipping",
+		"clippingDetected": "Detected ⚠",
+		"clippingNone": "None ✓",
+		"voice": "Voice",
+		"voiceDetected": "Detected ✓",
+		"voiceNotDetected": "Not detected ⚠",
+		"detectedIssues": "Detected Issues:",
+		"playEnhanced": "Play Enhanced",
+		"playOriginal": "Play Original",
+		"playRecording": "Play Recording",
+		"stop": "Stop"
 	}
 }
