@@ -29,6 +29,10 @@ nul
 
 # Local test/debug
 _cuda_test.py
+# RW-11: ruff ratchet CI artifact — produced by `ruff check ... --output-format=json`
+# and consumed by scripts/ruff_ratchet_check.py. Never commit; regenerate locally
+# with the same ruff invocation if you need it.
+ruff-current.json
 
 # Local editor/OS files
 .idea/

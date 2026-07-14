@@ -1,0 +1,9 @@
+{
+  "_comment": "RW-11: ruff ratchet baseline. Snapshot of ruff violations in voice_typer/server/ at the time the ratchet was introduced. CI fails if total_count grows OR any individual rule count grows above the value recorded here. This file MUST only shrink over time — never edit it to add violations. To regenerate after fixing violations, run: ruff check voice_typer/server/ --output-format=json | python scripts/ruff_ratchet_check.py --regenerate",
+  "_schema_version": 1,
+  "_target": "voice_typer/server/",
+  "total_count": 3,
+  "by_rule": {
+    "UP037": 3
+  }
+}
