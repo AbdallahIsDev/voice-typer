@@ -88,12 +88,27 @@ class DictationPipeline:
 
         This is the entry point called from VoiceTyperApp._stop_dictation.
         It runs on the transcription thread.
+
+        RW-13: the ``cycle_id`` is also published as the active correlation
+        id via :func:`voice_typer.server.log.set_correlation_id` so every
+        log emitted across the pipeline stages (transcribe, clean, LLM
+        polish, clipboard, tray) carries ``correlation_id=<cycle_id>`` in
+        JSON mode — tying the whole cycle together for triage.  It is
+        reset at the end of the method (the ``finally`` block below) so a
+        finished cycle can't leak its id into a later, unrelated log line.
         """
+        _corr_token: object | None = None  # RW-13: correlation-id reset token (reset at end of run)
         self._audio = audio
         self._duration = duration
         self._recorded_rms = recorded_rms
         self._cycle_id = cycle_id
         self._watchdog = watchdog
+        # RW-13: publish cycle_id as the correlation id for this thread's
+        # logging context.  Capture the token to reset in the finally block.
+        from voice_typer.server.log import set_correlation_id
+
+        if cycle_id:
+            _corr_token = set_correlation_id(cycle_id)
         # NEW-PERF-010: capture the pre-computed audio stats from the
         # recorder so we can pass them to the transcription engine.
         self._audio_stats = getattr(self._app.recorder, "_last_audio_stats", None)
@@ -280,6 +295,16 @@ class DictationPipeline:
 
                 gc.collect()
             log.debug("[TRANSCRIBE] busy reset to False (cycle=%s)", self._cycle_id)
+            # RW-13: clear the correlation id published at the top of run().
+            # This runs in the finally block so it executes on both the
+            # success and the handled-exception paths, so a finished
+            # transcription cycle can't leak its id into a later, unrelated
+            # log line (e.g. the next cycle, or a background prewarm thread
+            # sharing this process).
+            if _corr_token is not None:
+                from voice_typer.server.log import reset_correlation_id
+
+                reset_correlation_id(_corr_token)
 
     # ── Pipeline steps ────────────────────────────────────────────
 
@@ -458,13 +483,18 @@ class DictationPipeline:
             # transcription engine doesn't recompute RMS/peak/silence_pct
             # on the same audio array (saves 1-3 ms + 3× 1.9 MB transient
             # memory per dictation).
-            try:
-                text = active.transcribe_with_fallback(self._audio, audio_stats=self._audio_stats)
-            except TypeError:
-                # Backend doesn't support the audio_stats kwarg yet
-                # (e.g. Qwen/Parakeet/cloud engines that haven't been
-                # updated).  Fall back to the old signature.
-                text = active.transcribe_with_fallback(self._audio)
+            #
+            # a-review Finding 8: previously this call was wrapped in a
+            # broad ``try/except TypeError`` to handle backends that
+            # didn't yet accept ``audio_stats``. That catch was too
+            # broad — a ``TypeError`` raised inside the function body
+            # (``None.lower()``, bad indexing, etc.) was also caught
+            # and the retry either failed the same way (confusing
+            # trace) or masked the original bug. All four backends
+            # (Whisper/Parakeet/Qwen/Cloud) now accept ``audio_stats``
+            # as a keyword argument, so the fallback is no longer
+            # needed.
+            text = active.transcribe_with_fallback(self._audio, audio_stats=self._audio_stats)
 
         active = self._app.models.active_transcriber()
         self._device_info = (
@@ -551,8 +581,14 @@ class DictationPipeline:
             text = self._app._vocabulary_manager.apply_to_text(text)
         except Exception:
             log.warning("[PIPELINE] Vocabulary correction failed", exc_info=True)
-            if not getattr(self, "_vocab_fail_notified", False):
-                self._vocab_fail_notified = True
+            # a-review Finding 2: notify-once flag lives on ``self._app``
+            # (session-scoped) — a fresh DictationPipeline is built per
+            # transcription cycle, so flags on ``self`` reset every cycle
+            # and the user got a tray notification on EVERY cycle where
+            # the failure occurred. ERR-006/ERR-014's "notify once"
+            # design depends on the flag surviving across cycles.
+            if not getattr(self._app, "_vocab_fail_notified", False):
+                self._app._vocab_fail_notified = True
                 with contextlib.suppress(Exception):
                     self._app.tray.notify(
                         APP_NAME,
@@ -577,8 +613,10 @@ class DictationPipeline:
                     text = expanded
         except Exception:
             log.warning("[PIPELINE] Template matching failed", exc_info=True)
-            if not getattr(self, "_template_fail_notified", False):
-                self._template_fail_notified = True
+            # a-review Finding 2: notify-once flag lives on ``self._app``
+            # (session-scoped) — see ``_apply_vocabulary`` for rationale.
+            if not getattr(self._app, "_template_fail_notified", False):
+                self._app._template_fail_notified = True
                 with contextlib.suppress(Exception):
                     self._app.tray.notify(
                         APP_NAME,
@@ -767,8 +805,10 @@ class DictationPipeline:
             self._app.history_db.flush()
         except Exception:
             log.exception("[PIPELINE] History DB add failed")
-            if not getattr(self, "_history_fail_notified", False):
-                self._history_fail_notified = True
+            # a-review Finding 2: notify-once flag lives on ``self._app``
+            # (session-scoped) — see ``_apply_vocabulary`` for rationale.
+            if not getattr(self._app, "_history_fail_notified", False):
+                self._app._history_fail_notified = True
                 with contextlib.suppress(Exception):
                     self._app.tray.notify(
                         APP_NAME,
@@ -790,8 +830,10 @@ class DictationPipeline:
                 self._app._crash_recovery.flush(timeout=0.5)
             except Exception:
                 log.exception("[PIPELINE] Crash recovery add failed")
-                if not getattr(self, "_crash_recovery_fail_notified", False):
-                    self._crash_recovery_fail_notified = True
+                # a-review Finding 2: notify-once flag lives on ``self._app``
+                # (session-scoped) — see ``_apply_vocabulary`` for rationale.
+                if not getattr(self._app, "_crash_recovery_fail_notified", False):
+                    self._app._crash_recovery_fail_notified = True
                     with contextlib.suppress(Exception):
                         self._app.tray.notify(
                             APP_NAME,

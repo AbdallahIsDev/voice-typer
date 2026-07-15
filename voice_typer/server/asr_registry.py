@@ -34,8 +34,7 @@ class AsrBackendRegistry:
     def register(self, name: str, backend: Any) -> None:
         """Register a backend by name (e.g. 'whisper', 'qwen', 'parakeet')."""
         self._backends[name] = backend
-        log.debug("[ASR_REGISTRY] registered backend: %s (loaded=%s)",
-                  name, getattr(backend, "is_loaded", True))
+        log.debug("[ASR_REGISTRY] registered backend: %s (loaded=%s)", name, getattr(backend, "is_loaded", True))
 
     def unregister(self, name: str) -> None:
         """Unregister a backend by name.
@@ -144,6 +143,7 @@ class AsrBackendRegistry:
 
         try:
             import importlib
+
             mod = importlib.import_module(module_path)
             engine_cls = getattr(mod, class_name)
             engine = engine_cls(**kwargs)
@@ -151,7 +151,8 @@ class AsrBackendRegistry:
             self.register(name, engine)
             log.info(
                 "[ASR_REGISTRY] created %s backend (%s), registered",
-                name, class_name,
+                name,
+                class_name,
             )
             return engine
         except ImportError:
@@ -163,7 +164,8 @@ class AsrBackendRegistry:
         except Exception as exc:
             log.error(
                 "[ASR_REGISTRY] failed to initialise %s backend: %s",
-                name, exc,
+                name,
+                exc,
             )
             return None
 
@@ -183,8 +185,7 @@ class AsrBackendRegistry:
             log.info("[ASR_REGISTRY] loaded active backend: %s", self.active_name)
             return backend
         except Exception as exc:
-            log.error("[ASR_REGISTRY] failed to load active backend %s: %s",
-                      self.active_name, exc)
+            log.error("[ASR_REGISTRY] failed to load active backend %s: %s", self.active_name, exc)
             return None
 
     def load_with_fallback(self, progress_callback: Any = None) -> Any | None:
@@ -192,6 +193,17 @@ class AsrBackendRegistry:
 
         ARCH-008: replaces the duplicated fallback logic in
         app.py's _load_transcription_engine_background().
+
+        MEM-01 (c-review): on failure, the failed backend's ``unload()``
+        is now called BEFORE ``unregister(name)`` so any partially-
+        allocated resources (torch tensors, CUDA contexts, multi-GB
+        model weights) are released. Previously, the local ``backend``
+        variable went out of scope after the except block without
+        calling ``unload()``, leaking whatever the failed ``load()``
+        allocated before raising (e.g. a half-downloaded model on disk
+        + its in-memory weight tensor). ``unload()`` is safe to call
+        on a partially-loaded engine — all three backends guard on
+        ``self._model is None``.
 
         Args:
             progress_callback: optional callable(msg: str) to report
@@ -209,6 +221,22 @@ class AsrBackendRegistry:
                 return backend
             except Exception as exc:
                 log.warning("[ASR_REGISTRY] failed to load %s: %s, trying fallback", name, exc)
+                # MEM-01 (c-review): release any partially-allocated
+                # resources (torch tensors, CUDA contexts, model weights)
+                # BEFORE unregistering the backend. unload() is safe to
+                # call on a partially-loaded engine — all three backends
+                # guard on ``self._model is None``. Wrap in try/except so
+                # an unload failure (e.g. a corrupted model handle) does
+                # not prevent the unregister + whisper fallback.
+                try:
+                    backend.unload()
+                    log.info("[ASR_REGISTRY] unloaded failed backend: %s", name)
+                except Exception as unload_exc:
+                    log.warning(
+                        "[ASR_REGISTRY] failed to unload %s after load failure: %s",
+                        name,
+                        unload_exc,
+                    )
                 self.unregister(name)
 
         # Fallback to whisper
@@ -220,6 +248,17 @@ class AsrBackendRegistry:
                 return whisper
             except Exception as exc:
                 log.error("[ASR_REGISTRY] whisper fallback also failed: %s", exc)
+                # MEM-01 (c-review): same fix for the whisper fallback
+                # path — unload before giving up so we don't leak the
+                # whisper backend's partially-allocated resources.
+                try:
+                    whisper.unload()
+                    log.info("[ASR_REGISTRY] unloaded failed fallback backend: whisper")
+                except Exception as unload_exc:
+                    log.warning(
+                        "[ASR_REGISTRY] failed to unload whisper after load failure: %s",
+                        unload_exc,
+                    )
 
         return None
 

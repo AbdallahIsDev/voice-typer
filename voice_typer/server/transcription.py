@@ -26,9 +26,11 @@ class TranscriberProtocol(Protocol):
 
     def load(self, progress_callback=None) -> None: ...
 
-    def transcribe(self, audio: np.ndarray) -> str: ...
+    def transcribe(self, audio: np.ndarray, audio_stats: "tuple[float, float, float] | None" = None) -> str: ...
 
-    def transcribe_with_fallback(self, audio: np.ndarray) -> str: ...
+    def transcribe_with_fallback(
+        self, audio: np.ndarray, audio_stats: "tuple[float, float, float] | None" = None
+    ) -> str: ...
 
     def unload(self) -> None: ...
 
@@ -37,6 +39,7 @@ class TranscriberProtocol(Protocol):
 
     @property
     def loaded_via(self) -> str: ...
+
 
 _WHISPER_SAMPLE_RATE = 16000  # Whisper always expects 16kHz input
 _nvidia_dll_path_handles: list[object] = []
@@ -138,6 +141,8 @@ def _free_nvidia_dll_path_handles() -> None:
         except Exception as exc:
             log.debug("[CUDA-DLL] Error closing handle %s: %s", handle, exc)
     _nvidia_dll_path_handles = []
+
+
 _nvidia_dll_paths_configured = False
 # RACE-029: module-level lock to serialize _configure_nvidia_dll_paths()
 # calls.  Previously concurrent calls from the load path could both
@@ -184,6 +189,7 @@ def _download_with_retry(
         The last exception if all attempts fail.
     """
     import time as _time
+
     last_exc = None
     for attempt in range(max_attempts):
         try:
@@ -193,15 +199,18 @@ def _download_with_retry(
             if attempt < max_attempts - 1:
                 delay = delays[attempt] if attempt < len(delays) else delays[-1]
                 log.warning(
-                    "[PROD-004] Download attempt %d/%d failed: %s. "
-                    "Retrying in %.0fs...",
-                    attempt + 1, max_attempts, exc, delay,
+                    "[PROD-004] Download attempt %d/%d failed: %s. Retrying in %.0fs...",
+                    attempt + 1,
+                    max_attempts,
+                    exc,
+                    delay,
                 )
                 _time.sleep(delay)
             else:
                 log.error(
                     "[PROD-004] All %d download attempts failed. Last error: %s",
-                    max_attempts, exc,
+                    max_attempts,
+                    exc,
                 )
     raise last_exc  # type: ignore[misc]
 
@@ -215,9 +224,11 @@ def _check_disk_space_for_download(repo_id: str, model_size: str) -> None:
     insufficient space is detected.
     """
     import shutil
+
     try:
         # Determine the cache directory
         from huggingface_hub import constants
+
         cache_dir = constants.HF_HUB_CACHE
     except (ImportError, AttributeError):
         try:
@@ -240,9 +251,10 @@ def _check_disk_space_for_download(repo_id: str, model_size: str) -> None:
                 f"Free up disk space and try again."
             )
         log.debug(
-            "[PROD-005] Disk space check passed: %d MB available, "
-            "~%d MB needed for '%s'",
-            available_mb, estimated_mb, model_size,
+            "[PROD-005] Disk space check passed: %d MB available, ~%d MB needed for '%s'",
+            available_mb,
+            estimated_mb,
+            model_size,
         )
     except RuntimeError:
         raise
@@ -293,7 +305,11 @@ def _configure_nvidia_dll_paths_locked():
     # NVIDIA pip wheels even when the running Python belongs to a
     # different environment.
     app_venv_sp = os.path.join(
-        os.path.expanduser("~"), ".voice-typer", "venv", "Lib", "site-packages",
+        os.path.expanduser("~"),
+        ".voice-typer",
+        "venv",
+        "Lib",
+        "site-packages",
     )
     if os.path.isdir(app_venv_sp) and app_venv_sp not in roots:
         roots.append(app_venv_sp)
@@ -402,6 +418,7 @@ class TranscriptionEngine:
             try:
                 _configure_nvidia_dll_paths()
                 import ctranslate2
+
                 if ctranslate2.get_cuda_device_count() > 0:
                     log.info("[MODEL] Using CUDA device for transcription")
                     return "cuda", "float16"
@@ -479,7 +496,8 @@ class TranscriptionEngine:
             chain = self._build_fallback_chain()
 
         self._load_transcriber_impl(
-            chain, acquire_lock=True,
+            chain,
+            acquire_lock=True,
             progress_callback=progress_callback,
             verb="Loading",
         )
@@ -512,7 +530,10 @@ class TranscriptionEngine:
             try:
                 log.info(
                     "[MODEL] %s Whisper model '%s' on %s (%s)...",
-                    verb, model_size, device, compute_type,
+                    verb,
+                    model_size,
+                    device,
+                    compute_type,
                 )
                 if progress_callback:
                     progress_callback(f"{verb} model '{model_size}'...")
@@ -544,7 +565,10 @@ class TranscriptionEngine:
                     self.model_size = self._configured_model_size
                 log.info(
                     "[MODEL] Model %s via %s (%s) — %.1fs",
-                    verb.lower(), self.loaded_via, _warm_label, _load_elapsed,
+                    verb.lower(),
+                    self.loaded_via,
+                    _warm_label,
+                    _load_elapsed,
                 )
 
                 # CUDA probe: force a tiny transcription to smoke-test
@@ -562,14 +586,17 @@ class TranscriptionEngine:
                 last_error = exc
                 log.warning(
                     "Model %s failed on %s (%s) model=%s: %s",
-                    verb.lower(), device, compute_type, model_size, exc,
+                    verb.lower(),
+                    device,
+                    compute_type,
+                    model_size,
+                    exc,
                 )
                 if not acquire_lock:
                     self._model = None
 
         raise RuntimeError(
-            f"Failed to {verb_base} Whisper model on any device/model. "
-            f"Last error: {last_error}"
+            f"Failed to {verb_base} Whisper model on any device/model. Last error: {last_error}"
         ) from last_error
 
     def _build_fallback_chain(self) -> list[tuple[str, str, str]]:
@@ -613,6 +640,7 @@ class TranscriptionEngine:
             log.warning("[CUDA-PROBE] Skipping — no model loaded")
             return
         import numpy as np
+
         t = np.arange(int(_WHISPER_SAMPLE_RATE), dtype=np.float32) / _WHISPER_SAMPLE_RATE
         probe_audio: np.ndarray = np.sin(2 * np.pi * 440 * t, dtype=np.float32) * 0.1
 
@@ -645,17 +673,25 @@ class TranscriptionEngine:
                 "[CUDA-PROBE] CUDA runtime probe FAILED: %s",
                 error_str,
             )
-            if any(kw in error_str.lower() for kw in [
-                "cublas", "cuda", "cudnn", "dll",
-                "not found", "cannot be loaded", "load library",
-            ]):
+            if any(
+                kw in error_str.lower()
+                for kw in [
+                    "cublas",
+                    "cuda",
+                    "cudnn",
+                    "dll",
+                    "not found",
+                    "cannot be loaded",
+                    "load library",
+                ]
+            ):
                 log.warning(
-                    "[CUDA-PROBE] cuBLAS/cuDNN runtime error detected — "
-                    "falling back to CPU immediately",
+                    "[CUDA-PROBE] cuBLAS/cuDNN runtime error detected — falling back to CPU immediately",
                 )
                 try:
                     del self._model
                     import gc
+
                     gc.collect()
                     # NEW-MEM-001: release PyTorch's cached CUDA blocks
                     # so the next backend (or CPU reload) can use them.
@@ -667,8 +703,8 @@ class TranscriptionEngine:
                 self._compute_type = "int8"
                 self._reload_under_lock()
                 log.warning(
-                    "[CUDA-PROBE] Model reloaded on CPU after CUDA probe failure. "
-                    "Loaded via: %s", self.loaded_via,
+                    "[CUDA-PROBE] Model reloaded on CPU after CUDA probe failure. Loaded via: %s",
+                    self.loaded_via,
                 )
             else:
                 raise
@@ -687,6 +723,7 @@ class TranscriptionEngine:
             return
         try:
             import numpy as np
+
             warmup_audio = np.zeros(int(16000 * 0.5), dtype=np.float32)
             segments, _ = self._model.transcribe(
                 warmup_audio,
@@ -740,14 +777,22 @@ class TranscriptionEngine:
 
             # SEC-audit-005: Use pinned revision from MODEL_HASHES manifest
             from voice_typer.server.security import MODEL_HASHES
+
             whisper_revision = MODEL_HASHES.get(repo_id, {}).get("revision", "main")
 
             # SEC-audit-005: Allowlist of file patterns permitted in downloads
             _whisper_allow_patterns = [
-                "*.safetensors", "*.bin", "config.json", "tokenizer.json",
-                "tokenizer_config.json", "special_tokens_map.json",
-                "preprocessor_config.json", "feature_extractor_config.json",
-                "generation_config.json", "model.safetensors.index.json", "*.model",
+                "*.safetensors",
+                "*.bin",
+                "config.json",
+                "tokenizer.json",
+                "tokenizer_config.json",
+                "special_tokens_map.json",
+                "preprocessor_config.json",
+                "feature_extractor_config.json",
+                "generation_config.json",
+                "model.safetensors.index.json",
+                "*.model",
             ]
 
             if progress_callback:
@@ -778,17 +823,15 @@ class TranscriptionEngine:
             # in __init__, but we keep the defensive check so future
             # refactors don't reintroduce the crash).
             cfg = self.config
-            consent = False if cfg is None else getattr(cfg, 'huggingface_consent', False)
+            consent = False if cfg is None else getattr(cfg, "huggingface_consent", False)
             if not consent:
                 log.warning(
                     "[MODEL] HuggingFace consent not given — refusing to download "
-                    "model '%s'. The renderer should show a consent dialog."
-                    , model_size,
+                    "model '%s'. The renderer should show a consent dialog.",
+                    model_size,
                 )
                 if progress_callback:
-                    progress_callback(
-                        "HuggingFace consent required before downloading model."
-                    )
+                    progress_callback("HuggingFace consent required before downloading model.")
                 # Return without downloading.  The renderer is
                 # responsible for showing the consent dialog when the
                 # user tries to download a model via the Models page
@@ -818,6 +861,7 @@ class TranscriptionEngine:
             # so the outer except surfaces the failure and WhisperModel
             # retries (rather than silently loading a bad model).
             from voice_typer.server.security import verify_model_integrity
+
             if not verify_model_integrity(local_dir, repo_id):
                 log.error(
                     "[MODEL] Model '%s' integrity check failed after download",
@@ -825,9 +869,7 @@ class TranscriptionEngine:
                 )
                 if progress_callback:
                     progress_callback("Download completed but integrity check failed")
-                raise RuntimeError(
-                    f"Model integrity verification failed for {repo_id}"
-                )
+                raise RuntimeError(f"Model integrity verification failed for {repo_id}")
             log.info("[MODEL] Model '%s' download complete", model_size)
         except ImportError:
             log.debug("[MODEL] huggingface_hub not available, skipping pre-download")
@@ -863,14 +905,16 @@ class TranscriptionEngine:
             peak = float(np.max(np.abs(audio)))
             silence_pct = float(np.sum(np.abs(audio) < 0.001) / audio.size * 100)
         log.info(
-            "[TRANSCRIBE] Input audio: samples=%d, duration=%.1fs, "
-            "RMS=%.6f, peak=%.6f, silence_pct=%.1f%%",
-            len(audio), duration, rms, peak, silence_pct,
+            "[TRANSCRIBE] Input audio: samples=%d, duration=%.1fs, RMS=%.6f, peak=%.6f, silence_pct=%.1f%%",
+            len(audio),
+            duration,
+            rms,
+            peak,
+            silence_pct,
         )
         if rms < 0.001:
             log.warning(
-                "[TRANSCRIBE] Near-silence input (RMS=%.6f). "
-                "Speech detection is unlikely.",
+                "[TRANSCRIBE] Near-silence input (RMS=%.6f). Speech detection is unlikely.",
                 rms,
             )
 
@@ -913,7 +957,9 @@ class TranscriptionEngine:
                 text_parts.append(seg.text.strip())
                 log.debug(
                     "[TRANSCRIBE] Segment: [%.1fs - %.1fs] %s",
-                    start, end, seg.text.strip(),
+                    start,
+                    end,
+                    seg.text.strip(),
                 )
 
         log.info(
@@ -938,19 +984,19 @@ class TranscriptionEngine:
             last_segment_end=last_segment_end,
         ):
             # SEC-009: Use the PII-safe logging helper instead of raw text
-            log_transcriptions = (
-                self.config is not None
-                and getattr(self.config, 'log_transcriptions', False)
-            )
+            log_transcriptions = self.config is not None and getattr(self.config, "log_transcriptions", False)
             log_hallucination_rejection(
-                "[TRANSCRIBE]", result,
+                "[TRANSCRIBE]",
+                result,
                 reason="low-audio hallucination",
                 log_transcriptions=log_transcriptions,
             )
             log.info(
-                "[TRANSCRIBE] Hallucination stats: duration=%.1fs, RMS=%.6f, "
-                "peak=%.6f, silence=%.1f%%",
-                duration, rms, peak, silence_pct,
+                "[TRANSCRIBE] Hallucination stats: duration=%.1fs, RMS=%.6f, peak=%.6f, silence=%.1f%%",
+                duration,
+                rms,
+                peak,
+                silence_pct,
             )
             return ""
         if result:
@@ -958,7 +1004,8 @@ class TranscriptionEngine:
         else:
             log.info(
                 "[TRANSCRIBE] No speech detected (RMS=%.6f, silence=%.1f%%)",
-                rms, silence_pct,
+                rms,
+                silence_pct,
             )
         return result
 
@@ -979,10 +1026,11 @@ class TranscriptionEngine:
         with self._lock:
             result = self._transcribe_with_fallback_unlocked(audio, audio_stats=audio_stats)
         # RACE-023: perform deferred gc.collect() OUTSIDE the lock
-        if getattr(self, '_pending_gc_collect', False):
+        if getattr(self, "_pending_gc_collect", False):
             self._pending_gc_collect = False
             try:
                 import gc
+
                 gc.collect()
                 release_gpu_memory()
             except Exception:
@@ -1031,10 +1079,11 @@ class TranscriptionEngine:
         with self._lock:
             result = self._transcribe_words_with_fallback_unlocked(audio, offset_seconds)
         # RACE-023: perform deferred gc.collect() OUTSIDE the lock
-        if getattr(self, '_pending_gc_collect', False):
+        if getattr(self, "_pending_gc_collect", False):
             self._pending_gc_collect = False
             try:
                 import gc
+
                 gc.collect()
                 release_gpu_memory()
             except Exception:
@@ -1124,6 +1173,7 @@ class TranscriptionEngine:
         #    ctranslate2.CUDAError, etc.
         try:
             import torch
+
             if isinstance(exc, torch.cuda.OutOfMemoryError):
                 return True
         except (ImportError, AttributeError):
@@ -1131,6 +1181,7 @@ class TranscriptionEngine:
         # ctranslate2 errors (faster-whisper wraps these)
         try:
             import ctranslate2
+
             # Some ctranslate2 builds don't expose CUDAError as a class.
             # Guard with isinstance check on the attribute type.
             for attr_name in ("CUDAError", "RuntimeError"):
@@ -1162,10 +1213,16 @@ class TranscriptionEngine:
         #    where the original class info is lost. This is a last
         #    resort, not the primary signal.
         error_str = str(exc).lower()
-        return any(kw in error_str for kw in [
-            "cublas", "cuda", "cudnn", "gpu",
-            "not found or cannot be loaded",
-        ])
+        return any(
+            kw in error_str
+            for kw in [
+                "cublas",
+                "cuda",
+                "cudnn",
+                "gpu",
+                "not found or cannot be loaded",
+            ]
+        )
 
     def _should_reject_low_audio_hallucination(
         self,
@@ -1205,6 +1262,7 @@ class TranscriptionEngine:
         is_loaded / transcribe for 10-100ms.
         """
         import gc
+
         with self._lock:
             self._model = None
         # RACE-023: gc.collect() OUTSIDE the lock
@@ -1217,8 +1275,6 @@ class TranscriptionEngine:
             _free_nvidia_dll_path_handles()
         except Exception:
             log.debug("[MODEL] Error releasing DLL handles", exc_info=True)
-
-
 
 
 def _format_optional_mean(values: list[float]) -> str:

@@ -1,0 +1,495 @@
+"""Tests for the a-review R8 fixes in ``dictation_pipeline.py``.
+
+Covers:
+
+* a-review Finding 2 (HIGH) — notify-once deduplication flags
+  (``_vocab_fail_notified``, ``_template_fail_notified``,
+  ``_history_fail_notified``, ``_crash_recovery_fail_notified``)
+  were stored on ``DictationPipeline`` (cycle-scoped — a fresh
+  pipeline is constructed per transcription cycle), so the user
+  got a tray notification on EVERY cycle where the failure
+  occurred. The fix moves the flags to ``self._app`` (session-
+  scoped). These tests verify the notify-once semantics hold
+  across two consecutive pipelines sharing the same ``_app``.
+
+* a-review Finding 8 (MEDIUM) — ``_transcribe`` had a broad
+  ``try/except TypeError`` to handle backends that lacked the
+  ``audio_stats`` kwarg. The catch was too broad: a TypeError
+  inside the function body (``None.lower()``, bad indexing,
+  etc.) was also caught, masking real bugs. The fix adds
+  ``audio_stats=None`` to ``CloudEngine.transcribe_with_fallback``
+  (the only backend that lacked it) and removes the broad catch.
+  These tests verify all four backends accept ``audio_stats`` and
+  that a real TypeError from the engine body propagates.
+"""
+
+from __future__ import annotations
+
+import inspect
+from unittest.mock import MagicMock
+
+import numpy as np
+import pytest
+from voice_typer.server.dictation_pipeline import DictationPipeline
+
+# ─── Helpers ─────────────────────────────────────────────────────────────
+
+
+class _TestApp:
+    """Minimal non-magic test app for DictationPipeline tests.
+
+    Why a custom class instead of ``MagicMock``? MagicMock auto-creates
+    a child mock for ANY attribute access, so ``getattr(app, "_flag",
+    False)`` returns a truthy MagicMock rather than the ``False``
+    default. The production code relies on the default —
+    ``VoiceTyperApp`` does NOT pre-create the four notify-once flag
+    attributes, so ``getattr(self._app, "_vocab_fail_notified",
+    False)`` correctly defaults to ``False`` on a fresh app.
+
+    Using this class lets the tests exercise that default-False
+    semantics faithfully, and also lets us verify that the flag is
+    set on the app (not the pipeline) after the first failure.
+    """
+
+    def __init__(self) -> None:
+        # Attributes the pipeline reads — typed as MagicMock so we
+        # can assert on call_args_list etc.
+        self.tray = MagicMock()
+        self.tray.notify = MagicMock()
+        self.config = MagicMock()
+        self.config.crash_recovery_enabled = False
+        self.config.templates_enabled = True
+        self.config.log_transcriptions = False
+        self.config.model_size = "tiny.en"
+        self.config.device = "cpu"
+        self.history_db = MagicMock()
+        self._vocabulary_manager: object = None
+        self._template_manager: object = None
+        self._crash_recovery = MagicMock()
+        self._last_transcription: object = None
+        self.models = MagicMock()
+        self.recording = MagicMock()
+        # NOTE: the four notify-once flags are intentionally NOT
+        # pre-declared — production code relies on getattr-default.
+
+    # The remaining attributes the pipeline touches in the success
+    # path (event_bus publish, etc.) are MagicMock-accessed via
+    # __getattr__ fallback to keep this class small. We delegate
+    # unknown attribute access to a per-instance MagicMock.
+    def __getattr__(self, name: str) -> MagicMock:
+        # Only called when the attribute is genuinely absent (i.e.
+        # not declared in __init__). We do NOT want this for the
+        # four notify-once flag names — they must default to False
+        # via getattr-with-default, which requires AttributeError to
+        # be raised when absent. So we re-raise AttributeError for
+        # any name matching the flag pattern.
+        if name in {
+            "_vocab_fail_notified",
+            "_template_fail_notified",
+            "_history_fail_notified",
+            "_crash_recovery_fail_notified",
+        }:
+            raise AttributeError(name)
+        # For other attributes, return a fresh MagicMock (auto-mock
+        # behavior, like MagicMock itself).
+        mock = MagicMock()
+        # Cache it so subsequent accesses return the same mock.
+        object.__setattr__(self, name, mock)
+        return mock
+
+
+def _make_app() -> _TestApp:
+    """Build a minimal test app for DictationPipeline.
+
+    Unlike a bare ``MagicMock()``, this class does NOT auto-create
+    the four notify-once flag attributes — so
+    ``getattr(app, "_flag", False)`` correctly defaults to ``False``
+    when the flag has never been set (mirroring production behavior
+    on ``VoiceTyperApp``).
+    """
+    return _TestApp()
+
+
+def _new_pipeline(app: _TestApp) -> DictationPipeline:
+    """Build a fresh DictationPipeline tied to ``app``.
+
+    Mirrors how ``RecordingController._stop_dictation`` constructs a
+    new pipeline per transcription cycle (a-review Finding 2 root
+    cause).
+    """
+    pipeline = DictationPipeline.__new__(DictationPipeline)
+    pipeline._app = app
+    pipeline._duration = 1.0
+    pipeline._cycle_id = "test-cycle"
+    pipeline._audio = None
+    pipeline._audio_stats = None
+    pipeline._recorded_rms = 0.0
+    pipeline._device_info = ""
+    pipeline._watchdog = None
+    return pipeline
+
+
+# ─── B1: notify-once flags survive across pipeline instances ────────────
+
+
+class TestNotifyOnceFlagsAreSessionScoped:
+    """a-review Finding 2: notify-once flags live on ``self._app``.
+
+    A fresh ``DictationPipeline`` is built per transcription cycle
+    (``recording_controller.py:481``). If the flags lived on the
+    pipeline, they reset every cycle and the user got a tray
+    notification on EVERY cycle where the failure occurred. The fix
+    moves them to ``self._app`` so they survive for the app's
+    lifetime.
+
+    Each test constructs two consecutive pipelines sharing the same
+    app, triggers the same failure on both, and asserts only the
+    first pipeline fires a tray notification.
+    """
+
+    def _count_notify_calls_with(self, app: _TestApp, needle: str) -> int:
+        return sum(1 for c in app.tray.notify.call_args_list if needle.lower() in str(c.args).lower())
+
+    def test_vocab_fail_notifies_only_on_first_cycle(self):
+        app = _make_app()
+        app._vocabulary_manager = MagicMock()
+        app._vocabulary_manager.apply_to_text.side_effect = RuntimeError("vocab boom")
+        # Flag is absent on app initially — first pipeline must
+        # default to "not yet notified" and fire the tray notify.
+
+        pipeline1 = _new_pipeline(app)
+        pipeline1._apply_vocabulary("hello world")
+
+        pipeline2 = _new_pipeline(app)
+        pipeline2._apply_vocabulary("hello world")
+
+        assert self._count_notify_calls_with(app, "Vocabulary") == 1, (
+            "Vocabulary failure should notify exactly once across two "
+            "consecutive pipelines sharing the same _app (a-review "
+            "Finding 2). Got: "
+            f"{[c.args for c in app.tray.notify.call_args_list]}"
+        )
+        # Flag must be True on the app after the first failure —
+        # this is what suppresses the second notification.
+        assert app._vocab_fail_notified is True
+
+    def test_template_fail_notifies_only_on_first_cycle(self):
+        app = _make_app()
+        app._template_manager = MagicMock()
+        app._template_manager.match.side_effect = RuntimeError("template boom")
+
+        pipeline1 = _new_pipeline(app)
+        pipeline1._apply_templates("hello world")
+
+        pipeline2 = _new_pipeline(app)
+        pipeline2._apply_templates("hello world")
+
+        assert self._count_notify_calls_with(app, "Template") == 1, (
+            "Template failure should notify exactly once across two "
+            "consecutive pipelines sharing the same _app (a-review "
+            "Finding 2)."
+        )
+        assert app._template_fail_notified is True
+
+    def test_history_fail_notifies_only_on_first_cycle(self):
+        app = _make_app()
+        app.history_db.add_transcription.side_effect = RuntimeError("DB locked")
+
+        pipeline1 = _new_pipeline(app)
+        pipeline1._store_result("hello world")
+
+        pipeline2 = _new_pipeline(app)
+        pipeline2._store_result("hello world")
+
+        assert self._count_notify_calls_with(app, "history") == 1, (
+            "History DB failure should notify exactly once across two "
+            "consecutive pipelines sharing the same _app (a-review "
+            "Finding 2)."
+        )
+        assert app._history_fail_notified is True
+
+    def test_crash_recovery_fail_notifies_only_on_first_cycle(self):
+        app = _make_app()
+        app.config.crash_recovery_enabled = True
+        app._crash_recovery = MagicMock()
+        app._crash_recovery.add.side_effect = RuntimeError("crash boom")
+
+        pipeline1 = _new_pipeline(app)
+        pipeline1._store_result("hello world")
+
+        pipeline2 = _new_pipeline(app)
+        pipeline2._store_result("hello world")
+
+        assert self._count_notify_calls_with(app, "crash-recovery") == 1, (
+            "Crash recovery failure should notify exactly once across "
+            "two consecutive pipelines sharing the same _app (a-review "
+            "Finding 2)."
+        )
+        assert app._crash_recovery_fail_notified is True
+
+
+class TestNotifyOnceFlagsDefaultToFalseOnFreshApp:
+    """a-review Finding 2: ``getattr(self._app, "_flag", False)`` must
+    default to False on a fresh app so the first failure notifies.
+    """
+
+    def test_vocab_flag_defaults_false(self):
+        app = _make_app()
+        app._vocabulary_manager = MagicMock()
+        app._vocabulary_manager.apply_to_text.side_effect = RuntimeError("vocab boom")
+        # Deliberately do NOT seed app._vocab_fail_notified — verify
+        # the production code's getattr-default-to-False semantics
+        # work correctly on a non-MagicMock app object.
+
+        pipeline = _new_pipeline(app)
+        pipeline._apply_vocabulary("hello world")
+
+        assert any("Vocabulary" in str(c.args) for c in app.tray.notify.call_args_list), (
+            "First vocab failure must notify when flag is unset on app."
+        )
+
+    def test_history_flag_defaults_false(self):
+        app = _make_app()
+        app.history_db.add_transcription.side_effect = RuntimeError("DB locked")
+        # Deliberately do NOT seed app._history_fail_notified.
+
+        pipeline = _new_pipeline(app)
+        pipeline._store_result("hello world")
+
+        assert any("history" in str(c.args).lower() for c in app.tray.notify.call_args_list), (
+            "First history failure must notify when flag is unset on app."
+        )
+
+
+class TestNotifyOnceFlagsAreNotOnPipeline:
+    """a-review Finding 2 (regression guard): the flags must NOT be
+    read or written on the pipeline instance — that's the bug we
+    fixed. We inspect the source to catch any future regression that
+    re-introduces ``self._<flag>_notified`` reads/writes.
+    """
+
+    @pytest.mark.parametrize(
+        "flag",
+        [
+            "_vocab_fail_notified",
+            "_template_fail_notified",
+            "_history_fail_notified",
+            "_crash_recovery_fail_notified",
+        ],
+    )
+    def test_no_self_dot_flag_in_source(self, flag: str):
+        src = inspect.getsource(DictationPipeline)
+        # The bug pattern is ``self._<flag>`` (read or write). The
+        # fix uses ``self._app._<flag>`` (via getattr/setattr). We
+        # assert the buggy pattern is absent.
+        assert f"self.{flag}" not in src, (
+            f"Found `self.{flag}` in DictationPipeline source — "
+            f"a-review Finding 2 regression: the notify-once flag "
+            f"must live on `self._app` (session-scoped), not "
+            f"`self` (cycle-scoped, resets every transcription)."
+        )
+        # And the correct pattern must be present.
+        assert f"self._app.{flag}" in src or f'getattr(self._app, "{flag}"' in src, (
+            f"Expected `self._app.{flag}` or `getattr(self._app, "
+            f'"{flag}"` in DictationPipeline source — the flag must '
+            f"be read from the session-scoped app, not the cycle-"
+            f"scoped pipeline."
+        )
+
+
+# ─── B2: TypeError fallback removed; all backends accept audio_stats ────
+
+
+class TestAllBackendsAcceptAudioStatsKwarg:
+    """a-review Finding 8: all four ASR backends must accept the
+    ``audio_stats`` keyword argument on ``transcribe_with_fallback``.
+
+    Pre-fix, only the three local engines (Whisper/Parakeet/Qwen)
+    accepted it; ``CloudEngine.transcribe_with_fallback`` did not,
+    which forced ``DictationPipeline._transcribe`` to wrap the call
+    in a broad ``try/except TypeError`` fallback. The fix adds the
+    parameter to CloudEngine (default None, ignored) so the broad
+    catch can be removed.
+    """
+
+    def test_cloud_engine_transcribe_with_fallback_accepts_audio_stats(self):
+        import inspect
+
+        from voice_typer.server.cloud_engines import CloudEngine
+
+        sig = inspect.signature(CloudEngine.transcribe_with_fallback)
+        assert "audio_stats" in sig.parameters, (
+            "CloudEngine.transcribe_with_fallback must accept audio_stats (a-review Finding 8)."
+        )
+        assert sig.parameters["audio_stats"].default is None, (
+            "audio_stats on CloudEngine.transcribe_with_fallback must default to None for backwards compatibility."
+        )
+
+    def test_whisper_transcribe_with_fallback_accepts_audio_stats(self):
+        import inspect
+
+        from voice_typer.server.transcription import TranscriptionEngine
+
+        sig = inspect.signature(TranscriptionEngine.transcribe_with_fallback)
+        assert "audio_stats" in sig.parameters
+
+    def test_parakeet_transcribe_with_fallback_accepts_audio_stats(self):
+        import inspect
+
+        from voice_typer.server.parakeet_engine import ParakeetEngine
+
+        sig = inspect.signature(ParakeetEngine.transcribe_with_fallback)
+        assert "audio_stats" in sig.parameters
+
+    def test_qwen_transcribe_with_fallback_accepts_audio_stats(self):
+        import inspect
+
+        from voice_typer.server.qwen_engine import QwenEngine
+
+        sig = inspect.signature(QwenEngine.transcribe_with_fallback)
+        assert "audio_stats" in sig.parameters
+
+
+class TestTranscribeNoBroadTypeErrorCatch:
+    """a-review Finding 8: ``DictationPipeline._transcribe`` must NOT
+    wrap the ``transcribe_with_fallback`` call in a broad
+    ``try/except TypeError``. A TypeError raised inside the engine
+    body (e.g. ``None.lower()``, bad indexing) must propagate so the
+    real bug surfaces in the log/traceback instead of being masked
+    by a retry that fails the same way.
+    """
+
+    def test_no_broad_typeerror_catch_in_transcribe_source(self):
+        src = inspect.getsource(DictationPipeline._transcribe)
+        # The buggy pattern was a real ``except TypeError:`` clause
+        # (with the colon — that's a code statement, not prose). We
+        # deliberately search for the colon-terminated form so we
+        # don't false-match the docstring comment that explains WHY
+        # the catch was removed.
+        assert "except TypeError:" not in src, (
+            "DictationPipeline._transcribe must not catch TypeError "
+            "broadly (a-review Finding 8). All four backends now "
+            "accept the audio_stats kwarg, so the fallback is no "
+            "longer needed and would mask real TypeErrors raised "
+            "inside the engine body."
+        )
+        # And the call must still pass audio_stats (not just removed).
+        assert "audio_stats=self._audio_stats" in src, (
+            "DictationPipeline._transcribe must still pass audio_stats to transcribe_with_fallback."
+        )
+
+    def test_real_typeerror_propagates_from_engine(self):
+        """A TypeError raised inside the engine body must propagate
+        out of ``_transcribe`` (not be swallowed by a broad catch).
+
+        We mock the active transcriber so its
+        ``transcribe_with_fallback`` raises TypeError — simulating
+        a real bug like ``None.lower()`` inside the engine. The
+        pre-fix broad catch would have retried and re-raised the
+        same TypeError, producing a confusing trace. Post-fix, the
+        original TypeError propagates directly.
+        """
+        app = _make_app()
+        # No streaming session — forces the ``else`` branch which
+        # calls active.transcribe_with_fallback.
+        app.recording.get_streaming_session.return_value = None
+
+        active = MagicMock()
+        sentinel = TypeError("simulated None.lower() bug")
+        active.transcribe_with_fallback.side_effect = sentinel
+        active.device_info = "mock"
+        app.models.active_transcriber.return_value = active
+
+        pipeline = _new_pipeline(app)
+        with pytest.raises(TypeError, match="simulated None.lower"):
+            pipeline._transcribe()
+
+        # The engine must have been called exactly once — no retry.
+        assert active.transcribe_with_fallback.call_count == 1, (
+            "DictationPipeline._transcribe must not retry on "
+            "TypeError (a-review Finding 8). Got call_count="
+            f"{active.transcribe_with_fallback.call_count}."
+        )
+        # And the retry must have passed audio_stats (the new code).
+        _, kwargs = active.transcribe_with_fallback.call_args
+        assert "audio_stats" in kwargs
+
+    def test_audio_stats_passed_through_to_engine(self):
+        """The audio_stats tuple captured from the recorder must be
+        forwarded to the engine's transcribe_with_fallback.
+        """
+        app = _make_app()
+        app.recording.get_streaming_session.return_value = None
+
+        active = MagicMock()
+        active.transcribe_with_fallback.return_value = "hello"
+        active.device_info = "mock"
+        app.models.active_transcriber.return_value = active
+
+        pipeline = _new_pipeline(app)
+        pipeline._audio_stats = (0.123, 0.456, 25.0)
+        result = pipeline._transcribe()
+
+        assert result == "hello"
+        _, kwargs = active.transcribe_with_fallback.call_args
+        assert kwargs.get("audio_stats") == (0.123, 0.456, 25.0), (
+            "_transcribe must forward the pre-computed audio_stats tuple to transcribe_with_fallback."
+        )
+
+
+class TestCloudEngineIgnoresAudioStats:
+    """a-review Finding 8: when audio_stats is passed to
+    ``CloudEngine.transcribe_with_fallback``, the value is ignored
+    on the cloud path (cloud APIs don't use RMS/peak/silence) but
+    forwarded to the local_engine fallback if one is provided.
+    """
+
+    def test_cloud_path_ignores_audio_stats(self):
+        from unittest.mock import patch
+
+        from voice_typer.server.cloud_engines import CloudEngine
+
+        engine = CloudEngine(provider="openai", api_key="test-key", consent_given=True)
+        audio = np.zeros(16000, dtype=np.float32)
+        with patch.object(engine, "_send_request", return_value="cloud text"):
+            result = engine.transcribe_with_fallback(audio, audio_stats=(0.1, 0.5, 50.0))
+        assert result == "cloud text"
+
+    def test_local_fallback_forwards_audio_stats(self):
+        """When the cloud fails and a local_engine is provided,
+        ``audio_stats`` must be forwarded to the local engine's
+        ``transcribe`` call.
+        """
+        from unittest.mock import patch
+
+        from voice_typer.server.cloud_engines import CloudEngine
+
+        engine = CloudEngine(provider="openai", api_key="test-key", consent_given=True)
+        audio = np.zeros(16000, dtype=np.float32)
+
+        # Force the cloud path to fail.
+        with patch.object(engine, "transcribe", side_effect=RuntimeError("cloud down")):
+            local_engine = MagicMock()
+            local_engine.transcribe.return_value = "local text"
+            result = engine.transcribe_with_fallback(
+                audio,
+                local_engine=local_engine,
+                audio_stats=(0.7, 0.9, 10.0),
+            )
+
+        assert result == "local text"
+        local_engine.transcribe.assert_called_once_with(audio, audio_stats=(0.7, 0.9, 10.0))
+
+    def test_no_local_engine_still_works_without_audio_stats(self):
+        """Backwards compat: calling without audio_stats must still
+        work (existing callers like test_cloud_engines.py depend on it).
+        """
+        from unittest.mock import patch
+
+        from voice_typer.server.cloud_engines import CloudEngine
+
+        engine = CloudEngine(provider="openai", api_key="test-key", consent_given=True)
+        audio = np.zeros(16000, dtype=np.float32)
+        with patch.object(engine, "_send_request", return_value="text"):
+            result = engine.transcribe_with_fallback(audio)
+        assert result == "text"

@@ -43,6 +43,7 @@ class ConsentRequiredError(RuntimeError):
     toast.
     """
 
+
 # Provider-specific defaults
 _PROVIDER_DEFAULTS = {
     "openai": {
@@ -92,9 +93,7 @@ def _read_capped(resp, *, max_bytes: int) -> bytes:
             break
         total += len(chunk)
         if total > max_bytes:
-            raise RuntimeError(
-                f"Response body exceeded {max_bytes} bytes — aborting to prevent OOM"
-            )
+            raise RuntimeError(f"Response body exceeded {max_bytes} bytes — aborting to prevent OOM")
         chunks.append(chunk)
     return b"".join(chunks)
 
@@ -140,7 +139,7 @@ class _StreamingMultipartBody:
             needed = size - len(result)
             chunk = self._current[:needed]
             result.extend(chunk)
-            self._current = self._current[len(chunk):]
+            self._current = self._current[len(chunk) :]
         self._pos += len(result)
         return bytes(result)
 
@@ -238,22 +237,36 @@ class CloudEngine:
         detect this case and show the consent dialog.
         """
         if not self.consent_given:
-            raise ConsentRequiredError(
-                f"Cloud {self.provider} consent not given — refusing to send audio."
-            )
+            raise ConsentRequiredError(f"Cloud {self.provider} consent not given — refusing to send audio.")
         if not self.is_loaded:
             raise RuntimeError("Cloud engine not configured (missing API key)")
         if len(audio) == 0:
             return ""
         return self._send_request(audio)
 
-    def transcribe_with_fallback(self, audio: np.ndarray, local_engine=None) -> str:
+    def transcribe_with_fallback(
+        self,
+        audio: np.ndarray,
+        local_engine=None,
+        audio_stats: "tuple[float, float, float] | None" = None,
+    ) -> str:
         """Try cloud transcription; fall back to local engine on failure.
 
         PERF-NEW-010: if the cloud request fails after all retries,
         and a local_engine is provided, attempt transcription on it
         instead of raising.  This gives a best-effort result even
         when the cloud is temporarily unreachable.
+
+        NEW-PERF-010 (a-review Finding 8): ``audio_stats`` is accepted
+        for signature parity with the three local engines
+        (Whisper/Parakeet/Qwen) so ``DictationPipeline._transcribe``
+        can pass it unconditionally without a broad ``except TypeError``
+        fallback. The cloud engines don't use it — RMS/peak/silence
+        detection is irrelevant when audio is shipped to a remote API
+        — so the value is simply ignored here on the cloud path.
+        When a ``local_engine`` is provided, ``audio_stats`` is forwarded
+        so the local fallback benefits from the same pre-computation
+        (all three local engines accept the kwarg).
         """
         try:
             return self.transcribe(audio)
@@ -261,15 +274,14 @@ class CloudEngine:
             if local_engine is not None:
                 log.warning(
                     "[CLOUD] %s failed, falling back to local engine: %s",
-                    self.provider, cloud_err,
+                    self.provider,
+                    cloud_err,
                 )
                 try:
-                    return local_engine.transcribe(audio)
+                    return local_engine.transcribe(audio, audio_stats=audio_stats)
                 except Exception as local_err:
                     log.error("[CLOUD] Local fallback also failed: %s", local_err)
-                    raise RuntimeError(
-                        f"Cloud ({self.provider}) and local fallback both failed"
-                    ) from cloud_err
+                    raise RuntimeError(f"Cloud ({self.provider}) and local fallback both failed") from cloud_err
             raise
 
     def unload(self) -> None:
@@ -313,9 +325,7 @@ class CloudEngine:
         # Defense-in-depth: SEC-002 already validates URL scheme at
         # set_config time, but assert again here in case the value
         # was loaded from disk (Config.load) or set programmatically.
-        assert_url_allowed(
-            self.api_url, field_name="cloud_api_url", client_name=f"cloud/{self.provider}"
-        )
+        assert_url_allowed(self.api_url, field_name="cloud_api_url", client_name=f"cloud/{self.provider}")
 
         boundary = "----VoiceTyperBoundary7MA4YWxkTrZu0gW"
         body = self._build_multipart_body(wav_bytes, filename, boundary)
@@ -350,10 +360,14 @@ class CloudEngine:
                 # Don't retry on 4xx errors (bad request, auth failure)
                 if attempt < max_retries - 1:
                     import time as _time
-                    backoff = 0.5 * (2 ** attempt)  # 0.5s, 1.0s, 2.0s
+
+                    backoff = 0.5 * (2**attempt)  # 0.5s, 1.0s, 2.0s
                     log.warning(
                         "[CLOUD] %s attempt %d/%d failed, retrying in %.1fs: %s",
-                        self.provider, attempt + 1, max_retries, backoff,
+                        self.provider,
+                        attempt + 1,
+                        max_retries,
+                        backoff,
                         redact_secret(redact_url(str(exc))),
                     )
                     _time.sleep(backoff)
@@ -388,9 +402,7 @@ class CloudEngine:
         PERF-NEW-010: exponential backoff retry (3 attempts) for
         transient network errors, matching the OpenAI-compatible path.
         """
-        assert_url_allowed(
-            self.api_url, field_name="cloud_api_url", client_name="cloud/deepgram"
-        )
+        assert_url_allowed(self.api_url, field_name="cloud_api_url", client_name="cloud/deepgram")
 
         headers = {
             "Authorization": f"Token {self.api_key}",
@@ -401,20 +413,19 @@ class CloudEngine:
         # and language values, preventing parameter injection.
         import re
         from urllib.parse import urlencode
+
         _safe_token = re.compile(r"^[A-Za-z0-9._\-]+$")
         if not _safe_token.match(self.model_name or ""):
-            raise RuntimeError(
-                f"Deepgram model name {self.model_name!r} contains invalid characters"
-            )
+            raise RuntimeError(f"Deepgram model name {self.model_name!r} contains invalid characters")
         if not _safe_token.match(self.language or ""):
-            raise RuntimeError(
-                f"Deepgram language {self.language!r} contains invalid characters"
-            )
-        query = urlencode({
-            "model": self.model_name,
-            "language": self.language,
-            "punctuate": "true",
-        })
+            raise RuntimeError(f"Deepgram language {self.language!r} contains invalid characters")
+        query = urlencode(
+            {
+                "model": self.model_name,
+                "language": self.language,
+                "punctuate": "true",
+            }
+        )
         url = f"{self.api_url}?{query}"
         req = Request(url, data=wav_bytes, headers=headers, method="POST")
 
@@ -438,10 +449,13 @@ class CloudEngine:
             except URLError as exc:
                 if attempt < max_retries - 1:
                     import time as _time
-                    backoff = 0.5 * (2 ** attempt)  # 0.5s, 1.0s, 2.0s
+
+                    backoff = 0.5 * (2**attempt)  # 0.5s, 1.0s, 2.0s
                     log.warning(
                         "[CLOUD] Deepgram attempt %d/%d failed, retrying in %.1fs: %s",
-                        attempt + 1, max_retries, backoff,
+                        attempt + 1,
+                        max_retries,
+                        backoff,
                         redact_secret(redact_url(str(exc))),
                     )
                     _time.sleep(backoff)
@@ -568,9 +582,7 @@ class CloudEngine:
                     b"\x01\x00\x01\x00\x80\xbb\x00\x00\x00\x77\x01\x00"
                     b"\x02\x00\x10\x00data\x00\x00\x00\x00"
                 )
-                req = Request(
-                    self.api_url, data=empty_wav, headers=headers, method="POST"
-                )
+                req = Request(self.api_url, data=empty_wav, headers=headers, method="POST")
             else:
                 # OpenAI-compatible: send empty multipart body.
                 # Expect 400 (no file) or 200.
@@ -585,9 +597,7 @@ class CloudEngine:
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": f"multipart/form-data; boundary={boundary}",
                 }
-                req = Request(
-                    self.api_url, data=body, headers=headers, method="POST"
-                )
+                req = Request(self.api_url, data=body, headers=headers, method="POST")
             # SEC-audit-006 (Round 0 forward-port): use ``_opener.open()``
             # instead of default ``urlopen()`` so HTTP redirects are NOT
             # followed (the URL allowlist is only checked on the initial
