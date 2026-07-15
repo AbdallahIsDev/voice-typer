@@ -7,9 +7,15 @@ failure modes and success scenarios without requiring a Windows host.
 import ctypes
 import ctypes.wintypes
 import time
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
+
+
+def _flip(backend):
+    """Helper: make the next is_set() return True so the polling loop exits."""
+    backend._stop_event.is_set.return_value = True
+
 
 # ─── Fixture ─────────────────────────────────────────────────────────────────
 
@@ -719,5 +725,138 @@ class TestCapsLockSuppression:
             # keybd_event should have been called for the synthetic
             # keydown + keyup (2 calls per suppression cycle).
             assert mock_user32.keybd_event.call_count >= 2
+        finally:
+            backend.stop()
+
+
+# ─── PERF-01 / CPU-01: polling-fallback timer hardening ───────────
+# The polling loop (tier-3 fallback) must call winmm.timeBeginPeriod(8)
+# before the loop and timeEndPeriod(8) in a finally, and sleep at 8ms
+# (not 1ms).  These assertions pin the battery-drain fix so a future
+# refactor can't silently revert to Sleep(1) without timer accuracy.
+
+
+class TestPollingFallbackTimerHardening:
+    """PERF-01 / CPU-01: the GetAsyncKeyState fallback must not spin at
+    1000 Hz.  It sets 8ms timer resolution and sleeps 8ms/iter, and
+    restores the timer on exit."""
+
+    def _force_polling_fallback(self, mock_win32):
+        """Make start() land on the GetAsyncKeyState polling path.
+
+        RegisterHotKey fails AND the low-level hook fails to install, so
+        the dispatcher takes the ``else`` branch and calls
+        ``_run_polling_loop``.
+        """
+        mock_user32, mock_kernel32 = mock_win32
+        mock_user32.RegisterHotKey.return_value = 0
+        mock_kernel32.GetLastError.return_value = 1409
+        mock_user32.SetWindowsHookExW.return_value = 0  # hook install fails
+        return mock_user32, mock_kernel32
+
+    def _drive_one_iteration(self, backend, mock_kernel32):
+        """Run the polling loop for exactly one iteration, then exit.
+
+        ``Sleep`` flips the stop flag on its first call so the
+        ``while not is_set()`` condition exits after one pass — this
+        avoids guessing how many times ``is_set()`` is called.
+        """
+
+        def _sleep(_ms):
+            backend._stop_event.is_set.return_value = True
+
+        mock_kernel32.Sleep.side_effect = _sleep
+        backend._stop_event = MagicMock()
+        backend._stop_event.is_set.return_value = False
+
+    def _new_backend_and_winmm(self, mock_win32):
+        mock_user32, mock_kernel32 = self._force_polling_fallback(mock_win32)
+        mock_winmm = MagicMock()
+        mock_windll = MagicMock()
+        mock_windll.user32 = mock_user32
+        mock_windll.kernel32 = mock_kernel32
+        mock_windll.winmm = mock_winmm
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
+
+        backend = WindowsNativeHotkey("<f2>")
+        return backend, mock_user32, mock_kernel32, mock_winmm, mock_windll
+
+    def test_time_begin_and_end_period_called(self, mock_win32):
+        """winmm.timeBeginPeriod(8) is called on entry and timeEndPeriod(8)
+        on exit of the polling fallback."""
+        backend, _u, mock_kernel32, mock_winmm, mock_windll = self._new_backend_and_winmm(mock_win32)
+        self._drive_one_iteration(backend, mock_kernel32)
+        try:
+            with patch.object(ctypes, "windll", mock_windll, create=True):
+                backend.start(MagicMock())
+                if backend._thread is not None:
+                    backend._thread.join(timeout=2.0)
+            assert mock_winmm.timeBeginPeriod.called
+            assert mock_winmm.timeBeginPeriod.call_args == ((8,),)
+            assert mock_winmm.timeEndPeriod.called
+            assert mock_winmm.timeEndPeriod.call_args == ((8,),)
+        finally:
+            backend.stop()
+
+    def test_sleep_uses_8ms_not_1ms(self, mock_win32):
+        """The polling loop sleeps 8ms (125 Hz), not 1ms (1000 Hz)."""
+        backend, _u, mock_kernel32, mock_winmm, mock_windll = self._new_backend_and_winmm(mock_win32)
+        self._drive_one_iteration(backend, mock_kernel32)
+        try:
+            with patch.object(ctypes, "windll", mock_windll, create=True):
+                backend.start(MagicMock())
+                if backend._thread is not None:
+                    backend._thread.join(timeout=2.0)
+            sleep_calls = [c.args[0] for c in mock_kernel32.Sleep.call_args_list]
+            assert 8 in sleep_calls, f"expected Sleep(8), got {sleep_calls}"
+            assert 1 not in sleep_calls, f"Sleep(1) regression: {sleep_calls}"
+        finally:
+            backend.stop()
+
+    def test_timer_restored_even_on_exception(self, mock_win32):
+        """If the polling loop body raises, timeEndPeriod(8) still runs."""
+        backend, mock_user32, mock_kernel32, mock_winmm, mock_windll = self._new_backend_and_winmm(mock_win32)
+        # Force the loop body to raise on the first GetAsyncKeyState call.
+        mock_user32.GetAsyncKeyState.side_effect = RuntimeError("simulated crash")
+        backend._stop_event = MagicMock()
+        backend._stop_event.is_set.return_value = False
+        try:
+            with patch.object(ctypes, "windll", mock_windll, create=True):
+                backend.start(MagicMock())
+                if backend._thread is not None:
+                    backend._thread.join(timeout=2.0)
+            assert mock_winmm.timeEndPeriod.called
+            assert mock_winmm.timeEndPeriod.call_args == ((8,),)
+        finally:
+            backend.stop()
+
+    def test_modifier_only_loop_timer_hardened(self, mock_win32):
+        """PERF-01 / CPU-01: the modifier-only polling fallback
+        (``_run_modifier_only_polling_loop``) also sets timeBeginPeriod(8)
+        and sleeps 8ms/iter, restored via finally."""
+        # <alt> is modifier-only, so start() enters the modifier loop.
+        # Force its polling fallback by failing the low-level hook too.
+        mock_user32, mock_kernel32 = self._force_polling_fallback(mock_win32)
+        mock_winmm = MagicMock()
+        mock_windll = MagicMock()
+        mock_windll.user32 = mock_user32
+        mock_windll.kernel32 = mock_kernel32
+        mock_windll.winmm = mock_winmm
+
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
+
+        backend = WindowsNativeHotkey("<alt>")
+        self._drive_one_iteration(backend, mock_kernel32)
+        try:
+            with patch.object(ctypes, "windll", mock_windll, create=True):
+                backend.start(MagicMock())
+                if backend._thread is not None:
+                    backend._thread.join(timeout=2.0)
+            assert mock_winmm.timeBeginPeriod.called
+            assert mock_winmm.timeBeginPeriod.call_args == ((8,),)
+            assert mock_winmm.timeEndPeriod.called
+            assert mock_winmm.timeEndPeriod.call_args == ((8,),)
+            sleep_calls = [c.args[0] for c in mock_kernel32.Sleep.call_args_list]
+            assert 8 in sleep_calls, f"expected Sleep(8), got {sleep_calls}"
         finally:
             backend.stop()

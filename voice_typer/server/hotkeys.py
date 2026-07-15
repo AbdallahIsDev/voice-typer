@@ -1114,111 +1114,86 @@ class WindowsNativeHotkey(HotkeyBackend):
         # Iteration counter for periodic caps lock state checks (~200ms cadence).
         _caps_check_iter = 0
 
-        while not self._stop_event.is_set():
-            # CAPS-LOCK-FIX: periodically ensure caps lock stays OFF.
-            # The reactive suppression on key press can fail due to timing
-            # (OS toggles caps before we can undo it). A periodic ~200ms
-            # check catches any missed toggles and re-silences caps lock.
-            _caps_check_iter += 1
-            if is_caps_lock_hotkey and _caps_check_iter % 200 == 0 and not self._caps_lock_suppressing:
-                self._ensure_caps_lock_off()
-            # PLAT-020: suppress hotkey triggers during IME composition.
-            # PERF-FIX-1: use the throttled wrapper so we don't make 5
-            # syscalls per 1ms iteration.
-            if self._is_ime_composing_throttled():
-                was_pressed = False
+        # PERF-01 / CPU-01 (c-review): set the Windows timer resolution to 8ms
+        # before the loop so Sleep(8) below sleeps accurately (~125 Hz) instead
+        # of the default ~15.6ms (64 Hz) or potentially 1000 Hz if another
+        # process set 1ms resolution. Restored in the finally block so the
+        # timer is cleaned up on both normal exit and exception.
+        _winmm = None
+        try:
+            _winmm = ctypes.windll.winmm  # type: ignore[attr-defined]
+            _winmm.timeBeginPeriod(8)
+        except (AttributeError, OSError):
+            pass
+
+        try:
+            while not self._stop_event.is_set():
+                # CAPS-LOCK-FIX: periodically ensure caps lock stays OFF.
+                # The reactive suppression on key press can fail due to timing
+                # (OS toggles caps before we can undo it). A periodic ~200ms
+                # check catches any missed toggles and re-silences caps lock.
+                _caps_check_iter += 1
+                if is_caps_lock_hotkey and _caps_check_iter % 200 == 0 and not self._caps_lock_suppressing:
+                    self._ensure_caps_lock_off()
+                # PLAT-020: suppress hotkey triggers during IME composition.
+                # PERF-FIX-1: use the throttled wrapper so we don't make 5
+                # syscalls per 1ms iteration.
+                if self._is_ime_composing_throttled():
+                    was_pressed = False
+                    if _pump_messages is not None:
+                        with contextlib.suppress(Exception):
+                            _pump_messages()
+                    self._kernel32.Sleep(50)
+                    continue
+
+                # FIX-HOTKEY-ARCHITECTURE: if we're sending a synthetic
+                # Caps Lock keypress to undo the OS toggle, skip processing
+                # so the synthetic events don't re-trigger the callback or
+                # prematurely fire on_release. The suppression flag is
+                # cleared by _suppress_caps_lock_toggle() itself.
+                if self._caps_lock_suppressing:
+                    if _pump_messages is not None:
+                        with contextlib.suppress(Exception):
+                            _pump_messages()
+                    # Caps Lock suppression: brief transient, needs <8ms latency
+                    self._kernel32.Sleep(1)
+                    continue
+
+                state = self._user32.GetAsyncKeyState(vk)
+                is_pressed = bool(state & 0x8000) and self._modifiers_pressed() and not self._other_modifiers_pressed()
+                is_ptt = self._on_release_callback is not None
+                toggle_on_keyup = getattr(self, "_toggle_on_keyup", False)
+                if is_pressed and not was_pressed:
+                    log.info("[HOTKEY FIRED] GetAsyncKeyState detected key-down")
+                    if is_caps_lock_hotkey:
+                        self._suppress_caps_lock_toggle()
+                    if is_ptt or not toggle_on_keyup:
+                        try:
+                            callback()
+                        except Exception:
+                            log.exception("[HOTKEY] Callback raised in polling loop; hotkey still armed for next press")
+                if not is_pressed and was_pressed:
+                    if is_ptt:
+                        log.info("[HOTKEY] Key released (PTT on_release)")
+                        try:
+                            self._on_release_callback()
+                        except Exception:
+                            log.exception("[HOTKEY] on_release callback raised in polling loop")
+                    elif toggle_on_keyup:
+                        log.info("[HOTKEY FIRED] GetAsyncKeyState detected key-up (toggle)")
+                        try:
+                            callback()
+                        except Exception:
+                            log.exception("[HOTKEY] Callback raised in polling loop; hotkey still armed for next press")
+                was_pressed = is_pressed
                 if _pump_messages is not None:
                     with contextlib.suppress(Exception):
                         _pump_messages()
-                self._kernel32.Sleep(50)
-                continue
-
-            # FIX-HOTKEY-ARCHITECTURE: if we're sending a synthetic
-            # Caps Lock keypress to undo the OS toggle, skip processing
-            # so the synthetic events don't re-trigger the callback or
-            # prematurely fire on_release. The suppression flag is
-            # cleared by _suppress_caps_lock_toggle() itself.
-            if self._caps_lock_suppressing:
-                if _pump_messages is not None:
-                    with contextlib.suppress(Exception):
-                        _pump_messages()
-                self._kernel32.Sleep(1)
-                continue
-
-            state = self._user32.GetAsyncKeyState(vk)
-            is_pressed = bool(state & 0x8000) and self._modifiers_pressed() and not self._other_modifiers_pressed()
-            # Toggle mode is detected by the ABSENCE of an on_release
-            # callback — that slot is wired only in push-to-talk mode.
-            is_ptt = self._on_release_callback is not None
-            # toggle_on_keyup: when True, the dictation toggle fires on
-            # key-UP (release) instead of key-down. This is the
-            # user-requested behavior so a press-and-hold cannot start
-            # then immediately stop recording. Set by HotkeyDispatcher
-            # for the main dictation hotkey in toggle mode. Legacy
-            # toggle hotkeys (e.g. repaste) leave it False and fire on
-            # key-down as before.
-            toggle_on_keyup = getattr(self, "_toggle_on_keyup", False)
-            if is_pressed and not was_pressed:
-                log.info("[HOTKEY FIRED] GetAsyncKeyState detected key-down")
-                # FIX-HOTKEY-ARCHITECTURE: suppress the OS-level
-                # caps-lock toggle when the hotkey is <caps_lock>.
-                # The OS toggles caps state as part of processing the
-                # keyDown; we undo the toggle by sending a synthetic
-                # Caps Lock keypress via keybd_event. This MUST run on
-                # key-down (not key-up) so the toggle is undone before
-                # the OS settles caps state.
-                if is_caps_lock_hotkey:
-                    self._suppress_caps_lock_toggle()
-                if is_ptt:
-                    # Push-to-talk starts recording immediately on key-down.
-                    try:
-                        callback()
-                    except Exception:
-                        # ERR-020: log full traceback but keep polling so
-                        # the next hotkey press still works. Previously
-                        # the bare callback() call would propagate the
-                        # exception up the polling thread, killing it.
-                        log.exception("[HOTKEY] Callback raised in polling loop; hotkey still armed for next press")
-                elif not toggle_on_keyup:
-                    # Legacy toggle: fire on key-down (e.g. repaste).
-                    try:
-                        callback()
-                    except Exception:
-                        log.exception("[HOTKEY] Callback raised in polling loop; hotkey still armed for next press")
-                # else toggle_on_keyup: defer the toggle to key-up (below).
-            # Key-up transition (key released).
-            if not is_pressed and was_pressed:
-                if is_ptt:
-                    # Push-to-talk: stop recording on release.
-                    log.info("[HOTKEY] Key released (PTT on_release)")
-                    try:
-                        self._on_release_callback()
-                    except Exception:
-                        log.exception("[HOTKEY] on_release callback raised in polling loop")
-                elif toggle_on_keyup:
-                    # Toggle mode with toggle_on_keyup: fire the dictation
-                    # toggle exactly once on key-up. Holding the key (no
-                    # key-up) never toggles, so a press-and-hold cannot
-                    # start the recording and then immediately stop it. This
-                    # is the user-requested behavior: recording starts only
-                    # after the key is released.
-                    log.info("[HOTKEY FIRED] GetAsyncKeyState detected key-up (toggle)")
-                    try:
-                        callback()
-                    except Exception:
-                        log.exception("[HOTKEY] Callback raised in polling loop; hotkey still armed for next press")
-                # else: legacy toggle-on-keydown -> nothing to do on key-up.
-            was_pressed = is_pressed
-            # PLAT-PUMP: pump Win32 messages so RegisterHotKey WM_HOTKEY
-            # messages are dispatched. Without this, hotkeys silently fail
-            # after ~30s on some Win11 builds.
-            if _pump_messages is not None:
+                self._kernel32.Sleep(8)
+        finally:
+            if _winmm is not None:
                 with contextlib.suppress(Exception):
-                    _pump_messages()
-            # PERF-012: 1ms sleep gives near-instant hotkey response
-            # while still yielding CPU to other threads.
-
-            self._kernel32.Sleep(1)
+                    _winmm.timeEndPeriod(8)
 
     def _run_message_loop(self, callback, low_level_hook=False):
         """Message-pump hotkey detection (event-driven, ~0% CPU while idle).
@@ -1593,131 +1568,56 @@ class WindowsNativeHotkey(HotkeyBackend):
         # Toggle mode has _on_release_callback == None.
         is_ptt = self._on_release_callback is not None
 
-        while not self._stop_event.is_set():
-            # PLAT-020: suppress hotkey triggers during IME composition.
-            # Reset all per-cycle state so a stray IME composition doesn't
-            # leak into the next press cycle.
-            # PERF-FIX-1: use the throttled wrapper so we don't make 5
-            # syscalls per 1ms iteration.
-            if self._is_ime_composing_throttled():
-                modifier_was_pressed = False
-                other_key_pressed = False
-                press_fired = False
-                self._kernel32.Sleep(50)
-                continue
+        # PERF-01 / CPU-01 (c-review): set accurate timer resolution for the
+        # modifier-only polling fallback (same rationale as _run_polling_loop).
+        _winmm = None
+        try:
+            _winmm = ctypes.windll.winmm  # type: ignore[attr-defined]
+            _winmm.timeBeginPeriod(8)
+        except (AttributeError, OSError):
+            pass
 
-            # FIX-MULTI-MOD: require ALL configured modifiers to be held
-            # simultaneously for multi-modifier combos like ``<ctrl>+<alt>``.
-            # Previously used ``any()``, which meant pressing EITHER Ctrl
-            # OR Alt alone would fire the hotkey — instead of requiring
-            # BOTH to be pressed together.
-            is_held = all(self._key_pressed(vk) for vk in modifier_vks)
+        try:
+            while not self._stop_event.is_set():
+                # PLAT-020: suppress hotkey triggers during IME composition.
+                # Reset all per-cycle state so a stray IME composition doesn't
+                # leak into the next press cycle.
+                # PERF-FIX-1: use the throttled wrapper so we don't make 5
+                # syscalls per 1ms iteration.
+                if self._is_ime_composing_throttled():
+                    modifier_was_pressed = False
+                    other_key_pressed = False
+                    press_fired = False
+                    self._kernel32.Sleep(50)
+                    continue
 
-            # ── Transition: not held → held (start of a new press cycle) ──
-            if is_held and not modifier_was_pressed:
-                modifier_was_pressed = True
-                other_key_pressed = False
-                press_fired = False
-                # FIX-HOTKEY-AND-NOTIFICATION (b): press-and-hold must
-                # NOT fire repeatedly. We fire the press callback at
-                # most once per cycle, only on this not-held → held
-                # transition. For toggle mode we don't fire on press
-                # at all (we defer to release so we can verify the
-                # modifier was released alone).
-                if is_ptt:
-                    # PTT mode: fire the press callback immediately IF
-                    # no other modifiers are held at the moment of
-                    # press. We can't predict future non-modifier key
-                    # presses, so the "alone" check at press time only
-                    # covers other modifiers.
-                    if not self._other_modifiers_pressed():
-                        log.info(
-                            "[HOTKEY FIRED] Modifier-only press detected (PTT, mods=0x%X)",
-                            self._modifiers,
-                        )
-                        try:
-                            callback()
-                        except Exception:
-                            log.exception(
-                                "[HOTKEY] Callback raised in modifier-only "
-                                "polling loop; hotkey still armed for next press"
-                            )
-                        press_fired = True
-                    else:
-                        log.debug(
-                            "[HOTKEY] Modifier pressed but other modifiers "
-                            "also held (mods=0x%X) — suppressing PTT press fire",
-                            self._modifiers,
-                        )
+                # FIX-MULTI-MOD: require ALL configured modifiers to be held
+                # simultaneously for multi-modifier combos like ``<ctrl>+<alt>``.
+                # Previously used ``any()``, which meant pressing EITHER Ctrl
+                # OR Alt alone would fire the hotkey — instead of requiring
+                # BOTH to be pressed together.
+                is_held = all(self._key_pressed(vk) for vk in modifier_vks)
 
-            # ── While held: monitor for non-modifier key presses ──
-            # FIX-HOTKEY-AND-NOTIFICATION (a): this is the key fix for
-            # the "Alt+C fires the dictation" problem. If the user
-            # pressed any non-modifier key while holding our modifier,
-            # they were using a combo (e.g. Alt+C for copy) — we'll
-            # suppress the fire on release.
-            #
-            # PERF-FIX-1: the scan is O(248) per iteration
-            # (GetAsyncKeyState for every VK in 0x08-0xFF). At the
-            # polling loop's 1ms cadence that's up to ~248k syscalls/sec
-            # while the modifier is held. The throttled wrapper
-            # ``_any_non_modifier_key_pressed_throttled()`` re-scans at
-            # most every 50ms (20 Hz), reducing the syscall rate to
-            # ~5k/sec. The throttle is safe because:
-            #   - the ``not other_key_pressed`` guard already ensures
-            #     the scan stops once a non-modifier key is detected;
-            #   - True results are NOT cached across releases (the
-            #     wrapper only caches False), so the next press cycle
-            #     always re-scans fresh;
-            #   - 50ms detection latency for non-modifier keys is
-            #     acceptable — typists press keys ≥50ms apart, and the
-            #     polling loop's 1ms cadence still gives ~1ms modifier
-            #     press/release latency (the scan throttle only affects
-            #     combo detection, not the hotkey fire itself).
-            # This scan is intentionally called every iteration while
-            # held (NOT just on the not-held→held transition) because
-            # the user can press a non-modifier key at any point during
-            # the hold, and we need to detect it before the release
-            # transition fires the callback.
-            if is_held and not other_key_pressed and self._any_non_modifier_key_pressed_throttled(all_modifier_vks):
-                other_key_pressed = True
-                log.debug(
-                    "[HOTKEY] Non-modifier key pressed during modifier "
-                    "hold (mods=0x%X) — will suppress fire on release "
-                    "(user was doing a combo like Alt+C)",
-                    self._modifiers,
-                )
-
-            # ── Transition: held → not held (modifier itself released) ──
-            if not is_held and modifier_was_pressed:
-                if not other_key_pressed:
-                    # Modifier was pressed and released without any
-                    # non-modifier key in between. This is the "alone"
-                    # case — fire the appropriate callback.
+                # ── Transition: not held → held (start of a new press cycle) ──
+                if is_held and not modifier_was_pressed:
+                    modifier_was_pressed = True
+                    other_key_pressed = False
+                    press_fired = False
+                    # FIX-HOTKEY-AND-NOTIFICATION (b): press-and-hold must
+                    # NOT fire repeatedly. We fire the press callback at
+                    # most once per cycle, only on this not-held → held
+                    # transition. For toggle mode we don't fire on press
+                    # at all (we defer to release so we can verify the
+                    # modifier was released alone).
                     if is_ptt:
-                        # PTT mode: fire on_release (stop recording) if
-                        # we fired the press callback. If we didn't
-                        # fire press (because other modifiers were held
-                        # at the moment of press), don't fire on_release
-                        # either (nothing was started).
-                        if press_fired and self._on_release_callback is not None:
-                            log.info(
-                                "[HOTKEY] Modifier released alone (PTT on_release, mods=0x%X)",
-                                self._modifiers,
-                            )
-                            try:
-                                self._on_release_callback()
-                            except Exception:
-                                log.exception("[HOTKEY] on_release raised in modifier-only polling loop")
-                    else:
-                        # Toggle mode: fire the press callback
-                        # (toggle_dictation). Double-check no other
-                        # modifiers are currently held at release time
-                        # — if the user is still holding Ctrl when they
-                        # release Alt, that's a combo, not the hotkey.
+                        # PTT mode: fire the press callback immediately IF
+                        # no other modifiers are held at the moment of
+                        # press. We can't predict future non-modifier key
+                        # presses, so the "alone" check at press time only
+                        # covers other modifiers.
                         if not self._other_modifiers_pressed():
                             log.info(
-                                "[HOTKEY FIRED] Modifier-only press-and-release alone (toggle, mods=0x%X)",
+                                "[HOTKEY FIRED] Modifier-only press detected (PTT, mods=0x%X)",
                                 self._modifiers,
                             )
                             try:
@@ -1727,43 +1627,133 @@ class WindowsNativeHotkey(HotkeyBackend):
                                     "[HOTKEY] Callback raised in modifier-only "
                                     "polling loop; hotkey still armed for next press"
                                 )
+                            press_fired = True
                         else:
                             log.debug(
-                                "[HOTKEY] Modifier released alone but other "
-                                "modifiers still held (mods=0x%X) — suppressing "
-                                "toggle fire (combo)",
+                                "[HOTKEY] Modifier pressed but other modifiers "
+                                "also held (mods=0x%X) — suppressing PTT press fire",
                                 self._modifiers,
                             )
-                else:
-                    # other_key_pressed is True — user was doing a combo
-                    # like Alt+C. Per spec, do NOT fire the press callback.
-                    # FIX-HOTKEY-AND-NOTIFICATION: for PTT mode, if we
-                    # already fired the press callback (and thus started
-                    # a recording), we MUST fire on_release to stop the
-                    # recording — otherwise it would run forever. This
-                    # is a safety net; the recording will be very short
-                    # and the user will hear the brief dictation chime,
-                    # but it's better than a stuck recording.
-                    if is_ptt and press_fired and self._on_release_callback is not None:
-                        log.info(
-                            "[HOTKEY] Modifier released after combo "
-                            "(PTT on_release safety, mods=0x%X) — stopping "
-                            "recording started by the press fire",
-                            self._modifiers,
-                        )
-                        try:
-                            self._on_release_callback()
-                        except Exception:
-                            log.exception("[HOTKEY] on_release (safety) raised in modifier-only polling loop")
-                # Reset per-cycle state for the next press.
-                modifier_was_pressed = False
-                other_key_pressed = False
-                press_fired = False
 
-            # PERF-012: 1ms sleep gives near-instant hotkey response
-            # while still yielding CPU to other threads.
+                # ── While held: monitor for non-modifier key presses ──
+                # FIX-HOTKEY-AND-NOTIFICATION (a): this is the key fix for
+                # the "Alt+C fires the dictation" problem. If the user
+                # pressed any non-modifier key while holding our modifier,
+                # they were using a combo (e.g. Alt+C for copy) — we'll
+                # suppress the fire on release.
+                #
+                # PERF-FIX-1: the scan is O(248) per iteration
+                # (GetAsyncKeyState for every VK in 0x08-0xFF). At the
+                # polling loop's 1ms cadence that's up to ~248k syscalls/sec
+                # while the modifier is held. The throttled wrapper
+                # ``_any_non_modifier_key_pressed_throttled()`` re-scans at
+                # most every 50ms (20 Hz), reducing the syscall rate to
+                # ~5k/sec. The throttle is safe because:
+                #   - the ``not other_key_pressed`` guard already ensures
+                #     the scan stops once a non-modifier key is detected;
+                #   - True results are NOT cached across releases (the
+                #     wrapper only caches False), so the next press cycle
+                #     always re-scans fresh;
+                #   - 50ms detection latency for non-modifier keys is
+                #     acceptable — typists press keys ≥50ms apart, and the
+                #     polling loop's 1ms cadence still gives ~1ms modifier
+                #     press/release latency (the scan throttle only affects
+                #     combo detection, not the hotkey fire itself).
+                # This scan is intentionally called every iteration while
+                # held (NOT just on the not-held→held transition) because
+                # the user can press a non-modifier key at any point during
+                # the hold, and we need to detect it before the release
+                # transition fires the callback.
+                if is_held and not other_key_pressed and self._any_non_modifier_key_pressed_throttled(all_modifier_vks):
+                    other_key_pressed = True
+                    log.debug(
+                        "[HOTKEY] Non-modifier key pressed during modifier "
+                        "hold (mods=0x%X) — will suppress fire on release "
+                        "(user was doing a combo like Alt+C)",
+                        self._modifiers,
+                    )
 
-            self._kernel32.Sleep(1)
+                # ── Transition: held → not held (modifier itself released) ──
+                if not is_held and modifier_was_pressed:
+                    if not other_key_pressed:
+                        # Modifier was pressed and released without any
+                        # non-modifier key in between. This is the "alone"
+                        # case — fire the appropriate callback.
+                        if is_ptt:
+                            # PTT mode: fire on_release (stop recording) if
+                            # we fired the press callback. If we didn't
+                            # fire press (because other modifiers were held
+                            # at the moment of press), don't fire on_release
+                            # either (nothing was started).
+                            if press_fired and self._on_release_callback is not None:
+                                log.info(
+                                    "[HOTKEY] Modifier released alone (PTT on_release, mods=0x%X)",
+                                    self._modifiers,
+                                )
+                                try:
+                                    self._on_release_callback()
+                                except Exception:
+                                    log.exception("[HOTKEY] on_release raised in modifier-only polling loop")
+                        else:
+                            # Toggle mode: fire the press callback
+                            # (toggle_dictation). Double-check no other
+                            # modifiers are currently held at release time
+                            # — if the user is still holding Ctrl when they
+                            # release Alt, that's a combo, not the hotkey.
+                            if not self._other_modifiers_pressed():
+                                log.info(
+                                    "[HOTKEY FIRED] Modifier-only press-and-release alone (toggle, mods=0x%X)",
+                                    self._modifiers,
+                                )
+                                try:
+                                    callback()
+                                except Exception:
+                                    log.exception(
+                                        "[HOTKEY] Callback raised in modifier-only "
+                                        "polling loop; hotkey still armed for next press"
+                                    )
+                            else:
+                                log.debug(
+                                    "[HOTKEY] Modifier released alone but other "
+                                    "modifiers still held (mods=0x%X) — suppressing "
+                                    "toggle fire (combo)",
+                                    self._modifiers,
+                                )
+                    else:
+                        # other_key_pressed is True — user was doing a combo
+                        # like Alt+C. Per spec, do NOT fire the press callback.
+                        # FIX-HOTKEY-AND-NOTIFICATION: for PTT mode, if we
+                        # already fired the press callback (and thus started
+                        # a recording), we MUST fire on_release to stop the
+                        # recording — otherwise it would run forever. This
+                        # is a safety net; the recording will be very short
+                        # and the user will hear the brief dictation chime,
+                        # but it's better than a stuck recording.
+                        if is_ptt and press_fired and self._on_release_callback is not None:
+                            log.info(
+                                "[HOTKEY] Modifier released after combo "
+                                "(PTT on_release safety, mods=0x%X) — stopping "
+                                "recording started by the press fire",
+                                self._modifiers,
+                            )
+                            try:
+                                self._on_release_callback()
+                            except Exception:
+                                log.exception("[HOTKEY] on_release (safety) raised in modifier-only polling loop")
+                    # Reset per-cycle state for the next press.
+                    modifier_was_pressed = False
+                    other_key_pressed = False
+                    press_fired = False
+
+                # PERF-012: 8ms sleep (~125 Hz) with timeBeginPeriod(8) ensures
+                # accurate sleep duration for the fallback polling loop.
+
+                self._kernel32.Sleep(8)
+
+        finally:
+            if _winmm is not None:
+                with contextlib.suppress(Exception):
+                    _winmm.timeEndPeriod(8)
 
     def _any_non_modifier_key_pressed(self, modifier_vks: "frozenset[int]") -> bool:
         """Return True if any non-modifier key is currently held down.
