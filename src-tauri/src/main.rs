@@ -40,7 +40,6 @@
 
 use std::collections::HashMap;
 use std::env;
-use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -51,8 +50,9 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::Sha256;
-use tauri::{Manager, WindowEvent};
-use tauri_plugin_shell::{ShellExt, process::CommandChild};
+use tauri::{Emitter, Manager, WindowEvent};
+use tauri_plugin_shell::process::{CommandEvent, CommandChild};
+use tauri_plugin_shell::ShellExt;
 use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
@@ -119,7 +119,7 @@ struct SidecarState {
 fn generate_token() -> String {
     let mut bytes = [0u8; TOKEN_BYTES];
     rand::thread_rng().fill_bytes(&mut bytes);
-    hex::encode(bytes)
+    hex::encode(&bytes)
 }
 
 mod hex {
@@ -166,10 +166,13 @@ async fn spawn_sidecar_and_get_port(
         .env("TAURI_SIDECAR", "1")
         .env("VOICE_TYPER_IPC_TOKEN", token)
         .env("VOICE_TYPER_NATIVE_DIR", native_dir.to_string_lossy().to_string())
-        .env("VOICE_TYPER_PREWARM_EXE", prewarm_exe)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        .env("VOICE_TYPER_PREWARM_EXE", prewarm_exe);
 
+    // Tauri v2's shell plugin automatically pipes stdout/stderr —
+    // the `spawn()` returns a `Receiver<CommandEvent>` that yields
+    // `Stdout`/`Stderr`/`Terminate`/`Error` events. We do NOT call
+    // `.stdout(Stdio::piped())` (that's the std::process API, not
+    // the tauri-plugin-shell API).
     let (mut rx, child) = cmd
         .spawn()
         .map_err(|e| format!("failed to spawn sidecar: {e}"))?;
@@ -188,12 +191,34 @@ async fn spawn_sidecar_and_get_port(
         )
         .await
         {
-            Ok(Some(Ok(line))) => {
-                let line = line.to_string();
+            Ok(Some(event)) => {
+                // tauri-plugin-shell yields CommandEvent enums
+                // (Stdout/Stderr/Terminated/Error). We only care about
+                // Stdout lines for the server_started JSON.
+                let line = match event {
+                    CommandEvent::Stdout(bytes) => {
+                        String::from_utf8_lossy(&bytes).to_string()
+                    }
+                    CommandEvent::Stderr(bytes) => {
+                        // Log stderr but don't parse it as server_started.
+                        let s = String::from_utf8_lossy(&bytes).to_string();
+                        log::info!("[SIDECAR] stderr: {}", s.trim());
+                        continue;
+                    }
+                    CommandEvent::Terminated(payload) => {
+                        return Err(format!(
+                            "sidecar terminated before server_started (code={:?})",
+                            payload.code
+                        ));
+                    }
+                    CommandEvent::Error(err) => {
+                        return Err(format!("sidecar command error: {err}"));
+                    }
+                    _ => continue,
+                };
                 stdout_buf.push_str(&line);
-                stdout_buf.push('\n');
                 // Try to parse as the server_started event.
-                if let Ok(v) = serde_json::from_str::<Value>(&line.trim()) {
+                if let Ok(v) = serde_json::from_str::<Value>(line.trim()) {
                     if v.get("event").and_then(|e| e.as_str()) == Some("server_started") {
                         if let Some(port) = v.get("port").and_then(|p| p.as_u64()) {
                             log::info!("[SIDECAR] server_started port={}", port);
@@ -205,9 +230,6 @@ async fn spawn_sidecar_and_get_port(
                 // (shouldn't happen per ADR-0020 §1, sidecar sends
                 // all non-handshake logs to stderr).
                 log::warn!("[SIDECAR] unexpected stdout line (expected only server_started): {}", line.trim());
-            }
-            Ok(Some(Err(e))) => {
-                return Err(format!("sidecar stdout read error: {e}"));
             }
             Ok(None) => {
                 return Err("sidecar stdout closed before server_started".into());
@@ -251,73 +273,32 @@ fn current_target_triple() -> String {
     }
 }
 
-// ─── WebSocket client + auth handshake (ADR-0020 §1, §3) ──────────────
-
-async fn connect_and_authenticate(
-    port: u16,
-    token: &str,
-) -> Result<
-    (
-        tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
-        futures_util::stream::SplitSink<
-            tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
-            Message,
-        >,
-    ),
-    String,
-> {
-    let url = format!("ws://127.0.0.1:{}", port);
-    log::info!("[WS-CLIENT] connecting to {}", url);
-    let (ws, _) = connect_async(url)
-        .await
-        .map_err(|e| format!("WS connect failed: {e}"))?;
-    let (write, mut read) = ws.split();
-
-    // ADR-0020 §3: send the auth frame as the first message.
-    let auth = json!({"type": "auth", "token": token});
-    let mut write = write;
-    write
-        .send(Message::Text(auth.to_string()))
-        .await
-        .map_err(|e| format!("WS auth send failed: {e}"))?;
-
-    // Wait for the sidecar to either accept (no immediate close) or
-    // reject (close with code 1008). The sidecar doesn't send an
-    // explicit ack — it just keeps the socket open on success.
-    match tokio::time::timeout(Duration::from_secs(2), read.next()).await {
-        Ok(Some(Ok(msg))) => {
-            // Any message here is unexpected — the sidecar should
-            // silently accept and wait for the first command.
-            log::warn!("[WS-CLIENT] unexpected message after auth: {:?}", msg);
-        }
-        Ok(Some(Err(e))) => {
-            return Err(format!("WS auth read failed: {e}"));
-        }
-        Ok(None) => {
-            return Err("WS closed during auth".into());
-        }
-        Err(_) => {
-            // Timeout — assume auth accepted (sidecar is silent on success).
-        }
-    }
-
-    log::info!("[WS-CLIENT] auth accepted");
-    Ok((/* re-join */ unreachable!(), write))
-}
-
 // ─── FT-1 supervisor (ADR-0020 §10) ───────────────────────────────────
 
-/// Restart the sidecar with backoff. Returns true if the restart
-/// succeeded, false if we exhausted retries (caller falls back to
-/// full-app relaunch).
 async fn ft1_respawn(
     app: &tauri::AppHandle,
     state: &Arc<SidecarState>,
 ) -> Result<(), String> {
     for (attempt, delay_ms) in FT1_BACKOFF_MS.iter().enumerate() {
         if attempt as u32 >= FT1_MAX_RETRIES {
-            log::error!("[FT-1] exhausted {} retries — falling back to full-app relaunch", FT1_MAX_RETRIES);
-            return Err("FT-1 exhausted retries".into());
+            log::error!(
+                "[FT-1] exhausted {} retries — falling back to full-app relaunch",
+                FT1_MAX_RETRIES
+            );
+            // ADR-0020 §10: full-app relaunch. Emit a Tauri event so
+            // the UI can show a "restarting…" banner, then call
+            // app.restart() which exits the current process and
+            // relaunches a fresh one (Tauri's built-in restart).
+            let _ = app.emit("ft1_relaunching", json!({"reason": "exhausted_retries"}));
+            // Small delay so the UI event can render before restart.
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            // app.restart() is the Tauri v2 API for full-app relaunch.
+            // It exits the current process with a special code that
+            // the Tauri launcher recognizes as "relaunch" — the
+            // launcher spawns a fresh instance before the old one
+            // fully exits.
+            app.restart();
+            return Err("FT-1 exhausted retries — full-app relaunch initiated".into());
         }
         if state.shutting_down.load(Ordering::SeqCst) {
             log::info!("[FT-1] shutting down — skipping respawn");
@@ -330,8 +311,16 @@ async fn ft1_respawn(
         let new_token = generate_token();
         match spawn_sidecar_and_get_port(app, &new_token).await {
             Ok((port, child)) => {
-                *state.child.lock().unwrap() = Some(child);
-                *state.token.lock().unwrap() = new_token.clone();
+                // Drop the MutexGuards BEFORE awaiting reconnect_ws so
+                // the future is Send (std::sync::MutexGuard is !Send).
+                {
+                    let mut child_guard = state.child.lock().unwrap();
+                    *child_guard = Some(child);
+                }
+                {
+                    let mut token_guard = state.token.lock().unwrap();
+                    *token_guard = new_token.clone();
+                }
                 // Reconnect WS + re-auth.
                 match reconnect_ws(app, state, port, &new_token).await {
                     Ok(()) => {
@@ -353,7 +342,13 @@ async fn ft1_respawn(
             }
         }
     }
-    Err("FT-1 exhausted retries".into())
+    // Loop exited without returning — this happens if FT1_BACKOFF_MS
+    // is shorter than FT1_MAX_RETRIES. Treat as exhaustion.
+    log::error!("[FT-1] backoff schedule exhausted — full-app relaunch");
+    let _ = app.emit("ft1_relaunching", json!({"reason": "backoff_exhausted"}));
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    app.restart();
+    Err("FT-1 backoff exhausted — full-app relaunch initiated".into())
 }
 
 async fn reconnect_ws(
@@ -368,16 +363,18 @@ async fn reconnect_ws(
         .map_err(|e| format!("WS reconnect failed: {e}"))?;
     let (write, mut read) = ws.split();
 
-    let auth = json!({"type": "auth", "token": token});
-    let mut write = write;
-    write
-        .send(Message::Text(auth.to_string()))
-        .await
-        .map_err(|e| format!("WS re-auth send failed: {e}"))?;
-
     // Set up the WS writer channel + reader task.
     let (ws_tx, mut ws_rx) = mpsc::unbounded_channel::<Message>();
-    *state.ws_tx.lock().unwrap() = Some(ws_tx);
+    // Send the auth frame via the channel so the writer task sends it.
+    let auth = json!({"type": "auth", "token": token});
+    ws_tx
+        .send(Message::Text(auth.to_string()))
+        .map_err(|_| "failed to queue auth frame".to_string())?;
+    // Drop the MutexGuard before spawning tasks (MutexGuard is !Send).
+    {
+        let mut ws_tx_guard = state.ws_tx.lock().unwrap();
+        *ws_tx_guard = Some(ws_tx);
+    }
     let state_clone = state.clone();
     let app_handle = _app.clone();
 
@@ -458,7 +455,18 @@ async fn reconnect_ws(
         // WS reader exited — trigger FT-1 respawn (unless we're shutting down).
         if !state_for_reader.shutting_down.load(Ordering::SeqCst) {
             log::warn!("[WS-READER] unexpected close — triggering FT-1");
-            let _ = ft1_respawn(&app_for_reader, &state_for_reader).await;
+            // Spawn FT-1 on a separate thread via std::thread::spawn +
+            // a block_on, so the non-Send WS stream half doesn't
+            // poison the tokio::spawn Send requirement. The FT-1
+            // supervisor itself uses tokio::spawn internally for the
+            // respawn attempts, so this is just a bridge.
+            let app_clone = app_for_reader.clone();
+            let state_clone = state_for_reader.clone();
+            std::thread::spawn(move || {
+                tauri::async_runtime::block_on(async move {
+                    let _ = ft1_respawn(&app_clone, &state_clone).await;
+                });
+            });
         }
     });
 
@@ -555,22 +563,25 @@ async fn paste_text(
         return Ok(());
     }
 
+    use enigo::{Enigo, Key, Keyboard, Settings};
     let short_threshold = 300;
     if text.chars().count() < short_threshold {
         // Short text — inject via enigo.text() (IME-safe).
-        let mut enigo = enigo::Enigo::new(&enigo::Settings::default())
+        let mut enigo = Enigo::new(&Settings::default())
             .map_err(|e| format!("enigo init failed: {e}"))?;
         enigo.text(&text)
             .map_err(|e| format!("enigo.text failed: {e}"))?;
         log::info!("[PASTE] injected {} chars via enigo", text.chars().count());
     } else {
         // Long text — clipboard + Ctrl+V / Cmd+V.
+        // tauri-plugin-clipboard-manager exposes write_text via the
+        // ClipboardExt trait.
+        use tauri_plugin_clipboard_manager::ClipboardExt;
         app.clipboard()
             .write_text(text.clone())
             .map_err(|e| format!("clipboard write failed: {e}"))?;
-        let mut enigo = enigo::Enigo::new(&enigo::Settings::default())
+        let mut enigo = Enigo::new(&Settings::default())
             .map_err(|e| format!("enigo init failed: {e}"))?;
-        use enigo::{Key, Keyboard};
         let mod_key = if cfg!(target_os = "macos") {
             Key::Meta
         } else {
@@ -635,7 +646,6 @@ fn main() {
                 let _ = window.set_focus();
             }
         }))
-        .plugin(tauri_plugin_tray::init())
         .manage(Arc::new(SidecarState {
             child: Mutex::new(None),
             token: Mutex::new(String::new()),

@@ -49,16 +49,10 @@
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
+      "icons/icon.png"
     ],
     "externalBin": [
-      "bin/python-sidecar-x86_64-pc-windows-msvc",
-      "bin/python-sidecar-aarch64-pc-windows-msvc",
-      "bin/python-sidecar-x86_64-apple-darwin",
-      "bin/python-sidecar-aarch64-apple-darwin",
-      "bin/python-sidecar-x86_64-unknown-linux-gnu",
-      "bin/python-sidecar-aarch64-unknown-linux-gnu"
+      "bin/python-sidecar"
     ],
     "resources": [
       "resources/native/windows-key-listener.exe",
@@ -80,12 +74,12 @@
     "shell": {
       "sidecar": true,
       "scope": [
-        { "name": "bin/python-sidecar-x86_64-pc-windows-msvc", "cmd": "bin/python-sidecar-x86_64-pc-windows-msvc", "args": true },
-        { "name": "bin/python-sidecar-aarch64-pc-windows-msvc", "cmd": "bin/python-sidecar-aarch64-pc-windows-msvc", "args": true },
-        { "name": "bin/python-sidecar-x86_64-apple-darwin", "cmd": "bin/python-sidecar-x86_64-apple-darwin", "args": true },
-        { "name": "bin/python-sidecar-aarch64-apple-darwin", "cmd": "bin/python-sidecar-aarch64-apple-darwin", "args": true },
-        { "name": "bin/python-sidecar-x86_64-unknown-linux-gnu", "cmd": "bin/python-sidecar-x86_64-unknown-linux-gnu", "args": true },
-        { "name": "bin/python-sidecar-aarch64-unknown-linux-gnu", "cmd": "bin/python-sidecar-aarch64-unknown-linux-gnu", "args": true }
+        {
+          "name": "bin/python-sidecar",
+          "cmd": "bin/python-sidecar",
+          "sidecar": true,
+          "args": true
+        }
       ]
     }
   }

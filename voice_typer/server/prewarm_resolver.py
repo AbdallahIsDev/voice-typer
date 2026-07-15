@@ -57,23 +57,42 @@ def _target_triple() -> str:
     Mirrors the naming Tauri uses for ``externalBin`` binaries (see
     ADR-0020 §4.1). The triple must match the suffix on the frozen
     prewarm binary name exactly, or the resolver won't find it.
+
+    ADR-0020 §4.1 explicitly lists Windows ARM64
+    (``aarch64-pc-windows-msvc``) as a supported target triple. The
+    previous implementation used ``sys.maxsize > 2**32`` which only
+    distinguishes x86_64 from x86 — it NEVER returns ``aarch64`` on
+    Windows ARM64 hosts. This is fixed by using ``platform.machine()``
+    for all three platforms (Windows now mirrors the macOS/Linux
+    branches).
     """
+    import platform
+
     if is_windows():
-        # Windows ARM64 is rare but supported; sys.maxsize is the
-        # canonical Python check for 64-bit (works on both MSVC and
-        # MinGW builds).
-        arch = "x86_64" if sys.maxsize > 2**32 else "x86"
+        # ADR-0020 §4.1: Windows ARM64 is explicitly supported.
+        # platform.machine() returns 'ARM64' on Windows 11 ARM,
+        # 'AMD64' on x86_64, 'x86' on 32-bit. Normalize to the Rust
+        # arch names used in the target triple.
+        machine = platform.machine().lower()
+        if machine in ("arm64", "aarch64"):
+            arch = "aarch64"
+        elif machine in ("amd64", "x86_64"):
+            arch = "x86_64"
+        elif machine in ("x86", "i386", "i686"):
+            # 32-bit Windows — rare but supported by the triple naming.
+            arch = "i686"
+        else:
+            # Unknown — fall back to the maxsize check (64-bit → x86_64).
+            arch = "x86_64" if sys.maxsize > 2**32 else "i686"
         return f"{arch}-pc-windows-msvc"
     elif is_macos():
-        import platform
-
         machine = platform.machine()
         arch = "aarch64" if machine == "arm64" else "x86_64"
         return f"{arch}-apple-darwin"
     else:
-        import platform
-
         machine = platform.machine() or "x86_64"
+        # Linux ARM64: platform.machine() returns 'aarch64' (already
+        # the Rust arch name); x86_64 returns 'x86_64'.
         return f"{machine}-unknown-linux-gnu"
 
 

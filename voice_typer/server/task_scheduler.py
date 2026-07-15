@@ -346,10 +346,23 @@ def _build_task_xml(python_exe: str, arguments: str | None = None) -> str:
     Parameters
     ----------
     python_exe : str
-        Absolute path to the Python interpreter (pythonw.exe preferred).
+        Absolute path to the Python interpreter (pythonw.exe preferred)
+        OR the frozen prewarm exe path (under the Tauri sidecar path).
     arguments : str, optional
         Command-line arguments for the interpreter. Defaults to
-        ``-m voice_typer.server.prewarm``.
+        ``-m voice_typer.server.prewarm`` (the legacy pythonw path).
+
+        ADR-0020 §5 fix: when the caller passes an EMPTY STRING (``""``),
+        NO ``<Arguments>`` element is emitted at all. This is the correct
+        behavior for a frozen Nuitka exe (which IS the module and takes
+        no ``-m`` flag). Previously, passing ``None`` would silently fall
+        back to ``_PREWARM_ARGS``, which broke the frozen-exe path by
+        appending ``-m voice_typer.server.prewarm --trigger logon`` to a
+        binary that can't accept it. The distinction:
+
+        - ``arguments=None``  → legacy default (``_PREWARM_ARGS``)
+        - ``arguments=""``    → NO ``<Arguments>`` element (frozen exe)
+        - ``arguments="..."`` → use the provided string verbatim
     """
     if arguments is None:
         arguments = _PREWARM_ARGS
@@ -453,7 +466,12 @@ def _build_task_xml(python_exe: str, arguments: str | None = None) -> str:
     actions = ET.SubElement(root, "Actions", {"Context": "Author"})
     exec_el = ET.SubElement(actions, "Exec")
     ET.SubElement(exec_el, "Command").text = python_exe
-    ET.SubElement(exec_el, "Arguments").text = arguments
+    # ADR-0020 §5 fix: only emit <Arguments> when the value is truthy.
+    # A frozen Nuitka exe (the Tauri sidecar path) IS the module and
+    # takes no -m flag — passing "" must produce NO <Arguments> element
+    # (not an empty one, which Task Scheduler still passes as argv[1]="").
+    if arguments:
+        ET.SubElement(exec_el, "Arguments").text = arguments
 
     # ET.tostring adds the encoding declaration schtasks expects.
     return ET.tostring(root, encoding="unicode")
@@ -651,13 +669,15 @@ def register_prewarm_task() -> bool:
         # The resolver may have returned either a frozen exe path or
         # fallen back to the dev python-module path. Detect by checking
         # whether the command points at a file with no ``-m`` suffix.
-        # If it's a frozen exe, omit _PREWARM_ARGS.
+        # If it's a frozen exe, pass "" so _build_task_xml emits NO
+        # <Arguments> element (the frozen exe IS the module).
         from voice_typer.server.prewarm_resolver import resolve_prewarm_exe
 
         resolved = resolve_prewarm_exe()
         if resolved and " -m " not in resolved:
-            # Frozen exe — no args.
-            xml_def = _build_task_xml(command, None)
+            # Frozen exe — pass empty string, NOT None (None falls back
+            # to _PREWARM_ARGS which would break the frozen exe).
+            xml_def = _build_task_xml(command, "")
             log.info("[TASK] Tauri sidecar mode — prewarm frozen exe registered without module args")
         else:
             # Dev fallback — use the legacy args.

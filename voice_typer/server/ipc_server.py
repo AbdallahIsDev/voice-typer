@@ -1041,9 +1041,19 @@ class IPCServer(
                     # generic ``"internal error"`` (we deliberately do
                     # NOT leak ``str(dispatch_exc)`` to avoid exposing
                     # server internals over IPC).
+                    # ADR-0020 round-2 fix: add `code: "internal_error"`
+                    # for consistency with other error envelopes
+                    # (invalid_payload, rate_limited, etc. all carry a
+                    # `code` field). The NEW-IPC-107 fix in usePython.ts
+                    # and the Rust dispatch() command both read `code`
+                    # with a `"unknown"` fallback, so this is backward-
+                    # compatible but now consistent.
                     err: dict[str, object] = {
                         "type": "error",
-                        "data": {"message": "internal error"},
+                        "data": {
+                            "code": "internal_error",
+                            "message": "internal error",
+                        },
                     }
                     if isinstance(msg, dict) and "id" in msg:
                         err["id"] = msg["id"]
@@ -1902,9 +1912,12 @@ def main() -> None:
         from voice_typer.server import sidecar_ws
 
         log.info("[IPC] starting Tauri sidecar WebSocket server (sidecar_ws.run)")
-        # Tell the frontend we're ready — Tauri defers UI hydration until
-        # this (matches the Electron path's `ready` push).
-        server.push({"type": "ready"})
+        # ADR-0020 round-2 fix: do NOT call server.push({"type": "ready"})
+        # here — in WS mode, server.push writes to the TCP _tcp_client
+        # which is None (no TCP server started). The `ready` event is
+        # emitted by sidecar_ws._handle_connection() via event_bus.publish
+        # AFTER the first WS client authenticates, so the Tauri host
+        # receives it over the WS connection.
         # sidecar_ws.run() blocks until the asyncio loop is cancelled
         # (SIGTERM from the host's kill_children backstop). Returns an
         # exit code; we propagate it.

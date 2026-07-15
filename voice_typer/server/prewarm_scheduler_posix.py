@@ -41,12 +41,48 @@ def _prewarm_python() -> str:
 
     Uses sys.executable (the interpreter that's running the app).
     On macOS/Linux there's no pythonw/cpython distinction worth tracking.
+
+    ADR-0020 §5: under the Tauri sidecar path (TAURI_SIDECAR=1 or
+    VOICE_TYPER_PREWARM_EXE env set), the prewarm helper is a frozen
+    Nuitka exe — there is no Python interpreter to invoke. Delegate to
+    :func:`voice_typer.server.prewarm_resolver.resolve_prewarm_exe`
+    which returns the frozen exe path (preferred) or the dev-fallback
+    Python command line. When the resolver returns a frozen exe path,
+    :func:`_prewarm_args` returns an empty list (the exe IS the module).
     """
+    if os.environ.get("TAURI_SIDECAR") == "1" or os.environ.get("VOICE_TYPER_PREWARM_EXE"):
+        from voice_typer.server.prewarm_resolver import resolve_prewarm_exe
+
+        resolved = resolve_prewarm_exe()
+        if resolved is None:
+            return sys.executable  # dev fallback
+        # If the resolver returned a frozen exe path (no " -m "), return
+        # it as-is. Otherwise (dev fallback with " -m "), extract the
+        # python interpreter path.
+        if " -m " not in resolved:
+            return resolved  # frozen exe path
+        # Dev fallback — extract the interpreter from the command line.
+        # Format: "<path>" -m voice_typer.server.prewarm
+        try:
+            return resolved.split(" ", 1)[0].strip('"')
+        except Exception:
+            return sys.executable
     return sys.executable
 
 
 def _prewarm_args() -> list[str]:
-    """Return the args list for the prewarm command."""
+    """Return the args list for the prewarm command.
+
+    ADR-0020 §5: under the Tauri sidecar path with a frozen exe, the
+    args list is empty (the frozen exe IS the module). Under the dev
+    fallback or Electron path, the args are ``-m voice_typer.server.prewarm``.
+    """
+    if os.environ.get("TAURI_SIDECAR") == "1" or os.environ.get("VOICE_TYPER_PREWARM_EXE"):
+        from voice_typer.server.prewarm_resolver import resolve_prewarm_exe
+
+        resolved = resolve_prewarm_exe()
+        if resolved and " -m " not in resolved:
+            return []  # frozen exe — no args
     return ["-m", "voice_typer.server.prewarm"]
 
 
@@ -65,11 +101,10 @@ def _build_macos_plist() -> str:
     Windows PROCESS_MODE_BACKGROUND_BEGIN).
     """
     from xml.sax.saxutils import escape
+
     python = _prewarm_python()
     args = _prewarm_args()
-    args_xml = "\n".join(
-        f"        <string>{escape(a)}</string>" for a in args
-    )
+    args_xml = "\n".join(f"        <string>{escape(a)}</string>" for a in args)
     log_path = _paths.prewarm_launchagent_log()
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -113,7 +148,9 @@ def _register_prewarm_macos() -> bool:
         try:
             subprocess.run(
                 ["launchctl", "load", str(plist_path)],
-                check=False, capture_output=True, timeout=10,
+                check=False,
+                capture_output=True,
+                timeout=10,
             )
         except (subprocess.TimeoutExpired, FileNotFoundError) as e:
             log.debug("[PREWARM-POSIX] launchctl load failed (non-fatal): %s", e)
@@ -132,7 +169,9 @@ def _unregister_prewarm_macos() -> bool:
             try:
                 subprocess.run(
                     ["launchctl", "unload", str(plist_path)],
-                    check=False, capture_output=True, timeout=10,
+                    check=False,
+                    capture_output=True,
+                    timeout=10,
                 )
             except (subprocess.TimeoutExpired, FileNotFoundError) as e:
                 log.debug("[PREWARM-POSIX] launchctl unload failed (non-fatal): %s", e)
@@ -334,6 +373,7 @@ def _build_linux_app_service() -> str:
     systemd supervises it and restarts after crashes.
     """
     import sys as _sys
+
     python = _sys.executable
     # Run the IPC server (the main entry point)
     return f"""[Unit]
@@ -371,9 +411,12 @@ def register_linux_app_service() -> bool:
         service_path = _linux_app_service_path()
         service_path.write_text(_build_linux_app_service(), encoding="utf-8")
         import subprocess
+
         subprocess.run(
             ["systemctl", "--user", "daemon-reload"],
-            check=False, capture_output=True, timeout=5,
+            check=False,
+            capture_output=True,
+            timeout=5,
         )
         log.info("[PLAT-019] systemd user unit written to %s", service_path)
         log.info("[PLAT-019] Enable with: systemctl --user enable voice-typer.service")

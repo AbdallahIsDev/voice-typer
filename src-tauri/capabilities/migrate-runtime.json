@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2/capability",
   "identifier": "migrate-runtime",
-  "description": "ADR-0020: least-privilege capability for the Tauri + Python Sidecar migration. Every permission is explicit (Tauri v2 ships zero permissions by default).",
+  "description": "ADR-0020: least-privilege capability for the Tauri + Python Sidecar migration. Every permission is explicit (Tauri v2 ships zero permissions by default). The shell:allow-spawn permission is scoped to ONLY the python-sidecar binary via the plugins.shell.scope in tauri.conf.json — Tauri v2 enforces both the capability permission AND the config scope at runtime.",
   "windows": ["main", "bubble"],
   "permissions": [
     "core:default",
@@ -14,9 +14,8 @@
     "core:webview:allow-internal-toggle-devtools",
 
     "shell:allow-spawn",
-    "shell:allow-kill-children",
-    "shell:allow-stdin-write",
     "shell:allow-kill",
+    "shell:allow-stdin-write",
 
     "notification:allow-notify",
     "notification:allow-is-permission-granted",
@@ -26,16 +25,14 @@
     "clipboard-manager:allow-write-text",
     "clipboard-manager:allow-clear",
 
-    "single-instance:default",
-
-    "tray:default",
-    "tray:allow-new",
-    "tray:allow-set-icon",
-    "tray:allow-set-menu",
-    "tray:allow-set-tooltip",
-    "tray:allow-set-title",
-    "tray:allow-set-visible",
-    "tray:allow-on-tray-icon-event",
-    "tray:allow-on-menu-event"
+    "core:tray:default",
+    "core:tray:allow-new",
+    "core:tray:allow-set-icon",
+    "core:tray:allow-set-menu",
+    "core:tray:allow-set-tooltip",
+    "core:tray:allow-set-title",
+    "core:tray:allow-set-visible",
+    "core:tray:allow-get-by-id",
+    "core:tray:allow-remove-by-id"
   ]
 }

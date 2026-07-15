@@ -50,11 +50,12 @@ Cross-platform
 Rate limiting
 -------------
 ADR-0019's per-connection rate limiter
-(:mod:`voice_typer.server.log_rate_limit`) is applied on every
-incoming WS frame, mirroring the TCP path. A client that exceeds
-200 burst / 60 sustained msg/s gets ``{"type":"error","code":
-"rate_limited","data":{"retry_after_ms":...}}`` and the connection
-stays open.
+(:class:`voice_typer.server.ipc_server._RateLimiter`) is applied on
+every incoming WS frame, mirroring the TCP path. A client that
+exceeds 200 burst / 600 sustained (10s window, per
+RELIABILITY-006-FIX-10) gets ``{"type":"error","code":
+"rate_limited","data":{"message":"rate limit exceeded; backing
+off"}}`` and the connection stays open.
 
 Heartbeat
 ---------
@@ -85,6 +86,16 @@ if TYPE_CHECKING:  # pragma: no cover - type-checker-only
     from voice_typer.server.ipc_server import IPCServer
 
 log = logging.getLogger("voice_typer.server.sidecar_ws")
+
+# ADR-0020 round-2 fix: module-level flag so `ready` is emitted only
+# once per process, on the first authenticated WS connection. Previously
+# ipc_server.py:main() called `server.push({"type": "ready"})` BEFORE
+# sidecar_ws.run() started the WS server — so the event was dropped (no
+# subscriber yet). Now we emit `ready` via event_bus.publish AFTER the
+# first client authenticates, so the Tauri host receives it over the WS
+# and can hydrate the UI. The flag is module-level (not per-connection)
+# so a reconnect after a transient WS drop does NOT re-emit `ready`.
+_ready_emitted: bool = False
 
 # Hard loopback-only bind (ADR-0020 §1). Binding 0.0.0.0 / :: would
 # (a) pop a Windows Defender Firewall prompt, (b) trigger an macOS
@@ -306,6 +317,20 @@ async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
             await websocket.close(code=1008, reason="auth failed")
         return
 
+    # ADR-0020 round-2 fix: emit `ready` on the first authenticated
+    # connection. The Tauri host waits for this event before hydrating
+    # the UI (mirrors the Electron path's `ready` push at
+    # ipc_server.py:1899). Using event_bus.publish (not server.push)
+    # because the WS writer task subscribes to event_bus — server.push
+    # would go to the TCP path's _tcp_client which is None in WS mode.
+    global _ready_emitted
+    if not _ready_emitted:
+        from voice_typer.server import event_bus
+
+        log.info("[SIDECAR-WS] first authenticated connection — emitting `ready` event")
+        event_bus.publish({"type": "ready"})
+        _ready_emitted = True
+
     # Subscribe server.push (which forwards event_bus.publish) to
     # this WS so server-initiated events flow back to the host.
     # The TCP path installs a single _tcp_client and writes to it
@@ -361,19 +386,12 @@ async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
         async for raw in websocket:
             if isinstance(raw, bytes):
                 raw = raw.decode("utf-8")
-            if len(raw.encode("utf-8")) > _MAX_FRAME_BYTES:
-                await websocket.send(
-                    json.dumps(
-                        {
-                            "type": "error",
-                            "data": {
-                                "code": "invalid_payload",
-                                "message": f"frame exceeds {_MAX_FRAME_BYTES} bytes",
-                            },
-                        }
-                    )
-                )
-                continue
+            # NOTE: the inbound frame-size cap is enforced by the
+            # `websockets` library itself via `serve(..., max_size=...)`
+            # in run() below — the library rejects oversized frames at
+            # the transport layer with a 1009 close. We do NOT re-check
+            # here (it would be dead code; the frame never arrives if
+            # it exceeds max_size).
             try:
                 msg = json.loads(raw)
             except json.JSONDecodeError:

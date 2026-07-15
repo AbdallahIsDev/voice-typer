@@ -8,25 +8,25 @@ repository = "https://github.com/AbdallahIsDev/voice-typer"
 edition = "2021"
 rust-version = "1.77"
 
-# ADR-0020 §4.1: the binary name uses the Rust target triple suffix
-# because Tauri's `externalBin` mechanism requires it. The actual
-# per-triple binaries are placed under `src-tauri/bin/` and selected
-# at runtime by Tauri based on `std::env::consts::ARCH` + `OS`.
+# ADR-0020 §4.1: the binary name is the base name; Tauri's `externalBin`
+# mechanism appends the target triple at runtime to find the right
+# per-platform binary (e.g. `python-sidecar-x86_64-pc-windows-msvc.exe`).
 [[bin]]
 name = "voice-typer-tauri"
 path = "src/main.rs"
 
 [build-dependencies]
-tauri-build = { version = "2.0", features = [] }
+tauri-build = { version = "2", features = [] }
 
 [dependencies]
-# Tauri v2 core
-tauri = { version = "2.0", features = ["devtools"] }
-tauri-plugin-shell = "2.0"
-tauri-plugin-notification = "2.0"
-tauri-plugin-clipboard-manager = "2.0"
-tauri-plugin-single-instance = "2.0"
-tauri-plugin-tray = "2.0"
+# Tauri v2 core — tray support is built into the core crate in v2
+# (NOT a separate tauri-plugin-tray crate). The "tray-icon" feature
+# enables the tray API.
+tauri = { version = "2", features = ["devtools", "tray-icon"] }
+tauri-plugin-shell = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-single-instance = "2"
 
 # ADR-0020 §6.2: enigo for cross-platform keystroke injection
 # (short-text paste path). Used by the paste_text event handler.
