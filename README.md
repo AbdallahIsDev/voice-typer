@@ -411,7 +411,7 @@ voice_typer/
 │   ├── electron-builder.yml     # Distribution config (NSIS / DMG / AppImage)
 │   ├── package.json    # Node deps + scripts (dev / build / lint / test)
 │   └── vite.config.ts  # Vite aliases (shadcn CLI compatibility shim)
-└── tests/              # Pytest suite (rounds 8-10 E2E + per-module unit tests)
+└── tests/              # Pytest suite (E2E + per-module unit tests)
 ```
 
 Key design decisions:

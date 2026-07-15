@@ -95,17 +95,36 @@ Application configuration with type-safe access and atomic persistence.
 
 ### Key Configuration Keys
 
+The defaults below are read from the `Config` dataclass in
+`voice_typer/server/config.py` and the enum validators in
+`voice_typer/server/config_validators.py`.  A CI test
+(`tests/test_api_doc_accuracy.py`) parses this table and asserts each
+row matches the actual `Config` default — if you change a default in
+`Config`, update this table in the same commit or CI will fail.
+
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `recording_mode` | `str` | `"push_to_talk"` | One of: `push_to_talk`, `toggle`, `voice_activity`. |
-| `model` | `str` | `"small.en"` | Whisper model name or `"qwen"` / `"parakeet"`. |
-| `language` | `str` | `"auto"` | Language code for transcription. |
-| `paste_enabled` | `bool` | `True` | Whether to auto-paste transcribed text. |
-| `log_transcriptions` | `bool` | `False` | Whether to log transcription text (privacy-sensitive). |
-| `silence_warning_seconds` | `float` | `10.0` | Seconds of silence before warning. |
+| `recording_mode` | `str` | `"toggle"` | One of: `toggle`, `push_to_talk`. |
+| `model_size` | `str` | `"small.en"` | Whisper model name (one of `ALLOWED_USER_MODELS`) or `"qwen"` / `"parakeet"`. |
+| `language` | `str` | `"en"` | ISO-639-1 language code for transcription (e.g. `"en"`, `"fr"`, `"de"`). |
+| `paste_on_stop` | `bool` | `True` | Whether to auto-paste transcribed text when recording stops. |
+| `log_transcriptions` | `bool` | `False` | Whether to log transcription text (privacy-sensitive — see SEC-009). |
+| `silence_warning_seconds` | `float` | `20.0` | Seconds of silence before the silence-warning tray notification fires. |
 | `stop_on_silence_seconds` | `float` | `60.0` | Seconds of silence before auto-stop. |
-| `clipboard_clear_delay_seconds` | `float` | `5.0` | Seconds before clearing clipboard after paste. |
-| `check_updates` | `bool` | `True` | Whether to check for updates periodically. |
+| `clipboard_restore_delay_ms` | `int` | `150` | Delay (ms) between the paste keystroke and restoring the previous clipboard contents (ADR-0010). |
+| `max_recording_time_seconds` | `int` | `900` | Hard cap on recording length (clamped to `[300, 3600]` — 5 to 60 minutes). |
+
+Removed / renamed fields (documented for searchability — do NOT re-add):
+
+- `paste_enabled` → renamed to `paste_on_stop`.
+- `clipboard_clear_delay_seconds` → removed in ADR-0010 §8.2 (was dead
+  code — only read by the deleted `schedule_clipboard_clear`).
+- `check_updates` → never existed on `Config` (the auto-update flow is
+  driven by Electron's `electron-updater`, not a Python config flag).
+- `voice_activity` recording mode → never implemented; the enum is
+  `{toggle, push_to_talk}` only.
+- `model` → renamed to `model_size` (the IPC `set_config` allowlist key
+  is `model_size`, not `model`).
 
 ---
 

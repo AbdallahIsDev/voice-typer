@@ -11,7 +11,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
   compiles all 3 native binaries (Swift on macOS, C on Windows, C on Linux)
   on their native platforms and bundles them into per-platform installers
   (.exe / .dmg / .deb / .rpm / .AppImage).
-  
+
 - **Gap 2: macOS Accessibility onboarding** — When the native binary detects
   missing Accessibility permission, Voice Typer shows a tray notification and
   deep-links to System Settings → Privacy & Security → Accessibility. A 60s
@@ -108,7 +108,7 @@ Changes that affect end users (new features, bug fixes, UX improvements).
 - **High-contrast mode** and adjustable text size (accessibility)
 - **Fast startup** via prewarm (keeps model weights in OS file cache)
 
-### Security & Privacy Improvements (rounds 1-7)
+### Security & Privacy Improvements
 
 - **API keys redacted** in `get_config` IPC responses — no longer echoed in cleartext
 - **LLM polish requires explicit consent** — separate `llm_polish_consent` flag
@@ -119,7 +119,7 @@ Changes that affect end users (new features, bug fixes, UX improvements).
 - **CSV export formula-injection defense** — cells starting with `=`, `+`, `-`, `@` are escaped
 - **DevTools disabled in production builds**
 
-### Reliability Improvements (rounds 1-7)
+### Reliability Improvements
 
 - **Clean shutdown** — replaced `os._exit(0)` with `sys.exit(0)` so Python cleanup runs (releases mutex, closes mic, unregisters hotkeys)
 - **All hotkey backends stopped on quit/restart** — no more "hotkey busy" after restart
@@ -128,7 +128,7 @@ Changes that affect end users (new features, bug fixes, UX improvements).
 - **IPC rate limiting** — 200 burst / 60 sustained msg/s per connection
 - **Removed stale Python reaper** — no more `taskkill /T /F` killing legitimate autostart sessions
 
-### Performance Improvements (rounds 1-7)
+### Performance Improvements
 
 - **Eager scipy preload** — first recording no longer blocks 200-800ms on import
 - **SQLite 20 MB cache** — history reads stay in memory
@@ -136,7 +136,7 @@ Changes that affect end users (new features, bug fixes, UX improvements).
 - **Recorder snapshot O(1)** — `itertools.islice` replaces full-deque copy
 - **Xrun log rate-limited** — was 16 disk writes/sec, now once per 5 seconds
 
-### UX Improvements (rounds 1-7)
+### UX Improvements
 
 - **Hotkey conflict notification** names the hotkey and suggests rebinding
 - **"View Logs" button** actually opens the log folder (was a fake handler)
