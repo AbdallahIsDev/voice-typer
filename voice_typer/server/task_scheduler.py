@@ -121,7 +121,52 @@ def _prewarm_command() -> str | None:
     exists (it was removed in an earlier refactor).  The comment is
     now updated to describe the actual logic without referencing dead
     code.
+
+    ADR-0020 §5: under the Tauri sidecar path (TAURI_SIDECAR=1 env or
+    VOICE_TYPER_PREWARM_EXE env set), the prewarm helper is a frozen
+    Nuitka exe — there is no Python interpreter to invoke. Delegate to
+    :func:`voice_typer.server.prewarm_resolver.resolve_prewarm_exe`
+    which returns the frozen exe path (preferred) or the dev-fallback
+    Python command line. When the resolver returns a frozen exe path,
+    the caller must NOT append ``_PREWARM_ARGS`` (the frozen exe takes
+    no module args — it IS the module). See ``register_prewarm_task``.
     """
+    # ADR-0020 §5: Tauri sidecar path — delegate to the shared resolver.
+    # The resolver returns either a single path (frozen exe) or a full
+    # command line (dev fallback). When it returns a frozen exe path,
+    # callers must NOT append _PREWARM_ARGS.
+    if os.environ.get("TAURI_SIDECAR") == "1" or os.environ.get("VOICE_TYPER_PREWARM_EXE"):
+        from voice_typer.server.prewarm_resolver import resolve_prewarm_exe
+
+        resolved = resolve_prewarm_exe()
+        if resolved is not None:
+            # Detect whether the resolver returned a single path (frozen
+            # exe) or a multi-token command line (dev fallback). A path
+            # has no spaces inside the first token (Windows paths may
+            # have spaces but they're quoted); a command line has
+            # multiple tokens separated by unquoted spaces.
+            # Heuristic: if the string contains `` -m `` it's the dev
+            # fallback; otherwise it's a frozen exe path.
+            if " -m " in resolved:
+                # Dev fallback — return the python interpreter path only
+                # (extract from the quoted command line) and let the
+                # XML builder append _PREWARM_ARGS as before.
+                # The dev fallback format is: "<path>" -m voice_typer.server.prewarm
+                try:
+                    # Strip quotes, take the first token.
+                    first = resolved.split(" ", 1)[0].strip('"')
+                    if Path(first).is_file():
+                        return first
+                except Exception:
+                    pass
+                # If parsing failed, fall through to the legacy path.
+            else:
+                # Frozen exe path — return as-is. The caller (via
+                # _build_task_xml) will see no _PREWARM_ARGS suffix is
+                # needed because register_prewarm_task checks this case.
+                return resolved
+        # Resolver returned None — fall through to legacy pythonw path.
+
     # Try pythonw.exe first (no console window).
     # RW-7: use _paths.venv_pythonw() so the venv path respects the
     # platform-aware _config_dir() logic instead of the previous
@@ -597,7 +642,28 @@ def register_prewarm_task() -> bool:
         log.warning("[TASK] cannot resolve prewarm command — skipping registration")
         return False
 
-    xml_def = _build_task_xml(command, _PREWARM_ARGS)
+    # ADR-0020 §5: when the resolver returned a frozen exe path (no
+    # ``-m voice_typer.server.prewarm`` module args), the task action
+    # is just the exe path itself — no <Arguments> element. When the
+    # resolver returned the legacy pythonw path, we keep _PREWARM_ARGS
+    # (the module name + --trigger logon) as before.
+    if os.environ.get("TAURI_SIDECAR") == "1" or os.environ.get("VOICE_TYPER_PREWARM_EXE"):
+        # The resolver may have returned either a frozen exe path or
+        # fallen back to the dev python-module path. Detect by checking
+        # whether the command points at a file with no ``-m`` suffix.
+        # If it's a frozen exe, omit _PREWARM_ARGS.
+        from voice_typer.server.prewarm_resolver import resolve_prewarm_exe
+
+        resolved = resolve_prewarm_exe()
+        if resolved and " -m " not in resolved:
+            # Frozen exe — no args.
+            xml_def = _build_task_xml(command, None)
+            log.info("[TASK] Tauri sidecar mode — prewarm frozen exe registered without module args")
+        else:
+            # Dev fallback — use the legacy args.
+            xml_def = _build_task_xml(command, _PREWARM_ARGS)
+    else:
+        xml_def = _build_task_xml(command, _PREWARM_ARGS)
 
     # Write XML to a temp file — schtasks /Create /XML needs a path, and
     # passing huge inline args via cmd.exe is fragile.

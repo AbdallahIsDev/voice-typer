@@ -33,3 +33,7 @@ comtypes>=1.1; sys_platform == 'win32'
 # Volume ducking (platform-conditional — only installs on macOS)
 pyobjc-core>=9.0; sys_platform == 'darwin'
 pyobjc-framework-CoreAudio>=9.0; sys_platform == 'darwin'
+# ADR-0020 §14: WebSocket transport for the Tauri sidecar path.
+# Lazy-imported in voice_typer/server/sidecar_ws.py so the Electron-only
+# path doesn't pay the import cost. Pure-Python, ~200 KB.
+websockets>=12.0,<14.0

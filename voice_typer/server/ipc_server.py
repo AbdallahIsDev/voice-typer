@@ -642,13 +642,24 @@ class IPCServer(
         # fire ``app.quit()`` until the first heartbeat lands, so a
         # slow Electron cold start (10+ seconds for torch import)
         # doesn't trigger a false-positive exit.
-        self._heartbeat_stop_event.clear()
-        self._heartbeat_thread = threading.Thread(
-            target=self._heartbeat_loop,
-            name="heartbeat-watchdog",
-            daemon=True,
-        )
-        self._heartbeat_thread.start()
+        # ADR-0020 §2 + §10: under the Tauri sidecar path
+        # (TAURI_SIDECAR=1), the heartbeat watchdog (ADR-0018) is
+        # disabled. The Tauri Rust host's FT-1 supervisor detects
+        # sidecar death via WS-close / process exit and respawns, so
+        # the 120-second-heartbeat-timeout watchdog is redundant and
+        # would false-positive during a slow WS-only reconnect.
+        _tauri_sidecar = os.environ.get("TAURI_SIDECAR") == "1"
+        if _tauri_sidecar:
+            log.info("[IPC] TAURI_SIDECAR=1 — skipping heartbeat-watchdog thread (Tauri FT-1 owns liveness)")
+            self._heartbeat_thread = None
+        else:
+            self._heartbeat_stop_event.clear()
+            self._heartbeat_thread = threading.Thread(
+                target=self._heartbeat_loop,
+                name="heartbeat-watchdog",
+                daemon=True,
+            )
+            self._heartbeat_thread.start()
         # THREAD-REGISTRY: register both IPC threads with the central
         # registry (if the app provides one) so ``shutdown_all()`` can
         # signal and join them during ``VoiceTyperApp.quit()``.
@@ -669,12 +680,15 @@ class IPCServer(
         # ``stop()`` is responsible for the actual cleanup.
         registry = getattr(self.app, "_thread_registry", None)
         if registry is not None:
-            registry.register(
-                name="heartbeat-watchdog",
-                thread=self._heartbeat_thread,
-                stop_event=self._heartbeat_stop_event,
-                join_timeout=2.0,
-            )
+            # ADR-0020 §10: heartbeat-watchdog is skipped under TAURI_SIDECAR=1,
+            # so only register it if it actually exists.
+            if self._heartbeat_thread is not None:
+                registry.register(
+                    name="heartbeat-watchdog",
+                    thread=self._heartbeat_thread,
+                    stop_event=self._heartbeat_stop_event,
+                    join_timeout=2.0,
+                )
             registry.register(
                 name="ipc-server",
                 thread=self._stdin_thread,
@@ -1765,6 +1779,18 @@ def main() -> None:
         help="TCP port to listen on (1..65535). If omitted, uses stdin/stdout IPC.",
     )
     parser.add_argument(
+        "--ws",
+        action="store_true",
+        default=False,
+        help=(
+            "ADR-0020: run as a Tauri sidecar. Binds a localhost WebSocket "
+            "server on an OS-assigned ephemeral port (127.0.0.1:0), prints "
+            'a single {"event":"server_started","port":N} JSON line to '
+            "stdout, then accepts WS connections authenticated by the "
+            "VOICE_TYPER_IPC_TOKEN env var. Mutually exclusive with --port."
+        ),
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {_pkg_version}",
@@ -1780,16 +1806,46 @@ def main() -> None:
     if args.debug:
         os.environ["VOICE_TYPER_DEBUG"] = "1"
     port = args.port
+    ws_mode = args.ws
+    # ADR-0020 §2: --ws and --port are mutually exclusive. --ws binds
+    # an OS-assigned ephemeral port and reports it via stdout; --port
+    # binds a fixed port for the legacy Electron TCP path.
+    if ws_mode and port is not None:
+        print("--ws and --port are mutually exclusive", file=sys.stderr)
+        sys.exit(EXIT_BAD_ARGS)
     if port is not None and not (1 <= port <= 65535):
         print(f"Invalid port: {port} (must be 1..65535)", file=sys.stderr)
         sys.exit(EXIT_BAD_ARGS)
+    # ADR-0020 §2 + §10: when running as a Tauri sidecar, set the
+    # TAURI_SIDECAR=1 env var so downstream gates (heartbeat watchdog,
+    # VoiceTyperSingleInstance mutex) know to disable themselves. The
+    # Tauri host's single-instance plugin + FT-1 supervisor replace
+    # them. The env var is set here (rather than required to be set by
+    # the host) so a `python -m voice_typer.server.ipc_server --ws`
+    # invocation from a terminal also gets the right behavior.
+    if ws_mode:
+        os.environ["TAURI_SIDECAR"] = "1"
+        log.info("[IPC] --ws mode enabled (TAURI_SIDECAR=1 env set)")
 
     _setup_logging()
 
     # NEW-DOC-006: single-instance lock is acquired AFTER args are parsed
     # but BEFORE app construction (which stores the mutex handle).  The
     # lock is still taken for real launches (both standalone and --port IPC).
-    _single_instance_mutex = _ensure_single_instance(silent=True)
+    #
+    # ADR-0020 §12: under the Tauri sidecar path (TAURI_SIDECAR=1), the
+    # Tauri host's `tauri-plugin-single-instance` plugin already enforces
+    # single-instance via the OS's native mechanism (Win32 named mutex on
+    # Windows, NSApplication activation on macOS, lockfile on Linux). The
+    # Python-side `VoiceTyperSingleInstance` Win32 mutex (app.py:2086)
+    # would double-lock on Windows and block the second-instance focus
+    # path, so we skip it under Tauri.
+    _tauri_sidecar = os.environ.get("TAURI_SIDECAR") == "1"
+    if _tauri_sidecar:
+        log.info("[IPC] TAURI_SIDECAR=1 — skipping Python-side single-instance mutex (Tauri host owns it)")
+        _single_instance_mutex = None
+    else:
+        _single_instance_mutex = _ensure_single_instance(silent=True)
 
     # NEW-SEC-015: the os._exit monkey-patch that printed a stack trace
     # on every shutdown has been removed.
@@ -1837,7 +1893,26 @@ def main() -> None:
 
     server = build_ipc_server(app)
     server.start()
-    if port is not None:
+    # ADR-0020 §2: --ws mode starts the WebSocket sidecar server instead
+    # of the TCP server. The WS server binds 127.0.0.1:0, prints the
+    # `server_started` JSON to stdout, and accepts authenticated WS
+    # connections from the Tauri Rust host. The TCP / standalone paths
+    # below are unchanged for the Electron fallback.
+    if ws_mode:
+        from voice_typer.server import sidecar_ws
+
+        log.info("[IPC] starting Tauri sidecar WebSocket server (sidecar_ws.run)")
+        # Tell the frontend we're ready — Tauri defers UI hydration until
+        # this (matches the Electron path's `ready` push).
+        server.push({"type": "ready"})
+        # sidecar_ws.run() blocks until the asyncio loop is cancelled
+        # (SIGTERM from the host's kill_children backstop). Returns an
+        # exit code; we propagate it.
+        _ws_exit = sidecar_ws.run(server)
+        if _ws_exit != 0:
+            log.warning("[IPC] sidecar_ws.run exited with code %d", _ws_exit)
+        sys.exit(_ws_exit)
+    elif port is not None:
         server.start_tcp(port)
         log.info("[IPC] TCP mode on port %d — Electron should connect here", port)
     else:

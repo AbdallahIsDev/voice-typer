@@ -106,6 +106,12 @@ dependencies = [
     # filter in the audio filter chain.
     # Excluded on macOS ARM64 (no prebuilt wheel — see deepfilternet extra).
     "pyrnnoise>=0.4; platform_machine != 'arm64' or sys_platform != 'darwin'",
+    # ADR-0020 §14: websockets is required for the Tauri sidecar
+    # transport. The Electron path uses raw TCP and does not need this
+    # dep, but it is small (~200 KB) and pure-Python, so it's safe to
+    # install everywhere. Lazy-imported in sidecar_ws.py so the
+    # Electron-only path doesn't pay the import cost.
+    "websockets>=12.0,<14.0",
 ]
 
 [project.urls]

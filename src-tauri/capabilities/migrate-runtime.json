@@ -1,0 +1,41 @@
+{
+  "$schema": "https://schema.tauri.app/config/2/capability",
+  "identifier": "migrate-runtime",
+  "description": "ADR-0020: least-privilege capability for the Tauri + Python Sidecar migration. Every permission is explicit (Tauri v2 ships zero permissions by default).",
+  "windows": ["main", "bubble"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
+    "core:webview:allow-internal-toggle-devtools",
+
+    "shell:allow-spawn",
+    "shell:allow-kill-children",
+    "shell:allow-stdin-write",
+    "shell:allow-kill",
+
+    "notification:allow-notify",
+    "notification:allow-is-permission-granted",
+    "notification:allow-request-permission",
+
+    "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-text",
+    "clipboard-manager:allow-clear",
+
+    "single-instance:default",
+
+    "tray:default",
+    "tray:allow-new",
+    "tray:allow-set-icon",
+    "tray:allow-set-menu",
+    "tray:allow-set-tooltip",
+    "tray:allow-set-title",
+    "tray:allow-set-visible",
+    "tray:allow-on-tray-icon-event",
+    "tray:allow-on-menu-event"
+  ]
+}

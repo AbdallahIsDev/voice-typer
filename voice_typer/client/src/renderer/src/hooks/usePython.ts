@@ -28,8 +28,43 @@ export function usePython() {
 				string,
 				unknown
 			>;
+			// NEW-IPC-107: the Electron main process returns
+			// `{ _error: "..." }` when (a) the backend isn't
+			// connected (index.ts:1911) or (b) any sendToPython
+			// exception fires (index.ts:1916). Surface those as
+			// JS errors so callers see real failures.
 			if (result && typeof result === "object" && "_error" in result) {
 				throw new Error(result._error as string);
+			}
+			// NEW-IPC-107 (the actual fix): the Python server
+			// returns structured error envelopes
+			// `{type:"error", data:{code, message}}` on unhandled
+			// dispatch exceptions (ipc_server.py:1044-1050). The
+			// Electron main process resolves the pending request
+			// with that object verbatim, so `result.type ===
+			// "error"` was silently treated as a successful
+			// result and callers downstream got `undefined` when
+			// they tried to access real data fields.
+			//
+			// Under Tauri, the Rust host's `dispatch` command
+			// already surfaces `type:"error"` as a Rust error
+			// (which rejects the invoke() promise on the JS
+			// side), so this guard is primarily for the Electron
+			// path. It's safe to apply on both paths because the
+			// success envelope is `type:"result"` — `type:"error"`
+			// is unambiguously a failure.
+			if (
+				result &&
+				typeof result === "object" &&
+				"type" in result &&
+				(result as { type: unknown }).type === "error"
+			) {
+				const errData = (
+					result as { data?: { code?: string; message?: string } }
+				).data;
+				const code = errData?.code ?? "unknown";
+				const message = errData?.message ?? "server error";
+				throw new Error(`server error [${code}]: ${message}`);
 			}
 			return result as T;
 		},

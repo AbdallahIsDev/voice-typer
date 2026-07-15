@@ -1,0 +1,92 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Voice Typer",
+  "version": "1.0.0",
+  "identifier": "com.voicetyper.app",
+  "build": {
+    "frontendDist": "../voice_typer/client/dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "cd ../voice_typer/client && npm run build:renderer",
+    "beforeBuildCommand": "cd ../voice_typer/client && npm run build:renderer"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Voice Typer",
+        "width": 900,
+        "height": 700,
+        "minWidth": 720,
+        "minHeight": 540,
+        "resizable": true,
+        "fullscreen": false,
+        "transparent": false,
+        "decorations": true,
+        "visible": true,
+        "label": "main"
+      },
+      {
+        "title": "Voice Typer Bubble",
+        "width": 240,
+        "height": 80,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "label": "bubble"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'",
+      "capabilities": ["migrate-runtime"]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "externalBin": [
+      "bin/python-sidecar-x86_64-pc-windows-msvc",
+      "bin/python-sidecar-aarch64-pc-windows-msvc",
+      "bin/python-sidecar-x86_64-apple-darwin",
+      "bin/python-sidecar-aarch64-apple-darwin",
+      "bin/python-sidecar-x86_64-unknown-linux-gnu",
+      "bin/python-sidecar-aarch64-unknown-linux-gnu"
+    ],
+    "resources": [
+      "resources/native/windows-key-listener.exe",
+      "resources/native/macos-key-listener",
+      "resources/native/linux-key-listener",
+      "resources/prewarm-x86_64-pc-windows-msvc.exe",
+      "resources/prewarm-aarch64-pc-windows-msvc.exe",
+      "resources/prewarm-x86_64-apple-darwin",
+      "resources/prewarm-aarch64-apple-darwin",
+      "resources/prewarm-x86_64-unknown-linux-gnu",
+      "resources/prewarm-aarch64-unknown-linux-gnu"
+    ]
+  },
+  "plugins": {
+    "tray": {},
+    "notification": {},
+    "clipboard-manager": {},
+    "single-instance": {},
+    "shell": {
+      "sidecar": true,
+      "scope": [
+        { "name": "bin/python-sidecar-x86_64-pc-windows-msvc", "cmd": "bin/python-sidecar-x86_64-pc-windows-msvc", "args": true },
+        { "name": "bin/python-sidecar-aarch64-pc-windows-msvc", "cmd": "bin/python-sidecar-aarch64-pc-windows-msvc", "args": true },
+        { "name": "bin/python-sidecar-x86_64-apple-darwin", "cmd": "bin/python-sidecar-x86_64-apple-darwin", "args": true },
+        { "name": "bin/python-sidecar-aarch64-apple-darwin", "cmd": "bin/python-sidecar-aarch64-apple-darwin", "args": true },
+        { "name": "bin/python-sidecar-x86_64-unknown-linux-gnu", "cmd": "bin/python-sidecar-x86_64-unknown-linux-gnu", "args": true },
+        { "name": "bin/python-sidecar-aarch64-unknown-linux-gnu", "cmd": "bin/python-sidecar-aarch64-unknown-linux-gnu", "args": true }
+      ]
+    }
+  }
+}

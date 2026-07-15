@@ -271,11 +271,12 @@ def get_native_binary_path() -> Path | None:
     """Find the native key-listener binary for the current platform.
 
     Search order:
-    1. ``VOICE_TYPER_NATIVE_BINARY`` env var (explicit override)
-    2. ``voice_typer/server/native/<binary-name>`` (dev mode — source tree)
-    3. ``voice_typer/server/native/<binary-name>.exe`` (Windows dev mode)
-    4. Next to the Python executable (PyInstaller onedir mode)
-    5. Inside ``_MEIPASS`` (PyInstaller onefile mode)
+    1. ``VOICE_TYPER_NATIVE_BINARY`` env var (explicit override — single binary)
+    2. ``VOICE_TYPER_NATIVE_DIR`` env var (ADR-0020 §7 — Tauri resource dir containing all native binaries)
+    3. ``voice_typer/server/native/<binary-name>`` (dev mode — source tree)
+    4. ``voice_typer/server/native/<binary-name>.exe`` (Windows dev mode)
+    5. Next to the Python executable (PyInstaller onedir mode)
+    6. Inside ``_MEIPASS`` (PyInstaller onefile mode)
 
     Returns ``None`` if no binary is found.
     """
@@ -283,14 +284,27 @@ def get_native_binary_path() -> Path | None:
     if binary_name is None:
         return None
 
-    # 1. Explicit override
+    # 1. Explicit override (single binary path)
     env_path = os.environ.get("VOICE_TYPER_NATIVE_BINARY")
     if env_path:
         p = Path(env_path)
         if p.is_file():
             return p
 
-    # 2/3. Dev mode — alongside this module's source
+    # 2. ADR-0020 §7: Tauri resource dir. The Tauri host sets this env
+    # var to point at the bundle's `resources/native/` directory, which
+    # contains all three platform binaries (only the matching one is
+    # used). This is the path the Nuitka-frozen sidecar uses in
+    # production. Falls through silently if the env var is unset (dev
+    # mode) or points at a dir without the binary (broken install —
+    # the dev/source-tree path below will pick up the slack).
+    env_dir = os.environ.get("VOICE_TYPER_NATIVE_DIR")
+    if env_dir:
+        candidate = Path(env_dir) / binary_name
+        if candidate.is_file():
+            return candidate
+
+    # 3/4. Dev mode — alongside this module's source
     module_dir = Path(__file__).resolve().parent / "native"
     candidates = [
         module_dir / binary_name,
@@ -301,13 +315,13 @@ def get_native_binary_path() -> Path | None:
         if c.is_file():
             return c
 
-    # 4. PyInstaller onedir: binary sits next to python executable
+    # 5. PyInstaller onedir: binary sits next to python executable
     exe_dir = Path(sys.executable).resolve().parent
     onedir_candidate = exe_dir / binary_name
     if onedir_candidate.is_file():
         return onedir_candidate
 
-    # 5. PyInstaller onefile: binary extracted to _MEIPASS
+    # 6. PyInstaller onefile: binary extracted to _MEIPASS
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
         meipass_candidate = Path(meipass) / "voice_typer" / "server" / "native" / binary_name
