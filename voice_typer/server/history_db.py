@@ -1191,37 +1191,6 @@ class HistoryDB:
                 raise HistoryDBError(str(e)) from e
             return []
 
-    def get_stats(self, *, raise_on_error: bool = False) -> dict:
-        """Get statistics about transcriptions.
-
-        ERR-013: see ``get_recent`` for ``raise_on_error`` semantics.
-        """
-        try:
-            conn = self._get_read_conn()
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT
-                    COUNT(*) as total_count,
-                    SUM(char_count) as total_chars,
-                    SUM(word_count) as total_words,
-                    SUM(duration) as total_duration,
-                    AVG(char_count) as avg_chars
-                FROM transcriptions
-            """)
-            row = cursor.fetchone()
-            return {
-                "total_count": row[0] or 0,
-                "total_chars": row[1] or 0,
-                "total_words": row[2] or 0,
-                "total_duration": row[3] or 0,
-                "avg_chars": row[4] or 0,
-            }
-        except Exception as e:
-            log.error("[HISTORY] Failed to get stats: %s", e)
-            if raise_on_error:
-                raise HistoryDBError(str(e)) from e
-            return {}
-
     def get_today_stats(self, *, raise_on_error: bool = False) -> dict:
         """Get statistics for today's transcriptions.
 
