@@ -8,9 +8,10 @@ functions for testability. Each function takes ``app`` (the
 etc. — exactly the same attributes the original ``self.*`` references
 resolved to.
 
-The original methods on ``VoiceTyperApp`` are kept as thin delegates that
-forward to these functions, so existing callers (and tests that
-monkeypatch ``app._sync_autostart`` etc.) keep working unchanged.
+The original delegate methods on ``VoiceTyperApp`` were removed during the
+RW-9 god-class decomposition; callers (and tests) now invoke these
+functions directly (e.g.
+``monkeypatch.setattr(startup_tasks, "sync_autostart", ...)``).
 
 A note on monkeypatching: tests like ``test_autostart_syncs_with_platform``
 replace ``voice_typer.server.app.is_autostart_enabled`` /

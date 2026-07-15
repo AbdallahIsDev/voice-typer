@@ -52,10 +52,22 @@ class CrashRecovery:
     ):
         if config_dir is None:
             from voice_typer.server.config import _config_dir
+
             config_dir = _config_dir()
         self._path = config_dir / RECOVERY_FILENAME
         self._entries: list[dict] = []
         self._lock = threading.Lock()
+        # Serializes _save_sync() disk writes so that concurrent
+        # callers (the background worker + any post-shutdown sync
+        # fallback callers) don't trample each other on the file
+        # write.  Distinct from ``_lock`` (which only guards the
+        # in-memory ``_entries`` list) so reads/writes to
+        # ``_entries`` aren't blocked while the disk I/O runs.
+        # RELIABILITY-005 + a-review Finding A1: post-shutdown calls
+        # to ``add()`` / ``mark_pasted()`` / etc. fall back to
+        # synchronous saves (per the documented shutdown() contract);
+        # this lock makes that fallback safe under concurrency.
+        self._save_lock = threading.Lock()
         self._save_queue: queue.Queue[dict | None] = queue.Queue(maxsize=_SAVE_QUEUE_MAXSIZE)
         self._save_thread: threading.Thread | None = None
         self._stopped = False
@@ -105,22 +117,32 @@ class CrashRecovery:
 
         NEW-SEC-008: uses the shared _secure_atomic_write which applies
         O_NOFOLLOW on POSIX to prevent symlink TOCTOU attacks.
+
+        a-review Finding A1: ``_save_lock`` serializes the disk write
+        so that the background worker and any post-shutdown sync
+        fallback callers don't race on the file.  ``_lock`` is still
+        acquired only for the in-memory snapshot so reads of
+        ``_entries`` aren't blocked during I/O.
         """
-        try:
-            from voice_typer.server.config import _secure_atomic_write
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            if not is_windows():
-                try:
-                    os.chmod(self._path.parent, 0o700)
-                except OSError as e:
-                    log.warning("[RECOVERY] Failed to chmod dir: %s", e)
-            with self._lock:
-                snapshot = json.dumps(
-                    {"entries": self._entries}, indent=2, ensure_ascii=False,
-                )
-            _secure_atomic_write(self._path, snapshot)
-        except Exception as exc:
-            log.error("[RECOVERY] Failed to save: %s", exc)
+        with self._save_lock:
+            try:
+                from voice_typer.server.config import _secure_atomic_write
+
+                self._path.parent.mkdir(parents=True, exist_ok=True)
+                if not is_windows():
+                    try:
+                        os.chmod(self._path.parent, 0o700)
+                    except OSError as e:
+                        log.warning("[RECOVERY] Failed to chmod dir: %s", e)
+                with self._lock:
+                    snapshot = json.dumps(
+                        {"entries": self._entries},
+                        indent=2,
+                        ensure_ascii=False,
+                    )
+                _secure_atomic_write(self._path, snapshot)
+            except Exception as exc:
+                log.error("[RECOVERY] Failed to save: %s", exc)
 
     def _enqueue_save(self) -> None:
         """Enqueue a save request to the background worker.
@@ -128,7 +150,20 @@ class CrashRecovery:
         If the queue is full (worker fell behind), drop the oldest
         pending save.  This is safe because saves are idempotent —
         only the latest snapshot matters for crash recovery.
+
+        a-review Finding A1: after ``shutdown()`` the worker thread
+        has exited, so enqueuing would silently lose the mutation.
+        Fall back to a synchronous save (serialized via
+        ``_save_lock``) to honor the documented shutdown() contract:
+        "After shutdown, any further calls to ``add()`` /
+        ``mark_pasted()`` / etc. will fall back to synchronous saves".
         """
+        if self._stopped:
+            # Worker has exited (or never started) — persist on the
+            # caller's thread.  ``_save_sync`` takes ``_save_lock``
+            # so concurrent post-shutdown callers serialize cleanly.
+            self._save_sync()
+            return
         try:
             self._save_queue.put_nowait({"snapshot": True})
         except queue.Full:
@@ -163,7 +198,9 @@ class CrashRecovery:
             return
         self._stopped = False
         self._save_thread = threading.Thread(
-            target=self._save_loop, name="crash-recovery-saver", daemon=True,
+            target=self._save_loop,
+            name="crash-recovery-saver",
+            daemon=True,
         )
         self._save_thread.start()
         if self._thread_registry is not None:
@@ -251,15 +288,12 @@ class CrashRecovery:
             try:
                 self._save_queue.put_nowait(sentinel)
             except queue.Full:
-                log.warning(
-                    "[RECOVERY] flush: save queue full; cannot enqueue sentinel"
-                )
+                log.warning("[RECOVERY] flush: save queue full; cannot enqueue sentinel")
                 return False
         completed = event.wait(timeout=timeout)
         if not completed:
             log.warning(
-                "[RECOVERY] flush timed out after %.2fs; "
-                "pending saves may be lost",
+                "[RECOVERY] flush timed out after %.2fs; pending saves may be lost",
                 timeout,
             )
             return False
@@ -276,12 +310,26 @@ class CrashRecovery:
         S-6: ``_save_thread`` is now joined with a short timeout
         after the sentinel is enqueued, so the thread is properly
         tracked and doesn't leak in test start/stop cycles.
+
+        a-review Finding A3: after joining the worker, do one final
+        ``_save_sync()`` so any mutations queued or in-flight when
+        shutdown was called are guaranteed persisted.  This is cheap
+        insurance on top of the worker's natural drain — and it also
+        covers the rare window where a concurrent ``add()`` races
+        with shutdown() and enqueues after the sentinel.
         """
         self._stopped = True
         with contextlib.suppress(queue.Full):
             self._save_queue.put_nowait(None)  # sentinel
         if self._save_thread is not None and self._save_thread.is_alive():
             self._save_thread.join(timeout=1.0)
+        # Final synchronous save after the worker has exited.  The
+        # worker should have drained the queue, but if it timed out
+        # or if a concurrent caller raced in a final mutation, this
+        # guarantees the latest ``_entries`` state is on disk.
+        # ``_save_lock`` makes this safe even if a post-shutdown
+        # ``add()`` is in flight on another thread.
+        self._save_sync()
 
     # ── Public API ───────────────────────────────────────────────────
 
@@ -295,6 +343,7 @@ class CrashRecovery:
             pasted: Whether the text was successfully pasted.
         """
         from datetime import datetime
+
         entry = {
             "text": text,
             "timestamp": datetime.now().isoformat(),
@@ -393,15 +442,27 @@ class CrashRecovery:
         safety net — explicit ``shutdown()`` + ``flush()`` is the
         preferred shutdown path, but ``__del__`` catches the case
         where the caller forgets (e.g. tests, abnormal exits).
+
+        a-review Finding A3: previously this only saved if
+        ``_save_thread.is_alive() and not _save_queue.empty()`` —
+        which skipped the save entirely after ``shutdown()`` killed
+        the worker, dropping any post-shutdown mutations on GC.
+        Now we save whenever ``_entries`` is non-empty, regardless
+        of worker state.  ``_save_lock`` serializes against any
+        in-flight worker save.  The whole body stays wrapped in
+        try/except so interpreter shutdown never raises from GC.
         """
         try:
             # Signal the worker to stop, then do one final
             # synchronous save to capture any pending state.
             self._stopped = True
-            # If there's pending work, do a final synchronous save
-            # to capture it.  If the queue is empty, this is a
-            # no-op.
-            if self._save_thread is not None and self._save_thread.is_alive() and not self._save_queue.empty():
+            # Save whenever there's any data to lose.  This covers
+            # both "worker alive with pending queue items" (worker
+            # is mid-save; _save_lock serializes) and "worker dead
+            # after shutdown() with post-shutdown mutations" (the
+            # Finding A3 regression).  If _entries is empty, this
+            # is a no-op.
+            if self._entries:
                 self._save_sync()
         except Exception:
             pass  # __del__ must never raise
@@ -423,6 +484,7 @@ class CrashRecovery:
 
         try:
             from voice_typer.server.config import _config_dir
+
             config_dir = _config_dir()
         except Exception:
             config_dir = self._path.parent
@@ -444,6 +506,7 @@ class CrashRecovery:
                 if config_path.exists():
                     try:
                         import json
+
                         raw = config_path.read_text(encoding="utf-8")
                         data = json.loads(raw)
                         # Redact sensitive keys
@@ -457,6 +520,7 @@ class CrashRecovery:
                 # 3. System info
                 import platform
                 import sys
+
                 sys_info = [
                     f"Platform: {platform.platform()}",
                     f"Python: {sys.version}",
@@ -466,6 +530,7 @@ class CrashRecovery:
                 # GPU info
                 try:
                     import torch
+
                     sys_info.append(f"CUDA available: {torch.cuda.is_available()}")
                     if torch.cuda.is_available():
                         sys_info.append(f"CUDA version: {torch.version.cuda}")
@@ -489,6 +554,7 @@ class CrashRecovery:
                 # 4. Model info
                 try:
                     from voice_typer.server.config import Config
+
                     cfg = Config.load()
                     model_info = [
                         f"Model: {cfg.model_size}",
@@ -500,9 +566,12 @@ class CrashRecovery:
 
                 # 5. Crash recovery entries
                 import json as _json
+
                 with self._lock:
                     entries_json = _json.dumps(
-                        {"entries": self._entries}, indent=2, ensure_ascii=False,
+                        {"entries": self._entries},
+                        indent=2,
+                        ensure_ascii=False,
                     )
                 zf.writestr("crash_recovery.json", entries_json)
 
@@ -516,6 +585,7 @@ class CrashRecovery:
                         _sentinel_path,
                         get_prewarm_status,
                     )
+
                     prewarm_data = get_prewarm_status()
                     # Add the raw sentinel + PID file contents + paths
                     # for full diagnostics.
@@ -550,7 +620,9 @@ class CrashRecovery:
                     zf.writestr(
                         "prewarm.json",
                         _json.dumps(
-                            {"error": str(prewarm_exc)}, indent=2, default=str,
+                            {"error": str(prewarm_exc)},
+                            indent=2,
+                            default=str,
                         ),
                     )
 

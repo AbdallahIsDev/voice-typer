@@ -330,16 +330,18 @@ class StartupSequence:
             # If the user grants permission AFTER startup, the app will
             # detect it within 60 seconds and clear the warning. If the
             # user revokes permission mid-session, the app will re-warn.
-            # RW-9 Phase 2: call startup_tasks directly (the
-            # ``app._start_accessibility_pulse`` facade is kept for test seams).
+            # RW-9 Phase 2: invoke startup_tasks directly. The
+            # ``app._start_accessibility_pulse`` delegate was removed; callers
+            # now target startup_tasks (and tests monkeypatch startup_tasks).
             from voice_typer.server import startup_tasks
 
             startup_tasks.start_accessibility_pulse(app, _has_accessibility)
 
         # 1. Sync autostart config with platform
         log.debug("[STARTUP] Syncing autostart")
-        # RW-9 Phase 2: call startup_tasks directly (the
-        # ``app._sync_autostart`` facade is kept for test seams).
+        # RW-9 Phase 2: invoke startup_tasks directly. The
+        # ``app._sync_autostart`` delegate was removed; callers now target
+        # startup_tasks (and tests monkeypatch startup_tasks).
         from voice_typer.server import startup_tasks
 
         startup_tasks.sync_autostart(app)
@@ -384,9 +386,9 @@ class StartupSequence:
 
         def _startup_parallel_work() -> None:
             with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-                # RW-9 Phase 2: call startup_tasks directly (the
+                # RW-9 Phase 2: invoke startup_tasks directly. The
                 # ``app._sync_prewarm_task`` / ``app._load_microphones``
-                # facades are kept for test seams).
+                # delegates were removed; callers now target startup_tasks.
                 prewarm_future = pool.submit(startup_tasks.sync_prewarm_task, app, _shutdown_event)
                 mic_future = pool.submit(startup_tasks.load_microphones, app, _shutdown_event)
                 # RACE-020: reduced timeout from 30s to 10s so a stuck
@@ -427,8 +429,9 @@ class StartupSequence:
 
         # 3. Register hotkey BEFORE model load so F2 works even if model fails
         log.debug("[STARTUP] Registering hotkey")
-        # RW-9 Phase 2: call HotkeyDispatcher directly (the
-        # ``app._register_hotkey`` facade is kept for test seams).
+        # RW-9 Phase 2: invoke HotkeyDispatcher directly. The
+        # ``app._register_hotkey`` delegate was removed; callers now target
+        # ``app.hotkeys`` (and tests monkeypatch app.hotkeys.register).
         app.hotkeys.register()
 
         # RACE-020: check for shutdown after hotkey registration
