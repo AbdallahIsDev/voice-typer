@@ -189,7 +189,6 @@ const baseConfig: VoiceTyperConfig = {
 			"--border": "#222222",
 		},
 	},
-	high_contrast: false,
 	text_size: 14,
 	wayland_warned: false,
 	silence_warning_seconds: 0,

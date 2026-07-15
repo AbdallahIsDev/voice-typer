@@ -192,7 +192,7 @@ export default function SettingsPage({
 	// timer ref and clears it on unmount, fixing the leak risk of the
 	// previous inline setTimeout (which wasn't cleared if the page
 	// unmounted mid-toast).
-	const { showSnack, Snackbar } = useSnackbar();
+	const { showSnack } = useSnackbar();
 
 	// PERF-002: batch config writes — single set_config call per
 	// debounce window.
@@ -947,9 +947,6 @@ export default function SettingsPage({
 				onConfirm={resetToDefaults}
 				onCancel={() => setShowResetDialog(false)}
 			/>
-
-			{/* NEW-TS-004: use the shared Snackbar component from useSnackbar. */}
-			<Snackbar />
 		</div>
 	);
 }

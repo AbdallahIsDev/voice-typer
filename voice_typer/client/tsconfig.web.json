@@ -15,6 +15,7 @@
 
 		"allowImportingTsExtensions": true,
 		"emitDeclarationOnly": true,
+		"outDir": "./out",
 		"types": [],
 		"paths": {
 			"@/*": ["./src/renderer/src/*"],

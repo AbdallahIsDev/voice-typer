@@ -4,6 +4,9 @@ import react from "@vitejs/plugin-react";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import { cspEmissionPlugin } from "./csp-plugin";
 
+// CI-05: electron.vite.renderer.ts and electron.vite.main.ts are CI-only
+// copies of the renderer and main+preload sections respectively.
+// Keep them in sync when modifying this file.
 export default defineConfig({
 	main: {
 		plugins: [externalizeDepsPlugin()],

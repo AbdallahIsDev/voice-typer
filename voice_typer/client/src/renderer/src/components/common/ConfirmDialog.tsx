@@ -24,10 +24,6 @@ interface ConfirmDialogProps {
 
 export default function ConfirmDialog({
 	open,
-	// P1-2c (Round 0 forward-port): i18n the default labels so non-English
-	// users see localized button text even when the caller doesn't pass
-	// explicit labels.  The caller can still override with a custom string
-	// (e.g. a verb other than "delete") by passing the prop explicitly.
 	title = t("common.confirm"),
 	message,
 	confirmLabel = t("common.delete"),
@@ -36,37 +32,42 @@ export default function ConfirmDialog({
 	onConfirm,
 	onCancel,
 }: ConfirmDialogProps) {
-	const dismissedByButton = useRef(false);
-
-	const handleCancel = useCallback(() => {
-		dismissedByButton.current = true;
-		onCancel();
-	}, [onCancel]);
-
-	const handleConfirm = useCallback(() => {
-		dismissedByButton.current = true;
-		onConfirm();
-	}, [onConfirm]);
+	// DX-014: Radix AlertDialog fires onOpenChange(false) once per close.
+	// We use a ref to distinguish "user clicked Confirm" (which should NOT
+	// call onCancel) from Cancel/Escape/backdrop (which should).
+	// The old dismissedByButton ref guarded both actions; now only the
+	// confirm action needs it.
+	const confirmedRef = useRef(false);
 
 	const handleOpenChange = useCallback(
 		(isOpen: boolean) => {
-			if (!isOpen && !dismissedByButton.current) {
-				onCancel(); // Escape key or backdrop click
+			if (!isOpen) {
+				if (!confirmedRef.current) {
+					onCancel();
+				}
+				confirmedRef.current = false;
 			}
-			dismissedByButton.current = false;
 		},
 		[onCancel],
 	);
 
+	const handleConfirm = useCallback(() => {
+		confirmedRef.current = true;
+		onConfirm();
+	}, [onConfirm]);
+
 	return (
 		<AlertDialog open={open} onOpenChange={handleOpenChange}>
-			<AlertDialogContent onInteractOutside={handleCancel}>
+			<AlertDialogContent>
 				<AlertDialogHeader>
 					<AlertDialogTitle>{title}</AlertDialogTitle>
 					<AlertDialogDescription>{message}</AlertDialogDescription>
 				</AlertDialogHeader>
 				<AlertDialogFooter>
-					<AlertDialogCancel onClick={handleCancel} aria-label={cancelLabel}>
+					{/* DX-014: Cancel button has NO onClick — handleOpenChange
+					    calls onCancel when the dialog closes. Letting Radix
+					    trigger onOpenChange(false) is the single close signal. */}
+					<AlertDialogCancel aria-label={cancelLabel}>
 						{cancelLabel}
 					</AlertDialogCancel>
 					<AlertDialogAction

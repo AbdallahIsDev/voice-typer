@@ -134,7 +134,6 @@ export interface VoiceTyperConfig {
 	} | null;
 
 	// Accessibility
-	high_contrast: boolean;
 	text_size: number;
 
 	// Wayland

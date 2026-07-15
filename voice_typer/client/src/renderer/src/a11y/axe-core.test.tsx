@@ -97,7 +97,22 @@ const STUB_CONFIG = {
 // ── Helper: mock the usePython hook ──────────────────────────────────
 vi.mock("@/hooks/usePython", () => ({
 	usePython: () => ({
-		call: vi.fn(),
+		// Return command-appropriate shapes so async page init (e.g.
+		// Onboarding) settles instead of crashing on `undefined.<field>`.
+		call: vi.fn(async (cmd: string) => {
+			switch (cmd) {
+				case "onboarding_start":
+					return { step: 1, total_steps: 4, step_name: "microphone" };
+				case "onboarding_get_microphones":
+					return { microphones: [] };
+				case "onboarding_get_hotkey_presets":
+					return { presets: [] };
+				case "onboarding_get_model_options":
+					return { models: [] };
+				default:
+					return undefined;
+			}
+		}),
 		pythonPort: 9999,
 	}),
 	usePythonEvent: vi.fn(),

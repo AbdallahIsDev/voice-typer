@@ -5,3 +5,6 @@ dist/
 src/renderer/public/
 resources/
 storybook-static/
+# TS declaration stubs (emitted by tsc -b / composite builds) live in ./out
+# (see tsconfig.web.json outDir). Never commit in-source .d.ts artifacts.
+src/**/*.d.ts
