@@ -66,6 +66,12 @@ class HotkeyDispatcher:
         has already claimed the same hotkey via Win32 ``RegisterHotKey``
         or X11 grab), surface a tray notification that names the hotkey
         so the user can pick a different one in Settings.
+
+        USER-REQUESTED FIX: in toggle mode, the dictation toggle fires on
+        key-UP (release), not key-down, so a press-and-hold cannot start
+        then immediately stop recording. This is wired via
+        ``set_toggle_on_keyup(True)`` for the main dictation hotkey in
+        toggle mode; push-to-talk keeps start-on-press / stop-on-release.
         """
         app = self._app
         hotkey_str = app.config.hotkey
@@ -80,6 +86,11 @@ class HotkeyDispatcher:
             # other backends ignore it.
             with contextlib.suppress(AttributeError, TypeError):
                 self._hotkey_backend._tray = app.tray  # type: ignore[attr-defined]
+            # USER-REQUESTED FIX: in toggle mode, fire the toggle on key-up
+            # (release) so holding the key never starts-then-stops recording.
+            if app.config.recording_mode == "toggle":
+                with contextlib.suppress(AttributeError, TypeError):
+                    self._hotkey_backend.set_toggle_on_keyup(True)
             self._hotkey_backend.start(self._make_dictation_callback())
             # P1: Push-to-talk mode -- set release callback
             if app.config.recording_mode == "push_to_talk":
@@ -219,6 +230,12 @@ class HotkeyDispatcher:
         # Reset keyboard ownership so subsequent keys
         # are no longer blocked by the capture check.
         keyboard_ownership().set_owner("normal", reason="esc released during capture")
+
+        # Keep the legacy alias in sync with the canonical owner so readers
+        # that still consult _esc_cancel_paused cannot see a stale "paused"
+        # state. ESC-FIX-001 divergence fix: the alias was only cleared by a
+        # frontend round-trip, so a missed IPC left ESC permanently dead.
+        self._app._esc_cancel_paused = False
 
         # Push an event so the frontend exits capture mode.
         from voice_typer.server import event_bus

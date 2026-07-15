@@ -186,25 +186,39 @@ def _normalize_key_name(token: str) -> str:
     # Special keys
     special_map = {
         "space": "Space",
-        "enter": "Enter", "return": "Enter",
+        "enter": "Enter",
+        "return": "Enter",
         "tab": "Tab",
-        "esc": "Esc", "escape": "Esc",
+        "esc": "Esc",
+        "escape": "Esc",
         "backspace": "Backspace",
         "insert": "Insert",
-        "delete": "Delete", "del": "Delete",
+        "delete": "Delete",
+        "del": "Delete",
         "home": "Home",
         "end": "End",
-        "page_up": "PageUp", "pageup": "PageUp",
-        "page_down": "PageDown", "pagedown": "PageDown",
-        "caps_lock": "CapsLock", "capslock": "CapsLock",
-        "num_lock": "NumLock", "numlock": "NumLock",
-        "scroll_lock": "ScrollLock", "scrolllock": "ScrollLock",
-        "print_screen": "PrintScreen", "printscreen": "PrintScreen",
+        "page_up": "PageUp",
+        "pageup": "PageUp",
+        "page_down": "PageDown",
+        "pagedown": "PageDown",
+        "caps_lock": "CapsLock",
+        "capslock": "CapsLock",
+        "num_lock": "NumLock",
+        "numlock": "NumLock",
+        "scroll_lock": "ScrollLock",
+        "scrolllock": "ScrollLock",
+        "print_screen": "PrintScreen",
+        "printscreen": "PrintScreen",
         "pause": "Pause",
-        "up": "Up", "down": "Down", "left": "Left", "right": "Right",
-        "media_play_pause": "MediaPlay", "media_play": "MediaPlay",
+        "up": "Up",
+        "down": "Down",
+        "left": "Left",
+        "right": "Right",
+        "media_play_pause": "MediaPlay",
+        "media_play": "MediaPlay",
         "media_stop": "MediaStop",
-        "media_next": "MediaNext", "media_prev": "MediaPrev",
+        "media_next": "MediaNext",
+        "media_prev": "MediaPrev",
         "media_previous": "MediaPrev",
     }
     if t in special_map:
@@ -217,16 +231,32 @@ def _normalize_key_name(token: str) -> str:
         return t
     # Numpad keys
     numpad_map = {
-        "num_0": "Num0", "num_1": "Num1", "num_2": "Num2", "num_3": "Num3",
-        "num_4": "Num4", "num_5": "Num5", "num_6": "Num6", "num_7": "Num7",
-        "num_8": "Num8", "num_9": "Num9",
-        "numpad_0": "Num0", "numpad_1": "Num1", "numpad_2": "Num2",
-        "numpad_3": "Num3", "numpad_4": "Num4", "numpad_5": "Num5",
-        "numpad_6": "Num6", "numpad_7": "Num7", "numpad_8": "Num8",
+        "num_0": "Num0",
+        "num_1": "Num1",
+        "num_2": "Num2",
+        "num_3": "Num3",
+        "num_4": "Num4",
+        "num_5": "Num5",
+        "num_6": "Num6",
+        "num_7": "Num7",
+        "num_8": "Num8",
+        "num_9": "Num9",
+        "numpad_0": "Num0",
+        "numpad_1": "Num1",
+        "numpad_2": "Num2",
+        "numpad_3": "Num3",
+        "numpad_4": "Num4",
+        "numpad_5": "Num5",
+        "numpad_6": "Num6",
+        "numpad_7": "Num7",
+        "numpad_8": "Num8",
         "numpad_9": "Num9",
-        "num_decimal": "NumDecimal", "num_add": "NumAdd",
-        "num_subtract": "NumSubtract", "num_multiply": "NumMultiply",
-        "num_divide": "NumDivide", "num_enter": "NumEnter",
+        "num_decimal": "NumDecimal",
+        "num_add": "NumAdd",
+        "num_subtract": "NumSubtract",
+        "num_multiply": "NumMultiply",
+        "num_divide": "NumDivide",
+        "num_enter": "NumEnter",
     }
     if t in numpad_map:
         return numpad_map[t]
@@ -320,6 +350,11 @@ class SubprocessHotkeyBackend(ABC):
         self._fn_down: bool = False
         self._main_key_down: bool = False
         self._match_lock = threading.Lock()
+        # Toggle-mode flag: when True (set by HotkeyDispatcher for the main
+        # dictation hotkey in toggle mode), the toggle fires on key-UP
+        # (release) instead of key-down. Prevents a press-and-hold from
+        # starting and then immediately stopping recording.
+        self._toggle_on_keyup: bool = False
         # GAP-2/GAP-4: optional callbacks invoked from _handle_line and
         # _reader_loop. Set by _NativeBackendAdapter (in hotkeys.py) so
         # the adapter can (a) show a permission notification on ERROR
@@ -334,6 +369,13 @@ class SubprocessHotkeyBackend(ABC):
     def set_on_release(self, callback: Callable[[], None] | None) -> None:
         """Set the callback for key release (push-to-talk mode)."""
         self._on_release_callback = callback
+
+    def set_toggle_on_keyup(self, value: bool) -> None:
+        """In toggle mode, fire the toggle on key-up (release) instead of
+        key-down. Set True by HotkeyDispatcher for the main dictation
+        hotkey so a press-and-hold cannot start-then-stop recording.
+        """
+        self._toggle_on_keyup = value
 
     def start(self, callback: Callable[[], None]) -> None:
         """Spawn the native binary and start parsing its stdout."""
@@ -353,7 +395,9 @@ class SubprocessHotkeyBackend(ABC):
 
         log.info(
             "[NATIVE-HOTKEY] Starting %s backend (binary=%s, hotkey=%r)",
-            self.platform_name, self._binary_path, self.hotkey_str,
+            self.platform_name,
+            self._binary_path,
+            self.hotkey_str,
         )
 
         self._callback = callback
@@ -485,9 +529,7 @@ class SubprocessHotkeyBackend(ABC):
                 attempts += 1
                 if attempts > MAX_RESTART_ATTEMPTS:
                     self._failed = True
-                    self._error_message = (
-                        f"{self.platform_name} binary crashed {attempts} times; giving up"
-                    )
+                    self._error_message = f"{self.platform_name} binary crashed {attempts} times; giving up"
                     log.error("[NATIVE-HOTKEY] %s", self._error_message)
                     self._ready_event.set()  # unblock start() wait
                     # GAP-4: notify the adapter so it can swap to a
@@ -505,7 +547,10 @@ class SubprocessHotkeyBackend(ABC):
                 delay = RESTART_DELAY_BASE_SECONDS * (2 ** (attempts - 1))
                 log.warning(
                     "[NATIVE-HOTKEY] %s binary exited (attempt %d/%d); restarting in %.1fs",
-                    self.platform_name, attempts, MAX_RESTART_ATTEMPTS, delay,
+                    self.platform_name,
+                    attempts,
+                    MAX_RESTART_ATTEMPTS,
+                    delay,
                 )
                 # Don't sleep with the GIL — use Event.wait for early cancel
                 if self._stop_event.wait(timeout=delay):
@@ -547,7 +592,8 @@ class SubprocessHotkeyBackend(ABC):
             except Exception:
                 log.exception(
                     "[NATIVE-HOTKEY] Error handling line from %s binary: %r",
-                    self.platform_name, line,
+                    self.platform_name,
+                    line,
                 )
 
     def _handle_line(self, line: str) -> None:
@@ -559,10 +605,11 @@ class SubprocessHotkeyBackend(ABC):
 
         if line.startswith("ERROR:"):
             self._failed = True
-            self._error_message = line[len("ERROR:"):]
+            self._error_message = line[len("ERROR:") :]
             log.error(
                 "[NATIVE-HOTKEY] %s binary reported ERROR: %s",
-                self.platform_name, self._error_message,
+                self.platform_name,
+                self._error_message,
             )
             self._ready_event.set()  # unblock start() wait
             # GAP-2: notify the adapter so it can classify the error and
@@ -586,25 +633,24 @@ class SubprocessHotkeyBackend(ABC):
             return
 
         if line.startswith("MOD_DOWN:"):
-            mod_name = line[len("MOD_DOWN:"):]
+            mod_name = line[len("MOD_DOWN:") :]
             self._on_modifier_event(mod_name, down=True)
             return
         if line.startswith("MOD_UP:"):
-            mod_name = line[len("MOD_UP:"):]
+            mod_name = line[len("MOD_UP:") :]
             self._on_modifier_event(mod_name, down=False)
             return
 
         if line.startswith("KEY_DOWN:"):
-            key_name = line[len("KEY_DOWN:"):]
+            key_name = line[len("KEY_DOWN:") :]
             self._on_key_event(key_name, down=True)
             return
         if line.startswith("KEY_UP:"):
-            key_name = line[len("KEY_UP:"):]
+            key_name = line[len("KEY_UP:") :]
             self._on_key_event(key_name, down=False)
             return
 
-        log.debug("[NATIVE-HOTKEY] Unrecognized line from %s: %r",
-                  self.platform_name, line)
+        log.debug("[NATIVE-HOTKEY] Unrecognized line from %s: %r", self.platform_name, line)
 
     # ── Hotkey matching ─────────────────────────────────────────────────
 
@@ -716,9 +762,27 @@ class SubprocessHotkeyBackend(ABC):
             return
 
         if down:
-            self._fire_callback()
+            if self._on_release_callback is not None:
+                # Push-to-talk: start recording on press.
+                self._fire_callback()
+            elif getattr(self, "_toggle_on_keyup", False):
+                # Toggle mode with toggle_on_keyup: defer the toggle to
+                # key-up so holding the key cannot start-then-stop
+                # recording. Do nothing here.
+                pass
+            else:
+                # Legacy toggle (e.g. ESC, repaste): fire on press.
+                self._fire_callback()
         else:
-            self._fire_on_release()
+            if self._on_release_callback is not None:
+                # Push-to-talk: stop recording on release.
+                self._fire_on_release()
+            elif getattr(self, "_toggle_on_keyup", False):
+                # Toggle mode: fire the toggle exactly once on key-up.
+                # Holding the key (no key-up) never toggles, so a
+                # press-and-hold cannot start-then-stop recording.
+                self._fire_callback()
+            # else: legacy toggle-on-keydown -> nothing to do on key-up.
 
     def _fire_callback(self) -> None:
         """Invoke the press callback (with exception shielding)."""
@@ -938,7 +1002,7 @@ class NativeHotkeyRecorder:
                 return
             if line.startswith("ERROR:"):
                 backend._failed = True
-                backend._error_message = line[len("ERROR:"):]
+                backend._error_message = line[len("ERROR:") :]
                 backend._ready_event.set()
                 with self._cond:
                     self._done = True
@@ -953,7 +1017,7 @@ class NativeHotkeyRecorder:
             for prefix in ("KEY_DOWN:", "KEY_UP:", "MOD_DOWN:", "MOD_UP:"):
                 if line.startswith(prefix):
                     event_type = prefix.rstrip(":")
-                    name = line[len(prefix):]
+                    name = line[len(prefix) :]
                     self._record_event(event_type, name)
                     return
             # Fall back to original handler for unknown lines
@@ -1066,21 +1130,45 @@ def _key_name_to_token(name: str) -> str | None:
         return name.lower()
     # Special keys (reverse map)
     reverse = {
-        "Space": "space", "Enter": "enter", "Tab": "tab", "Esc": "esc",
-        "Backspace": "backspace", "Insert": "insert", "Delete": "delete",
-        "Home": "home", "End": "end",
-        "PageUp": "page_up", "PageDown": "page_down",
-        "CapsLock": "caps_lock", "NumLock": "num_lock",
-        "ScrollLock": "scroll_lock", "PrintScreen": "print_screen",
+        "Space": "space",
+        "Enter": "enter",
+        "Tab": "tab",
+        "Esc": "esc",
+        "Backspace": "backspace",
+        "Insert": "insert",
+        "Delete": "delete",
+        "Home": "home",
+        "End": "end",
+        "PageUp": "page_up",
+        "PageDown": "page_down",
+        "CapsLock": "caps_lock",
+        "NumLock": "num_lock",
+        "ScrollLock": "scroll_lock",
+        "PrintScreen": "print_screen",
         "Pause": "pause",
-        "Up": "up", "Down": "down", "Left": "left", "Right": "right",
-        "MediaPlay": "media_play_pause", "MediaStop": "media_stop",
-        "MediaNext": "media_next", "MediaPrev": "media_prev",
-        "Num0": "num_0", "Num1": "num_1", "Num2": "num_2", "Num3": "num_3",
-        "Num4": "num_4", "Num5": "num_5", "Num6": "num_6", "Num7": "num_7",
-        "Num8": "num_8", "Num9": "num_9",
-        "NumDecimal": "num_decimal", "NumAdd": "num_add",
-        "NumSubtract": "num_subtract", "NumMultiply": "num_multiply",
-        "NumDivide": "num_divide", "NumEnter": "num_enter",
+        "Up": "up",
+        "Down": "down",
+        "Left": "left",
+        "Right": "right",
+        "MediaPlay": "media_play_pause",
+        "MediaStop": "media_stop",
+        "MediaNext": "media_next",
+        "MediaPrev": "media_prev",
+        "Num0": "num_0",
+        "Num1": "num_1",
+        "Num2": "num_2",
+        "Num3": "num_3",
+        "Num4": "num_4",
+        "Num5": "num_5",
+        "Num6": "num_6",
+        "Num7": "num_7",
+        "Num8": "num_8",
+        "Num9": "num_9",
+        "NumDecimal": "num_decimal",
+        "NumAdd": "num_add",
+        "NumSubtract": "num_subtract",
+        "NumMultiply": "num_multiply",
+        "NumDivide": "num_divide",
+        "NumEnter": "num_enter",
     }
     return reverse.get(name)

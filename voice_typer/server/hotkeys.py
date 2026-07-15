@@ -15,6 +15,7 @@ All backends share a common interface:
 """
 
 import contextlib
+import ctypes
 import logging
 import os
 import sys
@@ -39,6 +40,12 @@ class HotkeyBackend(ABC):
     def __init__(self, hotkey_str: str):
         self.hotkey_str = hotkey_str
         self._on_release_callback: Callable[[], None] | None = None
+        # Toggle-mode flag: when True (set by HotkeyDispatcher for the main
+        # dictation hotkey in toggle mode), the toggle fires on key-UP
+        # (release) instead of key-down. This prevents a press-and-hold from
+        # starting and then immediately stopping recording. Ignored in
+        # push-to-talk mode (which has _on_release_callback set).
+        self._toggle_on_keyup: bool = False
 
     @abstractmethod
     def start(self, callback: Callable[[], None]) -> None:
@@ -47,6 +54,13 @@ class HotkeyBackend(ABC):
     def set_on_release(self, callback: Callable[[], None] | None) -> None:
         """Set a callback for key release (used by push-to-talk mode)."""
         self._on_release_callback = callback
+
+    def set_toggle_on_keyup(self, value: bool) -> None:
+        """In toggle mode, fire the toggle on key-up (release) instead of
+        key-down. Set True by HotkeyDispatcher for the main dictation
+        hotkey so a press-and-hold cannot start-then-stop recording.
+        """
+        self._toggle_on_keyup = value
 
     @abstractmethod
     def stop(self) -> None:
@@ -86,7 +100,12 @@ class PynputHotkey(HotkeyBackend):
     def __init__(self, hotkey_str: str):
         super().__init__(hotkey_str)
         self._listener = None
-        self._fallback = False
+        self._on_release_callback: Callable[[], None] | None = None
+        # Toggle-mode flag: when True (set by HotkeyDispatcher for the main
+        # dictation hotkey in toggle mode), the toggle fires on key-UP
+        # (release) instead of key-down. Prevents a press-and-hold from
+        # starting and then immediately stopping recording.
+        self._toggle_on_keyup: bool = False
 
     def start(self, callback: Callable[[], None]) -> None:
         # PERF-012: On Linux/macOS, use pynput's event-driven Listener
@@ -96,14 +115,10 @@ class PynputHotkey(HotkeyBackend):
         # GetAsyncKeyState in a tight 1ms-polling loop).
         from pynput.keyboard import GlobalHotKeys, Key, KeyCode, Listener
 
-        log.info(
-            "Registering hotkey via pynput: %r -> callback", self.hotkey_str
-        )
+        log.info("Registering hotkey via pynput: %r -> callback", self.hotkey_str)
 
         try:
-            self._listener = GlobalHotKeys(
-                {self.hotkey_str: callback}
-            )
+            self._listener = GlobalHotKeys({self.hotkey_str: callback})
             self._listener.start()
             # PERF-NEW-017: was 0.5s — the listener thread reaches
             # "alive" state within a few ms. 50ms is enough on the
@@ -117,10 +132,7 @@ class PynputHotkey(HotkeyBackend):
                 getattr(self._listener, "daemon", "?"),
             )
             if not alive:
-                log.error(
-                    "GlobalHotKeys thread died immediately; "
-                    "falling back to manual Listener"
-                )
+                log.error("GlobalHotKeys thread died immediately; falling back to manual Listener")
                 self._stop_listener()
                 self._start_fallback(callback, Listener, Key, KeyCode)
         except Exception:
@@ -162,9 +174,7 @@ class PynputHotkey(HotkeyBackend):
     def _start_fallback(self, callback, listener, key, key_code) -> None:
         target = _parse_hotkey_to_pynput(self.hotkey_str, key, key_code)
         if target is None:
-            raise RuntimeError(
-                f"Cannot parse hotkey {self.hotkey_str!r} for fallback"
-            )
+            raise RuntimeError(f"Cannot parse hotkey {self.hotkey_str!r} for fallback")
 
         # NEW-DEAD-030: for composite hotkeys (tuple), extract BOTH the
         # modifier keys and the target key.  Previously the fallback
@@ -197,11 +207,27 @@ class PynputHotkey(HotkeyBackend):
                     return
                 if not held["value"]:
                     held["value"] = True
-                    log.info(
-                        "[HOTKEY FALLBACK] Matched key: %s (mods=%d/%d)",
-                        key, len(held_modifiers), len(modifier_keys),
-                    )
-                    callback()
+                    # Push-to-talk starts recording on press; toggle mode
+                    # with toggle_on_keyup defers to release. Otherwise
+                    # (legacy toggle, e.g. repaste) fire on press.
+                    if self._on_release_callback is not None:
+                        log.info(
+                            "[HOTKEY FALLBACK] Matched key: %s (PTT press)",
+                            key,
+                        )
+                        callback()
+                    elif getattr(self, "_toggle_on_keyup", False):
+                        # Defer to release so holding the key never
+                        # starts-then-stops recording.
+                        pass
+                    else:
+                        log.info(
+                            "[HOTKEY FALLBACK] Matched key: %s (mods=%d/%d)",
+                            key,
+                            len(held_modifiers),
+                            len(modifier_keys),
+                        )
+                        callback()
 
         def on_release(key):
             # NEW-DEAD-030: track modifier releases so the held_modifiers
@@ -209,18 +235,25 @@ class PynputHotkey(HotkeyBackend):
             if modifier_keys and key in modifier_keys:
                 held_modifiers.discard(key)
             # UX-001: invoke the on_release callback (used by
-            # push-to-talk mode) when the matched key is released.
+            # push-to-talk mode) when the matched key is released, or
+            # fire the toggle on release when toggle_on_keyup is set.
             # The check ``held["value"]`` ensures we only fire on the
             # transition from held -> released, not on every spurious
             # release event pynput may emit.
             if key == match_key and held["value"]:
                 held["value"] = False
-                log.info("[HOTKEY FALLBACK] Key released: %s", key)
                 if self._on_release_callback is not None:
+                    log.info("[HOTKEY FALLBACK] Key released (PTT): %s", key)
                     try:
                         self._on_release_callback()
                     except Exception:
                         log.exception("[HOTKEY FALLBACK] on_release callback raised")
+                elif getattr(self, "_toggle_on_keyup", False):
+                    log.info("[HOTKEY FALLBACK] Key released (toggle): %s", key)
+                    try:
+                        callback()
+                    except Exception:
+                        log.exception("[HOTKEY FALLBACK] toggle callback raised")
 
         self._listener = listener(on_press=on_press, on_release=on_release)
         self._listener.start()
@@ -364,6 +397,11 @@ def _parse_hotkey_to_pynput(hotkey_str, key, key_code):
 # Win32 constants
 _WM_HOTKEY = 0x0312
 _WM_QUIT = 0x0012
+_WM_KEYDOWN = 0x0100
+_WM_SYSKEYDOWN = 0x0104
+_WM_KEYUP = 0x0101
+_WM_SYSKEYUP = 0x0105
+_WHC_KEYBOARD_LL = 13
 _MOD_ALT = 0x0001
 _MOD_CONTROL = 0x0002
 _MOD_SHIFT = 0x0004
@@ -381,11 +419,11 @@ _GWLP_USERDATA = -21
 # for toggle suppression in the legacy polling backend.
 _VK_SHIFT = 0x10
 _VK_CONTROL = 0x11
-_VK_MENU = 0x12      # VK_MENU covers both LAlt (0xA4) and RAlt (0xA5)
+_VK_MENU = 0x12  # VK_MENU covers both LAlt (0xA4) and RAlt (0xA5)
 _VK_LWIN = 0x5B
 _VK_RWIN = 0x5C
-_VK_CAPITAL = 0x14   # Caps Lock — also in _VK_MAP["caps_lock"]
-_VK_RMENU = 0xA5     # Right Alt / AltGr
+_VK_CAPITAL = 0x14  # Caps Lock — also in _VK_MAP["caps_lock"]
+_VK_RMENU = 0xA5  # Right Alt / AltGr
 _KEYEVENTF_KEYUP = 0x0002
 
 # Common virtual-key code mappings for function keys and printable keys.
@@ -445,24 +483,24 @@ def _init_vk_map():
         for c in "abcdefghijklmnopqrstuvwxyz":
             _VK_MAP[c] = ord(c.upper())
         # Common special keys
-        _VK_MAP["esc"] = 0x1B      # VK_ESCAPE
+        _VK_MAP["esc"] = 0x1B  # VK_ESCAPE
         _VK_MAP["escape"] = 0x1B
-        _VK_MAP["space"] = 0x20    # VK_SPACE
-        _VK_MAP["enter"] = 0x0D    # VK_RETURN
+        _VK_MAP["space"] = 0x20  # VK_SPACE
+        _VK_MAP["enter"] = 0x0D  # VK_RETURN
         _VK_MAP["return"] = 0x0D
-        _VK_MAP["tab"] = 0x09      # VK_TAB
+        _VK_MAP["tab"] = 0x09  # VK_TAB
         _VK_MAP["backspace"] = 0x08  # VK_BACK
-        _VK_MAP["del"] = 0x2E      # VK_DELETE
+        _VK_MAP["del"] = 0x2E  # VK_DELETE
         _VK_MAP["delete"] = 0x2E
-        _VK_MAP["insert"] = 0x2D   # VK_INSERT
-        _VK_MAP["home"] = 0x24     # VK_HOME
-        _VK_MAP["end"] = 0x23      # VK_END
-        _VK_MAP["pageup"] = 0x21   # VK_PRIOR
-        _VK_MAP["pagedown"] = 0x22 # VK_NEXT
-        _VK_MAP["up"] = 0x26       # VK_UP
-        _VK_MAP["down"] = 0x28     # VK_DOWN
-        _VK_MAP["left"] = 0x25     # VK_LEFT
-        _VK_MAP["right"] = 0x27    # VK_RIGHT
+        _VK_MAP["insert"] = 0x2D  # VK_INSERT
+        _VK_MAP["home"] = 0x24  # VK_HOME
+        _VK_MAP["end"] = 0x23  # VK_END
+        _VK_MAP["pageup"] = 0x21  # VK_PRIOR
+        _VK_MAP["pagedown"] = 0x22  # VK_NEXT
+        _VK_MAP["up"] = 0x26  # VK_UP
+        _VK_MAP["down"] = 0x28  # VK_DOWN
+        _VK_MAP["left"] = 0x25  # VK_LEFT
+        _VK_MAP["right"] = 0x27  # VK_RIGHT
         # ARCH-041: extend with numpad, media, browser, and special keys.
         # Without these, PTT bindings to e.g. Media_Next silently fail.
         # Numpad 0-9 (VK_NUMPAD0 = 0x60 .. VK_NUMPAD9 = 0x69)
@@ -470,16 +508,16 @@ def _init_vk_map():
             _VK_MAP[f"num_{i}"] = 0x60 + i
             _VK_MAP[f"numpad_{i}"] = 0x60 + i
         _VK_MAP["num_decimal"] = 0x6E  # VK_DECIMAL
-        _VK_MAP["num_enter"] = 0x6C    # VK_RETURN (numpad)
-        _VK_MAP["num_add"] = 0x6B      # VK_ADD
-        _VK_MAP["num_subtract"] = 0x6D # VK_SUBTRACT
-        _VK_MAP["num_multiply"] = 0x6A # VK_MULTIPLY
-        _VK_MAP["num_divide"] = 0x6F   # VK_DIVIDE
+        _VK_MAP["num_enter"] = 0x6C  # VK_RETURN (numpad)
+        _VK_MAP["num_add"] = 0x6B  # VK_ADD
+        _VK_MAP["num_subtract"] = 0x6D  # VK_SUBTRACT
+        _VK_MAP["num_multiply"] = 0x6A  # VK_MULTIPLY
+        _VK_MAP["num_divide"] = 0x6F  # VK_DIVIDE
         # Media keys
-        _VK_MAP["media_next"] = 0xB0    # VK_MEDIA_NEXT_TRACK
-        _VK_MAP["media_prev"] = 0xB1    # VK_MEDIA_PREV_TRACK
+        _VK_MAP["media_next"] = 0xB0  # VK_MEDIA_NEXT_TRACK
+        _VK_MAP["media_prev"] = 0xB1  # VK_MEDIA_PREV_TRACK
         _VK_MAP["media_play_pause"] = 0xB3  # VK_MEDIA_PLAY_PAUSE
-        _VK_MAP["media_stop"] = 0xB2    # VK_MEDIA_STOP
+        _VK_MAP["media_stop"] = 0xB2  # VK_MEDIA_STOP
         # Browser keys
         _VK_MAP["browser_back"] = 0xA6
         _VK_MAP["browser_forward"] = 0xA7
@@ -488,20 +526,20 @@ def _init_vk_map():
         # Special keys
         _VK_MAP["capslock"] = 0x14  # VK_CAPITAL
         _VK_MAP["caps_lock"] = 0x14
-        _VK_MAP["numlock"] = 0x90   # VK_NUMLOCK
+        _VK_MAP["numlock"] = 0x90  # VK_NUMLOCK
         _VK_MAP["num_lock"] = 0x90
         _VK_MAP["scrolllock"] = 0x91  # VK_SCROLL
         _VK_MAP["scroll_lock"] = 0x91
         _VK_MAP["printscreen"] = 0x2C  # VK_SNAPSHOT
         _VK_MAP["print_screen"] = 0x2C
-        _VK_MAP["pause"] = 0x13    # VK_PAUSE
+        _VK_MAP["pause"] = 0x13  # VK_PAUSE
         # PLAT-ALTGR: Right Alt (AltGr) virtual-key code.
         # On non-US keyboards, AltGr is used for characters like @, €, #.
         # VK_RMENU = 0xA5 is the right Alt key, which is the physical
         # AltGr key on most keyboards.
-        _VK_MAP["altgr"] = 0xA5      # VK_RMENU (Right Alt / AltGr)
+        _VK_MAP["altgr"] = 0xA5  # VK_RMENU (Right Alt / AltGr)
         _VK_MAP["right_alt"] = 0xA5  # VK_RMENU
-        _VK_MAP["ralt"] = 0xA5       # VK_RMENU
+        _VK_MAP["ralt"] = 0xA5  # VK_RMENU
 
 
 def parse_hotkey_to_vk(hotkey_str: str) -> int | None:
@@ -582,7 +620,9 @@ def parse_hotkey_to_win32(hotkey_str: str) -> tuple[int | None, int] | None:
         for extra in parsed.keys[1:]:
             log.warning(
                 "[HOTKEY] Ignoring extra key %r in hotkey %r (already have %r)",
-                extra, hotkey_str, key_name,
+                extra,
+                hotkey_str,
+                key_name,
             )
 
     if key_name is None:
@@ -603,6 +643,7 @@ def parse_hotkey_to_win32(hotkey_str: str) -> tuple[int | None, int] | None:
         if is_windows() and len(key_name) == 1 and key_name.isalpha():
             try:
                 import ctypes
+
                 user32 = ctypes.windll.user32
                 # Get the current keyboard layout
                 user32.GetKeyboardLayout(0)
@@ -656,6 +697,13 @@ class WindowsNativeHotkey(HotkeyBackend):
         self._vk: int | None = None
         self._modifiers = 0
         self._using_polling = False  # True if falling back to GetAsyncKeyState
+        # ESC-CANCEL-DELIVERY: handle for the WH_KEYBOARD_LL low-level hook
+        # (when installed). Must be UnhookWindowsHookEx'd on stop; kept alive
+        # here so the hook proc (a ctypes CFUNCTYPE) isn't garbage-collected
+        # while the hook is active (a dangling callback would crash the
+        # thread).
+        self._hook_handle: Any = None
+        self._hook_proc: Any = None
         # FIX-HOTKEY-ARCHITECTURE: True when the hotkey is a modifier-only
         # spec (e.g. ``<alt>``). The polling loop uses a different code
         # path for these — see ``_run_modifier_only_polling_loop``.
@@ -690,9 +738,7 @@ class WindowsNativeHotkey(HotkeyBackend):
 
         parsed = parse_hotkey_to_win32(self.hotkey_str)
         if parsed is None:
-            raise ValueError(
-                f"Cannot parse hotkey {self.hotkey_str!r} to a VK code"
-            )
+            raise ValueError(f"Cannot parse hotkey {self.hotkey_str!r} to a VK code")
         self._vk, self._modifiers = parsed
 
         # FIX-HOTKEY-ARCHITECTURE: detect modifier-only specs (e.g.
@@ -700,11 +746,9 @@ class WindowsNativeHotkey(HotkeyBackend):
         # non-zero. RegisterHotKey can't be used (no main VK to
         # register), so we skip it and rely on the polling loop's
         # modifier-only detection path.
-        self._is_modifier_only = (self._vk is None and self._modifiers != 0)
+        self._is_modifier_only = self._vk is None and self._modifiers != 0
         if self._vk is None and not self._is_modifier_only:
-            raise ValueError(
-                f"Cannot parse hotkey {self.hotkey_str!r} to a VK code"
-            )
+            raise ValueError(f"Cannot parse hotkey {self.hotkey_str!r} to a VK code")
 
         self._user32 = ctypes.windll.user32  # type: ignore[attr-defined]
         self._kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
@@ -762,18 +806,15 @@ class WindowsNativeHotkey(HotkeyBackend):
                     # RegisterHotKey(NULL, ...) binds the hotkey to the calling
                     # thread so WM_HOTKEY is posted to the thread message queue.
 
-                    result = self._user32.RegisterHotKey(
-                        0, self._hotkey_id, _MOD_NOREPEAT | self._modifiers, self._vk
-                    )
+                    result = self._user32.RegisterHotKey(0, self._hotkey_id, _MOD_NOREPEAT | self._modifiers, self._vk)
                     if not result:
-
                         err = self._kernel32.GetLastError()
                         self._last_error = err
                         log.warning(
-                            "RegisterHotKey failed for VK=0x%X, GetLastError=%d (0x%X) "
-                            "— polling fallback still works",
+                            "RegisterHotKey failed for VK=0x%X, GetLastError=%d (0x%X) — polling fallback still works",
                             self._vk,
-                            err, err,
+                            err,
+                            err,
                         )
                     else:
                         self._registered = True
@@ -788,24 +829,94 @@ class WindowsNativeHotkey(HotkeyBackend):
                 self._ready_event.set()
 
                 # ── Hotkey detection ──
-                # Use GetAsyncKeyState polling for reliable hotkey detection.
-                # RegisterHotKey + GetMessageW does not reliably deliver WM_HOTKEY
-                # on all Windows configurations.  PERF-012: the polling loop in
-                # _run_polling_loop() uses Sleep(1) (~1000 Hz effective check
-                # rate), which gives ~1 ms hotkey-detection latency while still
-                # yielding the CPU between checks — the thread spends >99.9% of
-                # its time sleeping in the kernel.  See _run_polling_loop() for
-                # the rationale and the regression test that pins this invariant.
-                log.info("[HOTKEY] Starting hotkey detection via GetAsyncKeyState polling")
-                self._using_polling = True
-                self._run_polling_loop(callback)
+                # ESC-CANCEL-DELIVERY (regression fix): ESC is a *system key*
+                # (VK_ESCAPE) that arrives as WM_SYSKEYDOWN. In the real world
+                # it is routinely intercepted by the foreground window (the
+                # Electron renderer, which uses ESC to close dialogs/overlays)
+                # and/or already claimed by another process via RegisterHotKey
+                # (ERROR_HOTKEY_ALREADY_REGISTERED / 1409). In both cases the
+                # GetAsyncKeyState async-key state is NEVER set for ESC, so a
+                # polling-only listener silently misses every press — exactly
+                # the reported "Escape does nothing" symptom (and F2 — a plain
+                # function key — keeps working, because nothing steals it).
+                #
+                # The robust, focus-independent fix is a WH_KEYBOARD_LL
+                # low-level keyboard hook: Windows calls our hook procedure for
+                # EVERY keystroke system-wide, BEFORE any app sees it and
+                # REGARDLESS of RegisterHotKey ownership or foreground focus.
+                # This is the same mechanism the native windows-key-listener.exe
+                # binary uses, so behavior matches across both backends.
+                #
+                # We therefore PREFER the low-level hook for simple (non-PTT,
+                # non-caps-lock) hotkeys such as <esc>. If the hook can't be
+                # installed (rare), we fall back to RegisterHotKey + WM_HOTKEY
+                # message loop, then to GetAsyncKeyState polling.
+                #
+                # We keep polling (not the hook/message loop) when a release
+                # callback is installed (push-to-talk mode): PTT needs key-UP
+                # detection, and the low-level hook would also deliver that,
+                # but the polling loop is the proven PTT path and the hook adds
+                # nothing for PTT. Caps Lock (VK_CAPITAL) NOW uses the
+                # low-level hook when available: the hook sees raw key-up
+                # scancodes and can swallow the keydown (preventing the OS from
+                # toggling caps state), which makes reliable "toggle on release"
+                # detection possible. (Previously Caps Lock was forced onto the
+                # polling loop, where the synthetic caps-suppression key-up
+                # corrupts the async key state and breaks key-up detection.)
+                is_caps_lock_hotkey = self._vk == _VK_CAPITAL
+                # Store on the instance so the LL hook proc can suppress
+                # Caps Lock by swallowing the keydown (instead of the
+                # reactive polling-loop suppression).
+                self._is_caps_lock_hotkey = is_caps_lock_hotkey
+                # Proactively force Caps Lock OFF (mirrors the polling-loop
+                # behavior) so we don't start in ALL-CAPS if the OS state
+                # was already ON. Done here (not just in the polling loop)
+                # so the LL-hook path is also covered.
+                if is_caps_lock_hotkey:
+                    self._ensure_caps_lock_off()
+                # Caps Lock now uses the low-level hook (when available): the
+                # hook sees raw key-up scancodes and can swallow the keydown,
+                # which makes reliable "toggle on release" detection possible
+                # (the polling loop's synthetic caps suppression corrupts the
+                # async key state and breaks key-up detection). Other simple
+                # non-PTT hotkeys also prefer the hook for robust delivery.
+                simple_key = self._on_release_callback is None and not self._is_modifier_only
+                if simple_key and self._install_low_level_hook(callback):
+                    log.info(
+                        "[HOTKEY] Starting hotkey detection via WH_KEYBOARD_LL "
+                        "low-level hook (vk=0x%X) — robust ESC/system-key delivery",
+                        self._vk,
+                    )
+                    self._using_polling = False
+                    self._run_message_loop(callback, low_level_hook=True)
+                elif self._registered and not is_caps_lock_hotkey:
+                    # RegisterHotKey succeeded (and not caps-lock) → WM_HOTKEY
+                    # message loop (focus-independent, event-driven, ~0% CPU).
+                    log.info(
+                        "[HOTKEY] Starting hotkey detection via WM_HOTKEY message loop (registered VK=0x%X, id=%d)",
+                        self._vk,
+                        self._hotkey_id,
+                    )
+                    self._using_polling = False
+                    self._run_message_loop(callback, low_level_hook=False)
+                else:
+                    # Use GetAsyncKeyState polling for reliable hotkey detection.
+                    # RegisterHotKey + GetMessageW does not reliably deliver WM_HOTKEY
+                    # on all Windows configurations.  PERF-012: the polling loop in
+                    # _run_polling_loop() uses Sleep(1) (~1000 Hz effective check
+                    # rate), which gives ~1 ms hotkey-detection latency while still
+                    # yielding the CPU between checks — the thread spends >99.9% of
+                    # its time sleeping in the kernel.  See _run_polling_loop() for
+                    # the rationale and the regression test that pins this invariant.
+                    log.info("[HOTKEY] Starting hotkey detection via GetAsyncKeyState polling")
+                    self._using_polling = True
+                    self._run_polling_loop(callback)
 
             except Exception:
                 log.exception("[HOTKEY] Windows hotkey thread error")
             finally:
                 # Cleanup
                 if self._registered:
-
                     self._user32.UnregisterHotKey(0, self._hotkey_id)
                     self._registered = False
                     log.debug("[HOTKEY] Unregistered %s", self.hotkey_str)
@@ -826,7 +937,10 @@ class WindowsNativeHotkey(HotkeyBackend):
         # WPARAM (which is pointer-sized on both 32- and 64-bit Windows)
         # as a portable stand-in.
         self._user32.keybd_event.argtypes = [
-            ctypes.wintypes.BYTE, ctypes.wintypes.BYTE, DWORD, WPARAM,
+            ctypes.wintypes.BYTE,
+            ctypes.wintypes.BYTE,
+            DWORD,
+            WPARAM,
         ]
         self._user32.keybd_event.restype = None
         # SHORT GetKeyState(int nVirtKey) — returns toggle/pressed state
@@ -846,9 +960,7 @@ class WindowsNativeHotkey(HotkeyBackend):
         # Wait for the registration thread to signal readiness (or timeout)
         if not self._ready_event.wait(timeout=5.0):
             self._last_error = -1
-            raise RuntimeError(
-                f"Timed out waiting for hotkey registration of {self.hotkey_str!r}"
-            )
+            raise RuntimeError(f"Timed out waiting for hotkey registration of {self.hotkey_str!r}")
         if not self._success:
             err = self._last_error
             raise RuntimeError(
@@ -872,6 +984,7 @@ class WindowsNativeHotkey(HotkeyBackend):
             return False
         try:
             import ctypes
+
             user32 = ctypes.windll.user32
             imm32 = ctypes.windll.imm32
 
@@ -983,12 +1096,13 @@ class WindowsNativeHotkey(HotkeyBackend):
         _pump_messages = None
         try:
             import win32gui
+
             _pump_messages = win32gui.PumpWaitingMessages
         except ImportError:
             pass
         # FIX-HOTKEY-ARCHITECTURE: detect Caps Lock hotkeys so we can
         # suppress the OS-level toggle. VK_CAPITAL = 0x14.
-        is_caps_lock_hotkey = (vk == _VK_CAPITAL)
+        is_caps_lock_hotkey = vk == _VK_CAPITAL
 
         # CAPS-LOCK-FIX: at registration time, if the hotkey is Caps Lock,
         # force caps lock OFF to prevent the user from typing in ALL CAPS.
@@ -1001,7 +1115,6 @@ class WindowsNativeHotkey(HotkeyBackend):
         _caps_check_iter = 0
 
         while not self._stop_event.is_set():
-
             # CAPS-LOCK-FIX: periodically ensure caps lock stays OFF.
             # The reactive suppression on key press can fail due to timing
             # (OS toggles caps before we can undo it). A periodic ~200ms
@@ -1032,42 +1145,69 @@ class WindowsNativeHotkey(HotkeyBackend):
                 self._kernel32.Sleep(1)
                 continue
 
-
             state = self._user32.GetAsyncKeyState(vk)
             is_pressed = bool(state & 0x8000) and self._modifiers_pressed() and not self._other_modifiers_pressed()
+            # Toggle mode is detected by the ABSENCE of an on_release
+            # callback — that slot is wired only in push-to-talk mode.
+            is_ptt = self._on_release_callback is not None
+            # toggle_on_keyup: when True, the dictation toggle fires on
+            # key-UP (release) instead of key-down. This is the
+            # user-requested behavior so a press-and-hold cannot start
+            # then immediately stop recording. Set by HotkeyDispatcher
+            # for the main dictation hotkey in toggle mode. Legacy
+            # toggle hotkeys (e.g. repaste) leave it False and fire on
+            # key-down as before.
+            toggle_on_keyup = getattr(self, "_toggle_on_keyup", False)
             if is_pressed and not was_pressed:
                 log.info("[HOTKEY FIRED] GetAsyncKeyState detected key-down")
-                try:
-                    callback()
-                except Exception:
-                    # ERR-020: log full traceback but keep polling so
-                    # the next hotkey press still works. Previously
-                    # the bare callback() call would propagate the
-                    # exception up the polling thread, killing it.
-                    log.exception(
-                        "[HOTKEY] Callback raised in polling loop; "
-                        "hotkey still armed for next press"
-                    )
                 # FIX-HOTKEY-ARCHITECTURE: suppress the OS-level
                 # caps-lock toggle when the hotkey is <caps_lock>.
                 # The OS toggles caps state as part of processing the
                 # keyDown; we undo the toggle by sending a synthetic
-                # Caps Lock keypress via keybd_event. This mirrors the
-                # suppression the native windows-key-listener.exe
-                # binary performs via WH_KEYBOARD_LL.
+                # Caps Lock keypress via keybd_event. This MUST run on
+                # key-down (not key-up) so the toggle is undone before
+                # the OS settles caps state.
                 if is_caps_lock_hotkey:
                     self._suppress_caps_lock_toggle()
-            # NEW-CQ-029: detect key-up transition for PTT mode.
-            # Fire on_release when the key transitions from pressed
-            # to not-pressed.
-            if not is_pressed and was_pressed and self._on_release_callback is not None:
-                log.info("[HOTKEY] Key released (PTT on_release)")
-                try:
-                    self._on_release_callback()
-                except Exception:
-                    log.exception(
-                        "[HOTKEY] on_release callback raised in polling loop"
-                    )
+                if is_ptt:
+                    # Push-to-talk starts recording immediately on key-down.
+                    try:
+                        callback()
+                    except Exception:
+                        # ERR-020: log full traceback but keep polling so
+                        # the next hotkey press still works. Previously
+                        # the bare callback() call would propagate the
+                        # exception up the polling thread, killing it.
+                        log.exception("[HOTKEY] Callback raised in polling loop; hotkey still armed for next press")
+                elif not toggle_on_keyup:
+                    # Legacy toggle: fire on key-down (e.g. repaste).
+                    try:
+                        callback()
+                    except Exception:
+                        log.exception("[HOTKEY] Callback raised in polling loop; hotkey still armed for next press")
+                # else toggle_on_keyup: defer the toggle to key-up (below).
+            # Key-up transition (key released).
+            if not is_pressed and was_pressed:
+                if is_ptt:
+                    # Push-to-talk: stop recording on release.
+                    log.info("[HOTKEY] Key released (PTT on_release)")
+                    try:
+                        self._on_release_callback()
+                    except Exception:
+                        log.exception("[HOTKEY] on_release callback raised in polling loop")
+                elif toggle_on_keyup:
+                    # Toggle mode with toggle_on_keyup: fire the dictation
+                    # toggle exactly once on key-up. Holding the key (no
+                    # key-up) never toggles, so a press-and-hold cannot
+                    # start the recording and then immediately stop it. This
+                    # is the user-requested behavior: recording starts only
+                    # after the key is released.
+                    log.info("[HOTKEY FIRED] GetAsyncKeyState detected key-up (toggle)")
+                    try:
+                        callback()
+                    except Exception:
+                        log.exception("[HOTKEY] Callback raised in polling loop; hotkey still armed for next press")
+                # else: legacy toggle-on-keydown -> nothing to do on key-up.
             was_pressed = is_pressed
             # PLAT-PUMP: pump Win32 messages so RegisterHotKey WM_HOTKEY
             # messages are dispatched. Without this, hotkeys silently fail
@@ -1079,6 +1219,261 @@ class WindowsNativeHotkey(HotkeyBackend):
             # while still yielding CPU to other threads.
 
             self._kernel32.Sleep(1)
+
+    def _run_message_loop(self, callback, low_level_hook=False):
+        """Message-pump hotkey detection (event-driven, ~0% CPU while idle).
+
+        Two modes, selected by *low_level_hook*:
+
+        * ``low_level_hook=True`` — a WH_KEYBOARD_LL hook is already installed
+          (see ``_install_low_level_hook``). The hook procedure fires
+          *callback* directly on the matching key-down (it sees EVERY
+          keystroke system-wide, including ESC as WM_SYSKEYDOWN, before any
+          app and regardless of RegisterHotKey ownership / foreground focus).
+          The message pump here just keeps the thread alive so the hook's
+          CallNextHookEx chain and the OS can deliver events; it does NOT
+          need to inspect messages itself.
+
+        * ``low_level_hook=False`` — RegisterHotKey succeeded, so WM_HOTKEY
+          messages are posted to this thread. We detect them here.
+
+        ESC-CANCEL-DELIVERY (regression fix): this is the reliable path for
+        keys that GetAsyncKeyState polling misses. For the registered case,
+        ``RegisterHotKey(NULL, id, MOD, vk)`` posts ``WM_HOTKEY`` to THIS
+        thread's message queue regardless of foreground focus. For the
+        low-level-hook case, the hook catches the key even when another
+        process owns it via RegisterHotKey (the 1409 "already registered"
+        failure), which is the exact real-world ESC failure we fix.
+        """
+        if not self._user32:
+            # No win32 — should never happen on this path, but fall back to
+            # polling defensively.
+            log.warning("[HOTKEY] No user32 on message-loop path — falling back to polling")
+            self._using_polling = True
+            self._run_polling_loop(callback)
+            return
+
+        # Set argtypes/restype for the message-pump calls we use here.
+        try:
+            self._user32.GetMessageW.argtypes = [
+                ctypes.POINTER(ctypes.wintypes.MSG),
+                ctypes.wintypes.HWND,
+                ctypes.wintypes.UINT,
+                ctypes.wintypes.UINT,
+            ]
+            self._user32.GetMessageW.restype = ctypes.c_long
+            self._user32.TranslateMessage.argtypes = [ctypes.POINTER(ctypes.wintypes.MSG)]
+            self._user32.TranslateMessage.restype = ctypes.c_int
+            self._user32.DispatchMessageW.argtypes = [ctypes.POINTER(ctypes.wintypes.MSG)]
+            self._user32.DispatchMessageW.restype = ctypes.c_long
+        except Exception:
+            log.exception("[HOTKEY] Failed to set message-pump argtypes — falling back to polling")
+            self._using_polling = True
+            self._run_polling_loop(callback)
+            return
+
+        if low_level_hook:
+            log.info(
+                "[HOTKEY] Message loop running with WH_KEYBOARD_LL hook (vk=0x%X, mods=0x%X)",
+                self._vk,
+                self._modifiers,
+            )
+        else:
+            log.info(
+                "[HOTKEY] WM_HOTKEY message loop running (vk=0x%X, id=%d, mods=0x%X)",
+                self._vk,
+                self._hotkey_id,
+                self._modifiers,
+            )
+        msg = ctypes.wintypes.MSG()
+        while not self._stop_event.is_set():
+            # PM_REMOVE = 0x0001: remove the message from the queue.
+            ret = self._user32.GetMessageW(ctypes.byref(msg), 0, 0, 0)
+            if ret == 0:  # WM_QUIT
+                log.info("[HOTKEY] WM_QUIT received — exiting message loop")
+                break
+            if ret == -1:  # error
+                log.warning("[HOTKEY] GetMessageW returned -1 (error) — exiting message loop")
+                break
+            if not low_level_hook and msg.message == _WM_HOTKEY and msg.wParam == self._hotkey_id:
+                log.info("[HOTKEY FIRED] WM_HOTKEY received for %s", self.hotkey_str)
+                try:
+                    callback()
+                except Exception:
+                    # ERR-020: shield the callback so a single failure
+                    # doesn't kill the message loop (mirrors polling loop).
+                    log.exception("[HOTKEY] Callback raised in WM_HOTKEY loop; hotkey still armed for next press")
+            # Always translate/dispatch so any other messages (timers, etc.)
+            # are processed normally — required for the hook to function.
+            try:
+                self._user32.TranslateMessage(ctypes.byref(msg))
+                self._user32.DispatchMessageW(ctypes.byref(msg))
+            except Exception:
+                log.debug("[HOTKEY] Translate/Dispatch failed for a message", exc_info=True)
+
+    def _install_low_level_hook(self, callback) -> bool:
+        """Install a WH_KEYBOARD_LL low-level keyboard hook for this hotkey.
+
+        ESC-CANCEL-DELIVERY (regression fix): returns True if the hook was
+        installed successfully. The hook procedure runs in THIS thread (the
+        one pumping GetMessageW) and fires *callback* when the configured key
+        (VK + modifiers) goes down — catching ESC/system keys that
+        GetAsyncKeyState polling and even a failed RegisterHotKey miss.
+
+        Returns False if the hook cannot be installed (e.g. SetWindowsHookEx
+        is unavailable / fails), so the caller can fall back to the
+        RegisterHotKey message loop or polling.
+
+        The hook proc is stored on ``self._hook_proc`` to keep it alive
+        (ctypes callbacks are collected if only referenced by the hook), and
+        ``self._hook_handle`` is uninstalled in ``stop()``.
+        """
+        if not self._user32 or not self._kernel32:
+            return False
+        try:
+            # KeyboardProc signature: (nCode, wParam, lParam) -> LRESULT.
+            # lParam is a pointer to KBDLLHOOKSTRUCT.
+            hook_proc = ctypes.WINFUNCTYPE(
+                ctypes.c_long,
+                ctypes.c_int,
+                ctypes.wintypes.WPARAM,
+                ctypes.wintypes.LPARAM,
+            )
+
+            # KBDLLHOOKSTRUCT: vkCode, scanCode, flags, time, dwExtraInfo
+            class KBDLLHOOKSTRUCT(ctypes.Structure):
+                _fields_ = [
+                    ("vkCode", ctypes.c_ulong),
+                    ("scanCode", ctypes.c_ulong),
+                    ("flags", ctypes.c_ulong),
+                    ("time", ctypes.c_ulong),
+                    ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
+                ]
+
+            backend = self  # closure reference
+
+            def _hook_proc(n_code, w_param, l_param):
+                try:
+                    if n_code == 0:  # HC_ACTION
+                        ks = ctypes.cast(l_param, ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
+                        vk = ks.vkCode
+                        is_caps = backend._is_caps_lock_hotkey
+                        # Key-down path
+                        if w_param in (_WM_KEYDOWN, _WM_SYSKEYDOWN) and (
+                            vk == backend._vk and backend._modifiers_pressed()
+                        ):
+                            if is_caps:
+                                # Caps Lock: swallow the keydown so the OS
+                                # never toggles caps state. The toggle fires
+                                # on the physical key-up (see below). This is
+                                # the same suppression the native
+                                # windows-key-listener.exe binary performs.
+                                log.info("[HOTKEY] Swallowed Caps Lock keydown (suppress OS toggle)")
+                                return 1  # swallow — do not call CallNextHookEx
+                            if backend._on_release_callback is not None:
+                                # Push-to-talk: start recording on press.
+                                log.info(
+                                    "[HOTKEY FIRED] WH_KEYBOARD_LL caught vk=0x%X (PTT)",
+                                    vk,
+                                )
+                                try:
+                                    callback()
+                                except Exception:
+                                    log.exception("[HOTKEY] Callback raised in LL hook; hotkey still armed")
+                            elif getattr(backend, "_toggle_on_keyup", False):
+                                # Toggle mode (user requested): defer the
+                                # toggle to key-up so holding the key cannot
+                                # start-then-stop recording. Do nothing here.
+                                pass
+                            else:
+                                # Legacy toggle (e.g. ESC cancel): fire on
+                                # key-down as before.
+                                log.info(
+                                    "[HOTKEY FIRED] WH_KEYBOARD_LL caught vk=0x%X (%s)",
+                                    vk,
+                                    backend.hotkey_str,
+                                )
+                                try:
+                                    callback()
+                                except Exception:
+                                    log.exception("[HOTKEY] Callback raised in LL hook; hotkey still armed")
+                        # Key-up path
+                        elif w_param in (_WM_KEYUP, _WM_SYSKEYUP) and (vk == backend._vk):
+                            if is_caps:
+                                # Caps Lock: fire the toggle exactly once on
+                                # the physical key-up, and swallow the keyup
+                                # so the OS sees no orphan key-up.
+                                log.info("[HOTKEY FIRED] WH_KEYBOARD_LL Caps Lock key-up (toggle)")
+                                try:
+                                    callback()
+                                except Exception:
+                                    log.exception("[HOTKEY] Callback raised in LL hook; hotkey still armed")
+                                return 1  # swallow keyup
+                            if backend._on_release_callback is not None:
+                                # Push-to-talk: stop recording on release.
+                                log.info(
+                                    "[HOTKEY] Key released via WH_KEYBOARD_LL hook (vk=0x%X)",
+                                    vk,
+                                )
+                                try:
+                                    backend._on_release_callback()
+                                except Exception:
+                                    log.exception("[HOTKEY] on_release callback raised in LL hook")
+                            elif getattr(backend, "_toggle_on_keyup", False):
+                                # Toggle mode: fire the toggle on key-up.
+                                # Holding the key (no key-up) never toggles,
+                                # so a press-and-hold cannot start-then-stop
+                                # recording. This is the user-requested
+                                # behavior.
+                                log.info(
+                                    "[HOTKEY FIRED] WH_KEYBOARD_LL key-up (toggle, vk=0x%X)",
+                                    vk,
+                                )
+                                try:
+                                    callback()
+                                except Exception:
+                                    log.exception("[HOTKEY] Callback raised in LL hook; hotkey still armed")
+                except Exception:
+                    log.debug("[HOTKEY] LL hook proc error", exc_info=True)
+                # Pass to the next hook so we don't break other hooks.
+                return backend._user32.CallNextHookEx(backend._hook_handle or 0, n_code, w_param, l_param)
+
+            self._hook_proc = hook_proc(_hook_proc)
+            # Set argtypes for SetWindowsHookExW / UnhookWindowsHookEx.
+            self._user32.SetWindowsHookExW.argtypes = [
+                ctypes.c_int,
+                hook_proc,
+                ctypes.wintypes.HINSTANCE,
+                ctypes.wintypes.DWORD,
+            ]
+            self._user32.SetWindowsHookExW.restype = ctypes.wintypes.HHOOK
+            self._user32.CallNextHookEx.argtypes = [
+                ctypes.wintypes.HHOOK,
+                ctypes.c_int,
+                ctypes.wintypes.WPARAM,
+                ctypes.wintypes.LPARAM,
+            ]
+            self._user32.CallNextHookEx.restype = ctypes.c_long
+            self._user32.UnhookWindowsHookEx.argtypes = [ctypes.wintypes.HHOOK]
+            self._user32.UnhookWindowsHookEx.restype = ctypes.c_int
+
+            # hMod must be NULL for a low-level hook (it runs in this process).
+            handle = self._user32.SetWindowsHookExW(_WHC_KEYBOARD_LL, self._hook_proc, 0, 0)
+            if not handle:
+                log.warning(
+                    "[HOTKEY] SetWindowsHookExW(WH_KEYBOARD_LL) failed "
+                    "(GetLastError) — falling back to RegisterHotKey/polling"
+                )
+                self._hook_proc = None
+                return False
+            self._hook_handle = handle
+            log.info("[HOTKEY] WH_KEYBOARD_LL hook installed (vk=0x%X)", self._vk)
+            return True
+        except Exception:
+            log.exception("[HOTKEY] Failed to install WH_KEYBOARD_LL hook")
+            self._hook_proc = None
+            self._hook_handle = None
+            return False
 
     def _run_modifier_only_polling_loop(self, callback):
         """Polling loop for modifier-only hotkeys (e.g. ``<alt>``).
@@ -1154,24 +1549,27 @@ class WindowsNativeHotkey(HotkeyBackend):
         # ``_other_modifiers_pressed`` — it shouldn't itself suppress
         # the fire (the user might press Ctrl+Alt intending both, but
         # that's a separate hotkey spec).
-        all_modifier_vks = frozenset({
-            _VK_SHIFT,       # 0x10
-            _VK_CONTROL,     # 0x11
-            _VK_MENU,        # 0x12 (Alt)
-            _VK_CAPITAL,     # 0x14 (Caps Lock — handled separately)
-            _VK_LWIN,        # 0x5B
-            _VK_RWIN,        # 0x5C
-            0xA0,            # VK_LSHIFT
-            0xA1,            # VK_RSHIFT
-            0xA2,            # VK_LCONTROL
-            0xA3,            # VK_RCONTROL
-            0xA4,            # VK_LMENU
-            0xA5,            # VK_RMENU
-        })
+        all_modifier_vks = frozenset(
+            {
+                _VK_SHIFT,  # 0x10
+                _VK_CONTROL,  # 0x11
+                _VK_MENU,  # 0x12 (Alt)
+                _VK_CAPITAL,  # 0x14 (Caps Lock — handled separately)
+                _VK_LWIN,  # 0x5B
+                _VK_RWIN,  # 0x5C
+                0xA0,  # VK_LSHIFT
+                0xA1,  # VK_RSHIFT
+                0xA2,  # VK_LCONTROL
+                0xA3,  # VK_RCONTROL
+                0xA4,  # VK_LMENU
+                0xA5,  # VK_RMENU
+            }
+        )
 
         log.info(
             "[HOTKEY] Modifier-only polling loop started (mods=0x%X, vks=%s)",
-            self._modifiers, [f"0x{v:02X}" for v in modifier_vks],
+            self._modifiers,
+            [f"0x{v:02X}" for v in modifier_vks],
         )
 
         # Per-press-cycle state flags (described in the docstring above).
@@ -1234,8 +1632,7 @@ class WindowsNativeHotkey(HotkeyBackend):
                     # covers other modifiers.
                     if not self._other_modifiers_pressed():
                         log.info(
-                            "[HOTKEY FIRED] Modifier-only press detected "
-                            "(PTT, mods=0x%X)",
+                            "[HOTKEY FIRED] Modifier-only press detected (PTT, mods=0x%X)",
                             self._modifiers,
                         )
                         try:
@@ -1283,13 +1680,13 @@ class WindowsNativeHotkey(HotkeyBackend):
             # the hold, and we need to detect it before the release
             # transition fires the callback.
             if is_held and not other_key_pressed and self._any_non_modifier_key_pressed_throttled(all_modifier_vks):
-                    other_key_pressed = True
-                    log.debug(
-                        "[HOTKEY] Non-modifier key pressed during modifier "
-                        "hold (mods=0x%X) — will suppress fire on release "
-                        "(user was doing a combo like Alt+C)",
-                        self._modifiers,
-                    )
+                other_key_pressed = True
+                log.debug(
+                    "[HOTKEY] Non-modifier key pressed during modifier "
+                    "hold (mods=0x%X) — will suppress fire on release "
+                    "(user was doing a combo like Alt+C)",
+                    self._modifiers,
+                )
 
             # ── Transition: held → not held (modifier itself released) ──
             if not is_held and modifier_was_pressed:
@@ -1305,17 +1702,13 @@ class WindowsNativeHotkey(HotkeyBackend):
                         # either (nothing was started).
                         if press_fired and self._on_release_callback is not None:
                             log.info(
-                                "[HOTKEY] Modifier released alone "
-                                "(PTT on_release, mods=0x%X)",
+                                "[HOTKEY] Modifier released alone (PTT on_release, mods=0x%X)",
                                 self._modifiers,
                             )
                             try:
                                 self._on_release_callback()
                             except Exception:
-                                log.exception(
-                                    "[HOTKEY] on_release raised in "
-                                    "modifier-only polling loop"
-                                )
+                                log.exception("[HOTKEY] on_release raised in modifier-only polling loop")
                     else:
                         # Toggle mode: fire the press callback
                         # (toggle_dictation). Double-check no other
@@ -1324,8 +1717,7 @@ class WindowsNativeHotkey(HotkeyBackend):
                         # release Alt, that's a combo, not the hotkey.
                         if not self._other_modifiers_pressed():
                             log.info(
-                                "[HOTKEY FIRED] Modifier-only press-and-release "
-                                "alone (toggle, mods=0x%X)",
+                                "[HOTKEY FIRED] Modifier-only press-and-release alone (toggle, mods=0x%X)",
                                 self._modifiers,
                             )
                             try:
@@ -1362,10 +1754,7 @@ class WindowsNativeHotkey(HotkeyBackend):
                         try:
                             self._on_release_callback()
                         except Exception:
-                            log.exception(
-                                "[HOTKEY] on_release (safety) raised in "
-                                "modifier-only polling loop"
-                            )
+                            log.exception("[HOTKEY] on_release (safety) raised in modifier-only polling loop")
                 # Reset per-cycle state for the next press.
                 modifier_was_pressed = False
                 other_key_pressed = False
@@ -1376,9 +1765,7 @@ class WindowsNativeHotkey(HotkeyBackend):
 
             self._kernel32.Sleep(1)
 
-    def _any_non_modifier_key_pressed(
-        self, modifier_vks: "frozenset[int]"
-    ) -> bool:
+    def _any_non_modifier_key_pressed(self, modifier_vks: "frozenset[int]") -> bool:
         """Return True if any non-modifier key is currently held down.
 
         FIX-HOTKEY-AND-NOTIFICATION: scans the Win32 virtual-key code
@@ -1418,7 +1805,6 @@ class WindowsNativeHotkey(HotkeyBackend):
             if vk in modifier_vks:
                 continue
             try:
-
                 if self._user32.GetAsyncKeyState(vk) & 0x8000:
                     return True
             except Exception:
@@ -1428,9 +1814,7 @@ class WindowsNativeHotkey(HotkeyBackend):
                 return False
         return False
 
-    def _any_non_modifier_key_pressed_throttled(
-        self, modifier_vks: "frozenset[int]"
-    ) -> bool:
+    def _any_non_modifier_key_pressed_throttled(self, modifier_vks: "frozenset[int]") -> bool:
         """PERF-FIX-1: throttled wrapper around
         ``_any_non_modifier_key_pressed()``.
 
@@ -1467,10 +1851,7 @@ class WindowsNativeHotkey(HotkeyBackend):
         # Only consult the cache when the last result was False. A
         # cached True would leak into the next press cycle (see the
         # docstring) — when the last result was True, always re-scan.
-        if (
-            not self._last_nonmod_pressed
-            and now - self._last_nonmod_check_time < 0.005
-        ):
+        if not self._last_nonmod_pressed and now - self._last_nonmod_check_time < 0.005:
             return False
         result = self._any_non_modifier_key_pressed(modifier_vks)
         self._last_nonmod_pressed = result
@@ -1543,12 +1924,8 @@ class WindowsNativeHotkey(HotkeyBackend):
                     # Synthetic keydown + keyup toggles the state back.
 
                     self._user32.keybd_event(_VK_CAPITAL, 0x45, 0, 0)
-                    self._user32.keybd_event(
-                        _VK_CAPITAL, 0x45, _KEYEVENTF_KEYUP, 0
-                    )
-                    log.debug(
-                        "[HOTKEY] Suppressed Caps Lock toggle (toggled back off)"
-                    )
+                    self._user32.keybd_event(_VK_CAPITAL, 0x45, _KEYEVENTF_KEYUP, 0)
+                    log.debug("[HOTKEY] Suppressed Caps Lock toggle (toggled back off)")
             finally:
                 # Brief sleep to let the OS process the synthetic events
                 # before clearing the flag. Without this, the next
@@ -1584,12 +1961,8 @@ class WindowsNativeHotkey(HotkeyBackend):
             toggle_state = self._user32.GetKeyState(_VK_CAPITAL) & 0x1
             if toggle_state:
                 self._user32.keybd_event(_VK_CAPITAL, 0x45, 0, 0)
-                self._user32.keybd_event(
-                    _VK_CAPITAL, 0x45, _KEYEVENTF_KEYUP, 0
-                )
-                log.info(
-                    "[HOTKEY] Proactive caps lock toggle-off (was ON, forced OFF)"
-                )
+                self._user32.keybd_event(_VK_CAPITAL, 0x45, _KEYEVENTF_KEYUP, 0)
+                log.info("[HOTKEY] Proactive caps lock toggle-off (was ON, forced OFF)")
         except Exception:
             log.exception("[HOTKEY] Failed to force caps lock off")
 
@@ -1640,6 +2013,16 @@ class WindowsNativeHotkey(HotkeyBackend):
         set the stop event and join with a shorter timeout — the
         polling loop checks _stop_event every 100ms.
 
+        ESC-CANCEL-DELIVERY: when the backend is on the WM_HOTKEY
+        message-loop path (RegisterHotKey succeeded), ``GetMessageW``
+        BLOCKS until a message arrives — so the ``_stop_event`` check
+        alone would never wake it and ``stop()`` would hang for the full
+        join timeout. We therefore post ``WM_QUIT`` to the hotkey thread
+        via ``PostThreadMessageW`` on that path, which unblocks
+        GetMessageW (it returns 0) and lets the loop exit promptly. The
+        polling-only path ignores WM_QUIT (it has no message loop) and
+        relies on the ``_stop_event`` poll as before.
+
         ERR-QUIT-001 (fix): early-return if already stopped so the
         duplicate log lines don't appear when quit_app and quit()
         both call stop().
@@ -1648,8 +2031,36 @@ class WindowsNativeHotkey(HotkeyBackend):
             return  # Already stopped — idempotent
         log.debug("[HOTKEY] Stopping %s listener", self.hotkey_str)
         self._stop_event.set()
-        # PERF-NEW-016: skip the useless PostThreadMessageW call —
-        # the polling loop checks _stop_event.is_set() every 100ms.
+        # ESC-CANCEL-DELIVERY: unblock a blocked GetMessageW on the
+        # message-loop paths (WH_KEYBOARD_LL hook OR RegisterHotKey succeeded).
+        # ``GetMessageW`` BLOCKS until a message arrives, so the
+        # ``_stop_event`` check alone would never wake it and ``stop()``
+        # would hang for the full join timeout. Post ``WM_QUIT`` to the
+        # hotkey thread via ``PostThreadMessageW``, which unblocks
+        # GetMessageW (it returns 0) and lets the loop exit promptly. The
+        # polling-only path ignores WM_QUIT (it has no message loop) and
+        # relies on the ``_stop_event`` poll as before.
+        on_message_loop = (
+            (self._hook_handle is not None or self._registered) and self._thread is not None and self._thread.is_alive()
+        )
+        if on_message_loop:
+            try:
+                self._user32.PostThreadMessageW(self._thread.ident, _WM_QUIT, 0, 0)
+            except Exception:
+                log.debug("[HOTKEY] PostThreadMessageW(WM_QUIT) failed", exc_info=True)
+        # Uninstall the low-level hook (if installed) so it stops
+        # intercepting keystrokes. Do this after setting _stop_event so the
+        # hook proc sees the stop and the thread can exit.
+        if self._hook_handle is not None:
+            try:
+                self._user32.UnhookWindowsHookEx(self._hook_handle)
+            except Exception:
+                log.debug("[HOTKEY] UnhookWindowsHookEx failed", exc_info=True)
+            self._hook_handle = None
+            self._hook_proc = None
+        # PERF-NEW-016: skip the useless PostThreadMessageW call on the
+        # polling path — the polling loop checks _stop_event.is_set()
+        # every 100ms.
         if self._thread is not None:
             self._thread.join(timeout=0.5)  # was 3.0; 100ms poll = 500ms is plenty
             self._thread = None
@@ -1723,19 +2134,19 @@ def create_hotkey_backend(hotkey_str: str) -> HotkeyBackend:
     # on macOS/Windows. The legacy backends remain as fallbacks.
     try:
         from voice_typer.server.native_hotkeys import create_native_backend
+
         native = create_native_backend(hotkey_str)
         if native is not None:
             # Wrap the native backend so it satisfies the HotkeyBackend
             # interface expected by HotkeyDispatcher.
             log.info(
                 "[HOTKEY] Using native %s backend for %r",
-                type(native).__name__, hotkey_str,
+                type(native).__name__,
+                hotkey_str,
             )
             return _NativeBackendAdapter(native)
     except Exception:
-        log.exception(
-            "[HOTKEY] Failed to create native backend; falling back to legacy"
-        )
+        log.exception("[HOTKEY] Failed to create native backend; falling back to legacy")
 
     if is_windows():
         # FIX-HOTKEY-ARCHITECTURE: this is the polling fallback. It's
@@ -1894,9 +2305,7 @@ class _NativeBackendAdapter(HotkeyBackend):
                 if self._state != self._STATE_STOPPED:
                     self._state = self._STATE_NATIVE
         except Exception as exc:
-            log.warning(
-                "[HOTKEY] Native backend failed to start: %s — trying legacy", exc
-            )
+            log.warning("[HOTKEY] Native backend failed to start: %s — trying legacy", exc)
             self._swap_to_legacy()
 
     def set_on_release(self, callback: Callable[[], None] | None) -> None:
@@ -1904,6 +2313,14 @@ class _NativeBackendAdapter(HotkeyBackend):
         self._native.set_on_release(callback)
         if self._legacy is not None:
             self._legacy.set_on_release(callback)
+
+    def set_toggle_on_keyup(self, value: bool) -> None:
+        self._toggle_on_keyup = value
+        with contextlib.suppress(AttributeError, TypeError):
+            self._native.set_toggle_on_keyup(value)
+        if self._legacy is not None:
+            with contextlib.suppress(AttributeError, TypeError):
+                self._legacy.set_toggle_on_keyup(value)
 
     def stop(self) -> None:
         with self._swap_lock:
@@ -1917,6 +2334,7 @@ class _NativeBackendAdapter(HotkeyBackend):
             # Cancel any pending permission retry
             try:
                 from voice_typer.server.permissions import cancel_permission_retry
+
                 cancel_permission_retry()
             except Exception:
                 pass
@@ -1949,11 +2367,7 @@ class _NativeBackendAdapter(HotkeyBackend):
     def diagnose(self) -> str:
         with self._swap_lock:
             state = self._state
-        active = (
-            "native" if state == self._STATE_NATIVE
-            else "legacy" if state == self._STATE_FALLBACK
-            else "none"
-        )
+        active = "native" if state == self._STATE_NATIVE else "legacy" if state == self._STATE_FALLBACK else "none"
         native_diag = self._native.diagnose()
         legacy_diag = self._legacy.diagnose() if self._legacy else "not started"
         return (
@@ -2040,9 +2454,7 @@ class _NativeBackendAdapter(HotkeyBackend):
 
     def _on_native_permanent_failure(self) -> None:
         """Called when the native backend exhausts its 5 retries."""
-        log.warning(
-            "[HOTKEY] Native backend permanently failed — swapping to legacy"
-        )
+        log.warning("[HOTKEY] Native backend permanently failed — swapping to legacy")
         self._swap_to_legacy()
 
     def _swap_to_legacy(self) -> None:
@@ -2053,8 +2465,7 @@ class _NativeBackendAdapter(HotkeyBackend):
         a tray notification.
         """
         with self._swap_lock:
-            if self._state in (self._STATE_FALLBACK, self._STATE_FAILED,
-                               self._STATE_STOPPED):
+            if self._state in (self._STATE_FALLBACK, self._STATE_FAILED, self._STATE_STOPPED):
                 return  # Already swapped, given up, or stopped
             self._state = self._STATE_FALLING_BACK
 
@@ -2152,16 +2563,12 @@ class _NativeBackendAdapter(HotkeyBackend):
                     self._state = self._STATE_NATIVE
                 if self._on_release_callback is not None:
                     self._native.set_on_release(self._on_release_callback)
-                log.info(
-                    "[HOTKEY] Native backend recovered — swapped back from legacy"
-                )
+                log.info("[HOTKEY] Native backend recovered — swapped back from legacy")
                 self._show_recovery_notification()
                 self._permission_notification_shown = False
                 return
         except Exception as exc:
-            log.warning(
-                "[HOTKEY] Native retry failed: %s — staying on legacy", exc
-            )
+            log.warning("[HOTKEY] Native retry failed: %s — staying on legacy", exc)
 
         # Retry failed — restart the legacy backend and schedule another retry
         try:
@@ -2178,9 +2585,7 @@ class _NativeBackendAdapter(HotkeyBackend):
         except Exception:
             with self._swap_lock:
                 self._state = self._STATE_FAILED
-            log.error(
-                "[HOTKEY] Both native and legacy backends failed — hotkey dead"
-            )
+            log.error("[HOTKEY] Both native and legacy backends failed — hotkey dead")
             self._show_failure_notification(None)
 
     # ── Notifications ───────────────────────────────────────────────────
@@ -2316,9 +2721,7 @@ class WaylandHotkey(HotkeyBackend):
         if os.path.exists(self.SOCKET_PATH):
             os.unlink(self.SOCKET_PATH)
 
-        self._server_socket = _socket.socket(
-            _socket.AF_UNIX, _socket.SOCK_STREAM
-        )
+        self._server_socket = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
         self._server_socket.bind(self.SOCKET_PATH)
         # PLAT-WAYLAND: restrict socket to owner-only (0o600). Pre-fix
         # this was 0o666 (world-writable) which allowed any local user
@@ -2528,7 +2931,9 @@ def capture_custom_hotkey(timeout: float = 10.0) -> tuple[int, int, str] | None:
                 mod_str = "+".join(mod_names + [vk_name]) if mod_names else vk_name
                 log.info(
                     "[HOTKEY-CAPTURE] Captured: VK=0x%X, mods=0x%X, desc=%s",
-                    vk, mods, mod_str,
+                    vk,
+                    mods,
+                    mod_str,
                 )
 
                 # Wait for key release to avoid re-triggering
@@ -2541,4 +2946,3 @@ def capture_custom_hotkey(timeout: float = 10.0) -> tuple[int, int, str] | None:
 
     log.info("[HOTKEY-CAPTURE] Timed out after %.0fs", timeout)
     return None
-

@@ -46,10 +46,17 @@ def mock_win32(monkeypatch):
 
 
 class TestRegisterHotKeyFailure:
-    """When RegisterHotKey fails, start() falls back to polling."""
+    """When RegisterHotKey fails, start() falls back to the WH_KEYBOARD_LL
+    low-level hook (preferred, robust for ESC), and only to GetAsyncKeyState
+    polling if the hook also cannot be installed (ESC-CANCEL-DELIVERY)."""
 
     def test_fallback_on_register_failure(self, mock_win32):
-        """RegisterHotKey returns 0 -> polling fallback, no raise."""
+        """RegisterHotKey returns 0 -> falls back to low-level hook (not raise).
+
+        The low-level hook is now the preferred reliable path, so when
+        RegisterHotKey fails but SetWindowsHookExW succeeds, the backend
+        uses hook mode (``_using_polling`` is False) rather than polling.
+        """
         mock_user32, mock_kernel32 = mock_win32
         mock_user32.RegisterHotKey.return_value = 0  # BOOL FALSE
         mock_kernel32.GetLastError.return_value = 1409
@@ -59,8 +66,29 @@ class TestRegisterHotKeyFailure:
         backend = WindowsNativeHotkey("<f2>")
         try:
             backend.start(MagicMock())
-            assert backend._using_polling
+            # Preferred fallback is the low-level hook (not polling).
+            assert not backend._using_polling
+            assert backend._hook_handle is not None
             assert backend._last_error == 1409
+        finally:
+            backend.stop()
+
+    def test_polling_only_when_hook_also_fails(self, mock_win32):
+        """If BOTH RegisterHotKey and the low-level hook fail, poll via
+        GetAsyncKeyState (the legacy safe fallback)."""
+        mock_user32, mock_kernel32 = mock_win32
+        mock_user32.RegisterHotKey.return_value = 0
+        mock_kernel32.GetLastError.return_value = 1409
+        # Force the hook install to fail too.
+        mock_user32.SetWindowsHookExW.return_value = 0
+
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
+
+        backend = WindowsNativeHotkey("<f2>")
+        try:
+            backend.start(MagicMock())
+            assert backend._using_polling
+            assert backend._hook_handle is None
         finally:
             backend.stop()
 
@@ -172,7 +200,8 @@ class TestDiagnoseMethod:
         backend.stop()
 
     def test_diagnose_on_register_failure(self, mock_win32):
-        """After RegisterHotKey failure, falls back to polling (no raise)."""
+        """After RegisterHotKey failure, falls back to the low-level hook
+        (not polling) and does not raise."""
         mock_user32, _ = mock_win32
         mock_user32.RegisterHotKey.return_value = 0
 
@@ -182,8 +211,10 @@ class TestDiagnoseMethod:
         try:
             backend.start(MagicMock())
             assert backend._ready_event.is_set()
-            assert backend._success is True  # polling fallback, not an error
-            assert backend._using_polling
+            assert backend._success is True  # hook fallback, not an error
+            # Preferred fallback is the low-level hook, not polling.
+            assert not backend._using_polling
+            assert backend._hook_handle is not None
         finally:
             backend.stop()
 
@@ -308,36 +339,34 @@ class TestModifierOnlyHotkeys:
             if vk == 0x12:  # VK_MENU (Alt)
                 return 0x8000 if state["value"] == 1 else 0
             return 0
+
         mock_user32.GetAsyncKeyState.side_effect = fake_get_async_key_state
 
         callback = MagicMock()
         try:
             backend.start(callback)
             import time as _time
+
             # Phase 1: nothing pressed — callback must not fire.
             _time.sleep(0.03)
-            assert callback.call_count == 0, (
-                "Callback fired before Alt was pressed"
-            )
+            assert callback.call_count == 0, "Callback fired before Alt was pressed"
             # Phase 2: press Alt (held). Toggle mode defers the fire to
             # release, so the callback still must not fire while held.
             state["value"] = 1
             _time.sleep(0.05)
-            assert callback.call_count == 0, (
-                "Callback fired while modifier held (toggle mode defers to release)"
-            )
+            assert callback.call_count == 0, "Callback fired while modifier held (toggle mode defers to release)"
             # Phase 3: release Alt. Now the callback should fire exactly once.
             state["value"] = 2
             _time.sleep(0.05)
             assert callback.call_count == 1, (
-                f"Expected callback to fire exactly once on release-alone, "
-                f"got {callback.call_count}"
+                f"Expected callback to fire exactly once on release-alone, got {callback.call_count}"
             )
         finally:
             backend.stop()
 
     def test_modifier_only_polling_loop_does_not_fire_while_held(
-        self, mock_win32,
+        self,
+        mock_win32,
     ):
         """FIX-HOTKEY-AND-NOTIFICATION (b): press-and-hold must NOT
         fire the callback repeatedly. The callback fires at most once
@@ -348,28 +377,31 @@ class TestModifierOnlyHotkeys:
         from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<alt>")
+
         # Alt held for the entire test, never released.
         def fake_get_async_key_state(vk):
             return 0x8000 if vk == 0x12 else 0
+
         mock_user32.GetAsyncKeyState.side_effect = fake_get_async_key_state
 
         callback = MagicMock()
         try:
             backend.start(callback)
             import time as _time
+
             # Hold for 200ms — far longer than the polling interval.
             _time.sleep(0.2)
             # Toggle mode defers to release, so callback must NOT fire
             # while the key is held.
             assert callback.call_count == 0, (
-                f"Callback fired {callback.call_count} times while Alt held "
-                f"— toggle mode must defer to release"
+                f"Callback fired {callback.call_count} times while Alt held — toggle mode must defer to release"
             )
         finally:
             backend.stop()
 
     def test_modifier_only_polling_loop_suppresses_when_other_held(
-        self, mock_win32,
+        self,
+        mock_win32,
     ):
         """If another modifier is held alongside the configured one,
         the press callback must NOT fire (user intent is a combo).
@@ -395,18 +427,18 @@ class TestModifierOnlyHotkeys:
                 return 0x8000 if vk in (0x11, 0x12) else 0
             # state == 2: only Ctrl held (Alt released).
             return 0x8000 if vk == 0x11 else 0
+
         mock_user32.GetAsyncKeyState.side_effect = fake_get_async_key_state
 
         callback = MagicMock()
         try:
             backend.start(callback)
             import time as _time
+
             # Phase 1: press Alt+Ctrl (held).
             state["value"] = 1
             _time.sleep(0.05)
-            assert callback.call_count == 0, (
-                "Callback fired while Alt+Ctrl held"
-            )
+            assert callback.call_count == 0, "Callback fired while Alt+Ctrl held"
             # Phase 2: release Alt but keep Ctrl held.
             state["value"] = 2
             _time.sleep(0.05)
@@ -414,14 +446,14 @@ class TestModifierOnlyHotkeys:
             # checks _other_modifiers_pressed() at release time. Since
             # Ctrl is still held, the toggle fire is suppressed.
             assert callback.call_count == 0, (
-                "Callback fired on Alt release while Ctrl still held "
-                "— should be suppressed (combo)"
+                "Callback fired on Alt release while Ctrl still held — should be suppressed (combo)"
             )
         finally:
             backend.stop()
 
     def test_modifier_only_polling_loop_suppresses_on_non_modifier_combo(
-        self, mock_win32,
+        self,
+        mock_win32,
     ):
         """FIX-HOTKEY-AND-NOTIFICATION (a): if a non-modifier key (like
         'C') is pressed between the modifier press and release, the
@@ -453,12 +485,14 @@ class TestModifierOnlyHotkeys:
                 return 0x8000 if vk in (0x12, 0x43) else 0
             # state == 3: nothing pressed.
             return 0
+
         mock_user32.GetAsyncKeyState.side_effect = fake_get_async_key_state
 
         callback = MagicMock()
         try:
             backend.start(callback)
             import time as _time
+
             # Phase 1: press Alt.
             state["value"] = 1
             _time.sleep(0.08)
@@ -481,7 +515,8 @@ class TestModifierOnlyHotkeys:
             backend.stop()
 
     def test_modifier_only_polling_loop_ptt_fires_on_press_and_release(
-        self, mock_win32,
+        self,
+        mock_win32,
     ):
         """FIX-HOTKEY-AND-NOTIFICATION (d): for push-to-talk mode (has
         on_release callback), the press callback fires once on press
@@ -498,6 +533,7 @@ class TestModifierOnlyHotkeys:
             if vk == 0x12:  # VK_MENU (Alt)
                 return 0x8000 if state["value"] == 1 else 0
             return 0
+
         mock_user32.GetAsyncKeyState.side_effect = fake_get_async_key_state
 
         press_callback = MagicMock()
@@ -506,6 +542,7 @@ class TestModifierOnlyHotkeys:
         try:
             backend.start(press_callback)
             import time as _time
+
             # Phase 1: nothing pressed.
             _time.sleep(0.03)
             assert press_callback.call_count == 0
@@ -514,24 +551,120 @@ class TestModifierOnlyHotkeys:
             state["value"] = 1
             _time.sleep(0.05)
             assert press_callback.call_count == 1, (
-                f"PTT press callback should fire once on press, got "
-                f"{press_callback.call_count}"
+                f"PTT press callback should fire once on press, got {press_callback.call_count}"
             )
             assert release_callback.call_count == 0
             # Hold for an extended period — must NOT fire press repeatedly.
             _time.sleep(0.1)
             assert press_callback.call_count == 1, (
-                f"PTT press callback fired {press_callback.call_count} "
-                f"times during hold — must fire exactly once"
+                f"PTT press callback fired {press_callback.call_count} times during hold — must fire exactly once"
             )
             # Phase 3: release Alt. PTT fires on_release.
             state["value"] = 0
             _time.sleep(0.05)
             assert release_callback.call_count == 1, (
-                f"PTT on_release should fire once on release, got "
-                f"{release_callback.call_count}"
+                f"PTT on_release should fire once on release, got {release_callback.call_count}"
             )
             assert press_callback.call_count == 1  # unchanged
+        finally:
+            backend.stop()
+
+
+# ─── Toggle-on-key-up (USER-REQUESTED FIX) ────────────────────────────────
+
+
+class TestToggleFiresOnKeyUp:
+    """USER-REQUESTED FIX: in toggle mode with ``set_toggle_on_keyup(True)``,
+    the dictation toggle must fire on KEY-UP (release), not on key-down.
+
+    This prevents a press-and-hold from starting and then immediately
+    stopping recording: while the key is held (no key-up), the callback
+    must NEVER fire; it fires exactly once when the key is released.
+    """
+
+    def test_toggle_fires_on_key_up_not_while_held(self, mock_win32):
+        """Simulate press -> hold -> release of <f2> in toggle mode with
+        toggle_on_keyup=True. The callback must NOT fire while held and
+        must fire exactly once on release.
+        """
+        mock_user32, _ = mock_win32
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
+
+        backend = WindowsNativeHotkey("<f2>")
+        backend.set_toggle_on_keyup(True)
+        # Force the GetAsyncKeyState polling path: RegisterHotKey fails AND
+        # the low-level hook fails to install, so the backend falls back to
+        # the polling loop (the path our state-machine drives).
+        mock_user32.RegisterHotKey.return_value = 0
+        mock_user32.SetWindowsHookExW.return_value = 0
+        # State: 0 = up, 1 = held down.
+        state = {"value": 0}
+
+        def fake_get_async_key_state(vk):
+            if vk != 0x71:  # VK_F2
+                return 0
+            # HOTKEY-DEFER-001: the polling loop seeds was_pressed from the
+            # key state at registration time. The loop makes two GetAsyncKeyState
+            # calls during start() (seed_state + seed_mods) before the loop runs;
+            # returning "not pressed" for those means the first real press is
+            # seen as a genuine press->release transition. After seeding, drive
+            # the state purely from state["value"].
+            return 0x8000 if state["value"] == 1 else 0
+
+        mock_user32.GetAsyncKeyState.side_effect = fake_get_async_key_state
+
+        callback = MagicMock()
+        try:
+            backend.start(callback)
+            import time as _time
+
+            # Phase 1: press and HOLD. Must NOT fire while held.
+            state["value"] = 1
+            _time.sleep(0.15)
+            assert callback.call_count == 0, (
+                "Toggle callback fired while the key was held — must defer to key-up (release)"
+            )
+            # Phase 2: release. Must fire exactly once.
+            state["value"] = 0
+            _time.sleep(0.05)
+            assert callback.call_count == 1, (
+                f"Expected toggle callback to fire exactly once on release, got {callback.call_count}"
+            )
+        finally:
+            backend.stop()
+
+    def test_toggle_does_not_fire_twice_on_repeated_holds(self, mock_win32):
+        """Two independent press/release cycles must produce exactly two
+        fires (one per release), not start-then-stop on a single hold.
+        """
+        mock_user32, _ = mock_win32
+        from voice_typer.server.hotkeys import WindowsNativeHotkey
+
+        backend = WindowsNativeHotkey("<f2>")
+        backend.set_toggle_on_keyup(True)
+        # Force the GetAsyncKeyState polling path (see other test).
+        mock_user32.RegisterHotKey.return_value = 0
+        mock_user32.SetWindowsHookExW.return_value = 0
+        state = {"value": 0}
+
+        def fake_get_async_key_state(vk):
+            if vk != 0x71:
+                return 0
+            return 0x8000 if state["value"] == 1 else 0
+
+        mock_user32.GetAsyncKeyState.side_effect = fake_get_async_key_state
+
+        callback = MagicMock()
+        try:
+            backend.start(callback)
+            import time as _time
+
+            for _ in range(2):
+                state["value"] = 1
+                _time.sleep(0.05)
+                state["value"] = 0
+                _time.sleep(0.05)
+            assert callback.call_count == 2, f"Expected 2 fires (one per release), got {callback.call_count}"
         finally:
             backend.stop()
 
@@ -562,7 +695,9 @@ class TestCapsLockSuppression:
         # →suppress cycle, we return 0 (not pressed) for the first
         # call (seeding), then 0x8000 (pressed) for subsequent calls.
         import itertools
+
         call_counter = itertools.count()
+
         def fake_get_async_key_state(vk):
             if vk != 0x14:
                 return 0
@@ -571,6 +706,7 @@ class TestCapsLockSuppression:
             if next(call_counter) == 0:
                 return 0
             return 0x8000
+
         mock_user32.GetAsyncKeyState.side_effect = fake_get_async_key_state
         mock_user32.GetKeyState.return_value = 1  # toggle bit set
 
@@ -578,6 +714,7 @@ class TestCapsLockSuppression:
         try:
             backend.start(callback)
             import time as _time
+
             _time.sleep(0.05)
             # keybd_event should have been called for the synthetic
             # keydown + keyup (2 calls per suppression cycle).

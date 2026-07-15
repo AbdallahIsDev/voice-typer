@@ -453,33 +453,43 @@ guard keyDownMonitor != nil else {
 //     `.defaultTap` (vs `.listenOnly`) is what gives us suppression power,
 //     but it requires Accessibility permission. `tapCreate` returns nil if
 //     the permission isn't granted — detect and emit ERROR.
-// Bitmask of CGEventType values the tap is interested in. We need both
-// keyDown (for suppression) and keyUp (for reliable key-up delivery).
-let eventsOfInterest: CGEventMask =
-    (CGEventMask(1) << CGEventType.keyDown.rawValue)
-    | (CGEventMask(1) << CGEventType.keyUp.rawValue)
+//
+//     When VOICE_TYPER_SKIP_ACCESSIBILITY_CHECK=1 (CI smoke test mode),
+//     skip the CGEventTap entirely. The tap requires Accessibility, and CI
+//     runners never have it. Without the tap we lose key-up delivery and
+//     hotkey suppression, but the NSEvent monitors (flagsChanged + keyDown)
+//     still work and are sufficient to verify the binary starts correctly.
+let skipAccessibilityCheck = ProcessInfo.processInfo.environment["VOICE_TYPER_SKIP_ACCESSIBILITY_CHECK"] == "1"
 
-let userInfo = Unmanaged.passUnretained(context).toOpaque()
-guard let machPort = CGEvent.tapCreate(
-    tap: .cgSessionEventTap,
-    place: .headInsertEventTap,
-    options: .defaultTap,
-    eventsOfInterest: eventsOfInterest,
-    callback: eventTapCallback,
-    userInfo: userInfo
-) else {
-    emit("ERROR:Accessibility permission required. Grant it in System Settings → Privacy & Security → Accessibility.")
-    exit(1)
-}
-context.machPort = machPort
+if !skipAccessibilityCheck {
+    // Bitmask of CGEventType values the tap is interested in. We need both
+    // keyDown (for suppression) and keyUp (for reliable key-up delivery).
+    let eventsOfInterest: CGEventMask =
+        (CGEventMask(1) << CGEventType.keyDown.rawValue)
+        | (CGEventMask(1) << CGEventType.keyUp.rawValue)
 
-// Schedule the tap on the current (main) run loop and enable it.
-guard let runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, machPort, 0) else {
-    emit("ERROR:Failed to create run loop source for event tap")
-    exit(1)
+    let userInfo = Unmanaged.passUnretained(context).toOpaque()
+    guard let machPort = CGEvent.tapCreate(
+        tap: .cgSessionEventTap,
+        place: .headInsertEventTap,
+        options: .defaultTap,
+        eventsOfInterest: eventsOfInterest,
+        callback: eventTapCallback,
+        userInfo: userInfo
+    ) else {
+        emit("ERROR:Accessibility permission required. Grant it in System Settings → Privacy & Security → Accessibility.")
+        exit(1)
+    }
+    context.machPort = machPort
+
+    // Schedule the tap on the current (main) run loop and enable it.
+    guard let runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, machPort, 0) else {
+        emit("ERROR:Failed to create run loop source for event tap")
+        exit(1)
+    }
+    CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
+    CGEvent.tapEnable(tap: machPort, enable: true)
 }
-CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
-CGEvent.tapEnable(tap: machPort, enable: true)
 
 // (3) SIGTERM handler — the Python parent sends SIGTERM to shut us down.
 //     We install SIG_IGN first so the default "terminate" action doesn't fire,
