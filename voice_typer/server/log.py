@@ -1,29 +1,35 @@
 """Voice Typer — centralized logging infrastructure.
 
 This module is the single source of truth for all logging configuration
-across the application.  Every backend module should use :func:`get_logger`
-to obtain a logger with the standard Voice Typer format::
+across the application.  Every backend module should obtain its logger
+via ``logging.getLogger(__name__)`` directly (the standard Python
+idiom)::
 
-    from voice_typer.server.log import get_logger
-    log = get_logger(__name__)
+    import logging
+    log = logging.getLogger(__name__)
 
 The main entry point (typically ``app.py``) must call :func:`setup_logging`
 **once** at process startup to configure file and console handlers.
 
 Components
 ----------
-- :func:`get_logger` — logger factory with standard namespace
+
 - :func:`setup_logging` — one-time file + console configuration
 - :func:`close_devnull_files` — shutdown cleanup
 - :func:`reset` — test isolation
 - :class:`_SessionFilter` — injects ``session_id`` into log records
-- :class:`_ColorFormatter` — ANSI-coloured terminal formatter
-- :class:`_FileFormatter` — plain-text file formatter
+- :class:`_ColorFormatter` — ANSI-coloured terminal formatter (default)
+- :class:`_FileFormatter` — plain-text file formatter (default)
+- :class:`_JsonFormatter` — structured JSON formatter (opt-in, ``VOICE_TYPER_LOG_JSON=1``)
+- :func:`set_correlation_id` / :func:`get_correlation_id` / :func:`reset_correlation_id` /
+  :class:`_correlation_id` — correlation-id context propagation (RW-13)
 """
 
 from __future__ import annotations
 
 import contextlib
+import contextvars
+import json
 import logging
 import logging.handlers
 import os
@@ -37,6 +43,72 @@ from pathlib import Path
 
 _session_id: str = ""
 """8-char hex session ID, generated once per :func:`setup_logging` call."""
+
+# RW-13: a per-context correlation id that flows through IPC dispatch and
+# the dictation pipeline so that all log lines belonging to one user
+# request / transcription cycle carry the same ``correlation_id``.  It is
+# stored in a :class:`contextvars.ContextVar` so concurrent async/threaded
+# work (multiple overlapping IPC requests, the transcription thread) each
+# see their own value without explicit parameter threading on every call
+# site.  ``""`` means "no correlation id in scope" — formatters render it
+# as an absent key (JSON) / nothing (text).
+_correlation_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("voice_typer_correlation_id", default="")
+
+
+def set_correlation_id(correlation_id: str) -> object:
+    """Set the active correlation id for the current execution context.
+
+    Call from IPC dispatch (request id) or the dictation pipeline
+    (cycle id) so downstream logs auto-carry it.  Returns the token
+    captured by :meth:`contextvars.ContextVar.set` — pass it to
+    :func:`reset_correlation_id` (or use the :func:`correlation_id`
+    context manager) to restore the previous value.
+    """
+    return _correlation_id_ctx.set(correlation_id)
+
+
+def get_correlation_id() -> str:
+    """Return the active correlation id (``""`` if none in scope)."""
+    return _correlation_id_ctx.get()
+
+
+def reset_correlation_id(token) -> None:
+    """Restore a correlation id previously captured via :func:`set_correlation_id`."""
+    _correlation_id_ctx.reset(token)
+
+
+class _correlation_id:  # noqa: N801 — lowercase-by-design context manager
+    """Context manager that sets a correlation id for its block.
+
+    Usage::
+
+        with log._correlation_id(cycle_id):
+            ...  # all logs here carry correlation_id=cycle_id
+    """
+
+    def __init__(self, correlation_id: str) -> None:
+        self._correlation_id = correlation_id
+        self._token = None
+
+    def __enter__(self) -> _correlation_id:
+        if self._correlation_id:
+            self._token = _correlation_id_ctx.set(self._correlation_id)
+        return self
+
+    def __exit__(self, *exc) -> None:
+        if self._token is not None:
+            _correlation_id_ctx.reset(self._token)
+            self._token = None
+
+
+def _json_logging_enabled() -> bool:
+    """RW-13: structured JSON logging is opt-in via ``VOICE_TYPER_LOG_JSON``.
+
+    Keeps the human-readable text format as the default so existing
+    operator workflows (grep, tail) are unaffected.
+    """
+    return os.environ.get("VOICE_TYPER_LOG_JSON", "").lower() in ("1", "true", "yes")
+
 
 _devnull_files: list = []
 """File descriptors opened for pythonw.exe stdio redirection."""
@@ -54,20 +126,6 @@ def reset() -> None:
     root.handlers.clear()
     root.filters.clear()
     root.setLevel(logging.DEBUG)
-
-
-# ── Logger factory ────────────────────────────────────────────────────
-
-
-def get_logger(name: str) -> logging.Logger:
-    """Return a Voice Typer logger with the standard ``voice_typer.*`` namespace.
-
-    Example::
-
-        # In voice_typer/server/audio_processor.py:
-        log = get_logger(__name__)  # → ``voice_typer.server.audio_processor``
-    """
-    return logging.getLogger(f"voice_typer.{name}")
 
 
 # ── Session filter ────────────────────────────────────────────────────
@@ -258,21 +316,29 @@ class _ColorFormatter(logging.Formatter):
             ts = ts[1:]
         msg = record.getMessage()
         topic, _ = _extract_topic(msg)
+        # a-review Finding 5: render the per-process session_id (set by
+        # ``_SessionFilter``) so interleaved logs from concurrent or
+        # restarted processes can be correlated.  ``getattr`` defaults
+        # to dashes for records that bypass the filter (e.g. third-party
+        # library logs propagated up to the root logger) or before
+        # ``setup_logging`` has assigned a session_id.
+        session_id = getattr(record, "session_id", "") or "--------"
 
         if record.levelno >= logging.WARNING:
             c = self._LVL_COLOR.get(record.levelno, "0")
             sym = self._LVL_SYM.get(record.levelno, "????")
-            return f"\033[{c}m{ts}  {sym} {msg}\033[0m"
+            return f"\033[{c}m{ts}  {sym} \033[2m[{session_id}]\033[22m {msg}\033[0m"
 
         # INFO — dim timestamp, no level label, message coloured by topic
         prefix = f"\033[{self._DIM}m{ts}\033[0m"
+        session_part = f"\033[2m[{session_id}]\033[22m"
         tc = _TOPIC_COLOR.get(topic) if topic else None
         if tc is None and not topic:
             inferred = _infer_topic(msg)
             if inferred:
                 tc = _TOPIC_COLOR.get(inferred)
         body = f"\033[{tc}m{msg}\033[0m" if tc else msg
-        return f"{prefix}  {body}"
+        return f"{prefix}  {session_part}  {body}"
 
 
 class _FileFormatter(logging.Formatter):
@@ -284,9 +350,13 @@ class _FileFormatter(logging.Formatter):
 
     Format::
 
-        2026-06-28 18:36:22  INFO  [HOTKEY] RegisterHotKey succeeded
-        2026-06-28 18:36:22  WARN  [ENV] Invalid value ...
-        2026-06-28 18:36:22  ERROR [RECORDING] Stream finished unexpectedly
+        2026-06-28 18:36:22  INFO  [a3f1b2c4]  [HOTKEY] RegisterHotKey succeeded
+        2026-06-28 18:36:22  WARN  [a3f1b2c4]  [ENV] Invalid value ...
+        2026-06-28 18:36:22  ERROR [a3f1b2c4]  [RECORDING] Stream finished unexpectedly
+
+    The ``[a3f1b2c4]`` bracket is the 8-char per-process session ID
+    injected by :class:`_SessionFilter` (a-review Finding 5) so log
+    lines from concurrent or restarted processes can be correlated.
 
     Level labels are aligned so lines scroll cleanly:
     - ``DEBUG``   (5 chars)
@@ -308,7 +378,76 @@ class _FileFormatter(logging.Formatter):
         ts = self.formatTime(record, "%Y-%m-%d  %H:%M:%S")
         msg = record.getMessage()
         label = self._LVL_LABEL.get(record.levelno, "INFO ")
-        return f"{ts}  {label}  {msg}"
+        # a-review Finding 5: render the per-process session_id (set by
+        # ``_SessionFilter``) so interleaved logs from concurrent or
+        # restarted processes can be correlated.  ``getattr`` defaults
+        # to dashes for records that bypass the filter (e.g. third-party
+        # library logs propagated up to the root logger) or before
+        # ``setup_logging`` has assigned a session_id.
+        session_id = getattr(record, "session_id", "") or "--------"
+        return f"{ts}  {label}  [{session_id}]  {msg}"
+
+
+class _JsonFormatter(logging.Formatter):
+    """Structured JSON formatter (RW-13) — opt-in via ``VOICE_TYPER_LOG_JSON=1``.
+
+    Emits one JSON object per line with a flat, stable schema so log
+    aggregation tools can index and query fields directly instead of
+    regex-matching free-text.  Schema::
+
+        {
+          "ts": "2026-07-15 12:34:56",
+          "level": "INFO",
+          "component": "voice_typer.server.recording",
+          "session_id": "a3f1b2c4",
+          "topic": "RECORDING",        # present only if a [TOPIC] prefix exists
+          "correlation_id": "#7",       # present only when a correlation id is in scope
+          "message": "Microphone opened (rate=16000)"
+        }
+
+    Design notes
+    ------------
+    - ``message`` is the *redacted* text: the PIIRedactionFilter mutates
+      ``record.msg`` (and caches redacted ``record.exc_text``) before any
+      formatter runs (the filter is attached to the handler), so the JSON
+      output is already PII-scrubbed — the same guarantee as the text
+      formatters.  No secret can reach the JSON line that couldn't reach
+      the text line.
+    - ``correlation_id`` is read from the :func:`get_correlation_id`
+      contextvar, not from the record, so handlers that set it (IPC
+      dispatch, dictation pipeline) don't need to thread it onto every
+      ``log.info`` call.  It is omitted entirely when empty, keeping
+      single-line records compact for the common (no-correlation) case.
+    - ``topic`` is extracted from the ``[TOPIC]`` prefix when present;
+      messages with no explicit prefix (and no inferred topic) simply
+      omit it.  We deliberately do NOT run the keyword-inference used by
+      the colour formatter — JSON consumers filter on ``component`` /
+      structured fields, and guessing a topic from free text would add
+      noise and be impossible to query consistently.
+    - No ANSI escapes, ever.  Output is ``json.dumps`` with
+      ``ensure_ascii=False`` so Unicode (e.g. transcriptions, non-ASCII
+      device names) is preserved as readable UTF-8, and ``sort_keys`` is
+      avoided so the field order above is stable.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload: dict[str, object] = {
+            "ts": self.formatTime(record, "%Y-%m-%d  %H:%M:%S"),
+            "level": record.levelname,
+            "component": getattr(record, "component", record.name),
+            "session_id": getattr(record, "session_id", "") or "--------",
+            "message": record.getMessage(),
+        }
+        # Topic prefix (e.g. "[HOTKEY]") — purely structural convenience.
+        topic, _ = _extract_topic(str(payload["message"]))
+        if topic:
+            payload["topic"] = topic
+        # Correlation id from the execution context (IPC request id /
+        # dictation cycle id).  Omitted when not in scope.
+        correlation_id = get_correlation_id()
+        if correlation_id:
+            payload["correlation_id"] = correlation_id
+        return json.dumps(payload, ensure_ascii=False)
 
 
 # ── One-time setup ────────────────────────────────────────────────────
@@ -363,6 +502,14 @@ def setup_logging(
     config_dir.mkdir(parents=True, exist_ok=True)
     log_file = config_dir / "voice-typer.log"
 
+    # RW-13: structured JSON logging is opt-in via VOICE_TYPER_LOG_JSON.
+    # When enabled, the file (and console, below) use _JsonFormatter so
+    # aggregation tools get one JSON object per line.  The PIIRedactionFilter
+    # still runs first (attached below), so JSON output is redacted exactly
+    # like the text output.  Human-readable text remains the default.
+    json_mode = _json_logging_enabled()
+    _file_formatter = _JsonFormatter() if json_mode else _FileFormatter()
+
     # HOTKEY-CRASH: use ``errors='backslashreplace'`` so Unicode
     # characters that can't be encoded in the system locale (cp1252
     # on Windows, e.g. → → right arrow) are escaped as \\uXXXX
@@ -377,7 +524,7 @@ def setup_logging(
         encoding="utf-8",
         errors="backslashreplace",
     )
-    handler.setFormatter(_FileFormatter())
+    handler.setFormatter(_file_formatter)
 
     # PII / API-key redaction — imported lazily to avoid circular imports
     # and to keep the security module's import order clean.
@@ -388,8 +535,8 @@ def setup_logging(
     # the parent logger's filters per Python's logging semantics — are
     # also redacted).  Attaching to the handler is what makes the
     # redaction actually fire for the vast majority of call sites,
-    # which use ``get_logger(__name__)`` and therefore log to
-    # ``voice_typer.server.<module>``.  The filter is idempotent
+    # which use ``logging.getLogger(__name__)`` directly and therefore
+    # log to ``voice_typer.server.<module>``.  The filter is idempotent
     # (redacting an already-redacted message is a no-op), so
     # double-filtering records that hit both the logger and handler
     # filters is harmless.
@@ -397,6 +544,16 @@ def setup_logging(
 
     _pii_filter = _PIIRedactionFilter()
     handler.addFilter(_pii_filter)
+    # a-review Finding 5: attach ``_SessionFilter`` to the file handler
+    # too — not just the ``voice_typer`` logger — so the session_id is
+    # injected for records logged to *child* loggers (e.g.
+    # ``voice_typer.server.app``) which do NOT trigger the parent
+    # logger's filters per Python's logging semantics (``callHandlers``
+    # invokes handler filters, not ancestor-logger filters).  The
+    # filter is idempotent (``hasattr`` guard), so double-filtering a
+    # record that already hit the logger-level filter is harmless.
+    _session_filter = _SessionFilter()
+    handler.addFilter(_session_filter)
 
     root = logging.getLogger("voice_typer")
     # Avoid duplicate handlers if setup is called multiple times.
@@ -428,10 +585,19 @@ def setup_logging(
     if sys.stderr is not None and do_color:
         stream = _FlushingStreamHandler()
         stream.setLevel(logging.DEBUG if debug else logging.INFO)
-        stream.setFormatter(_ColorFormatter())
+        # RW-13: in JSON mode the console also emits structured records
+        # (no ANSI colouring — JSON consumers parse the line, not the
+        # rendering).  The PII filter still runs below, so console JSON
+        # output is redacted too.
+        stream.setFormatter(_JsonFormatter() if json_mode else _ColorFormatter())
         # RW-6: attach the same PII / API-key redaction filter to the
         # console handler so secrets don't leak to the terminal either.
         stream.addFilter(_pii_filter)
+        # a-review Finding 5: same reasoning as the file handler — attach
+        # ``_SessionFilter`` to the stream handler too so console output
+        # also carries the session_id bracket for records from child
+        # loggers.
+        stream.addFilter(_SessionFilter())
         # Avoid duplicate StreamHandlers if setup is called multiple times.
         # Use _FlushingStreamHandler as the dedup key so legacy tests that
         # check for "any StreamHandler" (isinstance check below) still pass.
