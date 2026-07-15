@@ -49,9 +49,19 @@
 		"cancel": "Abbrechen",
 		"save": "Speichern",
 		"delete": "Löschen",
-		"undo": "Rückgängig"
+		"undo": "Rückgängig",
+		"lastUpdated": "Zuletzt aktualisiert",
+		"lastUpdatedNever": "Nie",
+		"lastUpdatedJustNow": "Gerade eben",
+		"lastUpdatedSecondsAgo": "vor {count} s",
+		"lastUpdatedMinutesAgo": "vor {count} min",
+		"lastUpdatedHoursAgo": "vor {count} h",
+		"refresh": "Aktualisieren",
+		"refreshAria": "Daten aktualisieren"
 	},
 	"microphone": {
+		"levelBarAria": "Mikrofoneingangspegel",
+		"levelBarFrozenAria": "Mikrofoneingangspegel (während der Wiedergabe eingefroren)",
 		"description": "Mikrofon auswählen und testen",
 		"systemDefault": "Systemstandard",
 		"unknown": "Unbekannt",

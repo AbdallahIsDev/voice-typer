@@ -49,9 +49,19 @@
 		"cancel": "Cancel",
 		"save": "Save",
 		"delete": "Delete",
-		"undo": "Undo"
+		"undo": "Undo",
+		"lastUpdated": "Last updated",
+		"lastUpdatedNever": "Never",
+		"lastUpdatedJustNow": "Just now",
+		"lastUpdatedSecondsAgo": "{count}s ago",
+		"lastUpdatedMinutesAgo": "{count}m ago",
+		"lastUpdatedHoursAgo": "{count}h ago",
+		"refresh": "Refresh",
+		"refreshAria": "Refresh data"
 	},
 	"microphone": {
+		"levelBarAria": "Microphone input level",
+		"levelBarFrozenAria": "Microphone input level (frozen during playback)",
 		"description": "Select and test your microphone",
 		"systemDefault": "System Default",
 		"unknown": "Unknown",

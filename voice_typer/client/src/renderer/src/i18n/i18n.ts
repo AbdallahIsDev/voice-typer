@@ -10,6 +10,7 @@
 // The t() function returns the translated string for a dot-separated key.
 // If the key is not found, it falls back to English, then returns the key itself.
 
+import { useSyncExternalStore } from "react";
 import ar from "./translations/ar.json";
 import de from "./translations/de.json";
 import en from "./translations/en.json";
@@ -145,6 +146,43 @@ export function getLocale(): Locale {
 	return _currentLocale;
 }
 
+// ── Locale change subscription (b-review Finding 3) ──────────────
+// `t()` is a plain function with no React subscription, so switching
+// the locale used to require a full `window.location.reload()` to
+// repaint every component. We now keep a subscriber set and notify it
+// from `setLocale`, letting the `useT()` hook (useSyncExternalStore)
+// re-render subscribed components in place.
+const _localeSubscribers: Set<() => void> = new Set();
+
+/**
+ * Subscribe to locale changes. Returns an unsubscribe function.
+ * Used by the {@link useT} hook so React components re-render with the
+ * new locale instead of requiring a page reload.
+ */
+export function subscribeLocale(cb: () => void): () => void {
+	if (typeof cb !== "function") return () => {};
+	_localeSubscribers.add(cb);
+	return () => {
+		_localeSubscribers.delete(cb);
+	};
+}
+
+/** Snapshot of the current locale — used as `getSnapshot` for `useSyncExternalStore`. */
+export function getLocaleSnapshot(): Locale {
+	return _currentLocale;
+}
+
+/**
+ * React hook that subscribes the calling component to locale changes and
+ * returns the `t` translate function. Calling `useT()` makes the component
+ * re-render whenever {@link setLocale} is invoked, so `t(...)` resolves
+ * against the current locale with no full-page reload.
+ */
+export function useT(): typeof t {
+	useSyncExternalStore(subscribeLocale, getLocaleSnapshot, getLocaleSnapshot);
+	return t;
+}
+
 /**
  * Set the current locale and update the document text direction.
  *
@@ -153,20 +191,41 @@ export function getLocale(): Locale {
  * horizontally. Falls back to "ltr" for all other locales.
  */
 export function setLocale(locale: Locale): void {
+	let next: Locale = locale;
 	if (!SUPPORTED_LOCALES.includes(locale)) {
 		console.warn(`[i18n] Unsupported locale: ${locale}. Falling back to 'en'.`);
-		_currentLocale = "en";
-		return;
+		next = "en";
 	}
-	_currentLocale = locale;
+	_currentLocale = next;
 
 	// F-4: Update document direction for RTL support.
 	try {
 		if (typeof document !== "undefined") {
-			document.documentElement.dir = RTL_LOCALES.has(locale) ? "rtl" : "ltr";
+			document.documentElement.dir = RTL_LOCALES.has(next) ? "rtl" : "ltr";
 		}
 	} catch {
 		// SSR environments may not have document
+	}
+
+	// F-3: persist the choice so it survives restarts. Previously the
+	// caller did this and relied on a full reload to re-read it.
+	try {
+		if (typeof localStorage !== "undefined") {
+			localStorage.setItem("voice-typer-ui-locale", next);
+		}
+	} catch {
+		// localStorage may be unavailable in some contexts
+	}
+
+	// F-3: notify subscribers (the useT hook) so every subscribed
+	// component re-renders with the new locale instead of requiring a
+	// page reload.
+	for (const cb of _localeSubscribers) {
+		try {
+			cb();
+		} catch {
+			// a misbehaving subscriber must not break locale switching
+		}
 	}
 }
 

@@ -787,9 +787,19 @@
 		"cancel": "Annuler",
 		"save": "Enregistrer",
 		"delete": "Supprimer",
-		"undo": "Annuler"
+		"undo": "Annuler",
+		"lastUpdated": "Dernière mise à jour",
+		"lastUpdatedNever": "Jamais",
+		"lastUpdatedJustNow": "À l'instant",
+		"lastUpdatedSecondsAgo": "il y a {count} s",
+		"lastUpdatedMinutesAgo": "il y a {count} min",
+		"lastUpdatedHoursAgo": "il y a {count} h",
+		"refresh": "Actualiser",
+		"refreshAria": "Actualiser les données"
 	},
 	"microphone": {
+		"levelBarAria": "Niveau d'entrée du microphone",
+		"levelBarFrozenAria": "Niveau d'entrée du microphone (figé pendant la lecture)",
 		"description": "Sélectionnez et testez votre microphone",
 		"systemDefault": "Valeur système par défaut",
 		"unknown": "Inconnu",

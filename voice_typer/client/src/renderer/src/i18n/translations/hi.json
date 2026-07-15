@@ -49,9 +49,19 @@
 		"cancel": "रद्द करें",
 		"save": "सहेजें",
 		"delete": "हटाएँ",
-		"undo": "पूर्ववत करें"
+		"undo": "पूर्ववत करें",
+		"lastUpdated": "अंतिम अपडेट",
+		"lastUpdatedNever": "कभी नहीं",
+		"lastUpdatedJustNow": "अभी",
+		"lastUpdatedSecondsAgo": "{count} सेकंड पहले",
+		"lastUpdatedMinutesAgo": "{count} मिनट पहले",
+		"lastUpdatedHoursAgo": "{count} घंटे पहले",
+		"refresh": "ताज़ा करें",
+		"refreshAria": "डेटा ताज़ा करें"
 	},
 	"microphone": {
+		"levelBarAria": "माइक्रोफ़ोन इनपुट स्तर",
+		"levelBarFrozenAria": "माइक्रोफ़ोन इनपुट स्तर (प्लेबैक के दौरान फ्रीज़)",
 		"description": "अपना माइक्रोफ़ोन चुनें और परीक्षण करें",
 		"systemDefault": "सिस्टम डिफ़ॉल्ट",
 		"unknown": "अज्ञात",

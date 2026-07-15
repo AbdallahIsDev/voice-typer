@@ -49,9 +49,19 @@
 		"cancel": "取消",
 		"save": "保存",
 		"delete": "删除",
-		"undo": "撤销"
+		"undo": "撤销",
+		"lastUpdated": "最后更新",
+		"lastUpdatedNever": "从未",
+		"lastUpdatedJustNow": "刚刚",
+		"lastUpdatedSecondsAgo": "{count}秒前",
+		"lastUpdatedMinutesAgo": "{count}分钟前",
+		"lastUpdatedHoursAgo": "{count}小时前",
+		"refresh": "刷新",
+		"refreshAria": "刷新数据"
 	},
 	"microphone": {
+		"levelBarAria": "麦克风输入电平",
+		"levelBarFrozenAria": "麦克风输入电平（播放期间冻结）",
 		"description": "选择并测试您的麦克风",
 		"systemDefault": "系统默认",
 		"unknown": "未知",

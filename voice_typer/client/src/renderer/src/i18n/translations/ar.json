@@ -49,9 +49,19 @@
 		"cancel": "إلغاء",
 		"save": "حفظ",
 		"delete": "حذف",
-		"undo": "تراجع"
+		"undo": "تراجع",
+		"lastUpdated": "آخر تحديث",
+		"lastUpdatedNever": "أبدًا",
+		"lastUpdatedJustNow": "الآن",
+		"lastUpdatedSecondsAgo": "قبل {count} ث",
+		"lastUpdatedMinutesAgo": "قبل {count} د",
+		"lastUpdatedHoursAgo": "قبل {count} س",
+		"refresh": "تحديث",
+		"refreshAria": "تحديث البيانات"
 	},
 	"microphone": {
+		"levelBarAria": "مستوى مدخل الميكروفون",
+		"levelBarFrozenAria": "مستوى مدخل الميكروفون (مجمد أثناء التشغيل)",
 		"description": "اختر واختبر الميكروفون الخاص بك",
 		"systemDefault": "افتراضي للنظام",
 		"unknown": "غير معروف",

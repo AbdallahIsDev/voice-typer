@@ -49,9 +49,19 @@
 		"cancel": "Отмена",
 		"save": "Сохранить",
 		"delete": "Удалить",
-		"undo": "Отменить"
+		"undo": "Отменить",
+		"lastUpdated": "Последнее обновление",
+		"lastUpdatedNever": "Никогда",
+		"lastUpdatedJustNow": "Только что",
+		"lastUpdatedSecondsAgo": "{count} с назад",
+		"lastUpdatedMinutesAgo": "{count} мин назад",
+		"lastUpdatedHoursAgo": "{count} ч назад",
+		"refresh": "Обновить",
+		"refreshAria": "Обновить данные"
 	},
 	"microphone": {
+		"levelBarAria": "Уровень входа микрофона",
+		"levelBarFrozenAria": "Уровень входа микрофона (заморожен во время воспроизведения)",
 		"description": "Выберите и проверьте ваш микрофон",
 		"systemDefault": "Системный по умолчанию",
 		"unknown": "Неизвестно",

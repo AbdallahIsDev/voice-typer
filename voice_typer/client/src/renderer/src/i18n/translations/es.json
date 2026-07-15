@@ -49,9 +49,19 @@
 		"cancel": "Cancelar",
 		"save": "Guardar",
 		"delete": "Eliminar",
-		"undo": "Deshacer"
+		"undo": "Deshacer",
+		"lastUpdated": "Última actualización",
+		"lastUpdatedNever": "Nunca",
+		"lastUpdatedJustNow": "Justo ahora",
+		"lastUpdatedSecondsAgo": "hace {count} s",
+		"lastUpdatedMinutesAgo": "hace {count} min",
+		"lastUpdatedHoursAgo": "hace {count} h",
+		"refresh": "Actualizar",
+		"refreshAria": "Actualizar datos"
 	},
 	"microphone": {
+		"levelBarAria": "Nivel de entrada del micrófono",
+		"levelBarFrozenAria": "Nivel de entrada del micrófono (congelado durante la reproducción)",
 		"description": "Selecciona y prueba tu micrófono",
 		"systemDefault": "Predeterminado del sistema",
 		"unknown": "Desconocido",
