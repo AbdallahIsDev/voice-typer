@@ -284,7 +284,26 @@ testpaths = ["tests"]
 #   - text_cleanup.py:  90%  ✓ (>75% target)
 #   - platform_utils.py:82%  ✓ (>75% target)
 #   - clipboard.py:    100%  ✓ (was 40%; all 4 target modules now above 75%)
+#
+# ADR-0020 round-2 fix: the --cov flags require pytest-cov. When
+# pytest-cov is NOT installed (e.g. a bare `pip install .` without
+# [test] extras), a plain `pytest` invocation errors before collecting
+# with "unrecognized arguments: --cov=voice_typer". The `-p no:cacheprovider`
+# is harmless. To make `pytest` work out-of-the-box on a minimal install
+# while still enforcing coverage in CI (where [test] is installed), we
+# use the `-p no:cacheprovider` + `--cov` pair ONLY when pytest-cov is
+# present. The cleanest way: keep the flags here (CI installs [test]),
+# AND add a conftest.py at the repo root that strips --cov when
+# pytest-cov is absent (see conftest.py). This way:
+#   - CI (with [test]): coverage enforced at 65%.
+#   - Minimal install (no [test]): `pytest` runs without --cov errors.
 addopts = "-v --tb=short --cov=voice_typer --cov-fail-under=65"
+# ADR-0020 round-2 fix: async tests (tests/tauri/*, tests/test_cloud_engines.py)
+# use `async def test_*` without explicit @pytest.mark.asyncio markers.
+# `asyncio_mode = "auto"` makes pytest-asyncio treat every async test as
+# an asyncio test automatically. Without this, 13 of 38 tauri tests error
+# with "async def functions are not natively supported".
+asyncio_mode = "auto"
 filterwarnings = [
     "ignore::pytest.PytestUnraisableExceptionWarning",
     # NEW-TEST-003: previously ``ignore::ResourceWarning`` was blanket-
