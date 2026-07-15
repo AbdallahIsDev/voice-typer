@@ -410,4 +410,97 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		expect(payload).not.toBeNull();
 		expect(payload).toHaveProperty("custom_theme");
 	});
+
+	// D1-FIX (b-review Finding 1): the "Re-run setup wizard" button in the
+	// Troubleshooting section calls `updateConfig({ onboarding_completed:
+	// false })` then `onNavigate("onboarding")`.  Previously
+	// `updateConfig` only updated Settings.tsx's LOCAL `config` state and
+	// queued a backend `set_config` IPC — it did NOT touch the Zustand
+	// `appStore.config` snapshot that App.tsx's route guard reads.  The
+	// appStore only learned about the change later (via the
+	// `config_changed` push event), so the route guard fired on the very
+	// next render, saw the stale `true` value, and bounced the user back
+	// to home — the onboarding wizard was never shown.
+	//
+	// The fix mirrors `mergeConfig(updates)` into the appStore
+	// synchronously inside `updateConfig`.  These tests verify that sync:
+	//   1. The appStore's `onboarding_completed` becomes `false`
+	//      SYNCHRONOUSLY (before any microtask flush), so the route guard
+	//      in App.tsx sees the new value on the next render.
+	//   2. The `onNavigate` callback fires with `"onboarding"` (the
+	//      wizard button's navigation call).
+	//   3. The backend `set_config` IPC is still queued (the sync mirror
+	//      does NOT replace the persisted write — it only updates the
+	//      in-memory snapshot).
+	it("Re-run setup wizard synchronously mirrors onboarding_completed=false into the appStore", async () => {
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config") return Promise.resolve(baseConfig);
+			if (type === "set_config") return Promise.resolve({ success: true });
+			return Promise.resolve({});
+		});
+
+		// vi.resetModules() in beforeEach clears the module registry,
+		// so we must dynamically import useAppStore AFTER the reset to
+		// get the SAME fresh instance the dynamically-imported
+		// SettingsPage will use.  Importing it at the top of the file
+		// would pin us to the pre-reset instance and the assertion
+		// below would silently read the wrong store.
+		const { useAppStore } = await import("@/stores/appStore");
+		// Seed the appStore with the completed-onboarding config so
+		// we can observe the transition to `false` after the click.
+		// (In production this is populated by useTheme's get_config
+		// call on connect; here we seed it directly.)
+		useAppStore.getState().setConfig(baseConfig);
+		expect(useAppStore.getState().config?.onboarding_completed).toBe(true);
+
+		const { default: SettingsPage } = await import("@/pages/Settings");
+		const onNavigate = vi.fn();
+		render(<SettingsPage onNavigate={onNavigate} />);
+
+		// Wait for the page to load (the tab labels are always visible).
+		await waitFor(() => {
+			expect(screen.getByText("Appearance")).toBeTruthy();
+		});
+
+		// The wizard button lives in the Privacy tab's Troubleshooting
+		// section.  Click the Privacy tab to mount it.
+		fireEvent.click(screen.getByText("Privacy"));
+
+		// Wait for the wizard button to mount (it's filtered by the
+		// search-visible check, but the default empty filter shows it).
+		const wizardButton = await waitFor(() =>
+			screen.getByRole("button", { name: "Re-run setup wizard" }),
+		);
+
+		// Clear the mock call history so we can assert the post-click
+		// set_config IPC precisely.
+		mockCall.mockClear();
+		fireEvent.click(wizardButton);
+
+		// The click handler is async (awaits updateConfig which awaits
+		// the microtask flush).  Wait for onNavigate to be called —
+		// that's the LAST statement in the click handler, so by the
+		// time it fires the mergeConfig call has already executed.
+		await waitFor(() => {
+			expect(onNavigate).toHaveBeenCalledWith("onboarding");
+		});
+
+		// D1-FIX assertion: the appStore snapshot must reflect
+		// onboarding_completed=false SYNCHRONOUSLY (i.e. by the time
+		// onNavigate fired).  Before the fix this assertion failed
+		// because mergeConfig was never called from updateConfig —
+		// the appStore still held `true` and App.tsx's route guard
+		// would bounce the user back to home on the next render.
+		expect(useAppStore.getState().config?.onboarding_completed).toBe(false);
+
+		// The sync mirror must NOT replace the backend write — the
+		// `set_config` IPC is still queued (via the microtask flush)
+		// so the change is persisted to disk for the next launch.
+		await waitFor(() => {
+			expect(setConfigCallCount()).toBe(1);
+		});
+		const payload = lastSetConfigPayload();
+		expect(payload).not.toBeNull();
+		expect(payload).toHaveProperty("onboarding_completed", false);
+	});
 });

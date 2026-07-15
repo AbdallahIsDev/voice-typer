@@ -58,6 +58,10 @@ vi.mock("@hugeicons/core-free-icons", () => {
 		Folder02Icon: make("Folder02Icon"),
 		PauseIcon: make("PauseIcon"),
 		PlayIcon: make("PlayIcon"),
+		// R8: LastUpdatedIndicator (rendered inside Models.tsx) imports RefreshIcon
+		// — must be in the mock list or `import { RefreshIcon }` returns undefined
+		// and HugeiconsIcon crashes with "icon is undefined".
+		RefreshIcon: make("RefreshIcon"),
 		Shield01Icon: make("Shield01Icon"),
 		SparklesIcon: make("SparklesIcon"),
 		Tick02Icon: make("Tick02Icon"),
