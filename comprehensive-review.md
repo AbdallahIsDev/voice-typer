@@ -192,3 +192,131 @@ un's inally block (after line 297) where _corr_token is in scope. Token init _c
 un.
 - **Verified:** py_compile + ruff F821/E711/all-clean; ast parse OK.
 
+
+---
+
+## Round 2026-07-16 — Tauri v2 + Python Sidecar Migration (MIG-0 Phase 0-W scaffolding)
+
+**Scope**: ADR-0020 Phase 0-W scaffolding — Python WS sidecar entry point, Rust Tauri host skeleton, cross-platform prewarm resolver, native binary path lookup, IPC error envelope fix (NEW-IPC-107), 38 new tests.
+
+### Findings — Architecture (MIG-0 scaffolding)
+
+#### MIG-0-W-01
+- **Category**: architecture
+- **Severity**: High
+- **File**: `voice_typer/server/sidecar_ws.py` (NEW, ~370 lines)
+- **Description**: New WebSocket server module implementing the Tauri sidecar transport (ADR-0020 §1, §2, §10). Binds `127.0.0.1:0`, emits `{"event":"server_started","port":N}` to stdout, performs HMAC auth handshake, dispatches WS frames via `IPCServer._dispatch` (reuses the 68-command registry unchanged), reuses the ADR-0019 `_RateLimiter` from `ipc_server.py`, handles `{"type":"shutdown"}` cooperative shutdown, caps frames at 1 MiB.
+- **Fix**: Implemented. 19 unit tests + 3 integration tests pass.
+
+#### MIG-0-W-02
+- **Category**: architecture
+- **Severity**: High
+- **File**: `voice_typer/server/ipc_server.py` (modified)
+- **Description**: Added `--ws` CLI flag (mutually exclusive with `--port`) that sets `TAURI_SIDECAR=1` and delegates to `sidecar_ws.run()`. Under `TAURI_SIDECAR=1`: (a) `_heartbeat_loop` thread is NOT started (FT-1 supervisor replaces ADR-0018); (b) `VoiceTyperSingleInstance` Win32 mutex is NOT acquired (Tauri's `single-instance` plugin replaces it). Electron path unchanged.
+- **Fix**: Implemented. 5 gate tests pass.
+
+#### MIG-0-W-03
+- **Category**: architecture
+- **Severity**: High
+- **File**: `voice_typer/server/prewarm_resolver.py` (NEW, ~165 lines)
+- **Description**: Cross-platform `resolve_prewarm_exe()` shared by Windows Task Scheduler + macOS LaunchAgent + Linux systemd user timer. Resolves the frozen `prewarm-<triple>[.exe]` via env var, Tauri resource dir, PyInstaller paths, or dev fallback. Replaces the per-scheduler `_prewarm_pythonw()` / `_prewarm_command()` logic with one canonical resolver.
+- **Fix**: Implemented. 7 unit tests pass.
+
+#### MIG-0-W-04
+- **Category**: architecture
+- **Severity**: Medium
+- **File**: `voice_typer/server/native_hotkeys.py` (modified)
+- **Description**: Added `VOICE_TYPER_NATIVE_DIR` env-var path to `get_native_binary_path()`. Tauri host sets this to `resourceDir/native/` so the Nuitka-frozen sidecar finds the native hotkey binaries in production. The existing 5 lookup paths are preserved unchanged for the Electron + PyInstaller fallback paths.
+- **Fix**: Implemented. 4 unit tests pass.
+
+#### MIG-0-W-05
+- **Category**: architecture
+- **Severity**: Medium
+- **File**: `src-tauri/` (NEW directory)
+- **Description**: Tauri v2 Rust host skeleton — `Cargo.toml` (Tauri v2 + plugins + enigo + tokio-tungstenite + hmac), `src/main.rs` (~470 lines: sidecar spawn, WS client, HMAC auth, generic `dispatch` command, FT-1 supervisor with 500ms→8s backoff, `bubble_level` 60Hz→30Hz coalesce, cooperative shutdown with 2s ack timeout + `kill_children` backstop, single-instance gate, `paste_text` command with short/long text paths), `build.rs`, `tauri.conf.json` (per-arch `externalBin` + `resources` + capabilities), `capabilities/migrate-runtime.json` (least-privilege whitelist).
+- **Fix**: Implemented (code written, not yet compiled — requires Rust toolchain + display, neither available in dev container). Phase 0-W validation gate pending on real Windows host.
+
+#### MIG-0-W-06
+- **Category**: architecture
+- **Severity**: Medium
+- **File**: `voice_typer/server/task_scheduler.py` (modified)
+- **Description**: Tauri-aware `_prewarm_command()` — under `TAURI_SIDECAR=1` or `VOICE_TYPER_PREWARM_EXE` env, delegates to `resolve_prewarm_exe()`. When the resolver returns a frozen exe path, the Task Scheduler XML is built without `<Arguments>` (the exe takes no module args). Dev fallback unchanged.
+- **Fix**: Implemented.
+
+### Findings — Bug Fixes (proactive)
+
+#### NEW-IPC-107 (FIXED)
+- **Category**: bug
+- **Severity**: Moderate
+- **File**: `voice_typer/client/src/renderer/src/hooks/usePython.ts`
+- **Description**: `usePython.call()` only checked `_error` (Electron main-process error) but NOT `type:"error"` envelopes from the Python server (`ipc_server.py:1044-1050`). A server-side dispatch exception was silently treated as a successful result, leaving callers with `undefined` data.
+- **Fix**: Added a second check for `result.type === "error"` that throws a structured error `server error [code]: message`. Safe on both Electron and Tauri paths (Tauri's Rust host already surfaces `type:"error"` as a Rust error, so the JS-side guard is belt-and-suspenders for the Electron path).
+
+### Findings — Testing
+
+#### TEST-MIG-0-01
+- **Category**: testing
+- **Severity**: High
+- **File**: `tests/tauri/test_sidecar_ws_unit.py` (NEW, ~300 lines, 19 tests)
+- **Description**: Unit tests for `sidecar_ws` helpers — `_emit_server_started` JSON shape, `_authenticate` token match/mismatch/timeout/non-auth-frame/invalid-json, `_make_dispatch` shutdown/rate-limit/dispatch-raises/missing-type, loopback host, 1 MiB frame cap, 2s shutdown ack timeout.
+- **Fix**: All 19 tests pass.
+
+#### TEST-MIG-0-02
+- **Category**: testing
+- **Severity**: High
+- **File**: `tests/tauri/test_sidecar_ws_integration.py` (NEW, ~120 lines, 3 tests)
+- **Description**: End-to-end integration tests with real `websockets.serve` + real client. Full auth + dispatch + response round-trip, bad-token rejection, malformed-frame resilience.
+- **Fix**: All 3 tests pass (require `websockets` dep installed).
+
+#### TEST-MIG-0-03
+- **Category**: testing
+- **Severity**: Medium
+- **File**: `tests/tauri/test_prewarm_resolver.py` (NEW, ~120 lines, 7 tests)
+- **Description**: Tests for `resolve_prewarm_exe` env-override/dev-fallback/nonexistent-env-fallthrough, `_target_triple` per-platform shape, `_exe_suffix`.
+- **Fix**: All 7 tests pass.
+
+#### TEST-MIG-0-04
+- **Category**: testing
+- **Severity**: Medium
+- **File**: `tests/tauri/test_native_binary_path_tauri.py` (NEW, ~95 lines, 4 tests)
+- **Description**: Tests for `VOICE_TYPER_NATIVE_DIR` env-var lookup, `VOICE_TYPER_NATIVE_BINARY` precedence, broken env var fallthrough.
+- **Fix**: All 4 tests pass.
+
+#### TEST-MIG-0-05
+- **Category**: testing
+- **Severity**: Medium
+- **File**: `tests/tauri/test_tauri_sidecar_gate.py` (NEW, ~160 lines, 5 tests)
+- **Description**: Tests for `TAURI_SIDECAR=1` env-var gate — heartbeat thread skipped, mutex skipped, `--ws`+`--port` mutual exclusion, `_COMMAND_REGISTRY` still contains `heartbeat` (Electron fallback).
+- **Fix**: All 5 tests pass.
+
+### Findings — Documentation
+
+#### DOC-MIG-0-01
+- **Category**: documentation
+- **Severity**: Medium
+- **File**: `docs/migration/tauri-sidecar-bridge.md` (NEW, ~120 lines)
+- **Description**: Bridge architecture doc — what's implemented, what's deferred to Phase 0-W validation, dev-mode workflow, architecture boundary (what stays / what moves / what is removed), next steps for the implementer.
+- **Fix**: Written.
+
+### Findings — Pre-existing (NOT caused by this round)
+
+#### PRE-EXISTING-01
+- **Category**: bug
+- **Severity**: Low
+- **File**: `tests/test_server.py` (lines 1263, 1275, 1282, 2126, 2130)
+- **Description**: 4 tests + 5 collection errors reference `ipc_server._push_event_registry_lock` which was removed in B-1 FIX-12 (the event_bus extraction). The tests fail on the clean `main` branch, before any of my changes. Verified via `git stash` + `pytest`.
+- **Fix**: Not in scope for this round (pre-existing). Tracked as P2 cleanup.
+
+#### PRE-EXISTING-02
+- **Category**: bug
+- **Severity**: Low
+- **File**: `voice_typer/server/crash_handler.py:321`
+- **Description**: `ctypes.WINFUNCTYPE` is used at module level (Windows-only). On Linux, importing `crash_handler` raises `AttributeError`. This breaks collection of `tests/test_electron_launcher.py` (and any test that imports `app.py`) on Linux. Pre-existing — not caused by my changes.
+- **Fix**: Not in scope for this round (pre-existing). Tracked as P2 cleanup.
+
+### Summary — Round 2026-07-16
+
+- **38 new tests** added, all passing.
+- **0 regressions** introduced (existing IPC dispatch tests still pass; pre-existing test_server.py failures verified to pre-date this round).
+- **MIG-0 Phase 0-W scaffolding** complete: Python WS sidecar + Rust Tauri host + cross-platform prewarm resolver + native binary path + IPC error envelope fix.
+- **Phase 0-W validation gate** (Nuitka exe + Tauri spawn + WS + HMAC + faster-whisper + enigo + notification + cooperative shutdown + prewarm LogonTrigger + native hotkey) pending on a real Windows host — the scaffolding is the implementation, the validation is the gate.
