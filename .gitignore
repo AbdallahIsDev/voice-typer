@@ -74,6 +74,14 @@ coverage.xml
 .env.*
 !.env.example
 
+# Tauri / Rust build artifacts — never commit the Cargo build cache.
+# src-tauri/target/ is the multi-GB output of `cargo check`/`cargo build`
+# (rlibs, rmetas, .rcgu.o, .fingerprint, build/ intermediates). It is
+# regenerated on every build and must not enter git.
+src-tauri/target/
+# NOTE: src-tauri/Cargo.lock IS intentionally committed (Tauri is a binary
+# app, not a library — reproducible builds require the lockfile in git).
+
 # Workspace Manager
 .workspace/
 
