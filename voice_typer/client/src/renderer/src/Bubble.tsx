@@ -158,7 +158,15 @@ export function Bubble({ className: _className }: { className?: string }) {
 			// a race where the backend calls set_state("transcribing") and then
 			// show() is re-triggered, which would reset mode back to "recording".
 			setMode((prev) => {
-				if (prev === "transcribing" || prev === "fading") return prev;
+				// Don't override mode if a state change (set_state) arrived
+				// before our show() event. This prevents a race where the
+				// backend calls set_state("transcribing") and then show()
+				// is re-triggered, which would reset mode back to
+				// "recording".
+				// NOTE: "fading" is NOT guarded — that state means the
+				// previous hide cycle completed, so a new show() is a
+				// fresh recording and must reset to "recording".
+				if (prev === "transcribing") return prev;
 				return "recording";
 			});
 		});
@@ -189,8 +197,12 @@ export function Bubble({ className: _className }: { className?: string }) {
 	// bubble hides the visualizer and shows "Transcribing..." text with
 	// animated dots. When transcription completes, it sends "idle" (for
 	// always_visible mode) or hide() (which triggers exit animation).
+	// DX-012: cast to BubbleWindowBubble for the bubble-window-only
+	// onSetState method. The global MainRendererBubble type is narrower.
 	useEffect(() => {
-		const api = window.bubble;
+		const api = window.bubble as
+			| import("@/types/ipc").BubbleWindowBubble
+			| undefined;
 		if (!api?.onSetState) return;
 
 		const off = api.onSetState((state) => {
@@ -254,16 +266,36 @@ export function Bubble({ className: _className }: { className?: string }) {
 	// This eliminates the transparent dead zone around the bubble.
 	const pillRef = useRef<HTMLDivElement>(null);
 
+	// Auto-resize BrowserWindow to fit the pill content exactly.
 	// BUBBLE-FIX-5.2: useLayoutEffect so resize IPC arrives before paint.
 	// useEffect ran after paint, causing "cut-off then flash" artifact.
+	//
+	// BUBBLE-FIX-SHOW-RESIZE: depends on BOTH animState AND mode so that
+	// resize runs when:
+	//   1. Animation state changes (enter animation starts)
+	//   2. Mode changes (recording → transcribing → idle) — the pill
+	//      content size changes between modes, and without mode in the
+	//      dependency, the window stays at the old width, causing the
+	//      "Transcribing..." text to be cut off on the right.
+	// Without mode in the dependency, the first recording cycle produced
+	// this sequence:
+	//   - show() → resizeTo(73, 46) for visualizer bars ✓
+	//   - set_state("transcribing") → mode changes, but NO resize ✗
+	//   - "Transcribing..." text is wider than 73px → text cut off ✗
+	// DX-012: cast to BubbleWindowBubble for resizeTo (bubble-window-only).
 	useLayoutEffect(() => {
 		if (animState === "exit") return;
 		const el = pillRef.current;
 		if (!el) return;
 		const w = Math.ceil(el.offsetWidth);
 		const h = Math.ceil(el.offsetHeight);
-		window.bubble?.resizeTo?.(w + 1, h + 1);
-	}, [animState]);
+		(
+			window.bubble as import("@/types/ipc").BubbleWindowBubble | undefined
+		)?.resizeTo?.(w + 1, h + 1);
+		// mode is a semantic dependency — pill content size changes between recording/transcribing
+		// modes, requiring DOM re-measure and resizeTo when mode changes.
+		void mode;
+	}, [animState, mode]);
 
 	// ── Fading → exit transition ───────────────────────────────
 	// When the transcribing content fade-out completes, trigger the
@@ -294,12 +326,30 @@ export function Bubble({ className: _className }: { className?: string }) {
 
 	// Animation-end callback — when exit CSS transition completes,
 	// tell the main process it's safe to hide() the BrowserWindow.
+	// BUBBLE-FIX-SHOW-RESIZE: after the enter animation completes,
+	// re-sync the window size to the pill content. This handles edge
+	// cases where:
+	//   1. The initial useLayoutEffect ran before the pill's layout
+	//      was fully settled (e.g. text rendering not yet measured).
+	//   2. The bubble window was shown with stale dimensions from
+	//      a previous cycle and the enter animation's CSS transition
+	//      (scale/fade) affected the offsetWidth measurement.
+	// DX-012: cast to BubbleWindowBubble for resizeTo (bubble-window-only).
 	const handleAnimEnd = useCallback(() => {
 		if (animState === "exit") {
 			setAnimState("");
 			window.bubble?.hideComplete?.();
 		} else if (animState === "enter") {
 			setAnimState("");
+			// Re-sync window dimensions after enter animation settles.
+			const el = pillRef.current;
+			if (el) {
+				const w = Math.ceil(el.offsetWidth);
+				const h = Math.ceil(el.offsetHeight);
+				(
+					window.bubble as import("@/types/ipc").BubbleWindowBubble | undefined
+				)?.resizeTo?.(w + 1, h + 1);
+			}
 		}
 	}, [animState]);
 

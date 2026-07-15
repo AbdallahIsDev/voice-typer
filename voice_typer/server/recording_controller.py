@@ -300,6 +300,29 @@ class RecordingController:
                     "[DICTATION] failed to set keyboard ownership on start",
                     exc_info=True,
                 )
+
+            # ESC-CANCEL-WATCHDOG: the ESC-to-cancel hotkey is the ONLY way to
+            # abort an in-progress recording, so if its backend died (silent
+            # startup-registration failure, native binary crash, or a
+            # multi-instance hook-chain collapse) the user would be unable to
+            # cancel — exactly the reported "Escape does nothing" symptom.
+            # Re-arm it on every recording start so a dead/stale ESC backend
+            # can never leave the user trapped in a recording.
+            try:
+                if getattr(app.config, "esc_cancel_enabled", False):
+                    esc_backend = getattr(app.hotkeys, "_esc_backend", None)
+                    if esc_backend is None or not esc_backend.is_alive():
+                        log.warning(
+                            "[DICTATION] ESC cancel backend missing/dead at "
+                            "recording start (backend=%r) — re-registering",
+                            type(esc_backend).__name__ if esc_backend else "None",
+                        )
+                        app.hotkeys.register_esc()
+            except Exception:
+                log.warning(
+                    "[DICTATION] failed to re-arm ESC cancel hotkey on start",
+                    exc_info=True,
+                )
             # NEW-IPC-002: emit recording_started push event so the
             # renderer can proactively refresh UI (Home/Dashboard/History)
             # SOUND-FIX-004: log push failures instead of silently

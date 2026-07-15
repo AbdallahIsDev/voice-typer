@@ -62,7 +62,8 @@ class TestStopAudioPrep:
         audio = r.stop()
 
         np.testing.assert_array_equal(audio, np.array([1.0, 2.0, 3.0], dtype=np.float32))
-        assert r._buffer == []
+        # MEM-04: buffer is replaced with a fresh deque (not cleared in-place)
+        assert len(r._buffer) == 0, f"Expected empty buffer after stop(), got {r._buffer!r}"
         assert r._stream is None
 
     def test_stop_resamples_when_effective_rate_differs(self, monkeypatch):
@@ -478,19 +479,13 @@ class TestStopCallbackBackoff:
         # The poll loop ran — sleep was called while the callback flag
         # was set.
         assert len(sleep_calls) > 0, (
-            f"Expected poll loop to run with callback flag set, "
-            f"got {len(sleep_calls)} sleep calls"
+            f"Expected poll loop to run with callback flag set, got {len(sleep_calls)} sleep calls"
         )
         # The 300ms hard deadline bounded the wait. 1.0s gives ample
         # headroom over the 300ms budget + per-iteration overhead.
-        assert elapsed < 1.0, (
-            f"stop() took {elapsed:.3f}s — expected < 1.0s "
-            f"(300ms poll budget + overhead)"
-        )
+        assert elapsed < 1.0, f"stop() took {elapsed:.3f}s — expected < 1.0s (300ms poll budget + overhead)"
         # Stream was fully torn down: close() called, _stream set to None.
-        assert r._stream is None, (
-            f"Expected r._stream to be None after stop(), got {r._stream!r}"
-        )
+        assert r._stream is None, f"Expected r._stream to be None after stop(), got {r._stream!r}"
 
     def test_user_stop_pending_flag_set_during_stop(self, monkeypatch):
         """STREAM-FIX: stop() must set _user_stop_pending before
@@ -928,6 +923,7 @@ class TestScipyPreloaderDeferredSpawn:
         that started the preloader).
         """
         import subprocess
+
         code = (
             "import threading, sys\n"
             "from voice_typer.server import recording\n"
@@ -949,11 +945,7 @@ class TestScipyPreloaderDeferredSpawn:
             text=True,
             timeout=60,
         )
-        assert result.returncode == 0, (
-            f"B-3 subprocess failed:\n"
-            f"STDOUT: {result.stdout}\n"
-            f"STDERR: {result.stderr}"
-        )
+        assert result.returncode == 0, f"B-3 subprocess failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
         assert "OK" in result.stdout
 
     def test_start_scipy_preloader_is_idempotent(self, monkeypatch):
@@ -982,6 +974,7 @@ class TestScipyPreloaderDeferredSpawn:
         # a new thread is allowed — but we patch is_alive to True to
         # simulate "still loading" and verify idempotency.
         import unittest.mock as _mock
+
         with _mock.patch.object(first_thread, "is_alive", return_value=True):
             recording._start_scipy_preloader()
             assert recording._scipy_preloader_thread is first_thread, (
@@ -990,9 +983,7 @@ class TestScipyPreloaderDeferredSpawn:
                 "the first was still alive."
             )
 
-    def test_start_scipy_preloader_skips_when_scipy_already_loaded(
-        self, monkeypatch
-    ):
+    def test_start_scipy_preloader_skips_when_scipy_already_loaded(self, monkeypatch):
         """If scipy already loaded successfully (cached), don't spawn a
         new preloader thread — it would be a wasted thread.
         """
@@ -1004,6 +995,5 @@ class TestScipyPreloaderDeferredSpawn:
 
         recording._start_scipy_preloader()
         assert recording._scipy_preloader_thread is None, (
-            "B-3 regression: _start_scipy_preloader spawned a thread "
-            "even though _resample_poly was already cached."
+            "B-3 regression: _start_scipy_preloader spawned a thread even though _resample_poly was already cached."
         )

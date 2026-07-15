@@ -16,30 +16,29 @@ import { Bubble } from "@/Bubble";
 // We provide stubs so the component mounts without crashing.
 
 function makeMockBubble() {
-	const listeners: Record<string, Array<(...args: unknown[]) => void>> = {};
+	const listeners: {
+		show: Array<() => void>;
+		hide: Array<() => void>;
+		setState: Array<(state: string) => void>;
+	} = { show: [], hide: [], setState: [] };
 	return {
 		onLevel: vi.fn(() => vi.fn()),
 		onShow: vi.fn((cb: () => void) => {
-			listeners.show = listeners.show ?? [];
 			listeners.show.push(cb);
 			return () => {
 				listeners.show = listeners.show.filter((l) => l !== cb);
 			};
 		}),
 		onHide: vi.fn((cb: () => void) => {
-			listeners.hide = listeners.hide ?? [];
 			listeners.hide.push(cb);
 			return () => {
 				listeners.hide = listeners.hide.filter((l) => l !== cb);
 			};
 		}),
 		onSetState: vi.fn((cb: (state: string) => void) => {
-			// biome-ignore lint/suspicious/noExplicitAny: mock setup — type flexibility needed for multi-callback list
-			(listeners.setState as any) = listeners.setState ?? [];
-			// biome-ignore lint/suspicious/noExplicitAny: mock setup — same reason
-			(listeners.setState as any[]).push(cb as any);
+			listeners.setState.push(cb);
 			return () => {
-				listeners.setState = (listeners.setState ?? []).filter((l) => l !== cb);
+				listeners.setState = listeners.setState.filter((l) => l !== cb);
 			};
 		}),
 		onDraggable: vi.fn(() => vi.fn()),

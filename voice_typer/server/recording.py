@@ -138,6 +138,33 @@ def _secure_clear_array(arr: np.ndarray) -> None:
         arr.fill(0)  # best-effort; some array types may not support fill
 
 
+def _secure_clear_array_background(buffer: collections.deque) -> None:
+    """SEC-audit-008 / MEM-04: Zero all chunks in a buffer on a background daemon thread.
+
+    This defers the forensic zeroing of audio data to a background thread
+    so ``stop()`` and ``discard()`` return immediately instead of iterating
+    up to 30000 chunks synchronously (~30-100ms).
+
+    The old buffer reference is passed in; the caller has already replaced
+    it with a fresh deque, so the background thread can zero the chunks
+    at its leisure without blocking the hot path.
+    """
+
+    def _zero_worker():
+        try:
+            for chunk in buffer:
+                if isinstance(chunk, np.ndarray):
+                    chunk.fill(0)
+        except Exception:
+            pass  # best-effort; the buffer will be GC'd anyway
+
+    threading.Thread(
+        target=_zero_worker,
+        name="buffer-clear-bg",
+        daemon=True,
+    ).start()
+
+
 # PERF-NEW-018: MAX_BUFFER_CHUNKS is now dynamically adjusted in
 # start() based on max_recording_time_seconds.  The default below is a
 # safe ceiling (30K chunks * 1024 samples/chunk / 16kHz ≈ 30 min).
@@ -255,10 +282,7 @@ def _start_scipy_preloader() -> None:
     global _scipy_preloader_thread
     with _scipy_preloader_lock:
         # Idempotent: don't start a second preloader if one is still alive.
-        if (
-            _scipy_preloader_thread is not None
-            and _scipy_preloader_thread.is_alive()
-        ):
+        if _scipy_preloader_thread is not None and _scipy_preloader_thread.is_alive():
             return
         # Don't re-spawn if scipy already loaded successfully — the
         # cached _resample_poly is set, so a new preloader would be a
@@ -417,11 +441,17 @@ class Recorder:
         self._silero_available: bool = False
         if self._use_silero_vad:
             try:
-                from voice_typer.server.vad import is_available as _vad_is_available
+                from voice_typer.server.vad import (
+                    _check_vad_available as _vad_check_available,
+                )
 
-                self._silero_available = _vad_is_available()
+                self._silero_available = _vad_check_available()
                 if not self._silero_available:
-                    log.warning("[RECORDING] use_silero_vad=True but Silero VAD unavailable — falling back to RMS")
+                    log.warning(
+                        "[RECORDING] use_silero_vad=True but Silero VAD "
+                        "unavailable (torch missing or bundled silero_vad.jit "
+                        "not found) — falling back to RMS"
+                    )
             except Exception:
                 self._silero_available = False
 
@@ -527,6 +557,14 @@ class Recorder:
         # verify the current device is still present in sd.query_devices().
         self._device_check_interval: int = 500  # check every ~500 chunks (~32s at 16Hz)
         self._device_check_counter: int = 0
+        # CPU-03: dedicated device-health-checker thread state. The checker
+        # runs OFF the audio worker thread (replacing the old per-chunk
+        # sd.query_devices() probe that could block the worker 50-200ms on
+        # Windows MME). It wakes every ``_device_check_interval_s`` and is
+        # started by start() / stopped by stop()+discard().
+        self._device_health_checker_thread: threading.Thread | None = None
+        self._device_health_stop_event: threading.Event = threading.Event()
+        self._device_check_interval_s: float = 30.0  # seconds between probes
 
         # NOTE (RW-0): dead_air_timeout / _dead_air_speech_detected /
         # _dead_air_silence_start were REMOVED — redundant with
@@ -554,9 +592,7 @@ class Recorder:
             # straight to ``self._mic_watcher`` (typed ``Any | None``)
             # made pyrefly think ``self._mic_watcher.start()`` could be
             # called on None.
-            watcher: Any = MicrophoneDeviceWatcher(
-                on_change=self._invalidate_device_cache
-            )
+            watcher: Any = MicrophoneDeviceWatcher(on_change=self._invalidate_device_cache)
             watcher.start()
             self._mic_watcher = watcher
         except Exception:
@@ -864,6 +900,97 @@ class Recorder:
             log.info("[RECORDING] Successfully restarted with default device at %d Hz", candidate_sr)
         except Exception as e:
             log.error("[RECORDING] Failed to restart with default device: %s", e)
+
+    # ── CPU-03: Device health checker thread ─────────────────────────
+
+    def _start_device_health_checker(self) -> None:
+        """Start the device health checker daemon thread.
+
+        CPU-03: replaces the old per-chunk ``sd.query_devices()`` check that
+        was running on the audio worker thread. The old approach could block
+        the worker for 50-200ms on Windows MME with many audio devices,
+        causing the ring buffer to overflow and audio chunks to be dropped.
+
+        The health checker wakes every ``_device_check_interval_s`` (default
+        30s) and calls ``sd.query_devices(current_device)``. If the device
+        is no longer available, it sets ``_device_disconnected`` and spawns
+        the disconnect handler -- same logic as before, but off the audio
+        worker thread.
+
+        Idempotent: if the checker is already running, this is a no-op.
+        Started by ``start()``, stopped by ``stop()`` / ``discard()``.
+        """
+        if self._device_health_checker_thread is not None and self._device_health_checker_thread.is_alive():
+            return
+        self._device_health_stop_event.clear()
+        self._device_health_checker_thread = threading.Thread(
+            target=self._device_health_checker_loop,
+            name="device-health-checker",
+            daemon=True,
+        )
+        self._device_health_checker_thread.start()
+
+    def _stop_device_health_checker(self) -> None:
+        """Signal the device health checker thread to stop and join it.
+
+        CPU-03: sets the stop event and waits up to 1s for the thread
+        to wake from its sleep and exit. Since the thread sleeps for 30s
+        between checks, worst-case the wait times out and the daemon
+        thread exits on its next sleep cycle.
+
+        Safe to call when the checker is not running (no-op).
+        """
+        self._device_health_stop_event.set()
+        thread = self._device_health_checker_thread
+        if thread is not None:
+            thread.join(timeout=1.0)
+            if thread.is_alive():
+                log.debug(
+                    "[RECORDING] Device health checker thread did not exit within 1s "
+                    "(it will exit as a daemon on next sleep cycle)"
+                )
+            self._device_health_checker_thread = None
+        self._device_health_stop_event.clear()
+
+    def _device_health_checker_loop(self) -> None:
+        """Device health checker daemon thread main loop.
+
+        CPU-03: wakes every ``_device_check_interval_s`` (default 30s) and
+        calls ``sd.query_devices(current_device)`` to verify the current
+        recording device is still present. If PortAudio raises an exception
+        (device disconnected), sets ``_device_disconnected`` and spawns
+        ``_handle_device_disconnect`` on a fresh daemon thread.
+
+        Exits immediately when ``_device_health_stop_event`` is set.
+        """
+        while not self._device_health_stop_event.wait(timeout=self._device_check_interval_s):
+            # RW-7: skip the check if we've already detected a disconnect
+            # and scheduled a handler.
+            if self._device_disconnected:
+                continue
+            try:
+                current_device = self._resolve_device()
+                if current_device is not None:
+                    try:
+                        sd.query_devices(current_device)
+                    except Exception:
+                        # HOTKEY-CRASH: double-check recording is still active
+                        if not self._recording_event.is_set():
+                            return
+                        log.warning(
+                            "[RECORDING] Current device no longer available in query_devices -- disconnect detected"
+                        )
+                        self._device_disconnected = True
+                        _captured_gen = self._stop_generation
+                        with contextlib.suppress(Exception):
+                            threading.Thread(
+                                target=self._handle_device_disconnect,
+                                kwargs={"_captured_generation": _captured_gen},
+                                name="device-disconnect-check",
+                                daemon=True,
+                            ).start()
+            except Exception:
+                log.debug("[RECORDING] Device health checker error", exc_info=True)
 
     # ── AUDIO-014: VAD auto-calibration ─────────────────────────────────
 
@@ -1635,6 +1762,10 @@ class Recorder:
         # stopped by stop()/discard() — see _stop_event_worker.
         self._start_event_worker()
 
+        # CPU-03: start the device health checker thread (off the audio
+        # worker) so device-disconnect detection doesn't block the hot path.
+        self._start_device_health_checker()
+
     def _teardown_stream(self) -> None:
         """Stop + close the PortAudio stream, draining any in-flight callback.
 
@@ -2125,7 +2256,7 @@ class Recorder:
         # zero-filled frames as the stream drains. We must NOT treat
         # those as device disconnects, because _handle_device_disconnect
         # would race with the deliberate stop() to close the stream.
-        if not indata.any() and self._chunk_count > 10:
+        if (indata.size == 0 or np.count_nonzero(indata) == 0) and self._chunk_count > 10:
             # RW-7: re-entrancy guard — if a previous chunk already
             # detected the disconnect and scheduled a handler thread,
             # don't spawn another. Pre-fix, every subsequent zero-filled
@@ -2556,6 +2687,9 @@ class Recorder:
         # drained it.
         self._stop_event_worker(timeout=_EVENT_WORKER_JOIN_TIMEOUT_S, drain=True)
 
+        # CPU-03: stop the device health checker thread (mirrors the event worker).
+        self._stop_device_health_checker()
+
         concat_started = time.perf_counter()
         with self._lock:
             if not self._buffer:
@@ -2568,12 +2702,13 @@ class Recorder:
                 self._cached_no_resample_arr = None
                 return np.array([], dtype=np.float32)
             audio = np.concatenate(list(self._buffer), axis=0).reshape(-1)
-            # SEC-audit-008: Zero the buffer contents before clearing to prevent
-            # forensic recovery of audio data from process memory
-            for chunk in self._buffer:
-                if isinstance(chunk, np.ndarray):
-                    chunk.fill(0)
-            self._buffer.clear()
+            # MEM-04 / SEC-audit-008: defer buffer zeroing to background daemon thread
+            # so discard() returns immediately (the secure clear happens off the hot path).
+            _old_buffer = self._buffer
+            self._buffer = collections.deque(
+                maxlen=getattr(_old_buffer, "maxlen", DEFAULT_MAX_BUFFER_CHUNKS) or DEFAULT_MAX_BUFFER_CHUNKS
+            )
+            _secure_clear_array_background(_old_buffer)
             # Reset cache on stop
             self._cached_resampled = np.array([], dtype=np.float32)
             self._cached_native_chunk_count = 0
@@ -2981,10 +3116,13 @@ class Recorder:
         # audio_clip from the discarded audio) don't need to be
         # published. The queue is cleared so the worker exits promptly.
         self._stop_event_worker(timeout=_EVENT_WORKER_DISCARD_JOIN_TIMEOUT_S, drain=False)
+        # CPU-03: stop the device health checker thread (mirrors the event worker).
+        self._stop_device_health_checker()
         with self._lock:
-            # SEC-audit-008: Zero the buffer contents before clearing to prevent
-            # forensic recovery of audio data from process memory
-            for chunk in self._buffer:
-                if isinstance(chunk, np.ndarray):
-                    chunk.fill(0)
-            self._buffer.clear()
+            # MEM-04 / SEC-audit-008: defer buffer zeroing to background daemon thread
+            # so discard() returns immediately (the secure clear happens off the hot path).
+            _old_buffer = self._buffer
+            self._buffer = collections.deque(
+                maxlen=getattr(_old_buffer, "maxlen", DEFAULT_MAX_BUFFER_CHUNKS) or DEFAULT_MAX_BUFFER_CHUNKS
+            )
+            _secure_clear_array_background(_old_buffer)
