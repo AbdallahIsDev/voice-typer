@@ -991,6 +991,14 @@ class VoiceTyperService:
                 # Set individual filter toggles from the preset
                 for k, v in preset_filters.items():
                     setattr(config, k, v)
+                # Sync the legacy noise_filter_enabled flag so downstream
+                # checks (e.g. update_level_processor) correctly disable
+                # the processor when preset is "off". The preset's filter
+                # toggles are all False, but noise_filter_enabled was not
+                # part of the preset dict — it stays True, causing the
+                # level monitor to create an AudioProcessor even when no
+                # filters are active, which masks low-level sounds.
+                config.noise_filter_enabled = preset != "off"
                 log.info("[SERVICE] Applied audio preset '%s': %s", preset, preset_filters)
             except Exception as e:
                 log.warning("Failed to apply audio preset: %s", e)

@@ -27,7 +27,7 @@ from __future__ import annotations
 import sys
 from unittest.mock import patch
 
-from voice_typer.server.volume_backend import VolumeState
+from voice_typer.server.volume_backend_base import VolumeState
 from voice_typer.server.volume_backends import (
     LinuxVolumeBackend,
     MacVolumeBackend,
@@ -53,6 +53,7 @@ class TestLinuxBackendToolDetection:
     def test_wpctl_used_when_pactl_missing(self, monkeypatch):
         def which(tool):
             return f"/usr/bin/{tool}" if tool in ("wpctl", "amixer") else None
+
         monkeypatch.setattr("shutil.which", which)
         b = LinuxVolumeBackend()
         assert b.initialize() is True
@@ -61,6 +62,7 @@ class TestLinuxBackendToolDetection:
     def test_amixer_used_when_pactl_and_wpctl_missing(self, monkeypatch):
         def which(tool):
             return f"/usr/bin/{tool}" if tool == "amixer" else None
+
         monkeypatch.setattr("shutil.which", which)
         b = LinuxVolumeBackend()
         assert b.initialize() is True
@@ -101,6 +103,7 @@ class TestLinuxBackendPactl:
             if "get-sink-mute" in cmd:
                 return "Mute: no"
             return None
+
         b._run = fake_run
 
         state = b.get_state()
@@ -118,6 +121,7 @@ class TestLinuxBackendPactl:
             if "get-sink-mute" in cmd:
                 return "Mute: yes"
             return None
+
         b._run = fake_run
 
         state = b.get_state()
@@ -129,15 +133,16 @@ class TestLinuxBackendPactl:
         b = LinuxVolumeBackend()
         b._tool = "pactl"
         calls = []
+
         def fake_run(cmd, timeout=2.0):
             calls.append(cmd)
             return "ok"
+
         b._run = fake_run
 
         # 0.5 → 50%
         b.set_linear(0.5)
-        assert any("50%" in " ".join(c) for c in calls), \
-            f"set_linear(0.5) should set 50%; calls={calls}"
+        assert any("50%" in " ".join(c) for c in calls), f"set_linear(0.5) should set 50%; calls={calls}"
 
     def test_set_linear_clamps_above_max(self, monkeypatch):
         b = LinuxVolumeBackend()
@@ -162,8 +167,9 @@ class TestLinuxBackendPactl:
         b._run = lambda cmd, timeout=2.0: calls.append(cmd) or "ok"
         b.set_linear(0.5, muted=True)
         # Should have called set-sink-mute with "1"
-        assert any("set-sink-mute" in c and "1" in c for c in calls), \
+        assert any("set-sink-mute" in c and "1" in c for c in calls), (
             f"set_linear(0.5, muted=True) should call set-sink-mute 1; calls={calls}"
+        )
 
 
 class TestLinuxBackendWpctl:
@@ -193,8 +199,7 @@ class TestLinuxBackendWpctl:
         b._run = lambda cmd, timeout=2.0: calls.append(cmd) or "ok"
         b.set_linear(0.3)
         # wpctl set-volume takes a float in [0, 1]
-        assert any("0.30" in " ".join(c) for c in calls), \
-            f"set_linear(0.3) should pass 0.30; calls={calls}"
+        assert any("0.30" in " ".join(c) for c in calls), f"set_linear(0.3) should pass 0.30; calls={calls}"
 
 
 class TestLinuxBackendAmixer:
@@ -203,8 +208,9 @@ class TestLinuxBackendAmixer:
     def test_get_state_parses_percent_and_on(self, monkeypatch):
         b = LinuxVolumeBackend()
         b._tool = "amixer"
-        b._run = lambda cmd, timeout=2.0: \
+        b._run = lambda cmd, timeout=2.0: (
             "  Simple mixer control 'Master',0\n    Mono: Playback 50% [50%] [-6.00dB] [on]"
+        )
         state = b.get_state()
         assert state is not None
         assert state.linear == 0.5
@@ -213,8 +219,7 @@ class TestLinuxBackendAmixer:
     def test_get_state_detects_off(self, monkeypatch):
         b = LinuxVolumeBackend()
         b._tool = "amixer"
-        b._run = lambda cmd, timeout=2.0: \
-            "  Mono: Playback 0% [0%] [-100.00dB] [off]"
+        b._run = lambda cmd, timeout=2.0: "  Mono: Playback 0% [0%] [-100.00dB] [off]"
         state = b.get_state()
         assert state is not None
         assert state.muted is True
@@ -225,8 +230,7 @@ class TestLinuxBackendAmixer:
         calls = []
         b._run = lambda cmd, timeout=2.0: calls.append(cmd) or "ok"
         b.set_linear(0.75)
-        assert any("75%" in " ".join(c) for c in calls), \
-            f"set_linear(0.75) should pass 75%; calls={calls}"
+        assert any("75%" in " ".join(c) for c in calls), f"set_linear(0.75) should pass 75%; calls={calls}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -278,14 +282,15 @@ class TestMacBackendOsascript:
         b = MacVolumeBackend()
         b._use_coreaudio = False
         calls = []
+
         def fake_run(script, timeout=2.0):
             calls.append(script)
             return "ok"
+
         b._osascript_run = fake_run
         b.set_linear(0.45)
         # Should have called set volume output volume 45
-        assert any("45" in s for s in calls), \
-            f"set_linear(0.45) should pass 45%; calls={calls}"
+        assert any("45" in s for s in calls), f"set_linear(0.45) should pass 45%; calls={calls}"
 
     def test_set_linear_clamps(self, monkeypatch):
         b = MacVolumeBackend()
@@ -305,8 +310,9 @@ class TestMacBackendOsascript:
         calls = []
         b._osascript_run = lambda script, timeout=2.0: calls.append(script) or "ok"
         b.set_linear(0.5, muted=True)
-        assert any("output muted true" in s for s in calls), \
+        assert any("output muted true" in s for s in calls), (
             f"set_linear(0.5, muted=True) should set muted=true; calls={calls}"
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -359,16 +365,18 @@ class TestVolumeBackendFadeTo:
         set_calls = []
         b._run = lambda cmd, timeout=2.0: "ok"
         original_set = b.set_linear
+
         def spy_set(level, muted=None):
             set_calls.append(level)
             return original_set(level, muted)
+
         b.set_linear = spy_set
 
         # Fade from current (we need get_state to return a starting point).
         # The default fade_to calls get_state first.
         b.get_state = lambda: VolumeState(linear=0.2, muted=False)
         # Patch time.sleep so the test doesn't take 150ms.
-        with patch("voice_typer.server.volume_backend.time.sleep"):
+        with patch("voice_typer.server.volume_backend_base.time.sleep"):
             ok = b.fade_to(0.8, duration_ms=150, steps=10)
 
         assert ok is True
@@ -384,9 +392,11 @@ class TestVolumeBackendFadeTo:
         b.get_state = lambda: VolumeState(linear=0.2, muted=False)
         set_calls = []
         original_set = b.set_linear
+
         def spy_set(level, muted=None):
             set_calls.append(level)
             return original_set(level, muted)
+
         b.set_linear = spy_set
 
         ok = b.fade_to(0.5, duration_ms=0)

@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import threading
 
-from voice_typer.server.volume_backend import VolumeBackend, VolumeState
+from voice_typer.server.volume_backend_base import VolumeBackend, VolumeState
 from voice_typer.server.volume_backends import (
     LinuxVolumeBackend,
     MacVolumeBackend,
@@ -71,8 +71,7 @@ class FakeBackend(VolumeBackend):
         self.set_calls.append((level, muted))
         return True
 
-    def fade_to(self, target_linear: float, duration_ms: int = 150,
-                steps: int = 10) -> bool:
+    def fade_to(self, target_linear: float, duration_ms: int = 150, steps: int = 10) -> bool:
         self._current = max(0.0, min(1.0, target_linear))
         self.fade_calls.append((target_linear, duration_ms))
         return True
@@ -98,14 +97,10 @@ class TestSmartDuckSkip:
 
         ok = ducker.duck(0.25)
         assert ok is True  # success (we "skipped" but that's a success)
-        assert backend.fade_calls == [], \
-            "Smart-duck skip should NOT call fade_to"
-        assert backend.is_speaker_active_calls == 1, \
-            "duck() should query is_speaker_active() exactly once"
-        assert ducker.is_ducked is True, \
-            "is_ducked should be True (logical state) even after skip"
-        assert ducker.actually_ducked is False, \
-            "actually_ducked should be False — we skipped the fade"
+        assert backend.fade_calls == [], "Smart-duck skip should NOT call fade_to"
+        assert backend.is_speaker_active_calls == 1, "duck() should query is_speaker_active() exactly once"
+        assert ducker.is_ducked is True, "is_ducked should be True (logical state) even after skip"
+        assert ducker.actually_ducked is False, "actually_ducked should be False — we skipped the fade"
 
     def test_skip_does_not_write_crash_recovery(self, tmp_path):
         """Smart-duck skip must NOT write a crash-recovery file.
@@ -117,14 +112,14 @@ class TestSmartDuckSkip:
         never changed — confusing and wrong.
         """
         from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
+
         cr = DuckCrashRecovery(config_dir=tmp_path)
         backend = FakeBackend(current=0.5, speaker_active=False)
         ducker = VolumeDucker(backend=backend, crash_recovery=cr)
         ducker.initialize()
 
         ducker.duck(0.25)
-        assert not cr.path.exists(), \
-            "Smart-duck skip should NOT persist a crash-recovery file"
+        assert not cr.path.exists(), "Smart-duck skip should NOT persist a crash-recovery file"
 
     def test_skip_then_restore_is_noop(self):
         """After a smart-duck skip, restore() should NOT call fade_to."""
@@ -136,8 +131,7 @@ class TestSmartDuckSkip:
 
         ok = ducker.restore()
         assert ok is True
-        assert backend.fade_calls == [], \
-            "restore() after smart-duck skip should NOT fade"
+        assert backend.fade_calls == [], "restore() after smart-duck skip should NOT fade"
         assert ducker.is_ducked is False
 
     def test_skip_does_not_change_volume(self):
@@ -147,12 +141,10 @@ class TestSmartDuckSkip:
         ducker.initialize()
 
         ducker.duck(0.25)
-        assert backend._current == 0.7, \
-            f"Volume should be unchanged after smart-duck skip; got {backend._current}"
+        assert backend._current == 0.7, f"Volume should be unchanged after smart-duck skip; got {backend._current}"
 
         ducker.restore()
-        assert backend._current == 0.7, \
-            f"Volume should still be unchanged after restore; got {backend._current}"
+        assert backend._current == 0.7, f"Volume should still be unchanged after restore; got {backend._current}"
 
 
 class TestSmartDuckNormal:
@@ -218,9 +210,7 @@ class TestSmartDuckSecondDuckAfterSkip:
         # Second duck — must NOT fade (v1.1 bugfix)
         ok = ducker.duck(0.15)
         assert ok is True
-        assert backend.fade_calls == [], \
-            f"Second duck() after smart-duck skip must NOT fade; " \
-            f"got {backend.fade_calls}"
+        assert backend.fade_calls == [], f"Second duck() after smart-duck skip must NOT fade; got {backend.fade_calls}"
         # ducked_level should be updated for restore() consistency
         assert ducker._ducked_level == 0.15
 
@@ -234,8 +224,7 @@ class TestSmartDuckSecondDuckAfterSkip:
         backend.fade_calls.clear()
 
         ducker.duck(0.15)
-        assert (0.15, 150) in backend.fade_calls, \
-            "Second duck() after a normal duck should fade to the new level"
+        assert (0.15, 150) in backend.fade_calls, "Second duck() after a normal duck should fade to the new level"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -258,10 +247,8 @@ class TestSmartDuckToggle:
         ducker.set_smart_duck_enabled(False)
 
         ducker.duck(0.25)
-        assert backend.is_speaker_active_calls == 0, \
-            "Smart-duck disabled — is_speaker_active() should not be called"
-        assert backend.fade_calls, \
-            "Smart-duck disabled — duck() should fade normally"
+        assert backend.is_speaker_active_calls == 0, "Smart-duck disabled — is_speaker_active() should not be called"
+        assert backend.fade_calls, "Smart-duck disabled — duck() should fade normally"
         assert ducker.actually_ducked is True
 
     def test_set_smart_duck_enabled_at_runtime(self):
@@ -297,7 +284,8 @@ class TestLinuxIsSpeakerActive:
         b._tool = "pactl"
         b._run = lambda cmd, timeout=2.0: (
             "Sink Input #42\n\tState: running\n\tSink: alsa_output.pci-0000_00_1b.0.analog-stereo\n"
-            if "list" in cmd else "ok"
+            if "list" in cmd
+            else "ok"
         )
         assert b.is_speaker_active() is True
 
@@ -312,17 +300,13 @@ class TestLinuxIsSpeakerActive:
         """A corked (paused) sink-input is not actively playing."""
         b = LinuxVolumeBackend()
         b._tool = "pactl"
-        b._run = lambda cmd, timeout=2.0: (
-            "Sink Input #42\n\tState: corked\n" if "list" in cmd else "ok"
-        )
+        b._run = lambda cmd, timeout=2.0: "Sink Input #42\n\tState: corked\n" if "list" in cmd else "ok"
         assert b.is_speaker_active() is False
 
     def test_pactl_idle_sink_input_returns_false(self, monkeypatch):
         b = LinuxVolumeBackend()
         b._tool = "pactl"
-        b._run = lambda cmd, timeout=2.0: (
-            "Sink Input #42\n\tState: idle\n" if "list" in cmd else "ok"
-        )
+        b._run = lambda cmd, timeout=2.0: "Sink Input #42\n\tState: idle\n" if "list" in cmd else "ok"
         assert b.is_speaker_active() is False
 
     def test_wpctl_falls_through_to_alsa_procfs(self, monkeypatch):
@@ -365,11 +349,14 @@ class TestLinuxAlsaProcfs:
         (sub / "status").write_text("state: RUNNING\n")
         # Patch Path("/proc/asound") to point at tmp_path
         import voice_typer.server.volume_backends as vb_mod
+
         original_path = vb_mod.Path
+
         def fake_path(p):
             if str(p) == "/proc/asound":
                 return original_path(str(tmp_path))
             return original_path(str(p))
+
         monkeypatch.setattr(vb_mod, "Path", fake_path)
         assert b._alsa_is_playing() is True
 
@@ -382,11 +369,14 @@ class TestLinuxAlsaProcfs:
         sub.mkdir(parents=True)
         (sub / "status").write_text("state: IDLE\n")
         import voice_typer.server.volume_backends as vb_mod
+
         original_path = vb_mod.Path  # noqa: F841 — used in fake_path closure
+
         def fake_path(p):
             if str(p) == "/proc/asound":
                 return original_path(str(tmp_path))
             return original_path(str(p))
+
         monkeypatch.setattr(vb_mod, "Path", fake_path)
         assert b._alsa_is_playing() is False
 
@@ -394,14 +384,19 @@ class TestLinuxAlsaProcfs:
         """If /proc/asound doesn't exist (non-Linux), return True (duck anyway)."""
         b = LinuxVolumeBackend()
         import voice_typer.server.volume_backends as vb_mod
+
         original_path = vb_mod.Path  # noqa: F841 — used in fake_path closure
+
         class FakePath:
             def __init__(self, p):
                 self._p = str(p)
+
             def exists(self):
                 return False  # /proc/asound doesn't exist
+
         def fake_path(p):
             return FakePath(p)
+
         monkeypatch.setattr(vb_mod, "Path", fake_path)
         assert b._alsa_is_playing() is True
 
@@ -509,11 +504,13 @@ class TestSmartDuckConcurrency:
         ducker.initialize()
 
         errors: list[Exception] = []
+
         def duck_call():
             try:
                 ducker.duck(0.25)
             except Exception as e:
                 errors.append(e)
+
         def restore_call():
             try:
                 ducker.restore()

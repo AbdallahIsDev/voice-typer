@@ -56,7 +56,7 @@ import threading
 from collections.abc import Callable
 
 from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
-from voice_typer.server.volume_backend import VolumeBackend, VolumeState
+from voice_typer.server.volume_backend_base import VolumeBackend, VolumeState
 
 log = logging.getLogger(__name__)
 
@@ -157,9 +157,7 @@ class VolumeDucker:
         self._initialized = True
 
         if not ok:
-            log.warning(
-                "[VOLUME] Backend %s failed to initialise", self._backend.name
-            )
+            log.warning("[VOLUME] Backend %s failed to initialise", self._backend.name)
             self._ready = False
             return False
         self._ready = True
@@ -177,13 +175,10 @@ class VolumeDucker:
         # and therefore don't inherit the property — fall back to the
         # conservative 500ms default rather than raising
         # ``AttributeError``.
-        recommended = getattr(
-            self._backend, "recommended_poll_interval_ms", 500
-        )
+        recommended = getattr(self._backend, "recommended_poll_interval_ms", 500)
         if recommended < self._smart_duck_poll_ms:
             log.info(
-                "[VOLUME] Backend %s recommends %dms poll interval "
-                "(was %dms) — adopting",
+                "[VOLUME] Backend %s recommends %dms poll interval (was %dms) — adopting",
                 self._backend.name,
                 recommended,
                 self._smart_duck_poll_ms,
@@ -201,8 +196,7 @@ class VolumeDucker:
             stale = self._crash_recovery.load_stale()
             if stale is not None:
                 log.warning(
-                    "[VOLUME] Previous session crashed while ducked — "
-                    "restoring volume to %.0f%% (muted=%s)",
+                    "[VOLUME] Previous session crashed while ducked — restoring volume to %.0f%% (muted=%s)",
                     stale.linear * 100,
                     stale.muted,
                 )
@@ -449,9 +443,7 @@ class VolumeDucker:
 
     # ── Smart-duck background monitor (v2.3) ────────────────────────
 
-    def _start_smart_duck_monitor(
-        self, level: float, fade_ms: int, per_session: bool
-    ) -> None:
+    def _start_smart_duck_monitor(self, level: float, fade_ms: int, per_session: bool) -> None:
         """Start the background speaker-activity monitor.
 
         Called from :meth:`duck` when smart-duck skips the initial
@@ -523,8 +515,7 @@ class VolumeDucker:
         thread.join(timeout=join_timeout)
         if thread.is_alive():
             log.warning(
-                "[VOLUME] smart-duck monitor did not stop in %.1fs — "
-                "it will exit when the next poll completes",
+                "[VOLUME] smart-duck monitor did not stop in %.1fs — it will exit when the next poll completes",
                 join_timeout,
             )
         # Only clear self._monitor_thread if it still points at OUR
@@ -630,10 +621,7 @@ class VolumeDucker:
 
         Useful for diagnostics and tests.
         """
-        return (
-            self._monitor_thread is not None
-            and self._monitor_thread.is_alive()
-        )
+        return self._monitor_thread is not None and self._monitor_thread.is_alive()
 
     @property
     def backend_name(self) -> str:

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
-from voice_typer.server.volume_backend import VolumeBackend, VolumeState
+from voice_typer.server.volume_backend_base import VolumeBackend, VolumeState
 from voice_typer.server.volume_ducker import VolumeDucker
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -214,8 +214,7 @@ class TestMuteState:
         backend._muted = False  # duck didn't touch mute
         ducker.restore()
         # Restore should re-mute
-        assert any(call[1] is True for call in backend._set_calls), \
-            "restore should have set muted=True"
+        assert any(call[1] is True for call in backend._set_calls), "restore should have set muted=True"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -292,9 +291,7 @@ class TestConcurrency:
 
 
 class TestCrashRecovery:
-    def test_crash_recovery_restores_stale_state(
-        self, crash_recovery: DuckCrashRecovery
-    ) -> None:
+    def test_crash_recovery_restores_stale_state(self, crash_recovery: DuckCrashRecovery) -> None:
         backend = FakeBackend(current=0.1)  # system stuck at ducked level
         ducker = VolumeDucker(
             backend=backend,
@@ -308,9 +305,7 @@ class TestCrashRecovery:
         # Stale file should be cleared
         assert crash_recovery.load_stale() is None
 
-    def test_crash_recovery_callback_invoked(
-        self, crash_recovery: DuckCrashRecovery
-    ) -> None:
+    def test_crash_recovery_callback_invoked(self, crash_recovery: DuckCrashRecovery) -> None:
         called_with: list[VolumeState] = []
 
         def on_restore(state: VolumeState) -> None:
@@ -328,9 +323,7 @@ class TestCrashRecovery:
         assert len(called_with) == 1
         assert called_with[0].linear == 0.7
 
-    def test_no_stale_file_means_no_restore(
-        self, crash_recovery: DuckCrashRecovery
-    ) -> None:
+    def test_no_stale_file_means_no_restore(self, crash_recovery: DuckCrashRecovery) -> None:
         backend = FakeBackend(current=0.3)
         ducker = VolumeDucker(
             backend=backend,
@@ -340,9 +333,7 @@ class TestCrashRecovery:
         # Volume unchanged
         assert backend._current == 0.3
 
-    def test_duck_persists_state_for_crash_recovery(
-        self, crash_recovery: DuckCrashRecovery
-    ) -> None:
+    def test_duck_persists_state_for_crash_recovery(self, crash_recovery: DuckCrashRecovery) -> None:
         backend = FakeBackend(current=0.6)
         ducker = VolumeDucker(
             backend=backend,
@@ -353,9 +344,7 @@ class TestCrashRecovery:
         assert crash_recovery.load_stale() is not None
         assert crash_recovery.load_stale().linear == 0.6  # type: ignore[union-attr]
 
-    def test_restore_clears_crash_recovery(
-        self, crash_recovery: DuckCrashRecovery
-    ) -> None:
+    def test_restore_clears_crash_recovery(self, crash_recovery: DuckCrashRecovery) -> None:
         backend = FakeBackend(current=0.6)
         ducker = VolumeDucker(
             backend=backend,
@@ -402,6 +391,7 @@ class TestBackendFailure:
         # initialize will try platform.get_volume_backend() which may return
         # a real backend on this platform.  To test the None path, we mock.
         import voice_typer.server.server_platform as plat
+
         original = plat.get_volume_backend
         plat.get_volume_backend = lambda: None  # type: ignore[assignment]
         try:
@@ -458,9 +448,7 @@ class TestDuckCrashRecoveryFile:
         crash_recovery.clear()  # should not raise
         assert not crash_recovery.path.exists()
 
-    def test_corrupt_file_returns_none_and_clears(
-        self, crash_recovery: DuckCrashRecovery
-    ) -> None:
+    def test_corrupt_file_returns_none_and_clears(self, crash_recovery: DuckCrashRecovery) -> None:
         crash_recovery.path.parent.mkdir(parents=True, exist_ok=True)
         crash_recovery.path.write_text("{invalid json")
         assert crash_recovery.load_stale() is None

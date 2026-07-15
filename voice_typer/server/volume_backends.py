@@ -1,6 +1,6 @@
 """Concrete volume backends for Windows, macOS, and Linux.
 
-Each backend implements :class:`voice_typer.server.volume_backend.VolumeBackend`.
+Each backend implements :class:`voice_typer.server.volume_backend_base.VolumeBackend`.
 
 Import order matters: ``get_volume_backend()`` in ``platform.py`` selects
 the first backend whose :meth:`initialize` succeeds for the current
@@ -22,7 +22,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from voice_typer.server.volume_backend import VolumeBackend, VolumeState
+from voice_typer.server.volume_backend_base import VolumeBackend, VolumeState
 
 log = logging.getLogger(__name__)
 
@@ -86,9 +86,7 @@ class WinVolumeBackend(VolumeBackend):
                 vol_ptr = devices.EndpointVolume
             except AttributeError:
                 # pycaw < 20251023: use Activate
-                interface = devices.Activate(
-                    IAudioEndpointVolume._iid_, CLSCTX_ALL, None
-                )
+                interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
                 vol_ptr = cast(interface, POINTER(IAudioEndpointVolume))
             self._vol = vol_ptr
             # Get IAudioMeterInformation for smart-duck detection.
@@ -96,6 +94,7 @@ class WinVolumeBackend(VolumeBackend):
             # on the IAudioEndpointVolume pointer.
             try:
                 from pycaw.pycaw import IAudioMeterInformation
+
                 self._meter = vol_ptr.QueryInterface(IAudioMeterInformation)
             except Exception:
                 self._meter = None
@@ -210,8 +209,7 @@ class WinVolumeBackend(VolumeBackend):
             try:
                 # pycaw >= 20251023: SimpleAudioVolume property
                 # pycaw < 20251023: private _ctl attribute
-                vol = getattr(session, "SimpleAudioVolume",
-                              getattr(session, "_ctl", None))
+                vol = getattr(session, "SimpleAudioVolume", getattr(session, "_ctl", None))
                 if vol is None:
                     continue
                 original = vol.GetMasterVolume()
@@ -393,8 +391,7 @@ class MacVolumeBackend(VolumeBackend):
             self._ca = None
             self._use_coreaudio = False
             log.info(
-                "[VOLUME-MAC] osascript backend ready "
-                "(pyobjc unavailable: %s)",
+                "[VOLUME-MAC] osascript backend ready (pyobjc unavailable: %s)",
                 exc,
             )
         return True  # osascript is always available on macOS
@@ -406,9 +403,7 @@ class MacVolumeBackend(VolumeBackend):
                 return state
             # CoreAudio failed — fall through to osascript so the ducker
             # never silently skips a save/restore cycle.
-            log.debug(
-                "[VOLUME-MAC] CoreAudio get_state failed — using osascript"
-            )
+            log.debug("[VOLUME-MAC] CoreAudio get_state failed — using osascript")
         return self._osascript_get_state()
 
     def set_linear(self, level: float, muted: bool | None = None) -> bool:
@@ -416,9 +411,7 @@ class MacVolumeBackend(VolumeBackend):
         if self._use_coreaudio:
             if self._coreaudio_set(level, muted):
                 return True
-            log.debug(
-                "[VOLUME-MAC] CoreAudio set failed — using osascript"
-            )
+            log.debug("[VOLUME-MAC] CoreAudio set failed — using osascript")
         return self._osascript_set(level, muted)
 
     def is_speaker_active(self) -> bool:
@@ -454,19 +447,14 @@ class MacVolumeBackend(VolumeBackend):
             try:
                 dev = self._get_default_output_device()
                 if dev is None:
-                    raise RuntimeError(
-                        "could not resolve default output device"
-                    )
+                    raise RuntimeError("could not resolve default output device")
                 running = self._ca_is_device_running(dev)
                 if running is None:
-                    raise RuntimeError(
-                        "kAudioDevicePropertyDeviceIsRunning query failed"
-                    )
+                    raise RuntimeError("kAudioDevicePropertyDeviceIsRunning query failed")
                 return running
             except Exception as exc:
                 log.debug(
-                    "[VOLUME-MAC] CoreAudio is_speaker_active failed: %s — "
-                    "falling back to osascript",
+                    "[VOLUME-MAC] CoreAudio is_speaker_active failed: %s — falling back to osascript",
                     exc,
                 )
                 # Fall through to osascript check below.
@@ -486,8 +474,7 @@ class MacVolumeBackend(VolumeBackend):
             # the user is just dictating in a text editor with no media
             # app open.
             result = self._osascript_run(
-                'tell application "System Events" to get name of every process '
-                'whose background only is false',
+                'tell application "System Events" to get name of every process whose background only is false',
                 timeout=1.5,
             )
             if result is None:
@@ -497,12 +484,33 @@ class MacVolumeBackend(VolumeBackend):
             # duck.  This is conservative (we'd rather duck unnecessarily
             # than skip ducking when audio is actually playing).
             audio_apps = (
-                "spotify", "safari", "chrome", "firefox", "edge",
-                "music", "podcasts", "tv", "quicktime", "vlc",
-                "youtube", "netflix", "disney", "hbo", "plex",
-                "audible", "amazon music", "tidal", "deezer",
-                "obs", "zoom", "teams", "discord", "slack",
-                "meet", "webex", "google meet",
+                "spotify",
+                "safari",
+                "chrome",
+                "firefox",
+                "edge",
+                "music",
+                "podcasts",
+                "tv",
+                "quicktime",
+                "vlc",
+                "youtube",
+                "netflix",
+                "disney",
+                "hbo",
+                "plex",
+                "audible",
+                "amazon music",
+                "tidal",
+                "deezer",
+                "obs",
+                "zoom",
+                "teams",
+                "discord",
+                "slack",
+                "meet",
+                "webex",
+                "google meet",
             )
             lower = result.lower()
             return any(app in lower for app in audio_apps)
@@ -584,17 +592,14 @@ class MacVolumeBackend(VolumeBackend):
             )
             if status != 0:
                 log.debug(
-                    "[VOLUME-MAC] kAudioHardwarePropertyDefaultOutputDevice "
-                    "status=%d",
+                    "[VOLUME-MAC] kAudioHardwarePropertyDefaultOutputDevice status=%d",
                     status,
                 )
                 return None
             self._default_device_id = device_id.value
             return device_id.value
         except Exception as exc:
-            log.debug(
-                "[VOLUME-MAC] _get_default_output_device failed: %s", exc
-            )
+            log.debug("[VOLUME-MAC] _get_default_output_device failed: %s", exc)
             return None
 
     def _ca_is_device_running(self, dev: int) -> bool | None:
@@ -631,17 +636,14 @@ class MacVolumeBackend(VolumeBackend):
             )
             if status != 0:
                 log.debug(
-                    "[VOLUME-MAC] kAudioDevicePropertyDeviceIsRunning "
-                    "status=%d (dev=%d)",
+                    "[VOLUME-MAC] kAudioDevicePropertyDeviceIsRunning status=%d (dev=%d)",
                     status,
                     dev,
                 )
                 return None
             return is_running.value == 1
         except Exception as exc:
-            log.debug(
-                "[VOLUME-MAC] _ca_is_device_running failed: %s", exc
-            )
+            log.debug("[VOLUME-MAC] _ca_is_device_running failed: %s", exc)
             return None
 
     def _ca_get_volume(self) -> float | None:
@@ -675,8 +677,7 @@ class MacVolumeBackend(VolumeBackend):
             )
             if status != 0:
                 log.debug(
-                    "[VOLUME-MAC] kAudioHardwareServiceDeviceProperty_VirtualMasterVolume "
-                    "get status=%d",
+                    "[VOLUME-MAC] kAudioHardwareServiceDeviceProperty_VirtualMasterVolume get status=%d",
                     status,
                 )
                 return None
@@ -717,8 +718,7 @@ class MacVolumeBackend(VolumeBackend):
             )
             if status != 0:
                 log.debug(
-                    "[VOLUME-MAC] kAudioHardwareServiceDeviceProperty_VirtualMasterMute "
-                    "get status=%d",
+                    "[VOLUME-MAC] kAudioHardwareServiceDeviceProperty_VirtualMasterMute get status=%d",
                     status,
                 )
                 return None
@@ -756,8 +756,7 @@ class MacVolumeBackend(VolumeBackend):
             )
             if status != 0:
                 log.debug(
-                    "[VOLUME-MAC] kAudioHardwareServiceDeviceProperty_VirtualMasterVolume "
-                    "set status=%d",
+                    "[VOLUME-MAC] kAudioHardwareServiceDeviceProperty_VirtualMasterVolume set status=%d",
                     status,
                 )
                 return False
@@ -795,8 +794,7 @@ class MacVolumeBackend(VolumeBackend):
             )
             if status != 0:
                 log.debug(
-                    "[VOLUME-MAC] kAudioHardwareServiceDeviceProperty_VirtualMasterMute "
-                    "set status=%d",
+                    "[VOLUME-MAC] kAudioHardwareServiceDeviceProperty_VirtualMasterMute set status=%d",
                     status,
                 )
                 return False
@@ -811,7 +809,9 @@ class MacVolumeBackend(VolumeBackend):
         try:
             result = subprocess.run(
                 ["osascript", "-e", script],
-                capture_output=True, text=True, timeout=timeout,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
             )
             if result.returncode != 0:
                 log.debug("[VOLUME-MAC] osascript error: %s", result.stderr.strip())
@@ -981,9 +981,7 @@ class LinuxVolumeBackend(VolumeBackend):
 
     def _run(self, cmd: list[str], timeout: float = 2.0) -> str | None:
         try:
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=timeout
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
             if result.returncode != 0:
                 log.debug("[VOLUME-LINUX] %s error: %s", cmd[0], result.stderr.strip())
                 return None
@@ -1050,9 +1048,7 @@ class LinuxVolumeBackend(VolumeBackend):
 
     def _amixer_set(self, level: float, muted: bool | None) -> bool:
         pct = int(level * 100)
-        ok = self._run(
-            ["amixer", "-D", "default", "sset", "Master", f"{pct}%"]
-        ) is not None
+        ok = self._run(["amixer", "-D", "default", "sset", "Master", f"{pct}%"]) is not None
         if muted is not None:
             mute_val = "mute" if muted else "unmute"
             self._run(["amixer", "-D", "default", "sset", "Master", mute_val])

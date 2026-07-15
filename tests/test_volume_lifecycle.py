@@ -135,7 +135,7 @@ class FakeBackend:
         return True
 
     def get_state(self):
-        from voice_typer.server.volume_backend import VolumeState
+        from voice_typer.server.volume_backend_base import VolumeState
 
         return VolumeState(linear=self._current, muted=self._muted)
 
@@ -511,7 +511,7 @@ class TestCrashRecoveryOnStartup:
         then construct a fresh VolumeDucker and verify initialize()
         restores the saved volume."""
         from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
-        from voice_typer.server.volume_backend import VolumeState
+        from voice_typer.server.volume_backend_base import VolumeState
         from voice_typer.server.volume_ducker import VolumeDucker
 
         crash_recovery = DuckCrashRecovery(config_dir=tmp_config_dir)

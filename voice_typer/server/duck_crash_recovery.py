@@ -17,7 +17,7 @@ import json
 import logging
 from pathlib import Path
 
-from voice_typer.server.volume_backend import VolumeState
+from voice_typer.server.volume_backend_base import VolumeState
 
 log = logging.getLogger(__name__)
 
@@ -42,6 +42,7 @@ class DuckCrashRecovery:
             # the legacy ~/.voice-typer migration check) instead of the
             # previous hardcoded Path.home() / ".voice-typer".
             from voice_typer.server import _paths
+
             config_dir = _paths.config_dir()
         self._path = config_dir / _DEFAULT_FILENAME
 
@@ -63,6 +64,7 @@ class DuckCrashRecovery:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             data = {"linear": state.linear, "muted": state.muted}
             from voice_typer.server.config import _secure_atomic_write
+
             _secure_atomic_write(self._path, json.dumps(data))
         except Exception as exc:
             log.warning("[VOLUME-CRASH] Failed to persist duck state: %s", exc)
@@ -81,6 +83,7 @@ class DuckCrashRecovery:
             return None
         try:
             from voice_typer.server.config import _secure_read_text
+
             raw = _secure_read_text(self._path, encoding="utf-8")
             data = json.loads(raw)
             return VolumeState(
