@@ -16,16 +16,22 @@ on:
     - cron: "0 9 * * 1"
 
 # GAP-1: prevent two releases from racing on the same tag.
+# CI-08: add a separate concurrency group for PRs so that two pushes to
+# the same PR cancel each other (saves CI minutes). Releases keep
+# cancel-in-progress: false because a release build should never be
+# cancelled mid-flight.
 concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.ref) || format('release-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        # CI-10: pin to specific versions matching the build pipeline so
+        # tests run on the same OS/SDK/glibc that release binaries are built on.
+        os: [windows-2022, ubuntu-22.04, macos-13]
         # NEW-DOC-012: test on all supported Python versions, not just 3.12.
         python-version: ["3.10", "3.11", "3.12", "3.13"]
       fail-fast: false
@@ -199,7 +205,8 @@ jobs:
   # blockers. Posts a GitHub issue if any findings appear.
   pip-audit-weekly:
     if: github.event_name == 'schedule'
-    runs-on: ubuntu-latest
+    # CI-10: pinned to match build-linux runner
+    runs-on: ubuntu-22.04
     permissions:
       contents: read
       issues: write
@@ -249,7 +256,8 @@ jobs:
   # releases.
   slow-tests:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    # CI-10: pinned to match build-linux runner
+    runs-on: ubuntu-22.04
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -278,7 +286,8 @@ jobs:
 
   # NEW-CI-002: version sync check
   version-check:
-    runs-on: ubuntu-latest
+    # CI-10: pinned to match build-linux runner
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -300,7 +309,8 @@ jobs:
 
   # BRAND-001: branding consistency check
   branding-check:
-    runs-on: ubuntu-latest
+    # CI-10: pinned to match build-linux runner
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
@@ -315,7 +325,8 @@ jobs:
 
   # BUILD-N08: client-build job
   client-build:
-    runs-on: ubuntu-latest
+    # CI-10: pinned to match build-linux runner
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
@@ -346,15 +357,19 @@ jobs:
         working-directory: voice_typer/client
         run: npm run format:check
 
-      - name: Build renderer + main
+      # CI-05: build renderer only (platform-independent). The main +
+      # preload parts are built in each platform job since they may be
+      # platform-specific. Sharing the renderer artifact saves ~30s per
+      # platform build.
+      - name: Build renderer only
         working-directory: voice_typer/client
-        run: npm run build
+        run: npm run build:renderer
 
-      - name: Upload client build artifact
+      - name: Upload renderer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: voice-typer-client-dist
-          path: voice_typer/client/out/
+          name: voice-typer-renderer-dist
+          path: voice_typer/client/out/renderer/
 
   # GAP-1: build-native matrix job. Compiles each native key-listener
   # binary on its native platform (Swift on macOS, MSVC on Windows, gcc
@@ -410,62 +425,65 @@ jobs:
           # RW-12: record the architecture for the universal-binary merge.
           file "${{ matrix.binary }}" || true
 
-      # GAP-1 edge case: smoke test. Each platform has a different
+      # CI-06: smoke test improvements. Each platform has a different
       # expected behavior in CI (no GUI, no input devices, no
-      # Accessibility). We treat the "expected failure" as success.
+      # Accessibility). We verify the binary can start and produce the
+      # expected output with the expected exit code.
       - name: Smoke test (Linux)
         if: matrix.platform == 'linux'
         shell: bash
         run: |
           # Linux CI has no /dev/input/event* — binary should emit
           # "ERROR:No keyboard devices found" and exit 1.
-          output=$(./${{ matrix.binary }} '<caps_lock>' 2>&1 || true)
+          output=$(./${{ matrix.binary }} '<caps_lock>' 2>&1)
+          rc=$?
           echo "$output"
-          if echo "$output" | grep -q "ERROR:"; then
-            echo "Smoke test PASSED (binary ran and emitted expected ERROR)"
-          else
+          echo "Exit code: $rc"
+          if ! echo "$output" | grep -q "ERROR:"; then
             echo "ERROR: binary did not emit expected ERROR line"
             exit 1
           fi
+          if [ "$rc" -ne 1 ]; then
+            echo "ERROR: binary exited with code $rc (expected 1)"
+            exit 1
+          fi
+          echo "Smoke test PASSED (binary emitted ERROR: and exited 1)"
 
+      # CI-06: improved macOS smoke test. Sets VOICE_TYPER_SKIP_ACCESSIBILITY_CHECK
+      # to bypass the Accessibility permission check (which always fails on CI)
+      # and verify the binary emits READY within 2s (proving the event tap
+      # installed and the run loop started).
+      # Uses timeout (3s) to kill the binary after the run loop starts since
+      # macOS CI has no real keyboard events to drive the main loop.
+      # CI-06: VOICE_TYPER_SKIP_ACCESSIBILITY_CHECK=1 skips the CGEventTap
+      # (which requires Accessibility permission unavailable on CI) so the
+      # binary can reach the NSEvent monitors and emit READY.
       - name: Smoke test (macOS)
         if: startsWith(matrix.platform, 'macos')
         shell: bash
         run: |
-          # macOS CI has no Accessibility permission — binary should
-          # emit "ERROR:Accessibility permission required" and exit 1.
-          output=$(./${{ matrix.binary }} '<f2>' 2>&1 &
-          sleep 2
-          kill %1 2>/dev/null || true
-          wait 2>/dev/null || true)
+          export VOICE_TYPER_SKIP_ACCESSIBILITY_CHECK=1
+          output=$(timeout 3 ./${{ matrix.binary }} '<f2>' 2>&1 || true)
+          rc=$?
           echo "$output"
-          if echo "$output" | grep -qE "(ERROR:|READY)"; then
-            echo "Smoke test PASSED (binary ran and emitted ERROR or READY)"
+          echo "Exit code (124=timeout, 0=exited): $rc"
+          if echo "$output" | grep -q "READY"; then
+            echo "Smoke test PASSED (binary emitted READY, event monitors active)"
           else
-            echo "ERROR: binary did not emit ERROR or READY"
+            echo "ERROR: binary did not emit READY (got: $output)"
             exit 1
           fi
 
+      # CI-06: improved Windows smoke test. Starts the binary, waits for
+      # READY (proving WH_KEYBOARD_LL hook installed), then sends a
+      # synthetic CapsLock keystroke via SendInput and verifies the
+      # binary's hook callback fires (KEY_DOWN:CapsLock in stdout).
+      # See scripts/build/smoke_test_windows.ps1 for the full logic.
       - name: Smoke test (Windows)
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
-          # Windows CI: binary runs the WH_KEYBOARD_LL hook. It should
-          # start and keep running (timeout = success, crash = failure).
-          $proc = Start-Process -FilePath ".\${{ matrix.binary }}" -ArgumentList '<caps_lock>' -PassThru -NoNewWindow
-          Start-Sleep -Seconds 2
-          if ($proc.HasExited) {
-            $code = $proc.ExitCode
-            if ($code -eq 0) {
-              Write-Host "Smoke test PASSED (binary exited 0)"
-            } else {
-              Write-Error "Smoke test FAILED (binary crashed with code $code)"
-              exit 1
-            }
-          } else {
-            Write-Host "Smoke test PASSED (binary is running)"
-            Stop-Process -Id $proc.Id -Force
-          }
+          pwsh scripts/build/smoke_test_windows.ps1 ".\${{ matrix.binary }}" '<caps_lock>'
 
       # GAP-1: ad-hoc sign the macOS binary so it can be granted Accessibility.
       # RW-12: applies to both macos-x64 and macos-arm64 builds.
@@ -489,7 +507,7 @@ jobs:
   # convention for native helper tools.
   build-macos-universal:
     needs: [build-native]
-    runs-on: macos-latest
+    runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
 
@@ -533,9 +551,12 @@ jobs:
   # native binary from build-native, runs PyInstaller + Inno Setup.
   build-windows:
     needs: [test, client-build, version-check, build-native]
-    runs-on: windows-latest
+    runs-on: windows-2022
     permissions:
       contents: write
+      # CI-09: required for actions/attest-build-provenance to generate signed attestations
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v4
 
@@ -628,7 +649,8 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: ${{ steps.installer.outputs.file }}
           tag: ${{ github.ref_name }}
-          overwrite: false
+          # CI-07: overwrite=true so a re-pushed tag replaces assets
+          overwrite: true
 
       - name: Upload checksums to release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -637,7 +659,16 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: ${{ github.workspace }}/SHA256SUMS.txt
           tag: ${{ github.ref_name }}
-          overwrite: false
+          overwrite: true
+
+      # CI-09: SLSA build provenance attestation — generates a signed
+      # attestation linking the installer artifact to this workflow run.
+      # Users verify with: gh attestation verify <file> --repo owner/repo
+      - name: Attest build provenance (Windows)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: ${{ github.workspace }}/VoiceTyper-Setup-*.exe
 
   # GAP-1: build-macos. Downloads the macOS native binary, runs
   # PyInstaller + electron-builder for .dmg.
@@ -650,6 +681,9 @@ jobs:
     runs-on: macos-13
     permissions:
       contents: write
+      id-token: write
+      # CI-09: required for actions/attest-build-provenance to generate signed attestations
+      attestations: write
     steps:
       - uses: actions/checkout@v4
 
@@ -693,9 +727,23 @@ jobs:
           cache: "npm"
           cache-dependency-path: voice_typer/client/package-lock.json
 
-      - name: Install client dependencies
+      # CI-05: no standalone npm ci here — setup-node restores the
+      # node_modules cache that client-build populated, so electron-vite
+      # (needed by build:main) is already present. We only re-run the
+      # platform-specific main + preload build after downloading the
+      # shared renderer, avoiding the redundant ~200MB install per platform.
+
+      # CI-05: download the platform-independent renderer built by
+      # client-build and only rebuild the platform-specific main + preload.
+      - name: Download renderer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: voice-typer-renderer-dist
+          path: voice_typer/client/out/renderer/
+
+      - name: Build main + preload only
         working-directory: voice_typer/client
-        run: npm ci
+        run: npm run build:main
 
       - name: Build with PyInstaller
         run: |
@@ -723,7 +771,16 @@ jobs:
           file: voice_typer/client/dist/*.dmg
           tag: ${{ github.ref_name }}
           file_glob: true
-          overwrite: false
+          overwrite: true
+
+      # CI-09: SLSA build provenance attestation — generates a signed
+      # attestation linking the installer artifact to this workflow run.
+      # Users verify with: gh attestation verify <file> --repo owner/repo
+      - name: Attest build provenance (macOS)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: voice_typer/client/dist/*.dmg
 
   # GAP-1: build-linux. Downloads the Linux native binary, runs
   # PyInstaller + electron-builder for .deb / .rpm / AppImage.
@@ -732,6 +789,9 @@ jobs:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
+      id-token: write
+      # CI-09: required for actions/attest-build-provenance to generate signed attestations
+      attestations: write
     steps:
       - uses: actions/checkout@v4
 
@@ -775,9 +835,23 @@ jobs:
           cache: "npm"
           cache-dependency-path: voice_typer/client/package-lock.json
 
-      - name: Install client dependencies
+      # CI-05: no standalone npm ci here — setup-node restores the
+      # node_modules cache that client-build populated, so electron-vite
+      # (needed by build:main) is already present. We only re-run the
+      # platform-specific main + preload build after downloading the
+      # shared renderer, avoiding the redundant ~200MB install per platform.
+
+      # CI-05: download the platform-independent renderer built by
+      # client-build and only rebuild the platform-specific main + preload.
+      - name: Download renderer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: voice-typer-renderer-dist
+          path: voice_typer/client/out/renderer/
+
+      - name: Build main + preload only
         working-directory: voice_typer/client
-        run: npm ci
+        run: npm run build:main
 
       - name: Build with PyInstaller
         run: |
@@ -811,4 +885,16 @@ jobs:
           file: voice_typer/client/dist/*
           tag: ${{ github.ref_name }}
           file_glob: true
-          overwrite: false
+          overwrite: true
+
+      # CI-09: SLSA build provenance attestation — generates a signed
+      # attestation linking the installer artifacts to this workflow run.
+      # Users verify with: gh attestation verify <file> --repo owner/repo
+      - name: Attest build provenance (Linux)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: |
+            voice_typer/client/dist/*.deb
+            voice_typer/client/dist/*.rpm
+            voice_typer/client/dist/*.AppImage

@@ -22,6 +22,8 @@ _PROJECT_ROOT = Path(_spec_script).resolve().parent.parent.parent
 _corrections_json = str(_PROJECT_ROOT / "voice_typer" / "server" / "corrections.json")
 _hotkey_reserved_json = str(_PROJECT_ROOT / "voice_typer" / "server" / "hotkey_reserved.json")
 _model_hashes_json = str(_PROJECT_ROOT / "voice_typer" / "server" / "model_hashes.json")
+# MEM-03: bundled Silero VAD JIT model (loaded by vad.py via torch.jit.load)
+_silero_vad_jit = str(_PROJECT_ROOT / "voice_typer" / "server" / "silero_vad.jit")
 _icon_path = _PROJECT_ROOT / "scripts" / "build" / "voice-typer.ico"
 
 # NATIVE-001: native key-listener binaries.
@@ -110,31 +112,44 @@ _manifest_file = tempfile.NamedTemporaryFile(
 _manifest_file.write(_manifest_xml)
 _manifest_file.close()
 
-a = Analysis(
-    [str(_PROJECT_ROOT / "voice_typer" / "__main__.py")],
-    pathex=[str(_PROJECT_ROOT)],
-    binaries=_native_binaries,
-    datas=[
-        (_corrections_json, "voice_typer/server"),
-        (_hotkey_reserved_json, "voice_typer/server"),
-        (_model_hashes_json, "voice_typer/server"),
-    ]
-    + _linux_scripts,
-    hiddenimports=[
-        "scipy.signal",
-        "scipy._lib",
-        "scipy._lib._testutils",
-        "scipy.signal._arraytools",
-        "sounddevice",
-        "pynput.keyboard._win32",
-        "pynput.keyboard._darwin",
-        "pynput.keyboard._xorg",
-        "pynput.mouse._win32",
-        "pynput.mouse._darwin",
-        "pynput.mouse._xorg",
+# XPLAT-03: build the hiddenimports list with platform-specific modules
+# gated by sys.platform so PyInstaller doesn't emit warnings on platforms
+# where these modules don't exist. The platform-specific modules are
+# lazy-imported inside their respective backend classes and won't be
+# auto-detected by PyInstaller without being listed here.
+_hiddenimports = [
+    "scipy.signal",
+    "scipy._lib",
+    "scipy._lib._testutils",
+    "scipy.signal._arraytools",
+    "sounddevice",
+    "pynput.keyboard._win32",
+    "pynput.keyboard._darwin",
+    "pynput.keyboard._xorg",
+    "pynput.mouse._win32",
+    "pynput.mouse._darwin",
+    "pynput.mouse._xorg",
+    # NEW-BUILD-001: ASR engine hiddenimports (lazy-imported).
+    "voice_typer.server.parakeet_engine",
+    "voice_typer.server.qwen_engine",
+    "voice_typer.server.cloud_engines",
+    "voice_typer.server.asr_registry",
+    # NATIVE-001: native hotkey backend (lazy-imported by hotkeys.py).
+    "voice_typer.server.native_hotkeys",
+    # GAP-2: permission detection + onboarding (lazy-imported by hotkeys.py).
+    "voice_typer.server.permissions",
+    "transformers",
+    "transformers.models",
+    "accelerate",
+    "ctranslate2",
+    "tokenizers",
+    "huggingface_hub",
+]
+# XPLAT-03: add platform-specific hiddenimports
+if sys.platform == "win32":
+    _hiddenimports += [
         # Windows volume ducking — lazy-imported inside
-        # WinVolumeBackend.initialize(), so PyInstaller won't
-        # auto-detect them without these hiddenimports.
+        # WinVolumeBackend.initialize().
         "pycaw",
         "comtypes",
         "comtypes.gen",
@@ -144,25 +159,24 @@ a = Analysis(
         # bundled EXE falls back to the slower PowerShell path.
         "win32com",
         "win32com.client",
-        # macOS volume ducking — lazy-imported inside
-        # MacVolumeBackend.initialize().
-        "CoreAudio",
-        # NEW-BUILD-001: ASR engine hiddenimports (lazy-imported).
-        "voice_typer.server.parakeet_engine",
-        "voice_typer.server.qwen_engine",
-        "voice_typer.server.cloud_engines",
-        "voice_typer.server.asr_registry",
-        # NATIVE-001: native hotkey backend (lazy-imported by hotkeys.py).
-        "voice_typer.server.native_hotkeys",
-        # GAP-2: permission detection + onboarding (lazy-imported by hotkeys.py).
-        "voice_typer.server.permissions",
-        "transformers",
-        "transformers.models",
-        "accelerate",
-        "ctranslate2",
-        "tokenizers",
-        "huggingface_hub",
-    ],
+    ]
+elif sys.platform == "darwin":
+    # macOS volume ducking — lazy-imported inside
+    # MacVolumeBackend.initialize().
+    _hiddenimports += ["CoreAudio"]
+
+a = Analysis(
+    [str(_PROJECT_ROOT / "voice_typer" / "__main__.py")],
+    pathex=[str(_PROJECT_ROOT)],
+    binaries=_native_binaries,
+    datas=[
+        (_corrections_json, "voice_typer/server"),
+        (_hotkey_reserved_json, "voice_typer/server"),
+        (_model_hashes_json, "voice_typer/server"),
+        (_silero_vad_jit, "voice_typer/server"),
+    ]
+    + _linux_scripts,
+    hiddenimports=_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
