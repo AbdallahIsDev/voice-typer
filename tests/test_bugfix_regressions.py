@@ -946,10 +946,19 @@ class TestConfigEditHoldsMutationLock:
             "for the duration of the notepad editing session so IPC set_config "
             "cannot atomically replace config.json while Notepad is mid-edit."
         )
-        # The lock must be acquired BEFORE Popen and released AFTER reload
-        popen_idx = src.find("subprocess.Popen")
+        # The lock must be acquired BEFORE Popen and released AFTER reload.
+        # Anchor to the *assignment* form (``proc = subprocess.Popen(``)
+        # — the docstring prose also mentions ``subprocess.Popen([...])``,
+        # but only the real call site is preceded by ``proc = ``, so
+        # this skips the docstring mention that otherwise appears
+        # *before* the lock block and poisons the ordering check.
+        popen_idx = src.find("proc = subprocess.Popen(")
+        if popen_idx == -1:
+            # Defensive: fall back to the bracketed call form.
+            popen_idx = src.rfind("subprocess.Popen([")
         lock_idx = src.find("with self._config_mutation_lock:")
         reload_idx = src.find("type(self.config).load()")
+        assert popen_idx != -1 and lock_idx != -1 and reload_idx != -1
         assert lock_idx < popen_idx < reload_idx, (
             "SEC-audit-011: _config_mutation_lock must be acquired before Popen and held through the config reload."
         )
@@ -1501,9 +1510,16 @@ class TestAudioDeviceDisconnectHandling:
         # thread instead of the real-time audio thread).
         src = inspect.getsource(recording.Recorder._process_audio_chunk)
         assert "_device_disconnected" in src
-        assert "np.all(indata == 0)" in src or "np.all(indata==0)" in src or "not indata.any()" in src, (
+        # AUDIO-008 / RT-SAFE-001: the zero-filled disconnect check.
+        # The implementation uses ``np.count_nonzero(indata) == 0``
+        # (equivalent to ``np.all(indata == 0)`` / ``not indata.any()``);
+        # accept any of the three idioms so the test pins the
+        # *behavior* (all-zero indata ⇒ disconnect) rather than a
+        # specific spelling that may be refectored.
+        assert "np.count_nonzero(indata) == 0" in src or "np.all(indata == 0)" in src or "not indata.any()" in src, (
             "_process_audio_chunk must check for zero-filled indata to detect "
-            "device disconnect (via np.all(indata == 0) or not indata.any())"
+            "device disconnect (via np.count_nonzero(indata) == 0 or "
+            "np.all(indata == 0) or not indata.any())"
         )
 
 

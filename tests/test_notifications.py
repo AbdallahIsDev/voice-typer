@@ -128,6 +128,10 @@ class TestStoreResultFailurePromotion:
         app.config.device = "cpu"
         app.config.crash_recovery_enabled = False
         app.config.log_transcriptions = False
+        # a-review Finding 2: notify-once flags now live on ``app``
+        # (session-scoped) — explicitly seed to False so the failure
+        # path triggers the first notification.
+        app._history_fail_notified = False
         app.history_db.add_transcription.side_effect = RuntimeError("DB locked")
         app.tray.notify = MagicMock()
         pipeline._app = app
@@ -151,8 +155,10 @@ class TestApplyVocabularyTemplateNotify:
         app._vocabulary_manager = MagicMock()
         app._vocabulary_manager.apply_to_text.side_effect = RuntimeError("vocab boom")
         app.tray.notify = MagicMock()
+        # a-review Finding 2: notify-once flags now live on ``app``
+        # (session-scoped) — explicitly seed to False.
+        app._vocab_fail_notified = False
         pipeline._app = app
-        pipeline._vocab_fail_notified = False
 
         pipeline._apply_vocabulary("hello world")
 
@@ -170,8 +176,10 @@ class TestApplyVocabularyTemplateNotify:
         app._template_manager = MagicMock()
         app._template_manager.match.side_effect = RuntimeError("template boom")
         app.tray.notify = MagicMock()
+        # a-review Finding 2: notify-once flags now live on ``app``
+        # (session-scoped) — explicitly seed to False.
+        app._template_fail_notified = False
         pipeline._app = app
-        pipeline._template_fail_notified = False
 
         pipeline._apply_templates("hello world")
 

@@ -24,6 +24,7 @@ import pytest
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
+
 def _reset_module_state():
     """Reset module-level state in level_monitor between tests.
 
@@ -31,9 +32,10 @@ def _reset_module_state():
     we must reset them before each test to avoid cross-test contamination.
     """
     import voice_typer.server.level_monitor as lm
+
     lm._test_mode = False
-    lm._test_chunks = []
-    lm._test_raw_chunks = []
+    lm._test_chunks.clear()
+    lm._test_raw_chunks.clear()
     lm._test_start_time = 0.0
     lm._test_duration = 10.0
     lm._monitor_sample_rate = 16000
@@ -52,6 +54,7 @@ def _push_test_chunk(chunk: np.ndarray) -> None:
     raises ``ValueError: need at least one array to concatenate``.
     """
     import voice_typer.server.level_monitor as lm
+
     lm._test_chunks.append(chunk)
     lm._test_raw_chunks.append(chunk.copy())
 
@@ -70,6 +73,7 @@ def _decode_wav(audio_b64: str) -> tuple[int, int, np.ndarray]:
 
 # ── Fixtures ─────────────────────────────────────────────────────────
 
+
 @pytest.fixture(autouse=True)
 def reset_state():
     """Reset module state before every test."""
@@ -78,12 +82,14 @@ def reset_state():
 
 # ── Tests ────────────────────────────────────────────────────────────
 
+
 class TestIsTestActive:
     """is_test_active() lifecycle checks."""
 
     def test_initial_state_is_false(self):
         """Before any start call, no test should be active."""
         from voice_typer.server.microphone_test import is_test_active
+
         assert is_test_active() is False
 
     def test_returns_false_after_cancel(self, monkeypatch):
@@ -433,7 +439,7 @@ class TestGetLevel:
 
         # Cleanup
         lm._test_mode = False
-        lm._test_chunks = []
+        lm._test_chunks.clear()
 
     def test_get_level_reflects_recent_level(self, monkeypatch):
         """get_level must reflect the monitor's current level."""

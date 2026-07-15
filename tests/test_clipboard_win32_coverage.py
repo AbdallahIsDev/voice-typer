@@ -502,7 +502,7 @@ class TestIsPasswordFieldWindows:
         """Reset the module-level UIA singleton so each test's per-test
         comtypes mock is consulted fresh.
 
-        PERF-FIX-001 (Round 0): the UIA COM object is now a module-level
+        PERF-FIX-001: the UIA COM object is now a module-level
         singleton in clipboard.py (_UIA_SINGLETON, _UIA_MODULE,
         _UIA_SINGLETON_INIT_ATTEMPTED). Without this reset, the first
         test that triggers _get_uia_singleton() caches its fake_uia mock

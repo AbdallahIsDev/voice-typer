@@ -262,8 +262,7 @@ def _assert_concurrent_set_config_blocks(app, editor, timeout=5.0):
     editor.close_event.set()
 
     assert acquired.wait(timeout=timeout), (
-        "B-4: after the editor closes, the blocked set_config call must "
-        "proceed and acquire _config_mutation_lock."
+        "B-4: after the editor closes, the blocked set_config call must proceed and acquire _config_mutation_lock."
     )
     setter_thread.join(timeout=2.0)
     assert not setter_thread.is_alive(), "setter thread should have exited"
@@ -282,9 +281,7 @@ class TestB4MacosRuntime:
 
         def _run(args, **kwargs):
             # Verify the lock is held when subprocess.run is called.
-            assert app._config_mutation_lock._is_owned() if hasattr(
-                app._config_mutation_lock, "_is_owned"
-            ) else True, (
+            assert app._config_mutation_lock._is_owned() if hasattr(app._config_mutation_lock, "_is_owned") else True, (
                 "B-4: _config_mutation_lock must be acquired by the "
                 "current thread BEFORE subprocess.run is called on macOS."
             )
@@ -297,10 +294,7 @@ class TestB4MacosRuntime:
         thread, errors = _run_open_config_in_thread(app)
 
         # Wait for the editor to actually be opened.
-        assert editor.opened.wait(timeout=5.0), (
-            "Editor should have been launched (subprocess.run called) "
-            "within 5s."
-        )
+        assert editor.opened.wait(timeout=5.0), "Editor should have been launched (subprocess.run called) within 5s."
 
         # A concurrent set_config call must block.
         _assert_concurrent_set_config_blocks(app, editor)
@@ -308,16 +302,12 @@ class TestB4MacosRuntime:
         # The _open_config_file thread should now finish too (editor closed
         # → subprocess.run returns → reload → lock released → method exits).
         thread.join(timeout=5.0)
-        assert not thread.is_alive(), (
-            "_open_config_file should have returned after the editor closed."
-        )
+        assert not thread.is_alive(), "_open_config_file should have returned after the editor closed."
         assert errors == [], f"_open_config_file raised: {errors}"
 
         # Verify 'open -W' was used (not vanilla 'open').
         assert editor.call_args is not None
-        assert editor.call_args[0] == "open", (
-            f"Expected 'open' command, got {editor.call_args[0]!r}"
-        )
+        assert editor.call_args[0] == "open", f"Expected 'open' command, got {editor.call_args[0]!r}"
         assert "-W" in editor.call_args, (
             "B-4: macOS path must use 'open -W' so the spawn blocks until "
             f"the editor exits. Args were: {editor.call_args!r}"
@@ -337,9 +327,7 @@ class TestB4LinuxRuntime:
 
         def _run(args, **kwargs):
             # Lock must be held when subprocess.run is called.
-            assert app._config_mutation_lock._is_owned() if hasattr(
-                app._config_mutation_lock, "_is_owned"
-            ) else True, (
+            assert app._config_mutation_lock._is_owned() if hasattr(app._config_mutation_lock, "_is_owned") else True, (
                 "B-4: _config_mutation_lock must be acquired by the "
                 "current thread BEFORE subprocess.run is called on Linux."
             )
@@ -351,24 +339,17 @@ class TestB4LinuxRuntime:
 
         thread, errors = _run_open_config_in_thread(app)
 
-        assert editor.opened.wait(timeout=5.0), (
-            "Editor should have been launched (subprocess.run called) "
-            "within 5s."
-        )
+        assert editor.opened.wait(timeout=5.0), "Editor should have been launched (subprocess.run called) within 5s."
 
         _assert_concurrent_set_config_blocks(app, editor)
 
         thread.join(timeout=5.0)
-        assert not thread.is_alive(), (
-            "_open_config_file should have returned after the editor closed."
-        )
+        assert not thread.is_alive(), "_open_config_file should have returned after the editor closed."
         assert errors == [], f"_open_config_file raised: {errors}"
 
         # Verify 'xdg-open' was used.
         assert editor.call_args is not None
-        assert editor.call_args[0] == "xdg-open", (
-            f"Expected 'xdg-open' command, got {editor.call_args[0]!r}"
-        )
+        assert editor.call_args[0] == "xdg-open", f"Expected 'xdg-open' command, got {editor.call_args[0]!r}"
 
 
 class TestB4WindowsRuntime:
@@ -383,6 +364,11 @@ class TestB4WindowsRuntime:
         monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: True)
         monkeypatch.setattr("voice_typer.server.app.is_macos", lambda: False)
         monkeypatch.setattr("voice_typer.server.app.is_linux", lambda: False)
+
+        # Force the validated-Notepad fallback path so the test exercises
+        # Popen+wait under the lock instead of really launching an editor
+        # via ShellExecuteEx on the host (which would block indefinitely).
+        monkeypatch.setattr("voice_typer.server.app._windows_open_with_default_app", lambda path: None)
 
         # Make the notepad path appear to exist so we enter the
         # Popen+wait code path (instead of the os.startfile fallback).
@@ -401,11 +387,8 @@ class TestB4WindowsRuntime:
 
         def _popen(args, **kwargs):
             # Lock must be held when Popen is called.
-            assert app._config_mutation_lock._is_owned() if hasattr(
-                app._config_mutation_lock, "_is_owned"
-            ) else True, (
-                "SEC-audit-011: _config_mutation_lock must be acquired "
-                "BEFORE subprocess.Popen is called on Windows."
+            assert app._config_mutation_lock._is_owned() if hasattr(app._config_mutation_lock, "_is_owned") else True, (
+                "SEC-audit-011: _config_mutation_lock must be acquired BEFORE subprocess.Popen is called on Windows."
             )
             return _FakeProc(args)
 
@@ -413,17 +396,12 @@ class TestB4WindowsRuntime:
 
         thread, errors = _run_open_config_in_thread(app)
 
-        assert editor.opened.wait(timeout=5.0), (
-            "Editor should have been launched (subprocess.Popen called) "
-            "within 5s."
-        )
+        assert editor.opened.wait(timeout=5.0), "Editor should have been launched (subprocess.Popen called) within 5s."
 
         _assert_concurrent_set_config_blocks(app, editor)
 
         thread.join(timeout=5.0)
-        assert not thread.is_alive(), (
-            "_open_config_file should have returned after the editor closed."
-        )
+        assert not thread.is_alive(), "_open_config_file should have returned after the editor closed."
         assert errors == [], f"_open_config_file raised: {errors}"
 
 
@@ -435,9 +413,7 @@ class TestB4ReloadPicksUpDiskChanges:
     disk after every edit.
     """
 
-    def test_config_reloaded_after_macos_editor_closes(
-        self, tmp_config_dir, monkeypatch
-    ):
+    def test_config_reloaded_after_macos_editor_closes(self, tmp_config_dir, monkeypatch):
         app = _make_app(tmp_config_dir, monkeypatch)
         monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: False)
         monkeypatch.setattr("voice_typer.server.app.is_macos", lambda: True)
@@ -470,9 +446,7 @@ class TestB4ReloadPicksUpDiskChanges:
             import json
 
             config_path = app.config.config_dir / "config.json"
-            config_path.write_text(
-                json.dumps({"show_notifications": False}), encoding="utf-8"
-            )
+            config_path.write_text(json.dumps({"show_notifications": False}), encoding="utf-8")
             return result
 
         monkeypatch.setattr(_subprocess, "run", _run)
@@ -485,13 +459,11 @@ class TestB4ReloadPicksUpDiskChanges:
 
         # Config.load() must have been called after the editor closed.
         assert len(load_calls) >= 1, (
-            "B-4: Config.load() must be called after the editor closes "
-            "so the user's saved edits are picked up."
+            "B-4: Config.load() must be called after the editor closes so the user's saved edits are picked up."
         )
         # The in-memory config should now reflect the disk state.
         assert app.config.show_notifications is False, (
-            "B-4: after the editor closes, the in-memory config must "
-            "reflect the user's saved edits on disk."
+            "B-4: after the editor closes, the in-memory config must reflect the user's saved edits on disk."
         )
 
 
