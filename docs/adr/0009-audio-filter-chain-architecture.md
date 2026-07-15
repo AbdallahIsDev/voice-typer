@@ -1,9 +1,9 @@
-# ADR 0007 — Audio Filter Chain Architecture
+# ADR 0009: Audio Filter Chain Architecture
 
 **Status**: Accepted
 **Date**: 2026-06-30
 **Supersedes**: The monolithic `AudioProcessor` design (NATIVE-001 era)
-**Related**: ADR 0005 (native hotkey architecture), ADR 0006 (zero-command hotkey)
+**Related**: ADR 0007 (native hotkey architecture), ADR 0008 (zero-command hotkey)
 
 ---
 

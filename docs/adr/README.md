@@ -1,0 +1,38 @@
+# Architecture Decision Records (ADR) Index
+
+Unique, zero-padded ADR numbers — one decision per file.
+Tooling note: `adr-tools` and similar expect unique `NNNN-*.md` names; this directory now satisfies that constraint.
+
+| ADR | File | Title | Status |
+|-----|------|-------|--------|
+| 0000 | `0000-adr-process.md` | Architecture Decision Records | Accepted |
+| 0001 | `0001-record-architecture-decisions.md` | Record Architecture Decisions | Accepted |
+| 0002 | `0002-electron-migration.md` | Electron + Python Architecture | Accepted |
+| 0003 | `0003-electron-python-architecture.md` | Electron + Python Architecture | Accepted |
+| 0004 | `0004-ipc-protocol.md` | TCP IPC Protocol | Accepted |
+| 0005 | `0005-silero-vad.md` | Silero VAD Adoption | Accepted |
+| 0006 | `0006-clipboard-security.md` | Clipboard Security Approach | Accepted |
+| 0007 | `0007-native-hotkey-architecture.md` | Native subprocess hotkey architecture | Accepted |
+| 0008 | `0008-zero-command-hotkey-architecture.md` | Voice Typer — Zero-Command Hotkey Architecture Design | ? |
+| 0009 | `0009-audio-filter-chain-architecture.md` | Audio Filter Chain Architecture | ? |
+| 0010 | `0010-dependency-injection-boundary.md` | Dependency Injection Boundary for IPCServer | ? |
+| 0011 | `0011-prewarm-architecture-analysis.md` | Voice Typer — Prewarm & Autostart Architecture | ? |
+| 0012 | `0012-clipboard-borrow-restore-architecture.md` | Clipboard Borrow/Restore Architecture | ? |
+| 0013 | `0013-desktop-runtime-migration-analysis.md` | Desktop Runtime Migration to Tauri v2 + Python Sidecar | Accepted — migration in progress. Electron is retained intact as a reversible fallback until Tauri + Sidecar is proven and cut over. |
+| 0014 | `0014-tcp-ipc-session-token-auth.md` | TCP IPC Session Token Authentication (SEC-018) | Accepted — implemented in `ipc_server.py:_accept_tcp` / `_handle_tcp_connection` and `client/src/main/index.ts`. |
+| 0015 | `0015-electron-command-allowlist.md` | Electron-Side Command Allowlist (SEC-019) | Accepted — implemented in `client/src/main/index.ts:532-627`. |
+| 0016 | `0016-granular-consent-flags.md` | Granular Privacy Consent Flags (PRIV-005, PRIV-006, PRIV-009) | Accepted — implemented in `voice_typer/server/config.py` as typed boolean fields on the `Config` dataclass. |
+| 0017 | `0017-cloud-url-allowlist-https.md` | Cloud URL Allowlist with HTTPS Enforcement (RELIABILITY-004) | Accepted — implemented in `voice_typer/server/_secrets.py`. |
+| 0018 | `0018-heartbeat-watchdog.md` | Electron-Alive Heartbeat Watchdog (RW-10) | Accepted — implemented in `voice_typer/server/ipc_server.py:_heartbeat_loop`, `_check_heartbeat_timeout`, `_handle_heartbeat`, and `client/src/main/index.ts` heartbeat interval. |
+| 0019 | `0019-per-connection-rate-limiter.md` | Per-Connection Rate Limiter (RELIABILITY-006) | Accepted — implemented in `voice_typer/server/ipc_server.py` as the `_RateLimiter` class, instantiated per TCP connection in `_handle_tcp_connection`. |
+
+## Template
+
+- `template.md` — boilerplate scaffold for new ADRs (not a decision itself).
+
+## How to add a new ADR
+
+1. Copy `template.md` to `<next-number>-<kebab-title>.md` (zero-padded, hyphen separator).
+2. Set the H1 to `# ADR <next-number>: <Title>`.
+3. Set Status (Proposed / Accepted / Deprecated / Superseded).
+4. Update this index and any cross-references in other ADRs/docs.

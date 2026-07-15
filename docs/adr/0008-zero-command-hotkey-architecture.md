@@ -1,4 +1,4 @@
-# Voice Typer — Zero-Command Hotkey Architecture Design
+# ADR 0008: Voice Typer — Zero-Command Hotkey Architecture Design
 
 **Document version**: 1.0
 **Date**: 2026-06-30

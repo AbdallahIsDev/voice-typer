@@ -24,7 +24,7 @@ in this article: http://thinkrelevance.com/blog/2011/11/15/documenting-architect
 
 - Each ADR will be stored as a Markdown file in `docs/adr/`
 - ADRs are numbered sequentially starting from 0001
-- ADRs use the template in `docs/adr/0000-template.md`
+- ADRs use the template in `docs/adr/template.md`
 - Once an ADR is accepted, it is not updated; if a decision is reversed or
   modified, a new ADR is created that supersedes the previous one
 

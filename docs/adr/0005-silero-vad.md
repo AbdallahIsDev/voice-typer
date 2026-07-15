@@ -1,4 +1,4 @@
-# ADR 0003: Silero VAD Adoption
+# ADR 0005: Silero VAD Adoption
 
 ## Status
 

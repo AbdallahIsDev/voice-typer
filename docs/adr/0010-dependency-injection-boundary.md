@@ -1,8 +1,8 @@
-# ADR 0008 — Dependency Injection Boundary for IPCServer
+# ADR 0010: Dependency Injection Boundary for IPCServer
 
 **Status**: Accepted
 **Date**: 2026-07-03
-**Related**: ARCH-REFAC-004 section in `docs/ARCHITECTURE.md`, ADR 0007 (audio filter chain architecture — unrelated domain but shares the "thin seam + protocol" approach)
+**Related**: ARCH-REFAC-004 section in `docs/ARCHITECTURE.md`, ADR 0009 (audio filter chain architecture — unrelated domain but shares the "thin seam + protocol" approach)
 
 ---
 

@@ -1,4 +1,4 @@
-# ADR-0010: Clipboard Borrow/Restore Architecture
+# ADR 0012: Clipboard Borrow/Restore Architecture
 
 **Status**: Final
 **Date**: 2026-07-13

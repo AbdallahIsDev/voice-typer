@@ -748,7 +748,6 @@ class Config:
     custom_theme: dict | None = None
 
     # UX-036: Accessibility
-    high_contrast: bool = False
     text_size: int = 14
 
     # Wayland hotkey fallback warning
@@ -892,11 +891,6 @@ class Config:
     # Notch filter (50/60Hz hum) — optional, default OFF
     noise_filter_notch: bool = False
     noise_filter_notch_frequency_hz: float = 0.0  # 0 = auto-detect (60Hz Americas default)
-
-    # ─── Telemetry (PROD-001) ──────────────────────────────────────
-    # Opt-in crash reporting. When True, crash reports are written
-    # locally to the config directory. Nothing is sent remotely.
-    telemetry_enabled: bool = False
 
     # ─── P4: AI grammar / punctuation / capitalization ─────────────
     # Rule-based, offline enhancement applied AFTER LLM polish and

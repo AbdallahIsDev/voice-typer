@@ -33,6 +33,7 @@ import logging
 import os
 from typing import TYPE_CHECKING
 
+from voice_typer.server import crash_handler as _crash_handler
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.config import _config_dir
 from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
@@ -72,6 +73,52 @@ class StartupSequence:
         """
         app = self._app
         log.info("[STARTUP] Initializing: autostart, microphones, hotkey, model…")
+
+        # ── CRASH DIAGNOSTICS: check for leftover crash reports ──────
+        # The VEH handler (crash_handler.py) writes crash_diagnostics.<PID>.txt
+        # when a previous process was killed by STATUS_HEAP_CORRUPTION or
+        # another silent SEH exception.  We read them here, log them to
+        # voice-typer.log, show a notification, and delete them.
+        try:
+            crash_summary = _crash_handler.report_pending_crash(_config_dir())
+            if crash_summary:
+                # Log at WARNING so it appears prominently in voice-typer.log
+                log.warning("[STARTUP] Previous session crashed! See log lines above for full diagnostics.")
+                # NEW-UX-018: critical — bypass notification toggle so the
+                # user always sees crash alerts.
+                try:
+                    app.tray.notify_safety(
+                        f"{APP_NAME} — Previous Session Crashed",
+                        "The app was restarted automatically after "
+                        "an unexpected shutdown.\n\n"
+                        f"{crash_summary}\n\n"
+                        "To prevent this: free up RAM/disk space, "
+                        "or try a smaller model in Settings. "
+                        "See voice-typer.log for full diagnostics.",
+                    )
+                except Exception as exc:
+                    log.debug("[STARTUP] Could not show crash notification: %s", exc)
+                # Also publish an event to the in-process event bus so
+                # the Electron frontend can show an in-app notification
+                # (toast / snackbar) if the UI window is open.
+                try:
+                    from voice_typer.server import event_bus
+
+                    event_bus.publish(
+                        {
+                            "type": "electron_notification",
+                            "data": {
+                                "title": f"{APP_NAME} — Previous Session Crashed",
+                                "message": crash_summary,
+                                "duration_ms": 15000,
+                                "critical": True,
+                            },
+                        }
+                    )
+                except Exception as exc:
+                    log.debug("[STARTUP] Could not publish crash event to frontend: %s", exc)
+        except Exception as exc:
+            log.debug("[STARTUP] Crash diagnostic check failed: %s", exc)
 
         if app._shutting_down:
             log.info("[STARTUP] _shutting_down is set, aborting startup")
@@ -326,11 +373,13 @@ class StartupSequence:
         # fires at logon.  On POSIX, prewarm_scheduler_posix uses
         # RunAtLoad (macOS) or OnBootSec (Linux).
         _triggers = (
-            "boot + event (Task Scheduler XML)" if is_windows()
+            "boot + event (Task Scheduler XML)"
+            if is_windows()
             else "logon (Run-key fallback) or OnBootSec/RunAtLoad (POSIX)"
         )
         log.info(
-            "[STARTUP] Syncing prewarm task (triggers: %s)", _triggers,
+            "[STARTUP] Syncing prewarm task (triggers: %s)",
+            _triggers,
         )
 
         def _startup_parallel_work() -> None:

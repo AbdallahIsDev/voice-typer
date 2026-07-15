@@ -1,4 +1,4 @@
-# ADR 002: Electron + Python Architecture
+# ADR 0003: Electron + Python Architecture
 
 ## Status
 

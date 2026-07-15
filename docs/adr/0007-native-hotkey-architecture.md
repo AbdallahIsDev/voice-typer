@@ -1,4 +1,4 @@
-# ADR 0005: Native subprocess hotkey architecture
+# ADR 0007: Native subprocess hotkey architecture
 
 ## Status
 
@@ -202,4 +202,4 @@ is not supported and is delegated to per-platform CI runners.
   https://learn.microsoft.com/en-us/windows/win32/winmsg/lowlevelkeyboardproc
 - Linux `linux/input-event-codes.h`:
   https://github.com/torvalds/linux/blob/master/include/uapi/linux/input-event-codes.h
-- Prior ADRs: ADR 0001 (ADR process), ADR 0002 (TCP IPC protocol)
+- Prior ADRs: ADR 0000 (ADR process), ADR 0004 (TCP IPC protocol)

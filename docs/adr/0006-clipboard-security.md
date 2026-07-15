@@ -1,4 +1,4 @@
-# ADR 0004: Clipboard Security Approach
+# ADR 0006: Clipboard Security Approach
 
 ## Status
 

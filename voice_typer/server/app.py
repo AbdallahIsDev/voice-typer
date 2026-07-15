@@ -17,6 +17,9 @@ from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 
+# CRASH-HANDLER: Windows VEH + Python excepthook for silent crash diagnostics
+from voice_typer.server import crash_handler as _crash_handler
+
 # Re-exported for monkeypatch.setattr("voice_typer.server.app.X", ...) in tests
 # and for runtime lookups from voice_typer.server.startup_tasks.  # ruff: noqa: F401
 from voice_typer.server import task_scheduler
@@ -131,6 +134,12 @@ def _setup_logging():
 
     warn_if_in_container()
 
+    # ── Windows VEH + Python excepthook: capture silent crashes ─────
+    # Install BEFORE any C extensions load so the handler catches
+    # crashes inside ctranslate2 / faster-whisper / sounddevice.
+    _crash_handler.set_crash_handler_config_dir(config_dir)
+    _crash_handler.install_crash_handler()
+
 
 # ─── PLAT-008: Environment variable validation ────────────────────────
 
@@ -215,6 +224,9 @@ class VoiceTyperApp:
         # so the registry's signal-and-join runs first; the per-site
         # shutdown methods then run as a safety net (they're idempotent).
         self._thread_registry = ThreadRegistry()
+
+        # Install Python-level excepthook for unhandled Python exceptions
+        _crash_handler.install_python_excepthook()
 
         # Startup banner -- first visible log, before any subsystem init
         log.info(
@@ -983,13 +995,27 @@ class VoiceTyperApp:
     def _cancel_dictation(self):
         """#2 delegate to RecordingController.cancel().
 
-        ESC-FIX-001: If _esc_cancel_paused is True (the frontend
-        HotkeyPicker is in hotkey capture mode), the ESC cancel is a
-        no-op — the frontend owns the Escape key while capturing.
+        ESC-FIX-001: while the frontend HotkeyPicker is in hotkey capture
+        mode, the ESC cancel is a no-op — the frontend owns the Escape key
+        while capturing.
+
+        NOTE: this reads the *canonical* KeyboardOwnership state via
+        ``is_hotkey_capture_active()`` rather than the legacy
+        ``self._esc_cancel_paused`` alias. ``_esc_cancel_paused`` is only
+        written by the set_esc_cancel_paused IPC handler and could drift out
+        of sync with the real ownership (the ESC-release path resets the
+        canonical owner but relied on a frontend round-trip to clear the
+        alias). Trusting the stale alias made ESC a permanent no-op whenever
+        the two diverged — see the ESC-cancel regression fix.
         """
-        if self._esc_cancel_paused:
-            log.debug("[CANCEL] ESC cancel paused (frontend hotkey capture) — no-op")
-            return
+        try:
+            from voice_typer.server.keyboard_ownership import keyboard_ownership
+
+            if keyboard_ownership().is_hotkey_capture_active():
+                log.debug("[CANCEL] ESC cancel paused (frontend hotkey capture) — no-op")
+                return
+        except Exception:  # pragma: no cover - defensive
+            log.debug("[CANCEL] keyboard ownership check failed", exc_info=True)
         self.recording.cancel()
 
     def _toggle_autostart(self):
@@ -1164,14 +1190,6 @@ class VoiceTyperApp:
         this method now calls ``self.models.change_model`` directly.
         """
         self.models.change_model(model_size)
-
-    def change_hotkey(self, hotkey: str) -> None:
-        """TrayController protocol: change hotkey.
-
-        RW-9 Phase 2: the ``_restart_hotkey`` delegate has been removed;
-        this method now calls ``self.hotkeys.restart`` directly.
-        """
-        self.hotkeys.restart(hotkey)
 
     def quit_app(self) -> None:
         """TrayController protocol: quit the app.
@@ -1513,11 +1531,16 @@ class VoiceTyperApp:
         # by the OS and any unprocessed INSERTs are silently lost. Flushing
         # here ensures the writer drains its queue and commits all pending
         # writes before the process terminates.
+        # RELIABILITY-006-FIX-11: also close() the DB so the writer thread
+        # is joined and SQLite connections are closed cleanly. flush()
+        # already drained the queue, so the writer join in close() should
+        # be fast.
         try:
             if self.history_db is not None:
                 self.history_db.flush()
+                self.history_db.close()
         except Exception as e:
-            log.warning("[SHUTDOWN] history DB flush failed: %s", e)
+            log.warning("[SHUTDOWN] history DB flush/close failed: %s", e)
 
         # PERF-NEW-001: stop the bubble level worker so it doesn't
         # try to push to a torn-down IPC server during shutdown.

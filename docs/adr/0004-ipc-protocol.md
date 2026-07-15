@@ -1,4 +1,4 @@
-# ADR 0002: TCP IPC Protocol
+# ADR 0004: TCP IPC Protocol
 
 ## Status
 
