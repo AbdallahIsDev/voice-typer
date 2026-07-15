@@ -25,6 +25,7 @@ import pytest
 def db(tmp_path):
     """Create a HistoryDB with a temp path."""
     from voice_typer.server.history_db import HistoryDB
+
     db_instance = HistoryDB(db_path=tmp_path / "test_history.db")
     yield db_instance
     db_instance.close()
@@ -160,13 +161,6 @@ class TestHistoryDBRetention:
 
 
 class TestHistoryDBStats:
-    def test_get_stats(self, db):
-        db.add_transcription("Hello world")
-        db.flush()
-        stats = db.get_stats()
-        assert stats["total_count"] >= 1
-        assert stats["total_chars"] > 0
-
     def test_get_today_stats(self, db):
         db.add_transcription("Today's entry")
         db.flush()
@@ -194,81 +188,91 @@ class TestHistoryDbRaisesOnErrorWhenFlagSet:
 
     def test_get_recent_raises_on_error(self, db, monkeypatch):
         """Force _get_read_conn to raise; assert HistoryDBError propagates."""
+
         def _boom():
             raise RuntimeError("disk I/O error")
+
         monkeypatch.setattr(db, "_get_read_conn", _boom)
         from voice_typer.server.history_db import HistoryDBError
+
         with pytest.raises(HistoryDBError):
             db.get_recent(raise_on_error=True)
 
     def test_get_recent_returns_sentinel_without_flag(self, db, monkeypatch):
         """Without raise_on_error, the legacy [] sentinel is preserved."""
+
         def _boom():
             raise RuntimeError("disk I/O error")
+
         monkeypatch.setattr(db, "_get_read_conn", _boom)
         assert db.get_recent() == []
 
     def test_delete_raises_on_error(self, db, monkeypatch):
         def _boom(*args, **kwargs):
             raise RuntimeError("locked")
+
         monkeypatch.setattr(db, "_submit_write", _boom)
         from voice_typer.server.history_db import HistoryDBError
+
         with pytest.raises(HistoryDBError):
             db.delete(1, raise_on_error=True)
 
     def test_delete_returns_false_without_flag(self, db, monkeypatch):
         def _boom(*args, **kwargs):
             raise RuntimeError("locked")
+
         monkeypatch.setattr(db, "_submit_write", _boom)
         assert db.delete(1) is False
 
     def test_clear_all_raises_on_error(self, db, monkeypatch):
         def _boom(*args, **kwargs):
             raise RuntimeError("read-only")
+
         monkeypatch.setattr(db, "_submit_write", _boom)
         from voice_typer.server.history_db import HistoryDBError
+
         with pytest.raises(HistoryDBError):
             db.clear_all(raise_on_error=True)
 
     def test_toggle_favorite_raises_on_error(self, db, monkeypatch):
         def _boom(*args, **kwargs):
             raise RuntimeError("locked")
+
         monkeypatch.setattr(db, "_submit_write", _boom)
         from voice_typer.server.history_db import HistoryDBError
+
         with pytest.raises(HistoryDBError):
             db.toggle_favorite(1, raise_on_error=True)
 
     def test_search_raises_on_error(self, db, monkeypatch):
         def _boom():
             raise RuntimeError("locked")
+
         monkeypatch.setattr(db, "_get_read_conn", _boom)
         from voice_typer.server.history_db import HistoryDBError
+
         with pytest.raises(HistoryDBError):
             db.search("foo", raise_on_error=True)
 
     def test_get_favorites_raises_on_error(self, db, monkeypatch):
         def _boom():
             raise RuntimeError("locked")
+
         monkeypatch.setattr(db, "_get_read_conn", _boom)
         from voice_typer.server.history_db import HistoryDBError
+
         with pytest.raises(HistoryDBError):
             db.get_favorites(raise_on_error=True)
 
     def test_get_today_stats_raises_on_error(self, db, monkeypatch):
         def _boom():
             raise RuntimeError("locked")
+
         monkeypatch.setattr(db, "_get_read_conn", _boom)
         from voice_typer.server.history_db import HistoryDBError
+
         with pytest.raises(HistoryDBError):
             db.get_today_stats(raise_on_error=True)
-
-    def test_get_stats_raises_on_error(self, db, monkeypatch):
-        def _boom():
-            raise RuntimeError("locked")
-        monkeypatch.setattr(db, "_get_read_conn", _boom)
-        from voice_typer.server.history_db import HistoryDBError
-        with pytest.raises(HistoryDBError):
-            db.get_stats(raise_on_error=True)
 
 
 class TestSearchEmptyQuery:
@@ -311,21 +315,28 @@ class TestChunkedRetention:
         class CommitCountingProxy:
             def __init__(self, real):
                 self._real = real
+
             def execute(self, sql, parameters=()):
                 return self._real.execute(sql, parameters)
+
             def cursor(self):
                 return self._real.cursor()
+
             def commit(self):
                 commit_count["n"] += 1
                 return self._real.commit()
+
             def close(self):
                 return self._real.close()
+
             @property
             def row_factory(self):
                 return self._real.row_factory
+
             @row_factory.setter
             def row_factory(self, v):
                 self._real.row_factory = v
+
             def __getattr__(self, name):
                 return getattr(self._real, name)
 
@@ -344,8 +355,7 @@ class TestChunkedRetention:
             cursor = conn.cursor()
             for i in range(count):
                 cursor.execute(
-                    "INSERT INTO transcriptions (text, timestamp, favorite) "
-                    "VALUES (?, ?, ?)",
+                    "INSERT INTO transcriptions (text, timestamp, favorite) VALUES (?, ?, ?)",
                     (f"old entry {i}", old_date, favorite),
                 )
             conn.commit()
@@ -378,14 +388,12 @@ class TestChunkedRetention:
             cursor = conn.cursor()
             for i in range(5):
                 cursor.execute(
-                    "INSERT INTO transcriptions (text, timestamp, favorite) "
-                    "VALUES (?, ?, 1)",
+                    "INSERT INTO transcriptions (text, timestamp, favorite) VALUES (?, ?, 1)",
                     (f"favorite {i}", old_date),
                 )
             for i in range(5):
                 cursor.execute(
-                    "INSERT INTO transcriptions (text, timestamp, favorite) "
-                    "VALUES (?, ?, 0)",
+                    "INSERT INTO transcriptions (text, timestamp, favorite) VALUES (?, ?, 0)",
                     (f"non-favorite {i}", old_date),
                 )
             conn.commit()
@@ -410,8 +418,7 @@ class TestChunkedRetention:
                 cursor = conn.cursor()
                 for i in range(250):
                     cursor.execute(
-                        "INSERT INTO transcriptions (text, favorite) "
-                        "VALUES (?, 0)",
+                        "INSERT INTO transcriptions (text, favorite) VALUES (?, 0)",
                         (f"entry {i}",),
                     )
                 conn.commit()
@@ -465,19 +472,13 @@ class TestWriterThreadArchitecture:
 
         # No "database is locked" errors should have been logged.
         lock_errors = [
-            r for r in caplog.records
-            if "locked" in r.getMessage().lower()
-            or "busy" in r.getMessage().lower()
+            r for r in caplog.records if "locked" in r.getMessage().lower() or "busy" in r.getMessage().lower()
         ]
-        assert lock_errors == [], (
-            f"Expected no lock errors, but got: {[r.getMessage() for r in lock_errors]}"
-        )
+        assert lock_errors == [], f"Expected no lock errors, but got: {[r.getMessage() for r in lock_errors]}"
 
         # All rows should be present.
         entries = db.get_recent(limit=n_threads * n_per_thread + 10)
-        assert len(entries) == n_threads * n_per_thread, (
-            f"Expected {n_threads * n_per_thread} rows, got {len(entries)}"
-        )
+        assert len(entries) == n_threads * n_per_thread, f"Expected {n_threads * n_per_thread} rows, got {len(entries)}"
 
     def test_add_transcription_is_non_blocking(self, db):
         """Time add_transcription; assert it returns in <50ms
@@ -506,6 +507,7 @@ class TestWriterThreadArchitecture:
         that's 5 batches. The chunking prevents the WAL from growing
         unboundedly and lets external readers see progress.
         """
+
         # Insert 500 rows via the writer thread (batched insert).
         def _do_insert(conn):
             cursor = conn.cursor()
@@ -525,13 +527,9 @@ class TestWriterThreadArchitecture:
 
         # No lock errors should have been logged.
         lock_errors = [
-            r for r in caplog.records
-            if "locked" in r.getMessage().lower()
-            or "busy" in r.getMessage().lower()
+            r for r in caplog.records if "locked" in r.getMessage().lower() or "busy" in r.getMessage().lower()
         ]
-        assert lock_errors == [], (
-            f"Expected no lock errors, but got: {[r.getMessage() for r in lock_errors]}"
-        )
+        assert lock_errors == [], f"Expected no lock errors, but got: {[r.getMessage() for r in lock_errors]}"
 
         # All rows should be deleted.
         assert len(db.get_recent(limit=1000)) == 0
@@ -548,6 +546,7 @@ class TestWriterThreadArchitecture:
 
         db = HistoryDB(db_path=tmp_path / "wal_check.db")
         try:
+
             class FakeCursor:
                 def fetchone(self):
                     return ["delete"]
@@ -562,21 +561,15 @@ class TestWriterThreadArchitecture:
             # The warning must mention "WAL mode NOT enabled", the
             # actual mode ("delete"), and the DB path.
             warnings = [
-                r for r in caplog.records
-                if r.levelno == logging.WARNING
-                and "WAL mode NOT enabled" in r.getMessage()
+                r for r in caplog.records if r.levelno == logging.WARNING and "WAL mode NOT enabled" in r.getMessage()
             ]
             assert len(warnings) >= 1, (
                 "Expected a 'WAL mode NOT enabled' warning when PRAGMA returns "
                 f"non-WAL; got: {[r.getMessage() for r in caplog.records]}"
             )
             msg = warnings[0].getMessage()
-            assert "delete" in msg, (
-                f"Warning should mention the actual mode ('delete'); got: {msg}"
-            )
-            assert str(tmp_path / "wal_check.db") in msg, (
-                f"Warning should mention the DB path; got: {msg}"
-            )
+            assert "delete" in msg, f"Warning should mention the actual mode ('delete'); got: {msg}"
+            assert str(tmp_path / "wal_check.db") in msg, f"Warning should mention the DB path; got: {msg}"
         finally:
             db.close()
 
@@ -597,13 +590,10 @@ class TestWriterThreadArchitecture:
             assert mode.lower() == "wal"
 
         warnings = [
-            r for r in caplog.records
-            if r.levelno == logging.WARNING
-            and "WAL mode NOT enabled" in r.getMessage()
+            r for r in caplog.records if r.levelno == logging.WARNING and "WAL mode NOT enabled" in r.getMessage()
         ]
         assert warnings == [], (
-            "No WAL warning expected when WAL is actually enabled; got: "
-            f"{[r.getMessage() for r in warnings]}"
+            f"No WAL warning expected when WAL is actually enabled; got: {[r.getMessage() for r in warnings]}"
         )
 
     def test_writer_thread_shutdown(self, tmp_path):
@@ -619,9 +609,7 @@ class TestWriterThreadArchitecture:
         db.close()
 
         # The writer thread should have exited.
-        assert not db._writer_thread.is_alive(), (
-            "Writer thread should exit after close()"
-        )
+        assert not db._writer_thread.is_alive(), "Writer thread should exit after close()"
 
         # Verify the row was persisted (open a fresh HistoryDB on the
         # same file and read it back).

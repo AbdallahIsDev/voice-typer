@@ -1153,6 +1153,33 @@ class TestHotkeyMapping:
 
         assert app.hotkeys._esc_backend is None
 
+    def test_cancel_dictation_uses_canonical_ownership_not_legacy_flag(self, app, monkeypatch):
+        """Regression: ESC cancel must work from the canonical KeyboardOwnership
+        state, not the legacy ``_esc_cancel_paused`` alias. The alias can drift
+        out of sync (e.g. the ESC-release path resets the owner but relied on a
+        frontend round-trip to clear the alias); if a stale ``_esc_cancel_paused
+        = True`` was the gate, ESC became a permanent no-op during recording
+        even though the canonical owner was normal/recording.
+        """
+        from voice_typer.server.keyboard_ownership import keyboard_ownership
+
+        # Simulate the divergence: canonical owner is NORMAL but the legacy
+        # alias is stuck True.
+        keyboard_ownership().set_owner("normal", reason="test")
+        app._esc_cancel_paused = True
+
+        cancel_called = {"n": 0}
+        monkeypatch.setattr(app.recording, "cancel", lambda: cancel_called.__setitem__("n", cancel_called["n"] + 1))
+
+        # ESC cancel must still fire despite the stale alias.
+        app._cancel_dictation()
+        assert cancel_called["n"] == 1, "ESC cancel must fire when canonical ownership is not hotkey_capture"
+
+        # And must remain a no-op while a real capture is active.
+        keyboard_ownership().set_owner("hotkey_capture", reason="capture")
+        app._cancel_dictation()
+        assert cancel_called["n"] == 1, "ESC cancel must NOT fire during real hotkey capture"
+
 
 class TestFallbackHotkeyParser:
     """Verify parse_hotkey_to_vk correctly converts hotkey strings."""
@@ -2216,9 +2243,10 @@ class TestTrayControllerProtocolCompliance:
         "_set_notifications",
         "_select_microphone",
         # RW-9 Phase 2: ``_change_model`` and ``_restart_hotkey`` removed —
-        # the tray now calls ``change_model`` / ``change_hotkey`` (the
-        # TrayController Protocol methods), which internally invoke
-        # ``self.models.change_model`` / ``self.hotkeys.restart`` directly.
+        # the tray now calls ``change_model`` (a TrayController Protocol
+        # method) which internally invokes ``self.models.change_model``
+        # directly. Hotkey changes go through ``app.hotkeys.restart``
+        # (see service.py), not a Protocol method on the controller.
     ]
 
     def test_app_has_all_traycontroller_public_methods(self, app):

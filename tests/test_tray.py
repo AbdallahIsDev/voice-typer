@@ -70,6 +70,7 @@ class _FakeMenuItem:
 
 class _FakeIcon:
     """Record how pystray.Icon was constructed so we can assert on kwargs."""
+
     last_kwargs = {}
 
     def __init__(self, **kwargs):
@@ -100,11 +101,13 @@ def mock_heavy_imports(monkeypatch):
     monkeypatch.setitem(sys.modules, "pystray", mock_pystray)
 
     import voice_typer.server.tray as tray_mod
+
     monkeypatch.setattr(tray_mod, "pystray", mock_pystray)
 
     # #13: tray_menu.py is the new home for menu-building helpers.
     # It also imports pystray, so we need to mock it there too.
     import voice_typer.server.tray_menu as tray_menu_mod
+
     monkeypatch.setattr(tray_menu_mod, "pystray", mock_pystray)
 
     mock_pil = MagicMock()
@@ -138,9 +141,6 @@ class _MockController:
     def change_model(self, model: str) -> None:
         pass
 
-    def change_hotkey(self, hotkey: str) -> None:
-        pass
-
     def quit_app(self) -> None:
         pass
 
@@ -157,17 +157,23 @@ def tray():
     _FakeIcon.last_kwargs = {}
     controller = _MockController()
     for method_name in [
-        "toggle_dictation", "change_microphone", "change_model",
-        "change_hotkey", "quit_app",
+        "toggle_dictation",
+        "change_microphone",
+        "change_model",
+        "quit_app",
         "restart_app",
     ]:
         setattr(controller, method_name, MagicMock())
     t = TrayIcon(
         controller=controller,
         config=SimpleNamespace(
-            hotkey="<f2>", model_size="small.en", autostart=True,
-            show_notifications=True, microphone=None,
-            silence_warning_seconds=20.0, stop_on_silence_seconds=120.0,
+            hotkey="<f2>",
+            model_size="small.en",
+            autostart=True,
+            show_notifications=True,
+            microphone=None,
+            silence_warning_seconds=20.0,
+            stop_on_silence_seconds=120.0,
         ),
     )
     yield t
@@ -179,14 +185,11 @@ def tray():
 def _menu_labels(tray):
     """Helper to get menu item labels."""
     tray.start(bg_work=None)
-    return [
-        item.args[0]
-        for item in _FakeIcon.last_kwargs["menu"]()
-        if isinstance(item, _FakeMenuItem)
-    ]
+    return [item.args[0] for item in _FakeIcon.last_kwargs["menu"]() if isinstance(item, _FakeMenuItem)]
 
 
 # ─── Phase 2: Minimal menu tests ────────────────────────────────────────
+
 
 class TestTrayMenuHasMinimalOptions:
     """Phase 2: Right-click menu has only Toggle, Restart, Quit."""
@@ -251,6 +254,7 @@ class TestTrayMenuHasMinimalOptions:
 
 # ─── Regression: menu= must be a pystray.Menu instance ──────────────────
 
+
 class TestMenuIsPystrayMenuInstance:
     def test_menu_is_fake_menu_instance(self, tray):
         tray.start(bg_work=None)
@@ -267,9 +271,11 @@ class TestMenuIsPystrayMenuInstance:
 
 # ─── Threading model ────────────────────────────────────────────────────
 
+
 class TestTrayStartIsNonBlocking:
     def test_start_returns_without_blocking(self, tray):
         bg_called = []
+
         def bg_work():
             bg_called.append(True)
 
@@ -294,12 +300,14 @@ class TestTrayRunBlocksMainThread:
 class TestTrayPendingState:
     def test_state_before_run_is_queued(self, tray):
         from voice_typer.server.tray import AppState
+
         tray.set_state(AppState.LOADING, "Loading model...")
         assert len(tray._pending_states) == 1
         assert tray._pending_states[0] == (AppState.LOADING, "Loading model...")
 
     def test_pending_state_flushed_on_run(self, tray):
         from voice_typer.server.tray import AppState
+
         tray.set_state(AppState.LOADING, "Starting...")
         tray.start(bg_work=None)
         tray.run()
@@ -318,6 +326,7 @@ class TestTrayPendingState:
 
 
 # ─── Menu callable signature ────────────────────────────────────────────
+
 
 class TestMenuCallableSignature:
     def test_menu_callable_takes_zero_positional_args(self, tray):
@@ -338,6 +347,7 @@ class TestMenuCallableSignature:
 
 # ─── Integration: full start + run cycle ────────────────────────────────
 
+
 class TestFullStartRunCycle:
     def test_full_start_run_cycle_no_crash(self, tray):
         try:
@@ -348,6 +358,7 @@ class TestFullStartRunCycle:
 
 
 # ─── Notification safety ────────────────────────────────────────────────
+
 
 class TestNotifySafety:
     def test_notify_safety_bypasses_toggle(self, tray):
@@ -369,6 +380,7 @@ class TestNotifySafety:
 
 # ─── open_electron_window: TCP push + fallback ─────────────────────────
 
+
 class TestOpenElectronWindow:
     """open_electron_window() pushes show_window over TCP first, then
     falls back to Win32 focus, then to launching Electron.
@@ -382,7 +394,7 @@ class TestOpenElectronWindow:
         pushed = []
         monkeypatch.setattr(
             "voice_typer.server.event_bus.publish",
-            lambda msg: (pushed.append(msg) or True),
+            lambda msg: pushed.append(msg) or True,
         )
         tray.open_electron_window()
         assert len(pushed) == 1
@@ -396,10 +408,11 @@ class TestOpenElectronWindow:
         )
         called = []
         import voice_typer.server.tray_window as tw_mod
+
         monkeypatch.setattr(
             tw_mod,
             "bring_electron_to_front",
-            lambda: (called.append(True) or True),
+            lambda: called.append(True) or True,
         )
         tray.open_electron_window()
         assert called
@@ -411,6 +424,7 @@ class TestOpenElectronWindow:
             lambda msg: False,
         )
         import voice_typer.server.tray_window as tw_mod
+
         monkeypatch.setattr(
             tw_mod,
             "bring_electron_to_front",
@@ -420,7 +434,7 @@ class TestOpenElectronWindow:
         monkeypatch.setattr(
             subprocess,
             "Popen",
-            lambda *a, **kw: (launched.append(True) or MagicMock()),
+            lambda *a, **kw: launched.append(True) or MagicMock(),
         )
         tray.open_electron_window()
         assert launched
@@ -433,16 +447,17 @@ class TestOpenElectronWindow:
         )
         win32_called = []
         import voice_typer.server.tray_window as tw_mod
+
         monkeypatch.setattr(
             tw_mod,
             "bring_electron_to_front",
-            lambda: (win32_called.append(True) or True),
+            lambda: win32_called.append(True) or True,
         )
         launched = []
         monkeypatch.setattr(
             subprocess,
             "Popen",
-            lambda *a, **kw: (launched.append(True) or MagicMock()),
+            lambda *a, **kw: launched.append(True) or MagicMock(),
         )
         tray.open_electron_window()
         assert not win32_called
@@ -460,6 +475,7 @@ class TestBringElectronToFront:
         """On non-Windows platforms, should return False immediately."""
         monkeypatch.setattr(sys, "platform", "linux")
         from voice_typer.server.tray_window import bring_electron_to_front
+
         result = bring_electron_to_front()
         assert result is False
 
@@ -512,6 +528,7 @@ class TestWrapSystemExitHandling:
         """Non-SystemExit callbacks should still work normally."""
 
         called = []
+
         def cb():
             called.append("yes")
 
@@ -529,4 +546,3 @@ class TestWrapSystemExitHandling:
         wrapper = TrayIcon._wrap(cb_that_errors)
         with pytest.raises(RuntimeError, match="boom"):
             wrapper(icon=MagicMock(), item=MagicMock())
-

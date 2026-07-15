@@ -32,6 +32,7 @@ def bundled(tmp_path):
 def vm(vocab_dir, bundled):
     """Create a VocabularyManager with bundled data."""
     from voice_typer.server.vocabulary import VocabularyManager
+
     return VocabularyManager(config_dir=vocab_dir, bundled_path=bundled)
 
 
@@ -57,10 +58,16 @@ class TestVocabularyMerge:
     def test_user_overrides_bundled(self, vocab_dir, bundled):
         """User vocabulary should override bundled entries."""
         user_file = vocab_dir / "voice-typer-vocabulary.json"
-        user_file.write_text(json.dumps({
-            "misspellings": {"teh": "TEH (custom)"},
-        }), encoding="utf-8")
+        user_file.write_text(
+            json.dumps(
+                {
+                    "misspellings": {"teh": "TEH (custom)"},
+                }
+            ),
+            encoding="utf-8",
+        )
         from voice_typer.server.vocabulary import VocabularyManager
+
         vm = VocabularyManager(config_dir=vocab_dir, bundled_path=bundled)
         miss = vm.get_category("misspellings")
         assert miss["teh"] == "TEH (custom)"
@@ -69,10 +76,16 @@ class TestVocabularyMerge:
 
     def test_user_extends_list_category(self, vocab_dir, bundled):
         user_file = vocab_dir / "voice-typer-vocabulary.json"
-        user_file.write_text(json.dumps({
-            "phrase_corrections": [["custom phrase", "custom fix"]],
-        }), encoding="utf-8")
+        user_file.write_text(
+            json.dumps(
+                {
+                    "phrase_corrections": [["custom phrase", "custom fix"]],
+                }
+            ),
+            encoding="utf-8",
+        )
         from voice_typer.server.vocabulary import VocabularyManager
+
         vm = VocabularyManager(config_dir=vocab_dir, bundled_path=bundled)
         phrases = vm.get_category("phrase_corrections")
         assert len(phrases) >= 2  # bundled + user
@@ -147,15 +160,19 @@ class TestVocabularyImportExport:
         assert "misspellings" in data
 
     def test_import_json_merge(self, vm):
-        json_str = json.dumps({
-            "technical_terms": {"dockr": "docker"},
-        })
+        json_str = json.dumps(
+            {
+                "technical_terms": {"dockr": "docker"},
+            }
+        )
         count = vm.import_json(json_str, merge=True)
         assert count >= 1
 
     def test_import_json_replace(self, vm):
-        json_str = json.dumps({
-            "technical_terms": {"dockr": "docker"},
-        })
+        json_str = json.dumps(
+            {
+                "technical_terms": {"dockr": "docker"},
+            }
+        )
         count = vm.import_json(json_str, merge=False)
         assert count >= 1
