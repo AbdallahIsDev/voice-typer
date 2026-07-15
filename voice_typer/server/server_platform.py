@@ -11,7 +11,7 @@ from voice_typer.server import _paths
 from voice_typer.server.branding import APP_NAME
 
 if TYPE_CHECKING:  # pragma: no cover - type-checker-only
-    from voice_typer.server.volume_backend import VolumeBackend
+    from voice_typer.server.volume_backend_base import VolumeBackend
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +50,7 @@ def is_remote_session() -> bool:
     if SYSTEM == "win32":
         try:
             import ctypes
+
             # SM_REMOTESESSION = 0x1000
             result = ctypes.windll.user32.GetSystemMetrics(0x1000)
             if result:
@@ -80,7 +81,7 @@ def get_volume_backend() -> "VolumeBackend | None":
     RW-6 (pyrefly): return type tightened from ``Optional[object]`` to
     ``Optional[VolumeBackend]``. All three concrete backends
     (``WinVolumeBackend``, ``MacVolumeBackend``, ``LinuxVolumeBackend``)
-    inherit from :class:`voice_typer.server.volume_backend.VolumeBackend`,
+    inherit from :class:`voice_typer.server.volume_backend_base.VolumeBackend`,
     so the looser ``object`` annotation was both inaccurate and the
     root cause of the ``bad-assignment`` downstream in
     :mod:`voice_typer.server.volume_ducker` (``self._backend`` is typed
@@ -96,12 +97,15 @@ def get_volume_backend() -> "VolumeBackend | None":
     try:
         if SYSTEM == "win32":
             from voice_typer.server.volume_backends import WinVolumeBackend
+
             return WinVolumeBackend()
         elif SYSTEM == "darwin":
             from voice_typer.server.volume_backends import MacVolumeBackend
+
             return MacVolumeBackend()
         elif SYSTEM == "linux":
             from voice_typer.server.volume_backends import LinuxVolumeBackend
+
             return LinuxVolumeBackend()
         else:
             log.debug("[VOLUME] Unsupported platform: %s", SYSTEM)
@@ -112,6 +116,7 @@ def get_volume_backend() -> "VolumeBackend | None":
 
 
 # ─── Microphone helpers ────────────────────────────────────────────────
+
 
 def _is_non_mic_device(name: str) -> bool:
     """Return True if the device name matches a known non-microphone input pattern."""
@@ -151,6 +156,7 @@ def list_microphones() -> list[dict]:
     """
     try:
         import sounddevice as sd
+
         default_input_raw = sd.query_devices(kind="input")
         default_input = _sd_dev_as_dict(default_input_raw)
         default_index = default_input["index"] if default_input else -1
@@ -176,26 +182,28 @@ def list_microphones() -> list[dict]:
             # "Bluetooth", "HFP", or "Hands-Free" in the device name,
             # and operate at 8 or 16 kHz sample rate.
             dev_name_lower = dev["name"].lower()
-            is_bluetooth = (
-                any(kw in dev_name_lower for kw in ("bluetooth", "hfp", "hands-free"))
-                or dev.get("default_samplerate", 0) in (8000, 16000)
+            is_bluetooth = any(kw in dev_name_lower for kw in ("bluetooth", "hfp", "hands-free")) or dev.get(
+                "default_samplerate", 0
+            ) in (8000, 16000)
+            devices.append(
+                {
+                    "id": str(i),
+                    "index": i,
+                    "name": dev["name"],
+                    "host_api": host_api,
+                    "channels": dev["max_input_channels"],
+                    "default": i == default_index,
+                    "is_bluetooth": is_bluetooth,
+                }
             )
-            devices.append({
-                "id": str(i),
-                "index": i,
-                "name": dev["name"],
-                "host_api": host_api,
-                "channels": dev["max_input_channels"],
-                "default": i == default_index,
-                "is_bluetooth": is_bluetooth,
-            })
             if is_bluetooth:
                 log.warning(
                     "[PLATFORM] Bluetooth/HFP device detected: %s "
                     "(sample_rate=%s). Audio quality may be limited. "
                     "Consider disabling the hands-free telephony profile "
                     "in Bluetooth settings for better quality.",
-                    dev["name"], dev.get("default_samplerate", "?"),
+                    dev["name"],
+                    dev.get("default_samplerate", "?"),
                 )
         return devices
     except Exception:
@@ -222,6 +230,7 @@ def find_microphone_by_id(mic_id: str) -> dict | None:
 
 # ─── Autostart ─────────────────────────────────────────────────────────
 
+
 def _desktop_quote(arg: str) -> str:
     """Quote ``arg`` per the freedesktop Desktop Entry Spec's Exec rules.
 
@@ -240,16 +249,11 @@ def _desktop_quote(arg: str) -> str:
     ``C:\\Users\\John "Bob"\\app`` would corrupt the .desktop Exec
     field.  We now do proper spec-compliant quoting.
     """
-    reserved = set(' \t\n"\'\\><~|&;$*?#()')
+    reserved = set(" \t\n\"'\\><~|&;$*?#()")
     if not any(c in reserved for c in arg):
         return arg  # no quoting needed
     # Escape backslash, double-quote, backtick, dollar per spec.
-    escaped = (
-        arg.replace("\\", "\\\\")
-        .replace('"', '\\"')
-        .replace("`", "\\`")
-        .replace("$", "\\$")
-    )
+    escaped = arg.replace("\\", "\\\\").replace('"', '\\"').replace("`", "\\`").replace("$", "\\$")
     return f'"{escaped}"'
 
 
@@ -292,6 +296,7 @@ def _autostart_command() -> str:
     # import: task_scheduler imports voice_typer.server.platform_utils
     # which is in this module's dependency graph.
     from voice_typer.server.task_scheduler import _APP_AUTOSTART_DELAY_SECONDS
+
     delay_str = str(_APP_AUTOSTART_DELAY_SECONDS)
 
     # The launcher lives next to this module (voice_typer/server/).
@@ -314,12 +319,14 @@ def _autostart_command() -> str:
     if sys.prefix != sys.base_prefix:
         # We're inside a virtualenv — try to find the system Python
         import shutil
+
         base_python = "python3" if sys.platform != "win32" else "python.exe"
         system_python = shutil.which(base_python)
         if system_python:
             log.info(
                 "[AUTOSTART] Running inside venv (%s); using system Python: %s",
-                python_exe, system_python,
+                python_exe,
+                system_python,
             )
             # Replace the python binary in the args
             args = [system_python if a == python_exe else a for a in args]
@@ -337,7 +344,11 @@ def get_autostart_dir() -> Path:
     if SYSTEM == "win32":
         return (
             Path(os.environ.get("APPDATA", Path.home()))
-            / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+            / "Microsoft"
+            / "Windows"
+            / "Start Menu"
+            / "Programs"
+            / "Startup"
         )
     elif SYSTEM == "darwin":
         return Path.home() / "Library" / "LaunchAgents"
@@ -385,6 +396,7 @@ def is_autostart_enabled() -> bool:
 
 # ─── Windows ───────────────────────────────────────────────────────────
 
+
 # STARTUP-7: Task Scheduler logon trigger fires earlier and more
 # predictably than HKCU Run keys (which are gated by Windows Explorer's
 # startup sequencing). We prefer the Task Scheduler path; HKCU Run key
@@ -404,6 +416,7 @@ def _install_hash_suffix() -> str:
     try:
         import hashlib
         import sys
+
         return "_" + hashlib.sha256(sys.executable.encode()).hexdigest()[:8]
     except Exception:
         return ""
@@ -466,6 +479,7 @@ def _app_autostart_command_and_args() -> tuple[str, str]:
     PLAT-VENV: Uses system Python if running inside a virtualenv.
     """
     from voice_typer.server.task_scheduler import _APP_AUTOSTART_DELAY_SECONDS
+
     delay_str = str(_APP_AUTOSTART_DELAY_SECONDS)
 
     launcher = Path(__file__).resolve().parent / "autostart_launcher.py"
@@ -475,6 +489,7 @@ def _app_autostart_command_and_args() -> tuple[str, str]:
     # PLAT-VENV: detect virtualenv and use system Python instead
     if sys.prefix != sys.base_prefix:
         import shutil
+
         base_python = "python3" if sys.platform != "win32" else "python.exe"
         system_python = shutil.which(base_python)
         if system_python:
@@ -495,12 +510,16 @@ def _build_app_autostart_task_xml() -> str:
     _autostart_command() for the full rationale).
     """
     import xml.etree.ElementTree as ET
+
     python_exe, arguments = _app_autostart_command_and_args()
 
-    root = ET.Element("Task", {
-        "version": "1.4",
-        "xmlns": "http://schemas.microsoft.com/windows/2004/02/mit/task",
-    })
+    root = ET.Element(
+        "Task",
+        {
+            "version": "1.4",
+            "xmlns": "http://schemas.microsoft.com/windows/2004/02/mit/task",
+        },
+    )
     reg = ET.SubElement(root, "RegistrationInfo")
     desc = ET.SubElement(reg, "Description")
     desc.text = (
@@ -549,14 +568,14 @@ def _register_app_autostart_task() -> bool:
     """
     try:
         from voice_typer.server import task_scheduler
+
         if not task_scheduler.is_supported():
             return False
         xml_def = _build_app_autostart_task_xml()
         import os
         import tempfile
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".xml", delete=False, encoding="utf-8"
-        ) as tf:
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False, encoding="utf-8") as tf:
             tf.write(xml_def)
             temp_xml = tf.name
         try:
@@ -591,6 +610,7 @@ def _unregister_app_autostart_task() -> bool:
     """
     try:
         from voice_typer.server import task_scheduler
+
         if not task_scheduler.is_supported():
             return False
         rc, output = task_scheduler._schtasks(["/Delete", "/TN", _APP_AUTOSTART_TASK_NAME, "/F"], capture=True)
@@ -611,6 +631,7 @@ def _is_app_autostart_task_registered() -> bool:
     """
     try:
         from voice_typer.server import task_scheduler
+
         if not task_scheduler.is_supported():
             return False
         rc, _ = task_scheduler._schtasks(["/Query", "/TN", _APP_AUTOSTART_TASK_NAME, "/XML"])
@@ -630,6 +651,7 @@ def _run_key_name() -> str:
     cleaned up.
     """
     import hashlib
+
     install_hash = hashlib.sha256(sys.executable.encode()).hexdigest()[:8]
     return f"VoiceTyper_{install_hash}"
 
@@ -647,7 +669,8 @@ def _register_app_autostart_runkey() -> bool:
         key = winreg.OpenKey(
             winreg.HKEY_CURRENT_USER,
             r"Software\Microsoft\Windows\CurrentVersion\Run",
-            0, winreg.KEY_SET_VALUE,
+            0,
+            winreg.KEY_SET_VALUE,
         )
         try:
             cmd = _autostart_command()
@@ -658,20 +681,20 @@ def _register_app_autostart_runkey() -> bool:
 
         # PLAT-RUN: Clean stale entries whose path no longer exists
         try:
-            run_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
-                                     r"Software\Microsoft\Windows\CurrentVersion\Run",
-                                     0, winreg.KEY_ALL_ACCESS)
+            run_key = winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_ALL_ACCESS
+            )
             i = 0
             while True:
                 try:
                     name, value, _ = winreg.EnumValue(run_key, i)
                     if name.startswith("VoiceTyper") and name != reg_key_name and isinstance(value, str):
                         # Check if the path still exists
-                            exe_path = value.strip('"').split('"')[0] if '"' in value else value.split()[0]
-                            if not Path(exe_path).exists():
-                                winreg.DeleteValue(run_key, name)
-                                log.info("[AUTOSTART] Removed stale entry: %s", name)
-                                continue
+                        exe_path = value.strip('"').split('"')[0] if '"' in value else value.split()[0]
+                        if not Path(exe_path).exists():
+                            winreg.DeleteValue(run_key, name)
+                            log.info("[AUTOSTART] Removed stale entry: %s", name)
+                            continue
                     i += 1
                 except OSError:
                     break
@@ -697,7 +720,8 @@ def _unregister_app_autostart_runkey() -> bool:
         key = winreg.OpenKey(
             winreg.HKEY_CURRENT_USER,
             r"Software\Microsoft\Windows\CurrentVersion\Run",
-            0, winreg.KEY_SET_VALUE,
+            0,
+            winreg.KEY_SET_VALUE,
         )
         try:
             winreg.DeleteValue(key, reg_key_name)
@@ -723,7 +747,8 @@ def _is_app_autostart_runkey_registered() -> bool:
         key = winreg.OpenKey(
             winreg.HKEY_CURRENT_USER,
             r"Software\Microsoft\Windows\CurrentVersion\Run",
-            0, winreg.KEY_READ,
+            0,
+            winreg.KEY_READ,
         )
         try:
             val, _ = winreg.QueryValueEx(key, reg_key_name)
@@ -740,8 +765,10 @@ def _is_app_autostart_runkey_registered() -> bool:
 
 # ─── macOS ─────────────────────────────────────────────────────────────
 
+
 def _enable_autostart_macos() -> bool:
     from xml.sax.saxutils import escape
+
     plist_dir = get_autostart_dir()
     plist_dir.mkdir(parents=True, exist_ok=True)
     plist_path = plist_dir / "com.voicetyper.plist"
@@ -798,6 +825,7 @@ def _enable_autostart_macos() -> bool:
     # otherwise) the except clause would have raised UnboundLocalError
     # instead of catching the intended exception.
     import subprocess
+
     try:
         # NEW-XPLAT-005: previously ``launchctl load`` had no timeout,
         # so a hung launchd (rare but possible after a macOS upgrade
@@ -820,6 +848,7 @@ def _enable_autostart_macos() -> bool:
 
 def _disable_autostart_macos() -> bool:
     import subprocess
+
     plist_path = get_autostart_dir() / "com.voicetyper.plist"
     # Unload the running job BEFORE deleting the plist, otherwise the
     # job keeps running until next logout even though it's "disabled".
@@ -833,7 +862,10 @@ def _disable_autostart_macos() -> bool:
     ):
         with contextlib.suppress(Exception):
             subprocess.run(
-                args, check=False, capture_output=True, timeout=5,
+                args,
+                check=False,
+                capture_output=True,
+                timeout=5,
             )
     if plist_path.exists():
         plist_path.unlink()
@@ -857,6 +889,7 @@ def _is_autostart_macos() -> bool:
 
 
 # ─── Linux ─────────────────────────────────────────────────────────────
+
 
 def _enable_autostart_linux() -> bool:
     autostart_dir = get_autostart_dir()
@@ -903,8 +936,8 @@ def _is_autostart_linux() -> bool:
     return (get_autostart_dir() / "voice-typer.desktop").exists()
 
 
-
 # ─── Launcher shortcut ────────────────────────────────────────────────
+
 
 def _generate_icon_ico() -> Path | None:
     """Generate a logo .ico file for the shortcut icon.
@@ -1020,15 +1053,15 @@ def _create_lnk_shortcut(
             lines.append(f'$l.IconLocation = "{_q(icon_ico)}"')
         lines.append("$l.Save()")
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".ps1", delete=False, encoding="utf-8-sig"
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".ps1", delete=False, encoding="utf-8-sig") as f:
             f.write("\n".join(lines))
             tmp = f.name
 
         subprocess.run(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", tmp],
-            check=True, capture_output=True, timeout=30,
+            check=True,
+            capture_output=True,
+            timeout=30,
         )
         log.info("[STARTUP] .lnk created via PowerShell fallback: %s", lnk_path)
         return True
@@ -1118,15 +1151,19 @@ def create_launcher_shortcut() -> Path | None:
 def is_windows() -> bool:
     """CQ-029: Check if running on Windows."""
     import sys
+
     return sys.platform == "win32"
+
 
 def is_macos() -> bool:
     """CQ-029: Check if running on macOS."""
     import sys
+
     return sys.platform == "darwin"
+
 
 def is_linux() -> bool:
     """CQ-029: Check if running on Linux."""
     import sys
-    return sys.platform == "linux"
 
+    return sys.platform == "linux"

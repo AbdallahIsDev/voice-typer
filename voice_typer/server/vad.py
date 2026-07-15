@@ -12,11 +12,19 @@ Architecture:
 The Silero VAD model is small (~2MB) and runs in real-time on CPU.
 It is loaded lazily on first use so the app doesn't pay the import cost
 unless VAD is enabled.
+
+MEM-03: The model is now bundled locally as ``silero_vad.jit`` (next to
+this file) and loaded via ``torch.jit.load()`` instead of
+``torch.hub.load()``. This eliminates the network dependency on GitHub
+at first-use time and ensures the PyInstaller bundle is self-contained.
+Falls back to ``torch.hub.load()`` if the local model is missing
+(e.g. development mode without the bundled file, or a fresh git clone).
 """
 
 import contextlib
 import io
 import logging
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -25,6 +33,9 @@ log = logging.getLogger(__name__)
 
 # Silero VAD probability threshold — values above this are considered speech
 VAD_THRESHOLD = 0.5
+
+# MEM-03: Path to the bundled Silero VAD JIT model (next to this file)
+_VAD_MODEL_PATH = Path(__file__).resolve().parent / "silero_vad.jit"
 
 # Lazy-loaded model reference
 _model = None
@@ -35,16 +46,43 @@ def is_available() -> bool:
     """Check if Silero VAD can be loaded (torch + silero dependencies)."""
     try:
         import torch  # noqa: F401
+
         return True
     except ImportError:
         return False
 
 
+def _check_vad_available() -> bool:
+    """Cheap startup check: is Silero VAD usable WITHOUT a network round-trip?
+
+    Returns True only if torch is importable AND the bundled local model
+    file exists, so ``_load_model`` will succeed via ``torch.jit.load``
+    without ever touching GitHub. Returns False if either:
+
+      * torch is not importable (VAD entirely unavailable), or
+      * the bundled ``silero_vad.jit`` is missing — in which case
+        ``_load_model`` falls back to ``torch.hub.load``, which fails on an
+        offline / firewalled machine and silently degrades to RMS with no
+        warning at load time (detectable only via a debug log).
+
+    MEM-03: this is the helper the issue asked for — called once at
+    startup so the app can surface a warning when VAD will be unavailable
+    *before* the first dictation, rather than failing silently. It does a
+    filesystem stat only (no model load, no network), so it is safe to call
+    from ``RecordingController.__init__`` on the startup path.
+    """
+    if not is_available():
+        return False
+    return _VAD_MODEL_PATH.exists()
+
+
 def _load_model():
     """Lazily load the Silero VAD model and utils.
 
-    Uses torch.hub to download the model on first use.  Subsequent
-    calls return the cached model immediately.
+    MEM-03: Tries the local bundled ``silero_vad.jit`` first via
+    ``torch.jit.load()``. Falls back to ``torch.hub.load()`` if the
+    local file is missing (development mode without bundled model).
+    Subsequent calls return the cached model immediately.
     """
     global _model, _utils
     if _model is not None:
@@ -52,23 +90,32 @@ def _load_model():
 
     try:
         import torch
+
+        # MEM-03: try local bundled model first
+        if _VAD_MODEL_PATH.exists():
+            try:
+                log.debug("[VAD] Loading local Silero VAD model from %s", _VAD_MODEL_PATH)
+                _model = torch.jit.load(str(_VAD_MODEL_PATH))
+                _model.eval()
+                _utils = None  # JIT model bundles everything, no utils needed
+                log.info("[VAD] Silero VAD model loaded from local file")
+                return _model, _utils
+            except Exception as local_exc:
+                log.debug("[VAD] Local model load failed: %s — falling back to hub", local_exc)
+                _model = None
+
+        # Fallback: torch.hub.load (network download if no local model)
         # ERR-LINT-001 (fix): torch.hub.load writes "Using cache found in..."
         # to STDERR, not STDOUT. redirect_stdout alone doesn't catch it.
         # Redirect BOTH streams to suppress the noisy cache message.
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            # TASK-14: ``torch.hub.load`` is unannotated in the stub,
-            # so pyrefly treats the return as ``object`` and rejects
-            # the tuple-unpack below ("Type `object` is not iterable").
-            # The silero_vad entrypoint returns a ``(model, utils)``
-            # 2-tuple at runtime, so an explicit ``cast`` is the
-            # correct narrowing rather than a suppression.
             loaded: Any = torch.hub.load(
-                repo_or_dir='snakers4/silero-vad',
-                model='silero_vad',
+                repo_or_dir="snakers4/silero-vad",
+                model="silero_vad",
                 trust_repo=True,
             )
             _model, _utils = loaded
-        log.info("[VAD] Silero VAD model loaded successfully")
+        log.info("[VAD] Silero VAD model loaded via torch.hub")
         return _model, _utils
     except Exception as exc:
         log.warning("[VAD] Failed to load Silero VAD model: %s", exc)
@@ -100,6 +147,7 @@ def compute_vad_prob(audio_chunk: np.ndarray, sample_rate: int = 16000) -> float
 
     try:
         import torch
+
         # Silero expects a 1D float32 tensor
         audio_tensor = torch.from_numpy(audio_chunk).float()
         if audio_tensor.dim() > 1:
@@ -143,7 +191,7 @@ def is_speech(audio_chunk: np.ndarray, sample_rate: int = 16000) -> bool:
         return prob > VAD_THRESHOLD
 
     # Fallback: simple RMS energy check if VAD is unavailable
-    rms = float(np.sqrt(np.mean(audio_chunk ** 2)))
+    rms = float(np.sqrt(np.mean(audio_chunk**2)))
     return rms > 0.01
 
 

@@ -102,6 +102,10 @@ class DictationPipeline:
         try:
             log.info("[TRANSCRIBE] Starting transcription... (cycle=%s)", self._cycle_id)
 
+            # PRE-FLIGHT: resource health check — provides diagnostic
+            # context (RAM, disk, GPU) if a heap corruption crash occurs.
+            self._check_resources()
+
             # PERF-FIX-001: per-stage timing instrumentation.
             # Stage durations are collected and logged as a single
             # consolidated line at the end to reduce log verbosity.
@@ -278,6 +282,168 @@ class DictationPipeline:
             log.debug("[TRANSCRIBE] busy reset to False (cycle=%s)", self._cycle_id)
 
     # ── Pipeline steps ────────────────────────────────────────────
+
+    def _check_resources(self) -> None:
+        """Pre-flight health check before transcription.
+
+        Checks available RAM, disk space, and GPU memory (if CUDA)
+        and logs warnings when resources are critically low.  The
+        check is best-effort — failures are logged at DEBUG level
+        and do NOT abort the pipeline (the user may still succeed
+        even with low resources).
+
+        Exit code 0xC0000374 (STATUS_HEAP_CORRUPTION) during
+        transcription is often caused by low memory (RAM) or
+        insufficient disk space (affecting pagefile/swap).  These
+        logs help diagnose the root cause when paired with a crash.
+        """
+        import os as _os
+        from pathlib import Path as _Path
+
+        # ── RAM check ───────────────────────────────────────────────
+        free_mb: float | None = None
+        try:
+            import psutil
+
+            free_mb = psutil.virtual_memory().available / (1024 * 1024)
+        except ImportError:
+            try:
+                import ctypes
+
+                if _os.name == "nt":
+
+                    class _MEMORYSTATUSEX(ctypes.Structure):
+                        _fields_ = [
+                            ("dwLength", ctypes.c_ulong),
+                            ("dwMemoryLoad", ctypes.c_ulong),
+                            ("ullTotalPhys", ctypes.c_ulonglong),
+                            ("ullAvailPhys", ctypes.c_ulonglong),
+                            ("ullTotalPageFile", ctypes.c_ulonglong),
+                            ("ullAvailPageFile", ctypes.c_ulonglong),
+                            ("ullTotalVirtual", ctypes.c_ulonglong),
+                            ("ullAvailVirtual", ctypes.c_ulonglong),
+                            ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+                        ]
+
+                    stat = _MEMORYSTATUSEX()
+                    stat.dwLength = ctypes.sizeof(stat)
+                    ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
+                    free_mb = stat.ullAvailPhys / (1024 * 1024)
+            except Exception:
+                pass
+
+        if free_mb is not None:
+            log.info(
+                "[RESOURCE] Available RAM: %.0f MB",
+                free_mb,
+            )
+            if free_mb < 1024:
+                log.warning(
+                    "[RESOURCE] Low RAM (%.0f MB < 1024 MB) — "
+                    "heap corruption (0xC0000374) is possible during "
+                    "model inference.  Close other apps or try a "
+                    "smaller transcription model.",
+                    free_mb,
+                )
+            elif free_mb < 2048:
+                log.info(
+                    "[RESOURCE] RAM is moderate (%.0f MB) — large models may struggle.",
+                    free_mb,
+                )
+        else:
+            log.debug("[RESOURCE] Could not query available RAM")
+
+        # ── Disk space check ────────────────────────────────────────
+        # Check both the system drive (for pagefile) and the model
+        # cache drive (for model downloads).
+        drives_to_check: list[_Path] = []
+        try:
+            from voice_typer.server.config import _config_dir
+
+            config_dir = _config_dir()
+            drives_to_check.append(config_dir)
+            drives_to_check.append(_Path.home())
+            # Add the drive where the model cache lives (HF_HOME)
+            hf_home = _os.environ.get("HF_HOME")
+            if hf_home:
+                drives_to_check.append(_Path(hf_home))
+        except Exception:
+            drives_to_check.append(_Path.home())
+
+        seen_drives: set[str] = set()
+        for path in drives_to_check:
+            try:
+                drive_info = _os.statvfs(path) if hasattr(_os, "statvfs") else None
+            except Exception:
+                continue
+            if drive_info is None:
+                # Windows: use shutil.disk_usage
+                try:
+                    import shutil
+
+                    usage = shutil.disk_usage(path)
+                    free_gb = usage.free / (1024**3)
+                    # Deduplicate by mount point (same drive may appear
+                    # via multiple paths like home dir + config dir)
+                    drive_key = str(path.resolve())
+                    if drive_key in seen_drives:
+                        continue
+                    seen_drives.add(drive_key)
+                    log.info(
+                        "[RESOURCE] Disk free on %s: %.1f GB",
+                        path,
+                        free_gb,
+                    )
+                    if free_gb < 1.0:
+                        log.warning(
+                            "[RESOURCE] Critically low disk space on %s "
+                            "(%.1f GB < 1 GB) — heap corruption is possible "
+                            "if the system pagefile cannot grow.  Free up "
+                            "disk space or move the model cache to a "
+                            "drive with more free space.",
+                            path,
+                            free_gb,
+                        )
+                except Exception:
+                    continue
+            else:
+                # POSIX: use statvfs
+                free_gb = (drive_info.f_bavail * drive_info.f_frsize) / (1024**3)
+                log.info(
+                    "[RESOURCE] Disk free: %.1f GB",
+                    free_gb,
+                )
+                if free_gb < 1.0:
+                    log.warning(
+                        "[RESOURCE] Critically low disk space (%.1f GB) — heap corruption risk for pagefile.",
+                        free_gb,
+                    )
+
+        # ── GPU memory check (if CUDA) ──────────────────────────────
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                allocated = torch.cuda.memory_allocated() / (1024**2)
+                reserved = torch.cuda.memory_reserved() / (1024**2)
+                total = torch.cuda.get_device_properties(0).total_memory / (1024**2)
+                free_gpu = total - allocated
+                log.info(
+                    "[RESOURCE] GPU memory: %.0f MB allocated, %.0f MB reserved, %.0f MB free (total %.0f MB)",
+                    allocated,
+                    reserved,
+                    free_gpu,
+                    total,
+                )
+                if free_gpu < 512:
+                    log.warning(
+                        "[RESOURCE] Low GPU memory (%.0f MB free) — CUDA out-of-memory errors are likely.",
+                        free_gpu,
+                    )
+        except (ImportError, Exception):
+            pass
+
+        log.debug("[RESOURCE] Pre-flight health check complete")
 
     def _transcribe(self) -> str:
         """Step 1: Get transcription via streaming finalize or direct."""

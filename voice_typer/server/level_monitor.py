@@ -43,8 +43,8 @@ _monitor_lock = threading.Lock()
 # has no inline stubs.
 _monitor_stream: Any | None = None  # sounddevice.InputStream
 _monitor_active: bool = False
-_monitor_level: float = 0.0   # smoothed RMS (0-1)
-_monitor_peak: float = 0.0    # smoothed peak (0-1)
+_monitor_level: float = 0.0  # smoothed RMS (0-1)
+_monitor_peak: float = 0.0  # smoothed peak (0-1)
 _monitor_sample_rate: int = 16000
 _monitor_mic_id: str | None = None  # device this stream is on
 
@@ -76,6 +76,7 @@ _test_silence_blocks: int = 0
 
 # ── Public API: monitoring ──────────────────────────────────────────
 
+
 def is_monitoring() -> bool:
     """Return True if the continuous level monitor is active.
 
@@ -97,7 +98,11 @@ def get_level() -> dict:
     """
     with _monitor_lock:
         return {
-            "level": min(1.0, _monitor_level * 5),
+            # MULT-8: increased from *5 to *8 so low-level ambient sounds
+            # (ambient noise, mic taps) produce a visible bar response.
+            # The bubble's visualizer uses the same *8 multiplier in
+            # rmsToNorm().
+            "level": min(1.0, _monitor_level * 8),
             "peak": _monitor_peak,
             "active": _monitor_active,
         }
@@ -229,15 +234,13 @@ def start_monitoring(mic_id: str | None = None) -> dict:
                     # processor is active, so the bar reflects what the
                     # user hears after filtering, not the raw mic input.
                     if _level_processor is not None:
-                        filtered = _level_processor.process_chunk(
-                            indata.reshape(-1, 1)
-                        )
+                        filtered = _level_processor.process_chunk(indata.reshape(-1, 1))
                         flat_filtered = filtered.ravel()
                         abs_flat = np.abs(flat_filtered)
-                        rms = float(np.sqrt(np.mean(flat_filtered ** 2)))
+                        rms = float(np.sqrt(np.mean(flat_filtered**2)))
                     else:
                         abs_flat = np.abs(flat)
-                        rms = float(np.sqrt(np.mean(flat ** 2)))
+                        rms = float(np.sqrt(np.mean(flat**2)))
                     peak = float(abs_flat.max())
                     # Smooth with exponential moving average
                     _monitor_level = (_monitor_level * 0.6) + (rms * 0.4)
@@ -251,7 +254,7 @@ def start_monitoring(mic_id: str | None = None) -> dict:
                     # Track quality metrics from RAW audio (not filtered)
                     # so the quality report reflects the true mic input
                     # independent of any active filter settings.
-                    raw_rms_for_quality = float(np.sqrt(np.mean(np.square(flat.astype(np.float64)))))
+                    raw_rms_for_quality = float(np.sqrt(np.mean(np.square(flat.astype(np.float32)))))
                     raw_peak_for_quality = float(np.abs(flat).max())
                     _test_chunks.append(indata.copy())
                     _test_raw_chunks.append(indata.copy())
@@ -278,7 +281,8 @@ def start_monitoring(mic_id: str | None = None) -> dict:
 
             log.info(
                 "[LEVEL-MON] Monitoring started: mic=%s, sr=%d",
-                mic_id or "default", native_rate,
+                mic_id or "default",
+                native_rate,
             )
             return {
                 "success": True,
@@ -328,6 +332,7 @@ def stop_monitoring() -> dict:
 
 
 # ── Public API: test recording ──────────────────────────────────────
+
 
 def is_test_active() -> bool:
     """Return True if a microphone test is currently recording.
@@ -400,7 +405,8 @@ def start_test_recording(
 
             log.info(
                 "[LEVEL-MON] Test recording started: mic=%s, duration=%.1fs",
-                _monitor_mic_id or "default", _test_duration,
+                _monitor_mic_id or "default",
+                _test_duration,
             )
             return {
                 "success": True,
@@ -445,7 +451,8 @@ def start_test_recording(
 
         log.info(
             "[LEVEL-MON] Test recording started: mic=%s, duration=%.1fs",
-            _monitor_mic_id or "default", _test_duration,
+            _monitor_mic_id or "default",
+            _test_duration,
         )
         return {
             "success": True,
@@ -534,7 +541,7 @@ def stop_test_recording() -> dict:
 
     # ── Compute quality metrics from raw audio ──────────────────────
     raw_abs = np.abs(raw_audio)
-    raw_rms = float(np.sqrt(np.mean(np.square(raw_audio.astype(np.float64)))))
+    raw_rms = float(np.sqrt(np.mean(np.square(raw_audio.astype(np.float32)))))
     raw_peak = float(raw_abs.max())
 
     # TASK-14: annotate ``quality`` as ``dict[str, Any]`` so that
@@ -608,7 +615,7 @@ def stop_test_recording() -> dict:
             block_size = 1024
             processed_parts = []
             for i in range(0, len(audio), block_size):
-                block = audio[i:i + block_size]
+                block = audio[i : i + block_size]
                 processed_parts.append(processor.process_chunk(block))
             non_null = [p for p in processed_parts if p is not None]
             processed = np.concatenate(non_null) if non_null else audio
@@ -622,13 +629,12 @@ def stop_test_recording() -> dict:
                 )
                 audio = processed
         except Exception as exc:
-            log.warning(
-                "[LEVEL-MON] Filter application failed (using raw audio): %s", exc
-            )
+            log.warning("[LEVEL-MON] Filter application failed (using raw audio): %s", exc)
 
     # ── Encode processed audio as WAV ───────────────────────────────
     audio_int16 = (audio * 32767).astype(np.int16)
     import wave
+
     buf = io.BytesIO()
     with wave.open(buf, "wb") as wf:
         wf.setnchannels(1)
@@ -732,10 +738,12 @@ def _do_auto_stop_test():
     try:
         from voice_typer.server import event_bus
 
-        event_bus.publish({
-            "type": "microphone_test_complete",
-            "data": {"duration": _test_duration},
-        })
+        event_bus.publish(
+            {
+                "type": "microphone_test_complete",
+                "data": {"duration": _test_duration},
+            }
+        )
     except Exception:
         pass
 

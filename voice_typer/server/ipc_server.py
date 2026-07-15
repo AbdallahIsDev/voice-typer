@@ -160,12 +160,19 @@ def _pick_available_port(start: int = 9876, max_tries: int = 100) -> int:
 # bounded number of messages per window.  Over-budget messages are
 # dropped (with an error response) rather than dispatched.
 #
-# The limits are intentionally generous (60 msg/s sustained, 200 msg
-# burst) — a well-behaved Electron client sends maybe 1-5 msg/s.
+# The limits are intentionally generous — a well-behaved Electron client
+# sends maybe 1-5 msg/s.
+#
+# RELIABILITY-006-FIX-10: ``burst`` (200) is the hard per-second cap; a
+# client that sends >200 messages in any 1-second window is throttled.
+# ``sustained`` (600) is measured over a 10-second window (60 msg/s
+# average) so short bursts within 1s (up to 200) are NOT throttled by
+# the sustained limit. Previously both used a 1s window with
+# sustained=60 < burst=200, making burst completely unreachable.
 
-_RATE_LIMIT_WINDOW_SECONDS = 1.0
+_RATE_LIMIT_WINDOW_SECONDS = 10.0
 _RATE_LIMIT_BURST = 200
-_RATE_LIMIT_SUSTAINED = 60  # per second
+_RATE_LIMIT_SUSTAINED = 600  # 60 msg/s average over 10s window
 
 # NEW-CONC-003: write timeout for TCP sendall.  A stalled Electron
 # renderer (e.g. GC pause, dev-tools inspection, or a busy main thread)
@@ -245,15 +252,13 @@ class _RateLimiter:
             # Evict timestamps older than the window
             while self._timestamps and self._timestamps[0] < cutoff:
                 self._timestamps.popleft()
-            # Reject if we're at the burst cap or would exceed the
-            # sustained rate.
+            # RELIABILITY-006-FIX-10: burst check first (hard per-second
+            # cap). Sustained check second (longer window, lower average).
+            # With window=10s, burst=200, sustained=600, a client can
+            # send 200 msgs in 1s without hitting the sustained limit.
             if len(self._timestamps) >= self._burst:
                 return False
             if len(self._timestamps) >= self._sustained:
-                # Allow bursts up to ``burst``, but if we've already
-                # hit the sustained rate within the window, reject.
-                # This prevents a slow trickle from saturating the
-                # dispatcher indefinitely.
                 return False
             self._timestamps.append(ts)
             return True
@@ -371,40 +376,14 @@ def _sanitize_config_for_ipc(config) -> dict:
 # ``voice_typer.server.event_bus``.  Domain modules should call
 # ``event_bus.publish(event)`` directly; the names here are kept so
 # existing lazy imports (``from voice_typer.server.ipc_server import
-# _push_event_now``) and tests that manipulate the registry set
-# directly (``ipc_server._push_event_registry.clear()``) continue to
+# directly (``ipc_server._push_event_now``) and tests that manipulate the
+# registry set directly (``event_bus._subscribers.clear()``) continue to
 # work.  The shims reference the SAME underlying set and lock objects
 # as ``event_bus._subscribers`` / ``event_bus._lock`` so manipulating
 # one affects the other.
-_push_event_registry: "set[typing.Callable[[dict], None]]" = (
-    event_bus._subscribers  # same object — mutating one mutates both
-)
-_push_event_registry_lock = event_bus._lock  # same RLock object
-
-
-def _set_push_event(fn) -> None:
-    """Register *fn* as an active push target.
-
-    B-1: thin shim over ``event_bus.subscribe``.  Domain code should
-    call ``event_bus.subscribe`` directly; this function is preserved
-    so existing lazy imports and tests continue to work.
-
-    NEW-IPC-013: now operates on a registry instead of a single global
-    callable.  Safe to call from multiple IPCServer instances in the
-    same process.
-    """
-    event_bus.subscribe(fn)
-
-
-def _clear_push_event(fn) -> None:
-    """Unregister *fn* from the active push target set.
-
-    B-1: thin shim over ``event_bus.unsubscribe``.
-
-    Used by IPCServer.stop() to remove its own push callable without
-    affecting other registered servers.
-    """
-    event_bus.unsubscribe(fn)
+# B-1 FIX-12: the _push_event_registry/_push_event_registry_lock aliases and
+# _set_push_event/_clear_push_event shims have been removed.  Domain code and
+# tests now call ``event_bus.subscribe`` / ``event_bus.unsubscribe`` directly.
 
 
 def _push_event_now(msg: dict) -> bool:
@@ -645,9 +624,7 @@ class IPCServer(
         # of stomping a single global.  We track our own push callable
         # so stop() can unregister just ours without affecting other
         # active servers.
-        # B-1: subscribe through the event_bus directly; the
-        # _set_push_event shim is kept for back-compat with tests that
-        # call it explicitly.
+        # B-1: subscribe through the event_bus directly.
         self._push_fn = self.push
         event_bus.subscribe(self._push_fn)
         self._hook_tray_set_state()
@@ -734,8 +711,7 @@ class IPCServer(
         self._running = False
         # Unregister our push callable.  Other servers in the registry
         # are unaffected.
-        # B-1: unsubscribe through the event_bus directly; the
-        # _clear_push_event shim is kept for back-compat with tests.
+        # B-1: unsubscribe through the event_bus directly.
         push_fn = getattr(self, "_push_fn", None)
         if push_fn is not None:
             event_bus.unsubscribe(push_fn)
@@ -1710,10 +1686,58 @@ def main() -> None:
     except Exception:
         pass  # Not available on all platforms
 
+    # NEW-DOC-006: parse arguments BEFORE acquiring the single-instance
+    # lock, so ``--version`` works even when another instance is running
+    # (mirrors voice_typer.__main__, which parses args before app.main()).
+    import argparse
+    import importlib.metadata
+    import os
+
     from voice_typer.server.app import VoiceTyperApp, _ensure_single_instance, _setup_logging
     from voice_typer.server.config import _config_dir
 
+    try:
+        _pkg_version = importlib.metadata.version("voice-typer")
+    except Exception:
+        _pkg_version = "1.0.0"
+
+    parser = argparse.ArgumentParser(
+        prog="voice_typer.server.ipc_server",
+        description="Voice Typer IPC server (spawned by Electron)",
+        add_help=False,  # we add --help manually to avoid conflict with app
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        metavar="N",
+        help="TCP port to listen on (1..65535). If omitted, uses stdin/stdout IPC.",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {_pkg_version}",
+        help="Show version and exit.",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        default=False,
+        help="Enable debug logging to the console.",
+    )
+    args, _unknown = parser.parse_known_args(sys.argv[1:])
+    if args.debug:
+        os.environ["VOICE_TYPER_DEBUG"] = "1"
+    port = args.port
+    if port is not None and not (1 <= port <= 65535):
+        print(f"Invalid port: {port} (must be 1..65535)", file=sys.stderr)
+        sys.exit(EXIT_BAD_ARGS)
+
     _setup_logging()
+
+    # NEW-DOC-006: single-instance lock is acquired AFTER args are parsed
+    # but BEFORE app construction (which stores the mutex handle).  The
+    # lock is still taken for real launches (both standalone and --port IPC).
     _single_instance_mutex = _ensure_single_instance(silent=True)
 
     # NEW-SEC-015: the os._exit monkey-patch that printed a stack trace
@@ -1751,31 +1775,6 @@ def main() -> None:
     # PLAT-HLEAK: store the mutex handle on the app instance so
     # quit() can CloseHandle it on shutdown
     app._mutex_handle = _single_instance_mutex
-
-    # NEW-CLI-002: use argparse for --port instead of hand-rolled
-    # sys.argv walk. Supports --port=N and --port N, validates the
-    # port range (1..65535), and emits --help. Previously a typo in
-    # a wrapper script (e.g. --port with no value as the last arg)
-    # silently started Python in stdin/stdout mode.
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        prog="voice_typer.server.ipc_server",
-        description="Voice Typer IPC server (spawned by Electron)",
-        add_help=False,  # we add --help manually to avoid conflict with app
-    )
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=None,
-        metavar="N",
-        help="TCP port to listen on (1..65535). If omitted, uses stdin/stdout IPC.",
-    )
-    args, _unknown = parser.parse_known_args(sys.argv[1:])
-    port = args.port
-    if port is not None and not (1 <= port <= 65535):
-        print(f"Invalid port: {port} (must be 1..65535)", file=sys.stderr)
-        sys.exit(EXIT_BAD_ARGS)
 
     # ARCH-REFAC-004: use the providers.build_ipc_server composition
     # root instead of constructing IPCServer directly.  Behavior is

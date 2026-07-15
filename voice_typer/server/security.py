@@ -35,10 +35,15 @@ def generate_restart_token() -> str:
     token = secrets.token_hex(16)
     try:
         from voice_typer.server.config import _config_dir, _secure_atomic_write
+
         token_path = _config_dir() / ".restart_token"
         _secure_atomic_write(token_path, token)
-    except Exception:
-        pass
+    except Exception as exc:
+        # SEC-001: fail-closed by design (do not surface the error to a
+        # potential attacker). DEBUG is invisible at default log levels but
+        # available to operators running with --debug / LOG_LEVEL=DEBUG so
+        # a permissions issue or misconfigured config dir is diagnosable.
+        log.debug("generate_restart_token failed: %s", exc)
     return token
 
 
@@ -58,6 +63,7 @@ def verify_restart_token() -> bool:
         return False
     try:
         from voice_typer.server.config import _config_dir, _secure_read_text
+
         token_path = _config_dir() / ".restart_token"
         if not token_path.exists():
             return False
@@ -65,7 +71,13 @@ def verify_restart_token() -> bool:
         stored = _secure_read_text(token_path, encoding="utf-8").strip()
         # Constant-time comparison to prevent timing attacks
         return hmac.compare_digest(stored, env_val)
-    except Exception:
+    except Exception as exc:
+        # SEC-001: fail-closed by design (do not reveal *why* to a
+        # potential attacker). DEBUG is invisible at default log levels but
+        # available to operators running with --debug / LOG_LEVEL=DEBUG so
+        # a misconfigured config dir, permissions issue on .restart_token,
+        # or corrupted token file is distinguishable from a wrong token.
+        log.debug("verify_restart_token failed: %s", exc)
         return False
 
 
@@ -73,9 +85,11 @@ def consume_restart_token() -> None:
     """Delete the restart token file after successful verification."""
     try:
         from voice_typer.server.config import _config_dir
+
         (_config_dir() / ".restart_token").unlink(missing_ok=True)
-    except Exception:
-        pass
+    except Exception as exc:
+        # SEC-001: fail-closed by design. DEBUG only — see verify_restart_token.
+        log.debug("consume_restart_token failed: %s", exc)
 
 
 # ─── SEC-009: PII Redaction Filter ──────────────────────────────────────
@@ -142,13 +156,13 @@ class PIIRedactionFilter(logging.Filter):
 
     _PATTERNS: list[tuple[re.Pattern[str], str]] = [
         # Email addresses
-        (re.compile(r'\b[\w.+-]+@[\w-]+\.[\w.-]+\b'), '[EMAIL]'),
+        (re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b"), "[EMAIL]"),
         # Phone numbers (various formats)
-        (re.compile(r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b'), '[PHONE]'),
+        (re.compile(r"\b\d{3}[-.]?\d{3}[-.]?\d{4}\b"), "[PHONE]"),
         # SSN-like patterns
-        (re.compile(r'\b\d{3}-\d{2}-\d{4}\b'), '[SSN]'),
+        (re.compile(r"\b\d{3}-\d{2}-\d{4}\b"), "[SSN]"),
         # Credit card-like patterns
-        (re.compile(r'\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b'), '[CC]'),
+        (re.compile(r"\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b"), "[CC]"),
     ]
 
     def filter(self, record: logging.LogRecord) -> bool:
@@ -412,7 +426,8 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
             if not file_path.exists():
                 log.warning(
                     "[SECURITY] Model integrity: pinned file %s missing in %s",
-                    filename, local_dir,
+                    filename,
+                    local_dir,
                 )
                 return False
             actual_hash = compute_file_sha256(file_path)
@@ -420,12 +435,15 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
                 log.warning(
                     "[SECURITY] Model integrity: hash mismatch for %s in %s "
                     "(expected %s..., got %s...) — refusing to load tampered model",
-                    filename, local_dir,
-                    expected_hash[:16], actual_hash[:16],
+                    filename,
+                    local_dir,
+                    expected_hash[:16],
+                    actual_hash[:16],
                 )
                 return False
-        log.info("[SECURITY] Model integrity check passed for %s (%d pinned files verified)",
-                 repo_id, len(pinned_files))
+        log.info(
+            "[SECURITY] Model integrity check passed for %s (%d pinned files verified)", repo_id, len(pinned_files)
+        )
     else:
         # No pinned hashes — log computed hashes for future audit.
         # This is a soft pass; the structural checks above are the
@@ -440,9 +458,9 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
         # checks above are still enforced).
         log.warning(
             "[SECURITY] Model integrity check is a NO-OP for %s — "
-            "model_hashes.json has empty \"files\" dict for this repo. "
+            'model_hashes.json has empty "files" dict for this repo. '
             "Computed hashes are logged below; copy them into "
-            "model_hashes.json under the repo's \"files\" field to "
+            'model_hashes.json under the repo\'s "files" field to '
             "enable enforcement on the next run.",
             repo_id,
         )
@@ -473,4 +491,3 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
 # The single canonical implementation is ``redact_pii(text)`` (above)
 # and the ``PIIRedactionFilter`` class (also above) which uses the same
 # compiled patterns. Use one of those two APIs for any new call site.
-

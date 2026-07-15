@@ -108,6 +108,7 @@ class MockApp:
         # __init__; MockApp must do the same so the IPC handler doesn't
         # AttributeError.
         import threading
+
         self._config_mutation_lock = threading.RLock()
         # RW-9 Phase 2: service.apply_config_side_effects now calls
         # `app.hotkeys.register_esc()` / `unregister_esc()` /
@@ -174,8 +175,10 @@ class TestDispatchToggleDictation:
 
     def test_exception_returns_error_response(self, server, mock_app):
         """toggle_dictation raising an exception should return error, not crash."""
+
         def failing_toggle():
             raise RuntimeError("toggle failed")
+
         mock_app.toggle_dictation = failing_toggle
         result = server._dispatch({"id": 1, "type": "toggle_dictation"})
         assert result["type"] == "error"
@@ -195,11 +198,13 @@ class TestDispatchGetConfig:
 
 class TestDispatchSetConfig:
     def test_updates_config_and_returns_ack(self, server, mock_app):
-        result = server._dispatch({
-            "id": 1,
-            "type": "set_config",
-            "data": {"hotkey": "<f3>", "model_size": "medium.en"},
-        })
+        result = server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"hotkey": "<f3>", "model_size": "medium.en"},
+            }
+        )
         assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         assert mock_app.config.hotkey == "<f3>"
         assert mock_app.config.model_size == "medium.en"
@@ -207,11 +212,13 @@ class TestDispatchSetConfig:
 
     def test_empty_data_still_saves_and_acks(self, server, mock_app):
         mock_app.config._saved = False
-        result = server._dispatch({
-            "id": 1,
-            "type": "set_config",
-            "data": {},
-        })
+        result = server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {},
+            }
+        )
         assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         assert mock_app.config._saved is True
 
@@ -219,21 +226,25 @@ class TestDispatchSetConfig:
         """NEW-IPC-005: set_config with no data field must return an error,
         not silently succeed with {type: "ack"}."""
         mock_app.config._saved = False
-        result = server._dispatch({
-            "id": 1,
-            "type": "set_config",
-        })
+        result = server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+            }
+        )
         assert result["type"] == "error"
         assert "data: object" in result["data"]["message"]
         assert mock_app.config._saved is False
 
     def test_ignores_unknown_fields_without_crashing(self, server, mock_app):
         """set_config with unknown fields should not crash."""
-        result = server._dispatch({
-            "id": 1,
-            "type": "set_config",
-            "data": {"nonexistent_field": "nope"},
-        })
+        result = server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"nonexistent_field": "nope"},
+            }
+        )
         assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         assert mock_app.config._saved is True
 
@@ -241,11 +252,13 @@ class TestDispatchSetConfig:
         """NEW-IPC-005: set_config with non-dict data must return an error,
         not silently succeed with {type: "ack"}."""
         mock_app.config._saved = False
-        result = server._dispatch({
-            "id": 1,
-            "type": "set_config",
-            "data": "bad",
-        })
+        result = server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": "bad",
+            }
+        )
         assert result["type"] == "error"
         assert "data: object" in result["data"]["message"]
         # Config must NOT have been saved
@@ -263,11 +276,13 @@ class TestDispatchEscCancelLive:
         mock_app.hotkeys.register_esc = MagicMock()
         mock_app.hotkeys.unregister_esc = MagicMock()
 
-        result = server._dispatch({
-            "id": 1,
-            "type": "set_config",
-            "data": {"esc_cancel_enabled": True},
-        })
+        result = server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"esc_cancel_enabled": True},
+            }
+        )
         assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         mock_app.hotkeys.register_esc.assert_called_once()
         mock_app.hotkeys.unregister_esc.assert_not_called()
@@ -278,11 +293,13 @@ class TestDispatchEscCancelLive:
         mock_app.hotkeys.register_esc = MagicMock()
         mock_app.hotkeys.unregister_esc = MagicMock()
 
-        result = server._dispatch({
-            "id": 1,
-            "type": "set_config",
-            "data": {"esc_cancel_enabled": False},
-        })
+        result = server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"esc_cancel_enabled": False},
+            }
+        )
         assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         mock_app.hotkeys.unregister_esc.assert_called_once()
         mock_app.hotkeys.register_esc.assert_not_called()
@@ -301,11 +318,13 @@ class TestDispatchEscCancelLive:
         # RW-9 Phase 2: service now calls `app.hotkeys.register_repaste()` directly.
         mock_app.hotkeys.register_repaste = MagicMock()
 
-        result = server._dispatch({
-            "id": 1,
-            "type": "set_config",
-            "data": {"repaste_hotkey": "<ctrl>+<alt>+v"},
-        })
+        result = server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"repaste_hotkey": "<ctrl>+<alt>+v"},
+            }
+        )
         assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         mock_app.hotkeys.register_repaste.assert_called_once()
 
@@ -326,6 +345,7 @@ class TestDispatchSetConfigAllowlist:
         """Real Config instance with save() patched to a no-op (we don't
         want IPC tests touching the user's ~/.voice-typer directory)."""
         from voice_typer.server import config as config_module
+
         monkeypatch.setattr(config_module, "_config_dir", lambda: tmp_path)
         cfg = config_module.Config()
         cfg.save = MagicMock(return_value=True)
@@ -349,10 +369,13 @@ class TestDispatchSetConfigAllowlist:
     def test_rejects_schema_version_even_though_it_exists(self, real_server, real_config):
         """schema_version is on Config but must NOT be mutable via IPC."""
         original = real_config.schema_version
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"schema_version": 999},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"schema_version": 999},
+            }
+        )
         # Silent drop — preserves the existing "unknown field" contract.
         assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         assert real_config.schema_version == original
@@ -360,10 +383,13 @@ class TestDispatchSetConfigAllowlist:
     def test_rejects_internal_state_field_wayland_warned(self, real_server, real_config):
         """wayland_warned is internal state, not user-tunable."""
         original = real_config.wayland_warned
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"wayland_warned": True},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"wayland_warned": True},
+            }
+        )
         assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         assert real_config.wayland_warned == original
 
@@ -371,20 +397,26 @@ class TestDispatchSetConfigAllowlist:
         """onboarding_completed is set by the dedicated complete_onboarding IPC,
         not by set_config."""
         original = real_config.onboarding_completed
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"onboarding_completed": True},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"onboarding_completed": True},
+            }
+        )
         assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         assert real_config.onboarding_completed == original
 
     def test_rejects_trusted_path_field_qwen_model_path(self, real_server, real_config):
         """qwen_model_path is a trusted-path field (set by model download flow)."""
         original = real_config.qwen_model_path
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"qwen_model_path": "/etc/passwd"},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"qwen_model_path": "/etc/passwd"},
+            }
+        )
         assert result["type"] == "ack"
         # NEW-IPC-015: rejected keys are now echoed in data
         assert "qwen_model_path" in result.get("data", {}).get("rejected", [])
@@ -393,10 +425,13 @@ class TestDispatchSetConfigAllowlist:
     def test_rejects_trusted_path_field_parakeet_model_path(self, real_server, real_config):
         """parakeet_model_path is a trusted-path field."""
         original = real_config.parakeet_model_path
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"parakeet_model_path": "/tmp/evil"},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"parakeet_model_path": "/tmp/evil"},
+            }
+        )
         assert result["type"] == "ack"
         assert "parakeet_model_path" in result.get("data", {}).get("rejected", [])
         assert real_config.parakeet_model_path == original
@@ -404,10 +439,13 @@ class TestDispatchSetConfigAllowlist:
     def test_rejects_trusted_path_field_corrections_path(self, real_server, real_config):
         """corrections_path is a trusted-path field (set by file picker)."""
         original = real_config.corrections_path
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"corrections_path": "/tmp/evil.json"},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"corrections_path": "/tmp/evil.json"},
+            }
+        )
         assert result["type"] == "ack"
         assert "corrections_path" in result.get("data", {}).get("rejected", [])
         assert real_config.corrections_path == original
@@ -417,10 +455,13 @@ class TestDispatchSetConfigAllowlist:
     def test_rejects_bool_field_with_string_value(self, real_server, real_config):
         """autostart is a bool; sending "true" must be rejected, not coerced."""
         original = real_config.autostart
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"autostart": "true"},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"autostart": "true"},
+            }
+        )
         assert result["type"] == "error"
         assert "autostart" in result["data"]["message"]
         assert real_config.autostart == original  # unchanged
@@ -430,108 +471,144 @@ class TestDispatchSetConfigAllowlist:
         """Python bool is a subclass of int — guard against 1/0 being silently
         accepted as a bool."""
         original = real_config.autostart
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"autostart": 1},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"autostart": 1},
+            }
+        )
         assert result["type"] == "error"
         assert real_config.autostart == original
 
     def test_rejects_int_field_with_bool_value(self, real_server, real_config):
         """max_recording_time_seconds is an int; True must not silently become 1."""
         original = real_config.max_recording_time_seconds
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"max_recording_time_seconds": True},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"max_recording_time_seconds": True},
+            }
+        )
         assert result["type"] == "error"
         assert real_config.max_recording_time_seconds == original
 
     def test_rejects_int_field_with_string_value(self, real_server, real_config):
         """Int field with a string value must be rejected (no silent coercion)."""
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"max_recording_time_seconds": "60"},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"max_recording_time_seconds": "60"},
+            }
+        )
         assert result["type"] == "error"
 
     def test_rejects_str_field_with_int_value(self, real_server, real_config):
         """hotkey is a str; sending an int must be rejected."""
         original = real_config.hotkey
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"hotkey": 123},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"hotkey": 123},
+            }
+        )
         assert result["type"] == "error"
         assert real_config.hotkey == original
 
     def test_rejects_optional_str_field_with_int_value(self, real_server, real_config):
         """microphone is Optional[str]; int must be rejected. None is OK."""
         original = real_config.microphone
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"microphone": 42},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"microphone": 42},
+            }
+        )
         assert result["type"] == "error"
         assert real_config.microphone == original
 
     def test_accepts_none_for_optional_str_field(self, real_server, real_config):
         """microphone=None is the documented 'system default' value."""
         real_config.microphone = "device-1"
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"microphone": None},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"microphone": None},
+            }
+        )
         assert result["type"] == "ack"
         assert real_config.microphone is None
 
     def test_rejects_float_field_with_string_value(self, real_server, real_config):
         """stop_on_silence_seconds is a float; string must be rejected."""
         original = real_config.stop_on_silence_seconds
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"stop_on_silence_seconds": "120"},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"stop_on_silence_seconds": "120"},
+            }
+        )
         assert result["type"] == "error"
         assert real_config.stop_on_silence_seconds == original
 
     def test_accepts_int_for_float_field(self, real_server, real_config):
         """Python int is a valid float value (numeric tower)."""
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"stop_on_silence_seconds": 120},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"stop_on_silence_seconds": 120},
+            }
+        )
         assert result["type"] == "ack"
         assert real_config.stop_on_silence_seconds == 120
 
     # ── Range validation ─────────────────────────────────────────────
 
     def test_rejects_negative_silence_warning_seconds(self, real_server, real_config):
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"silence_warning_seconds": -1.0},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"silence_warning_seconds": -1.0},
+            }
+        )
         assert result["type"] == "error"
 
     def test_rejects_oversized_silence_warning_seconds(self, real_server, real_config):
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"silence_warning_seconds": 1_000_000.0},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"silence_warning_seconds": 1_000_000.0},
+            }
+        )
         assert result["type"] == "error"
 
     def test_rejects_negative_max_recording_time_seconds(self, real_server, real_config):
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"max_recording_time_seconds": -5},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"max_recording_time_seconds": -5},
+            }
+        )
         assert result["type"] == "error"
 
     def test_rejects_oversized_max_recording_time_seconds(self, real_server, real_config):
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"max_recording_time_seconds": 10**9},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"max_recording_time_seconds": 10**9},
+            }
+        )
         assert result["type"] == "error"
 
     # ── Enum validation ──────────────────────────────────────────────
@@ -539,96 +616,132 @@ class TestDispatchSetConfigAllowlist:
     def test_rejects_invalid_model_size(self, real_server, real_config):
         """model_size must be in ALLOWED_USER_MODELS — 'large' is not."""
         original = real_config.model_size
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"model_size": "large"},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"model_size": "large"},
+            }
+        )
         assert result["type"] == "error"
         assert real_config.model_size == original
 
     def test_accepts_valid_model_size(self, real_server, real_config):
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"model_size": "tiny.en"},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"model_size": "tiny.en"},
+            }
+        )
         assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         assert real_config.model_size == "tiny.en"
 
     def test_rejects_invalid_asr_backend(self, real_server, real_config):
         original = real_config.asr_backend
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"asr_backend": "malicious_backend"},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"asr_backend": "malicious_backend"},
+            }
+        )
         assert result["type"] == "error"
         assert real_config.asr_backend == original
 
     def test_rejects_invalid_recording_mode(self, real_server, real_config):
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"recording_mode": "always"},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"recording_mode": "always"},
+            }
+        )
         assert result["type"] == "error"
 
     def test_rejects_invalid_theme_mode(self, real_server, real_config):
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"theme_mode": "neon"},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"theme_mode": "neon"},
+            }
+        )
         assert result["type"] == "error"
 
     def test_rejects_invalid_tray_left_click_action(self, real_server, real_config):
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"tray_left_click_action": "do_nothing"},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"tray_left_click_action": "do_nothing"},
+            }
+        )
         assert result["type"] == "error"
 
     def test_rejects_invalid_bubble_position(self, real_server, real_config):
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"bubble_position": "left"},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"bubble_position": "left"},
+            }
+        )
         assert result["type"] == "error"
 
     def test_rejects_invalid_bubble_behavior(self, real_server, real_config):
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"bubble_behavior": "sometimes"},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"bubble_behavior": "sometimes"},
+            }
+        )
         assert result["type"] == "error"
 
     def test_rejects_invalid_llm_preset(self, real_server, real_config):
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"llm_preset": "shakespeare"},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"llm_preset": "shakespeare"},
+            }
+        )
         assert result["type"] == "error"
 
     # ── String length cap ────────────────────────────────────────────
 
     def test_rejects_oversized_string_field(self, real_server, real_config):
         """Defend against pathological inputs (e.g. 10 MB hotkey string)."""
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"hotkey": "x" * 100_000},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"hotkey": "x" * 100_000},
+            }
+        )
         assert result["type"] == "error"
 
     def test_rejects_oversized_api_key(self, real_server, real_config):
         """API keys have a generous but bounded cap."""
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"openai_api_key": "sk-" + "x" * 100_000},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"openai_api_key": "sk-" + "x" * 100_000},
+            }
+        )
         assert result["type"] == "error"
 
     def test_rejects_oversized_llm_api_url(self, real_server, real_config):
         """LLM API URL has a sane cap."""
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"llm_api_url": "https://example.com/" + "x" * 100_000},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"llm_api_url": "https://example.com/" + "x" * 100_000},
+            }
+        )
         assert result["type"] == "error"
 
     # ── URL scheme validation (defense against SEC-002 exfiltration) ─
@@ -636,25 +749,68 @@ class TestDispatchSetConfigAllowlist:
     def test_rejects_llm_api_url_with_javascript_scheme(self, real_server, real_config):
         """A javascript: URL would be a nonsense value but we reject any
         non-http(s) scheme to make the policy explicit."""
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"llm_api_url": "javascript:alert(1)"},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"llm_api_url": "javascript:alert(1)"},
+            }
+        )
         assert result["type"] == "error"
 
     def test_rejects_cloud_api_url_with_file_scheme(self, real_server, real_config):
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"cloud_api_url": "file:///etc/passwd"},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"cloud_api_url": "file:///etc/passwd"},
+            }
+        )
         assert result["type"] == "error"
 
     def test_accepts_https_llm_api_url(self, real_server, real_config):
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"llm_api_url": "https://api.openai.com/v1/chat/completions"},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"llm_api_url": "https://api.openai.com/v1/chat/completions"},
+            }
+        )
         assert result["type"] == "ack"  # NEW-IPC-015: may include data field
+
+    def test_rejects_http_llm_api_url_non_loopback(self, real_server, real_config):
+        """NEW-SEC-003 defense-in-depth: a cleartext HTTP URL for a public
+        host must be rejected at set_config time, not only at call time."""
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"llm_api_url": "http://example.com/v1/chat/completions"},
+            }
+        )
+        assert result["type"] == "error"
+
+    def test_accepts_http_llm_api_url_loopback(self, real_server, real_config):
+        """Loopback HTTP is still permitted (local dev servers)."""
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"llm_api_url": "http://localhost:11434/v1/chat/completions"},
+            }
+        )
+        assert result["type"] == "ack"
+
+    def test_rejects_http_cloud_api_url_non_loopback(self, real_server, real_config):
+        """Same cleartext-HTTP rejection for the cloud ASR endpoint."""
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"cloud_api_url": "http://attacker.example.net/audio/transcriptions"},
+            }
+        )
+        assert result["type"] == "error"
 
     # ── All-or-nothing on multi-field payloads ───────────────────────
 
@@ -662,13 +818,16 @@ class TestDispatchSetConfigAllowlist:
         """If one field is invalid, NO field should be applied (atomicity)."""
         original_hotkey = real_config.hotkey
         original_autostart = real_config.autostart
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {
-                "hotkey": "<f4>",       # valid
-                "autostart": "yes",     # invalid (wrong type)
-            },
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {
+                    "hotkey": "<f4>",  # valid
+                    "autostart": "yes",  # invalid (wrong type)
+                },
+            }
+        )
         assert result["type"] == "error"
         # Neither field should have been applied
         assert real_config.hotkey == original_hotkey
@@ -676,14 +835,17 @@ class TestDispatchSetConfigAllowlist:
         real_config.save.assert_not_called()
 
     def test_multi_field_payload_applies_all_when_all_valid(self, real_server, real_config):
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {
-                "hotkey": "<f4>",
-                "autostart": False,
-                "language": "fr",
-            },
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {
+                    "hotkey": "<f4>",
+                    "autostart": False,
+                    "language": "fr",
+                },
+            }
+        )
         assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         assert real_config.hotkey == "<f4>"
         assert real_config.autostart is False
@@ -699,12 +861,16 @@ class TestDispatchSetConfigAllowlist:
         is unregistered immediately (no restart needed).
         """
         from voice_typer.server import startup_tasks
+
         sync_prewarm_mock = MagicMock()
         monkeypatch.setattr(startup_tasks, "sync_prewarm_task", sync_prewarm_mock)
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"fast_startup": False},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"fast_startup": False},
+            }
+        )
         assert result["type"] == "ack"
         # Config field should now be set.
         assert real_config.fast_startup is False
@@ -715,30 +881,40 @@ class TestDispatchSetConfigAllowlist:
     def test_side_effect_autostart_fires_on_autostart_change(self, real_server, real_config, monkeypatch):
         # RW-9 Phase 2: service now calls `startup_tasks.sync_autostart(app)` directly.
         from voice_typer.server import startup_tasks
+
         sync_autostart_mock = MagicMock()
         monkeypatch.setattr(startup_tasks, "sync_autostart", sync_autostart_mock)
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"autostart": False},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"autostart": False},
+            }
+        )
         assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         sync_autostart_mock.assert_called_once()
 
     def test_side_effect_esc_hotkey_fires_on_esc_cancel_enabled(self, real_server, real_config):
         real_config.esc_cancel_enabled = False
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"esc_cancel_enabled": True},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"esc_cancel_enabled": True},
+            }
+        )
         assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         # RW-9 Phase 2: service now calls `app.hotkeys.register_esc()` directly.
         real_server.app.hotkeys.register_esc.assert_called_once()
 
     def test_side_effect_repaste_fires_on_repaste_hotkey(self, real_server, real_config):
-        result = real_server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"repaste_hotkey": "<ctrl>+<alt>+v"},
-        })
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"repaste_hotkey": "<ctrl>+<alt>+v"},
+            }
+        )
         assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         # RW-9 Phase 2: service now calls `app.hotkeys.register_repaste()` directly.
         real_server.app.hotkeys.register_repaste.assert_called_once()
@@ -754,11 +930,13 @@ class TestDispatchGetHistory:
 
     def test_passes_limit_param(self, server, mock_app):
         mock_app.history_db.get_recent = MagicMock(return_value=[])
-        server._dispatch({
-            "id": 1,
-            "type": "get_history",
-            "data": {"limit": 10},
-        })
+        server._dispatch(
+            {
+                "id": 1,
+                "type": "get_history",
+                "data": {"limit": 10},
+            }
+        )
         mock_app.history_db.get_recent.assert_called_with(10, 0, raise_on_error=True)
 
     def test_default_limit_is_50(self, server, mock_app):
@@ -804,6 +982,7 @@ class TestDispatchGetVolumeBackendStatus:
         assert data["supports_per_session"] is False
         # is_windows reflects the test runner's platform
         import sys as _sys
+
         assert data["is_windows"] == (_sys.platform == "win32")
 
     def test_calls_initialize_to_detect_backend(self, server, mock_app):
@@ -901,9 +1080,7 @@ class TestRunLoop:
 
     def test_processes_multiple_commands(self, server, mock_app):
         stdin = io.StringIO(
-            '{"type":"get_status","id":1}\n'
-            '{"type":"toggle_dictation","id":2}\n'
-            '{"type":"get_config","id":3}\n'
+            '{"type":"get_status","id":1}\n{"type":"toggle_dictation","id":2}\n{"type":"get_config","id":3}\n'
         )
         stdout = io.StringIO()
         server._running = True
@@ -925,11 +1102,7 @@ class TestRunLoop:
         assert mock_app.toggle_called is True
 
     def test_handles_empty_lines(self, server):
-        stdin = io.StringIO(
-            '\n'
-            '   \n'
-            '{"type":"get_status","id":1}\n'
-        )
+        stdin = io.StringIO('\n   \n{"type":"get_status","id":1}\n')
         stdout = io.StringIO()
         server._running = True
         server._run(_stdin=stdin, _stdout=stdout)
@@ -948,9 +1121,7 @@ class TestRunLoop:
 
     def test_stop_breaks_loop(self, server):
         """stop() should cause _run() to exit without writing output."""
-        stdin = io.StringIO(
-            '{"type":"get_status","id":1}\n'
-        )
+        stdin = io.StringIO('{"type":"get_status","id":1}\n')
         stdout = io.StringIO()
         server._running = True
         server.stop()  # set _running = False before loop runs
@@ -984,10 +1155,7 @@ class TestRunLoopRestartQuit:
 
     def test_unknown_last_command_does_not_block(self, server):
         """Unknown commands should produce an error and continue."""
-        stdin = io.StringIO(
-            '{"type":"unknown","id":1}\n'
-            '{"type":"get_status","id":2}\n'
-        )
+        stdin = io.StringIO('{"type":"unknown","id":1}\n{"type":"get_status","id":2}\n')
         stdout = io.StringIO()
         server._running = True
         server._run(_stdin=stdin, _stdout=stdout)
@@ -1007,10 +1175,12 @@ class TestPushEvents:
     def test_push_sends_unsolicited_message(self, server):
         server._send = MagicMock()
         server.push({"type": "status_change", "data": {"status": "recording"}})
-        server._send.assert_called_once_with({
-            "type": "status_change",
-            "data": {"status": "recording"},
-        })
+        server._send.assert_called_once_with(
+            {
+                "type": "status_change",
+                "data": {"status": "recording"},
+            }
+        )
 
     def test_tray_set_state_triggers_push(self, server, mock_app):
         server._send = MagicMock()
@@ -1073,10 +1243,7 @@ class TestErrorHandling:
 
     def test_command_error_does_not_kill_loop(self, server):
         """An unknown command returns an error but the loop continues."""
-        stdin = io.StringIO(
-            '{"type":"nope","id":1}\n'
-            '{"type":"get_status","id":2}\n'
-        )
+        stdin = io.StringIO('{"type":"nope","id":1}\n{"type":"get_status","id":2}\n')
         stdout = io.StringIO()
         server._running = True
         server._run(_stdin=stdin, _stdout=stdout)
@@ -1103,6 +1270,7 @@ class TestPushEventNow:
     def test_returns_false_when_no_server(self, monkeypatch):
         """With no active push function, should return False."""
         import voice_typer.server.ipc_server as ipc_mod
+
         # Snapshot and clear the registry so the test sees an empty
         # state; restore it on the way out so other tests aren't affected.
         with ipc_mod._push_event_registry_lock:
@@ -1120,6 +1288,7 @@ class TestPushEventNow:
         server._send = MagicMock()
         server.start()
         import voice_typer.server.ipc_server as ipc_mod
+
         result = ipc_mod._push_event_now({"type": "show_window"})
         assert result is True
         server.stop()
@@ -1130,6 +1299,7 @@ class TestPushEventNow:
         server._send = MagicMock()
         server.start()
         import voice_typer.server.ipc_server as ipc_mod
+
         ipc_mod._push_event_now({"type": "show_window"})
         # _push_event_now delegates to server.push → _send
         server._send.assert_called()
@@ -1143,8 +1313,10 @@ class TestPushEventNow:
         because no other registered fn delivered the event.
         """
         import voice_typer.server.ipc_server as ipc_mod
+
         def broken_fn(msg):
             raise RuntimeError("broken")
+
         ipc_mod._set_push_event(broken_fn)
         try:
             result = ipc_mod._push_event_now({"type": "show_window"})
@@ -1169,6 +1341,7 @@ class TestRateLimiter:
 
     def test_allows_messages_under_burst_limit(self):
         from voice_typer.server.ipc_server import _RateLimiter
+
         rl = _RateLimiter(burst=10, sustained_per_sec=10, window=1.0)
         # All 10 messages within the same second should be allowed
         for _ in range(10):
@@ -1176,6 +1349,7 @@ class TestRateLimiter:
 
     def test_rejects_messages_over_burst_limit(self):
         from voice_typer.server.ipc_server import _RateLimiter
+
         rl = _RateLimiter(burst=10, sustained_per_sec=10, window=1.0)
         for _ in range(10):
             rl.allow(now=0.0)
@@ -1184,6 +1358,7 @@ class TestRateLimiter:
 
     def test_window_slides_with_time(self):
         from voice_typer.server.ipc_server import _RateLimiter
+
         rl = _RateLimiter(burst=5, sustained_per_sec=5, window=1.0)
         # Use up the budget at t=0
         for _ in range(5):
@@ -1197,6 +1372,7 @@ class TestRateLimiter:
         """Even if the burst limit is high, the sustained rate caps
         the per-second throughput."""
         from voice_typer.server.ipc_server import _RateLimiter
+
         rl = _RateLimiter(burst=200, sustained_per_sec=5, window=1.0)
         # First 5 are allowed (sustained rate)
         for _ in range(5):
@@ -1206,6 +1382,7 @@ class TestRateLimiter:
 
     def test_reject_counter_tracks_rejections(self):
         from voice_typer.server.ipc_server import _RateLimiter
+
         rl = _RateLimiter(burst=2, sustained_per_sec=2, window=1.0)
         for _ in range(2):
             rl.allow(now=0.0)
@@ -1218,6 +1395,7 @@ class TestRateLimiter:
         """Multiple threads calling allow() concurrently should not
         corrupt the limiter state."""
         from voice_typer.server.ipc_server import _RateLimiter
+
         rl = _RateLimiter(burst=1000, sustained_per_sec=1000, window=1.0)
         accepted = []
         rejected = []
@@ -1320,6 +1498,7 @@ class TestGetConfigRedactsSecrets:
             def __init__(self):
                 self.hotkey = "<f2>"
                 # No cloud_api_key attribute at all
+
         cfg = MinimalConfig()
         result = _sanitize_config_for_ipc(cfg)
         assert result["hotkey"] == "<f2>"
@@ -1338,28 +1517,37 @@ class TestTrustedPathFieldsBlockedInSetConfig:
 
     def test_corrections_path_silently_dropped(self, server, mock_app):
         mock_app.config.corrections_path = None
-        result = server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"corrections_path": "/etc/passwd"},
-        })
+        result = server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"corrections_path": "/etc/passwd"},
+            }
+        )
         assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         assert mock_app.config.corrections_path is None  # unchanged
 
     def test_qwen_model_path_silently_dropped(self, server, mock_app):
         mock_app.config.qwen_model_path = None
-        result = server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"qwen_model_path": "/tmp/poisoned-model"},
-        })
+        result = server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"qwen_model_path": "/tmp/poisoned-model"},
+            }
+        )
         assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         assert mock_app.config.qwen_model_path is None  # unchanged
 
     def test_parakeet_model_path_silently_dropped(self, server, mock_app):
         mock_app.config.parakeet_model_path = None
-        result = server._dispatch({
-            "id": 1, "type": "set_config",
-            "data": {"parakeet_model_path": "/tmp/poisoned-parakeet"},
-        })
+        result = server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"parakeet_model_path": "/tmp/poisoned-parakeet"},
+            }
+        )
         assert result["type"] == "ack"  # NEW-IPC-015: may include data field
         assert mock_app.config.parakeet_model_path is None  # unchanged
 
@@ -1382,12 +1570,11 @@ class TestPendingTcpBufferCappedAtThousand:
         # Push 1500 events
         for i in range(1500):
             server.push({"type": "test", "data": {"i": i}})
-        assert len(server._pending_tcp) <= 1000, (
-            f"expected <= 1000, got {len(server._pending_tcp)}"
-        )
+        assert len(server._pending_tcp) <= 1000, f"expected <= 1000, got {len(server._pending_tcp)}"
         # The most recent entries should be preserved
         last = server._pending_tcp[-1]
         import json
+
         assert json.loads(last)["data"]["i"] == 1499
 
     def test_pending_tcp_does_not_grow_unboundedly(self, server, mock_app):
@@ -1411,68 +1598,92 @@ class TestHistoryLimitBoundingClampsCallerInput:
     def test_get_history_with_huge_limit_is_clamped(self, server, mock_app):
         """A 100M limit must be clamped to 500, not passed through."""
         mock_app.history_db.get_recent = MagicMock(return_value=[])
-        server._dispatch({
-            "id": 1, "type": "get_history",
-            "data": {"limit": 100_000_000, "offset": 0},
-        })
+        server._dispatch(
+            {
+                "id": 1,
+                "type": "get_history",
+                "data": {"limit": 100_000_000, "offset": 0},
+            }
+        )
         # get_recent must be called with 500, not 100M
         mock_app.history_db.get_recent.assert_called_once_with(500, 0, raise_on_error=True)
 
     def test_get_history_with_zero_limit_clamped_to_1(self, server, mock_app):
         mock_app.history_db.get_recent = MagicMock(return_value=[])
-        server._dispatch({
-            "id": 1, "type": "get_history",
-            "data": {"limit": 0},
-        })
+        server._dispatch(
+            {
+                "id": 1,
+                "type": "get_history",
+                "data": {"limit": 0},
+            }
+        )
         mock_app.history_db.get_recent.assert_called_once_with(1, 0, raise_on_error=True)
 
     def test_get_history_with_negative_limit_clamped_to_1(self, server, mock_app):
         mock_app.history_db.get_recent = MagicMock(return_value=[])
-        server._dispatch({
-            "id": 1, "type": "get_history",
-            "data": {"limit": -100},
-        })
+        server._dispatch(
+            {
+                "id": 1,
+                "type": "get_history",
+                "data": {"limit": -100},
+            }
+        )
         mock_app.history_db.get_recent.assert_called_once_with(1, 0, raise_on_error=True)
 
     def test_get_history_with_string_limit_accepted(self, server, mock_app):
         """Numeric strings from form inputs must be accepted."""
         mock_app.history_db.get_recent = MagicMock(return_value=[])
-        server._dispatch({
-            "id": 1, "type": "get_history",
-            "data": {"limit": "25"},
-        })
+        server._dispatch(
+            {
+                "id": 1,
+                "type": "get_history",
+                "data": {"limit": "25"},
+            }
+        )
         mock_app.history_db.get_recent.assert_called_once_with(25, 0, raise_on_error=True)
 
     def test_get_history_with_garbage_limit_uses_default(self, server, mock_app):
         mock_app.history_db.get_recent = MagicMock(return_value=[])
-        server._dispatch({
-            "id": 1, "type": "get_history",
-            "data": {"limit": "not-a-number"},
-        })
+        server._dispatch(
+            {
+                "id": 1,
+                "type": "get_history",
+                "data": {"limit": "not-a-number"},
+            }
+        )
         mock_app.history_db.get_recent.assert_called_once_with(50, 0, raise_on_error=True)
 
     def test_get_history_with_negative_offset_clamped_to_0(self, server, mock_app):
         mock_app.history_db.get_recent = MagicMock(return_value=[])
-        server._dispatch({
-            "id": 1, "type": "get_history",
-            "data": {"offset": -50},
-        })
+        server._dispatch(
+            {
+                "id": 1,
+                "type": "get_history",
+                "data": {"offset": -50},
+            }
+        )
         mock_app.history_db.get_recent.assert_called_once_with(50, 0, raise_on_error=True)
 
     def test_get_favorites_with_huge_limit_clamped(self, server, mock_app):
         mock_app.history_db.get_favorites = MagicMock(return_value=[])
-        server._dispatch({
-            "id": 1, "type": "get_favorites",
-            "data": {"limit": 10**9},
-        })
+        server._dispatch(
+            {
+                "id": 1,
+                "type": "get_favorites",
+                "data": {"limit": 10**9},
+            }
+        )
         mock_app.history_db.get_favorites.assert_called_once_with(500, 0, raise_on_error=True)
 
     def test_search_history_with_huge_limit_clamped(self, server, mock_app):
         mock_app.history_db.search = MagicMock(return_value=[])
-        server._dispatch({
-            "id": 1, "type": "search_history",
-            "data": {"query": "hello", "limit": 10**9},
-        })
+        server._dispatch(
+            {
+                "id": 1,
+                "type": "search_history",
+                "data": {"query": "hello", "limit": 10**9},
+            }
+        )
         mock_app.history_db.search.assert_called_once_with("hello", 500, 0, raise_on_error=True)
 
 
@@ -1501,6 +1712,7 @@ class TestTcpIpcAuthHandshake:
         # is absent.  The auth-skip path is exercised by the existing
         # test suite (which runs without the env var).
         import os
+
         assert os.environ.get("VOICE_TYPER_IPC_TOKEN", "") == ""
 
     def test_auth_with_correct_token_succeeds(self, server, monkeypatch):
@@ -1536,7 +1748,7 @@ class TestTcpIpcAuthHandshake:
         mock_tcp_client.__iter__ = MagicMock(return_value=iter([auth_line, status_line, ""]))
 
         # Patch socket and _TCPLineIO
-        with patch.object(server, '_lock'):
+        with patch.object(server, "_lock"):
             server._tcp_mode = True
             server._tcp_client = mock_tcp_client
             server._pending_tcp = []
@@ -1566,6 +1778,7 @@ class TestTcpIpcAuthHandshake:
         # the first line doesn't match, the server closes the connection.
         # This is a structural verification.
         import os
+
         assert os.environ["VOICE_TYPER_IPC_TOKEN"] == token
         # The auth logic is in _accept_tcp; we verify the env var is
         # read correctly by checking that the server would enforce auth.
@@ -1575,6 +1788,7 @@ class TestTcpIpcAuthHandshake:
     def test_auth_token_not_echoed_in_logs(self, server, monkeypatch, caplog):
         """The auth token must never appear in log messages."""
         import logging
+
         token = "sk-secret-do-not-leak-12345678"
         monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", token)
 
@@ -1605,6 +1819,7 @@ class TestGetDefaultsIpc:
         # Verify a few representative defaults match Config()
         # NATIVE-001: default hotkey is platform-aware
         from voice_typer.server.config import _default_hotkey_for_platform
+
         assert data["hotkey"] == _default_hotkey_for_platform()
         assert data["model_size"] == "small.en"
         assert data["language"] == "en"
@@ -1629,6 +1844,7 @@ class TestGetDefaultsIpc:
         # The defaults should show the platform-aware default hotkey,
         # but the app config should still be <f9>.
         from voice_typer.server.config import _default_hotkey_for_platform
+
         assert result["data"]["hotkey"] == _default_hotkey_for_platform()
         assert mock_app.config.hotkey == "<f9>"
 
@@ -1663,6 +1879,7 @@ class TestServerFloodResistance:
         """Malformed JSON lines should be rejected without crashing."""
         import io
         import json
+
         stdin = io.StringIO()
         stdout = io.StringIO()
         # 100 malformed JSON lines
@@ -1681,10 +1898,13 @@ class TestServerFloodResistance:
     def test_large_limit_does_not_oom(self, server, mock_app):
         """A history request with limit=10^9 should be clamped, not OOM."""
         mock_app.history_db.get_recent = MagicMock(return_value=[])
-        result = server._dispatch({
-            "id": 1, "type": "get_history",
-            "data": {"limit": 10**9},
-        })
+        result = server._dispatch(
+            {
+                "id": 1,
+                "type": "get_history",
+                "data": {"limit": 10**9},
+            }
+        )
         # Should succeed (clamped to 500), not crash
         assert result["type"] == "history"
         # get_recent must be called with 500, not 10^9
@@ -1725,10 +1945,13 @@ class TestEndToEndHappyPath:
         assert result["data"]["cloud_api_key"] == "<redacted>"
 
         # 4. Set config (verify allowlist)
-        result = server._dispatch({
-            "id": 4, "type": "set_config",
-            "data": {"hotkey": "<f5>"},
-        })
+        result = server._dispatch(
+            {
+                "id": 4,
+                "type": "set_config",
+                "data": {"hotkey": "<f5>"},
+            }
+        )
         assert result["type"] == "ack"
         assert mock_app.config.hotkey == "<f5>"
 
@@ -1754,8 +1977,10 @@ class TestEndToEndHappyPath:
         """TEST-002: undo_last IPC command is dispatched correctly."""
         # Add undo_last to mock_app
         mock_app.undo_called = False
+
         def undo_last():
             mock_app.undo_called = True
+
         mock_app.undo_last = undo_last
 
         result = server._dispatch({"id": 1, "type": "undo_last"})
@@ -1766,9 +1991,11 @@ class TestEndToEndHappyPath:
     def test_error_recovery_after_failed_command(self, server, mock_app):
         """TEST-002: after a failed command, the server should still
         process subsequent commands."""
+
         # Make toggle_dictation fail
         def failing_toggle():
             raise RuntimeError("toggle failed")
+
         mock_app.toggle_dictation = failing_toggle
 
         result = server._dispatch({"id": 1, "type": "toggle_dictation"})
@@ -1792,9 +2019,13 @@ class TestDispatchNonDictDataRobustness:
     def test_get_history_with_list_data_does_not_crash(self, server, mock_app):
         """get_history with data=[1,2,3] should fall back to defaults."""
         mock_app.history_db.get_recent = MagicMock(return_value=[])
-        result = server._dispatch({
-            "id": 1, "type": "get_history", "data": [1, 2, 3],
-        })
+        result = server._dispatch(
+            {
+                "id": 1,
+                "type": "get_history",
+                "data": [1, 2, 3],
+            }
+        )
         assert result["type"] == "history"
         # Default limit=50, offset=0 should be used
         mock_app.history_db.get_recent.assert_called_once()
@@ -1802,24 +2033,36 @@ class TestDispatchNonDictDataRobustness:
     def test_get_history_with_string_data_does_not_crash(self, server, mock_app):
         """get_history with data="bad" should fall back to defaults."""
         mock_app.history_db.get_recent = MagicMock(return_value=[])
-        result = server._dispatch({
-            "id": 1, "type": "get_history", "data": "bad",
-        })
+        result = server._dispatch(
+            {
+                "id": 1,
+                "type": "get_history",
+                "data": "bad",
+            }
+        )
         assert result["type"] == "history"
 
     def test_get_history_with_none_data_does_not_crash(self, server, mock_app):
         """get_history with data=None should fall back to defaults."""
         mock_app.history_db.get_recent = MagicMock(return_value=[])
-        result = server._dispatch({
-            "id": 1, "type": "get_history", "data": None,
-        })
+        result = server._dispatch(
+            {
+                "id": 1,
+                "type": "get_history",
+                "data": None,
+            }
+        )
         assert result["type"] == "history"
 
     def test_delete_history_with_non_dict_data_returns_error(self, server, mock_app):
         """delete_history with data=[1,2] should return an error, not crash."""
-        result = server._dispatch({
-            "id": 1, "type": "delete_history", "data": [1, 2],
-        })
+        result = server._dispatch(
+            {
+                "id": 1,
+                "type": "delete_history",
+                "data": [1, 2],
+            }
+        )
         assert result["type"] == "error"
         # ADR-0008 refactor: _validate_dict_payload now returns a structural
         # "data must be an object" message for non-dict input (previously it
@@ -1830,20 +2073,27 @@ class TestDispatchNonDictDataRobustness:
 
     def test_toggle_favorite_with_string_data_returns_error(self, server, mock_app):
         """toggle_favorite with data="bad" should return an error."""
-        result = server._dispatch({
-            "id": 1, "type": "toggle_favorite", "data": "bad",
-        })
+        result = server._dispatch(
+            {
+                "id": 1,
+                "type": "toggle_favorite",
+                "data": "bad",
+            }
+        )
         assert result["type"] == "error"
         assert "data must be an object" in result["data"]["message"]
 
     def test_search_history_with_list_data_does_not_crash(self, server, mock_app):
         """search_history with data=[1,2] should fall back to empty query."""
         mock_app.history_db.search = MagicMock(return_value=[])
-        result = server._dispatch({
-            "id": 1, "type": "search_history", "data": [1, 2],
-        })
+        result = server._dispatch(
+            {
+                "id": 1,
+                "type": "search_history",
+                "data": [1, 2],
+            }
+        )
         assert result["type"] == "history"
-
 
 
 # =============================================================================
@@ -1955,6 +2205,7 @@ class TestStopUnblocksAcceptLoop:
             # Make sure VOICE_TYPER_IPC_TOKEN is not set so the loop
             # logs the warning instead of bailing out.
             import os
+
             old = os.environ.pop("VOICE_TYPER_IPC_TOKEN", None)
             try:
                 srv._running = True
@@ -1964,14 +2215,9 @@ class TestStopUnblocksAcceptLoop:
                 # listening.  Poll the socket reference to know it's
                 # ready.
                 deadline = time.monotonic() + 2.0
-                while (
-                    srv._tcp_server_socket is None
-                    and time.monotonic() < deadline
-                ):
+                while srv._tcp_server_socket is None and time.monotonic() < deadline:
                     time.sleep(0.02)
-                assert srv._tcp_server_socket is not None, (
-                    "accept thread did not store the listening socket"
-                )
+                assert srv._tcp_server_socket is not None, "accept thread did not store the listening socket"
 
                 # Now stop() must unblock the accept loop.
                 srv.stop()
@@ -1983,19 +2229,15 @@ class TestStopUnblocksAcceptLoop:
                 # confirm the socket reference is cleared by the loop
                 # exit path.
                 deadline = time.monotonic() + 2.0
-                while (
-                    srv._tcp_server_socket is not None
-                    and time.monotonic() < deadline
-                ):
+                while srv._tcp_server_socket is not None and time.monotonic() < deadline:
                     time.sleep(0.02)
                 # The accept loop's exit path clears the reference.
-                assert srv._tcp_server_socket is None, (
-                    "accept loop did not clear _tcp_server_socket on exit"
-                )
+                assert srv._tcp_server_socket is None, "accept loop did not clear _tcp_server_socket on exit"
                 assert srv._running is False
             finally:
                 if old is not None:
                     import os
+
                     os.environ["VOICE_TYPER_IPC_TOKEN"] = old
                 # Belt-and-suspenders cleanup.
                 srv.stop()
@@ -2007,6 +2249,7 @@ class TestStopUnblocksAcceptLoop:
         that mentions the old pattern doesn't trip the assertion.
         """
         import inspect
+
         source = inspect.getsource(IPCServer._accept_tcp)
         # Strip comment lines (lines whose first non-whitespace is #).
         code_lines = []
@@ -2022,31 +2265,23 @@ class TestStopUnblocksAcceptLoop:
         code_only = "\n".join(code_lines)
 
         assert "while self._running" in code_only, (
-            "_accept_tcp must use `while self._running:` as its loop "
-            "condition (the canonical flag set by stop())"
+            "_accept_tcp must use `while self._running:` as its loop condition (the canonical flag set by stop())"
         )
         # The legacy getattr pattern must NOT appear in actual code.
-        assert 'getattr(self' not in code_only, (
-            "_accept_tcp still uses the legacy getattr(self, ...) pattern"
-        )
+        assert "getattr(self" not in code_only, "_accept_tcp still uses the legacy getattr(self, ...) pattern"
 
     def test_stop_clears_listening_socket_ref(self, server_with_mock_app):
         """The instance must store _tcp_server_socket (not just a local
         var) so stop() can close it.  This is a static check.
         """
         import inspect
+
         init_src = inspect.getsource(IPCServer.__init__)
-        assert "_tcp_server_socket" in init_src, (
-            "IPCServer.__init__ must initialize _tcp_server_socket"
-        )
+        assert "_tcp_server_socket" in init_src, "IPCServer.__init__ must initialize _tcp_server_socket"
         accept_src = inspect.getsource(IPCServer._accept_tcp)
-        assert "self._tcp_server_socket = server" in accept_src, (
-            "_accept_tcp must store the listening socket on self"
-        )
+        assert "self._tcp_server_socket = server" in accept_src, "_accept_tcp must store the listening socket on self"
         stop_src = inspect.getsource(IPCServer.stop)
-        assert "_tcp_server_socket" in stop_src, (
-            "stop() must close the listening socket"
-        )
+        assert "_tcp_server_socket" in stop_src, "stop() must close the listening socket"
 
 
 # === NEW-IPC-013, NEW-IPC-006, NEW-IPC-008 ===
@@ -2190,9 +2425,7 @@ class TestAckShapeConsistency:
             "clear_history",
         ],
     )
-    def test_ack_commands_include_data_field(
-        self, server_with_mock_app__006, cmd
-    ):
+    def test_ack_commands_include_data_field(self, server_with_mock_app__006, cmd):
         """Commands that previously returned ``{type: "ack"}`` with no
         data must now include ``data: {}`` for shape consistency.
         """
@@ -2212,12 +2445,8 @@ class TestAckShapeConsistency:
         result = srv._dispatch(msg)
         assert result is not None
         assert result["type"] == "ack", f"unexpected type: {result}"
-        assert "data" in result, (
-            f"ack response for {cmd} missing `data` field: {result}"
-        )
-        assert isinstance(result["data"], dict), (
-            f"`data` must be a dict for {cmd}: {result}"
-        )
+        assert "data" in result, f"ack response for {cmd} missing `data` field: {result}"
+        assert isinstance(result["data"], dict), f"`data` must be a dict for {cmd}: {result}"
 
     def test_ack_with_payload_keeps_data(self, server_with_mock_app__006):
         """toggle_favorite returns ``{type: "ack", data: {favorite: bool}}``
@@ -2226,18 +2455,14 @@ class TestAckShapeConsistency:
         srv = server_with_mock_app__006
         srv.service.toggle_favorite = lambda rec_id: True
 
-        result = srv._dispatch({
-            "id": 1, "type": "toggle_favorite", "data": {"id": 42}
-        })
+        result = srv._dispatch({"id": 1, "type": "toggle_favorite", "data": {"id": 42}})
         assert result["type"] == "ack"
         assert result["data"] == {"favorite": True}
 
     def test_error_responses_keep_data(self, server_with_mock_app__006):
         """Error responses must keep their existing ``data`` field."""
         srv = server_with_mock_app__006
-        srv.service.toggle_dictation = MagicMock(
-            side_effect=RuntimeError("boom")
-        )
+        srv.service.toggle_dictation = MagicMock(side_effect=RuntimeError("boom"))
 
         result = srv._dispatch({"id": 1, "type": "toggle_dictation"})
         assert result["type"] == "error"
@@ -2248,9 +2473,7 @@ class TestConsoleModePushVisibility:
     """NEW-IPC-008: push events must be visible at INFO level when no
     client is connected (console mode)."""
 
-    def test_non_waveform_push_logged_at_info(
-        self, server_with_mock_app__006, caplog
-    ):
+    def test_non_waveform_push_logged_at_info(self, server_with_mock_app__006, caplog):
         """A status_change push event with no client must produce an
         INFO-level log entry, not just DEBUG."""
         srv = server_with_mock_app__006
@@ -2263,18 +2486,13 @@ class TestConsoleModePushVisibility:
 
         # At least one INFO log entry must mention the dropped event.
         info_records = [
-            r for r in caplog.records
-            if r.levelno >= logging.INFO
-            and "no client" in r.getMessage().lower()
+            r for r in caplog.records if r.levelno >= logging.INFO and "no client" in r.getMessage().lower()
         ]
         assert info_records, (
-            "Expected an INFO-level log for dropped push event, got: "
-            f"{[r.getMessage() for r in caplog.records]}"
+            f"Expected an INFO-level log for dropped push event, got: {[r.getMessage() for r in caplog.records]}"
         )
 
-    def test_waveform_push_kept_at_debug(
-        self, server_with_mock_app__006, caplog
-    ):
+    def test_waveform_push_kept_at_debug(self, server_with_mock_app__006, caplog):
         """High-frequency waveform events must stay at DEBUG to avoid
         log flooding."""
         srv = server_with_mock_app__006
@@ -2286,13 +2504,10 @@ class TestConsoleModePushVisibility:
 
         # No INFO-level records should be emitted for high-freq events.
         info_records = [
-            r for r in caplog.records
-            if r.levelno >= logging.INFO
-            and "no client" in r.getMessage().lower()
+            r for r in caplog.records if r.levelno >= logging.INFO and "no client" in r.getMessage().lower()
         ]
         assert not info_records, (
-            "Waveform events should not be logged at INFO: "
-            f"{[r.getMessage() for r in info_records]}"
+            f"Waveform events should not be logged at INFO: {[r.getMessage() for r in info_records]}"
         )
 
 
@@ -2359,9 +2574,7 @@ def server_with_mock_app__014():
 class TestSendDoesNotHoldLockDuringWrite:
     """NEW-IPC-014: ``sendall`` must run OUTSIDE ``self._lock``."""
 
-    def test_concurrent_send_and_dispatch_do_not_serialize(
-        self, server_with_mock_app__014
-    ):
+    def test_concurrent_send_and_dispatch_do_not_serialize(self, server_with_mock_app__014):
         """A slow ``_send`` (simulated via a blocking socket) must NOT
         block another thread from acquiring ``self._lock`` for an
         unrelated operation.
@@ -2398,6 +2611,7 @@ class TestSendDoesNotHoldLockDuringWrite:
 
         # Thread B: try to acquire the lock for an unrelated op.
         lock_acquired_at = []
+
         def grab_lock():
             with srv._lock:
                 lock_acquired_at.append(time.monotonic())
@@ -2420,8 +2634,7 @@ class TestSendDoesNotHoldLockDuringWrite:
         assert lock_acquired_at, "lock grabber never acquired the lock"
         lock_grab_latency = lock_acquired_at[0] - start
         assert lock_grab_latency < 0.3, (
-            f"Lock took {lock_grab_latency:.3f}s to acquire — _send is "
-            "still holding the lock during the slow write"
+            f"Lock took {lock_grab_latency:.3f}s to acquire — _send is still holding the lock during the slow write"
         )
 
     def test_settimeout_called_on_tcp_socket(self, server_with_mock_app__014):
@@ -2453,20 +2666,16 @@ class TestSendDoesNotHoldLockDuringWrite:
         # settimeout must have been called with the write timeout, then
         # restored to None (blocking) in the finally block.
         assert fake_conn.settimeout.call_count >= 2, (
-            "settimeout must be called at least twice (set + restore): "
-            f"{fake_conn.settimeout.call_count}"
+            f"settimeout must be called at least twice (set + restore): {fake_conn.settimeout.call_count}"
         )
         # First call sets the timeout.
         first_call = fake_conn.settimeout.call_args_list[0]
         assert first_call[0][0] == _TCP_WRITE_TIMEOUT_SECONDS, (
-            f"first settimeout must be {_TCP_WRITE_TIMEOUT_SECONDS}, "
-            f"got {first_call[0][0]}"
+            f"first settimeout must be {_TCP_WRITE_TIMEOUT_SECONDS}, got {first_call[0][0]}"
         )
         # Last call restores to None (blocking).
         last_call = fake_conn.settimeout.call_args_list[-1]
-        assert last_call[0][0] is None, (
-            f"last settimeout must restore None, got {last_call[0][0]}"
-        )
+        assert last_call[0][0] is None, f"last settimeout must restore None, got {last_call[0][0]}"
 
     def test_write_failure_drops_client(self, server_with_mock_app__014):
         """NEW-CONC-003: when sendall raises (timeout or OSError), the
@@ -2499,9 +2708,7 @@ class TestSendDoesNotHoldLockDuringWrite:
         srv._send({"type": "test"})
 
         # _tcp_client must now be None (dropped).
-        assert srv._tcp_client is None, (
-            "_send should have cleared _tcp_client after write failure"
-        )
+        assert srv._tcp_client is None, "_send should have cleared _tcp_client after write failure"
 
 
 class TestWriteTimeoutConstant:
@@ -2509,8 +2716,7 @@ class TestWriteTimeoutConstant:
 
     def test_timeout_is_positive_and_bounded(self):
         assert 0.5 <= _TCP_WRITE_TIMEOUT_SECONDS <= 10.0, (
-            "TCP write timeout must be in a sensible range "
-            f"(0.5–10s); got {_TCP_WRITE_TIMEOUT_SECONDS}"
+            f"TCP write timeout must be in a sensible range (0.5–10s); got {_TCP_WRITE_TIMEOUT_SECONDS}"
         )
 
 

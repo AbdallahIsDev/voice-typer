@@ -75,6 +75,7 @@ class E2EMockApp:
         self._dictation_toggled = False
         # RACE-011: set_config handler acquires this lock before mutating config
         import threading
+
         self._config_mutation_lock = threading.RLock()
         # Model manager stub (set_config checks app.models.set_active_backend)
         self.models = MagicMock()
@@ -164,13 +165,9 @@ def _read_line(sock: socket.socket, timeout: float = 3.0) -> dict:
         try:
             chunk = sock.recv(4096)
         except TimeoutError as exc:
-            raise TimeoutError(
-                f"Timed out waiting for response. Partial: {bytes(buf)!r}"
-            ) from exc
+            raise TimeoutError(f"Timed out waiting for response. Partial: {bytes(buf)!r}") from exc
         if not chunk:
-            raise ConnectionError(
-                f"Server closed connection. Partial: {bytes(buf)!r}"
-            )
+            raise ConnectionError(f"Server closed connection. Partial: {bytes(buf)!r}")
         buf.extend(chunk)
     line, rest = buf.split(b"\n", 1)
     # Replace buffer contents with leftover bytes (preserves the same
@@ -224,6 +221,7 @@ def e2e_server(tmp_path, monkeypatch):
     # Patch _config_dir to return tmp_path — avoids SEC-005 path traversal
     # rejection of tmp_path (which is outside the home directory).
     from voice_typer.server import config as config_module
+
     monkeypatch.setattr(config_module, "_config_dir", lambda: tmp_path)
 
     app = E2EMockApp(tmp_path)
@@ -236,7 +234,8 @@ def e2e_server(tmp_path, monkeypatch):
     # environment. The TCP accept loop is all we need for E2E tests.
     # We still need to register the push function manually (start()
     # does this, but we skip start() to avoid the stdin thread).
-    from voice_typer.server.ipc_server import _set_push_event
+    from voice_typer.server.event_bus import subscribe as _set_push_event
+
     server._push_fn = server.push
     _set_push_event(server._push_fn)
     server._running = True
@@ -264,7 +263,8 @@ def e2e_server(tmp_path, monkeypatch):
     # We don't call server.stop() because that also tries to join the
     # stdin thread (which we never started).
     server._running = False
-    from voice_typer.server.ipc_server import _clear_push_event
+    from voice_typer.server.event_bus import unsubscribe as _clear_push_event
+
     if server._push_fn is not None:
         _clear_push_event(server._push_fn)
         server._push_fn = None
@@ -387,26 +387,16 @@ class TestE2EFullPipeline:
 
             # The ack MUST be present with id=2.
             acks = [r for r in responses if r.get("id") == 2]
-            assert acks, (
-                f"Expected ack with id=2, got responses: {responses}"
-            )
-            assert acks[0]["type"] in ("ack", "error"), (
-                f"Expected ack or error, got {acks[0]['type']}"
-            )
+            assert acks, f"Expected ack with id=2, got responses: {responses}"
+            assert acks[0]["type"] in ("ack", "error"), f"Expected ack or error, got {acks[0]['type']}"
 
             # If we got an ack (not an error), the config_changed push
             # event MUST also have been emitted. This is the coverage
             # the previous skip claimed existed in
             # test_new_test_001_live_tcp.py (it didn't).
             if acks[0]["type"] == "ack":
-                pushes = [
-                    r for r in responses
-                    if r.get("type") == "config_changed"
-                ]
-                assert pushes, (
-                    "Expected a config_changed push event alongside the "
-                    f"ack; got responses: {responses}"
-                )
+                pushes = [r for r in responses if r.get("type") == "config_changed"]
+                assert pushes, f"Expected a config_changed push event alongside the ack; got responses: {responses}"
                 # The push carries the validated updates so the renderer
                 # can update UI-local state without a get_config round-trip.
                 assert pushes[0]["data"] == {"show_notifications": False}, (
@@ -558,17 +548,82 @@ class TestE2EFullPipeline:
             "onboarding_is_first_run",
         ]
         for cmd in expected_commands:
-            assert cmd in IPCServer._COMMAND_REGISTRY, (
-                f"Command '{cmd}' missing from _COMMAND_REGISTRY"
-            )
+            assert cmd in IPCServer._COMMAND_REGISTRY, f"Command '{cmd}' missing from _COMMAND_REGISTRY"
             handler_name = IPCServer._COMMAND_REGISTRY[cmd]
-            assert hasattr(IPCServer, handler_name), (
-                f"Handler method '{handler_name}' not found on IPCServer"
-            )
+            assert hasattr(IPCServer, handler_name), f"Handler method '{handler_name}' not found on IPCServer"
 
 
 class TestE2EAuthEnforcement:
     """E2E tests for SEC-018 TCP session token auth."""
+
+    def test_stalled_auth_connection_times_out(self, e2e_server):
+        """A 'connect-and-stall' client should be disconnected by the auth timeout.
+
+        PR-3-FIX-1 added a 5-second ``settimeout`` on the TCP socket
+        BEFORE the auth ``readline()``, so a malicious client that
+        opens a connection but never sends the auth line will be
+        disconnected rather than holding the dispatcher thread
+        indefinitely (which would block ``push()`` events from
+        every other thread via the lock).
+
+        This test opens a real TCP socket to the E2E server, sends
+        NOTHING, and waits for the server to close the connection.
+        We expect the socket to be closed within ~6 seconds (5s
+        timeout + 1s tolerance).
+        """
+        server, port, token, app = e2e_server
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(8.0)
+        sock.connect(("127.0.0.1", port))
+
+        # Send NOTHING — the server should disconnect us after ~5s.
+        # We read from the socket to detect EOF (the server closed
+        # the connection).
+        start = time.monotonic()
+        try:
+            data = sock.recv(4096)
+            elapsed = time.monotonic() - start
+            # If we received data, it should be the auth error response
+            # (the server sends an error AND closes).
+            if data:
+                resp = json.loads(data.decode("utf-8"))
+                assert resp["type"] == "error", f"Expected error response on stall, got: {resp}"
+        except ConnectionError:
+            # Server closed the connection before we could read.
+            # This is the expected path — the server closes the
+            # connection after the auth timeout fires.
+            elapsed = time.monotonic() - start
+            pass  # Expected — server disconnected us.
+        except TimeoutError:
+            elapsed = time.monotonic() - start
+            # The socket didn't receive an error or close within 8s
+            # — the timeout may have regressed.
+            sock.close()
+            pytest.fail(
+                "Stalled connection was NOT closed within 8 seconds "
+                "(expected ~5s auth timeout). The _tcp_auth_timeout_seconds "
+                "may have been removed or the settimeout call was broken."
+            )
+            return
+
+        # Verify the elapsed time is roughly the 5s timeout.
+        assert 4.5 <= elapsed <= 8.0, (
+            f"Connection closed after {elapsed:.1f}s, expected ~5s "
+            f"(auth timeout) — the _tcp_auth_timeout may have changed."
+        )
+        sock.close()
+
+        # Also verify the server is still alive and accepts new connections.
+        sock2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock2.settimeout(5.0)
+        sock2.connect(("127.0.0.1", port))
+        _send_line(sock2, {"type": "auth", "token": token})
+        _send_line(sock2, {"id": 100, "type": "get_status"})
+        resp = _read_line(sock2, timeout=3.0)
+        assert resp["id"] == 100
+        assert resp["type"] == "status"
+        sock2.close()
 
     def test_wrong_token_drops_connection(self, e2e_server):
         """A wrong auth token should cause the server to drop the connection."""

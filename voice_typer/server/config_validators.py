@@ -198,13 +198,27 @@ def _make_custom_theme_validator() -> ValidatorFn:
     return _validate
 
 
-def _make_url_validator(*, allow_empty: bool = False, max_len: int = _MAX_STRING_LEN) -> ValidatorFn:
+def _make_url_validator(
+    *,
+    allow_empty: bool = False,
+    max_len: int = _MAX_STRING_LEN,
+    require_https: bool = True,
+) -> ValidatorFn:
     """Validate an HTTP(S) URL.
 
     Rejects non-string values, oversized values, and any URL whose scheme
     is not ``http`` or ``https``.  Empty string is accepted iff ``allow_empty``
     (used for fields where empty means "feature disabled").
+
+    When ``require_https`` is True (default, NEW-SEC-003), non-loopback hosts
+    must use HTTPS — HTTP is only permitted for loopback hosts
+    (``localhost`` / ``127.0.0.1`` / ``::1``) so local development servers
+    work.  This mirrors the request-time enforcement in
+    ``voice_typer.server._secrets.require_https`` so a cleartext URL is
+    rejected at ``set_config`` time, before it can ever reach config.
     """
+
+    _loopback_hosts = frozenset({"localhost", "127.0.0.1", "::1"})
 
     def _validate(v: object) -> str | None:
         if not _is_str(v):
@@ -221,8 +235,13 @@ def _make_url_validator(*, allow_empty: bool = False, max_len: int = _MAX_STRING
             return f"is not a valid URL: {e}"
         if parsed.scheme not in ("http", "https"):
             return f"must use http or https scheme (got {parsed.scheme!r})"
-        if not parsed.netloc:
+        host = (parsed.hostname or "").lower()
+        if not host:
             return "must include a network location (host)"
+        # NEW-SEC-003: close the defense-in-depth gap — reject cleartext
+        # HTTP for non-loopback hosts at config time, not just at call time.
+        if require_https and parsed.scheme == "http" and host not in _loopback_hosts:
+            return f"must use HTTPS for non-loopback host {host!r} (HTTP is only allowed for localhost/127.0.0.1/::1)"
         return None
 
     return _validate
@@ -603,7 +622,6 @@ IPC_CONFIG_ALLOWLIST: dict = {
         ),
     ),
     "custom_theme": (dict, _make_custom_theme_validator()),
-    "high_contrast": (bool, _bool_validator),
     "text_size": (int, _make_int_validator(lo=8, hi=72)),
     # ── Silent mic disconnection (H12) ────────────────────────────────
     "silence_warning_seconds": (float, _make_float_validator(lo=0.0, hi=600.0)),

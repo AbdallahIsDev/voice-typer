@@ -31,6 +31,7 @@ class TranscriptionBackendError(RuntimeError):
     typed exception so callers can show the correct error.
     """
 
+
 # Maximum allowed ratio of non-Latin-script characters before we reject
 # a transcription segment as a language-hallucination.
 # The model is English-only; output with >30% non-Latin characters is
@@ -63,12 +64,14 @@ def _is_likely_english(text: str) -> bool:
     if ratio > _NON_LATIN_RATIO_LIMIT:
         # SEC-009: Use PII-safe logging helper for hallucination text
         log_hallucination_rejection(
-            "[PARAKEET]", text,
+            "[PARAKEET]",
+            text,
             reason=f"non-English output ({ratio * 100:.0f}% non-Latin chars)",
             log_transcriptions=False,
         )
         return False
     return True
+
 
 _PARAKERT_MODEL_ID = "nvidia/parakeet-tdt-0.6b-v3"
 
@@ -80,10 +83,17 @@ _PARAKERT_WEIGHTS_MB = 2400
 # Prevents supply-chain attacks where a compromised HF repo could include
 # executables, scripts, or other unexpected files.
 _PARAKEET_ALLOW_PATTERNS = [
-    "*.safetensors", "*.bin", "config.json", "tokenizer.json",
-    "tokenizer_config.json", "special_tokens_map.json",
-    "preprocessor_config.json", "feature_extractor_config.json",
-    "generation_config.json", "model.safetensors.index.json", "*.model",
+    "*.safetensors",
+    "*.bin",
+    "config.json",
+    "tokenizer.json",
+    "tokenizer_config.json",
+    "special_tokens_map.json",
+    "preprocessor_config.json",
+    "feature_extractor_config.json",
+    "generation_config.json",
+    "model.safetensors.index.json",
+    "*.model",
 ]
 
 # SEC-audit-005: Pin to a specific revision for reproducibility.
@@ -163,6 +173,7 @@ class ParakeetEngine:
             return
         try:
             from voice_typer.server.asr_setup import ensure_hf_env
+
             ensure_hf_env()
             cls._hf_home_set = True
         except Exception:
@@ -171,9 +182,21 @@ class ParakeetEngine:
     @classmethod
     def _ensure_imports(cls):
         if cls._imports_loaded:
+            log.info("[PARAKEET] AI libraries already imported — skipping re-import")
             return
+        # OBSERVE-001: the torch + transformers import is the single most
+        # expensive step on a fresh process (several seconds of CPU work,
+        # not disk I/O once prewarm has warmed the OS page cache). It used
+        # to be silent, leaving a mysterious gap between "backend
+        # registered" and "Loading model". Log each import with its own
+        # elapsed time so the gap is fully visible.
+        _t0 = time.perf_counter()
         try:
+            log.info("[PARAKEET] importing torch (this can take a few seconds on first import)…")
             import torch
+
+            _torch_s = time.perf_counter() - _t0
+            log.info("[PARAKEET] torch imported (%.2fs)", _torch_s)
 
             # TASK-14: ``AutoModelForTDT`` was added to transformers in
             # 4.50 (our pyproject floor).  The venv on this runner has
@@ -182,18 +205,29 @@ class ParakeetEngine:
             # surrounding try/except ImportError is the runtime guard.
             # Resolve via ``getattr`` so the static checker does not
             # see the (possibly absent) attribute access.
+            _t1 = time.perf_counter()
+            log.info("[PARAKEET] importing transformers…")
             import transformers
+
+            _tf_s = time.perf_counter() - _t1
+            log.info("[PARAKEET] transformers imported (%.2fs)", _tf_s)
             cls._torch = torch
             cls._AutoModelForTDT = getattr(transformers, "AutoModelForTDT", None)
             cls._AutoProcessor = getattr(transformers, "AutoProcessor", None)
             if cls._AutoModelForTDT is None or cls._AutoProcessor is None:
                 raise ImportError(
-                    "transformers package is missing AutoModelForTDT / "
-                    "AutoProcessor — install transformers>=4.50"
+                    "transformers package is missing AutoModelForTDT / AutoProcessor — install transformers>=4.50"
                 )
             cls._imports_loaded = True
+            log.info(
+                "[PARAKEET] AI libraries imported (torch=%.2fs, transformers=%.2fs, total=%.2fs)",
+                _torch_s,
+                _tf_s,
+                time.perf_counter() - _t0,
+            )
         except ImportError:
             cls._imports_loaded = False
+            log.warning("[PARAKEET] AI library import failed — torch/transformers not installed?")
 
     @staticmethod
     def _should_force_cpu() -> bool:
@@ -206,14 +240,15 @@ class ParakeetEngine:
         """
         try:
             import psutil
+
             system_drive = os.environ.get("SYSTEMDRIVE", "C:") + "\\"
             usage = psutil.disk_usage(system_drive)
             free_mb = usage.free // (1024 * 1024)
             if free_mb < 500:
                 log.warning(
-                    "[PARAKEET] Only %d MB free on %s — forcing CPU "
-                    "(CUDA needs pagefile space to allocate GPU memory)",
-                    free_mb, system_drive,
+                    "[PARAKEET] Only %d MB free on %s — forcing CPU (CUDA needs pagefile space to allocate GPU memory)",
+                    free_mb,
+                    system_drive,
                 )
                 return True
         except Exception:
@@ -226,6 +261,7 @@ class ParakeetEngine:
         # NEW-DEAD-027: use config._config_dir() directly instead of
         # the removed asr_setup._config_dir() cache wrapper.
         from voice_typer.server.config import _config_dir
+
         cache_root = _config_dir() / "huggingface" / "hub"
         model_dir = cache_root / f"models--{_PARAKERT_MODEL_ID.replace('/', '--')}"
         snapshots = model_dir / "snapshots"
@@ -253,6 +289,7 @@ class ParakeetEngine:
         Returns True on success, False on failure.
         """
         # Ensure torch + transformers are imported before any model ops.
+        log.info("[PARAKEET] load() entered — importing AI libraries if needed")
         self._ensure_imports()
         if not self._imports_loaded:
             log.warning("[PARAKEET] torch/transformers not installed, cannot load")
@@ -266,7 +303,14 @@ class ParakeetEngine:
 
             # Quick cache check — avoids calling snapshot_download entirely
             # when model is already on disk.
-            if not self._is_cached():
+            _cache_t0 = time.perf_counter()
+            _cached = self._is_cached()
+            log.info(
+                "[PARAKEET] model cache check: cached=%s (%.2fs)",
+                _cached,
+                time.perf_counter() - _cache_t0,
+            )
+            if not _cached:
                 try:
                     from huggingface_hub import snapshot_download
 
@@ -295,6 +339,7 @@ class ParakeetEngine:
                 # SEC-audit-005: Verify model integrity after download
                 from voice_typer.server.asr_setup import _verify_model_integrity
                 from voice_typer.server.config import _config_dir
+
                 cache_root = _config_dir() / "huggingface" / "hub"
                 model_dir = cache_root / f"models--{_PARAKERT_MODEL_ID.replace('/', '--')}"
                 if model_dir.is_dir():
@@ -379,10 +424,12 @@ class ParakeetEngine:
                 _read_speed_mbs = _PARAKERT_WEIGHTS_MB / max(_model_elapsed, 0.1)
                 _warm_label = "warm (page-cache)" if _total_elapsed < 5.0 else "cold (disk)"
                 log.info(
-                    "[PARAKEET] Model loaded successfully (%s) — "
-                    "processor=%.1fs, model=%.1fs, total=%.1fs (%.0f MB/s)",
-                    _warm_label, _proc_elapsed, _model_elapsed,
-                    _total_elapsed, _read_speed_mbs,
+                    "[PARAKEET] Model loaded successfully (%s) — processor=%.1fs, model=%.1fs, total=%.1fs (%.0f MB/s)",
+                    _warm_label,
+                    _proc_elapsed,
+                    _model_elapsed,
+                    _total_elapsed,
+                    _read_speed_mbs,
                 )
                 if progress_callback:
                     progress_callback("Parakeet model ready")
@@ -417,9 +464,7 @@ class ParakeetEngine:
         """
         with self._lock:
             if self._model is None or self._processor is None:
-                raise RuntimeError(
-                    "Parakeet model not loaded. Call load() first or check logs."
-                )
+                raise RuntimeError("Parakeet model not loaded. Call load() first or check logs.")
 
             if len(audio) == 0:
                 return ""
@@ -488,7 +533,8 @@ class ParakeetEngine:
         if should_reject_low_audio_hallucination(text, rms):
             # SEC-009: Use PII-safe logging helper instead of raw text
             log_hallucination_rejection(
-                "[PARAKEET]", text,
+                "[PARAKEET]",
+                text,
                 reason="hallucination",
                 log_transcriptions=False,
             )
@@ -496,9 +542,7 @@ class ParakeetEngine:
 
         return text
 
-    def _split_audio(
-        self, audio: np.ndarray, chunk_sec: float, overlap_sec: float
-    ) -> list[np.ndarray]:
+    def _split_audio(self, audio: np.ndarray, chunk_sec: float, overlap_sec: float) -> list[np.ndarray]:
         """Split audio into overlapping chunks."""
         sr = 16000
         chunk_len = int(chunk_sec * sr)
@@ -562,9 +606,7 @@ class ParakeetEngine:
         return " ".join(result_words).strip()
 
     @staticmethod
-    def _compute_overlap_skip(
-        prev_words: list[str], new_words: list[str]
-    ) -> int:
+    def _compute_overlap_skip(prev_words: list[str], new_words: list[str]) -> int:
         """Return how many leading words of *new_words* to skip.
 
         We detect a true overlap duplicate by searching (case-insensitively,
@@ -610,7 +652,7 @@ class ParakeetEngine:
                 last_word_idx = len(prev_tail) - end_idx
                 if last_word_idx >= _OVERLAP_DEDUP_WINDOW:
                     continue
-                if prev_tail[start:start + length] == candidate:
+                if prev_tail[start : start + length] == candidate:
                     best = length
                     break
             if best > 0:
@@ -628,9 +670,11 @@ class ParakeetEngine:
         # in `_transcribe_segment`.
         return 0
 
-    def transcribe_with_fallback(self, audio: np.ndarray,
-            audio_stats: "tuple[float, float, float] | None" = None,
-        ) -> str:
+    def transcribe_with_fallback(
+        self,
+        audio: np.ndarray,
+        audio_stats: "tuple[float, float, float] | None" = None,
+    ) -> str:
         """transcribe with GPU→CPU fallback on CUDA errors.
 
         PERF-STATS: ``audio_stats`` is an optional pre-computed
@@ -663,13 +707,10 @@ class ParakeetEngine:
                     except Exception as cpu_exc:
                         log.error("[PARAKEET] CPU fallback also failed: %s", cpu_exc)
                         raise TranscriptionBackendError(
-                            f"Parakeet GPU transcription failed ({exc}) and CPU "
-                            f"fallback also failed ({cpu_exc})"
+                            f"Parakeet GPU transcription failed ({exc}) and CPU fallback also failed ({cpu_exc})"
                         ) from cpu_exc
                 # Non-CUDA error: surface it instead of swallowing as ""
-                raise TranscriptionBackendError(
-                    f"Parakeet transcription failed: {exc}"
-                ) from exc
+                raise TranscriptionBackendError(f"Parakeet transcription failed: {exc}") from exc
 
     def _transcribe_impl(self, audio: np.ndarray) -> str:
         """Core transcription without lock or error handling for fallback.
@@ -727,7 +768,8 @@ class ParakeetEngine:
         if should_reject_low_audio_hallucination(text, rms):
             # SEC-009: Use PII-safe logging helper for unlocked fallback path
             log_hallucination_rejection(
-                "[PARAKEET]", text,
+                "[PARAKEET]",
+                text,
                 reason="hallucination",
                 log_transcriptions=False,
             )
@@ -750,6 +792,7 @@ class ParakeetEngine:
         import gc
 
         from voice_typer.server.transcription import release_gpu_memory
+
         with self._lock:
             self._model = None
             self._processor = None

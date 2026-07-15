@@ -275,6 +275,7 @@ class TestSubscriberExceptionIsolation:
     def test_publish_returns_false_when_all_subscribers_raise(self):
         """If every subscriber raises, publish() returns False
         (no successful delivery)."""
+
         def always_raises(_msg: dict) -> None:
             raise RuntimeError("always fails")
 
@@ -285,6 +286,7 @@ class TestSubscriberExceptionIsolation:
     def test_publish_returns_true_when_at_least_one_succeeds(self):
         """If at least one subscriber accepts (doesn't raise), publish
         returns True even if another subscriber raised."""
+
         def bad(_msg: dict) -> None:
             raise RuntimeError("bad")
 
@@ -316,10 +318,7 @@ class TestSubscriberExceptionIsolation:
         assert first_called == [True]
         assert second_received == [{"type": "test"}]
         # The exception should have been logged at DEBUG level.
-        assert any(
-            "subscriber raised" in r.getMessage()
-            for r in caplog.records
-        )
+        assert any("subscriber raised" in r.getMessage() for r in caplog.records)
 
 
 # ── None handling ──────────────────────────────────────────────────────
@@ -474,12 +473,16 @@ class TestReentrantPublish:
 
 
 class TestBackwardCompatShim:
-    """The shim layer in ipc_server.py must preserve behavior.
+    """Behavior preserved after the ipc_server ↔ event_bus shim was removed.
 
-    B-1: ``_push_event_now`` / ``_set_push_event`` / ``_clear_push_event``
-    in ``ipc_server.py`` are now thin wrappers over ``event_bus``.
-    These tests verify the wrappers still work and reference the same
-    underlying state.
+    B-1 FIX-12: the ``_push_event_registry`` / ``_push_event_registry_lock``
+    aliases and the ``_set_push_event`` / ``_clear_push_event`` shims were
+    deleted from ``ipc_server.py``.  Domain code (and tests) now call
+    ``event_bus.subscribe`` / ``event_bus.unsubscribe`` directly.  These
+    tests verify the remaining public surface (``_push_event_now`` delegates
+    to ``event_bus.publish``) and that subscribe/unsubscribe work the same
+    way the old shims did — without reaching into ipc_server's removed
+    internals.
     """
 
     def test_push_event_now_delegates_to_event_bus_publish(self):
@@ -488,49 +491,31 @@ class TestBackwardCompatShim:
 
         received: list[dict] = []
         event_bus.subscribe(received.append)
-        result = ipc_server._push_event_now({"type": "shim_test"})
-        assert result is True
-        assert received == [{"type": "shim_test"}]
+        try:
+            result = ipc_server._push_event_now({"type": "shim_test"})
+            assert result is True
+            assert received == [{"type": "shim_test"}]
+        finally:
+            event_bus.unsubscribe(received.append)
 
-    def test_set_push_event_delegates_to_event_bus_subscribe(self):
-        from voice_typer.server import ipc_server
-
+    def test_subscribe_unsubscribe_roundtrip(self):
+        """Direct event_bus subscribe/unsubscribe (replaces the old
+        _set_push_event / _clear_push_event shims)."""
         received: list[dict] = []
-        ipc_server._set_push_event(received.append)
+
+        event_bus.subscribe(received.append)
         event_bus.publish({"type": "shim_subscribe"})
         assert received == [{"type": "shim_subscribe"}]
-        # Cleanup.
-        ipc_server._clear_push_event(received.append)
 
-    def test_clear_push_event_delegates_to_event_bus_unsubscribe(self):
-        from voice_typer.server import ipc_server
-
-        received: list[dict] = []
-        ipc_server._set_push_event(received.append)
-        ipc_server._clear_push_event(received.append)
+        event_bus.unsubscribe(received.append)
         event_bus.publish({"type": "after_clear"})
-        assert received == []
+        assert received == [{"type": "shim_subscribe"}]
 
-    def test_registry_is_same_object_as_event_bus_subscribers(self):
-        """The back-compat _push_event_registry alias must be the SAME
-        set object as event_bus._subscribers so tests that manipulate
-        one affect the other."""
-        from voice_typer.server import ipc_server
-
-        assert ipc_server._push_event_registry is event_bus._subscribers
-
-    def test_registry_lock_is_same_object_as_event_bus_lock(self):
-        from voice_typer.server import ipc_server
-
-        assert ipc_server._push_event_registry_lock is event_bus._lock
-
-    def test_set_push_event_none_is_noop(self):
-        """_set_push_event(None) must be a no-op (back-compat with
-        the old semantics where None was rejected)."""
-        from voice_typer.server import ipc_server
-
+    def test_unsubscribe_unknown_is_noop(self):
+        """unsubscribe of a callable that was never subscribed must not
+        raise — preserves the old _set_push_event(None) no-op semantics."""
         before = len(event_bus._subscribers)
-        ipc_server._set_push_event(None)
+        event_bus.unsubscribe(lambda _msg: None)
         assert len(event_bus._subscribers) == before
 
 
