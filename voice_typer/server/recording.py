@@ -7,6 +7,7 @@ import contextlib
 import enum
 import logging
 import math
+import os
 import queue
 import threading
 import time
@@ -172,6 +173,17 @@ def _secure_clear_array_background(buffer: collections.deque) -> None:
 DEFAULT_MAX_BUFFER_CHUNKS = 30000
 BUFFER_WARNING_THRESHOLD = 5000
 TELEMETRY_LOG_INTERVAL = 1000
+
+# RW-15: the periodic buffer-telemetry log (see the callback below) is
+# diagnostic noise for the vast majority of users, who never look at raw
+# buffer counts. It is gated behind VOICE_TYPER_VERBOSE so it only appears
+# when someone is actively debugging audio/ring-buffer behaviour. Without
+# the flag it stays silent at every level.
+_BUFFER_TELEMETRY_ENABLED = os.environ.get("VOICE_TYPER_VERBOSE", "").lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 # ── RT-SAFE-001: Audio callback → worker thread architecture ────────
 # The PortAudio callback (recording.py:start()._callback_impl) MUST
@@ -476,6 +488,21 @@ class Recorder:
         # VAD-GATE (Task 4): _vad_enabled is a @property that reads the
         # current config dynamically so preset changes are reflected immediately,
         # even mid-session (see property definition below).
+        #
+        # PERF-02 (c-review): the property used to re-evaluate 6 getattr()
+        # calls on every access — read 3× per audio chunk at 16 Hz =
+        # 288 getattr/sec for a value that only changes when the user
+        # toggles a Settings UI switch. The property now returns a cached
+        # value (self._vad_enabled_cached), refreshed by
+        # on_config_changed() (called by app._rebuild_audio_processor on
+        # every noise_filter_* / audio_preset / noise_suppression_method
+        # config change). A 5-second TTL safety net (on_config_changed
+        # wiring is owned by Sub-Agent H in app.py) ensures the cache is
+        # refreshed at most once every 5s even if the explicit refresh
+        # hook is not yet wired — so a missed config-change notification
+        # cannot permanently wedge the cache.
+        self._vad_enabled_cached: bool | None = None
+        self._vad_enabled_cache_ts: float = 0.0
         if not self._vad_enabled:
             log.info("[RECORDING] VAD disabled — all audio enhancements off (raw recording mode).")
 
@@ -994,17 +1021,67 @@ class Recorder:
 
     # ── AUDIO-014: VAD auto-calibration ─────────────────────────────────
 
+    # PERF-02 (c-review): max age in seconds before the cached _vad_enabled
+    # value is re-evaluated. This is a SAFETY NET only — the primary refresh
+    # path is on_config_changed(), called by app._rebuild_audio_processor
+    # whenever a noise_filter_* / audio_preset / noise_suppression_method
+    # config field changes (wiring owned by Sub-Agent H in app.py). The
+    # TTL ensures that if the explicit refresh hook is missing for some
+    # code path, the cache is still refreshed at most once every 5s — so
+    # a missed notification cannot permanently wedge the cache.
+    _VAD_ENABLED_CACHE_TTL_S: float = 5.0
+
     @property
     def _vad_enabled(self) -> bool:
         """Whether VAD should run based on current audio enhancement state.
 
-        VAD-GATE (Task 4): This is a dynamic @property that re-evaluates from
-        the current config on every access. Unlike a cached bool, this ensures
-        that if the user changes the audio preset to "Off" while the Recorder
-        exists (or mid-session), the VAD gate immediately reflects the current
-        config state instead of using a stale value from __init__.
+        VAD-GATE (Task 4): ensures that if the user changes the audio
+        preset to "Off" while the Recorder exists (or mid-session), the
+        VAD gate reflects the current config state.
+
+        PERF-02 (c-review): previously a dynamic @property that
+        re-evaluated 6 ``getattr()`` calls on every access (read 3× per
+        chunk × 16 Hz = 288 getattr/sec for a value that only changes
+        when the user toggles a Settings UI switch). Now returns a
+        cached value refreshed by ``on_config_changed()`` (the explicit
+        hook) with a 5-second TTL safety net so a missed config-change
+        notification cannot permanently wedge the cache.
         """
-        return self._compute_vad_enabled(self.config)
+        cached = self._vad_enabled_cached
+        if cached is not None:
+            # Safety-net refresh: if the explicit on_config_changed()
+            # hook has not fired recently (e.g. because the caller wired
+            # the change through a code path that doesn't yet call
+            # on_config_changed), fall back to re-evaluating at most
+            # once per _VAD_ENABLED_CACHE_TTL_S. Cheap: one perf_counter
+            # call + one comparison.
+            now = time.perf_counter()
+            if now - self._vad_enabled_cache_ts >= self._VAD_ENABLED_CACHE_TTL_S:
+                self._vad_enabled_cached = self._compute_vad_enabled(self.config)
+                self._vad_enabled_cache_ts = now
+            return self._vad_enabled_cached
+        # First access (cache cold): compute + cache.
+        self._vad_enabled_cached = self._compute_vad_enabled(self.config)
+        self._vad_enabled_cache_ts = time.perf_counter()
+        return self._vad_enabled_cached
+
+    def on_config_changed(self) -> None:
+        """Refresh cached config-derived state after a config change.
+
+        PERF-02 (c-review): called by ``app._rebuild_audio_processor``
+        (wiring owned by Sub-Agent H in app.py) whenever any
+        ``noise_filter_*``, ``audio_preset``, or
+        ``noise_suppression_method`` config field changes. Refreshes
+        the cached ``_vad_enabled`` value so the next audio chunk's VAD
+        gate decision uses the new config without re-running 6
+        ``getattr()`` calls per access.
+
+        Safe to call from any thread (only reads ``self.config`` and
+        writes two atomic Python attributes under the GIL). No-op if
+        the recorder has not been initialized yet.
+        """
+        self._vad_enabled_cached = self._compute_vad_enabled(self.config)
+        self._vad_enabled_cache_ts = time.perf_counter()
 
     def _compute_vad_enabled(self, config: Any) -> bool:
         """Compute whether VAD should run based on audio enhancement state.
@@ -1074,15 +1151,12 @@ class Recorder:
         self._vad_speech_threshold_db = noise_db + 18.0  # 18 dB above noise → speech
         self._vad_calibrated = True
 
-        # VAD-FIX: demote from INFO to DEBUG. The user reported
-        # this log line appearing even when mic quality / AI enhancements
-        # are disabled — it's diagnostic noise for non-debug users. The
-        # auto-calibration itself is cheap and runs unconditionally (the
-        # dB thresholds are used as a fallback when Silero VAD is
-        # unavailable), but the INFO log was spamming normal users.
-        # DEBUG level keeps it available for power users who enable
-        # debug logging without polluting the default log.
-        log.debug(
+        # VAD auto-calibration runs every recording start (the dB thresholds
+        # are a Silero-fallback used for silence/speech detection). Log the
+        # result at INFO so operators can verify the measured noise floor and
+        # thresholds from the default app logs — this is genuine per-session
+        # operational state (logged once per session, not per audio frame).
+        log.info(
             "[RECORDING] VAD auto-calibrated: noise_floor=%.1f dBFS, "
             "silence_threshold=%.1f dBFS, speech_threshold=%.1f dBFS",
             noise_db,
@@ -1576,7 +1650,13 @@ class Recorder:
                 try:
                     actual_sr = int(stream.samplerate) if hasattr(stream, "samplerate") else candidate_sr
                     if actual_sr in (8000, 16000) and actual_sr != candidate_sr:
-                        log.warning(
+                        # AUDIO-BT: detecting a Bluetooth HFP (hands-free
+                        # telephony) profile is EXPECTED behaviour for a BT
+                        # headset — it is not a fault or misconfiguration.
+                        # Demoted from WARNING to INFO so the default log
+                        # isn't littered with a non-error on every BT mic
+                        # connection. RW-15.
+                        log.info(
                             "[RECORDING] Bluetooth HFP profile detected: actual sample rate "
                             "%d Hz differs from requested %d Hz. Audio quality will be limited. "
                             "Consider disabling the hands-free telephony profile in Bluetooth "
@@ -2599,7 +2679,7 @@ class Recorder:
 
         if chunk_count == BUFFER_WARNING_THRESHOLD:
             log.warning("[RECORDING] Buffer is large (5k chunks, ~5 min). Consider stopping recording.")
-        if chunk_count % TELEMETRY_LOG_INTERVAL == 0:
+        if _BUFFER_TELEMETRY_ENABLED and chunk_count % TELEMETRY_LOG_INTERVAL == 0:
             log.debug(
                 "[RECORDING] Buffer telemetry: chunks=%d, buffer_count=%d",
                 chunk_count,

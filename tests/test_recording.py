@@ -350,7 +350,7 @@ class TestStopAudioPrep:
 
 
 class TestStopCallbackBackoff:
-    """PERF-FIX-002 (Round 0): the backoff loop in Recorder.stop() was
+    """PERF-FIX-002: the backoff loop in Recorder.stop() was
     inverted (Event.wait() returned True when callback was running, but
     the loop treated True as "completed"). The fix replaced it with a
     polling loop: ``while self._is_in_audio_callback.is_set(): sleep(5ms)``

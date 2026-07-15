@@ -495,16 +495,10 @@ class TestSetConfigInvalidatesTrayCache:
 
         app = MagicMock()
         app.config = cfg
-        # RW-9 Phase 1: the app-level test-seam delegates have been removed;
-        # the IPC server's apply_config_side_effects now calls
-        # ``startup_tasks.sync_autostart(app)``, ``app.hotkeys.register_esc()``
-        # etc. directly. On a MagicMock these are auto-stubbed, so the
-        # explicit assignments below are no-ops kept for documentation.
-        app._sync_prewarm_task = MagicMock()
-        app._sync_autostart = MagicMock()
-        app._register_esc_hotkey = MagicMock()
-        app._unregister_esc_hotkey = MagicMock()
-        app._register_repaste_hotkey = MagicMock()
+        # RW-9/RW-17: the app-level test-seam delegates were removed;
+        # production code reaches ``startup_tasks.*`` / ``app.hotkeys.*``
+        # directly. ``app`` is a MagicMock so those attributes are
+        # auto-stubbed on access — nothing to pre-assign here.
         app.tray.invalidate_menu_cache = MagicMock()
 
         server = IPCServer(app)
