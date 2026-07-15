@@ -10,23 +10,6 @@
 
 **Scope**: Performance, memory usage, CPU usage, cross-platform compatibility (Windows/macOS/Linux), and build/CI/CD. Focus on Python backend, Electron main process, and the build pipeline.
 
-**Investigation method**: Read worklog for context, then surveyed `prewarm.py` (1765 LOC), `recording.py` (2991 LOC), `audio_processor.py`, `level_monitor.py`, `ipc_server.py` (1902 LOC), `app.py` (2307 LOC), `model_manager.py`, `asr_registry.py`, `hotkeys.py` (2545 LOC), `microphone_watcher.py`, `volume_backends.py`, `clipboard_snapshot.py`, `prewarm_scheduler_posix.py`, `electron_launcher.py`, `thread_registry.py`, `streaming.py`, `vad.py`, `waveform.py`, `client/src/main/index.ts` (2205 LOC), `client/electron-builder.yml`, `.github/workflows/build.yml` (814 LOC), and `scripts/build/voice-typer.spec`.
-
-### Summary
-
-- **5 Performance** findings (1 High, 3 Medium, 1 Low)
-- **4 Memory** findings (1 High, 2 Medium, 1 Low)
-- **4 CPU** findings (1 High, 1 Medium, 2 Low)
-- **5 Cross-platform** findings (2 Medium, 3 Low)
-- **10 Build/CI** findings (1 High, 3 Medium, 6 Low)
-
-The most impactful issues:
-1. **PERF-01 / CPU-01** — Windows hotkey polling at `Sleep(1)` (~64–1000 Hz syscall rate) is wasteful on laptops; the code already registers `RegisterHotKey` but doesn't use WM_HOTKEY delivery, and a native `WH_KEYBOARD_LL` binary (`windows-key-listener.exe`) is already built and bundled but under-used.
-2. **MEM-01** — `asr_registry.load_with_fallback` calls `unregister(name)` on the failed backend but never `backend.unload()`; the partially-initialized engine (with torch tensors / CUDA contexts / downloaded weights) stays alive in memory until the next GC pass, which may never collect it because the local `backend` variable is still referenced.
-3. **CI-01** — `pip-audit --strict` hard-fails every PR on any new upstream CVE with no ignore list; the weekly triage job is the backstop but the per-PR gate causes repeated CI breakage.
-4. **PERF-RT-03** — `level_monitor.py` callback runs the full filter chain (including optional RNNoise, 5–50ms) on the PortAudio real-time audio thread, violating the ~32ms deadline that `recording.py` was carefully refactored to respect (RT-SAFE-001).
-
----
 
 ### Findings — Performance
 
@@ -37,19 +20,6 @@ The most impactful issues:
 - **Description**: `restart_app` calls `time.sleep(0.3)` "to give Electron time to process `relaunch_electron`" before closing the TCP socket. This blocks the calling thread (the pystray tray thread) for 300ms. During that window, the tray icon is unresponsive to menu clicks and any IPC dispatch handled on the same thread is blocked. The 300ms is a magic number that's too short for a slow Electron main thread (GC pause) and too long for a fast one. The proper pattern is a Condition variable / ack: publish `relaunch_electron` with a request ID, have Electron send back `relaunch_ack` over TCP, and `wait(timeout=2.0)` on the ack.
 - **Fix**: Replace `time.sleep(0.3)` with `event.wait(timeout=2.0)` on a `threading.Event` set by an `relaunch_ack` IPC handler. Falls back to the 2s timeout if Electron doesn't ack (same behavior as today's 300ms magic number, but bounded and event-driven).
 
-### Findings — Cross-platform
-
-#### XPLAT-01
-- **Category**: cross-platform
-- **Severity**: Medium
-- **File**: voice_typer/server/app.py (`_open_config_file` Windows branch, ~line 1225; helpers `_windows_open_with_default_app` / `_windows_wait_for_process_exit` / `_windows_close_process_handle` / `_systemroot_notepad_path` at module level)
-- **Description**: On Windows, the code first tries `C:\Windows\System32\notepad.exe` (hardcoded path), then falls back to `os.startfile(str(config_file))` if notepad.exe doesn't exist. This is backwards: `os.startfile` uses `ShellExecute` which respects the user's file associations for `.json` (e.g. VS Code, Notepad++) — a much better UX. Hardcoding notepad.exe means the user's preferred editor is ignored. On Windows Server Core or debloated Windows 11, `notepad.exe` may be missing — then the fallback `os.startfile` is used. The macOS and Linux branches correctly use `open -W` / `xdg-open` which respect associations.
-- **Fix (final)**: On Windows, open the file with the user's default editor via `ShellExecuteEx` (with `SEE_MASK_NOCLOSEPROCESS`) so we obtain a process handle and can **block until the editor exits**, then reload the config — exactly like the macOS/Linux branches. This keeps the XPLAT-01 UX win (associations respected) while restoring the pre-XPLAT-01 SEC-audit-011 guarantees that `os.startfile` (which returns immediately with no handle) had broken:
-  1. **Auto-reload-after-editor-close restored** — reload happens after the editor process exits, not immediately on launch.
-  2. **TOCTOU lock restored** — `_config_mutation_lock` is held for the entire editor session (until the handle signals exit), so a concurrent IPC `set_config` cannot atomically clobber `config.json` mid-edit.
-  3. **SystemRoot-validated Notepad fallback restored** — when no `.json` handler is associated we use the validated `%SYSTEMROOT%\System32\notepad.exe` path (existence-checked, with `C:\Windows\System32\notepad.exe` as the verified fallback), never a bare PATH/cwd-resolved `notepad`. `os.startfile` is only a last resort if even the validated Notepad path is absent.
-- **Status**: The original XPLAT-01 change was a *downgrade* (os.startfile-first lost auto-reload + lock coverage and dropped the SystemRoot validation). It is now fully re-implemented without any downgrade: associations respected, handle-based wait, lock for session, reload after close, and validated fallback. Covered by `tests/test_b4_config_editor_lock.py` and `tests/test_api_doc_accuracy.py::TestWindowsOpenConfigFile`.
-
 #### XPLAT-02
 - **Category**: cross-platform
 - **Severity**: Medium
@@ -58,8 +28,6 @@ The most impactful issues:
 - **Fix**: Copy the Linux scripts into `voice_typer/client/resources/linux/` (which electron-builder includes in the build context) and reference them as `afterInstall: resources/linux/postinst`. Or use a build hook (`afterPack` in a JS file) that resolves paths via `path.resolve(__dirname, '../../../scripts/linux/postinst')`.
 
 ---
-
-### Findings — Build / CI / CD
 
 #### CI-01
 - **Category**: build-ci
@@ -216,7 +184,11 @@ Methodology: read `voice_typer/server/security.py`, `voice_typer/server/_secrets
 
 ### RW-13 (NEW) — _corr_token reset in wrong scope (dictation_pipeline.py)
 - **Severity:** bug (runtime NameError) + lint F821.
-- **Root cause:** the correlation-id reset block was placed at the END of _copy_and_paste (last method in file), NOT in un's inally. _corr_token is a local of un, so it was undefined in _copy_and_paste (NameError at runtime; Ruff F821 at lines 1002/1005).
-- **Fix:** removed the block from _copy_and_paste; added it to un's inally block (after line 297) where _corr_token is in scope. Token init _corr_token: object | None = None + conditional set_correlation_id(cycle_id) retained at top of un.
+- **Root cause:** the correlation-id reset block was placed at the END of _copy_and_paste (last method in file), NOT in
+un's inally. _corr_token is a local of
+un, so it was undefined in _copy_and_paste (NameError at runtime; Ruff F821 at lines 1002/1005).
+- **Fix:** removed the block from _copy_and_paste; added it to
+un's inally block (after line 297) where _corr_token is in scope. Token init _corr_token: object | None = None + conditional set_correlation_id(cycle_id) retained at top of
+un.
 - **Verified:** py_compile + ruff F821/E711/all-clean; ast parse OK.
 
