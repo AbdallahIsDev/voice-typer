@@ -23,6 +23,17 @@ from voice_typer.server import crash_handler as _crash_handler
 # Re-exported for monkeypatch.setattr("voice_typer.server.app.X", ...) in tests
 # and for runtime lookups from voice_typer.server.startup_tasks.  # ruff: noqa: F401
 from voice_typer.server import task_scheduler
+
+# SEC-001: restart token functions moved to voice_typer.server.security
+# COMPAT-001: backward-compat re-export for tests/test_pii_redaction.py
+# which imports _PIIRedactionFilter from app. The class lives in
+# voice_typer.server.security as PIIRedactionFilter (no underscore).
+# RW-00: Win32 SECURITY_ATTRIBUTES builder extracted to a focused,
+# security-reviewable module.  Re-exported here so existing callers
+# (and tests that grep app.py source for the symbol name) keep working.
+from voice_typer.server._security_attributes import (  # noqa: F401
+    _create_restrictive_security_attributes,
+)
 from voice_typer.server.audio_processor import AudioProcessor
 from voice_typer.server.audio_quality import AudioQualityAnalyzer
 from voice_typer.server.branding import APP_NAME
@@ -44,11 +55,6 @@ from voice_typer.server.log import (
 # CQ-029: use centralized platform helpers instead of raw sys.platform checks
 from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
 from voice_typer.server.recording import Recorder
-
-# SEC-001: restart token functions moved to voice_typer.server.security
-# COMPAT-001: backward-compat re-export for tests/test_pii_redaction.py
-# which imports _PIIRedactionFilter from app. The class lives in
-# voice_typer.server.security as PIIRedactionFilter (no underscore).
 from voice_typer.server.security import PIIRedactionFilter as _PIIRedactionFilter  # noqa: F401
 from voice_typer.server.security import (
     consume_restart_token as _consume_restart_token,
@@ -806,6 +812,14 @@ class VoiceTyperApp:
         """
         try:
             self._audio_processor.rebuild_from_config(self.config)
+            # PERF-02 (R8): refresh the recorder's _vad_enabled cache so the
+            # next audio chunk sees the new VAD config without re-evaluating
+            # 6 getattr calls per access on the RT thread. The recorder has a
+            # 5-second TTL safety net, but explicit refresh gives sub-second
+            # visibility on config changes.
+            recorder_on_config_changed = getattr(self.recorder, "on_config_changed", None)
+            if callable(recorder_on_config_changed):
+                recorder_on_config_changed()
             log.info(
                 "[APP] Audio processor rebuilt: %s",
                 self._audio_processor.filter_names,
@@ -1067,35 +1081,28 @@ class VoiceTyperApp:
         self.tray.notify(APP_NAME, f"Microphone: {label}")
 
     def _open_config_file(self):
-        """Open config file. NEW-SEC-006: hardcoded notepad path.
+        """Open the config file in the user's default editor.
 
-        SEC-audit-011: saves config before opening the editor, then
-        reloads after the editor closes using Popen().wait().  This
-        ensures the on-disk config is always in sync with the in-memory
-        config when the user starts editing, and that changes made in
-        the editor are picked up when editing is done.
+        XPLAT-01: on Windows the file opens in the user's ``.json`` file
+        association (e.g. VS Code, Notepad++, Sublime) instead of being
+        forced into Notepad. We obtain the editor process handle via
+        ``ShellExecuteEx`` so we can still block until it exits and reload
+        afterwards — ``os.startfile`` cannot do this (it returns
+        immediately with no handle, which is what caused the old
+        reload-after-close / lock-coverage regressions).
 
-        SEC-audit-011 (revised): holds ``_config_mutation_lock`` for
-        the duration of the editor session so the IPC ``set_config``
-        handler cannot atomically replace config.json via
-        ``_secure_atomic_write`` while Notepad is mid-edit. Without
-        this lock, a TOCTOU race exists: IPC set_config could write a
-        new config between Notepad reading and saving, silently
-        overwriting the user's manual edits. The lock is held until
-        Notepad closes and the config is reloaded.
+        SEC-audit-011 / B-4: ``_config_mutation_lock`` is acquired BEFORE
+        spawning the editor and held for the entire editor session (until
+        the editor process exits), so a concurrent IPC ``set_config``
+        cannot atomically replace ``config.json`` via ``_secure_atomic_write``
+        while the user is mid-edit (a TOCTOU race). After the editor exits
+        we reload the config from disk so the user's saved edits take
+        effect.
 
-        B-4: macOS (``open``) and Linux (``xdg-open``) previously used
-        non-blocking ``Popen`` (the spawn-and-return flavor) and did NOT
-        acquire the lock, so an IPC ``set_config`` call could atomically
-        overwrite ``config.json`` while the user was editing it. On all
-        platforms now: acquire ``_config_mutation_lock`` BEFORE spawning
-        the editor, block until the editor subprocess exits, then reload
-        the config from disk. On macOS we use ``open -W`` so the spawn
-        blocks until the editor closes (vanilla ``open`` returns
-        immediately). On Linux ``xdg-open`` may return before the
-        editor closes (desktop-environment-dependent), but the lock is
-        still held for whatever duration the spawn blocks, and the
-        post-edit reload picks up any saved changes.
+        On the rare Windows path where no ``.json`` handler is associated,
+        we fall back to the SystemRoot-validated Notepad path (never a bare
+        PATH-resolved ``notepad``). macOS uses ``open -W`` and Linux uses
+        ``xdg-open``; both block on the editor and reload afterwards.
         """
         config_file = self.config.config_dir / "config.json"
         # Save current in-memory config so the editor sees the latest state
@@ -1105,32 +1112,40 @@ class VoiceTyperApp:
 
         try:
             if is_windows():
-                # SEC-audit-011: Use SystemRoot-validated notepad path.
-                # Fall back to hardcoded C:\Windows\System32\notepad.exe
-                # if SystemRoot validation failed.
-                systemroot = os.environ.get("SYSTEMROOT", r"C:\Windows")
-                notepad = Path(systemroot) / "System32" / "notepad.exe"
-                if not notepad.exists():
-                    # Hardcoded fallback per SEC-audit-011
-                    notepad = Path(r"C:\Windows\System32\notepad.exe")
-                if notepad.exists():
-                    # SEC-audit-011 / B-4: Hold _config_mutation_lock for
-                    # the full editor session so IPC set_config can't race.
-                    # On all platforms the lock is acquired BEFORE spawning
-                    # the editor and released AFTER the config is reloaded.
-                    with self._config_mutation_lock:
-                        # SEC-audit-011: Use Popen().wait() to block until
-                        # notepad closes, then reload the config.
-                        proc = subprocess.Popen([str(notepad), str(config_file)])
-                        with contextlib.suppress(Exception):
-                            proc.wait()
-                        # Reload config after notepad closes
+                # XPLAT-01 + SEC-audit-011 / B-4: open with the user's
+                # default editor (respects .json associations — VS Code,
+                # Notepad++, Sublime) and obtain a process handle so we can
+                # block until it exits and reload afterward. ``os.startfile``
+                # returns immediately with no handle (the cause of the old
+                # reload/lock regression), so we use ShellExecuteEx instead.
+                # Hold _config_mutation_lock for the whole editor session so
+                # a concurrent IPC set_config cannot atomically clobber
+                # config.json mid-edit (TOCTOU, SEC-audit-011).
+                with self._config_mutation_lock:
+                    handle = _windows_open_with_default_app(str(config_file))
+                    if handle is not None:
                         try:
-                            self.config = type(self.config).load()
-                        except Exception as exc:
-                            log.warning("[CONFIG] Failed to reload config after editor: %s", exc)
-                else:
-                    os.startfile(str(config_file))  # type: ignore[attr-defined]
+                            _windows_wait_for_process_exit(handle)
+                        finally:
+                            _windows_close_process_handle(handle)
+                    else:
+                        # No associated handler for .json: use the
+                        # SystemRoot-validated Notepad path (SEC-audit-011),
+                        # never a bare PATH-resolved "notepad" (cwd tamperable).
+                        notepad = _systemroot_notepad_path()
+                        if notepad is not None:
+                            subprocess.Popen([str(notepad), str(config_file)]).wait()
+                        else:
+                            # Last resort: no Notepad at the validated path.
+                            # os.startfile is non-blocking, so the reload below
+                            # runs immediately; the user can re-trigger a reload
+                            # via the UI after editing.
+                            os.startfile(str(config_file))  # type: ignore[attr-defined]
+                    # Reload config from disk after the editor closes / launches.
+                    try:
+                        self.config = type(self.config).load()
+                    except Exception as exc:
+                        log.warning("[CONFIG] Failed to reload config after editor: %s", exc)
             elif is_macos():
                 # B-4: ``open -W`` blocks until the editor exits (vanilla
                 # ``open`` returns immediately after launching). Hold the
@@ -1844,138 +1859,6 @@ class VoiceTyperApp:
         return False
 
 
-def _create_restrictive_security_attributes():
-    """SEC-001: Create a SECURITY_ATTRIBUTES with a restrictive DACL.
-
-    Builds a Win32 SECURITY_ATTRIBUTES structure whose DACL allows only
-    the current user (SID) to access the named mutex. This prevents other
-    user sessions from opening or manipulating our mutex object.
-
-    Returns a ctypes SECURITY_ATTRIBUTES structure, or None on failure
-    (in which case the default NULL DACL is used — still functional but
-    less restrictive).
-    """
-    if not is_windows():
-        return None
-    try:
-        import ctypes
-        from ctypes import wintypes
-
-        advapi32 = ctypes.windll.advapi32
-        kernel32 = ctypes.windll.kernel32
-
-        # Get current process token
-        token = wintypes.HANDLE()
-        if not advapi32.OpenProcessToken(
-            kernel32.GetCurrentProcess(),
-            0x0008,  # TOKEN_QUERY
-            ctypes.byref(token),
-        ):
-            return None
-        try:
-            # Get required buffer size for TokenUser
-            ret_len = wintypes.DWORD()
-            advapi32.GetTokenInformation(token, 1, None, 0, ctypes.byref(ret_len))
-            buf = ctypes.create_string_buffer(ret_len.value)
-            if not advapi32.GetTokenInformation(token, 1, buf, ret_len.value, ctypes.byref(ret_len)):
-                return None
-
-            # Extract SID from TOKEN_USER structure
-            # TOKEN_USER: SID_AND_ATTRIBUTES (pSid, dwAttributes)
-            p_sid = ctypes.cast(
-                ctypes.addressof(buf) + ctypes.sizeof(wintypes.LPVOID),
-                ctypes.POINTER(wintypes.LPVOID),
-            )[0]
-            if not p_sid:
-                return None
-
-            # Build a SECURITY_DESCRIPTOR with a DACL containing only
-            # one ACE: grant GENERIC_ALL to the current user SID.
-            sd_size = 1024
-            sd = ctypes.create_string_buffer(sd_size)
-            if not advapi32.InitializeSecurityDescriptor(sd, 1):  # SECURITY_DESCRIPTOR_REVISION
-                return None
-
-            # Build an explicit access array for the current user
-            class EXPLICIT_ACCESS(ctypes.Structure):  # noqa: N801
-                _fields_ = [
-                    ("grfAccessPermissions", wintypes.DWORD),
-                    ("grfAccessMode", wintypes.DWORD),
-                    ("grfInheritance", wintypes.DWORD),
-                    ("Trustee", ctypes.c_byte * 64),  # TRUSTEE is variable-size
-                ]
-
-            ea = EXPLICIT_ACCESS()
-            # Grant all access
-            ctypes.memset(ctypes.byref(ea), 0, ctypes.sizeof(ea))
-            ea.grfAccessPermissions = 0x1F0003  # MUTEX_ALL_ACCESS
-            ea.grfAccessMode = 0  # GRANT_ACCESS
-            ea.grfInheritance = 0  # NO_INHERITANCE
-
-            # Build TRUSTEE manually
-            # TRUSTEE_IS_SID = 0, TRUSTEE_IS_WELL_KNOWN_GROUP = 5
-            # Simplified: use SetEntriesInAcl with the SID
-            trustee_bytes = ctypes.create_string_buffer(64)
-            ctypes.memset(trustee_bytes, 0, 64)
-            # pMultipleTrustee = NULL
-            # MultipleTrusteeOperation = 0 (NO_MULTIPLE_TRUSTEE)
-            # TrusteeForm = 0 (TRUSTEE_IS_SID)
-            # TrusteeType = 1 (TRUSTEE_IS_USER)
-            # ptstrName = pSid
-            offset = ctypes.sizeof(wintypes.LPVOID)  # pMultipleTrustee
-            offset += ctypes.sizeof(wintypes.DWORD)  # MultipleTrusteeOperation
-            offset += ctypes.sizeof(wintypes.DWORD)  # TrusteeForm
-            offset += ctypes.sizeof(wintypes.DWORD)  # TrusteeType
-            ctypes.memmove(
-                ctypes.addressof(trustee_bytes) + offset,
-                ctypes.byref(ctypes.c_void_p(p_sid)),
-                ctypes.sizeof(ctypes.c_void_p),
-            )
-            # Copy the trustee fields into ea
-            ctypes.memmove(ctypes.byref(ea.Trustee), trustee_bytes, 64)
-
-            # Set the DACL
-            new_acl = wintypes.LPVOID()
-            if not advapi32.SetEntriesInAclW(1, ctypes.byref(ea), None, ctypes.byref(new_acl)):
-                # Fallback: use a simpler approach with NULL DACL
-                if not advapi32.SetSecurityDescriptorDacl(sd, True, None, False):
-                    return None
-            else:
-                if not advapi32.SetSecurityDescriptorDacl(sd, True, new_acl, False):
-                    return None
-
-            # Build SECURITY_ATTRIBUTES
-            class SECURITY_ATTRIBUTES(ctypes.Structure):  # noqa: N801
-                _fields_ = [
-                    ("nLength", wintypes.DWORD),
-                    ("lpSecurityDescriptor", wintypes.LPVOID),
-                    ("bInheritHandle", wintypes.BOOL),
-                ]
-
-            sa = SECURITY_ATTRIBUTES()
-            sa.nLength = ctypes.sizeof(SECURITY_ATTRIBUTES)
-            # RW-6 (pyrefly): build the LPVOID via ``c_void_p(addressof(sd))``
-            # instead of ``cast(sd, LPVOID)``. Both produce a ``c_void_p``
-            # pointing at the security-descriptor buffer, but pyrefly 1.x
-            # rejects the ``cast`` form because it cannot prove
-            # ``c_char_Array[N]`` satisfies the ``_CanCastTo`` type-variable
-            # bound on ``ctypes.cast``. ``addressof`` returns the buffer's
-            # integer address, which ``c_void_p`` accepts unambiguously —
-            # no false positive, identical runtime behaviour.
-            sa.lpSecurityDescriptor = ctypes.c_void_p(ctypes.addressof(sd))
-            sa.bInheritHandle = False
-            # Keep references alive so they don't get GC'd while the mutex holds them
-            sa._sd_ref = sd
-            sa._acl_ref = new_acl
-            return sa
-        finally:
-            kernel32.CloseHandle(token)
-    except Exception:
-        # If we can't build a restrictive DACL, return None and fall back
-        # to default (NULL) security attributes
-        return None
-
-
 def _backend_pid_file() -> Path:
     """Return the path to the backend PID file (``<config_dir>/backend.pid``).
 
@@ -2325,3 +2208,114 @@ def main() -> None:
     from voice_typer.server.ipc_server import main as ipc_main
 
     ipc_main()
+
+
+def _windows_open_with_default_app(path: str):
+    """Open *path* with the user's default app (association-respecting) and
+    return a Win32 process HANDLE, or ``None`` if no association.
+
+    Uses ``ShellExecuteEx`` with ``SEE_MASK_NOCLOSEPROCESS`` so we get a
+    handle to wait on — unlike ``os.startfile`` which returns immediately
+    with no handle (the cause of the old reload/lock regression). The
+    caller must close the returned handle via
+    :func:`_windows_close_process_handle`. Returns ``None`` on any failure
+    (e.g. no ``.json`` association, or a non-Windows platform) so callers
+    can fall back to a validated Notepad path.
+    """
+    try:
+        import ctypes
+        from ctypes.wintypes import (
+            BOOL,
+            DWORD,
+            HANDLE,
+            HINSTANCE,
+            HKEY,
+            HWND,
+            LPCWSTR,
+            ULONG,
+        )
+
+        class SHELLEXECUTEINFO(ctypes.Structure):
+            _fields_ = [
+                ("cbSize", ULONG),
+                ("fMask", ULONG),
+                ("hwnd", HWND),
+                ("lpVerb", LPCWSTR),
+                ("lpFile", LPCWSTR),
+                ("lpParameters", LPCWSTR),
+                ("lpDirectory", LPCWSTR),
+                ("nShow", ctypes.c_int),
+                ("hInstApp", HINSTANCE),
+                ("lpIDList", ctypes.c_void_p),
+                ("lpClass", LPCWSTR),
+                ("hKeyClass", HKEY),
+                ("dwHotKey", DWORD),
+                ("hIconOrMonitor", HANDLE),
+                ("hProcess", HANDLE),
+            ]
+
+        see_mask_nocloseprocess = 0x40
+        sw_shownormal = 1
+        sei = SHELLEXECUTEINFO()
+        sei.cbSize = ctypes.sizeof(sei)
+        sei.fMask = see_mask_nocloseprocess
+        sei.lpVerb = "open"
+        sei.lpFile = path
+        sei.nShow = sw_shownormal
+        shell32 = ctypes.windll.shell32
+        shell32.ShellExecuteExW.argtypes = [ctypes.POINTER(SHELLEXECUTEINFO)]
+        shell32.ShellExecuteExW.restype = BOOL
+        if not shell32.ShellExecuteExW(ctypes.byref(sei)):
+            return None
+        return sei.hProcess or None
+    except Exception:
+        return None
+
+
+def _windows_wait_for_process_exit(handle) -> None:
+    """Block until the process behind *handle* exits."""
+    try:
+        import ctypes
+        from ctypes.wintypes import DWORD, HANDLE
+
+        kernel32 = ctypes.windll.kernel32
+        kernel32.WaitForSingleObject.argtypes = [HANDLE, DWORD]
+        kernel32.WaitForSingleObject.restype = DWORD
+        kernel32.WaitForSingleObject(handle, 0xFFFFFFFF)  # INFINITE
+    except Exception:
+        pass
+
+
+def _windows_close_process_handle(handle) -> None:
+    """Close a process handle returned by ``_windows_open_with_default_app``."""
+    try:
+        import ctypes
+        from ctypes.wintypes import BOOL, HANDLE
+
+        kernel32 = ctypes.windll.kernel32
+        kernel32.CloseHandle.argtypes = [HANDLE]
+        kernel32.CloseHandle.restype = BOOL
+        kernel32.CloseHandle(handle)
+    except Exception:
+        pass
+
+
+def _systemroot_notepad_path():
+    """Return the SystemRoot-validated Notepad path, or ``None``.
+
+    SEC-audit-011: prefer ``%SYSTEMROOT%\\System32\\notepad.exe`` (existence
+    checked), falling back to the canonical ``C:\\Windows\\System32\\notepad.exe``.
+    Never resolves a bare ``notepad`` from PATH/cwd (which would be
+    tamperable). Returns ``None`` only if neither location exists.
+    """
+    candidates = [
+        Path(os.environ.get("SYSTEMROOT", r"C:\Windows")) / "System32" / "notepad.exe",
+        Path(r"C:\Windows") / "System32" / "notepad.exe",
+    ]
+    for candidate in candidates:
+        try:
+            if candidate.exists():
+                return candidate
+        except OSError:
+            continue
+    return None

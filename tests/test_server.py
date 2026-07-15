@@ -357,11 +357,10 @@ class TestDispatchSetConfigAllowlist:
         app = MockApp()
         app.config = real_config
         # Pre-warm / autostart / hotkey side-effects: no-op by default.
-        # RW-9 Phase 2: service.apply_config_side_effects now calls
+        # RW-9 Phase 2/RW-17: service.apply_config_side_effects now calls
         # `startup_tasks.sync_autostart(app)` directly (not
         # `app._sync_autostart()`); the MockApp's `hotkeys` MagicMock
         # already stubs `register_esc/unregister_esc/register_repaste`.
-        app._sync_prewarm_task = MagicMock()
         return IPCServer(app)
 
     # ── Allowlist boundary ───────────────────────────────────────────

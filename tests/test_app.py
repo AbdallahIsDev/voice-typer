@@ -458,7 +458,7 @@ class TestAppStateTransitions:
         app.models.transcriber.transcribe_with_fallback.assert_called_once_with(app.recorder.stop.return_value)
 
     def test_stop_dictation_emits_recording_stopped_event(self, app, monkeypatch):
-        """SOUND-FIX-005 (Round 0): ``app._stop_dictation`` must emit the
+        """SOUND-FIX-005: ``app._stop_dictation`` must emit the
         ``recording_stopped`` IPC push event so the renderer's
         ``useSoundFeedback`` hook can play the stop cue.
 
@@ -992,7 +992,7 @@ class TestHotkeyMapping:
     def test_register_esc_hotkey_creates_and_starts_backend(self, app, monkeypatch):
         """_register_esc_hotkey should create a backend and call start().
 
-        ARCH-ESC-001 (Round 0): the ESC callback is now a closure
+        ARCH-ESC-001: the ESC callback is now a closure
         (_esc_callback in hotkey_dispatcher.register_esc) that wraps
         app._cancel_dictation with a keyboard_ownership guard — so the
         test must accept any callable, not the raw bound method.

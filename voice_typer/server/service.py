@@ -867,8 +867,9 @@ class VoiceTyperService:
         # Sync autostart if autostart setting changed
         if "autostart" in updates:
             try:
-                # RW-9 Phase 2: call controller directly (the
-                # ``app._sync_autostart`` facade is kept for test seams).
+                # RW-9 Phase 2: invoke startup_tasks directly. The
+                # ``app._sync_autostart`` delegate was removed; callers now
+                # target startup_tasks (and tests monkeypatch startup_tasks).
                 from voice_typer.server import startup_tasks
 
                 startup_tasks.sync_autostart(app)

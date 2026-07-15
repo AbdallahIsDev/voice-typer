@@ -199,7 +199,7 @@ _TCP_WRITE_TIMEOUT_SECONDS = 2.0
 #   2. The ``_handle_heartbeat`` handler updates
 #      ``self._last_heartbeat_at = time.monotonic()``.
 #   3. The ``_heartbeat_loop`` daemon thread wakes every 5 seconds and
-#      checks if more than 15 seconds (3 missed heartbeats) have
+#      checks if more than 120 seconds (24 missed heartbeats) have
 #      elapsed since the last heartbeat.  If so, it calls
 #      ``self.app.quit()`` — which runs the shared ``_do_cleanup()``
 #      path from RW-3 (restores volume, flushes recovery, releases the
@@ -832,8 +832,18 @@ class IPCServer(
                 break
             try:
                 self._handle_tcp_connection(conn, addr, expected_token)
-            except Exception:
+            except OSError:
+                # Routine: the handler already logged the disconnect at
+                # DEBUG/INFO and ran its teardown. Nothing to surface.
                 log.debug("[TCP] connection handler completed")
+            except Exception:
+                # Anything else escaping the handler (e.g. teardown in
+                # _on_ipc_client_disconnect raising) is unexpected and
+                # must be visible in production logs.
+                log.warning(
+                    "[TCP] connection handler terminated unexpectedly",
+                    exc_info=True,
+                )
             # Loop back to accept the next connection
 
         with contextlib.suppress(OSError):
@@ -1027,8 +1037,14 @@ class IPCServer(
                     continue
                 if result is not None:
                     self._send(result)
-        except Exception:
+        except OSError:
+            # Routine socket close / EOF: the client disconnected.
             log.debug("[TCP] client connection closed")
+        except Exception:
+            # Anything else escaping the dispatch loop is unexpected
+            # (e.g. rate-limiter state corruption, partial-frame bugs)
+            # and was previously swallowed at DEBUG. Surface it.
+            log.warning("[TCP] unexpected error in connection loop", exc_info=True)
         finally:
             self._tcp_client.close()
             self._tcp_client = None
@@ -1088,7 +1104,7 @@ class IPCServer(
 
         Wakes every ``_HEARTBEAT_INTERVAL_SECONDS`` (5s) and calls
         :meth:`_check_heartbeat_timeout`.  When the timeout fires
-        (3 missed heartbeats = 15s without a heartbeat from Electron),
+        (24 missed heartbeats = 120s without a heartbeat from Electron),
         the loop returns — ``app.quit()`` has already been triggered,
         which runs the shared ``_do_cleanup()`` path from RW-3
         (restores volume, flushes recovery, releases the mutex, closes
@@ -1107,7 +1123,7 @@ class IPCServer(
 
         RW-10: extracted as a separate method so tests can invoke it
         directly without spinning up the daemon thread (and without
-        waiting 15 real seconds).
+        waiting for the real-time 120s timeout to elapse).
 
         Returns ``True`` when ``app.quit()`` was called, ``False``
         otherwise.  The ``False`` cases are:
@@ -1177,7 +1193,18 @@ class IPCServer(
 
         Every call to ``set_state`` will also send a ``status_change``
         push event with the new state value.
+
+        Idempotent: guarded so a ``start()`` → ``stop()`` → ``start()``
+        cycle (common in tests and possible during restart) does not
+        stack another wrapper on top of an already-wrapped
+        ``set_state``. Without the guard, each state change would emit
+        N ``status_change`` events after N start cycles.
         """
+        # Already wrapped on a prior start() — leave the existing
+        # wrapper in place so push events stay deduplicated.
+        if getattr(self.app.tray.set_state, "_vt_wrapped", False):
+            return
+
         original = self.app.tray.set_state
 
         def wrapped(state, message=""):
@@ -1189,6 +1216,7 @@ class IPCServer(
                 }
             )
 
+        wrapped._vt_wrapped = True
         self.app.tray.set_state = wrapped
 
     # ── Main loop (stdin, legacy) ──────────────────────────────────────
@@ -1264,6 +1292,23 @@ class IPCServer(
         data = msg.get("data")
         resp = {"id": msg.get("id")} if "id" in msg else {}
 
+        # RW-13: propagate the inbound request id as a correlation id for
+        # the duration of this dispatch.  Every log emitted by a handler
+        # (and any code it calls synchronously) now carries
+        # correlation_id=<request id>, so a client's request and all the
+        # server-side log lines it triggered can be tied together in a
+        # JSON log backend without threading the id through every call.
+        # The token is reset in the ``finally`` below so concurrent
+        # requests (each on its own call to _dispatch) don't leak ids
+        # into one another.  ``msg.get("id")`` may be None/absent for
+        # fire-and-forget notifications — in that case no correlation id
+        # is set and logs fall back to the no-correlation schema.
+        _corr_token = None
+        _req_id = msg.get("id") if isinstance(msg, dict) else None
+        if _req_id is not None:
+            from voice_typer.server.log import set_correlation_id
+
+            _corr_token = set_correlation_id(str(_req_id))
         # RW-6 (pyrefly): ``_COMMAND_REGISTRY`` is typed ``dict[str, str]``
         # and ``dict.get`` requires a ``str`` key. ``msg.get("type")``
         # returns ``Unknown | None`` because the inbound JSON dict has no
@@ -1273,12 +1318,18 @@ class IPCServer(
         # receives the original value (including ``None``) for the error
         # message, preserving the previous wire behaviour.
         cmd_key = cmd if isinstance(cmd, str) else ""
-        handler_name = self._COMMAND_REGISTRY.get(cmd_key)
-        if handler_name is None:
-            result = self._handle_unknown_command(cmd, data, resp)
-        else:
-            handler = getattr(self, handler_name)
-            result = handler(data, resp)
+        try:
+            handler_name = self._COMMAND_REGISTRY.get(cmd_key)
+            if handler_name is None:
+                result = self._handle_unknown_command(cmd, data, resp)
+            else:
+                handler = getattr(self, handler_name)
+                result = handler(data, resp)
+        finally:
+            if _corr_token is not None:
+                from voice_typer.server.log import reset_correlation_id
+
+                reset_correlation_id(_corr_token)
 
         # NEW-IPC-006: ensure every response has a `data` field so the
         # client can always read `resp.data` without a defensive guard.
@@ -1384,8 +1435,8 @@ class IPCServer(
         "force_cancel_transcription": "_handle_force_cancel_transcription",
         # RW-10: Electron-alive heartbeat.  Electron's main process
         # sends this every 5 seconds; the backend's heartbeat-watchdog
-        # daemon thread calls ``app.quit()`` if 3 consecutive heartbeats
-        # are missed (15s timeout) so a crashed/force-killed Electron
+        # daemon thread calls ``app.quit()`` if 24 consecutive heartbeats
+        # are missed (120s timeout) so a crashed/force-killed Electron
         # doesn't strand the backend with the mic open + mutex held.
         "heartbeat": "_handle_heartbeat",
     }

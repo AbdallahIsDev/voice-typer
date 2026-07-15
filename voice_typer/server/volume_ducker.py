@@ -191,6 +191,43 @@ class VolumeDucker:
             self._backend.supports_per_session,
         )
 
+        # CPU-02 (c-review): macOS osascript polling wastes CPU.
+        # ``MacVolumeBackend`` falls back to spawning an ``osascript``
+        # subprocess (200–500 ms latency per call) when pyobjc-
+        # framework-CoreAudio isn't installed. With smart-duck enabled,
+        # the background monitor polls ``is_speaker_active()`` every
+        # 500 ms — each poll spawns osascript → 40–100% CPU on one
+        # core just for smart-duck, plus repeated AppleScript
+        # permission prompts on macOS 13+.
+        #
+        # The fix: if the active backend is osascript (not CoreAudio),
+        # disable smart-duck entirely. The duck still applies
+        # immediately on dictation start; only the "skip duck if no
+        # audio is playing" optimization is lost. The user can
+        # re-enable smart-duck by installing pyobjc-framework-CoreAudio
+        # (``pip install pyobjc-framework-CoreAudio``).
+        #
+        # We check ``backend.name`` rather than ``isinstance`` so this
+        # is duck-typed and works with any backend that advertises an
+        # osascript-like slow subprocess path (defensive for future
+        # backends). The string check is case-insensitive and matches
+        # the value returned by ``MacVolumeBackend.name`` (see
+        # volume_backends.py:351: ``"CoreAudio (pyobjc)" if
+        # self._use_coreaudio else "osascript"``).
+        backend_name = str(getattr(self._backend, "name", "") or "").lower()
+        if "osascript" in backend_name and self._smart_duck_enabled:
+            log.warning(
+                "[VOLUME] Smart-duck disabled: macOS osascript backend "
+                "is active (pyobjc-framework-CoreAudio not installed). "
+                "osascript polling takes 200-500ms per call and would "
+                "consume 40-100%% CPU on one core. Install pyobjc-"
+                "framework-CoreAudio to re-enable smart-duck: "
+                "pip install pyobjc-framework-CoreAudio"
+            )
+            # Use the public setter so the smart-duck monitor (if
+            # running from a previous dictation) is also stopped.
+            self.set_smart_duck_enabled(False)
+
         # Crash recovery: restore stale state from a previous crash.
         if self._crash_recovery is not None:
             stale = self._crash_recovery.load_stale()

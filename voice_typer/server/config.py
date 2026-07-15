@@ -1360,10 +1360,50 @@ class Config:
 
 # ──────────────────────────────────────────────────────────────────────────
 # ARCH-REFAC-001: validator block moved to ``config_validators.py``.
-# The wildcard import below re-exports every validator symbol —
-# ``IPC_CONFIG_ALLOWLIST``, ``validate_config_update``, the ``_make_*``
-# factories, the pre-built ``_VALIDATOR_*`` instances, and the
-# ``_is_*`` predicates — so any ``from voice_typer.server.config import …``
-# that worked before the split continues to work unchanged.
+# RW-06: the wildcard ``from voice_typer.server.config_validators import *``
+# re-exported every symbol listed in ``config_validators.__all__``.  Wildcard
+# imports make it impossible for static analysis (ruff F403, pyrefly) to
+# distinguish genuinely-unused re-exports from genuinely-used ones, and they
+# silently propagate any new symbol added to ``__all__`` — including future
+# underscore-prefixed helpers — into this module's public surface.
+#
+# The explicit import below mirrors ``config_validators.__all__`` *exactly*
+# (minus ``ALLOWED_USER_MODELS``, which is already imported at the top of
+# this file for use by ``Config.load()``).  Re-importing it here would
+# trip ruff F811 (redefinition of unused name) without changing the
+# module's public surface, so it is intentionally omitted from this list.
+#
+# If a future change to ``config_validators.__all__`` adds a new symbol
+# that callers expect to reach via ``from voice_typer.server.config import …``,
+# it MUST be added to this list explicitly — that's the whole point of
+# replacing the wildcard.
 # ──────────────────────────────────────────────────────────────────────────
-from voice_typer.server.config_validators import *  # noqa: E402,F401,F403 — backward compat (intentional bottom-of-file re-export)
+from voice_typer.server.config_validators import (  # noqa: E402,F401 — backward-compat bottom-of-file re-export
+    _MAX_API_KEY_LEN,
+    _MAX_STRING_LEN,
+    _VALIDATOR_API_KEY,
+    _VALIDATOR_API_URL,
+    _VALIDATOR_CLOUD_MODEL,
+    _VALIDATOR_HOTKEY,
+    _VALIDATOR_LANGUAGE,
+    _VALIDATOR_LLM_API_URL,
+    _VALIDATOR_LLM_MODEL,
+    _VALIDATOR_MICROPHONE,
+    _VALIDATOR_PUSH_TO_TALK_HOTKEY,
+    _VALIDATOR_REPASTE_HOTKEY,
+    IPC_CONFIG_ALLOWLIST,
+    FieldSpec,
+    ValidatorFn,
+    _bool_validator,
+    _is_float_or_int_not_bool,
+    _is_int_not_bool,
+    _is_str,
+    _make_custom_theme_validator,
+    _make_enum_validator,
+    _make_float_validator,
+    _make_int_validator,
+    _make_optional_str_validator,
+    _make_str_validator,
+    _make_url_validator,
+    validate_config_update,
+)
