@@ -47,5 +47,11 @@ jobs:
       - name: Lint (Biome)
         run: npm run lint
 
+      # F2 regression guard: ensure the start/stop sound cues are NOT
+      # byte-identical. If someone later copies one constant into both
+      # (the original Finding-2 bug), this fails the build.
+      - name: Sound cue distinctness check
+        run: python ../scripts/build/generate_beeps.py --check
+
       - name: Test (Vitest)
         run: npm test
