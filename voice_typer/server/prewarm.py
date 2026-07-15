@@ -17,10 +17,13 @@ so it never competes with the user's real work:
     the RAM guard: if free RAM is below the budget (default 6 GB) —
     prewarming on a memory-starved machine would evict the user's
     working set, which is the opposite of helpful.
-2.  **Import warmup.**  ``import torch`` + ``from transformers import
-    AutoModelForTDT, AutoProcessor``.  This pages in ~4.5 GB of ``.pyc``,
-    ``.dll``, and ``.pyd`` files.  The imported modules are then dropped
-    (process exits) — we only wanted their bytes in the OS cache.
+ 2.  **Import warmup.**  Read the installed ``torch`` + ``transformers``
+     package files (``.pyc`` / ``.dll`` / ``.pyd`` / ``.py``) into the OS
+     page cache **without importing them**.  This pages in ~4.5 GB of bytes
+     — the same set the old ``import torch`` did — but skips the ~5 s of CPU
+     cost of *executing* torch (the live modules would be thrown away on
+     exit anyway).  The app's later ``import torch`` reads those bytes from
+     RAM and only pays the CPU-execution cost once, in its own process.
 3.  **Weights warmup.**  Sequentially read the cached
     ``model.safetensors`` (2.4 GB for Parakeet) with a small buffer and
     discard the bytes.  Because the read is sequential and the file is
@@ -40,11 +43,14 @@ Run manually for diagnostics::
 from __future__ import annotations
 
 import argparse
+import importlib
+import importlib.util
 import json
 import logging
 import logging.handlers
 import os
 import random
+import select
 import subprocess
 import sys
 import time
@@ -119,10 +125,10 @@ _CACHE_RATIO_HIT_THRESHOLD_US = 50.0
 # ─── Exit codes (distinct for diagnostics in Task Scheduler history) ─────
 
 EXIT_OK = 0
-EXIT_DISABLED = 10          # user turned fast_startup off
-EXIT_LOW_RAM = 20           # not enough free RAM to prewarm safely
-EXIT_NO_MODEL = 30          # model not cached yet (first-ever run)
-EXIT_IMPORT_FAILED = 40     # torch/transformers missing or broken
+EXIT_DISABLED = 10  # user turned fast_startup off
+EXIT_LOW_RAM = 20  # not enough free RAM to prewarm safely
+EXIT_NO_MODEL = 30  # model not cached yet (first-ever run)
+EXIT_IMPORT_FAILED = 40  # torch/transformers missing or broken
 
 
 def _setup_logging() -> None:
@@ -143,6 +149,7 @@ def _setup_logging() -> None:
     """
     from voice_typer.server import _paths
     from voice_typer.server.log import setup_logging as _setup_logging_shared
+
     # RW-7: use the platform-aware config dir helper instead of the
     # previous hardcoded Path.home() / ".voice-typer".
     log_dir = _paths.config_dir()
@@ -151,8 +158,11 @@ def _setup_logging() -> None:
 
         prewarm_log = log_dir / "prewarm.log"
         prewarm_handler = logging.handlers.RotatingFileHandler(
-            prewarm_log, maxBytes=1_000_000, backupCount=2,
-            encoding="utf-8", errors="backslashreplace",
+            prewarm_log,
+            maxBytes=1_000_000,
+            backupCount=2,
+            encoding="utf-8",
+            errors="backslashreplace",
         )
         prewarm_handler.setFormatter(
             logging.Formatter(
@@ -174,6 +184,7 @@ def _setup_logging() -> None:
 
 # ─── Guards ──────────────────────────────────────────────────────────────
 
+
 def _fast_startup_enabled() -> bool:
     """Return whether the user has enabled the prewarm scheduled task.
 
@@ -189,6 +200,7 @@ def _fast_startup_enabled() -> bool:
     """
     try:
         from voice_typer.server.config import Config
+
         cfg = Config.load()
         enabled = bool(getattr(cfg, "fast_startup", True))
         if not enabled:
@@ -196,8 +208,7 @@ def _fast_startup_enabled() -> bool:
         return enabled
     except Exception as e:
         log.warning(
-            "[PREWARM] Failed to read fast_startup from config, "
-            "defaulting to True: %s",
+            "[PREWARM] Failed to read fast_startup from config, defaulting to True: %s",
             e,
         )
         return True
@@ -207,6 +218,7 @@ def _free_ram_mb() -> int | None:
     """Return available physical RAM in MB, or None if it can't be queried."""
     try:
         import psutil  # type: ignore[import-untyped]
+
         return int(psutil.virtual_memory().available / (1024 * 1024))
     except ImportError:
         pass
@@ -214,6 +226,7 @@ def _free_ram_mb() -> int | None:
     if is_windows():
         try:
             import ctypes
+
             class _MEMORYSTATUSEX(ctypes.Structure):
                 _fields_ = [
                     ("dwLength", ctypes.c_ulong),
@@ -226,6 +239,7 @@ def _free_ram_mb() -> int | None:
                     ("ullAvailVirtual", ctypes.c_ulonglong),
                     ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
                 ]
+
             stat = _MEMORYSTATUSEX()
             stat.dwLength = ctypes.sizeof(stat)
             ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
@@ -264,28 +278,81 @@ def _lower_io_priority() -> None:
         # returned False (the symbol doesn't exist in libc), so the I/O
         # priority lowering silently no-opped. The correct way is to call
         # syscall(SYS_ioprio_set, which, who, ioprio) via libc.syscall.
-        # SYS_ioprio_set = 251 on x86_64, 314 on aarch64 (we try both).
         # IOPRIO_WHO_PROCESS=1, IOPRIO_CLASS_IDLE=3,
         # IOPRIO_PRIO_VALUE(class, level) = (class << 13) | level
+        #
+        # XPLAT-04: architecture-aware syscall number lookup. The
+        # ioprio_set syscall number varies by architecture:
+        #   x86_64      : 251
+        #   aarch64     : 314
+        #   i386        : 289
+        #   ppc64le     : 345
+        #   s390x       : 378
+        #   riscv64     : IORING_SETUP_IOPOLL (not yet stable)
+        # Unrecognized architectures fall back to trying 251 then 314
+        # (the two most common) and log a debug message if both fail.
         if is_linux():
             try:
                 import ctypes
+
+                # XPLAT-04: lookup syscall number by architecture
+                _machine_to_ioprio_set = {
+                    "x86_64": 251,
+                    "amd64": 251,
+                    "aarch64": 314,
+                    "arm64": 314,
+                    "i386": 289,
+                    "i686": 289,
+                    "ppc64le": 345,
+                    "ppc64": 345,
+                    "s390x": 378,
+                }
+                _sys_num = _machine_to_ioprio_set.get(os.uname().machine.lower(), 0)
                 libc = ctypes.CDLL("libc.so.6", use_errno=True)
                 libc.syscall.restype = ctypes.c_long
                 libc.syscall.argtypes = [
-                    ctypes.c_long, ctypes.c_uint, ctypes.c_int, ctypes.c_uint,
+                    ctypes.c_long,
+                    ctypes.c_uint,
+                    ctypes.c_int,
+                    ctypes.c_uint,
                 ]
                 ioprio_who_process = 1
                 ioprio_class_idle = 3
                 ioprio = (ioprio_class_idle << 13) | 0
-                # Try x86_64 syscall number first, then aarch64
-                for sys_num in (251, 314):
-                    rc = libc.syscall(sys_num, ioprio_who_process, 0, ioprio)
+                if _sys_num:
+                    rc = libc.syscall(_sys_num, ioprio_who_process, 0, ioprio)
                     if rc == 0:
-                        log.debug("[PREWARM] Linux: set I/O priority to idle (syscall %d)", sys_num)
-                        break
+                        log.debug(
+                            "[PREWARM] Linux: set I/O priority to idle (syscall %d, arch=%s)",
+                            _sys_num,
+                            os.uname().machine,
+                        )
+                    else:
+                        log.debug(
+                            "[PREWARM] Linux: ioprio_set syscall %d failed (arch=%s)",
+                            _sys_num,
+                            os.uname().machine,
+                        )
                 else:
-                    log.debug("[PREWARM] Linux: ioprio_set syscall failed for both 251 and 314")
+                    # Unrecognized architecture — try the two most common
+                    # syscall numbers as a best-effort fallback.
+                    log.debug(
+                        "[PREWARM] Linux: unrecognized arch %s — trying fallback syscall numbers 251, 314",
+                        os.uname().machine,
+                    )
+                    for sys_num in (251, 314):
+                        rc = libc.syscall(sys_num, ioprio_who_process, 0, ioprio)
+                        if rc == 0:
+                            log.debug(
+                                "[PREWARM] Linux: set I/O priority to idle (syscall %d)",
+                                sys_num,
+                            )
+                            break
+                    else:
+                        log.debug(
+                            "[PREWARM] Linux: ioprio_set syscall failed for both 251 and 314 (arch=%s)",
+                            os.uname().machine,
+                        )
             except Exception as e:
                 log.debug("[PREWARM] Linux: ioprio_set failed: %s", e)
         return
@@ -325,23 +392,83 @@ def _lower_io_priority() -> None:
 
 # ─── Warmup stages ───────────────────────────────────────────────────────
 
+
+def _warm_package_files(pkg_name: str) -> int:
+    """Read a package's installed files into the OS page cache WITHOUT
+    importing it.
+
+    Replaces the old ``import torch`` / ``import transformers`` warmup.
+    ``import`` executes the package's code (~5 s of CPU for torch) and builds
+    live objects we immediately throw away when prewarm exits — the only
+    thing we actually want is the file *bytes* resident in the OS standby
+    cache, so a later ``import torch`` in the real app reads them from RAM.
+    Reading the files directly produces the same cache state but skips the
+    CPU cost, so prewarm finishes in seconds instead of ~a minute and uses
+    far less memory.  The app still has to execute torch's code once, in its
+    own process — that is unavoidable and unchanged.
+
+    Locating the files uses ``importlib.util.find_spec`` (the import *finder*
+    phase), which does NOT execute the package's code — verified by asserting
+    the package never lands in ``sys.modules``.
+    """
+    spec = importlib.util.find_spec(pkg_name)
+    if spec is None:
+        log.debug("[PREWARM] %s not installed — skip file warmup", pkg_name)
+        return 0
+    if pkg_name in sys.modules:
+        # find_spec must never import, but if it ever does we must not claim
+        # credit for warming something that was already loaded.
+        log.debug("[PREWARM] %s already imported — skip", pkg_name)
+        return 0
+
+    roots: list[Path] = []
+    if spec.submodule_search_locations:
+        roots.extend(Path(p) for p in spec.submodule_search_locations)
+    elif spec.origin and spec.origin != "namespace":
+        roots.append(Path(spec.origin))
+
+    if not roots:
+        log.debug("[PREWARM] %s has no locatable files — skip", pkg_name)
+        return 0
+
+    total = 0
+    t0 = time.perf_counter()
+    for root in roots:
+        for path in sorted(root.rglob("*")):
+            if path.is_file():
+                try:
+                    total += _warm_file(path)
+                except OSError as exc:
+                    log.debug("[PREWARM] skip %s: %s", path, exc)
+    elapsed = time.perf_counter() - t0
+    # Defensive: file warmup must never have imported the package.
+    assert pkg_name not in sys.modules, f"{pkg_name} was imported during file warmup — must stay unimported"
+    log.info(
+        "[PREWARM] file-warmed %s: %.0f MB in %.1fs",
+        pkg_name,
+        total / (1024 * 1024),
+        elapsed,
+    )
+    return total
+
+
 def _warm_imports() -> None:
-    """Import torch + transformers so their files enter the OS cache.
+    """Page torch + transformers files into the OS cache (no import).
 
-    Uses the same import path as ``parakeet_engine.ParakeetEngine._ensure_imports``
-    so we warm exactly the bytes that will be needed.
-
-    STARTUP-3: filter the import path by active backend. Previously this
-    unconditionally imported torch + transformers (which takes ~30-60 s
-    cold, ~400 s when contended). Whisper users don't need transformers —
-    they only need faster_whisper (ctranslate2, ~3 s cold). Parakeet/Qwen
-    users still need the full torch + transformers stack.
+    STARTUP-3: filter by active backend. Previously this unconditionally
+    imported torch + transformers (which takes ~30-60 s cold, ~400 s when
+    contended, and executes code we then throw away). Whisper users don't
+    need transformers — they only need faster_whisper (ctranslate2, ~3 s
+    cold). Parakeet/Qwen users still need the full torch + transformers
+    stack, but we warm its *files* rather than importing it, so prewarm
+    finishes in seconds and the app executes torch exactly once, later.
     """
     # STARTUP-3: determine which imports are needed based on the active
     # backend. Whisper → only faster_whisper; parakeet/qwen → full stack.
     active_backend = "whisper"  # default
     try:
         from voice_typer.server.config import Config
+
         cfg = Config.load()
         active_backend = getattr(cfg, "asr_backend", "whisper")
     except Exception:
@@ -350,24 +477,15 @@ def _warm_imports() -> None:
     needs_full_stack = active_backend in ("parakeet", "qwen")
 
     if needs_full_stack:
-        # Parakeet / Qwen both use the HuggingFace transformers stack,
-        # so we need torch + transformers (the heavy imports).
-        t0 = time.perf_counter()
-        import torch  # noqa: F401  — import is the side effect we want
-        elapsed = time.perf_counter() - t0
-        log.info("[PREWARM] import torch: %.2fs", elapsed)
-
-        t0 = time.perf_counter()
-        import transformers  # noqa: F401  — import is the side effect we want
-        _auto_tdt = getattr(transformers, "AutoModelForTDT", None)
-        _auto_proc = getattr(transformers, "AutoProcessor", None)
-        if _auto_tdt is None or _auto_proc is None:
-            raise ImportError(
-                "transformers package is missing AutoModelForTDT / "
-                "AutoProcessor — install transformers>=4.50"
-            )
-        elapsed = time.perf_counter() - t0
-        log.info("[PREWARM] import transformers (AutoModelForTDT, AutoProcessor): %.2fs", elapsed)
+        # Parakeet / Qwen both use the HuggingFace transformers stack, so we
+        # need torch + transformers resident in the OS cache.  Read their
+        # installed files WITHOUT importing (see _warm_package_files): this
+        # pages in the same ~4.5 GB of .pyc/.dll/.pyd bytes the old
+        # ``import torch`` did, but skips executing torch (~5 s CPU) and the
+        # live modules we'd discard on exit.  The app still executes torch
+        # once, in its own process — unavoidable.
+        _warm_package_files("torch")
+        _warm_package_files("transformers")
     else:
         # STARTUP-3: whisper backend — skip torch/transformers (~400 s saved).
         # Whisper uses faster_whisper (ctranslate2) which has no torch
@@ -375,8 +493,7 @@ def _warm_imports() -> None:
         # CPU-fallback path; the whisper fallback (tiny.en) is what
         # AsrBackendRegistry.load_with_fallback() falls back to.
         log.info(
-            "[PREWARM] active backend=%s — skipping torch/transformers import "
-            "(whisper only needs faster_whisper)",
+            "[PREWARM] active backend=%s — skipping torch/transformers import (whisper only needs faster_whisper)",
             active_backend,
         )
 
@@ -386,6 +503,7 @@ def _warm_imports() -> None:
     try:
         t0 = time.perf_counter()
         import faster_whisper  # noqa: F401
+
         log.info("[PREWARM] import faster_whisper: %.2fs", time.perf_counter() - t0)
     except Exception as exc:
         log.debug("[PREWARM] faster_whisper not importable (skipping): %s", exc)
@@ -427,6 +545,7 @@ def _resolve_hf_cache_dir() -> Path:
     primary_candidate: Path | None = None
     try:
         from voice_typer.server.config import _config_dir
+
         cache = _config_dir() / "huggingface"
         # Review fix C2: only accept absolute paths. A relative path
         # (e.g. "~/.voice-typer" from an unexpanded "~" when env vars
@@ -465,10 +584,12 @@ def _resolve_hf_cache_dir() -> Path:
     if primary_candidate is None and is_windows():
         try:
             import winreg
+
             key = winreg.OpenKey(
                 winreg.HKEY_CURRENT_USER,
                 r"Volatile Environment",
-                0, winreg.KEY_READ,
+                0,
+                winreg.KEY_READ,
             )
             try:
                 profile = winreg.QueryValueEx(key, "USERPROFILE")[0]
@@ -488,6 +609,7 @@ def _resolve_hf_cache_dir() -> Path:
     if primary_candidate is None and (is_linux() or is_macos()):
         try:
             import pwd
+
             # PYREFLY-TASK-16: Windows false positive. This whole block
             # is guarded by ``is_linux() or is_macos()`` above, so on
             # Windows the body never executes (the guard short-circuits
@@ -520,6 +642,7 @@ def _resolve_hf_cache_dir() -> Path:
     # Path.home() / ".voice-typer" lives in one canonical place (and
     # the RW-7 regression test can allow it there rather than here).
     from voice_typer.server import _paths
+
     return _paths.legacy_hf_cache_dir()
 
 
@@ -612,6 +735,7 @@ def _active_model_cache_dirs() -> list[Path]:
     dirs: list[Path] = []
     try:
         from voice_typer.server.config import Config
+
         cfg = Config.load()
         cache_root = _resolve_hf_cache_dir() / "hub"
         if not cache_root.exists():
@@ -626,6 +750,7 @@ def _active_model_cache_dirs() -> list[Path]:
         if active_backend == "parakeet":
             try:
                 from voice_typer.server.parakeet_engine import _PARAKERT_MODEL_ID
+
                 target_repo_ids.add(_PARAKERT_MODEL_ID)
             except Exception:
                 pass
@@ -676,23 +801,29 @@ def _warm_file(path: Path) -> int:
     rate = (read / (1024 * 1024)) / max(time.perf_counter() - t0, 1e-6)
     log.info(
         "[PREWARM] warmed %s: %.0f MB in %.1fs (%.0f MB/s)",
-        path.name, read / (1024 * 1024), time.perf_counter() - t0, rate,
+        path.name,
+        read / (1024 * 1024),
+        time.perf_counter() - t0,
+        rate,
     )
     return read
 
 
 # ─── Boot-session dedup (prevent LogonTrigger re-fire) ────────────────────
 
+
 def _boot_time() -> int | None:
     """Return system boot time as Unix timestamp, or None."""
     try:
         import psutil
+
         return int(psutil.boot_time())
     except Exception:
         pass
     if is_windows():
         try:
             import ctypes
+
             kernel32 = ctypes.windll.kernel32
             # GetTickCount64 -> ms since boot, subtract from now.
             ms = kernel32.GetTickCount64()
@@ -749,6 +880,7 @@ def _mark_warmed(elapsed_s: float) -> None:
         import datetime as _dt
 
         from voice_typer.server.config import _secure_atomic_write
+
         now_iso = _dt.datetime.now().isoformat(timespec="seconds")
         _secure_atomic_write(sentinel, f"{bt}\n{elapsed_s:.1f}\n{now_iso}")
     except Exception:
@@ -757,12 +889,14 @@ def _mark_warmed(elapsed_s: float) -> None:
         # re-warm (wasted work) and the About page will show "Last run:
         # None" — both are user-visible and need a diagnostic.
         log.warning(
-            "[PREWARM] could not write sentinel file %s", _sentinel_path(),
+            "[PREWARM] could not write sentinel file %s",
+            _sentinel_path(),
             exc_info=True,
         )
 
 
 # ─── Cache ratio probe (ADR-0009 Issue 3) ─────────────────────────────────
+
 
 def _cache_ratio(path: Path, samples: int = _CACHE_RATIO_SAMPLES) -> float:
     """Estimate what fraction of ``path`` is in the OS standby cache.
@@ -806,6 +940,7 @@ def _cache_ratio(path: Path, samples: int = _CACHE_RATIO_SAMPLES) -> float:
 
 # ─── PID file + process-liveness helpers (ADR-0009 Issue 4) ───────────────
 
+
 def _write_pid_file() -> None:
     """Write the current PID to the prewarm PID file.
 
@@ -816,6 +951,7 @@ def _write_pid_file() -> None:
     """
     try:
         from voice_typer.server.config import _secure_atomic_write
+
         pid_file = _pid_file_path()
         pid_file.parent.mkdir(parents=True, exist_ok=True)
         _secure_atomic_write(pid_file, str(os.getpid()))
@@ -855,11 +991,14 @@ def _process_alive(pid: int) -> bool:
     if is_windows():
         try:
             import ctypes
+
             kernel32 = ctypes.windll.kernel32
             process_query_limited_information = 0x1000
             STILL_ACTIVE = 259  # noqa: N806
             handle = kernel32.OpenProcess(
-                process_query_limited_information, False, pid,
+                process_query_limited_information,
+                False,
+                pid,
             )
             if not handle:
                 return False
@@ -877,6 +1016,7 @@ def _process_alive(pid: int) -> bool:
             return False
     else:
         import errno
+
         try:
             os.kill(pid, 0)
             return True
@@ -890,7 +1030,38 @@ def _process_alive(pid: int) -> bool:
             # timeout in wait_for_prewarm()).
             if exc.errno == errno.ESRCH:
                 return False
-            return exc.errno == errno.EPERM
+            if exc.errno == errno.EPERM:
+                # XPLAT-05: log a warning so the user can diagnose if
+                # an unexpected EPERM is causing wait_for_prewarm() to
+                # block for the full 60s timeout. Best-effort check if
+                # the PID is owned by the same user (Linux only, via
+                # /proc).
+                _uid = os.getuid()
+                try:
+                    _st = os.stat(f"/proc/{pid}")
+                    if _st.st_uid == _uid:
+                        log.debug(
+                            "[PREWARM] PID %d is owned by us but EPERM on kill(0) — treating as alive",
+                            pid,
+                        )
+                    else:
+                        log.warning(
+                            "[PREWARM] PID %d exists but is owned by "
+                            "UID %d (not us, UID=%d) — treating as "
+                            "alive for 60s timeout",
+                            pid,
+                            _st.st_uid,
+                            _uid,
+                        )
+                except OSError:
+                    log.warning(
+                        "[PREWARM] could not verify PID %d ownership "
+                        "(EPERM on kill) — treating as alive for 60s "
+                        "timeout",
+                        pid,
+                    )
+                return True
+            return False
 
 
 def _read_process_cmdline_windows(pid: int) -> str | None:
@@ -947,10 +1118,11 @@ def _read_process_cmdline_windows(pid: int) -> str | None:
     # comments for anyone cross-referencing the Microsoft docs.
     class UnicodeString(ctypes.Structure):
         """NT UNICODE_STRING — length-prefixed UTF-16 string pointer."""
+
         _fields_ = [
-            ("Length", wintypes.USHORT),          # bytes, excluding NUL
-            ("MaximumLength", wintypes.USHORT),   # bytes, including NUL
-            ("Buffer", wintypes.LPWSTR),          # pointer into target's memory
+            ("Length", wintypes.USHORT),  # bytes, excluding NUL
+            ("MaximumLength", wintypes.USHORT),  # bytes, including NUL
+            ("Buffer", wintypes.LPWSTR),  # pointer into target's memory
         ]
 
     class ProcessBasicInformation(ctypes.Structure):
@@ -964,8 +1136,9 @@ def _read_process_cmdline_windows(pid: int) -> str | None:
           UniqueProcessId         HANDLE_PTR (ULONG_PTR)
           InheritedFromUniqueProcessId ULONG_PTR
         """
+
         _fields_ = [
-            ("ExitStatus", wintypes.LONG),        # NTSTATUS
+            ("ExitStatus", wintypes.LONG),  # NTSTATUS
             ("PebBaseAddress", wintypes.LPVOID),  # PEB* inside target's memory
             ("AffinityMask", ulong_ptr),
             ("BasePriority", wintypes.LONG),
@@ -983,8 +1156,11 @@ def _read_process_cmdline_windows(pid: int) -> str | None:
 
     kernel32.ReadProcessMemory.restype = wintypes.BOOL
     kernel32.ReadProcessMemory.argtypes = [
-        wintypes.HANDLE, wintypes.LPCVOID, wintypes.LPVOID,
-        ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t),
+        wintypes.HANDLE,
+        wintypes.LPCVOID,
+        wintypes.LPVOID,
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_size_t),
     ]
 
     # NtQueryInformationProcess is in ntdll, not kernel32.
@@ -992,12 +1168,17 @@ def _read_process_cmdline_windows(pid: int) -> str | None:
     process_info_class_basic = 0
     ntdll.NtQueryInformationProcess.restype = wintypes.LONG  # NTSTATUS
     ntdll.NtQueryInformationProcess.argtypes = [
-        wintypes.HANDLE, wintypes.ULONG, wintypes.LPVOID,
-        wintypes.ULONG, ctypes.POINTER(wintypes.ULONG),
+        wintypes.HANDLE,
+        wintypes.ULONG,
+        wintypes.LPVOID,
+        wintypes.ULONG,
+        ctypes.POINTER(wintypes.ULONG),
     ]
 
     handle = kernel32.OpenProcess(
-        process_query_limited_information | process_vm_read, False, pid,
+        process_query_limited_information | process_vm_read,
+        False,
+        pid,
     )
     if not handle:
         return None  # access denied or process dead
@@ -1006,8 +1187,11 @@ def _read_process_cmdline_windows(pid: int) -> str | None:
         pbi = ProcessBasicInformation()
         returned = wintypes.ULONG(0)
         status = ntdll.NtQueryInformationProcess(
-            handle, process_info_class_basic, ctypes.byref(pbi),
-            ctypes.sizeof(pbi), ctypes.byref(returned),
+            handle,
+            process_info_class_basic,
+            ctypes.byref(pbi),
+            ctypes.sizeof(pbi),
+            ctypes.byref(returned),
         )
         # NTSTATUS >= 0 means success (0 = STATUS_SUCCESS, >0 = informational)
         if status < 0 or not pbi.PebBaseAddress:
@@ -1068,8 +1252,11 @@ def _read_process_cmdline_windows(pid: int) -> str | None:
         char_count = cmd_unicode.Length // 2
         buf = ctypes.create_unicode_buffer(char_count + 1)
         if not kernel32.ReadProcessMemory(
-            handle, cmd_unicode.Buffer, buf,
-            cmd_unicode.Length, ctypes.byref(bytes_read),
+            handle,
+            cmd_unicode.Buffer,
+            buf,
+            cmd_unicode.Length,
+            ctypes.byref(bytes_read),
         ):
             return _read_process_cmdline_windows_wmi(pid)  # fallback
         return buf.value
@@ -1096,11 +1283,15 @@ def _read_process_cmdline_windows_wmi(pid: int) -> str | None:
         # -Filter avoids fetching all processes (faster, less memory).
         result = subprocess.run(
             [
-                "powershell", "-NoProfile", "-NonInteractive", "-Command",
-                f"(Get-CimInstance Win32_Process -Filter "
-                f"'ProcessId={pid}').CommandLine",
+                "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                f"(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}').CommandLine",
             ],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if result.returncode == 0:
             cmdline = result.stdout.strip()
@@ -1158,7 +1349,9 @@ def _process_is_prewarm(pid: int) -> bool:
         try:
             result = subprocess.run(
                 ["ps", "-o", "command=", "-p", str(pid)],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             cmdline = result.stdout
             return "prewarm" in cmdline and "voice_typer" in cmdline
@@ -1205,8 +1398,8 @@ def is_prewarm_running() -> bool:
     # stale and clean it up so the next wait_for_prewarm() doesn't block.
     if not _process_is_prewarm(pid):
         log.info(
-            "[PREWARM] PID file points at pid %d which is not prewarm "
-            "(PID recycled) — removing stale PID file", pid,
+            "[PREWARM] PID file points at pid %d which is not prewarm (PID recycled) — removing stale PID file",
+            pid,
         )
         _remove_pid_file()
         return False
@@ -1216,8 +1409,13 @@ def is_prewarm_running() -> bool:
 def wait_for_prewarm(timeout_s: float = 60.0) -> bool:
     """Wait for prewarm to finish if it's running.
 
-    ADR-0009 Issue 4: returns True if prewarm completed (or wasn't
-    running), False if the timeout was reached. Polls every 500ms.
+    CPU-04: Uses event-based notification instead of polling:
+      - Windows: ``WaitForSingleObject`` on a named event (zero-CPU kernel wait).
+      - Linux: ``pidfd_open`` + ``select.poll()`` (fd-based wait).
+      - Fallback (macOS / old kernel): degraded 1s polling (60 polls max).
+
+    Returns True if prewarm completed (or wasn't running), False if the
+    timeout was reached.
 
     Called by ``model_manager.try_load()`` before loading the model so
     the app doesn't fight prewarm for disk I/O when the user logs in
@@ -1232,28 +1430,31 @@ def wait_for_prewarm(timeout_s: float = 60.0) -> bool:
         return True  # nothing to wait for
 
     log.info(
-        "[PREWARM] waiting for prewarm to finish (timeout=%.0fs)", timeout_s,
+        "[PREWARM] waiting for prewarm to finish (timeout=%.0fs)",
+        timeout_s,
     )
-    deadline = time.perf_counter() + timeout_s
+
+    # CPU-04: try event-based wait first (zero-CPU on Windows, fd-based on Linux).
+    # If it returns True, prewarm signaled completion within the timeout.
+    # If it returns False, either the platform doesn't support event-based
+    # waiting or the wait timed out — fall back to the degraded 1s poll loop,
+    # but consume only the REMAINING budget so the total wait never exceeds
+    # timeout_s (the event wait already spent up to the full timeout).
+    wait_start = time.perf_counter()
+    if _wait_for_completion_event(timeout_s):
+        return True
+
+    deadline = wait_start + timeout_s
     while time.perf_counter() < deadline:
-        time.sleep(0.5)
+        time.sleep(1.0)  # CPU-04: reduced from 500ms to 1s (60 polls max)
         if not is_prewarm_running():
-            # Review fix L10: don't claim "warm cache" — prewarm might
-            # have exited with EXIT_LOW_RAM (cache NOT warm). Just say
-            # "finished".
-            log.info("[PREWARM] prewarm finished — proceeding")
+            log.info("[PREWARM] prewarm finished -- proceeding")
             return True
 
     log.warning(
-        "[PREWARM] prewarm still running after %.0fs — proceeding anyway",
+        "[PREWARM] prewarm still running after %.0fs -- proceeding anyway",
         timeout_s,
     )
-    # Review fix M3: attempt cleanup of a stale PID file. If the PID
-    # was recycled (per H4), is_prewarm_running() already cleaned it
-    # up on the next call. If prewarm is genuinely still running, the
-    # PID file is NOT removed (prewarm's finally block will do that).
-    # This is a no-op in the common case and helps the next launch
-    # avoid re-blocking on a stale PID.
     return False
 
 
@@ -1310,7 +1511,8 @@ def spawn_background_prewarm(force: bool = True, trigger: str = "manual") -> int
         proc = subprocess.Popen(cmd, **kwargs)
         log.info(
             "[PREWARM] background prewarm spawned (pid=%d, force=%s)",
-            proc.pid, force,
+            proc.pid,
+            force,
         )
         return proc.pid
     except FileNotFoundError as exc:
@@ -1322,6 +1524,7 @@ def spawn_background_prewarm(force: bool = True, trigger: str = "manual") -> int
 
 
 # ─── Status query (ADR-0009 Issue 3) ──────────────────────────────────────
+
 
 def get_prewarm_status() -> dict:
     """Return a snapshot of the prewarm cache state for the UI.
@@ -1377,6 +1580,7 @@ def get_prewarm_status() -> dict:
                 # the boot time plus the prewarm duration, which is the
                 # best estimate of when prewarm completed.
                 from datetime import datetime
+
                 approx_ts = boot_ts + (elapsed_s if elapsed_s is not None else 0)
                 last_run = datetime.fromtimestamp(approx_ts).isoformat()
     except (ValueError, OSError):
@@ -1457,7 +1661,170 @@ def active_dirs_exist() -> bool:
         return False
 
 
+# ── CPU-04: Event-based prewarm completion notification ─────────────────────────────────────────────────────────
+#
+# wait_for_prewarm() previously polled is_prewarm_running() every
+# 500ms (120 polls over 60s), each poll reading the PID file and calling
+# _process_alive(). This was wasteful even with the small per-call cost
+# (~5ms on Windows).
+#
+# CPU-04 replaces the poll loop with true event-based waiting:
+#   - Windows: prewarm creates a PID-scoped named CreateEventW
+#     (manual-reset). The app opens the event for the *current* prewarm
+#     PID and calls WaitForSingleObject with a timeout — a zero-CPU
+#     kernel wait that returns immediately when prewarm signals
+#     completion. The event name is scoped by PID (not a single global
+#     name) so a stale signal from a previous boot can't make a later
+#     launch skip waiting.
+#   - Linux: the app uses os.pidfd_open(pid) (Linux 5.3+, Python 3.9+)
+#     to get a file descriptor that becomes readable when the process
+#     exits, then uses select.poll() to wait on it with timeout.
+#   - Fallback (macOS, old kernels, or any error): _wait_for_completion_event
+#     returns False and wait_for_prewarm() degrades to the 1s poll loop
+#     (60 polls max instead of 120).
+#
+# The *signal* side (prewarm process) is implemented by
+# _create_completion_event / _signal_completion_event /
+# _close_completion_event. The *wait* side (the app) is implemented by
+# _wait_for_completion_event and its per-OS helpers below.
+
+
+def _completion_event_name(pid: int) -> str:
+    """PID-scoped name for the prewarm completion event.
+
+    Scoping by PID avoids cross-run contamination: a manual-reset event
+    stays signaled until explicitly reset, so a single global name could
+    let a later launch observe a stale "done" signal from a previous boot.
+    """
+    return f"Local\\VoiceTyperPrewarmCompletion_{pid}"
+
+
+def _create_completion_event(pid: int) -> int | None:
+    if is_windows():
+        import ctypes
+        from ctypes import wintypes
+
+        try:
+            kernel32 = ctypes.windll.kernel32
+            kernel32.CreateEventW.restype = wintypes.HANDLE
+            kernel32.CreateEventW.argtypes = [
+                ctypes.c_void_p,
+                wintypes.BOOL,
+                wintypes.BOOL,
+                wintypes.LPCWSTR,
+            ]
+            handle = kernel32.CreateEventW(None, True, False, _completion_event_name(pid))
+            return handle if handle else None
+        except Exception:
+            return None
+    return None
+
+
+def _signal_completion_event(handle: int | None) -> None:
+    if handle is not None and is_windows():
+        try:
+            import ctypes
+
+            ctypes.windll.kernel32.SetEvent(handle)
+        except Exception:
+            pass
+
+
+def _close_completion_event(handle: int | None) -> None:
+    if handle is not None and is_windows():
+        try:
+            import ctypes
+
+            ctypes.windll.kernel32.CloseHandle(handle)
+        except Exception:
+            pass
+
+
+def _read_prewarm_pid() -> int | None:
+    """Return the live prewarm PID from the PID file, or None if absent/invalid."""
+    pid_file = _pid_file_path()
+    if not pid_file.exists():
+        return None
+    try:
+        return int(pid_file.read_text().strip())
+    except (ValueError, OSError):
+        return None
+
+
+def _wait_for_completion_event(timeout_s: float) -> bool:
+    """CPU-04: block (near-zero CPU) until prewarm signals completion.
+
+    Returns True if completion was observed within ``timeout_s``; False if
+    the platform/OS version doesn't support event-based waiting, the PID
+    file vanished in the brief window before we could attach, or the wait
+    timed out. A False return lets ``wait_for_prewarm()`` fall back to the
+    degraded 1s poll loop.
+
+      - Windows: open the PID-scoped named event and WaitForSingleObject
+        (a kernel-side wait — no CPU spin).
+      - Linux: pidfd_open(pid) + select.poll() on the fd (readable when the
+        process exits). Requires Linux 5.3+ / Python 3.9+.
+      - Other platforms: return False (poll fallback).
+    """
+    pid = _read_prewarm_pid()
+    if pid is None:
+        return False
+    if is_windows():
+        return _wait_completion_windows(pid, timeout_s)
+    if is_linux():
+        return _wait_completion_linux(pid, timeout_s)
+    return False
+
+
+def _wait_completion_windows(pid: int, timeout_s: float) -> bool:
+    """Open the PID-scoped completion event and wait on it (zero-CPU)."""
+    import ctypes
+    from ctypes import wintypes
+
+    try:
+        kernel32 = ctypes.windll.kernel32
+        kernel32.OpenEventW.restype = wintypes.HANDLE
+        kernel32.OpenEventW.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
+        kernel32.WaitForSingleObject.restype = wintypes.DWORD
+        kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        SYNCHRONIZE = 0x00100000
+        WAIT_OBJECT_0 = 0
+        handle = kernel32.OpenEventW(SYNCHRONIZE, False, _completion_event_name(pid))
+        if not handle:
+            return False
+        try:
+            rc = kernel32.WaitForSingleObject(handle, int(timeout_s * 1000))
+            return rc == WAIT_OBJECT_0
+        finally:
+            kernel32.CloseHandle(handle)
+    except Exception:
+        log.debug("[PREWARM] Windows completion-event wait failed", exc_info=True)
+        return False
+
+
+def _wait_completion_linux(pid: int, timeout_s: float) -> bool:
+    """Wait for process exit via pidfd + poll (fd-readable on exit)."""
+    try:
+        fd = os.pidfd_open(pid, 0)  # Linux 5.3+, Python 3.9+
+    except (AttributeError, OSError):
+        return False  # kernel too old or pid already gone — poll fallback
+    try:
+        poll = select.poll()
+        poll.register(fd, select.POLLIN)
+        events = poll.poll(timeout_s * 1000)
+        return bool(events)
+    except (OSError, ValueError):
+        return False
+    finally:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+
+
 # ─── Orchestration ───────────────────────────────────────────────────────
+
 
 def run(
     min_ram_mb: int = DEFAULT_MIN_FREE_RAM_MB,
@@ -1492,7 +1859,9 @@ def run(
         time.sleep(delay)
     log.info(
         "[PREWARM] starting (trigger=%s, force=%s, min_ram_mb=%d)",
-        trigger, force, min_ram_mb,
+        trigger,
+        force,
+        min_ram_mb,
     )
     t_start = time.perf_counter()
 
@@ -1512,8 +1881,9 @@ def run(
         free = _free_ram_mb()
         if free is not None and free < min_ram_mb:
             log.info(
-                "[PREWARM] free RAM %d MB < %d MB budget — skipping to avoid "
-                "evicting the user's working set", free, min_ram_mb,
+                "[PREWARM] free RAM %d MB < %d MB budget — skipping to avoid evicting the user's working set",
+                free,
+                min_ram_mb,
             )
             return EXIT_LOW_RAM
 
@@ -1523,6 +1893,7 @@ def run(
     # guards so we don't leak a PID file for a process that bailed out
     # without doing any work. The finally block below removes it.
     _write_pid_file()
+    _completion_event = _create_completion_event(os.getpid())
 
     # ADR-0009 Issue 4: ensure the PID file is always removed, even if
     # the warming pipeline raises or returns early. Without this, the
@@ -1531,11 +1902,15 @@ def run(
     try:
         return _run_warming_pipeline(min_ram_mb, force, t_start)
     finally:
+        _signal_completion_event(_completion_event)
+        _close_completion_event(_completion_event)
         _remove_pid_file()
 
 
 def _run_warming_pipeline(
-    min_ram_mb: int, force: bool, t_start: float,
+    min_ram_mb: int,
+    force: bool,
+    t_start: float,
 ) -> int:
     """Run the import + weights warming pipeline.
 
@@ -1543,7 +1918,10 @@ def _run_warming_pipeline(
     in run() can wrap the entire warming phase without duplicating the
     pipeline logic. Returns the exit code.
     """
-    # 1) Imports — these warm torch/transformers/sympy/numpy/etc.
+    # 1) Package files — read torch + transformers files into the OS page
+    #    cache WITHOUT importing them (so we skip executing torch's code).
+    #    Catches the bulk of the bytes; the app's own later import executes
+    #    torch once and reads the warmed files from RAM.
     try:
         _warm_imports()
     except ImportError as exc:
@@ -1596,7 +1974,9 @@ def _run_warming_pipeline(
                                 snapshot_warmed_any = True
                             except OSError as e:
                                 log.debug(
-                                    "[PREWARM] could not warm %s: %s", f, e,
+                                    "[PREWARM] could not warm %s: %s",
+                                    f,
+                                    e,
                                 )
                     if snapshot_warmed_any:
                         warmed_any = True
@@ -1632,15 +2012,20 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="Prewarm the OS file cache for fast Voice Typer startup.",
     )
     p.add_argument(
-        "--min-ram-mb", type=int, default=DEFAULT_MIN_FREE_RAM_MB,
+        "--min-ram-mb",
+        type=int,
+        default=DEFAULT_MIN_FREE_RAM_MB,
         help=f"Skip prewarm if free RAM is below this (default {DEFAULT_MIN_FREE_RAM_MB}).",
     )
     p.add_argument(
-        "--force", action="store_true",
+        "--force",
+        action="store_true",
         help="Skip config and RAM guards (run unconditionally).",
     )
     p.add_argument(
-        "--delay", type=float, default=0.0,
+        "--delay",
+        type=float,
+        default=0.0,
         help=(
             "Sleep this many seconds before starting.  Used by the HKCU "
             "Run-key fallback (which has no native delay) to let login settle."
@@ -1650,7 +2035,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     # running the warming pipeline. Pure CLI — no Electron, no IPC.
     # Useful for remote diagnostics, SSH sessions, or automation scripts.
     p.add_argument(
-        "--status", action="store_true",
+        "--status",
+        action="store_true",
         help=(
             "Print the prewarm cache status (last run, cache ratio, "
             "Hot/Partial/Cold label, etc.) as JSON and exit. Does NOT "
@@ -1662,14 +2048,15 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     # --run --background spawns a detached subprocess (matching
     # spawn_background_prewarm) and exits immediately, printing the PID.
     p.add_argument(
-        "--run", action="store_true",
+        "--run",
+        action="store_true",
         help=(
-            "Run prewarm unconditionally (alias for --force). Combine "
-            "with --background to spawn a detached subprocess."
+            "Run prewarm unconditionally (alias for --force). Combine with --background to spawn a detached subprocess."
         ),
     )
     p.add_argument(
-        "--background", action="store_true",
+        "--background",
+        action="store_true",
         help=(
             "With --run: spawn prewarm as a detached background subprocess "
             "and exit immediately (prints the spawned PID). Without --run: "
@@ -1678,7 +2065,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     p.add_argument(
-        "--trigger", choices=["boot", "logon", "manual"], default="manual",
+        "--trigger",
+        choices=["boot", "logon", "manual"],
+        default="manual",
         help=(
             "Why this prewarm run was started. Logged so operators can "
             "verify which trigger fired (boot, logon, or manual). "
@@ -1707,18 +2096,23 @@ def _print_status() -> int:
     except Exception as exc:
         log.error("[PREWARM] --status failed: %s", exc, exc_info=True)
         # Print a minimal error JSON so scripts can parse it.
-        print(json.dumps({
-            "error": str(exc),
-            "last_run": None,
-            "elapsed_s": None,
-            "cache_ratio": 0.0,
-            "cache_label": "unknown",
-            "cached_bytes": 0,
-            "total_bytes": 0,
-            "prewarm_running": False,
-            "sentinel_path": str(_sentinel_path()),
-            "pid_file_path": str(_pid_file_path()),
-        }, indent=2))
+        print(
+            json.dumps(
+                {
+                    "error": str(exc),
+                    "last_run": None,
+                    "elapsed_s": None,
+                    "cache_ratio": 0.0,
+                    "cache_label": "unknown",
+                    "cached_bytes": 0,
+                    "total_bytes": 0,
+                    "prewarm_running": False,
+                    "sentinel_path": str(_sentinel_path()),
+                    "pid_file_path": str(_pid_file_path()),
+                },
+                indent=2,
+            )
+        )
         return 1
 
 
@@ -1750,12 +2144,16 @@ def main() -> int:
             return EXIT_IMPORT_FAILED  # no better code for "spawn failed"
         # --run without --background: run inline (same as --force).
         return run(
-            min_ram_mb=args.min_ram_mb, force=True, delay=args.delay,
+            min_ram_mb=args.min_ram_mb,
+            force=True,
+            delay=args.delay,
             trigger=args.trigger,
         )
 
     return run(
-        min_ram_mb=args.min_ram_mb, force=args.force, delay=args.delay,
+        min_ram_mb=args.min_ram_mb,
+        force=args.force,
+        delay=args.delay,
         trigger=args.trigger,
     )
 

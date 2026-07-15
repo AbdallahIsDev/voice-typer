@@ -75,6 +75,7 @@ class TestGuards:
         # Branch 3: Config.load raises → function falls back to True.
         def _raise() -> None:
             raise RuntimeError("boom")
+
         monkeypatch.setattr(
             "voice_typer.server.config.Config.load",
             _raise,
@@ -125,7 +126,8 @@ class TestGuards:
         monkeypatch.setattr(prewarm, "_remove_pid_file", lambda: None)
         # _warm_imports will raise ImportError on the mocked torch.
         monkeypatch.setattr(
-            prewarm, "_warm_imports",
+            prewarm,
+            "_warm_imports",
             MagicMock(side_effect=ImportError("no torch")),
         )
         result = prewarm.run()
@@ -143,7 +145,8 @@ class TestGuards:
         monkeypatch.setattr(prewarm, "_write_pid_file", lambda: None)
         monkeypatch.setattr(prewarm, "_remove_pid_file", lambda: None)
         monkeypatch.setattr(
-            prewarm, "_warm_imports",
+            prewarm,
+            "_warm_imports",
             MagicMock(side_effect=ImportError("no torch")),
         )
         result = prewarm.run(force=True)
@@ -182,6 +185,7 @@ class TestSentinelBeforeRam:
                 "before _already_warmed short-circuited. The sentinel "
                 "check must run FIRST."
             )
+
         monkeypatch.setattr(prewarm, "_free_ram_mb", _ram_must_not_be_called)
 
         result = prewarm.run(min_ram_mb=4096)
@@ -208,19 +212,13 @@ class TestSentinelBeforeRam:
 
         assert result == prewarm.EXIT_OK
         # The sentinel message must be in the log…
-        sentinel_msgs = [
-            r for r in caplog.records
-            if "already ran this boot session" in r.message
-        ]
+        sentinel_msgs = [r for r in caplog.records if "already ran this boot session" in r.message]
         assert sentinel_msgs, (
             "ADR-0009 Issue 2 regression: expected 'already ran this boot "
             "session' log message on sentinel short-circuit"
         )
         # …and the RAM-skipping message must NOT be.
-        ram_msgs = [
-            r for r in caplog.records
-            if "free RAM" in r.message and "budget" in r.message
-        ]
+        ram_msgs = [r for r in caplog.records if "free RAM" in r.message and "budget" in r.message]
         assert not ram_msgs, (
             "ADR-0009 Issue 2 regression: the misleading 'free RAM < budget' "
             "message was logged on a sentinel short-circuit. The sentinel "
@@ -309,7 +307,7 @@ class TestCacheRatio:
     def test_cache_ratio_returns_value_between_zero_and_one(self, tmp_path):
         """A normal file → a ratio in [0.0, 1.0]."""
         f = tmp_path / "model.bin"
-        f.write_bytes(b"\xAB" * (1024 * 1024))  # 1 MB
+        f.write_bytes(b"\xab" * (1024 * 1024))  # 1 MB
         ratio = prewarm._cache_ratio(f, samples=5)
         assert 0.0 <= ratio <= 1.0
 
@@ -422,6 +420,7 @@ class TestGetPrewarmStatus:
             if path == weights_b:
                 return 0.0
             return 0.5
+
         monkeypatch.setattr(prewarm, "_cache_ratio", fake_cache_ratio)
 
         status = prewarm.get_prewarm_status()
@@ -430,8 +429,7 @@ class TestGetPrewarmStatus:
         assert status["total_bytes"] == 11 * 1024 * 1024
         # cached_bytes = 10 MB * 1.0 + 1 MB * 0.0 = 10 MB (NOT 11 MB * 0.5 = 5.5 MB)
         assert status["cached_bytes"] == 10 * 1024 * 1024, (
-            f"H3: cached_bytes should be 10 MB (weighted sum), got "
-            f"{status['cached_bytes']} bytes"
+            f"H3: cached_bytes should be 10 MB (weighted sum), got {status['cached_bytes']} bytes"
         )
         # cache_ratio = 10 MB / 11 MB ≈ 0.91
         assert status["cache_ratio"] == round(10 / 11, 2)
@@ -471,6 +469,7 @@ class TestPidFileHandshake:
         cmdline doesn't contain 'voice_typer' literally).
         """
         import os
+
         pid_file = tmp_path / ".prewarm.pid"
         pid_file.write_text(str(os.getpid()))
         monkeypatch.setattr(prewarm, "_pid_file_path", lambda: pid_file)
@@ -498,6 +497,7 @@ class TestPidFileHandshake:
         model load for the full 60s timeout on every app launch.
         """
         import os
+
         pid_file = tmp_path / ".prewarm.pid"
         # Point at the current process (alive, but not prewarm).
         pid_file.write_text(str(os.getpid()))
@@ -507,7 +507,8 @@ class TestPidFileHandshake:
         # _remove_pid_file is called to clean up the stale PID file.
         removed = []
         monkeypatch.setattr(
-            prewarm, "_remove_pid_file",
+            prewarm,
+            "_remove_pid_file",
             lambda: removed.append(True),
         )
         assert prewarm.is_prewarm_running() is False
@@ -520,13 +521,12 @@ class TestPidFileHandshake:
         # Use a tiny timeout so the test fails fast if the implementation
         # ignores the "not running" short-circuit.
         import time
+
         t0 = time.perf_counter()
         result = prewarm.wait_for_prewarm(timeout_s=60.0)
         elapsed = time.perf_counter() - t0
         assert result is True
-        assert elapsed < 0.1, (
-            "wait_for_prewarm should return instantly when no PID file exists"
-        )
+        assert elapsed < 0.1, "wait_for_prewarm should return instantly when no PID file exists"
 
     def test_wait_for_prewarm_dead_pid_returns_immediately(self, monkeypatch, tmp_path):
         """If the PID file points at a dead process, wait_for_prewarm
@@ -535,11 +535,88 @@ class TestPidFileHandshake:
         pid_file.write_text("2147483647")  # dead PID
         monkeypatch.setattr(prewarm, "_pid_file_path", lambda: pid_file)
         import time
+
         t0 = time.perf_counter()
         result = prewarm.wait_for_prewarm(timeout_s=60.0)
         elapsed = time.perf_counter() - t0
         assert result is True
         assert elapsed < 0.1
+
+    def test_wait_for_prewarm_running_prefers_event_wait(self, monkeypatch, tmp_path):
+        """REGRESSION (CPU-04): when prewarm is genuinely running,
+        wait_for_prewarm must call _wait_for_completion_event rather than
+        crashing with NameError. The previous implementation referenced a
+        never-defined _wait_for_completion_event().
+
+        The event wait stub returns True (completion signaled), so the
+        function should return True WITHOUT hitting the 1s poll loop.
+        """
+        pid_file = tmp_path / ".prewarm.pid"
+        pid_file.write_text("12345")  # alive-looking PID
+        monkeypatch.setattr(prewarm, "_pid_file_path", lambda: pid_file)
+        monkeypatch.setattr(prewarm, "is_prewarm_running", lambda: True)
+
+        called = {}
+
+        def fake_event_wait(timeout_s):
+            called["event_wait"] = True
+            return True
+
+        monkeypatch.setattr(prewarm, "_wait_for_completion_event", fake_event_wait)
+
+        import time
+
+        t0 = time.perf_counter()
+        result = prewarm.wait_for_prewarm(timeout_s=60.0)
+        elapsed = time.perf_counter() - t0
+
+        assert result is True
+        assert called.get("event_wait") is True, "wait_for_prewarm did not call _wait_for_completion_event"
+        assert elapsed < 0.5, "event-based wait path was not taken"
+
+    def test_wait_for_prewarm_event_wait_false_falls_back_to_poll(self, monkeypatch, tmp_path):
+        """REGRESSION (CPU-04): if the event-based wait returns False (no
+        platform support, or it timed out), wait_for_prewarm must fall back
+        to the 1s poll loop and still respect the timeout budget.
+
+        Here the event wait reports False, then the poll loop finds prewarm
+        already gone on the first iteration and returns True promptly.
+        """
+        pid_file = tmp_path / ".prewarm.pid"
+        pid_file.write_text("12345")
+        monkeypatch.setattr(prewarm, "_pid_file_path", lambda: pid_file)
+
+        def fake_event_wait(timeout_s):
+            return False  # simulate "no event support"
+
+        monkeypatch.setattr(prewarm, "_wait_for_completion_event", fake_event_wait)
+
+        # Prewarm "finishes" on the first poll iteration: is_prewarm_running
+        # flips to False.
+        states = {"n": 0}
+
+        def fake_running():
+            states["n"] += 1
+            return states["n"] < 2
+
+        monkeypatch.setattr(prewarm, "is_prewarm_running", fake_running)
+
+        import time
+
+        t0 = time.perf_counter()
+        result = prewarm.wait_for_prewarm(timeout_s=60.0)
+        elapsed = time.perf_counter() - t0
+
+        assert result is True
+        assert elapsed < 2.0, "poll fallback did not detect completion promptly"
+
+    def test_wait_for_completion_event_no_pid_file_returns_false(self, monkeypatch, tmp_path):
+        """_wait_for_completion_event returns False when there is no PID file,
+        so wait_for_prewarm degrades gracefully to the poll loop instead of
+        raising."""
+        pid_file = tmp_path / ".prewarm.pid"
+        monkeypatch.setattr(prewarm, "_pid_file_path", lambda: pid_file)
+        assert prewarm._wait_for_completion_event(timeout_s=1.0) is False
 
 
 # ─── Task 5: spawn_background_prewarm ────────────────────────────────────
@@ -551,9 +628,11 @@ class TestSpawnBackgroundPrewarm:
     def test_spawn_returns_pid(self, monkeypatch):
         """spawn_background_prewarm() returns a PID (int) on success."""
         import subprocess
+
         # Mock subprocess.Popen to return a fake process.
         class FakeProc:
             pid = 12345
+
         monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: FakeProc())
         # Avoid actually spawning — we just verify the return value.
         pid = prewarm.spawn_background_prewarm(force=True)
@@ -562,30 +641,34 @@ class TestSpawnBackgroundPrewarm:
     def test_spawn_includes_force_flag(self, monkeypatch):
         """When force=True, the command includes '--force'."""
         import subprocess
+
         captured_cmd = []
 
         class FakeProc:
             pid = 99
+
         def fake_popen(cmd, **kw):
             captured_cmd.extend(cmd)
             return FakeProc()
+
         monkeypatch.setattr(subprocess, "Popen", fake_popen)
 
         prewarm.spawn_background_prewarm(force=True)
-        assert "--force" in captured_cmd, (
-            "force=True must pass --force to bypass the boot-sentinel dedup"
-        )
+        assert "--force" in captured_cmd, "force=True must pass --force to bypass the boot-sentinel dedup"
 
     def test_spawn_omits_force_flag_when_false(self, monkeypatch):
         """When force=False, the command does NOT include '--force'."""
         import subprocess
+
         captured_cmd = []
 
         class FakeProc:
             pid = 99
+
         def fake_popen(cmd, **kw):
             captured_cmd.extend(cmd)
             return FakeProc()
+
         monkeypatch.setattr(subprocess, "Popen", fake_popen)
 
         prewarm.spawn_background_prewarm(force=False)
@@ -594,8 +677,10 @@ class TestSpawnBackgroundPrewarm:
     def test_spawn_returns_none_on_file_not_found(self, monkeypatch):
         """If the Python interpreter can't be spawned, returns None."""
         import subprocess
+
         def raise_fnf(*a, **kw):
             raise FileNotFoundError("python not found")
+
         monkeypatch.setattr(subprocess, "Popen", raise_fnf)
         pid = prewarm.spawn_background_prewarm(force=True)
         assert pid is None
@@ -603,8 +688,10 @@ class TestSpawnBackgroundPrewarm:
     def test_spawn_returns_none_on_oserror(self, monkeypatch):
         """If the OS refuses to spawn (e.g. too many processes), returns None."""
         import subprocess
+
         def raise_oserr(*a, **kw):
             raise OSError("resource exhausted")
+
         monkeypatch.setattr(subprocess, "Popen", raise_oserr)
         pid = prewarm.spawn_background_prewarm(force=True)
         assert pid is None
@@ -617,13 +704,16 @@ class TestSpawnBackgroundPrewarm:
         the app's process group receives a signal.
         """
         import subprocess
+
         captured_kwargs = {}
 
         class FakeProc:
             pid = 1
+
         def fake_popen(cmd, **kw):
             captured_kwargs.update(kw)
             return FakeProc()
+
         monkeypatch.setattr(subprocess, "Popen", fake_popen)
         # Force the POSIX path (we're on Linux in CI).
         monkeypatch.setattr(prewarm, "is_windows", lambda: False)
@@ -632,8 +722,7 @@ class TestSpawnBackgroundPrewarm:
         # On POSIX, start_new_session must be True for detachment.
         if not prewarm.is_windows():
             assert captured_kwargs.get("start_new_session") is True, (
-                "Task 5: background prewarm must use start_new_session=True "
-                "on POSIX so it survives the app's exit"
+                "Task 5: background prewarm must use start_new_session=True on POSIX so it survives the app's exit"
             )
 
 
@@ -693,6 +782,7 @@ class TestWindowsPebWalkStructs:
         contains 'prewarm' but not 'voice_typer', so it returns False.
         """
         import os
+
         result = prewarm._process_is_prewarm(os.getpid())
         assert result is False, (
             "Task 1: _process_is_prewarm(os.getpid()) must return False "
@@ -727,10 +817,12 @@ class TestRunPidFileLifecycle:
         def tracking_write():
             pid_writes.append(True)
             original_write()
+
         monkeypatch.setattr(prewarm, "_write_pid_file", tracking_write)
         monkeypatch.setattr(prewarm, "_remove_pid_file", lambda: None)
         monkeypatch.setattr(
-            prewarm, "_warm_imports",
+            prewarm,
+            "_warm_imports",
             MagicMock(side_effect=ImportError("no torch")),
         )
 
@@ -753,19 +845,19 @@ class TestRunPidFileLifecycle:
         remove_calls = []
         monkeypatch.setattr(prewarm, "_write_pid_file", lambda: None)
         monkeypatch.setattr(
-            prewarm, "_remove_pid_file",
+            prewarm,
+            "_remove_pid_file",
             lambda: remove_calls.append(True),
         )
         monkeypatch.setattr(
-            prewarm, "_warm_imports",
+            prewarm,
+            "_warm_imports",
             MagicMock(side_effect=ImportError("no torch")),
         )
 
         result = prewarm.run()
         assert result == prewarm.EXIT_IMPORT_FAILED
-        assert remove_calls, (
-            "PID file was not removed in the finally block after import failure"
-        )
+        assert remove_calls, "PID file was not removed in the finally block after import failure"
 
     def test_run_does_not_write_pid_file_on_sentinel_short_circuit(self, monkeypatch, tmp_path):
         """If the sentinel short-circuits, the PID file is NOT written
@@ -805,7 +897,8 @@ class TestResolveHfCacheDir:
         fake_config = tmp_path / "config"
         (fake_config / "huggingface").mkdir(parents=True)
         monkeypatch.setattr(
-            "voice_typer.server.config._config_dir", lambda: fake_config,
+            "voice_typer.server.config._config_dir",
+            lambda: fake_config,
         )
         result = prewarm._resolve_hf_cache_dir()
         assert result == fake_config / "huggingface"
@@ -816,7 +909,8 @@ class TestResolveHfCacheDir:
         fake_config = tmp_path / "config"
         fake_config.mkdir(parents=True)
         monkeypatch.setattr(
-            "voice_typer.server.config._config_dir", lambda: fake_config,
+            "voice_typer.server.config._config_dir",
+            lambda: fake_config,
         )
         result = prewarm._resolve_hf_cache_dir()
         assert result == fake_config / "huggingface"
@@ -848,7 +942,7 @@ class TestWarmFile:
         the number of read() calls)."""
         # Write 10 MB of data.
         f = tmp_path / "big.bin"
-        f.write_bytes(b"\xAB" * (10 * 1024 * 1024))
+        f.write_bytes(b"\xab" * (10 * 1024 * 1024))
 
         # Spy on read calls to confirm chunking.
         original_open = __builtins__["open"] if isinstance(__builtins__, dict) else __builtins__.open
@@ -857,12 +951,15 @@ class TestWarmFile:
         class _SpyReader:
             def __init__(self, real):
                 self._real = real
+
             def read(self, n=-1):
                 call_sizes.append(n)
                 return self._real.read(n)
+
             def __enter__(self):
                 self._real.__enter__()
                 return self
+
             def __exit__(self, *a):
                 self._real.__exit__(*a)
 
@@ -905,9 +1002,7 @@ class TestFindWeights:
         weights = snap / "model.safetensors"
         weights.write_bytes(b"fake weights")
 
-        monkeypatch.setattr(
-            "voice_typer.server.config._config_dir", lambda: tmp_path
-        )
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         result = prewarm._find_parakeet_weights()
         assert result == weights
 
@@ -918,9 +1013,7 @@ class TestFindWeights:
         snap.mkdir(parents=True)
         (snap / "config.json").write_text("{}")  # no weights
 
-        monkeypatch.setattr(
-            "voice_typer.server.config._config_dir", lambda: tmp_path
-        )
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         assert prewarm._find_parakeet_weights() is None
 
 
@@ -979,9 +1072,9 @@ class TestCli:
 
         def run_must_not_be_called(*a, **kw):
             raise AssertionError(
-                "Task 4: --status must NOT call run() — it's a read-only "
-                "diagnostic that prints cache state and exits."
+                "Task 4: --status must NOT call run() — it's a read-only diagnostic that prints cache state and exits."
             )
+
         monkeypatch.setattr(prewarm, "run", run_must_not_be_called)
         monkeypatch.setattr(sys, "argv", ["prewarm", "--status"])
 
@@ -990,6 +1083,7 @@ class TestCli:
 
         # Verify the output is valid JSON with the expected fields.
         import json
+
         output = capsys.readouterr().out
         data = json.loads(output)
         assert "last_run" in data
@@ -1018,6 +1112,7 @@ class TestCli:
         assert exit_code == 0
 
         import json
+
         output = capsys.readouterr().out
         data = json.loads(output)
         assert data["sentinel_path"] == str(sentinel)
@@ -1056,7 +1151,8 @@ class TestCli:
         monkeypatch.setattr(prewarm, "_write_pid_file", lambda: None)
         monkeypatch.setattr(prewarm, "_remove_pid_file", lambda: None)
         monkeypatch.setattr(
-            prewarm, "_warm_imports",
+            prewarm,
+            "_warm_imports",
             MagicMock(side_effect=ImportError("no torch")),
         )
         monkeypatch.setattr(sys, "argv", ["prewarm", "--run"])
@@ -1073,28 +1169,27 @@ class TestCli:
         """
         spawn_called = []
         monkeypatch.setattr(
-            prewarm, "spawn_background_prewarm",
+            prewarm,
+            "spawn_background_prewarm",
             lambda force=True, trigger=None: spawn_called.append(force) or 12345,
         )
+
         # run() must NOT be called — --background exits immediately.
         def run_must_not_be_called(*a, **kw):
             raise AssertionError(
                 "Task 3: --run --background must NOT call run() inline — "
                 "it spawns a detached subprocess and exits immediately."
             )
+
         monkeypatch.setattr(prewarm, "run", run_must_not_be_called)
         monkeypatch.setattr(sys, "argv", ["prewarm", "--run", "--background"])
 
         exit_code = prewarm.main()
         assert exit_code == prewarm.EXIT_OK
-        assert spawn_called == [True], (
-            "spawn_background_prewarm must be called with force=True"
-        )
+        assert spawn_called == [True], "spawn_background_prewarm must be called with force=True"
         # The PID must be printed so scripts can track it.
         output = capsys.readouterr().out
-        assert "12345" in output, (
-            "main() with --run --background must print the spawned PID"
-        )
+        assert "12345" in output, "main() with --run --background must print the spawned PID"
 
     def test_main_background_without_run_is_noop(self, monkeypatch):
         """--background without --run or --force is a no-op (warns + exits).
@@ -1103,19 +1198,21 @@ class TestCli:
         Without one of those, it should warn and return EXIT_DISABLED
         rather than silently doing nothing.
         """
+
         # run() must NOT be called.
         def run_must_not_be_called(*a, **kw):
-            raise AssertionError(
-                "Task 3: --background without --run must NOT call run()"
-            )
+            raise AssertionError("Task 3: --background without --run must NOT call run()")
+
         monkeypatch.setattr(prewarm, "run", run_must_not_be_called)
+
         # spawn_background_prewarm must NOT be called.
         def spawn_must_not_be_called(*a, **kw):
-            raise AssertionError(
-                "Task 3: --background without --run must NOT spawn a subprocess"
-            )
+            raise AssertionError("Task 3: --background without --run must NOT spawn a subprocess")
+
         monkeypatch.setattr(
-            prewarm, "spawn_background_prewarm", spawn_must_not_be_called,
+            prewarm,
+            "spawn_background_prewarm",
+            spawn_must_not_be_called,
         )
         monkeypatch.setattr(sys, "argv", ["prewarm", "--background"])
 
@@ -1129,7 +1226,8 @@ class TestCli:
         """
         spawn_called = []
         monkeypatch.setattr(
-            prewarm, "spawn_background_prewarm",
+            prewarm,
+            "spawn_background_prewarm",
             lambda force=True, trigger=None: spawn_called.append(force) or 99,
         )
         monkeypatch.setattr(sys, "argv", ["prewarm", "--force", "--background"])
@@ -1151,7 +1249,8 @@ class TestCli:
         monkeypatch.setattr(prewarm, "_write_pid_file", lambda: None)
         monkeypatch.setattr(prewarm, "_remove_pid_file", lambda: None)
         monkeypatch.setattr(
-            prewarm, "_warm_imports",
+            prewarm,
+            "_warm_imports",
             MagicMock(side_effect=ImportError("no torch")),
         )
         monkeypatch.setattr(sys, "argv", ["prewarm", "--force"])
@@ -1171,7 +1270,9 @@ class TestPrewarmFiltersToActiveModelAndFallback:
     """
 
     def test_parakeet_backend_warms_parakeet_and_tiny_en_fallback(
-        self, monkeypatch, tmp_path,
+        self,
+        monkeypatch,
+        tmp_path,
     ):
         """Active backend = parakeet → warm parakeet + tiny.en fallback only."""
         # Set up fake HF cache with multiple model dirs
@@ -1206,7 +1307,9 @@ class TestPrewarmFiltersToActiveModelAndFallback:
         assert "models--Systran--faster-whisper-medium.en" not in dir_names
 
     def test_whisper_backend_warms_active_size_only(
-        self, monkeypatch, tmp_path,
+        self,
+        monkeypatch,
+        tmp_path,
     ):
         """Active backend = whisper, model_size = small.en → warm small.en + tiny.en fallback."""
         hf_cache = tmp_path / "huggingface" / "hub"
@@ -1308,7 +1411,7 @@ class TestPrewarmIntegration:
         snap = model_dir / "snapshots" / "abc123"
         snap.mkdir(parents=True)
         # Write a tiny model.safetensors (1 KB — enough to warm, tiny I/O).
-        (snap / "model.safetensors").write_bytes(b"\xAB" * 1024)
+        (snap / "model.safetensors").write_bytes(b"\xab" * 1024)
         # Write a config.json so the snapshot looks complete.
         (snap / "config.json").write_text("{}")
         return tmp_path
@@ -1361,15 +1464,14 @@ class TestPrewarmIntegration:
         def tracking_warm_file(path):
             pid_file_during_run.append(pid_file.exists())
             return original_warm_file(path)
+
         monkeypatch.setattr(prewarm, "_warm_file", tracking_warm_file)
 
         # Run with force=True (bypass sentinel + RAM guards).
         exit_code = prewarm.run(force=True)
 
         # ── Verify exit code ────────────────────────────────────────
-        assert exit_code == prewarm.EXIT_OK, (
-            f"run(force=True) should return EXIT_OK, got {exit_code}"
-        )
+        assert exit_code == prewarm.EXIT_OK, f"run(force=True) should return EXIT_OK, got {exit_code}"
 
         # ── Verify sentinel was written (3-line format) ─────────────
         assert sentinel.exists(), "sentinel file must exist after successful run"
@@ -1381,23 +1483,17 @@ class TestPrewarmIntegration:
         elapsed = float(lines[1])
         assert elapsed >= 0.0, f"elapsed_s must be non-negative, got {elapsed}"
         # Line 3: wall-clock completion time (ISO 8601) — review fix H2.
-        assert len(lines) > 2 and lines[2].strip(), (
-            "sentinel must have line 3 (wall-clock completion time)"
-        )
+        assert len(lines) > 2 and lines[2].strip(), "sentinel must have line 3 (wall-clock completion time)"
 
         # ── Verify PID file was created DURING the run ──────────────
-        assert pid_file_during_run, (
-            "_warm_file was never called — the cache walk didn't run"
-        )
+        assert pid_file_during_run, "_warm_file was never called — the cache walk didn't run"
         assert any(pid_file_during_run), (
             "PID file must exist DURING the warming phase (run() writes it "
             "before warming and removes it in a finally block)"
         )
 
         # ── Verify PID file was removed AFTER the run ───────────────
-        assert not pid_file.exists(), (
-            "PID file must be removed after run() completes (finally block)"
-        )
+        assert not pid_file.exists(), "PID file must be removed after run() completes (finally block)"
 
     def test_get_prewarm_status_after_run(self, monkeypatch, tmp_path):
         """get_prewarm_status() returns correct values after a successful run.
@@ -1421,9 +1517,7 @@ class TestPrewarmIntegration:
         status = prewarm.get_prewarm_status()
 
         # last_run must be populated (from sentinel line 3).
-        assert status["last_run"] is not None, (
-            "last_run must be populated after a successful run"
-        )
+        assert status["last_run"] is not None, "last_run must be populated after a successful run"
         # elapsed_s must be a non-negative float.
         assert status["elapsed_s"] is not None
         assert status["elapsed_s"] >= 0.0
@@ -1437,13 +1531,9 @@ class TestPrewarmIntegration:
             f"(sentinel + model dir both exist). Got: {status['cache_label']}"
         )
         # prewarm_running must be False (run() finished, PID file removed).
-        assert status["prewarm_running"] is False, (
-            "prewarm_running must be False after run() completes"
-        )
+        assert status["prewarm_running"] is False, "prewarm_running must be False after run() completes"
         # total_bytes must be > 0 (we wrote a 1 KB model file).
-        assert status["total_bytes"] > 0, (
-            "total_bytes must be > 0 (the fake model.safetensors exists)"
-        )
+        assert status["total_bytes"] > 0, "total_bytes must be > 0 (the fake model.safetensors exists)"
 
     def test_sentinel_dedup_short_circuits_second_run(self, monkeypatch, tmp_path):
         """A second run() (no force) short-circuits via sentinel dedup.
@@ -1468,28 +1558,23 @@ class TestPrewarmIntegration:
         # Second run: NO force. _warm_imports must NOT be called.
         warm_imports_called = []
         monkeypatch.setattr(
-            prewarm, "_warm_imports",
+            prewarm,
+            "_warm_imports",
             lambda: warm_imports_called.append(True),
         )
         # _free_ram_mb must NOT be called either (sentinel check is first).
         ram_called = []
         monkeypatch.setattr(
-            prewarm, "_free_ram_mb",
+            prewarm,
+            "_free_ram_mb",
             lambda: ram_called.append(True) or 99999,
         )
 
         exit_code_2 = prewarm.run(force=False)
 
-        assert exit_code_2 == prewarm.EXIT_OK, (
-            "second run() must return EXIT_OK (sentinel short-circuit)"
-        )
-        assert not warm_imports_called, (
-            "second run() must NOT call _warm_imports (sentinel dedup)"
-        )
-        assert not ram_called, (
-            "second run() must NOT call _free_ram_mb (sentinel check runs "
-            "FIRST — ADR-0009 Issue 2)"
-        )
+        assert exit_code_2 == prewarm.EXIT_OK, "second run() must return EXIT_OK (sentinel short-circuit)"
+        assert not warm_imports_called, "second run() must NOT call _warm_imports (sentinel dedup)"
+        assert not ram_called, "second run() must NOT call _free_ram_mb (sentinel check runs FIRST — ADR-0009 Issue 2)"
 
     def test_pid_file_removed_on_import_failure(self, monkeypatch, tmp_path):
         """If _warm_imports fails, the PID file is still removed (finally block).
@@ -1506,7 +1591,8 @@ class TestPrewarmIntegration:
         monkeypatch.setattr(prewarm, "_boot_time", lambda: 1720000000)
         # Make _warm_imports raise ImportError (simulates missing torch).
         monkeypatch.setattr(
-            prewarm, "_warm_imports",
+            prewarm,
+            "_warm_imports",
             lambda: (_ for _ in ()).throw(ImportError("no torch")),
         )
 
@@ -1519,6 +1605,45 @@ class TestPrewarmIntegration:
             "_warm_imports raises (otherwise wait_for_prewarm blocks 60s)"
         )
         # Sentinel must NOT be written (the run didn't succeed).
-        assert not sentinel.exists(), (
-            "sentinel must NOT be written when the run fails"
-        )
+        assert not sentinel.exists(), "sentinel must NOT be written when the run fails"
+
+
+# ─── Package-file warmup (replaces `import torch`) ─────────────────────────
+
+
+class TestWarmPackageFiles:
+    """``_warm_package_files`` pages a package's bytes into the OS cache
+    WITHOUT importing it — the optimization that replaced the old
+    ``import torch`` / ``import transformers`` warmup step.
+    """
+
+    def test_reads_files_without_importing(self, monkeypatch, tmp_path):
+        """The whole point: warm the bytes but never execute the package.
+
+        A regression back to ``import torch`` would drop ``torch`` (or the
+        warmed package) into sys.modules; this asserts it never does.
+        """
+        (tmp_path / "a.bin").write_bytes(b"x" * 1024)
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        (sub / "b.bin").write_bytes(b"y" * 2048)
+
+        class _FakeSpec:
+            submodule_search_locations = [str(tmp_path)]
+            origin = None
+
+        reads = []
+        monkeypatch.setattr(prewarm.importlib.util, "find_spec", lambda name: _FakeSpec())
+        monkeypatch.setattr(prewarm, "_warm_file", lambda p: reads.append(Path(p)) or 0)
+
+        total = prewarm._warm_package_files("fakepkg")
+
+        assert "fakepkg" not in sys.modules
+        assert total == 0  # fake _warm_file returns 0 bytes
+        assert set(reads) == {tmp_path / "a.bin", sub / "b.bin"}
+
+    def test_missing_package_returns_zero_and_does_not_import(self, monkeypatch):
+        """``find_spec`` returning None must be a safe no-op, not an import."""
+        monkeypatch.setattr(prewarm.importlib.util, "find_spec", lambda name: None)
+        assert prewarm._warm_package_files("does-not-exist") == 0
+        assert "does-not-exist" not in sys.modules
