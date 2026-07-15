@@ -41,7 +41,7 @@ function _QualityScore({ value, max }: { value: number; max: number }) {
 					style={{ width: `${pct}%` }}
 				/>
 			</div>
-			<span className="text-[10px] tabular-nums text-(--text-muted) w-8 text-right">
+			<span className="text-xs tabular-nums text-(--text-muted) w-8 text-right">
 				{value}/{max}
 			</span>
 		</div>
@@ -114,7 +114,7 @@ export function TestReviewPanel({
 					</div>
 
 					{/* Detailed metrics */}
-					<div className="grid grid-cols-2 gap-2 text-[10px]">
+					<div className="grid grid-cols-2 gap-2 text-xs">
 						<div>
 							<span className="text-(--text-muted)">
 								{t("microphoneTest.volume")}
@@ -183,7 +183,7 @@ export function TestReviewPanel({
 
 					{/* Detected issues */}
 					{quality.detected_issues.length > 0 && (
-						<div className="text-[10px] text-(--text-muted) space-y-0.5">
+						<div className="text-xs text-(--text-muted) space-y-0.5">
 							<span className="font-medium text-amber-500">
 								{t("microphoneTest.detectedIssues")}
 							</span>

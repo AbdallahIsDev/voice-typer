@@ -13,6 +13,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import type React from "react";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
+import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
 import { Spinner } from "@/components/feedback/Spinner";
 import { DownloadProgressBar } from "@/components/models/DownloadProgressBar";
@@ -29,6 +30,7 @@ import {
 	type SegmentedControlOption,
 } from "@/components/ui/segmented-control";
 import { Switch } from "@/components/ui/switch";
+import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
@@ -307,6 +309,14 @@ function getActiveFamilyId(cfg: VoiceTyperConfig | null): string | null {
 export default function ModelsPage() {
 	const { call } = usePython();
 	const { showSnack } = useSnackbar();
+	// F4 (b-review Finding 11): "Last updated" indicator state. The
+	// module-level `_cachedConfig` survives page navigations, so we
+	// mark the timestamp after each successful loadConfig() to
+	// surface staleness to the user (e.g. if the user downloads a
+	// model via the CLI / another instance, the cache won't reflect
+	// it until the next refresh).
+	const { agoLabel, markUpdated } = useLastUpdated();
+	const [refreshing, setRefreshing] = useState(false);
 	const [activeTab, setActiveTab] = useState<"local" | "cloud">("local");
 	const tabOptions: SegmentedControlOption<string>[] = [
 		{ value: "local", label: t("models.localModels") },
@@ -488,11 +498,29 @@ export default function ModelsPage() {
 			console.error("Failed to load config:", err);
 		} finally {
 			setInitialLoading(false);
+			// F4: bump the "last updated" timestamp whether or not the
+			// load succeeded — a failed refresh still resets the clock
+			// for the "Xs ago" label so the user knows when we last
+			// tried. (Successful refreshes are the common case.)
+			markUpdated();
 		}
-	}, [call]);
+	}, [call, markUpdated]);
 
 	useEffect(() => {
 		loadConfig();
+	}, [loadConfig]);
+
+	// F4: manual refresh handler for the LastUpdatedIndicator button.
+	// Wraps `loadConfig()` so we can flip a `refreshing` flag for the
+	// button's spinner state without disturbing `_initialLoading`
+	// (which gates the page's main spinner on first visit).
+	const handleManualRefresh = useCallback(async () => {
+		setRefreshing(true);
+		try {
+			await loadConfig();
+		} finally {
+			setRefreshing(false);
+		}
 	}, [loadConfig]);
 
 	// UX-005: Subscribe to download_progress push events from the backend
@@ -536,6 +564,39 @@ export default function ModelsPage() {
 			if (typeof data.resumed === "boolean" && data.resumed) {
 				setIsPaused(false);
 			}
+		}, []),
+	);
+
+	// F11-FIX (b-review Finding 11): Models previously subscribed only to
+	// `download_progress`, so its `_cachedConfig` (active model, cloud API
+	// keys, consent flags) could be changed by other paths — onboarding,
+	// the tray menu, the Settings page — without this page noticing. On
+	// `config_changed`, merge the changed fields into the cached config and
+	// recompute which model is active, matching the manual-refresh data
+	// path but without re-fetching the model catalog. This keeps the active
+	// badge and the header model name consistent with the rest of the app.
+	usePythonEvent(
+		"config_changed",
+		useCallback((data) => {
+			if (!data) return;
+			const prev = _cachedConfig;
+			if (!prev) return;
+			const merged = { ...prev, ...data } as VoiceTyperConfig;
+			_cachedConfig = merged;
+			setConfig(merged);
+			const activeBackend = merged.asr_backend ?? "whisper";
+			const activeModel = merged.model_size ?? "small.en";
+			setModels((curr) =>
+				curr.map((m) => {
+					let isActive = false;
+					if (m.backend === "whisper") {
+						isActive = activeBackend === "whisper" && m.name === activeModel;
+					} else {
+						isActive = activeBackend === m.backend;
+					}
+					return { ...m, isActive };
+				}),
+			);
 		}, []),
 	);
 
@@ -1093,6 +1154,17 @@ export default function ModelsPage() {
 					</Button>
 				</PageHeading>
 
+				{/* F4 (b-review Finding 11): "Last updated" indicator + manual
+				    refresh button. The module-level `_cachedConfig` survives
+				    page navigations, so we surface staleness here. */}
+				<div className="flex justify-end pb-2">
+					<LastUpdatedIndicator
+						agoLabel={agoLabel}
+						onRefresh={handleManualRefresh}
+						refreshing={refreshing}
+					/>
+				</div>
+
 				<div className="space-y-6">
 					{activeTab === "local" ? (
 						<>
@@ -1177,7 +1249,7 @@ export default function ModelsPage() {
 																	</h4>
 																	{badge && (
 																		<output
-																			className="shrink-0 inline-flex items-center rounded-md px-2 py-0.5 text-[9px] font-semibold border"
+																			className="shrink-0 inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold border"
 																			aria-live="polite"
 																			style={{
 																				backgroundColor: badge.bg,

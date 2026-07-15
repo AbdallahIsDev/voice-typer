@@ -9,6 +9,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
+import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
 import { SearchField } from "@/components/common/SearchField";
 import { SettingsSection } from "@/components/common/SettingsSection";
@@ -22,6 +23,7 @@ import { RecordingSettingsSection } from "@/components/settings/RecordingSetting
 import { ThemeSettingsSection } from "@/components/settings/ThemeSettingsSection";
 import { Button } from "@/components/ui/button";
 import { SegmentedControl } from "@/components/ui/segmented-control";
+import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 // NEW-TS-004: use the shared useSnackbar hook instead of re-implementing
 // the useState + setTimeout + JSX pattern inline.  Previously this page
@@ -29,6 +31,7 @@ import { usePython, usePythonEvent } from "@/hooks/usePython";
 // cleared on unmount (a leak risk if the page unmounted mid-toast).
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
+import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { Page } from "@/types/ipc";
 
@@ -85,6 +88,12 @@ export default function SettingsPage({
 	const [saved, setSaved] = useState(false);
 	const savedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const [showResetDialog, setShowResetDialog] = useState(false);
+	// F11-FIX (b-review Finding 11): Settings was the only one of the six
+	// cached pages without a visible staleness safety net. Add the shared
+	// `LastUpdatedIndicator` the other pages use, plus a manual refresh that
+	// re-fetches config (this page's load path) and bumps the timestamp.
+	const { agoLabel, markUpdated } = useLastUpdated();
+	const [refreshing, setRefreshing] = useState(false);
 	// UX-028: search/filter state for settings
 	const [settingsFilter, setSettingsFilter] = useState("");
 
@@ -245,6 +254,19 @@ export default function SettingsPage({
 		}
 	}, [call]);
 
+	// F11-FIX (b-review Finding 11): manual refresh for the staleness
+	// indicator. Re-fetches config (the page's normal load path) and bumps
+	// the "last updated" timestamp. Kept separate from the config_changed
+	// listener so the user can force a refresh at any time.
+	const handleManualRefresh = useCallback(async () => {
+		setRefreshing(true);
+		try {
+			await loadConfig();
+		} finally {
+			setRefreshing(false);
+		}
+	}, [loadConfig]);
+
 	// Skip initial fetch when module-level cache is populated —
 	// re-renders instantly from cache instead of flashing a spinner
 	// on every page navigation. The fetch still runs on first visit
@@ -400,6 +422,32 @@ export default function SettingsPage({
 			_cachedConfig = newConfig;
 			setConfig(newConfig);
 
+			// D1-FIX (b-review Finding 1): synchronously mirror the
+			// update into the Zustand appStore's config snapshot so
+			// any consumer reading `useAppStore(s => s.config)` sees
+			// the new value on the very next render.  Previously this
+			// page only updated its OWN local `config` state and
+			// queued an async `set_config` IPC; the appStore only
+			// learned about the change later, via the `config_changed`
+			// push event handled in useTheme.ts.  That async gap was
+			// exploited by App.tsx's route guard
+			// (`if (currentPage === "onboarding" && config?.onboarding_completed === true) navigate("home")`):
+			// after the "Re-run setup wizard" button called
+			// `updateConfig({ onboarding_completed: false })` then
+			// `onNavigate("onboarding")`, the route guard fired on the
+			// NEXT render, saw the stale `true` value still in the
+			// appStore, and bounced the user straight back to home —
+			// the onboarding wizard was never shown.
+			//
+			// `mergeConfig` is the store's existing partial-merge API
+			// (see appStore.ts:68-71 / appStore.test.ts:105-130); it
+			// preserves all other keys.  Calling it here is a no-op
+			// if the store snapshot is null (the useTheme hook will
+			// populate it from get_config on connect).  We read
+			// `useAppStore.getState()` (not the hook subscription) so
+			// this callback's deps stay empty — PERF-MEMO-001.
+			useAppStore.getState().mergeConfig(updates);
+
 			// PERF-002: batch config writes — accumulate updates
 			// in `pendingUpdatesRef` and schedule a single
 			// microtask flush.  Multiple `updateConfig` calls in
@@ -497,8 +545,12 @@ export default function SettingsPage({
 						...data,
 					} as VoiceTyperConfig;
 				}
+				// F11-FIX (b-review Finding 11): refresh the staleness
+				// indicator so it doesn't keep claiming a stale time after a
+				// config update from another path.
+				markUpdated();
 			},
-			[], // stable — uses functional setConfig + refs only
+			[markUpdated], // stable — uses functional setConfig + refs only
 		),
 	);
 
@@ -672,6 +724,17 @@ export default function SettingsPage({
 					title={t("settings.title")}
 					description={t("settings.description")}
 				/>
+
+				{/* F11-FIX (b-review Finding 11): "Last updated" indicator +
+				    manual refresh — Settings was the only one of the six cached
+				    pages without this visible staleness safety net. */}
+				<div className="flex justify-end pb-2">
+					<LastUpdatedIndicator
+						agoLabel={agoLabel}
+						onRefresh={handleManualRefresh}
+						refreshing={refreshing}
+					/>
+				</div>
 
 				{/* UX-028: Settings search/filter — also auto-switches to the
                                 relevant tab when the query matches a hint keyword. */}

@@ -113,6 +113,17 @@ export interface HotkeyCaptureCancelEvent {
 	type: "hotkey_capture_cancel";
 }
 
+/** Pushed when history records change through a path OUTSIDE the
+ * current renderer page (clear/delete/restore/star from another window,
+ * the tray menu, or a CLI tool). Renderer pages that cache history
+ * (Home, History, Dashboard) subscribe to this and invalidate their
+ * caches so they don't show ghost records. `reason` is one of
+ * "cleared" | "deleted" | "restored" | "favorite_toggled". */
+export interface HistoryChangedEvent {
+	type: "history_changed";
+	data: { reason: string };
+}
+
 export type PythonPushEvent =
 	| StatusChangeEvent
 	| ErrorEvent
@@ -122,7 +133,8 @@ export type PythonPushEvent =
 	| RecordingStoppedEvent
 	| ModelLoadedEvent
 	| ConfigChangedEvent
-	| HotkeyCaptureCancelEvent;
+	| HotkeyCaptureCancelEvent
+	| HistoryChangedEvent;
 
 // ── Request messages (sent via window.python.call) ────────────────
 
@@ -374,5 +386,6 @@ declare global {
 	interface Window {
 		python?: PythonBridge;
 		window_?: WindowBridge;
+		bubble?: MainRendererBubble;
 	}
 }

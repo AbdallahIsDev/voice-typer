@@ -118,7 +118,7 @@ export default function ActivityList({
 								>
 									{item.text}
 								</p>
-								<span className="text-[10px] text-(--text-muted) opacity-60 block">
+								<span className="text-xs text-(--text-muted) block">
 									{formatTimestamp(item.timestamp)}
 									{item.word_count != null && (
 										<>

@@ -23,7 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
-import { t } from "@/i18n/i18n";
+import { useT } from "@/i18n/i18n";
 import { SettingsSkeleton } from "./SettingsSkeleton";
 
 import type { SettingsSectionSharedProps } from "./types";
@@ -35,6 +35,8 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 }: SettingsSectionSharedProps) {
 	const { call } = usePython();
 	const { showSnack } = useSnackbar();
+
+	const t = useT();
 
 	if (!config) return <SettingsSkeleton rows={3} />;
 

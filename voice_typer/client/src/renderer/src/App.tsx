@@ -13,7 +13,7 @@ import { useNavigation } from "@/hooks/useNavigation";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { useSoundFeedback } from "@/hooks/useSoundFeedback";
 import { useTheme } from "@/hooks/useTheme";
-import { t } from "@/i18n/i18n";
+import { useT } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 // NEW-UX-009: About/Diagnostics page.
 import AboutPage from "@/pages/About";
@@ -33,6 +33,10 @@ import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { Page, WindowBridge } from "@/types/ipc";
 export default function App() {
+	// F-3: subscribe to locale changes so the whole UI tree re-renders
+	// (cascading) when the user switches languages — no page reload.
+	const t = useT();
+
 	// ── Routing (extracted to useNavigation) ──────────────────────
 	const { currentPage, navigate, goBack, goForward, canGoBack, canGoForward } =
 		useNavigation();
@@ -260,7 +264,16 @@ export default function App() {
 				analytics: "analytics",
 				about: "about",
 			};
-			navigate(pageMap[page] ?? (page as Page));
+			// F-10: only navigate to a known page. The backend can push
+			// arbitrary strings; casting unknown paths with `(page as Page)`
+			// slipped invalid values into currentPage and silently
+			// white-screened the app. Unknown paths are ignored + warned.
+			const target = pageMap[page];
+			if (target) {
+				navigate(target);
+			} else {
+				console.warn(`[navigate] ignoring unknown page path: "${page}"`);
+			}
 		}
 	});
 
@@ -326,6 +339,19 @@ export default function App() {
 				return <AboutPage />;
 			case "onboarding":
 				return <OnboardingPage onComplete={handleOnboardingComplete} />;
+			default:
+				// F-10: defensive fallback for any unknown currentPage value
+				// (e.g. corrupted state). Prevents a silent blank screen.
+				return (
+					<div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
+						<p className="text-sm font-medium text-(--text-primary)">
+							Page not found
+						</p>
+						<p className="text-xs text-(--text-muted)">
+							Unknown page: {String(currentPage)}
+						</p>
+					</div>
+				);
 		}
 	};
 

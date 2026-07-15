@@ -12,6 +12,7 @@ import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
+import type { VoiceTyperConfig } from "@/types/config";
 
 interface StepInfo {
 	step: number;
@@ -64,12 +65,54 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 				const started = await call<StepInfo>("onboarding_start");
 				setStep(started);
 
+				// F2 (b-review Finding 6): pre-select the wizard's
+				// hotkey/model/microphone from the user's existing config
+				// instead of overwriting them with hardcoded defaults.
+				// If the user already has a hotkey/model/mic set (e.g. they
+				// re-ran the wizard from Settings → "Run onboarding again"),
+				// the wizard now shows their existing choices, and clicking
+				// "Continue" preserves them rather than overwriting with
+				// "<f2>" / "small.en" / first-mic-in-list.
+				//
+				// The mic pre-selection has a slight wrinkle: the existing
+				// config's microphone id may not be in the list returned by
+				// `onboarding_get_microphones` (e.g. the mic was unplugged
+				// since the user last configured it). We honour the config
+				// value if it's still in the list; otherwise we fall back to
+				// the first available mic so the Select shows a valid value.
+				try {
+					const cfg = await call<VoiceTyperConfig>("get_config");
+					if (cfg) {
+						const cfgHotkey = cfg.hotkey ?? "<f2>";
+						if (cfgHotkey) setSelectedHotkey(cfgHotkey);
+						const cfgModel = cfg.model_size ?? "small.en";
+						if (cfgModel) setSelectedModel(cfgModel);
+						const cfgMic = cfg.microphone ?? "";
+						setSelectedMic(cfgMic);
+					}
+				} catch {
+					// Older backend without get_config (or backend is down) —
+					// fall back to the hardcoded defaults already in state.
+					// Non-fatal: the wizard still works, just with defaults.
+				}
+
 				const mics = await call<{
 					microphones: { id: string; name: string }[];
 				}>("onboarding_get_microphones");
 				setMicrophones(mics.microphones || []);
-				if (mics.microphones?.length > 0)
-					setSelectedMic(mics.microphones[0].id);
+				// Only auto-select the first mic if the config-derived
+				// selection isn't already present in the available list.
+				// This preserves the user's existing mic choice when it's
+				// still connected, and falls back to the first mic when it's
+				// not (matches the pre-fix behaviour for first-run users).
+				if (mics.microphones?.length > 0) {
+					setSelectedMic((prev) => {
+						if (prev && mics.microphones.some((m) => m.id === prev)) {
+							return prev;
+						}
+						return mics.microphones[0].id;
+					});
+				}
 
 				const presets = await call<{ presets: string[] }>(
 					"onboarding_get_hotkey_presets",

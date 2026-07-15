@@ -117,7 +117,7 @@ export function AudioPresetSelector({
 				>
 					{/* Preset selector */}
 					<div className="px-4 py-3 space-y-2">
-						<p className="text-[10px] font-semibold uppercase tracking-wide text-(--text-muted)">
+						<p className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">
 							{t("settings.audioEnhancement.microphoneQuality")}
 						</p>
 						<Select value={preset} onValueChange={handlePresetChange}>
@@ -135,7 +135,7 @@ export function AudioPresetSelector({
 								))}
 							</SelectContent>
 						</Select>
-						<p className="text-[10px] text-(--text-muted)">
+						<p className="text-xs text-(--text-muted)">
 							{getPresetOptions().find((o) => o.value === preset)
 								?.description ?? ""}
 						</p>

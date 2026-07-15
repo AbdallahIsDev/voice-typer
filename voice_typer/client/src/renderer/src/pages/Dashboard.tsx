@@ -10,12 +10,14 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
 import { DashboardStatCard } from "@/components/dashboard/DashboardStatCard";
 import { QuickInfoCard } from "@/components/dashboard/QuickInfoCard";
 import { StatsShareImage } from "@/components/dashboard/StatsShareImage";
 import { Spinner } from "@/components/feedback/Spinner";
 import { Button } from "@/components/ui/button.tsx";
+import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { computeShareStats, useStatsShare } from "@/hooks/useStatsShare";
 import { t } from "@/i18n/i18n";
@@ -207,6 +209,12 @@ export default function DashboardPage({
 	const [data, setData] = useState<DashboardData | null>(_cachedData);
 	const [, setLoading] = useState(true);
 	const [configRaw, setConfigRaw] = useState<VoiceTyperConfig | null>(null);
+	// F4 (b-review Finding 11): "Last updated" indicator state. The
+	// module-level `_cachedData` survives page navigations, so we mark
+	// the timestamp after each successful refreshData() to surface
+	// staleness to the user.
+	const { agoLabel, markUpdated } = useLastUpdated();
+	const [refreshing, setRefreshing] = useState(false);
 	const { imageRef, shareAsImage } = useStatsShare();
 
 	/** Fetch all dashboard data from the Python backend. */
@@ -260,8 +268,12 @@ export default function DashboardPage({
 			setConfigRaw(cfg ?? null);
 		} catch {
 			// Silently ignore — next load picks up fresh data
+		} finally {
+			// F4: bump the "last updated" timestamp after each refresh
+			// attempt (success or failure) so the indicator stays accurate.
+			markUpdated();
 		}
-	}, [call]);
+	}, [call, markUpdated]);
 
 	const loadData = useCallback(async () => {
 		setLoading(true);
@@ -269,10 +281,36 @@ export default function DashboardPage({
 		setLoading(false);
 	}, [refreshData]);
 
+	// F4: manual refresh handler for the LastUpdatedIndicator button.
+	// Wraps `loadData()` so we can flip a `refreshing` flag for the
+	// button's spinner state without disturbing the page's main
+	// loading state (which is unused in Dashboard — the page renders
+	// a full-page spinner via `if (!data) return <Spinner />`).
+	const handleManualRefresh = useCallback(async () => {
+		setRefreshing(true);
+		try {
+			await loadData();
+		} finally {
+			setRefreshing(false);
+		}
+	}, [loadData]);
+
 	// ── Proactive background refresh after new transcriptions ────────
 	const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	usePythonEvent(
 		"transcription_final",
+		useCallback(() => {
+			if (refreshTimer.current) clearTimeout(refreshTimer.current);
+			refreshTimer.current = setTimeout(refreshData, 500);
+		}, [refreshData]),
+	);
+
+	// F11-FIX (b-review Finding 11): invalidate the cached dashboard data
+	// when history changes through a path OUTSIDE this page (clear/delete/
+	// restore/favorite from the tray menu, another window, or a CLI tool).
+	// Mirrors the transcription_final refresh below.
+	usePythonEvent(
+		"history_changed",
 		useCallback(() => {
 			if (refreshTimer.current) clearTimeout(refreshTimer.current);
 			refreshTimer.current = setTimeout(refreshData, 500);
@@ -331,6 +369,17 @@ export default function DashboardPage({
 					</Button>
 				)}
 			</PageHeading>
+
+			{/* F4 (b-review Finding 11): "Last updated" indicator + manual
+			    refresh button. The module-level `_cachedData` survives page
+			    navigations, so we surface staleness here. */}
+			<div className="flex justify-end pb-2">
+				<LastUpdatedIndicator
+					agoLabel={agoLabel}
+					onRefresh={handleManualRefresh}
+					refreshing={refreshing}
+				/>
+			</div>
 
 			<div className="space-y-8">
 				{/* ── Today's Stats Grid ──────────────────────────────────── */}
@@ -392,7 +441,7 @@ export default function DashboardPage({
 								key={day.date}
 								className="flex flex-1 flex-col items-center gap-2"
 							>
-								<span className="text-[10px] text-(--text-muted) font-medium tabular-nums">
+								<span className="text-xs text-(--text-muted) font-medium tabular-nums">
 									{day.count}
 								</span>
 								<div
@@ -410,7 +459,7 @@ export default function DashboardPage({
 												})
 									}
 								/>
-								<span className="text-[9px] text-(--text-muted) opacity-70">
+								<span className="text-[11px] text-(--text-muted)">
 									{day.dayName}
 								</span>
 							</div>
@@ -438,18 +487,18 @@ export default function DashboardPage({
 				</div>
 
 				{/* Data path */}
-				<p className="text-[10px] text-(--text-muted) text-center pb-4">
+				<p className="text-xs text-(--text-muted) text-center pb-4">
 					{t("analytics.dataPath")}
 				</p>
 			</div>
 
 			{/* ── Hidden share image capture target ──────────────── */}
 			{/* EXPORT-FIX: removed clipPath:inset(50%) —
-                            html-to-image copied it onto the cloned node and
-                            clipped the PNG to 0×0. See Home.tsx for full
-                            rationale. The toPng style override (clipPath:none)
-                            is the primary defense; removing clipPath here
-                            eliminates the footgun. */}
+			    html-to-image copied it onto the cloned node and
+			    clipped the PNG to 0×0. See Home.tsx for full
+			    rationale. The toPng style override (clipPath:none)
+			    is the primary defense; removing clipPath here
+			    eliminates the footgun. */}
 			<div
 				ref={imageRef}
 				aria-hidden

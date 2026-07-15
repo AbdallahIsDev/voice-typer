@@ -1,3 +1,4 @@
+import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 
 interface LevelBarProps {
@@ -23,8 +24,8 @@ export function LevelBar({ level, playing }: LevelBarProps) {
 			role="progressbar"
 			aria-label={
 				playing
-					? "Microphone input level (frozen during playback)"
-					: "Microphone input level"
+					? t("microphone.levelBarFrozenAria")
+					: t("microphone.levelBarAria")
 			}
 			aria-valuemin={0}
 			aria-valuemax={100}

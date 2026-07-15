@@ -21,7 +21,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { t } from "@/i18n/i18n";
+import { useT } from "@/i18n/i18n";
 import { SettingsSkeleton } from "./SettingsSkeleton";
 
 import type { SettingsSectionSharedProps } from "./types";
@@ -88,6 +88,8 @@ export const ModelSettingsSection = memo(function ModelSettingsSection({
 
 	const handleModelChange = (e: React.ChangeEvent<HTMLInputElement>) =>
 		updateConfigDebounced("llm_model", e.target.value);
+
+	const t = useT();
 
 	if (!config) return <SettingsSkeleton rows={3} />;
 

@@ -26,7 +26,7 @@ import {
 	type Locale,
 	SUPPORTED_LOCALES,
 	setLocale,
-	t,
+	useT,
 } from "@/i18n/i18n";
 import { SettingsSkeleton } from "./SettingsSkeleton";
 
@@ -43,35 +43,56 @@ const BUBBLE_BEHAVIOR_OPTIONS = [
 ] as const;
 
 // Locale selector options — derived from SUPPORTED_LOCALES so adding a
-// new locale in i18n.ts automatically appears here.
+// new locale in i18n.ts automatically appears here. The labels are
+// locale-name strings ("English", "العربية", …) which don't go through
+// t() — they're the same in every UI language.
 const LOCALE_OPTIONS = SUPPORTED_LOCALES.map((locale) => ({
 	value: locale,
 	label: getLocaleLabel(locale),
 }));
 
-// UX-015: translate "Launch at Login" / "Notifications" / "Tray Click"
-// search-visible labels. The isVisible predicate matches against both
-// the user-visible label and the info string, so we use the translated
-// forms for both.
-const LAUNCH_AT_LOGIN_LABEL = t("settings.launchAtLogin");
-const LAUNCH_AT_LOGIN_INFO = t("settings.launchAtLoginDescription");
-const NOTIFICATIONS_LABEL = t("settings.notifications");
-const NOTIFICATIONS_INFO = t("settings.notificationsDescription");
-const TRAY_CLICK_LABEL = t("settings.trayClick");
-const TRAY_CLICK_INFO = t("settings.trayClickDescription");
-const APP_LANGUAGE_LABEL = t("settings.appLanguage");
-const APP_LANGUAGE_INFO = t("settings.appLanguageDescription");
-// PW-3: prewarm / fast_startup toggle. Lives under General because it's
-// a startup-behaviour setting alongside "Launch at Login". Defaults ON.
-const FAST_STARTUP_LABEL = t("settings.fastStartup");
-const FAST_STARTUP_INFO = t("settings.fastStartupDescription");
+// B-REVIEW-3 (Finding 3): the 10 *_LABEL / *_INFO constants below USED TO
+// live at module scope. Because ``t()`` is a plain function that reads a
+// module-level ``_currentLocale`` variable, evaluating them at import time
+// FROZE the strings to whatever locale was active on first import.
+//
+// They are now computed INSIDE the component body, so each render
+// re-resolves them against the CURRENT locale. The locale switcher no
+// longer calls ``window.location.reload()``: ``setLocale`` (i18n.ts)
+// notifies subscribers via ``subscribeLocale``, and ``useT()``
+// (useSyncExternalStore) re-renders this section — and every other
+// subscribed component — in place when the locale changes. The App root
+// subscribes so the whole tree cascades a re-render; memoized sections
+// (like this one) subscribe directly via ``useT()``. Covered by
+// GeneralSettingsSection.test.tsx.
 
 export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 	config,
 	updateConfig,
 	isVisible,
 }: SettingsSectionSharedProps) {
+	// F-3: subscribe to locale changes so this section repaints in the
+	// new language without a full page reload.
+	const t = useT();
+
 	if (!config) return <SettingsSkeleton rows={3} />;
+
+	// B-REVIEW-3: resolve label/info strings INSIDE the component
+	// body so they follow the current locale. Module-level consts
+	// froze them at import time.
+	const LAUNCH_AT_LOGIN_LABEL = t("settings.launchAtLogin");
+	const LAUNCH_AT_LOGIN_INFO = t("settings.launchAtLoginDescription");
+	const NOTIFICATIONS_LABEL = t("settings.notifications");
+	const NOTIFICATIONS_INFO = t("settings.notificationsDescription");
+	const TRAY_CLICK_LABEL = t("settings.trayClick");
+	const TRAY_CLICK_INFO = t("settings.trayClickDescription");
+	const APP_LANGUAGE_LABEL = t("settings.appLanguage");
+	const APP_LANGUAGE_INFO = t("settings.appLanguageDescription");
+	// PW-3: prewarm / fast_startup toggle. Lives under General because
+	// it's a startup-behaviour setting alongside "Launch at Login".
+	// Defaults ON.
+	const FAST_STARTUP_LABEL = t("settings.fastStartup");
+	const FAST_STARTUP_INFO = t("settings.fastStartupDescription");
 
 	// UX-028: section-level visibility check for the General section.
 	const generalSectionTitle = t("settings.general");
@@ -161,10 +182,10 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 						</SettingRow>
 					)}
 					{/* PW-3: Fast Startup (prewarm) toggle — defaults ON.
-                                                Disabling saves ~6 GB of disk reads at boot for users who
-                                                don't want the prewarm process (gamers, low-RAM machines).
-                                                The "Run Prewarm Now" button on the About page remains
-                                                available for on-demand warming. */}
+						Disabling saves ~6 GB of disk reads at boot for users who
+						don't want the prewarm process (gamers, low-RAM machines).
+						The "Run Prewarm Now" button on the About page remains
+						available for on-demand warming. */}
 					{isVisible(
 						FAST_STARTUP_LABEL,
 						FAST_STARTUP_INFO,
@@ -179,10 +200,10 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 						</SettingRow>
 					)}
 					{/* UX-015: App Language selector — distinct from the spoken-language
-                                                selector in Post-Processing. This controls the Electron UI
-                                                language via the i18n framework. The choice is persisted to
-                                                localStorage so it survives restarts, and pushed to the
-                                                Python backend so the tray menu labels also switch language. */}
+						selector in Post-Processing. This controls the Electron UI
+						language via the i18n framework. The choice is persisted to
+						localStorage so it survives restarts, and pushed to the
+						Python backend so the tray menu labels also switch language. */}
 					{isVisible(
 						APP_LANGUAGE_LABEL,
 						APP_LANGUAGE_INFO,
@@ -209,8 +230,6 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 									} catch {
 										// IPC may not be available during startup
 									}
-									// Force a re-render so all t() calls update
-									window.location.reload();
 								}}
 							>
 								<SelectTrigger className="w-44" aria-label={APP_LANGUAGE_LABEL}>

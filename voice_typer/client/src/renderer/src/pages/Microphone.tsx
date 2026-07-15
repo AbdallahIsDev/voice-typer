@@ -6,6 +6,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
 import { LevelBar } from "@/components/feedback/LevelBar";
 import { LiveQualityFeedback } from "@/components/feedback/LiveQualityFeedback";
@@ -17,6 +18,7 @@ import {
 import { MicrophoneListItem } from "@/components/microphone/MicrophoneListItem";
 import { TestReviewPanel } from "@/components/microphone/TestReviewPanel";
 import { Button } from "@/components/ui/button";
+import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
@@ -146,6 +148,12 @@ export default function MicrophonePage() {
 	const [microphones, setMicrophones] =
 		useState<MicrophoneDevice[]>(_cachedMicrophones);
 	const [config, setConfig] = useState<VoiceTyperConfig | null>(_cachedConfig);
+	// F4 (b-review Finding 11): "Last updated" indicator state. The
+	// module-level caches (`_cachedMicrophones`, `_cachedConfig`)
+	// survive page navigations, so we mark the timestamp after each
+	// successful loadData() to surface staleness to the user.
+	const { agoLabel, markUpdated } = useLastUpdated();
+	const [refreshing, setRefreshing] = useState(false);
 	const [loading, setLoading] = useState(true);
 	const [testRunning, setTestRunning] = useState(false);
 	const [testCountdown, setTestCountdown] = useState(0);
@@ -207,11 +215,26 @@ export default function MicrophonePage() {
 			console.error("Failed to load microphone data:", err);
 		} finally {
 			setLoading(false);
+			// F4: bump the "last updated" timestamp after each load attempt.
+			markUpdated();
 		}
-	}, [call]);
+	}, [call, markUpdated]);
 
 	useEffect(() => {
 		loadData();
+	}, [loadData]);
+
+	// F4: manual refresh handler for the LastUpdatedIndicator button.
+	// Wraps `loadData()` so we can flip a `refreshing` flag for the
+	// button's spinner state without disturbing `loading` (which gates
+	// the page's main spinner on first visit).
+	const handleManualRefresh = useCallback(async () => {
+		setRefreshing(true);
+		try {
+			await loadData();
+		} finally {
+			setRefreshing(false);
+		}
 	}, [loadData]);
 
 	// Start continuous level monitoring on mount, stop on unmount
@@ -262,6 +285,29 @@ export default function MicrophonePage() {
 			},
 			[testRunning],
 		),
+	);
+
+	// F11-FIX (b-review Finding 11): invalidate the module-level caches
+	// when the backend reports that the underlying data changed through a
+	// path OUTSIDE this page. The server already emits `microphones_changed`
+	// (startup_tasks.py) when the device list changes; without subscribing
+	// here, `_cachedMicrophones` would show stale devices until the next
+	// manual refresh. `config_changed` (emitted by set_config / onboarding)
+	// keeps `_cachedConfig` fresh too. Both re-run loadData() so the cache
+	// AND the visible UI update — the "Last updated" indicator is only the
+	// safety net, not the sole invalidation path.
+	usePythonEvent(
+		"microphones_changed",
+		useCallback(() => {
+			void loadData();
+		}, [loadData]),
+	);
+
+	usePythonEvent(
+		"config_changed",
+		useCallback(() => {
+			void loadData();
+		}, [loadData]),
 	);
 
 	useEffect(() => {
@@ -561,6 +607,17 @@ export default function MicrophonePage() {
 				description={t("microphone.description")}
 			/>
 
+			{/* F4 (b-review Finding 11): "Last updated" indicator + manual
+			    refresh button. The module-level caches survive page
+			    navigations, so we surface staleness here. */}
+			<div className="flex justify-end pb-2">
+				<LastUpdatedIndicator
+					agoLabel={agoLabel}
+					onRefresh={handleManualRefresh}
+					refreshing={refreshing}
+				/>
+			</div>
+
 			<div className="space-y-6">
 				{/* Active Microphone Card */}
 				<div
@@ -588,7 +645,7 @@ export default function MicrophonePage() {
 								</p>
 							</div>
 						</div>
-						<span className="inline-flex items-center rounded-md px-2.5 py-0.5 text-[10px] font-semibold border border-primary/20 bg-primary/10 text-primary">
+						<span className="inline-flex items-center rounded-md px-2.5 py-0.5 text-xs font-semibold border border-primary/20 bg-primary/10 text-primary">
 							{testRunning
 								? t("microphone.recordingStatus")
 								: t("microphone.active")}
@@ -661,7 +718,7 @@ export default function MicrophonePage() {
 
 					{/* Filter invalidation notice */}
 					{filtersSinceLastTest && filtersChangedSinceTest && !testRunning && (
-						<div className="mt-3 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-500">
+						<div className="mt-3 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-500">
 							{t("microphone.filtersChangedNotice")}
 						</div>
 					)}

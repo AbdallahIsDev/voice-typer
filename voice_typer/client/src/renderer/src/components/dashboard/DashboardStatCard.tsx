@@ -25,9 +25,7 @@ export function DashboardStatCard({
 				{value}
 			</p>
 			<p className="text-xs text-(--text-muted)">{label}</p>
-			{sublabel && (
-				<p className="text-[10px] text-(--text-muted) opacity-60">{sublabel}</p>
-			)}
+			{sublabel && <p className="text-xs text-(--text-muted)">{sublabel}</p>}
 		</div>
 	);
 }

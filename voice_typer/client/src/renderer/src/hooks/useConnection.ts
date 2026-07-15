@@ -30,7 +30,18 @@ interface UseConnectionArgs {
 		type: string,
 		data?: Record<string, unknown>,
 	) => Promise<T>;
-	/** Current page (used for onboarding first-run auto-routing check). */
+	/**
+	 * Current page (historically used for onboarding first-run
+	 * auto-routing check).
+	 *
+	 * F1 (b-review Finding 5): the first-run check is now performed
+	 * unconditionally on the initial connection probe regardless of
+	 * the persisted page (see the effect body for rationale), so this
+	 * field is no longer read inside the hook. It's kept in the
+	 * interface for backward compatibility with existing callers
+	 * (App.tsx) and to leave the door open for future page-aware
+	 * routing logic.
+	 */
 	currentPage: Page;
 	/** Navigate callback (used to route to onboarding on first run). */
 	navigate: (page: Page) => void;
@@ -54,7 +65,12 @@ interface UseConnectionArgs {
  */
 export function useConnection({
 	call,
-	currentPage,
+	// F1: `currentPage` is no longer read inside the hook (the first-run
+	// check is now unconditional). It's still part of the
+	// UseConnectionArgs interface for backward compatibility with
+	// App.tsx, so we accept + discard it here. The leading underscore
+	// tells biome's noUnusedFunctionParameters rule this is intentional.
+	currentPage: _currentPage,
 	navigate,
 }: UseConnectionArgs) {
 	// ── Store-backed state ────────────────────────────────────────
@@ -118,7 +134,19 @@ export function useConnection({
 					// #8: Onboarding wizard — detect first run and route the user
 					// to the wizard. The backend's `onboarding_is_first_run` IPC route
 					// checks config.onboarding_completed (and the marker file).
-					if (currentPage === "home" && !cancelled) {
+					//
+					// F1 (b-review Finding 5): previously this was gated on
+					// `currentPage === "home"`, but useNavigation restores the
+					// persisted page from localStorage on mount — so a user who
+					// closed the app mid-onboarding while on "settings" (or any
+					// non-home page) would land back on that page on next launch
+					// and the wizard would be silently skipped. We now check
+					// first-run unconditionally on the initial connection probe;
+					// if `is_first_run` is true, we force-navigate to onboarding
+					// regardless of the persisted page. The persisted nav state
+					// (history + index) is still there after the wizard completes,
+					// so back/forward navigation continues to work.
+					if (!cancelled) {
 						try {
 							const fr = await call<{ is_first_run: boolean }>(
 								"onboarding_is_first_run",
@@ -147,14 +175,7 @@ export function useConnection({
 			cancelled = true;
 			clearTimeout(timer);
 		};
-	}, [
-		call,
-		currentPage,
-		navigate,
-		setConnectionStatus,
-		setRecordingState,
-		setConfig,
-	]);
+	}, [call, navigate, setConnectionStatus, setRecordingState, setConfig]);
 
 	// Periodic health check while connected
 	// PR-1: use ``get_status`` (lightweight — returns only state +

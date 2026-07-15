@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { usePython } from "@/hooks/usePython";
-import { t } from "@/i18n/i18n";
+import { useT } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";
 import { SettingsSkeleton } from "./SettingsSkeleton";
 
@@ -68,6 +68,8 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 	useEffect(() => {
 		loadVolumeBackend();
 	}, [loadVolumeBackend]);
+
+	const t = useT();
 
 	if (!config) return <SettingsSkeleton rows={3} />;
 

@@ -33,7 +33,7 @@ import {
 	SelectTrigger,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { t } from "@/i18n/i18n";
+import { useT } from "@/i18n/i18n";
 import {
 	applyThemeVars,
 	CUSTOM_COLOR_KEYS,
@@ -528,6 +528,8 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 		}
 	}, []);
 
+	const t = useT();
+
 	if (!config) return <SettingsSkeleton rows={3} />;
 
 	// IMPL-C: resolve i18n keys once per render so the isVisible predicate
@@ -710,7 +712,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 							onMouseLeave={revertToSavedPreset}
 						>
 							{/* Filter out 'custom' from the dropdown — custom is now
-                                                                a toggle switch below this row. */}
+								a toggle switch below this row. */}
 							{THEMES.filter((t) => t.id !== "custom").map((theme) => {
 								const isDark =
 									document.documentElement.classList.contains("dark");
@@ -744,9 +746,9 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 
 			{/* ── Custom Theme toggle ────────────────────────────── */}
 			{/* A switch that enables/disables the custom color editor.
-                                When ON, theme_preset is forced to 'custom' and the color
-                                picker appears.  When OFF, the preset reverts to the
-                                previously-selected preset. */}
+				When ON, theme_preset is forced to 'custom' and the color
+				picker appears.  When OFF, the preset reverts to the
+				previously-selected preset. */}
 			{isVisible(customThemeLabel, customThemeInfoSearch, sectionTitle) && (
 				<SettingRow
 					label={customThemeLabel}
@@ -820,7 +822,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 										<span className="block text-xs font-medium text-(--text-primary)">
 											{label}
 										</span>
-										<p className="truncate text-[10px] text-(--text-muted)">
+										<p className="truncate text-xs text-(--text-muted)">
 											{description}
 										</p>
 									</div>
@@ -840,12 +842,12 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 					</div>
 
 					{/* Reset to defaults.
-                                                Part C5: the previously-broken "#888" 3-digit hex in
-                                                DEFAULT_CUSTOM_DARK["--text-muted"] is now "#888888" (6-digit)
-                                                so the validator accepts the payload — no more "Failed to
-                                                save settings" toast.
-                                                Part C6: button is disabled while the draft already matches
-                                                the defaults (re-enables the moment the user edits a color). */}
+						Part C5: the previously-broken "#888" 3-digit hex in
+						DEFAULT_CUSTOM_DARK["--text-muted"] is now "#888888" (6-digit)
+						so the validator accepts the payload — no more "Failed to
+						save settings" toast.
+						Part C6: button is disabled while the draft already matches
+						the defaults (re-enables the moment the user edits a color). */}
 					<button
 						type="button"
 						disabled={customDraftIsDefault}

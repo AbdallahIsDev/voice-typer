@@ -28,7 +28,7 @@ import { RangeSlider } from "@/components/common/RangeSlider";
 import { SettingRow } from "@/components/common/SettingRow";
 import { SettingsSection } from "@/components/common/SettingsSection";
 import { Switch } from "@/components/ui/switch";
-import { t } from "@/i18n/i18n";
+import { useT } from "@/i18n/i18n";
 import { SettingsSkeleton } from "./SettingsSkeleton";
 
 import type { SettingsSectionSharedProps } from "./types";
@@ -39,6 +39,8 @@ export const AiEnhancementSettingsSection = memo(
 		updateConfigDebounced,
 		isVisible,
 	}: SettingsSectionSharedProps) {
+		const t = useT();
+
 		if (!config) return <SettingsSkeleton rows={3} />;
 
 		// Read the master toggle once so we can disable the sub-toggles

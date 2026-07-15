@@ -477,7 +477,7 @@ export default function TemplatesPage() {
 													{row.expansion}
 												</p>
 												<span
-													className="text-[10px] text-(--text-muted) opacity-60"
+													className="text-xs text-(--text-muted)"
 													// NEW-TS-019: show the actual variable names in
 													// a native tooltip so the user can see WHICH
 													// variables the template uses, not just the count.

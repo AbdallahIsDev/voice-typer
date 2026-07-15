@@ -23,5 +23,9 @@
 			"#utils": ["./src/renderer/src/lib/utils.ts"]
 		}
 	},
-	"include": ["src/renderer/src/**/*"]
+	"include": [
+		"src/renderer/src/**/*",
+		"src/renderer/src/**/*.json",
+		"package.json"
+	]
 }

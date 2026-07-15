@@ -24,7 +24,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { t } from "@/i18n/i18n";
+import { useT } from "@/i18n/i18n";
 import { setSoundFeedbackEnabled } from "@/lib/sound-manager";
 import { SettingsSkeleton } from "./SettingsSkeleton";
 
@@ -125,6 +125,8 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 		updateConfig({ sound_feedback_enabled: checked });
 		setSoundFeedbackEnabled(checked);
 	};
+
+	const t = useT();
 
 	if (!config) return <SettingsSkeleton rows={3} />;
 

@@ -5,7 +5,7 @@ import {
 	PencilEdit02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import ExportFormatMenu from "@/components/common/ExportFormatMenu";
@@ -149,6 +149,31 @@ export default function VocabularyPage() {
 	const { call } = usePython();
 	const { showSnack } = useSnackbar();
 	const [entries, setEntries] = useState<VocabularyEntry[]>([]);
+
+	// D2-FIX (b-review Finding 4): ref mirror of `entries` so the
+	// `instantDeleteEntry` undo callback can read the LATEST list at
+	// undo time (potentially seconds after the delete).  Previously the
+	// undo callback closed over `entries` from the render that created
+	// `instantDeleteEntry` — that snapshot STILL INCLUDED the deleted
+	// entry (because `instantDeleteEntry` reads `entries` to compute
+	// `updated` via `.filter`, but never replaces `entries` in the
+	// closure).  When the user clicked Undo, `restored = [...entries]`
+	// contained `entry` at its original index, `restored.indexOf(entry)`
+	// returned that index, and `restored.splice(idx, 0, entry)`
+	// (deleteCount=0) INSERTED A SECOND COPY at that index — the entry
+	// reappeared TWICE after Undo.  The closure was also stale with
+	// respect to any other vocabulary edits made between the delete and
+	// the Undo click — those edits were silently lost.
+	//
+	// Mirrors the pattern in Templates.tsx:383, which re-reads via
+	// `loadTemplatesFromLocalStorage()` inside the undo callback instead
+	// of closing over a stale snapshot.  We use a ref instead of a
+	// storage re-read because Vocabulary keeps its source of truth in
+	// React state (not localStorage), so a ref is the equivalent.
+	const entriesRef = useRef<VocabularyEntry[]>(entries);
+	useEffect(() => {
+		entriesRef.current = entries;
+	}, [entries]);
 
 	const [searchQuery, setSearchQuery] = useState("");
 	const [loading, setLoading] = useState(true);
@@ -353,25 +378,54 @@ export default function VocabularyPage() {
 	// NEW-UX-004: instant-delete + Undo toast.  Triggered by the trash
 	// icon.  Removes the entry immediately and offers a 6-second Undo
 	// window during which the user can restore it.
+	//
+	// D2-FIX (b-review Finding 4): the undo callback now reads the LATEST
+	// `entries` via `entriesRef.current` (kept in sync by the effect
+	// declared near the state) instead of closing over the render-time
+	// `entries` snapshot.  This fixes two bugs:
+	//   1. The stale-closure bug: `[...entries]` previously still
+	//      contained the deleted entry, so `indexOf(entry)` returned the
+	//      original index and `splice(idx, 0, entry)` (deleteCount=0)
+	//      INSERTED a second copy at that index — the entry reappeared
+	//      TWICE after Undo.
+	//   2. The lost-edits bug: any add/edit of OTHER entries between the
+	//      delete and the Undo click were silently reverted because the
+	//      restore replaced the current list with the stale pre-delete
+	//      snapshot.
+	//
+	// We capture `originalIndex` BEFORE the delete (when entriesRef still
+	// holds the pre-delete array).  At undo time we filter the latest
+	// list defensively (in case the entry was somehow re-added in the
+	// interim) and splice the entry back at the captured index, clamped
+	// to the current length so a shrunken list doesn't get an out-of-
+	// bounds insert.  The filter-then-splice combo guarantees exactly
+	// ONE copy of the entry is restored, regardless of any concurrent
+	// edits.
+	//
+	// Deps no longer include `entries` — the callback reads from the ref,
+	// so its identity is now stable across renders (it only changes when
+	// `persistVocabulary` or `showSnack` change, which themselves only
+	// change when `call` changes).  This matches the Templates.tsx
+	// `instantDeleteTemplate` pattern (deps: [call, loadRows, showSnack]).
 	const instantDeleteEntry = useCallback(
 		async (entry: VocabularyEntry) => {
 			try {
-				const updated = entries.filter((e) => e !== entry);
+				const currentEntries = entriesRef.current;
+				const originalIndex = currentEntries.indexOf(entry);
+				const updated = currentEntries.filter((e) => e !== entry);
 				await persistVocabulary(updated);
 				setEntries(updated);
 				showUndoableToast(
 					t("vocabulary.deletedEntry", { name: entry.original }),
 					async () => {
 						try {
-							const restored = [...entries];
-							// Re-insert at the original location (best-effort: append
-							// if the reference position is no longer valid).
-							const idx = restored.indexOf(entry);
-							if (idx >= 0) {
-								restored.splice(idx, 0, entry);
-							} else {
-								restored.push(entry);
-							}
+							const latest = entriesRef.current.filter((e) => e !== entry);
+							const restored = [...latest];
+							const insertAt =
+								originalIndex >= 0
+									? Math.min(originalIndex, restored.length)
+									: restored.length;
+							restored.splice(insertAt, 0, entry);
 							await persistVocabulary(restored);
 							setEntries(restored);
 							toast.success(t("vocabulary.entryRestored"));
@@ -385,7 +439,7 @@ export default function VocabularyPage() {
 				showSnack(t("vocabulary.deleteFailed"), "error");
 			}
 		},
-		[entries, persistVocabulary, showSnack],
+		[persistVocabulary, showSnack],
 	);
 
 	// ── Render ────────────────────────────────────────────────────────

@@ -10,12 +10,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import ExportFormatMenu from "@/components/common/ExportFormatMenu";
+import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
 import { SearchField } from "@/components/common/SearchField";
 import ActivityList from "@/components/dashboard/ActivityList";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { Spinner } from "@/components/feedback/Spinner";
 import { Button } from "@/components/ui/button";
+import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { showUndoableToast } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
@@ -57,6 +59,15 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 	const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const [showClearConfirm, setShowClearConfirm] = useState(false);
 	const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	// F4 (b-review Finding 11): "Last updated" indicator state. The
+	// module-level cache (`_cachedRecords`, `_cachedStats`) survives
+	// page navigations, so we mark the timestamp after each successful
+	// load to surface staleness to the user. The indicator is rendered
+	// near the top of the page with a manual refresh button.
+	const { agoLabel, markUpdated } = useLastUpdated();
+	// `refreshing` is true while a manual refresh is in-flight so the
+	// indicator's refresh button can show a spinner + disable itself.
+	const [refreshing, setRefreshing] = useState(false);
 
 	const load = useCallback(
 		async (query?: string, favs?: boolean) => {
@@ -94,14 +105,29 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 				const todayStats = await call<TodayStats>("get_today_stats");
 				_cachedStats = todayStats;
 				setStats(todayStats);
+				// F4: bump the "last updated" timestamp after a successful load.
+				markUpdated();
 			} catch (err) {
 				console.error("Failed to load history:", err);
 			} finally {
 				setLoading(false);
 			}
 		},
-		[call],
+		[call, markUpdated],
 	);
+
+	// F4: manual refresh handler for the LastUpdatedIndicator button.
+	// Wraps `load()` so we can flip a `refreshing` flag for the button's
+	// spinner state without disturbing `loading` (which gates the page's
+	// main spinner when there's no cached data to show).
+	const handleManualRefresh = useCallback(async () => {
+		setRefreshing(true);
+		try {
+			await load();
+		} finally {
+			setRefreshing(false);
+		}
+	}, [load]);
 
 	const loadMore = useCallback(async () => {
 		setLoadingMore(true);
@@ -147,6 +173,40 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 	// and not mid-search, also update the visible UI.
 	usePythonEvent(
 		"transcription_final",
+		useCallback(() => {
+			if (refreshTimer.current) clearTimeout(refreshTimer.current);
+			refreshTimer.current = setTimeout(async () => {
+				try {
+					const [newStats, newRecs] = await Promise.all([
+						call<TodayStats>("get_today_stats"),
+						call<HistoryRecord[]>("get_history", {
+							limit: PAGE_SIZE,
+							offset: 0,
+						}),
+					]);
+					_cachedStats = newStats;
+					_cachedRecords = newRecs;
+					setStats(newStats);
+					// Only replace visible records when no search/filter is active
+					if (!searchQueryRef.current && !favoritesOnlyRef.current) {
+						setHasMore(newRecs.length >= PAGE_SIZE);
+						setRecords(newRecs);
+					}
+				} catch {
+					// Silently ignore — the next manual load will pick up fresh data
+				}
+			}, 500);
+		}, [call]),
+	);
+
+	// F11-FIX (b-review Finding 11): invalidate the cache when history
+	// changes through a path OUTSIDE this page (clear/delete/restore/
+	// favorite from the tray menu, another window, or a CLI tool). This
+	// is the exact case the original History.tsx:88-90 comment warned
+	// about — an external clear while viewing search results left ghost
+	// records. Mirrors the transcription_final handler above.
+	usePythonEvent(
+		"history_changed",
 		useCallback(() => {
 			if (refreshTimer.current) clearTimeout(refreshTimer.current);
 			refreshTimer.current = setTimeout(async () => {
@@ -324,6 +384,17 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 							: t("history.noTranscriptionsToday")
 					}
 				/>
+
+				{/* F4 (b-review Finding 11): "Last updated" indicator + manual
+                                    refresh button. The module-level cache survives page
+                                    navigations, so we surface staleness here. */}
+				<div className="flex justify-end pb-1">
+					<LastUpdatedIndicator
+						agoLabel={agoLabel}
+						onRefresh={handleManualRefresh}
+						refreshing={refreshing}
+					/>
+				</div>
 
 				{/* Search */}
 				<div className="mt-4">

@@ -2,11 +2,13 @@ import { Mic02Icon, Share08Icon, StopIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import ActivityList from "@/components/dashboard/ActivityList";
 import StatCards from "@/components/dashboard/StatCards";
 import { StatsShareImage } from "@/components/dashboard/StatsShareImage";
 import { Spinner } from "@/components/feedback/Spinner";
 import { Button } from "@/components/ui/button";
+import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 // SOUND-FIX-004: sound feedback logic moved to App-level hook so cues
 // play on every page, not just Home.  Home no longer subscribes to
@@ -217,6 +219,14 @@ export default function Home({
 	);
 	const [toggling, setToggling] = useState(false);
 	const [cfg, setCfg] = useState<VoiceTyperConfig | null>(null);
+	// F4 (b-review Finding 11): "Last updated" indicator state. Home
+	// caches both stats and recent records in module-level + localStorage
+	// state (persistRecent/persistStats) so re-visits are instant —
+	// but if the backend's stats change while the user is on a different
+	// page, the cache stays stale until the next transcription_final
+	// event or manual refresh. The indicator surfaces this staleness.
+	const { agoLabel, markUpdated } = useLastUpdated();
+	const [refreshing, setRefreshing] = useState(false);
 	const { imageRef, shareAsImage } = useStatsShare();
 
 	// NEW-TS-008: normalize hotkey to uppercase for display. Server
@@ -247,13 +257,53 @@ export default function Home({
 				persistRecent(recs);
 				setRecent(recs);
 			} catch {}
-			if (!cancelled) setInitialLoading(false);
+			if (!cancelled) {
+				setInitialLoading(false);
+				// F4: bump the "last updated" timestamp after the initial
+				// load completes (success or partial failure — any data we
+				// got is now "freshly loaded" for the staleness indicator).
+				markUpdated();
+			}
 		};
 		load();
 		return () => {
 			cancelled = true;
 		};
-	}, [call]);
+	}, [call, markUpdated]);
+
+	// F4: manual refresh handler for the LastUpdatedIndicator button.
+	// Re-runs the same load() as the mount effect (get_config +
+	// get_today_stats + get_history) so the user can force a fresh
+	// fetch when they suspect the cached data is stale. Uses a
+	// separate `refreshing` flag so the button can show a spinner
+	// without re-triggering the page's `initialLoading` state.
+	const handleManualRefresh = useCallback(async () => {
+		setRefreshing(true);
+		try {
+			const [cfgTry, sTry, hTry] = await Promise.allSettled([
+				call<VoiceTyperConfig>("get_config"),
+				call<TodayStats>("get_today_stats"),
+				call<HistoryRecord[]>("get_history", { limit: 5 }),
+			]);
+			if (cfgTry.status === "fulfilled") {
+				setCfg(cfgTry.value);
+				const raw = cfgTry.value?.hotkey ?? "<f2>";
+				setHotkey(normalizeHotkey(raw));
+			}
+			if (sTry.status === "fulfilled" && sTry.value) {
+				persistStats(sTry.value);
+				setStats(sTry.value);
+			}
+			if (hTry.status === "fulfilled") {
+				const recs = hTry.value ?? [];
+				persistRecent(recs);
+				setRecent(recs);
+			}
+			markUpdated();
+		} finally {
+			setRefreshing(false);
+		}
+	}, [call, markUpdated]);
 
 	// UX-016: listen for status_change events to re-fetch the hotkey
 	// config.  When the user changes the hotkey in Settings, the
@@ -356,6 +406,37 @@ export default function Home({
 			}
 		}, 500);
 	});
+
+	// F11-FIX (b-review Finding 11): invalidate the cached recent records +
+	// today's stats when history changes through a path OUTSIDE this page
+	// (clear/delete/restore/favorite from the tray menu, another window, or
+	// a CLI tool). Without this, such an external change left ghost records
+	// in the cache until the next transcription_final / manual refresh.
+	// Mirrors the transcription_final refresh below.
+	usePythonEvent(
+		"history_changed",
+		useCallback(() => {
+			if (refreshTimer.current) clearTimeout(refreshTimer.current);
+			refreshTimer.current = setTimeout(async () => {
+				try {
+					const [newRecent, newStats] = await Promise.all([
+						call<HistoryRecord[]>("get_history", { limit: 5 }),
+						call<TodayStats>("get_today_stats"),
+					]);
+					if (newRecent) {
+						persistRecent(newRecent);
+						setRecent(newRecent);
+					}
+					if (newStats) {
+						persistStats(newStats);
+						setStats(newStats);
+					}
+				} catch {
+					// Silently ignore — next manual load picks up fresh data
+				}
+			}, 500);
+		}, [call]),
+	);
 
 	usePythonEvent("recording_started", () => {
 		setLastText("");
@@ -488,7 +569,16 @@ export default function Home({
 						<span className="text-xs font-medium text-(--text-muted) capitalize tracking-wide">
 							{t("home.todayStats")}
 						</span>
-						<div className="flex items-center gap-1">
+						<div className="flex items-center gap-2">
+							{/* F4 (b-review Finding 11): "Last updated" indicator +
+                                                            manual refresh button. Home caches stats + recent
+                                                            records in module-level + localStorage state so
+                                                            re-visits are instant; this surfaces staleness. */}
+							<LastUpdatedIndicator
+								agoLabel={agoLabel}
+								onRefresh={handleManualRefresh}
+								refreshing={refreshing}
+							/>
 							<Button
 								variant="outline"
 								size="sm"

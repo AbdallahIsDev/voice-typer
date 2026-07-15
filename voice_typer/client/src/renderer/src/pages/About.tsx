@@ -5,6 +5,7 @@ import { SettingsSection } from "@/components/common/SettingsSection";
 import { Button } from "@/components/ui/button";
 import { usePython } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
+import { compareSemver } from "@/lib/semver";
 import type { VoiceTyperConfig } from "@/types/config";
 
 // VERSION-SOURCE-FIX: import the version directly from package.json so
@@ -363,9 +364,15 @@ export default function AboutPage() {
 			if (!data.tag_name) throw new Error("No tag_name in response");
 			const remote = data.tag_name.replace(/^v/, "");
 			setLatestVersion(remote);
-			if (remote === APP_VERSION) {
+			// F3 (b-review Finding 9): use a proper semver comparison instead
+			// of lexicographic string comparison. The previous `remote > APP_VERSION`
+			// broke for versions like "1.10.0" vs "1.9.0" (lexicographically
+			// "1.10.0" < "1.9.0" because "1" < "9" at index 2). compareSemver
+			// splits on "." and compares numeric parts pairwise so the ordering
+			// matches what users expect from version numbers.
+			if (compareSemver(remote, APP_VERSION) === 0) {
 				toast.success(t("about.onLatestVersion", { version: APP_VERSION }));
-			} else if (remote > APP_VERSION) {
+			} else if (compareSemver(remote, APP_VERSION) > 0) {
 				toast.info(t("about.newVersionAvailable", { version: remote }));
 			} else {
 				toast.info(
@@ -592,7 +599,7 @@ export default function AboutPage() {
 						value={
 							latestVersion === null
 								? t("about.checking")
-								: latestVersion > APP_VERSION
+								: compareSemver(latestVersion, APP_VERSION) > 0
 									? t("about.updateAvailable", { version: latestVersion })
 									: t("about.versionValue", { version: latestVersion })
 						}
@@ -608,17 +615,18 @@ export default function AboutPage() {
 								? t("about.checking")
 								: t("about.checkForUpdates")}
 						</Button>
-						{latestVersion !== null && latestVersion > APP_VERSION && (
-							<Button asChild variant="default" size="sm">
-								<a
-									href={RELEASES_URL}
-									target="_blank"
-									rel="noreferrer noopener"
-								>
-									{t("about.downloadVersion", { version: latestVersion })}
-								</a>
-							</Button>
-						)}
+						{latestVersion !== null &&
+							compareSemver(latestVersion, APP_VERSION) > 0 && (
+								<Button asChild variant="default" size="sm">
+									<a
+										href={RELEASES_URL}
+										target="_blank"
+										rel="noreferrer noopener"
+									>
+										{t("about.downloadVersion", { version: latestVersion })}
+									</a>
+								</Button>
+							)}
 						<Button asChild variant="ghost" size="sm">
 							<a href={CHANGELOG_URL} target="_blank" rel="noreferrer noopener">
 								{t("about.viewChangelog")}
