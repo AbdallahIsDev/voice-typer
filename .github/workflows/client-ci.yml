@@ -1,0 +1,51 @@
+name: Client CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "voice_typer/client/**"
+      - ".github/workflows/client-ci.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "voice_typer/client/**"
+      - ".github/workflows/client-ci.yml"
+
+# Cancel in-progress runs for the same ref so a new push supersedes them.
+concurrency:
+  group: client-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  client:
+    name: Typecheck + Lint + Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: voice_typer/client
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: voice_typer/client/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # CI-05 / cache-trap guard: `typecheck:ci` runs `tsc -b --force`,
+      # a FULL cache-busting build. A plain `tsc --noEmit` can reuse a
+      # stale tsbuildinfo/out and report a false green (see DX-013 fix).
+      - name: Typecheck (cache-busting)
+        run: npm run typecheck:ci
+
+      - name: Lint (Biome)
+        run: npm run lint
+
+      - name: Test (Vitest)
+        run: npm test

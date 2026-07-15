@@ -8,6 +8,9 @@ node_modules/
 
 # DEAD-003: Electron/Vite build outputs — never commit these.
 # They're regenerated on every `npm run build` and bloat the repo.
+# NOTE: `csp-plugin.ts` at the client root is a SOURCE file (tracked,
+# imported by electron.vite.config.ts), NOT a build output — do not add
+# it here. It is covered by tsconfig.node.json explicitly.
 voice_typer/client/out/
 voice_typer/client/src/renderer/dist/
 # BUILD-N15: also ignore the root build/ and dist/ dirs used by
@@ -81,3 +84,4 @@ bubble.md
 archive/deleted_files.txt
 DONE.md
 instructions.md
+comprehensive-review.md

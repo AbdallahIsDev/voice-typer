@@ -1,25 +1,30 @@
 // src/renderer/src/hooks/useSnackbar.tsx
 //
 // NEW-UX-003: previously the renderer had TWO parallel toast systems:
-//   1. The bespoke ``useSnackbar`` hook (this file) — used by 6 pages
-//      (Settings, Models, Microphone, Vocabulary, Templates, Onboarding).
+//   1. The bespoke ``useSnackbar`` hook (this file) — used by Settings,
+//      Models, Microphone, Vocabulary, Templates, and Onboarding pages.
 //   2. The ``sonner`` library — used by History.tsx, ActivityList.tsx,
 //      and (partially) Vocabulary.tsx.
 //
 // Both rendered toasts to the user but looked different, had different
 // lifetimes, and stacked badly when both fired at once.  This file now
-// delegates ALL toast rendering to ``sonner`` — the bespoke ``Snackbar``
-// component returned by this hook is a no-op so existing call sites
-// continue to compile and work without modification, while the actual
-// UI comes from the single global ``<Toaster />`` mounted in App.tsx.
+// delegates ALL toast rendering to ``sonner`` — there is exactly ONE
+// toast system in the renderer.  The UI comes from the single global
+// ``<Toaster />`` mounted in App.tsx.  Toasts are raised via ``showSnack``
+// (or directly via ``toast.success(...)`` from ``sonner``); both go
+// through the same renderer.
 //
-// Migration path: existing call sites can keep using ``showSnack`` /
-// ``useSnackbar``.  New code may call ``toast.success(...)`` directly
-// from ``sonner`` — both go through the same renderer.
+// DX-013: the bespoke ``Snackbar`` component that this hook used to
+// return was removed — it was a no-op that made pages render dead
+// ``<Snackbar />`` JSX and, once the component stopped being exported,
+// crashed those pages at render time.  There is no longer a ``Snackbar``
+// member on the returned object; call sites must not destructure or
+// render it.  All toast UI is the global sonner ``<Toaster />``.
 //
-// IMPORTANT: This file MUST be .tsx (not .ts) because it contains JSX
-// for the Snackbar component.  Vite resolves .ts before .tsx in
-// extension priority, so a coexisting .ts file would shadow this one.
+// IMPORTANT: This file is named ``.tsx`` (not ``.ts``) only because of
+// historical extension-priority conventions; it no longer contains JSX.
+// Vite resolves ``.ts`` before ``.tsx`` in extension priority, so a
+// coexisting ``.ts`` file would shadow this one.
 
 import { useCallback } from "react";
 import { toast } from "sonner";
@@ -33,9 +38,9 @@ export interface SnackbarState {
 
 /**
  * Unified snackbar hook.  All toasts are rendered by sonner's global
- * ``<Toaster />``.  The returned ``Snackbar`` component is a no-op
- * (returns null) — kept for backwards compatibility with pages that
- * still render ``<Snackbar />`` in their JSX.
+ * ``<Toaster />`` mounted in App.tsx.  This hook returns only
+ * ``showSnack`` / ``clearSnack`` — there is no ``Snackbar`` component
+ * to render (see DX-013).
  *
  * @param timeoutMs Default toast duration in milliseconds.  Sonner's
  *   default is 4000ms; we keep the legacy 3000ms default for parity.
@@ -74,14 +79,7 @@ export function useSnackbar(timeoutMs = 3000) {
 		toast.dismiss();
 	}, []);
 
-	/**
-	 * No-op renderer.  Sonner renders toasts via its own portal, so we
-	 * don't need an inline component.  Kept for backwards compatibility
-	 * with pages that render ``<Snackbar />`` in their JSX.
-	 */
-	const Snackbar = useCallback(() => null, []);
-
-	return { snackbar: null, showSnack, clearSnack, Snackbar };
+	return { showSnack, clearSnack };
 }
 
 /**

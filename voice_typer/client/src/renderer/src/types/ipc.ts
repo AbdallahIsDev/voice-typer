@@ -323,35 +323,56 @@ export interface WindowBridge {
 }
 
 // ── Bubble bridge API (exposed by Electron preload for the bubble overlay) ─
+//
+// DX-012: The ``WindowBubble`` interface was split into two types:
+//   - ``MainRendererBubble`` — subset exposed by ``preload/index.ts``
+//     (the main settings window).  Bubble-only methods (onSetState,
+//     resizeTo) are not available here; callers must use ``?.``.
+//   - ``BubbleWindowBubble`` — full interface exposed by
+//     ``preload/bubble.ts`` (the bubble overlay window).  All methods
+//     are guaranteed present.
+//
+// The ``Window.bubble`` type in the main renderer is typed as
+// ``MainRendererBubble`` so callers that accidentally use a bubble-
+// only method (e.g. ``window.bubble.resizeTo(...)``) get a compile-
+// time type error instead of a silent runtime no-op.
 
-export interface WindowBubble {
-	// Commands (main process → bubble window) — optional because the
-	// bubble overlay may not be fully initialized when called from App.tsx
+/** Methods exposed by the main renderer's preload (preload/index.ts). */
+export interface MainRendererBubble {
 	signalReady?: () => void;
 	setPosition?: (pos: string) => void;
 	setDraggable?: (v: boolean) => void;
 	show?: () => void;
-	hide?: () => void;
-	setLevel?: (level: number) => void;
-	// NEW-A11Y-006: keyboard-based move (accessibility alternative to drag).
+	// NOTE: ``hide`` and ``setLevel`` were intentionally removed from this
+	// main-renderer subset (DX-012 residual).  Neither preload implements
+	// them — ``preload/index.ts`` exposes no ``hide``/``setLevel``, and
+	// ``preload/bubble.ts`` does the same.  Keeping them here would make the
+	// type over-promise a silent runtime no-op.  Bubble-window-only methods
+	// remain in ``BubbleWindowBubble`` (onSetState, resizeTo).
 	moveBy?: (deltaX: number, deltaY: number) => void;
 	// Event subscriptions (bubble window → main process) — always present
 	// when the bubble window is loaded (exposed by the preload script)
 	onLevel: (cb: (data: { rms: number; peak: number }) => void) => () => void;
 	onShow: (cb: () => void) => () => void;
 	onHide: (cb: () => void) => () => void;
-	onSetState: (cb: (state: string) => void) => () => void;
 	onDraggable: (cb: (draggable: boolean) => void) => () => void;
 	hideComplete: () => void;
-	// Auto-resize the BrowserWindow to exactly fit the pill content,
-	// eliminating the transparent dead zone around the bubble.
-	resizeTo?: (width: number, height: number) => void;
 }
 
+/** Full bubble API exposed by the bubble window's preload (preload/bubble.ts). */
+export interface BubbleWindowBubble extends MainRendererBubble {
+	onSetState: (cb: (state: string) => void) => () => void;
+	// Auto-resize the BrowserWindow to exactly fit the pill content,
+	// eliminating the transparent dead zone around the bubble.
+	resizeTo: (width: number, height: number) => void;
+}
+
+// DX-012: Each window declares its own Window.bubble type:
+//   - Main renderer (``vite-env.d.ts``): ``bubble?: MainRendererBubble``
+//   - Bubble window (``Bubble.tsx``): ``bubble?: BubbleWindowBubble`` (cast)
 declare global {
 	interface Window {
 		python?: PythonBridge;
 		window_?: WindowBridge;
-		bubble?: WindowBubble;
 	}
 }

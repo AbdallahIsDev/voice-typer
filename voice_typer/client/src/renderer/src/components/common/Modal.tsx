@@ -19,7 +19,7 @@
  *     </ModalFooter>
  *   </Modal>
  */
-import { useCallback, useRef } from "react";
+import { useCallback } from "react";
 import {
 	Dialog,
 	DialogContent,
@@ -56,34 +56,22 @@ export function Modal({
 	size = "default",
 	className,
 }: ModalProps) {
-	// Track whether the close was triggered by the user's explicit action
-	// (button click) vs. Escape/backdrop so we don't double-fire onClose.
-	const dismissedByAction = useRef(false);
-
 	const handleOpenChange = useCallback(
 		(isOpen: boolean) => {
-			if (!isOpen && !dismissedByAction.current) {
-				// Escape key or backdrop click
+			// DX-014: Radix Dialog fires onOpenChange(false) exactly once per
+			// close event — button click, Escape key, or backdrop click. No
+			// additional handlers are needed; the old dismissedByAction ref
+			// was guarding against a non-existent double-fire.
+			if (!isOpen) {
 				onClose();
 			}
-			dismissedByAction.current = false;
 		},
 		[onClose],
 	);
 
-	const handleClose = useCallback(() => {
-		dismissedByAction.current = true;
-		onClose();
-	}, [onClose]);
-
 	return (
 		<Dialog open={open} onOpenChange={handleOpenChange}>
-			<DialogContent
-				size={size}
-				onEscapeKeyDown={handleClose}
-				onPointerDownOutside={handleClose}
-				className={cn(className)}
-			>
+			<DialogContent size={size} className={cn(className)}>
 				<DialogHeader>
 					<DialogTitle>{title}</DialogTitle>
 					{description && <DialogDescription>{description}</DialogDescription>}

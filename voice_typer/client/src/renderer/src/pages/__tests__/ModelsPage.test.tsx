@@ -75,7 +75,6 @@ vi.mock("@/hooks/usePython", () => ({
 vi.mock("@/hooks/useSnackbar", () => ({
 	useSnackbar: () => ({
 		showSnack,
-		Snackbar: () => null,
 	}),
 }));
 

@@ -54,22 +54,17 @@ _REC_LOG = logging.getLogger("voice_typer.server.recording")
 
 _mock_pystray = MagicMock()
 
-RENDERER_SRC = (
-    Path(__file__).resolve().parent.parent
-    / "voice_typer"
-    / "client"
-    / "src"
-    / "renderer"
-    / "src"
-)
+RENDERER_SRC = Path(__file__).resolve().parent.parent / "voice_typer" / "client" / "src" / "renderer" / "src"
 
 # === Common helpers / fixtures (identical across files) ===
+
 
 def _make_recorder() -> Recorder:
     cfg = Config()
     cfg.sample_rate = 16000
     rec = Recorder(cfg)
     return rec
+
 
 @pytest.fixture
 def engine_no_model() -> ParakeetEngine:
@@ -83,14 +78,17 @@ def engine_no_model() -> ParakeetEngine:
     eng = ParakeetEngine.__new__(ParakeetEngine)
     return eng
 
+
 def engine_no_global_chunks_safe(eng):
     """Helper used by test_empty_chunk_skipped (kept simple)."""
     return eng._merge_chunks(["alpha", "", "bravo"])
+
 
 def engine_no_global_chunks_safe_2(eng, a, b):
     result = eng._merge_chunks([a, b])
     assert "jumps" in result.split(), f"single-word chunk lost: {result!r}"
     return result
+
 
 def _free_port() -> int:
     """Reserve and immediately release an ephemeral port.
@@ -105,6 +103,7 @@ def _free_port() -> int:
     s.close()
     return port
 
+
 def _read_response_line(sock: socket.socket, timeout: float = 2.0) -> dict:
     """Read one newline-terminated JSON line from ``sock``.
 
@@ -116,20 +115,18 @@ def _read_response_line(sock: socket.socket, timeout: float = 2.0) -> dict:
         try:
             chunk = sock.recv(4096)
         except TimeoutError as exc:
-            raise TimeoutError(
-                f"Timed out waiting for response. Got partial: {buf!r}"
-            ) from exc
+            raise TimeoutError(f"Timed out waiting for response. Got partial: {buf!r}") from exc
         if not chunk:
-            raise ConnectionError(
-                f"Server closed connection. Got partial: {buf!r}"
-            )
+            raise ConnectionError(f"Server closed connection. Got partial: {buf!r}")
         buf += chunk
     line, _ = buf.split(b"\n", 1)
     return json.loads(line.decode("utf-8"))
 
+
 def _send_line(sock: socket.socket, obj: dict) -> None:
     """Send a JSON object as a single newline-terminated line."""
     sock.sendall((json.dumps(obj) + "\n").encode("utf-8"))
+
 
 @pytest.fixture
 def live_server(tmp_path, monkeypatch):
@@ -187,6 +184,7 @@ def live_server(tmp_path, monkeypatch):
             break
         time.sleep(0.02)
 
+
 @pytest.fixture
 def authenticated_client(live_server):
     """Connect a client, send the auth line, yield the open socket."""
@@ -203,8 +201,10 @@ def authenticated_client(live_server):
     with contextlib.suppress(OSError):
         client.close()
 
+
 def _read(rel: str) -> str:
     return (RENDERER_SRC / rel).read_text(encoding="utf-8")
+
 
 # === Source: tests/test_new_cli_003_exit_codes.py ===
 
@@ -222,6 +222,7 @@ These tests verify:
 2. ``EXIT_BAD_ARGS`` is used on the bad-port path.
 3. ``main.__doc__`` is the real docstring (not None).
 """
+
 
 class TestExitCodeConstants:
     """Sanity-check the constants exist and have the documented values."""
@@ -243,6 +244,7 @@ class TestExitCodeConstants:
         }
         assert len(values) == 5
 
+
 class TestMainDocstringRestored:
     """NEW-CLI-003 side-fix: the docstring of ``main`` was misplaced
     (after the import line), so ``main.__doc__`` was None.  Verify the
@@ -253,16 +255,24 @@ class TestMainDocstringRestored:
         assert ipc_server.main.__doc__ is not None
         assert "VoiceTyperApp" in ipc_server.main.__doc__
 
+
 class TestCrashPathUsesExitCrash:
     """NEW-CLI-003 main fix: the crash path must call ``sys.exit(EXIT_CRASH)``,
     not ``sys.exit(1)``.
     """
 
-    def test_crash_path_uses_exit_crash(self, monkeypatch):
+    def test_crash_path_uses_exit_crash(self, monkeypatch, tmp_path):
         """When ``app.start()`` raises an Exception, ``main()`` must
         exit with ``EXIT_CRASH`` (1), and that 1 must come from the
         named constant — not a raw literal.
         """
+        # Isolate the crash-diagnostic writer.  ``main()`` appends the
+        # traceback to ``_config_dir() / "startup-error.log"``; without
+        # this, the test pollutes the *real* config dir (e.g. the
+        # developer's ~/.voice-typer/startup-error.log) with fake
+        # "simulated crash" entries.
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+
         # Set up the argv so argparse doesn't bail.
         monkeypatch.setattr(sys, "argv", ["voice-typer"])
 
@@ -271,21 +281,15 @@ class TestCrashPathUsesExitCrash:
         app_mock.start.side_effect = RuntimeError("simulated crash")
 
         # Stub out heavy pieces of main().
-        monkeypatch.setattr(
-            "voice_typer.server.app.VoiceTyperApp", lambda: app_mock
-        )
-        monkeypatch.setattr(
-            "voice_typer.server.app._setup_logging", lambda: None
-        )
+        monkeypatch.setattr("voice_typer.server.app.VoiceTyperApp", lambda: app_mock)
+        monkeypatch.setattr("voice_typer.server.app._setup_logging", lambda: None)
         monkeypatch.setattr(
             "voice_typer.server.app._ensure_single_instance",
             lambda silent=False: object(),
         )
         # Stub IPCServer so it doesn't try to bind or spawn threads.
         fake_server = MagicMock()
-        monkeypatch.setattr(
-            ipc_server, "IPCServer", lambda app: fake_server
-        )
+        monkeypatch.setattr(ipc_server, "IPCServer", lambda app: fake_server)
 
         # Stub sys.modules registration so main()'s self-registration
         # of the canonical name doesn't overwrite the real module.
@@ -301,6 +305,12 @@ class TestCrashPathUsesExitCrash:
 
         assert exc_info.value.code == EXIT_CRASH
 
+        # The diagnostic must land in the isolated temp dir, not the
+        # developer's real startup-error.log.
+        diag = tmp_path / "startup-error.log"
+        assert diag.exists()
+        assert "simulated crash" in diag.read_text(encoding="utf-8")
+
     def test_bad_port_uses_exit_bad_args(self, monkeypatch):
         """When --port is out of range, ``main()`` must exit with
         ``EXIT_BAD_ARGS`` (4)."""
@@ -311,15 +321,9 @@ class TestCrashPathUsesExitCrash:
         # We then assert that app.start() is NEVER called because main()
         # exits before reaching that point.
         app_mock = MagicMock()
-        app_mock.start.side_effect = AssertionError(
-            "app.start() should not be called when --port is invalid"
-        )
-        monkeypatch.setattr(
-            "voice_typer.server.app.VoiceTyperApp", lambda: app_mock
-        )
-        monkeypatch.setattr(
-            "voice_typer.server.app._setup_logging", lambda: None
-        )
+        app_mock.start.side_effect = AssertionError("app.start() should not be called when --port is invalid")
+        monkeypatch.setattr("voice_typer.server.app.VoiceTyperApp", lambda: app_mock)
+        monkeypatch.setattr("voice_typer.server.app._setup_logging", lambda: None)
         monkeypatch.setattr(
             "voice_typer.server.app._ensure_single_instance",
             lambda silent=False: object(),
@@ -332,6 +336,7 @@ class TestCrashPathUsesExitCrash:
         # Sanity: app.start() really was never called.
         app_mock.start.assert_not_called()
 
+
 class TestNoRawSysExitOneInMain:
     """The crash-path ``sys.exit(1)`` literal must be gone from
     ``main()``.  We grep the source of ``main()`` to confirm.
@@ -339,13 +344,13 @@ class TestNoRawSysExitOneInMain:
 
     def test_no_raw_sys_exit_one_in_main_source(self):
         import inspect
+
         source = inspect.getsource(ipc_server.main)
         # The constant reference is allowed.
         assert "sys.exit(EXIT_CRASH)" in source
         # The raw literal must NOT appear (we use the named constant).
-        assert "sys.exit(1)" not in source, (
-            "main() still uses raw sys.exit(1) instead of EXIT_CRASH"
-        )
+        assert "sys.exit(1)" not in source, "main() still uses raw sys.exit(1) instead of EXIT_CRASH"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
@@ -365,6 +370,7 @@ The fix only formats the traceback on the 1st occurrence and every
 100th subsequent occurrence; the rest are logged without exc_info.
 """
 
+
 class TestRmsCallbackErrorSuppression:
     """NEW-CONC-004: traceback formatting must be suppressed after the
     first occurrence."""
@@ -380,9 +386,7 @@ class TestRmsCallbackErrorSuppression:
             try:
                 bad_callback(0.1, 0.5, np.zeros(512, dtype=np.float32))
             except Exception:
-                rec._rms_callback_error_count = getattr(
-                    rec, "_rms_callback_error_count", 0
-                ) + 1
+                rec._rms_callback_error_count = getattr(rec, "_rms_callback_error_count", 0) + 1
                 if rec._rms_callback_error_count == 1:
                     _REC_LOG.debug(
                         "[RECORDING] on_rms_level callback raised (occurrence #%d)",
@@ -392,9 +396,7 @@ class TestRmsCallbackErrorSuppression:
 
         debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]
         assert debug_records, "Expected at least one DEBUG log record"
-        assert debug_records[-1].exc_info is not None, (
-            "First occurrence must log with exc_info (traceback)"
-        )
+        assert debug_records[-1].exc_info is not None, "First occurrence must log with exc_info (traceback)"
 
     def test_subsequent_errors_suppress_exc_info(self, caplog):
         """Occurrences 2-99 must NOT include exc_info."""
@@ -402,9 +404,7 @@ class TestRmsCallbackErrorSuppression:
 
         with caplog.at_level(logging.DEBUG, logger="voice_typer.server.recording"):
             for _i in range(50):
-                rec._rms_callback_error_count = getattr(
-                    rec, "_rms_callback_error_count", 0
-                ) + 1
+                rec._rms_callback_error_count = getattr(rec, "_rms_callback_error_count", 0) + 1
                 if rec._rms_callback_error_count == 1 or rec._rms_callback_error_count % 100 == 0:
                     _REC_LOG.debug(
                         "[RECORDING] on_rms_level callback raised (occurrence #%d)",
@@ -419,9 +419,7 @@ class TestRmsCallbackErrorSuppression:
 
         debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]
         with_exc_info = [r for r in debug_records if r.exc_info is not None]
-        assert len(with_exc_info) == 1, (
-            f"Expected 1 record with exc_info (first occurrence); got {len(with_exc_info)}"
-        )
+        assert len(with_exc_info) == 1, f"Expected 1 record with exc_info (first occurrence); got {len(with_exc_info)}"
 
     def test_100th_occurrence_logs_with_exc_info(self, caplog):
         """Every 100th occurrence must re-log with exc_info so the
@@ -431,9 +429,7 @@ class TestRmsCallbackErrorSuppression:
 
         with caplog.at_level(logging.DEBUG, logger="voice_typer.server.recording"):
             for _i in range(100):
-                rec._rms_callback_error_count = getattr(
-                    rec, "_rms_callback_error_count", 0
-                ) + 1
+                rec._rms_callback_error_count = getattr(rec, "_rms_callback_error_count", 0) + 1
                 if rec._rms_callback_error_count == 1 or rec._rms_callback_error_count % 100 == 0:
                     _REC_LOG.debug(
                         "[RECORDING] on_rms_level callback raised (occurrence #%d)",
@@ -443,9 +439,8 @@ class TestRmsCallbackErrorSuppression:
 
         debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]
         with_exc_info = [r for r in debug_records if r.exc_info is not None]
-        assert len(with_exc_info) == 2, (
-            f"Expected 2 records with exc_info (1st + 100th); got {len(with_exc_info)}"
-        )
+        assert len(with_exc_info) == 2, f"Expected 2 records with exc_info (1st + 100th); got {len(with_exc_info)}"
+
 
 class TestSourceCheck:
     """Static check: the recording.py source must implement the
@@ -461,13 +456,11 @@ class TestSourceCheck:
             "recording.py must track _rms_callback_error_count to "
             "suppress traceback formatting after the first occurrence"
         )
-        assert "% 100 == 0" in source, (
-            "recording.py must re-log with exc_info every 100th occurrence"
-        )
+        assert "% 100 == 0" in source, "recording.py must re-log with exc_info every 100th occurrence"
         assert "traceback suppressed" in source, (
-            "recording.py must log a 'traceback suppressed' message for "
-            "intermediate occurrences"
+            "recording.py must log a 'traceback suppressed' message for intermediate occurrences"
         )
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
@@ -489,6 +482,7 @@ New behaviour:
   filtered upstream by ``should_reject_low_audio_hallucination``.
 - Never scales skip with chunk length.
 """
+
 
 class TestMergeChunksRegression:
     """NEW-CQ-030: the merge must not silently drop legitimate words."""
@@ -528,8 +522,7 @@ class TestMergeChunksRegression:
                 b_idx += 1
             result_idx += 1
         assert b_idx == len(b_to_find), (
-            f"Lost chunk_b words after merge: only matched {b_idx} of "
-            f"{len(b_to_find)} in result={result!r}"
+            f"Lost chunk_b words after merge: only matched {b_idx} of {len(b_to_find)} in result={result!r}"
         )
 
     def test_explicit_overlap_dedup(self, engine_no_model):
@@ -564,8 +557,7 @@ class TestMergeChunksRegression:
         # chunk_a contributes 5 words; chunk_b contributes 50 words
         # (RW-T1: no allowance skip when no overlap is detected).
         assert len(result_words) >= 5 + 50, (
-            f"Too many words lost: result has {len(result_words)} words, "
-            f"expected at least 55. Result: {result!r}"
+            f"Too many words lost: result has {len(result_words)} words, expected at least 55. Result: {result!r}"
         )
 
     def test_punctuation_insensitive_overlap(self, engine_no_model):
@@ -575,9 +567,7 @@ class TestMergeChunksRegression:
         result = engine_no_model._merge_chunks([chunk_a, chunk_b])
         result_words = result.split()
         # "store" / "Store," must not be duplicated.
-        store_count = sum(
-            1 for w in result_words if w.strip(",.!?").lower() == "store"
-        )
+        store_count = sum(1 for w in result_words if w.strip(",.!?").lower() == "store")
         assert store_count == 1, f"store duplicated: {result!r}"
         # The non-overlap content must survive.
         for word in ("then", "came", "back", "home"):
@@ -592,9 +582,7 @@ class TestMergeChunksRegression:
         result_words = result.split()
         # No word should appear more than once across boundaries.
         for w in ("delta", "golf"):
-            assert result_words.count(w) == 1, (
-                f"{w!r} duplicated in 3-chain: {result!r}"
-            )
+            assert result_words.count(w) == 1, f"{w!r} duplicated in 3-chain: {result!r}"
 
     def test_empty_chunk_skipped(self, engine_no_model):
         """An empty intermediate chunk must not blow up the merge."""
@@ -605,6 +593,7 @@ class TestMergeChunksRegression:
         chunk_a = "the quick brown fox"
         chunk_b = "jumps"
         engine_no_global_chunks_safe_2(engine_no_model, chunk_a, chunk_b)
+
 
 class TestComputeOverlapSkip:
     """Direct unit tests for the helper that decides how many leading
@@ -620,21 +609,15 @@ class TestComputeOverlapSkip:
         by should_reject_low_audio_hallucination.
         """
         # Two completely different word sets, new chunk has >1 word.
-        skip = engine_no_model._compute_overlap_skip(
-            ["alpha", "bravo"], ["charlie", "delta"]
-        )
+        skip = engine_no_model._compute_overlap_skip(["alpha", "bravo"], ["charlie", "delta"])
         assert skip == 0  # RW-T1: no allowance — do not drop legitimate words
 
     def test_single_word_new_chunk_no_allowance(self, engine_no_model):
-        skip = engine_no_model._compute_overlap_skip(
-            ["alpha", "bravo"], ["charlie"]
-        )
+        skip = engine_no_model._compute_overlap_skip(["alpha", "bravo"], ["charlie"])
         assert skip == 0  # don't drop the only word
 
     def test_explicit_two_word_overlap(self, engine_no_model):
-        skip = engine_no_model._compute_overlap_skip(
-            ["alpha", "bravo", "charlie"], ["bravo", "charlie", "delta"]
-        )
+        skip = engine_no_model._compute_overlap_skip(["alpha", "bravo", "charlie"], ["bravo", "charlie", "delta"])
         assert skip == 2
 
     def test_capped_at_two_even_if_more_overlap(self, engine_no_model):
@@ -661,6 +644,7 @@ class TestComputeOverlapSkip:
         assert _MAX_BOUNDARY_SKIP_WORDS == 2
         assert _OVERLAP_DEDUP_WINDOW == 3
 
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
 
@@ -677,6 +661,7 @@ GPU OOMs.
 The fix adds a shared ``release_gpu_memory()`` helper that calls
 ``torch.cuda.empty_cache()`` after every model unload / fallback path.
 """
+
 
 class TestReleaseGpuMemoryHelper:
     """The shared helper must be safe in every environment."""
@@ -723,9 +708,7 @@ class TestReleaseGpuMemoryHelper:
         the helper must not propagate the exception."""
         fake_torch = MagicMock()
         fake_torch.cuda.is_available.return_value = True
-        fake_torch.cuda.synchronize.side_effect = RuntimeError(
-            "cuda not initialized"
-        )
+        fake_torch.cuda.synchronize.side_effect = RuntimeError("cuda not initialized")
         fake_torch.cuda.empty_cache = MagicMock()
         monkeypatch.setitem(sys.modules, "torch", fake_torch)
 
@@ -735,6 +718,7 @@ class TestReleaseGpuMemoryHelper:
         # empty_cache was NOT called because synchronize raised first.
         fake_torch.cuda.empty_cache.assert_not_called()
 
+
 class TestEnginesCallReleaseGpuMemory:
     """Each ASR engine's unload() must call release_gpu_memory()."""
 
@@ -743,6 +727,7 @@ class TestEnginesCallReleaseGpuMemory:
         import inspect
 
         from voice_typer.server.transcription import TranscriptionEngine
+
         source = inspect.getsource(TranscriptionEngine.unload)
         assert "release_gpu_memory()" in source, (
             "TranscriptionEngine.unload() must call release_gpu_memory() "
@@ -754,6 +739,7 @@ class TestEnginesCallReleaseGpuMemory:
         import inspect
 
         from voice_typer.server.parakeet_engine import ParakeetEngine
+
         source = inspect.getsource(ParakeetEngine.unload)
         assert "release_gpu_memory()" in source, (
             "ParakeetEngine.unload() must call release_gpu_memory() "
@@ -765,10 +751,10 @@ class TestEnginesCallReleaseGpuMemory:
         import inspect
 
         from voice_typer.server.qwen_engine import QwenEngine
+
         source = inspect.getsource(QwenEngine.unload)
         assert "release_gpu_memory()" in source, (
-            "QwenEngine.unload() must call release_gpu_memory() "
-            "to release PyTorch's CUDA cached blocks (NEW-MEM-001)"
+            "QwenEngine.unload() must call release_gpu_memory() to release PyTorch's CUDA cached blocks (NEW-MEM-001)"
         )
 
     def test_gpu_fallback_paths_call_release(self):
@@ -778,30 +764,25 @@ class TestEnginesCallReleaseGpuMemory:
         import inspect
 
         from voice_typer.server.transcription import TranscriptionEngine
+
         # The GPU→CPU fallback for plain transcription lives in
         # _transcribe_with_fallback_unlocked.
-        src1 = inspect.getsource(
-            TranscriptionEngine._transcribe_with_fallback_unlocked
-        )
+        src1 = inspect.getsource(TranscriptionEngine._transcribe_with_fallback_unlocked)
         assert "release_gpu_memory()" in src1, (
-            "_transcribe_with_fallback_unlocked GPU fallback path must call "
-            "release_gpu_memory() (NEW-MEM-001)"
+            "_transcribe_with_fallback_unlocked GPU fallback path must call release_gpu_memory() (NEW-MEM-001)"
         )
         # The GPU→CPU fallback for timestamped transcription lives in
         # _transcribe_words_with_fallback_unlocked.
-        src2 = inspect.getsource(
-            TranscriptionEngine._transcribe_words_with_fallback_unlocked
-        )
+        src2 = inspect.getsource(TranscriptionEngine._transcribe_words_with_fallback_unlocked)
         assert "release_gpu_memory()" in src2, (
-            "_transcribe_words_with_fallback_unlocked GPU fallback path "
-            "must call release_gpu_memory() (NEW-MEM-001)"
+            "_transcribe_words_with_fallback_unlocked GPU fallback path must call release_gpu_memory() (NEW-MEM-001)"
         )
         # The CUDA-probe early fallback path also calls it.
         src3 = inspect.getsource(TranscriptionEngine._probe_cuda_runtime)
         assert "release_gpu_memory()" in src3, (
-            "_probe_cuda_runtime fallback path must call "
-            "release_gpu_memory() (NEW-MEM-001)"
+            "_probe_cuda_runtime fallback path must call release_gpu_memory() (NEW-MEM-001)"
         )
+
 
 class TestReleaseGpuMemoryFunctional:
     """Functional test: actually invoke unload() and verify the helper
@@ -819,11 +800,11 @@ class TestReleaseGpuMemoryFunctional:
         eng._processor = None
 
         # Mock the helper to track calls.
-        with patch(
-            "voice_typer.server.parakeet_engine.release_gpu_memory"
-        ) if False else patch(
-            "voice_typer.server.transcription.release_gpu_memory"
-        ) as mock_release:
+        with (
+            patch("voice_typer.server.parakeet_engine.release_gpu_memory")
+            if False
+            else patch("voice_typer.server.transcription.release_gpu_memory") as mock_release
+        ):
             eng.unload()
             mock_release.assert_called_once()
 
@@ -836,11 +817,10 @@ class TestReleaseGpuMemoryFunctional:
         eng._lock = threading.Lock()
         eng._model = None
 
-        with patch(
-            "voice_typer.server.transcription.release_gpu_memory"
-        ) as mock_release:
+        with patch("voice_typer.server.transcription.release_gpu_memory") as mock_release:
             eng.unload()
             mock_release.assert_called_once()
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
@@ -881,6 +861,7 @@ _mock_pystray.Icon = MagicMock
 
 sys.modules.setdefault("pystray", _mock_pystray)
 
+
 class MockApp:
     """Minimal VoiceTyperApp stub for IPC tests.
 
@@ -897,6 +878,7 @@ class MockApp:
         # Use a real Config instance so get_config can serialize it to
         # JSON via dataclasses.asdict.  MagicMock would crash asdict.
         from voice_typer.server.config import Config
+
         self.config = Config()
         self.config.hotkey = "<f2>"
         self.config.repaste_hotkey = "<ctrl>+<alt>+v"
@@ -918,12 +900,14 @@ class MockApp:
         os.environ["VOICE_TYPER_CONFIG_DIR_OVERRIDE"] = str(tmp_path)
         try:
             from voice_typer.server.history_db import HistoryDB
+
             self.history_db = HistoryDB(db_path=tmp_path / "test_history.db")
         except Exception:
             self.history_db = MagicMock()
 
         # Service instance (real, wraps this app)
         from voice_typer.server.service import VoiceTyperService
+
         self._service = VoiceTyperService(self)
 
     # Methods the IPC server calls on the app
@@ -937,6 +921,7 @@ class MockApp:
     @property
     def service(self):
         return self._service
+
 
 class TestTcpAuthEnforcement:
     """SEC-018: the TCP server must reject unauthenticated connections.
@@ -967,9 +952,7 @@ class TestTcpAuthEnforcement:
             # If we got data, it must be an auth-error response.
             try:
                 resp = json.loads(data.split(b"\n", 1)[0].decode("utf-8"))
-                assert resp["type"] == "error", (
-                    f"Expected error response for wrong token, got: {resp}"
-                )
+                assert resp["type"] == "error", f"Expected error response for wrong token, got: {resp}"
                 assert "auth" in resp.get("data", {}).get("message", "").lower(), (
                     f"Expected auth-related error, got: {resp}"
                 )
@@ -983,9 +966,7 @@ class TestTcpAuthEnforcement:
             data2 = client.recv(4096)
         except (TimeoutError, OSError):
             data2 = b""  # connection closed — expected
-        assert data2 == b"", (
-            f"Server processed a command after auth failure: {data2!r}"
-        )
+        assert data2 == b"", f"Server processed a command after auth failure: {data2!r}"
         client.close()
 
     def test_missing_auth_returns_auth_error(self, live_server):
@@ -1011,17 +992,14 @@ class TestTcpAuthEnforcement:
             try:
                 resp = json.loads(data.split(b"\n", 1)[0].decode("utf-8"))
                 # The response must NOT be a successful status response.
-                assert resp.get("type") != "status", (
-                    f"Server sent a status response without auth: {resp}"
-                )
-                assert resp.get("type") in ("error",), (
-                    f"Expected error response without auth, got: {resp}"
-                )
+                assert resp.get("type") != "status", f"Server sent a status response without auth: {resp}"
+                assert resp.get("type") in ("error",), f"Expected error response without auth, got: {resp}"
             except (json.JSONDecodeError, UnicodeDecodeError, IndexError):
                 # Non-JSON response is also acceptable (server may just
                 # close the connection without writing anything).
                 pass
         client.close()
+
 
 class TestTcpLiveCommands:
     """Send real commands over a real TCP socket and verify responses."""
@@ -1052,9 +1030,7 @@ class TestTcpLiveCommands:
         # The IPC server returns an error response for unknown commands.
         # The exact type/shape varies — accept either explicit "error"
         # or an "ack" with an error message in data.
-        assert resp["type"] in ("error", "ack"), (
-            f"Expected error/ack for unknown command, got: {resp}"
-        )
+        assert resp["type"] in ("error", "ack"), f"Expected error/ack for unknown command, got: {resp}"
 
     def test_multiple_commands_in_sequence(self, authenticated_client):
         """Verify the server handles multiple commands on one connection."""
@@ -1072,6 +1048,7 @@ class TestTcpLiveCommands:
         # Response may or may not include "id" — the contract is just
         # that the server responds.
         assert resp["type"] in ("status", "error")
+
 
 class TestTcpConnectionLifecycle:
     """NEW-IPC-001: server accepts multiple connections in sequence."""
@@ -1107,8 +1084,9 @@ class TestTcpConnectionLifecycle:
         # Open a connection and abruptly close it without sending auth.
         c1 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         c1.connect(("127.0.0.1", port))
-        c1.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER,
-                      b"\x01\x00\x00\x00\x00\x00\x00\x00")  # linger 0 = RST on close
+        c1.setsockopt(
+            socket.SOL_SOCKET, socket.SO_LINGER, b"\x01\x00\x00\x00\x00\x00\x00\x00"
+        )  # linger 0 = RST on close
         c1.close()
 
         time.sleep(0.1)
@@ -1121,6 +1099,7 @@ class TestTcpConnectionLifecycle:
         resp = _read_response_line(c2)
         assert resp["id"] == 99
         c2.close()
+
 
 class TestTcpServerStop:
     """NEW-IPC-001: stop() must close the listening socket and unblock
@@ -1170,9 +1149,7 @@ class TestTcpServerStop:
                 data = c.recv(4096)
                 # An empty read means the server closed the connection,
                 # which is acceptable.
-                assert data == b"", (
-                    f"Server still responding after stop(): {data!r}"
-                )
+                assert data == b"", f"Server still responding after stop(): {data!r}"
             except (TimeoutError, ConnectionError, OSError):
                 pass  # all of these are acceptable "server is gone" signals
             c.close()
@@ -1212,9 +1189,8 @@ class TestTcpServerStop:
             if server._tcp_server_socket is None:
                 break
             time.sleep(0.02)
-        assert server._tcp_server_socket is None, (
-            "_tcp_server_socket was not cleared after stop()"
-        )
+        assert server._tcp_server_socket is None, "_tcp_server_socket was not cleared after stop()"
+
 
 # === Source: tests/test_new_ts_004_006_012_015.py ===
 
@@ -1239,33 +1215,43 @@ window.python before React mounts), making every ``if (!isReady)
 return`` guard dead code.  Removed the misleading flag.
 """
 
+
 class TestPagesUseSharedSnackbarHook:
     """NEW-TS-004: pages must use the shared useSnackbar hook."""
 
     def test_settings_uses_shared_hook(self):
         """Settings.tsx must import and use useSnackbar, not inline state."""
         src = _read("pages/Settings.tsx")
-        assert "import { useSnackbar }" in src, (
-            "Settings.tsx must import useSnackbar from @/hooks/useSnackbar"
-        )
-        assert "const { showSnack, Snackbar } = useSnackbar()" in src, (
-            "Settings.tsx must destructure showSnack + Snackbar from useSnackbar"
+        assert "import { useSnackbar }" in src, "Settings.tsx must import useSnackbar from @/hooks/useSnackbar"
+        # DX-013: the page must use the shared hook (showSnack) and must NOT
+        # destructure or render the removed no-op <Snackbar /> component.
+        # (NB: the substring "Snackbar" also appears inside "useSnackbar",
+        # so we assert on the JSX tag and the destructure shape, not the word.)
+        assert "const { showSnack } = useSnackbar()" in src, "Settings.tsx must destructure showSnack from useSnackbar"
+        assert "<Snackbar" not in src, "Settings.tsx must not render the removed <Snackbar /> component"
+        assert "{ showSnack, Snackbar }" not in src, (
+            "Settings.tsx must not destructure the removed Snackbar from useSnackbar"
         )
         # The inline snackbar state must be gone.
         assert "useState<{ message: string; type: 'success'" not in src, (
             "Settings.tsx still has inline snackbar useState"
         )
 
-    def test_microphone_uses_shared_snackbar_component(self):
-        """Microphone.tsx must use <Snackbar />, not inline JSX."""
+    def test_microphone_uses_shared_snackbar_hook(self):
+        """Microphone.tsx must use the shared useSnackbar hook (no <Snackbar />)."""
         src = _read("pages/Microphone.tsx")
-        assert "const { showSnack, Snackbar } = useSnackbar()" in src, (
-            "Microphone.tsx must destructure Snackbar from useSnackbar"
+        assert "import { useSnackbar }" in src, "Microphone.tsx must import useSnackbar from @/hooks/useSnackbar"
+        assert "const { showSnack } = useSnackbar()" in src, (
+            "Microphone.tsx must destructure showSnack from useSnackbar"
+        )
+        # DX-013: the removed no-op <Snackbar /> component must not appear.
+        assert "<Snackbar" not in src, "Microphone.tsx must not render the removed <Snackbar /> component"
+        assert "{ showSnack, Snackbar }" not in src, (
+            "Microphone.tsx must not destructure the removed Snackbar from useSnackbar"
         )
         # The inline JSX snackbar must be gone.
-        assert "{snackbar && (" not in src, (
-            "Microphone.tsx still has inline snackbar JSX"
-        )
+        assert "{snackbar && (" not in src, "Microphone.tsx still has inline snackbar JSX"
+
 
 class TestHomeRegistersSingleTranscriptionFinalListener:
     """NEW-TS-006: Home.tsx must register only ONE transcription_final listener."""
@@ -1281,6 +1267,7 @@ class TestHomeRegistersSingleTranscriptionFinalListener:
             f"Home.tsx has {count} usePythonEvent('transcription_final') "
             "calls; expected exactly 1 (NEW-TS-006 consolidated them)"
         )
+
 
 class TestAppValidatesRecordingStateBeforeCast:
     """NEW-TS-012: App.tsx must not cast to RecordingState without validation."""
@@ -1307,6 +1294,7 @@ class TestAppValidatesRecordingStateBeforeCast:
         # where it follows a .has() check.  We allow that one occurrence.
         # Find all occurrences.
         import re
+
         # Match `as RecordingState` not preceded by a .has() check on
         # the same logical line.
         # The validator pattern is:
@@ -1338,12 +1326,10 @@ class TestAppValidatesRecordingStateBeforeCast:
         cast_count = src.count("as RecordingState")
         if cast_count > 0:
             assert "asRecordingState" in src, (
-                "App.tsx uses `as RecordingState` casts but has no "
-                "`asRecordingState` runtime validator (NEW-TS-012)"
+                "App.tsx uses `as RecordingState` casts but has no `asRecordingState` runtime validator (NEW-TS-012)"
             )
-            assert "RECORDING_STATES" in src, (
-                "App.tsx must define the RECORDING_STATES set used by the validator"
-            )
+            assert "RECORDING_STATES" in src, "App.tsx must define the RECORDING_STATES set used by the validator"
+
 
 class TestUsePythonOmitsMisleadingIsReadyFlag:
     """NEW-TS-015: usePython() must not return a misleading isReady flag."""
@@ -1384,9 +1370,8 @@ class TestUsePythonOmitsMisleadingIsReadyFlag:
             code_lines.append(line)
         code_only = "\n".join(code_lines)
 
-        assert "isReady" not in code_only, (
-            "App.tsx still references isReady in code — should be removed"
-        )
+        assert "isReady" not in code_only, "App.tsx still references isReady in code — should be removed"
+
 
 class TestRecordingStateEnumHasSixBackendStates:
     """NEW-IPC-010: RecordingState enum must have only the 6 values
@@ -1420,14 +1405,17 @@ class TestRecordingStateEnumHasSixBackendStates:
                 break
         union_text = "\n".join(union_lines)
         import re
+
         # Match both single-quote and double-quote variants (Biome uses double quotes)
         states = re.findall(r"""['"](\w+)['"]""", union_text)
         assert set(states) == {
-            "idle", "recording", "transcribing",
-            "loading", "cancelling", "error",
-        }, (
-            f"RecordingState has unexpected values: {states}"
-        )
+            "idle",
+            "recording",
+            "transcribing",
+            "loading",
+            "cancelling",
+            "error",
+        }, f"RecordingState has unexpected values: {states}"
 
     def test_dead_states_removed(self):
         """The 7 dead values must NOT be in the RecordingState union."""
@@ -1446,13 +1434,17 @@ class TestRecordingStateEnumHasSixBackendStates:
                 break
         union_text = "\n".join(union_lines)
         dead_values = [
-            "listening", "processing", "warming_up",
-            "downloading", "paused", "setup", "not_configured",
+            "listening",
+            "processing",
+            "warming_up",
+            "downloading",
+            "paused",
+            "setup",
+            "not_configured",
         ]
         for dead in dead_values:
-            assert f"'{dead}'" not in union_text, (
-                f"RecordingState still contains dead value '{dead}'"
-            )
+            assert f"'{dead}'" not in union_text, f"RecordingState still contains dead value '{dead}'"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
@@ -1474,6 +1466,7 @@ This module simulates total network outage by monkeypatching
 4. The ``_read_capped`` function handles network errors without OOM.
 """
 
+
 class TestCloudEngineFailsGracefullyOnNetworkError:
     """NEW-UX-029: Verify graceful degradation when the network is down."""
 
@@ -1491,6 +1484,7 @@ class TestCloudEngineFailsGracefullyOnNetworkError:
             consent_given=True,
         )
         import numpy as np
+
         audio = np.zeros(1600, dtype=np.float32)
 
         # Monkeypatch urlopen to simulate network outage
@@ -1526,8 +1520,7 @@ class TestCloudEngineFailsGracefullyOnNetworkError:
 
         # Must return the original text, not raise
         assert result == original_text, (
-            "NEW-UX-029: LLM polish must return original text on network error, "
-            f"got {result!r}"
+            f"NEW-UX-029: LLM polish must return original text on network error, got {result!r}"
         )
 
     def test_read_capped_handles_network_error_without_oom(self):
@@ -1570,16 +1563,13 @@ class TestCloudEngineFailsGracefullyOnNetworkError:
         audio = np.full(16000, 0.5, dtype=np.float32)
 
         # Monkeypatch all network calls to fail — local ASR must not use them
-        with patch("urllib.request.urlopen") as mock_urlopen, \
-             patch("socket.socket") as mock_socket:
+        with patch("urllib.request.urlopen") as mock_urlopen, patch("socket.socket") as mock_socket:
             mock_urlopen.side_effect = ConnectionError("No network")
             mock_socket.side_effect = ConnectionError("No network")
 
             # Local transcription must succeed despite network being down
             result = eng._transcribe_unlocked(audio)
-            assert "hello from local engine" in result, (
-                "NEW-UX-029: local ASR must work when the network is down"
-            )
+            assert "hello from local engine" in result, "NEW-UX-029: local ASR must work when the network is down"
 
     def test_offline_mode_cloud_engine_error_message_is_user_friendly(self):
         """The error message from a cloud engine on network failure must
@@ -1609,6 +1599,7 @@ class TestCloudEngineFailsGracefullyOnNetworkError:
                 assert any(word in msg for word in ("network", "connection", "url", "reach", "timeout", "error")), (
                     f"NEW-UX-029: cloud engine error message is not user-friendly: {e!r}"
                 )
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

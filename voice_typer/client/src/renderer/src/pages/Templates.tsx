@@ -175,7 +175,7 @@ function toRows(items: Template[]): TemplateRow[] {
 
 export default function TemplatesPage() {
 	const { call } = usePython();
-	const { showSnack, Snackbar } = useSnackbar();
+	const { showSnack } = useSnackbar();
 	const [templates, setTemplates] = useState<TemplateRow[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [showDialog, setShowDialog] = useState(false);
@@ -533,9 +533,6 @@ export default function TemplatesPage() {
 						</div>
 					)}
 				</div>
-
-				{/* Snackbar */}
-				<Snackbar />
 			</div>
 
 			{/* Add/Edit Dialog — migrated to shared Modal (F-3) */}

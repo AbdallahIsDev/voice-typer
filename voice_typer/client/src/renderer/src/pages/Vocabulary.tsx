@@ -147,7 +147,7 @@ function rebuildData(entries: VocabularyEntry[]): VocabularyData {
 
 export default function VocabularyPage() {
 	const { call } = usePython();
-	const { showSnack, Snackbar } = useSnackbar();
+	const { showSnack } = useSnackbar();
 	const [entries, setEntries] = useState<VocabularyEntry[]>([]);
 
 	const [searchQuery, setSearchQuery] = useState("");
@@ -522,9 +522,6 @@ export default function VocabularyPage() {
 						)}
 					</p>
 				)}
-
-				{/* Snackbar */}
-				<Snackbar />
 			</div>
 
 			{/* Add/Edit Dialog — migrated to shared Modal (F-3) */}

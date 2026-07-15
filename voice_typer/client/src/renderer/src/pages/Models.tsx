@@ -306,7 +306,7 @@ function getActiveFamilyId(cfg: VoiceTyperConfig | null): string | null {
 
 export default function ModelsPage() {
 	const { call } = usePython();
-	const { showSnack, Snackbar } = useSnackbar();
+	const { showSnack } = useSnackbar();
 	const [activeTab, setActiveTab] = useState<"local" | "cloud">("local");
 	const tabOptions: SegmentedControlOption<string>[] = [
 		{ value: "local", label: t("models.localModels") },
@@ -1573,9 +1573,6 @@ export default function ModelsPage() {
 						</>
 					)}
 				</div>
-
-				{/* Snackbar */}
-				<Snackbar />
 
 				{/* #7: ConfirmDialog for model deletion */}
 				<ConfirmDialog

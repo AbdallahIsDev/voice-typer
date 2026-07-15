@@ -26,6 +26,8 @@
 	"scripts": {
 		"dev": "electron-vite dev",
 		"build": "electron-vite build",
+		"build:renderer": "electron-vite build --config electron.vite.renderer.ts",
+		"build:main": "electron-vite build --config electron.vite.main.ts",
 		"build:dist:electron": "electron-vite build && electron-builder",
 		"start": "electron-vite preview",
 		"python:dev": "python3 -m voice_typer.server.ipc_server || python -m voice_typer.server.ipc_server",
@@ -37,6 +39,7 @@
 		"typecheck:root": "tsc --noEmit",
 		"typecheck:web": "tsc -p tsconfig.web.json --noEmit",
 		"typecheck:node": "tsc -p tsconfig.node.json --noEmit",
+		"typecheck:ci": "tsc -b --force",
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"prebuild": "node scripts/generate-icons.mjs",

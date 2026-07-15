@@ -167,7 +167,7 @@ export default function MicrophonePage() {
 
 	// Tracks whether filters have changed since last test (invalidation)
 	const [filtersSinceLastTest, setFiltersSinceLastTest] = useState<string>("");
-	const { showSnack, Snackbar } = useSnackbar();
+	const { showSnack } = useSnackbar();
 	const levelIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const testTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -745,8 +745,6 @@ export default function MicrophonePage() {
 					</div>
 				)}
 			</div>
-
-			<Snackbar />
 		</div>
 	);
 }

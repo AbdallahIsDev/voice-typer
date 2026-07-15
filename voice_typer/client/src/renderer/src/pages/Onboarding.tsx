@@ -36,7 +36,7 @@ interface OnboardingPageProps {
 
 export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 	const { call } = usePython();
-	const { showSnack, Snackbar } = useSnackbar();
+	const { showSnack } = useSnackbar();
 	const [step, setStep] = useState<StepInfo | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [initError, setInitError] = useState<string | null>(null);
@@ -183,7 +183,6 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 						</Button>
 					</div>
 				</div>
-				<Snackbar />
 			</div>
 		);
 	}
@@ -416,8 +415,6 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 					</div>
 				</div>
 			</div>
-
-			<Snackbar />
 		</div>
 	);
 }

@@ -13,6 +13,7 @@
 	"include": [
 		"electron.vite.config.ts",
 		"vite.config.ts",
+		"csp-plugin.ts",
 		"src/main/**/*",
 		"src/preload/**/*"
 	]
