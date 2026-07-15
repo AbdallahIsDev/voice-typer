@@ -59,7 +59,7 @@ with `<f2>` in their config keep it untouched.
   re-grant by toggling Voice Typer off and back on in the Accessibility list.
 - The compiled binary is ad-hoc code-signed by `scripts/build/compile_native.sh`
   so it can be trusted for Accessibility without a Developer ID.
-- **Zero-command onboarding (ADR 0006, Gap 2)**: when the native binary detects
+- **Zero-command onboarding (ADR 0008, Gap 2)**: when the native binary detects
   a missing Accessibility grant, Voice Typer automatically shows a tray
   notification and deep-links to System Settings → Privacy & Security →
   Accessibility via the `x-apple.systempreferences:` scheme. A 60s retry timer
@@ -75,7 +75,7 @@ with `<f2>` in their config keep it untouched.
   Typer isn't running.
 
 ### Linux
-- **Zero-command setup (ADR 0006, Gap 3)**: `.deb` and `.rpm` packages ship
+- **Zero-command setup (ADR 0008, Gap 3)**: `.deb` and `.rpm` packages ship
   `postinst` / `postinst.rpm` scripts that automatically:
   - install the udev rule `99-voice-typer.rules` (grants the `input` group
     read access to `/dev/input/event*`) and reload udev,
@@ -95,16 +95,39 @@ with `<f2>` in their config keep it untouched.
 - The compiled binary is the native `linux-key-listener` (evdev), which works
   on both X11 and Wayland because evdev sits below the display server.
 
+## Minimum supported OS versions
+
+These are the oldest OS versions on which Voice Typer is tested and expected to
+work. The CI pipeline pins to these versions so release binaries are always
+built on the minimum — never a newer SDK/glibc that could introduce ABI
+incompatibility.
+
+| Platform | Minimum version | Rationale |
+|----------|----------------|-----------|
+| Windows  | Windows 10 (10.0) | `WH_KEYBOARD_LL` requires Vista+, but the PyInstaller bundle links against UCRT (bundled with Win10+). On Windows 7, users must install [UCRT](https://learn.microsoft.com/en-us/cpp/windows/universal-crt-deployment) manually. |
+| macOS    | macOS 13 (Ventura) | The native Swift binary uses `NSEvent.addGlobalMonitorForEvents` and `CGEvent.tapCreate` APIs available since 10.x, but the CI runners test on macOS 13 (Intel/x64) and macOS 14 (Apple Silicon/arm64). macOS 12 may work but is not tested. |
+| Linux    | Ubuntu 22.04 (glibc 2.35) | The native binary is compiled on `ubuntu-22.04` and links against glibc 2.35. Older distributions with glibc < 2.35 (e.g. Ubuntu 20.04, Debian 11) cannot run the native binary. The Python package itself works on any Linux with Python 3.10+. |
+
+CI runner pinning (CI-10):
+- `build-windows`: `windows-2022`
+- `build-macos`: `macos-13`
+- `build-linux`: `ubuntu-22.04`
+- `build-native` (Windows): `windows-2022`
+- `build-native` (Linux): `ubuntu-22.04`
+- `build-native` (macOS x64): `macos-13`
+- `build-native` (macOS arm64): `macos-14`
+- `test` matrix: `windows-2022`, `ubuntu-22.04`, `macos-13`
+
 ## Known limitations
 
 ### macOS
 - **Accessibility permission**: global hotkeys require Accessibility permission
-  (System Settings → Privacy & Security → Accessibility). As of **ADR 0006
+  (System Settings → Privacy & Security → Accessibility). As of **ADR 0008
   (Gap 2)**, the app detects the missing grant, shows a tray notification with
   an "Open Settings" deep-link, and auto-restarts the native backend via a
   60s retry timer once the user toggles Voice Typer on in the Accessibility
   list. Tracked as **XPLAT-002**, resolved at the binary level by
-  **NATIVE-001** and at the UX level by **ADR 0006**.
+  **NATIVE-001** and at the UX level by **ADR 0008**.
 - **macOS updates**: macOS updates sometimes invalidate the Accessibility grant
   for previously-trusted apps. Users may need to re-grant after an update
   (the onboarding notification will re-fire automatically on the next launch).
@@ -129,6 +152,31 @@ with `<f2>` in their config keep it untouched.
   was removed (DEAD-013) and the client-side `killStalePython` was removed
   (RELIABILITY-002), so `wmic` is no longer used by Voice Typer.
   The remaining `wmic`-like operations use `psutil` or `tasklist`.
+
+## Verifying release artifacts
+
+Every release binary is accompanied by a SLSA build provenance attestation (CI-09).
+This is a signed, tamper-evident record linking the artifact to the specific CI
+workflow run that produced it. You can verify that a downloaded installer was
+built from the public source code (and not swapped by a compromised maintainer)
+using the `gh` CLI:
+
+```bash
+# Install gh if not already installed: https://cli.github.com/
+# Authenticate: gh auth login
+
+# Verify a Windows installer
+gh attestation verify VoiceTyper-Setup-1.2.3.exe --repo owner/repo
+
+# Verify a macOS .dmg
+gh attestation verify VoiceTyper-1.2.3.dmg --repo owner/repo
+
+# Verify a Linux package
+gh attestation verify voice-typer_1.2.3_amd64.deb --repo owner/repo
+```
+
+Replace `owner/repo` with the actual GitHub repository. If the attestation is
+missing or the artifact hash doesn't match, the command exits with an error.
 
 ## Testing
 

@@ -1,18 +1,33 @@
-# `~/.voice-typer/` Home Directory
+# Voice Typer Data Directory
 
-## Why a Single Home Directory
+## Where your data lives
 
-All user data lives under `~/.voice-typer/` (Unix) or `%USERPROFILE%\.voice-typer\` (Windows). This is:
+Voice Typer stores all of its user data in a single **data directory**.
+The location is platform-specific and is resolved by
+`voice_typer.server.config._config_dir()`:
 
-- **Portable** — no registry keys, no `%APPDATA%`, no `~/Library/`
+| Platform | Default data directory |
+|----------|------------------------|
+| Windows (new installs) | `%APPDATA%\voice-typer` → `C:\Users\<you>\AppData\Roaming\voice-typer` |
+| Windows (existing users) | `%USERPROFILE%\.voice-typer` is still honored if it already exists. The app checks the legacy path **first** (see `config._config_dir()`) and keeps using it, so upgrades are seamless — no data is moved. |
+| macOS | `~/Library/Application Support/voice-typer` |
+| Linux | `$XDG_DATA_HOME/voice-typer` (falls back to `~/.local/share/voice-typer`) |
+
+You can override the location with the `VOICE_TYPER_CONFIG_DIR` environment
+variable (validated against path traversal in `config._config_dir()`).
+
+In the rest of this document, `<DATA_DIR>` refers to that resolved directory.
+
+This design is:
+
 - **Self-contained** — wipe the folder to factory-reset the app
 - **Backup-friendly** — one folder to copy
-- **Transparent** — user can explore it and understand what is stored
+- **Transparent** — you can explore it and understand what is stored
 
 ## Folder Structure
 
 ```
-~/.voice-typer/
+<DATA_DIR>/
 ├── README.md                    # This file — describes every file/folder
 ├── config.json                  # User settings (hotkey, model, mic, etc.)
 ├── history.db                   # SQLite transcription history
@@ -36,6 +51,12 @@ All user data lives under `~/.voice-typer/` (Unix) or `%USERPROFILE%\.voice-type
 └── crash_recovery/
     └── voice-typer-recovery.json
 ```
+
+> **Windows note:** on a fresh install the directory is
+> `%APPDATA%\voice-typer`. If you upgraded from a version that used
+> `%USERPROFILE%\.voice-typer`, that folder remains the live data
+> directory — do not delete it expecting the app to recreate your data
+> under `%APPDATA%`; it will keep using the legacy folder.
 
 ## File Descriptions
 
@@ -62,13 +83,13 @@ User-defined vocabulary and correction files. Read by `VocabularyManager` and `c
 ## Model Management
 
 ### How models are stored
-- `HF_HOME` = `~/.voice-typer/huggingface/`
+- `HF_HOME` = `<DATA_DIR>/huggingface/`
 - Models download via HuggingFace `snapshot_download` → `huggingface/hub/models--org--name/`
 - The app never writes model files directly — HF libraries manage the cache
 
-### Why NOT `~/.voice-typer/models/`
+### Why NOT `<DATA_DIR>/models/`
 - `faster-whisper` expects the HF cache layout. Custom download logic would be fragile, hard to maintain, and break with upstream changes.
-- **Compromise**: the `models/` folder is a **directory junction** (Windows) or **symlink** (macOS/Linux) pointing to `huggingface/hub/`. Users who browse `~/.voice-typer/models/` see the actual model files without indirection. Created/fixed on first app run.
+- **Compromise**: the `models/` folder is a **directory junction** (Windows) or **symlink** (macOS/Linux) pointing to `huggingface/hub/`. Users who browse `<DATA_DIR>/models/` see the actual model files without indirection. Created/fixed on first app run.
 
 ### Download flow
 1. User selects a model in Settings UI (e.g. "medium.en")
@@ -78,19 +99,19 @@ User-defined vocabulary and correction files. Read by `VocabularyManager` and `c
 5. On success: tray state → `IDLE`. On failure: tray state → `ERROR`
 
 ### Junction / symlink removal
-The old code created a junction from `~/.voice-typer/huggingface/` → `~/.cache/huggingface/` to reuse pre-existing downloads. This was a migration hack and **must not be done in the shipped product**. The `HF_HOME` env var is sufficient.
+The old code created a junction from `<DATA_DIR>/huggingface/` → `~/.cache/huggingface/` to reuse pre-existing downloads. This was a migration hack and **must not be done in the shipped product**. The `HF_HOME` env var is sufficient.
 
-**Migration for existing users**: copy `~/.cache/huggingface/hub/` → `~/.voice-typer/huggingface/hub/` on first run after upgrade, then remove the junction.
+**Migration for existing users**: copy `~/.cache/huggingface/hub/` → `<DATA_DIR>/huggingface/hub/` on first run after upgrade, then remove the junction.
 
 ## GPU / CUDA
 
-### What lives in `~/.voice-typer/`
+### What lives in `<DATA_DIR>`
 - Python CUDA packages: installed by pip into `venv/Lib/site-packages/`
   - `ctranslate2` (with CUDA extensions)
   - `nvidia-*` wheels (CUDA runtime DLLs, cuBLAS, cuDNN)
   - `torch` (if PyTorch-based models are used)
 
-### What does NOT live in `~/.voice-typer/`
+### What does NOT live in `<DATA_DIR>`
 - **NVIDIA system driver** (`C:\Program Files\NVIDIA GPU Computing Toolkit\`) — this is a system-level component installed by the user or driver update. The Python process merely **loads** these DLLs at runtime. Cannot be bundled.
 - **CUDA toolkit** (`C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.x`) — only needed for compilation, not runtime. Not required for users.
 
@@ -101,16 +122,16 @@ The old code created a junction from `~/.voice-typer/huggingface/` → `~/.cache
 
 ## First-Run Setup
 
-When a user launches the app for the first time (no `~/.voice-typer/` exists):
+When a user launches the app for the first time (no `<DATA_DIR>` exists yet):
 
 ### Python backend (`app.py` + `config.py`)
 1. `_migrate_from_legacy()` — copies from `%APPDATA%/voice-typer/` if present (one-time)
-2. `_config_dir().mkdir(parents=True, exist_ok=True)` — creates `~/.voice-typer/`
+2. `_config_dir().mkdir(parents=True, exist_ok=True)` — creates `<DATA_DIR>`
 3. `Config.load()` detects missing config.json → creates with defaults
-4. `os.environ["HF_HOME"]` set to `~/.voice-typer/huggingface/`
-5. Logging handler creates `~/.voice-typer/logs/voice-typer.log`
+4. `os.environ["HF_HOME"]` set to `<DATA_DIR>/huggingface/`
+5. Logging handler creates `<DATA_DIR>/logs/voice-typer.log`
 6. Tray icon renders (assets from `voice_typer/server/assets/`)
-7. `create_launcher_shortcut()` creates desktop shortcut + `~/.voice-typer/icon.ico`
+7. `create_launcher_shortcut()` creates desktop shortcut + `<DATA_DIR>/icon.ico`
 8. `models/` junction/symlink → `huggingface/hub/` is created if missing
 
 ### Electron frontend (first window)
@@ -121,7 +142,7 @@ When a user launches the app for the first time (no `~/.voice-typer/` exists):
 5. StatusBar shows connection state and recording state
 
 ### NSIS installer (`electron-builder`) — TBD
-Currently the installer does NOT create `~/.voice-typer/`. The Python backend creates it on first launch. Options:
+Currently the installer does NOT create `<DATA_DIR>`. The Python backend creates it on first launch. Options:
 
 - **Option A** (current, simple): Python backend creates everything on first run. No installer changes needed.
 - **Option B** (recommended for v1 release): NSIS post-install script runs `python -m voice_typer.server.setup` which creates the folder structure + venv + base config. Slower install but faster first launch.
@@ -133,7 +154,7 @@ See "Implementation Checklist" below for what an AI agent should build for Optio
 
 | Problem | Behaviour |
 |---------|-----------|
-| `~/.voice-typer/` missing | Created on first `_config_dir().mkdir()` |
+| `<DATA_DIR>` missing | Created on first `_config_dir().mkdir()` |
 | `config.json` missing or corrupt | `Config.load()` creates defaults, logs error |
 | `history.db` missing or corrupt | `HistoryDB` creates schema automatically |
 | `model/` junction broken | Recreated on startup (`_ensure_model_junction()`) |
@@ -148,7 +169,7 @@ See "Implementation Checklist" below for what an AI agent should build for Optio
 For an AI agent tasked with implementing the folder structure recommendations:
 
 ### 1. Remove junction hack
-- [ ] In `voice_typer/server/config.py` or `voice_typer/server/app.py`: remove any code that creates a junction/symlink from `~/.voice-typer/huggingface/` to `~/.cache/huggingface/`
+- [ ] In `voice_typer/server/config.py` or `voice_typer/server/app.py`: remove any code that creates a junction/symlink from `<DATA_DIR>/huggingface/` to `~/.cache/huggingface/`
 - [ ] Keep `os.environ.setdefault("HF_HOME", str(config_dir / "huggingface"))` in `app.py:_setup_logging()`
 - [ ] On first run after upgrade: detect existing junction, copy `hub/` contents, remove junction
 
@@ -162,9 +183,9 @@ For an AI agent tasked with implementing the folder structure recommendations:
 ### 3. Vocabulary / corrections files (DONE)
 - [x] `VocabularyManager` reads `config_dir / "voice-typer-vocabulary.json"` (merged with bundled defaults)
 - [x] `configure_corrections()` reads `config_dir / "voice-typer-corrections.json"` (merged with bundled defaults)
-- [x] Both files are optional — app works without them using bundled defaults
+- [x] Both files are optional — the app works without them using bundled defaults
 
-### 4. Write `~/.voice-typer/README.md` on first run
+### 4. Write `<DATA_DIR>/README.md` on first run
 - [ ] In `_setup_logging()` or `VoiceTyperApp.__init__()`, check if `config_dir / "README.md"` exists
 - [ ] If not, write a copy of this document (or a condensed user-facing version)
 - [ ] The README should list every folder/file with a short description and tell the user not to delete model files manually
@@ -204,4 +225,3 @@ For an AI agent tasked with implementing the folder structure recommendations:
 - [ ] Logs each `os.add_dll_directory()` call result (success/failure)
 - [ ] Logs final `PATH` entries containing `nvidia` for post-mortem debugging
 - [ ] Logs the complete list of new paths added (or confirms none were needed)
-

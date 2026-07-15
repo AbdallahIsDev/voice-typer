@@ -186,7 +186,7 @@ voice-typer/
 │   │   ├── crash_recovery.py         # RELIABILITY-005 async flush
 │   │   ├── cloud_engines.py          # RELIABILITY-004 URL allowlist
 │   │   ├── llm_polish.py             # PRIVACY-001 consent gate
-│   │   ├── audio_filters/            # ADR 0007 — RNNoise, gate, EQ, …
+│   │   ├── audio_filters/            # ADR 0009 — RNNoise, gate, EQ, …
 │   │   ├── native/                   # C/Swift key listeners per OS
 │   │   └── ...
 │   │
@@ -329,13 +329,14 @@ is dropped unless the token matches (SEC-018). All subsequent IPC is
 untrusted-by-default: each inbound message is size-capped at 1 MB
 (SEC-009), rate-limited at 200 burst / 60 sustained messages per second
 (RELIABILITY-006), and dispatched through a per-method allowlist
-(`set_config` enforces SEC-002's 53-field allowlist with type/range/
+(`set_config` enforces the SEC-002 allowlist (`IPC_CONFIG_ALLOWLIST` in
+``voice_typer/server/config_validators.py``) with type/range/
 enum/URL validation; `get_config` redacts API keys via SEC-003).
 
 The Python **backend** is a long-running tray app. `VoiceTyperApp`
 (in `app.py`) wires together: a **pystray** tray icon (with a minimal
 menu — most configuration lives in the Electron UI), three hotkey
-backends (Win32, macOS CGEvent, Linux `/dev/input` — see ADR 0005), a
+backends (Win32, macOS CGEvent, Linux `/dev/input` — see ADR 0007), a
 PortAudio recorder that captures 16 kHz mono into a bounded `deque`,
 and a transcription pipeline. The pipeline dispatches to one of three
 **ASR engines**: `faster-whisper` (default, CUDA-first with CPU
@@ -465,7 +466,41 @@ particular:
   (SEC-016), even if it looks redundant.
 
 If you believe a control is wrong, open an issue tagged `security` and
-write a draft ADR (`docs/adr/0000-template.md`) before changing code.
+write a draft ADR (`docs/adr/template.md`) before changing code.
+
+### 6.4 IPC command parity (keep the three allowlists in lockstep)
+
+Voice Typer's IPC surface is a **two-sided allowlist**: the Python
+backend only dispatches commands it knows about, and the Electron main
+process only *forwards* commands the renderer is allowed to send. A new
+command is useless — or, worse, silently blocked — unless **all three**
+of the following are updated together:
+
+1. **Server command registry** — add the command + its handler to
+   `_COMMAND_REGISTRY` in `voice_typer/server/ipc_server.py`
+   (≈ lines 1316–1415). This is what actually routes the inbound
+   `{"type": "…"}` message to a handler.
+2. **Electron main-process allowlist** — add the same command string to
+   `ALLOWED_COMMANDS` in `voice_typer/client/src/main/index.ts`
+   (≈ lines 532–622). The main process refuses to forward any command
+   not in this list to the Python backend (SEC-002 lateral boundary).
+3. **Renderer type-safe wrapper** — add the command to the
+   `type`/response discriminated union in
+   `voice_typer/client/src/renderer/src/types/ipc.ts` so the renderer's
+   `call<T>()` helper can type-check requests and responses.
+
+> **Common mistake (Finding 2):** adding a command to the server
+> registry *without* updating `ALLOWED_COMMANDS` means the renderer's
+> `call()` is rejected by the main process before it ever reaches
+> Python. This has happened 10 times in the past. When you add or
+> rename a command, grep for the command string across all three
+> locations and update each one.
+
+> **Regression guard:** `tests/test_electron_ipc_and_build.py` (and the
+> bidirectional parity test recommended in Finding 2) assert that
+> `_COMMAND_REGISTRY` and `ALLOWED_COMMANDS` stay in sync. If you add a
+> command to one side only, that test fails in CI — but adding this
+> section means you won't need the test to catch it first.
 
 ---
 
@@ -615,7 +650,7 @@ The IPC server fans out push events via the module-level
 spinning up a real TCP client:
 
 ```python
-from voice_typer.server.ipc_server import _set_push_event, _clear_push_event
+from voice_typer.server.event_bus import subscribe, unsubscribe
 
 captured = []
 def _capture(msg): captured.append(msg)
@@ -674,7 +709,7 @@ received a value within `[_HISTORY_LIMIT_MIN, _HISTORY_LIMIT_MAX]`.
    - falls back to whisper on CUDA OOM
    - tested in tests/test_qwen_engine.py
 
-   SEC-018, ADR-0002
+   SEC-018, ADR-0004
    ```
    - Reference the relevant `SEC-*`, `ADR-*`, `ARCH-*`, `PERF-*`,
      `RELIABILITY-*`, or `UX-*` tag in the body so reviewers can

@@ -105,30 +105,6 @@ Methodology: read `app.py`, `service.py`, `ipc_server.py`, `dictation_pipeline.p
 - **Root cause**: The DEBUG level was chosen to avoid noise from routine disconnects, but it's too low for unexpected exceptions.
 - **Fix**: Split the except: catch `OSError` (routine socket close) at DEBUG, and catch `Exception` (anything else) at WARNING with `exc_info=True`.
 
-#### Finding 10
-- **Category**: reliability
-- **Severity**: Low
-- **File**: voice_typer/server/ipc_server.py:208-272 (`_RateLimiter`), :166-168 (constants)
-- **Description**: With `burst=200, sustained=60`, the sustained check (`len >= 60`, line 252) always fires before the burst check (`len >= 200`, line 250). The advertised 200-msg burst capacity is unreachable — a client sending 60 msgs/s hits the sustained limit and is throttled, never seeing the burst headroom. The `burst` parameter is effectively dead config.
-- **Root cause**: The two limits were designed independently without checking which binds first.
-- **Fix**: Either (a) raise `sustained` above `burst` (e.g. sustained=200, burst=200 — making them equivalent), or (b) make sustained a per-second rate measured over a longer window (e.g. 600 msgs / 10s) so bursts within 1s aren't throttled by the sustained limit. Document which limit binds when.
-
-#### Finding 11
-- **Category**: reliability
-- **Severity**: Low
-- **File**: voice_typer/server/app.py:1518-1522 (`_do_cleanup` history_db path)
-- **Description**: `_do_cleanup()` calls `history_db.flush()` but never `history_db.close()`. The writer thread (daemon) is killed at process exit without an explicit shutdown; read connections (`_read_local`, `_all_read_connections`) rely on `HistoryDB.__del__` → `close()`, which may not run during interpreter shutdown. SQLite WAL and file handles could leak (OS cleans up, but clean shutdown is better practice and avoids `ResourceWarning`).
-- **Root cause**: `close()` was likely omitted to keep shutdown fast (it joins the writer thread with a timeout), but `flush()` already blocks on the writer.
-- **Fix**: After `flush()`, call `self.history_db.close()` inside a try/except. The writer join in `close()` should be fast since `flush()` already drained the queue.
-
-#### Finding 12
-- **Category**: architecture
-- **Severity**: Low
-- **File**: voice_typer/server/ipc_server.py:379-381 (`_push_event_registry`), :382 (`_push_event_registry_lock`)
-- **Description**: `_push_event_registry = event_bus._subscribers` and `_push_event_registry_lock = event_bus._lock` directly alias the event_bus module's internals. Tests that do `ipc_server._push_event_registry.clear()` mutate `event_bus._subscribers` directly. The "thin shim" comment acknowledges this, but it breaks `event_bus`'s encapsulation by making its private state part of the IPC module's public test surface. Future refactors of `event_bus` (e.g. switching to a class) would silently break tests that touch the alias.
-- **Root cause**: The shim was added (B-1) to preserve backward compat with tests that manipulated the old global, by aliasing rather than delegating.
-- **Fix**: Migrate tests to use `event_bus._subscribers` directly (or better, `event_bus.subscribe`/`unsubscribe`), then delete the `_push_event_registry` / `_push_event_registry_lock` aliases and the `_set_push_event` / `_clear_push_event` shims. The `_push_event_now` shim can stay (it delegates via `event_bus.publish`).
-
 ### Notes for the primary agent
 - Findings 1, 2, 3 are the highest-impact: Finding 1+3 together mean post-shutdown crash-recovery writes are silently lost; Finding 2 means users get notification spam on every failed cycle. All three have low-risk fixes.
 - Finding 4 (heartbeat timeout docs) is a 5-minute fix but has real operational impact — operators diagnosing "stuck backend" issues will be misled.
@@ -242,37 +218,13 @@ Methodology: read `App.tsx`, `main.tsx`, `Bubble.tsx`, all `pages/*.tsx` (Home, 
 - **Root cause**: The module-level cache was added to eliminate the "flash of empty content" on re-visit (Home.tsx:38-46 comment), but the invalidation strategy is incomplete.
 - **Fix**: Either (a) add a backend-pushed `history_changed` / `config_changed_external` event that triggers a cache invalidation, or (b) move the cache into the Zustand `appStore` so it has a single invalidation point, or (c) accept the staleness but add a visible "last updated Xs ago" indicator and a manual refresh button (History.tsx already has implicit refresh on `transcription_final`; the other pages don't).
 
-#### Finding 12
-- **Category**: dx
-- **Severity**: Low
-- **File**: voice_typer/client/src/renderer/src/types/ipc.ts:327-349 (`WindowBubble` interface); voice_typer/client/src/preload/index.ts:16-78 (main renderer preload); voice_typer/client/src/preload/bubble.ts:18-102 (bubble-window preload)
-- **Description**: The `WindowBubble` interface declares 14 methods, but only 10 are exposed in `preload/index.ts` (the main renderer's preload). The bubble-only methods (`hide`, `setLevel`, `onSetState`, `resizeTo`) are exposed only in `preload/bubble.ts`. Callers in the main renderer that use `window.bubble?.resizeTo?.(...)` get a silent no-op (the `?.` swallows the undefined). The TypeScript types pretend all methods exist, so the `?.` is the only thing preventing runtime errors — there's no compile-time signal that a method is bubble-window-only.
-- **Root cause**: The interface was written as a union of both preloads' surfaces rather than split per window.
-- **Fix**: Split into `MainRendererBubble` (the subset exposed by `preload/index.ts`) and `BubbleWindowBubble` (the full set exposed by `preload/bubble.ts`). Update the `Window` augmentation to declare `bubble?: MainRendererBubble` in the main renderer's `vite-env.d.ts` and `bubble?: BubbleWindowBubble` in a separate `bubble-env.d.ts` consumed only by `Bubble.tsx`.
-
-#### Finding 13
-- **Category**: dx
-- **Severity**: Low
-- **File**: voice_typer/client/src/renderer/src/hooks/useSnackbar.tsx:82 (`const Snackbar = useCallback(() => null, [])`); voice_typer/client/src/renderer/src/pages/{Settings.tsx:952,Models.tsx (multiple),Microphone.tsx:749,Vocabulary.tsx,Templates.tsx,Onboarding.tsx:420}.tsx (render `<Snackbar />`)
-- **Description**: `useSnackbar` returns a `Snackbar` component that always renders `null`. The comment on lines 77-81 says this is kept for backwards compat. But 6+ pages still render `<Snackbar />` in their JSX, which is dead JSX — readers see `<Snackbar />` and assume it's the toast renderer, when in fact toasts come from the global `<Toaster />` mounted in App.tsx. This is a maintenance trap: a future contributor might "fix" a missing toast by adding `<Snackbar />` somewhere, not realizing it does nothing.
-- **Root cause**: The migration from the bespoke snackbar to sonner was done incrementally; the no-op component was left as a compat shim.
-- **Fix**: Delete the `Snackbar` return from `useSnackbar` (and the `Snackbar` field from the returned object). Update the 6+ call sites to remove `<Snackbar />` from their JSX. The `<Toaster />` in App.tsx already handles all toast rendering via sonner.
-
-#### Finding 14
-- **Category**: dx
-- **Severity**: Low
-- **File**: voice_typer/client/src/renderer/src/components/common/Modal.tsx:60-95 (`dismissedByAction` ref + `onEscapeKeyDown` / `onPointerDownOutside` handlers); voice_typer/client/src/renderer/src/components/common/ConfirmDialog.tsx:39-59 (same pattern)
-- **Description**: Modal (and ConfirmDialog) use a `dismissedByAction` ref to distinguish "user clicked a button inside the modal" (which calls `handleClose` → sets the flag → calls `onClose`) from "user pressed Escape / clicked backdrop" (which Radix's `onOpenChange(false)` reports). The `onEscapeKeyDown={handleClose}` and `onPointerDownOutside={handleClose}` handlers ALSO set the flag and call `onClose`. This is over-engineered: Radix's `onOpenChange(false)` is the single canonical close signal — it fires exactly once per close event (button, Escape, or backdrop). The extra handlers and the ref exist only to prevent a non-existent double-fire.
-- **Root cause**: The pattern was likely copied from a tutorial that didn't trust Radix's de-duplication.
-- **Fix**: Delete `dismissedByAction`, `handleClose`, `onEscapeKeyDown`, and `onPointerDownOutside`. Let `handleOpenChange(isOpen)` call `onClose()` directly when `!isOpen`. Call sites that need to perform side-effects on explicit-button-close should call their own handler before calling `onClose()` (the `onClose` prop is already the single close signal).
-
 ### Notes for the primary agent
 - Findings 1 and 4 are the highest-impact: Finding 1 breaks the "Re-run setup wizard" feature end-to-end (user clicks the button, briefly sees onboarding flash, then bounces back to home). Finding 4 silently corrupts vocabulary data on Undo (duplicate entries). Both have low-risk fixes.
 - Finding 2 (identical start/stop beep WAVs) is a 5-minute fix that restores a real UX distinction users rely on when their eyes aren't on the screen.
 - Finding 3 (i18n) is the largest structural issue: the `window.location.reload()` workaround and the module-level `t()` constants in GeneralSettingsSection are both symptoms of the missing React subscription layer. The quick fix (move constants inline) is mechanical; the proper fix (LocaleProvider + useT hook) is a half-day refactor that pays off across the codebase.
 - Findings 5 and 6 (onboarding) together mean the wizard is brittle: it auto-launches only when the user happens to land on Home, and it doesn't respect the user's existing config when it does launch.
 - Findings 7 and 8 (accessibility) are real WCAG issues that axe-core's test suite (`a11y/axe-core.test.tsx`) explicitly disables (`color-contrast: { enabled: false }`) — so they won't be caught by CI. Consider enabling color-contrast in a separate test config that loads the real Tailwind stylesheet.
-- Findings 10, 11, 12, 13, 14 are quality-of-life cleanups; defer unless touching nearby code.
+- Findings 10, 11 are quality-of-life cleanups; defer unless touching nearby code.
 - No Critical findings — the frontend architecture is generally sound (clean Zustand store, well-decomposed Settings sections, ErrorBoundary at the root, thoughtful use of Radix primitives, RTL locale support, `prefers-reduced-motion` and `prefers-contrast` media queries in index.css). The issues are localized bugs, staleness, and accessibility oversights, not structural problems.
 
 ---
@@ -322,12 +274,6 @@ The most impactful issues:
 - **Description**: The level-monitor `sd.InputStream` callback runs on the PortAudio real-time audio thread. The callback: (1) acquires `_monitor_lock`; (2) runs `_level_processor.process_chunk(indata.reshape(-1, 1))` — the FULL filter chain, which may include RNNoise (5–50ms per chunk on CPU per ADR 0007 §3.5); (3) computes `np.mean(flat_filtered ** 2)` (allocates a squared array) and `np.abs(flat_filtered)` (allocates another array); (4) appends `indata.copy()` to `_test_chunks` AND `_test_raw_chunks` during test recording (two allocations + two list appends per chunk). The `recording.py` callback was carefully refactored in RT-SAFE-001 to do ONLY a `deque.append` + `Event.set` (~10µs) and move all heavy work to a worker thread. The `level_monitor.py` callback did NOT receive the same refactor and violates the ~32ms PortAudio deadline whenever the level monitor is active (Microphone page open). Symptom: XRUNs and audio glitches when the user opens the Microphone settings page during a recording.
 - **Fix**: Apply the same RT-SAFE-001 pattern to `level_monitor.py`: have the callback only `deque.append((indata.copy(), status))` and `Event.set()`, and run the filter chain + RMS/peak computation on a dedicated worker thread. Alternatively, since the level monitor runs continuously (not just during dictation), skip the filter chain in the callback and compute RMS/peak on raw audio (the filter chain is cosmetic for the level bar).
 
-#### PERF-04
-- **Category**: performance
-- **Severity**: Low
-- **File**: voice_typer/server/recording.py:2128 (`if not indata.any() and self._chunk_count > 10:`)
-- **Description**: `indata.any()` runs a full-array scan on every audio chunk (~16 Hz) to detect zero-filled (disconnected-device) input. On a 512-sample float32 chunk this is ~2µs, negligible per-call but cumulative. `np.count_nonzero(indata) == 0` is the canonical "all-zeros" check and is ~2× faster on modern numpy because it short-circuits on the first non-zero element.
-- **Fix**: Replace `not indata.any()` with `indata.size == 0 or np.count_nonzero(indata) == 0`. Marginal but free.
 
 #### PERF-05
 - **Category**: performance
@@ -335,8 +281,6 @@ The most impactful issues:
 - **File**: voice_typer/server/app.py:1312 (`time.sleep(0.3)` in `restart_app`)
 - **Description**: `restart_app` calls `time.sleep(0.3)` "to give Electron time to process `relaunch_electron`" before closing the TCP socket. This blocks the calling thread (the pystray tray thread) for 300ms. During that window, the tray icon is unresponsive to menu clicks and any IPC dispatch handled on the same thread is blocked. The 300ms is a magic number that's too short for a slow Electron main thread (GC pause) and too long for a fast one. The proper pattern is a Condition variable / ack: publish `relaunch_electron` with a request ID, have Electron send back `relaunch_ack` over TCP, and `wait(timeout=2.0)` on the ack.
 - **Fix**: Replace `time.sleep(0.3)` with `event.wait(timeout=2.0)` on a `threading.Event` set by an `relaunch_ack` IPC handler. Falls back to the 2s timeout if Electron doesn't ack (same behavior as today's 300ms magic number, but bounded and event-driven).
-
----
 
 ### Findings — Memory
 
@@ -353,20 +297,6 @@ The most impactful issues:
 - **File**: voice_typer/server/level_monitor.py:63-64, 256-257 (`_test_chunks` / `_test_raw_chunks`)
 - **Description**: `_test_chunks` and `_test_raw_chunks` are unbounded `list[np.ndarray]`. Each chunk is `indata.copy()` (~2KB for 512 float32 samples). At 16 Hz for the max 30s test duration, that's ~480 chunks × 2 lists × 2KB ≈ 2MB — bounded by `_test_duration`, but: (1) `_test_duration` is user-configurable via the IPC `microphone_test_start` handler with `max(1.0, min(30.0, duration))` — the cap is enforced; (2) the lists are only cleared on `stop_test_recording()` / `cancel_test_recording()`. If the IPC client crashes mid-test (Electron renderer crash, dev-tools close), neither is called and the lists persist until the next `start_test_recording()` (which clears them at line 386-387). Worst case: a long-running backend with periodic test recordings never frees the audio data. Also a forensic-recovery concern (audio data lingers in process memory).
 - **Fix**: Use `collections.deque(maxlen=int(30 * sample_rate / 512))` for both lists. The 30s cap is already enforced at the API level; the `deque` enforces it at the data structure level too, so a forgotten `stop_test_recording()` can't accumulate audio.
-
-#### MEM-03
-- **Category**: memory
-- **Severity**: Low
-- **File**: voice_typer/server/vad.py:65-69 (`torch.hub.load(repo_or_dir='snakers4/silero-vad', ...)`)
-- **Description**: Silero VAD is loaded via `torch.hub.load` which downloads the model from GitHub on first use. If GitHub is unreachable (corporate firewall, China, offline machine), VAD silently falls back to RMS — no warning is surfaced to the user. The model is ~2MB but the download adds 1-5s of latency to the first dictation on a fresh install. The `voice-typer.spec` PyInstaller bundle doesn't include the Silero model, so the bundled app still hits the network on first use.
-- **Fix**: Bundle the Silero VAD model file (`silero_vad.jit`) in `voice_typer/server/` and load it via `torch.jit.load(local_path)` instead of `torch.hub.load`. Add a `_check_vad_available()` helper that's called once at startup so the user sees a warning if VAD is unavailable. Add the model file to `voice-typer.spec` `datas` list.
-
-#### MEM-04
-- **Category**: memory
-- **Severity**: Low
-- **File**: voice_typer/server/recording.py:2573-2575, 2987-2989 (`for chunk in self._buffer: chunk.fill(0)`)
-- **Description**: On every `stop()` and `discard()`, the code iterates `self._buffer` (a deque of up to `DEFAULT_MAX_BUFFER_CHUNKS = 30000` chunks) and calls `chunk.fill(0)` on each. For a max-duration (30 min) recording that's ~30000 chunks × 512 samples × 4 bytes = ~61 MB of memory to zero. The SEC-audit-008 comment justifies this for forensic protection of voice data, but at rapid hotkey toggling (F2 press → F2 press within 500ms) this is a real CPU cost (~30-100ms per stop). The `start()` method (recording.py:1307-1309) ALSO zeros the preroll buffer, so there's a double-zero if the user rapidly toggles.
-- **Fix**: Defer the zeroing to a background daemon thread (or skip it entirely if the next `start()` happens within e.g. 1s — the start() path already zeros the preroll buffer, so the buffer memory is about to be reused anyway). Alternatively, replace the `deque` of numpy arrays with a single pre-allocated ring buffer of `np.zeros(max_chunks * chunk_size, dtype=np.float32)` — zero-on-free is then a single `np.fill(0)` call instead of 30000 small ones.
 
 ---
 
@@ -386,20 +316,6 @@ The most impactful issues:
 - **Description**: When the macOS CoreAudio backend is unavailable (pyobjc-framework-CoreAudio not installed), the smart-duck monitor falls back to `osascript` polling every 500ms (volume_ducker.py:558). Each `osascript -e 'tell application "System Events" to get name of ...'` spawns a subprocess that takes 200-500ms (volume_backends.py:488). So during dictation on a macOS machine without pyobjc, the monitor thread is essentially continuously spawning subprocesses — 2 subprocesses/sec × 200-500ms each = 40-100% CPU on one core just for smart-duck. The `initialize()` method (volume_backends.py:396) does log this case at INFO level ("osascript backend ready (200-500ms latency)"), but the smart-duck monitor still runs.
 - **Fix**: In `VolumeDucker.initialize()`, if the backend is `osascript` (not CoreAudio), disable smart-duck (`set_smart_duck_enabled(False)`) and log a warning that smart-duck requires pyobjc. The duck still applies immediately on dictation start; only the "skip duck if no audio is playing" optimization is lost. Alternatively, raise the poll interval to 2s for osascript (acceptable latency for retroactive ducking).
 
-#### CPU-03
-- **Category**: cpu
-- **Severity**: Low
-- **File**: voice_typer/server/recording.py:2179-2199 (periodic device availability check every 500 chunks)
-- **Description**: Every 500 chunks (~32s at 16 Hz) the audio worker thread calls `sd.query_devices(current_device)` to verify the current device is still present. On Windows with the MME host API and many audio devices (8+), `query_devices` can take 50-200ms because it re-enumerates all devices. This blocks the audio worker thread, which can cause the ring buffer to overflow and drop audio chunks (logged as "Audio ring buffer full"). The check is defensive (catches USB unplug cases where PortAudio doesn't deliver zeros), but running it on the audio worker thread is the wrong place.
-- **Fix**: Move the periodic device check to a separate daemon thread (e.g. `device-health-checker`) that wakes every 30s and calls `sd.query_devices(current_device)`. If the device is gone, set a flag that the audio worker thread checks (lock-free atomic read). Eliminates the 50-200ms stall on the audio worker.
-
-#### CPU-04
-- **Category**: cpu
-- **Severity**: Low
-- **File**: voice_typer/server/prewarm.py:1238-1239 (`wait_for_prewarm` 500ms poll loop)
-- **Description**: `wait_for_prewarm` polls `is_prewarm_running()` every 500ms for up to 60s (120 polls). Each poll reads the PID file, calls `_process_alive(pid)` (which on Windows opens a process handle + GetExitCodeProcess + CloseHandle, ~50µs), and on Windows also calls `_process_is_prewarm(pid)` which reads the target process's PEB via NtQueryInformationProcess + ReadProcessMemory (prewarm.py:896-1139) — ~1-5ms per call. Total: 120 polls × ~5ms = ~600ms of CPU at startup, on the critical path before the model loads.
-- **Fix**: On Linux, use `inotify` on the PID file directory (instant notification when the file is deleted by prewarm's `finally` block). On macOS, use `FSEvents`. On Windows, use `ReadDirectoryChangesW`. Or simpler: have the prewarm process signal a named event (`CreateEvent` / `sem_open`) on exit, and `wait_for_prewarm` blocks on `WaitForSingleObject` / `sem_wait` with the 60s timeout. Eliminates the 500ms poll cadence.
-
 ---
 
 ### Findings — Cross-platform
@@ -417,35 +333,6 @@ The most impactful issues:
 - **File**: voice_typer/client/electron-builder.yml:82-90 (`afterInstall: ../../scripts/linux/postinst`)
 - **Description**: The Linux `deb` and `rpm` sections use relative paths (`../../scripts/linux/postinst`) for `afterInstall` / `afterRemove`. These paths are resolved relative to electron-builder's CWD (`voice_typer/client/`), so `../../scripts/linux/` resolves to `<project-root>/scripts/linux/` — correct today, but fragile: if electron-builder changes its CWD expectation (it has happened in past major versions), or if the build is invoked from a different directory (e.g. `npx electron-builder --config voice_typer/client/electron-builder.yml` from the project root), the path breaks silently and the postinst script is not included in the .deb. The user gets a package without the udev rule setup, so Caps Lock hotkey doesn't work until they manually run the setup script.
 - **Fix**: Copy the Linux scripts into `voice_typer/client/resources/linux/` (which electron-builder includes in the build context) and reference them as `afterInstall: resources/linux/postinst`. Or use a build hook (`afterPack` in a JS file) that resolves paths via `path.resolve(__dirname, '../../../scripts/linux/postinst')`.
-
-#### XPLAT-03
-- **Category**: cross-platform
-- **Severity**: Low
-- **File**: scripts/build/voice-typer.spec:138-164 (hiddenimports)
-- **Description**: The PyInstaller spec lists Windows-only hiddenimports (`pycaw`, `comtypes`, `comtypes.gen`, `win32com`, `win32com.client`) and macOS-only (`CoreAudio`) unconditionally. When PyInstaller runs on Linux, it tries to find these modules, fails, and emits warnings (suppressed by `--noconfirm` but visible in build logs). At runtime the lazy-imports in `volume_backends.py` correctly guard these, so functionality is fine — but the build logs are noisy and a future contributor might "fix" the warnings by removing the hiddenimports, breaking Windows/macOS packaging.
-- **Fix**: Gate the platform-specific hiddenimports by `sys.platform` in the spec file:
-  ```python
-  hiddenimports = [...common...]
-  if sys.platform == "win32":
-      hiddenimports += ["pycaw", "comtypes", "comtypes.gen", "win32com", "win32com.client"]
-  elif sys.platform == "darwin":
-      hiddenimports += ["CoreAudio"]
-  ```
-  Add a comment explaining the lazy-import pattern so future contributors don't remove them.
-
-#### XPLAT-04
-- **Category**: cross-platform
-- **Severity**: Low
-- **File**: voice_typer/server/prewarm.py:281-290 (Linux I/O priority syscall numbers)
-- **Description**: The Linux I/O priority lowering tries syscall numbers 251 (x86_64 `SYS_ioprio_set`) and 314 (aarch64). The `for sys_num in (251, 314):` loop covers the two main architectures but not ppc64le (345), s390x (378), riscv64 (not yet stable). On those architectures both syscalls fail silently (the `else` branch logs "ioprio_set syscall failed for both 251 and 314") and prewarm runs at default I/O priority — correct behavior, just not optimal. Acceptable for a consumer app (most users are x86_64 or aarch64), but worth documenting.
-- **Fix**: Replace the hardcoded syscall numbers with `ctypes.CDLL("libc.so.6").syscall` + a lookup table from `os.uname().machine`, or use the `ioprio` Python package if available. At minimum, add a comment listing the architecture→syscall-number mapping so future contributors know what's covered.
-
-#### XPLAT-05
-- **Category**: cross-platform
-- **Severity**: Low
-- **File**: voice_typer/server/prewarm.py:891-893 (`_process_alive` EPERM handling)
-- **Description**: `_process_alive` treats `EPERM` (process exists but not owned by us) as "alive". The comment justifies this: "the prewarm process is owned by the same user, so EPERM shouldn't happen in practice; treating it as alive is the safe default." This is correct for the prewarm use case, but if a different user owns the PID (e.g. prewarm ran as root via a misconfigured sudo, or the PID was recycled by a system process), `wait_for_prewarm` blocks for the full 60s timeout. The 60s timeout is the safety net, but it's a long wait on the critical startup path.
-- **Fix**: On `EPERM`, log a warning ("PID %d exists but not owned by us — treating as alive for 60s timeout") so the user can diagnose. Optionally, on POSIX, check `os.getuid() == os.stat(f'/proc/{pid}').st_uid` to distinguish "same user, alive" from "different user, alive".
 
 ---
 
@@ -479,61 +366,6 @@ The most impactful issues:
 - **Description**: `build-macos` runs on `macos-13` (Intel). GitHub Actions has announced that `macos-13` is being deprecated and will be removed (the `macos-14` and later runners are Apple Silicon). Once `macos-13` is removed, the macOS build job will fail with "The workflow was not triggered but has dependencies on macos-13 which is no longer available." The `build-macos-universal` job (line 490) already runs on `macos-latest` to merge x64 + arm64 binaries, so the PyInstaller bundle could also be built on `macos-14` with `--arch x64` cross-compilation.
 - **Fix**: Migrate `build-macos` to `macos-14` (Apple Silicon). PyInstaller on arm64 can build x64 bundles via `--target_arch x64` (requires the x64 Python interpreter; alternatively use `macos-13-large` if still available, or run two PyInstaller passes and `lipo` the bundles). Test the resulting .dmg on both Intel and Apple Silicon Macs. Set a deadline (e.g. "before 2025-Q4") to migrate before GitHub removes macos-13.
 
-#### CI-05
-- **Category**: build-ci
-- **Severity**: Low
-- **File**: .github/workflows/build.yml:329-351 (client-build), 696-710 (build-macos), 778-795 (build-linux)
-- **Description**: `npm ci` runs in 3 separate jobs (client-build, build-macos, build-linux), each downloading and installing the full client dependency tree (~200MB, ~30s). The `client-build` job uploads `voice_typer/client/out/` as an artifact, but the platform build jobs don't download it — they re-run `npm ci` + `npm run build` themselves. This is because the platform builds need the renderer built for the specific platform (Electron main + preload are platform-specific), but the renderer (`out/renderer/`) is platform-independent and could be shared.
-- **Fix**: Have `client-build` upload `voice_typer/client/out/renderer/` as an artifact. Have `build-macos` and `build-linux` download it and only re-run `npm run build:main` (the platform-specific Electron main/preload). Saves ~30s + ~200MB downloads per platform build.
-
-#### CI-06
-- **Category**: build-ci
-- **Severity**: Low
-- **File**: .github/workflows/build.yml:416-468 (build-native smoke tests)
-- **Description**: The native binary smoke tests are weak. The macOS smoke test (line 431-447) launches the binary in the background, sleeps 2s, kills it, and checks that the output contains `ERROR:` or `READY`. On a CI runner without Accessibility permission, the binary should emit `ERROR:Accessibility permission required` — but the test PASSES whether the output is `ERROR` or `READY`. So the test is essentially "binary doesn't crash within 2s" — it doesn't verify the binary actually works. The Linux smoke test (line 416-429) is similar: it expects `ERROR:No keyboard devices found` (because CI has no `/dev/input/event*`), which is correct, but only verifies the binary can print an error. The Windows smoke test (line 449-468) just checks the process is running after 2s.
-- **Fix**: For macOS, mock the Accessibility check (set `VOICE_TYPER_SKIP_ACCESSIBILITY_CHECK=1` in the test env) and verify the binary emits `READY` within 2s. For Linux, verify the binary exits with the expected error code (not just that it prints `ERROR:`). For Windows, verify the binary is still running AND has installed the `WH_KEYBOARD_LL` hook (e.g. by sending a synthetic key event and checking the binary's stdout for `KEY_DOWN:<caps_lock>`).
-
-#### CI-07
-- **Category**: build-ci
-- **Severity**: Low
-- **File**: .github/workflows/build.yml:631, 640, 726, 814 (`overwrite: false` in `svenstaro/upload-release-action`)
-- **Description**: All four `upload-release-action` invocations use `overwrite: false`. If a release tag is re-pushed (e.g. a maintainer force-pushes `v1.2.3` after a build fix), the upload fails with "asset already exists" and the release job fails. The workflow's `concurrency: group: release-${{ github.ref }}, cancel-in-progress: false` (line 19-21) means two release builds can run back-to-back for the same tag — the second one will fail to upload.
-- **Fix**: Use `overwrite: true` for release uploads. Alternatively, add a pre-step that deletes existing assets for the tag before uploading (using `gh release delete-asset`).
-
-#### CI-08
-- **Category**: build-ci
-- **Severity**: Low
-- **File**: .github/workflows/build.yml:19-21 (concurrency group only covers releases)
-- **Description**: The `concurrency` group is `release-${{ github.ref }}` with `cancel-in-progress: false`. This prevents two release builds from racing on the same tag (good), but the test matrix (12 jobs per PR) has NO concurrency group — so two pushes to the same PR both run all 12 jobs to completion. GitHub Actions does not auto-cancel previous runs for the same PR unless a concurrency group is defined.
-- **Fix**: Add a second `concurrency` block scoped to PRs:
-  ```yaml
-  concurrency:
-    group: pr-${{ github.ref }}-${{ github.event_name }}
-    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-  ```
-  Or scope it per-job (the test job gets `cancel-in-progress: true`, the release job keeps `cancel-in-progress: false`).
-
-#### CI-09
-- **Category**: build-ci
-- **Severity**: Low
-- **File**: .github/workflows/build.yml:534-640 (build-windows), 648-727 (build-macos), 730-815 (build-linux)
-- **Description**: The three release build jobs produce installer artifacts (`.exe`, `.dmg`, `.deb`, `.rpm`, `.AppImage`) but do NOT generate artifact attestations / SLSA build provenance. Modern supply-chain best practice (NIST SSDF, SLSA Build L3, OpenSSF Scorecards) requires provenance for release binaries. GitHub provides `actions/attest-build-provenance@v1` which generates a signed attestation linking the artifact to the workflow run. Without it, users who download the release have no cryptographic way to verify the binary was built from the public source (vs. a compromised release maintainer who swapped the binary).
-- **Fix**: Add `actions/attest-build-provenance@v1` as a final step in each release build job:
-  ```yaml
-  - name: Attest build provenance
-    uses: actions/attest-build-provenance@v1
-    with:
-      subject-path: ${{ github.workspace }}/VoiceTyper-Setup-*.exe
-  ```
-  Document the verification command (`gh attestation verify <file> --repo owner/repo`) in the release notes.
-
-#### CI-10
-- **Category**: build-ci
-- **Severity**: Low
-- **File**: .github/workflows/build.yml:383 (build-native `windows-2022`), 536 (build-windows `windows-latest`), 388 (build-native `ubuntu-22.04`), 25 (test `ubuntu-latest`)
-- **Description**: Runner version mismatches: `build-native` uses `windows-2022` and `ubuntu-22.04`, but `build-windows` uses `windows-latest` and `test` uses `ubuntu-latest`. The native binaries compiled on `windows-2022` (older Windows SDK) are bundled into the PyInstaller build on `windows-latest` (newer SDK). This usually works (backwards compat), but can cause subtle ABI issues if the native binary links against a newer SDK feature not present on the target Windows version. Same for Linux: native binary built on `ubuntu-22.04` (glibc 2.35) bundled into a build that may run on older glibc.
-- **Fix**: Pin all jobs to the same runner version. For Windows: use `windows-2022` everywhere (or `windows-latest` everywhere). For Linux: use `ubuntu-22.04` everywhere (the oldest supported LTS, for glibc compat). Document the minimum supported OS versions in `docs/PLATFORM_STATUS.md`.
-
 ---
 
 ### Notes for the primary agent
@@ -547,8 +379,6 @@ The most impactful issues:
 - **XPLAT-02** (relative `afterInstall` path) is fragile but works today. Low priority unless electron-builder is upgraded.
 - The cross-platform surface is generally well-handled: lazy imports for `pycaw`/`comtypes`/`CoreAudio`/`pactl`/`xclip`/`wl-paste`, platform dispatch in `microphone_watcher.py` (Windows WM_DEVICECHANGE, Linux /dev/snd polling, macOS CoreAudio listener), and `_paths.py` centralizes the config-dir logic. The remaining issues are minor.
 - The prewarm architecture (ADR-0009) is well-designed: PID file handshake, boot sentinel, cache ratio probe, background re-spawn on timeout. The only wart is the 500ms poll loop in `wait_for_prewarm` (CPU-04), which is on the critical startup path.
-
----
 
 ---
 
@@ -611,143 +441,10 @@ Methodology: read `voice_typer/server/security.py`, `voice_typer/server/_secrets
 - **Root cause**: The doc was not updated when commands were added.
 - **Fix**: Replace "~35 commands" with the actual count + a pointer to the source of truth: "only the 58 commands listed in `ALLOWED_COMMANDS` at `voice_typer/client/src/main/index.ts`". Add a CI test (`test_security_doc_command_count.py`) that parses SECURITY.md and asserts the documented count matches `awk '/ALLOWED_COMMANDS = new Set/,/^\s*\}\);/' voice_typer/client/src/main/index.ts | grep -cE '^\s*"[a-z_]+"'`.
 
-#### Finding 6
-- **Category**: documentation (CONTRIBUTING.md allowlist count stale)
-- **Severity**: Medium
-- **File**: CONTRIBUTING.md:332 ("`set_config` enforces SEC-002's 53-field allowlist")
-- **Description**: CONTRIBUTING.md claims the IPC `set_config` allowlist has 53 fields. The actual `IPC_CONFIG_ALLOWLIST` dict in `config_validators.py:466-675` has 122 field entries (verified by `awk '/^IPC_CONFIG_ALLOWLIST.*=.*\{$/,/^\}$/' voice_typer/server/config_validators.py | grep -cE '^\s+"[a-z_0-9]+":\s+\('`). The "53" was accurate at writing time but the allowlist has more than doubled since (audio filter chain fields ADR 0007, vocabulary automation P5, volume ducking v1.1.0, etc.). New contributors reading "53-field allowlist" will underestimate the validation surface and may add fields without realizing they need a corresponding validator entry.
-- **Root cause**: Manual count in prose, no automated check.
-- **Fix**: Replace "53-field allowlist" with "the IPC_CONFIG_ALLOWLIST dict in `voice_typer/server/config_validators.py`" (no count — let the source be the truth). Optionally add a CI test that parses CONTRIBUTING.md and asserts no specific count is claimed (regex `\d+-field allowlist` should match nothing).
-
-#### Finding 7
-- **Category**: code-quality (dead module — telemetry)
-- **Severity**: Medium
-- **File**: voice_typer/server/telemetry.py (177 LOC, full file); voice_typer/server/config.py:903 (`telemetry_enabled: bool = False`)
-- **Description**: `telemetry.py` defines `write_crash_report()` (PROD-001) but the function is never called from any production code path. Verified: `grep -rln "from voice_typer.server.telemetry\|telemetry\.write_crash_report\|import telemetry" voice_typer/ tests/` returns only `tests/test_telemetry.py`. The Config field `telemetry_enabled` is read only by `write_crash_report()` itself (telemetry.py:49, 70) — no IPC handler, no apply_config side-effect, no Settings UI toggle. The actual crash recovery modules (`crash_recovery.py`, `duck_crash_recovery.py`) write their own JSON state files and do not call `write_crash_report`. PROD-001 was apparently specced and implemented but never wired into the crash path. Maintainers seeing the module + Config field + tests believe crash telemetry is functional when it isn't.
-- **Root cause**: PROD-001 was implemented in isolation; the integration into `VoiceTyperApp.quit()` / `crash_recovery.flush()` was never completed. The module survived because the test file kept it green.
-- **Fix**: Either (a) wire `write_crash_report(exc, telemetry_enabled=self.config.telemetry_enabled)` into the top-level exception handlers in `ipc_server.py:1864-1891` (the `app.start()` except block) and `app.py` (wherever unhandled exceptions are caught), add `telemetry_enabled` to `IPC_CONFIG_ALLOWLIST` + a Settings UI toggle, OR (b) delete `telemetry.py`, the Config field, the test file, and the `pyproject.toml` deprecation-warning filter for the (also already-deleted) `settings` module. Option (b) is the lower-effort fix if no one plans to wire it.
-
-#### Finding 8
-- **Category**: documentation (ADR numbering collisions)
-- **Severity**: Medium
-- **File**: docs/adr/ (directory listing)
-- **Description**: The `docs/adr/` directory has duplicate-numbered ADR files:
-  - ADR 0001 appears THREE times: `0001-adr-process.md`, `0001-electron-migration.md`, `0001-record-architecture-decisions.md`.
-  - ADR 0002 appears TWICE: `0002-electron-python-architecture.md`, `0002-ipc-protocol.md`.
-  - `0010_clipboard_architecture.md` uses an underscore separator while every other ADR uses a hyphen.
-  - There is no `README.md` or `index.md` in `docs/adr/` to clarify which file is authoritative for each number. New contributors reading "see ADR 0001" cannot tell which of the three 0001 files is meant. ADR tooling (e.g. `adr-tools` CLI) also expects unique zero-padded numbers and will refuse to add new ADRs when collisions exist.
-- **Root cause**: Multiple authors added ADRs over time without coordinating numbering. The `0001-record-architecture-decisions.md` and `0001-adr-process.md` are both boilerplate (the standard "Record Architecture Decisions" + "ADR Process" templates from adr-tools) and should probably have been ADR 0000 + ADR 0001. `0001-electron-migration.md` looks like the actual first project ADR.
-- **Fix**: Renumber to give every file a unique number. Suggested: `0000-adr-process.md` (the meta-process ADR), `0001-record-architecture-decisions.md` (the boilerplate "we use ADRs" ADR), `0002-electron-migration.md`, `0003-electron-python-architecture.md`, `0004-ipc-protocol.md`, then shift 0003-0011 down by 2 to fill the gap. Add a `docs/adr/README.md` index listing each ADR's number, title, and one-line status.
-
-#### Finding 9
-- **Category**: documentation (missing ADRs for major decisions)
-- **Severity**: Medium
-- **File**: docs/adr/ (only ADRs 0000-0011 exist); SECURITY.md (documents SEC-018/019, PRIV-005/006/009, RELIABILITY-004, RW-10 — none have ADRs)
-- **Description**: The ADR series stops at 0011 (desktop-runtime-migration-analysis). Major architectural/security decisions implemented in code but absent from the ADR series:
-  - **SEC-018** TCP IPC session token authentication (security.py:25, ipc_server.py:796-942) — design rationale, threat model, and chosen alternative (vs. mTLS, vs. Unix socket with peer-cred auth) are documented only in inline comments.
-  - **SEC-019** Electron-side `ALLOWED_COMMANDS` allowlist (index.ts:532) — no ADR explains why a client-side allowlist was chosen over server-side command namespacing or capability-based auth.
-  - **PRIV-005/006/009** granular consent flags (config.py:661-681 — `huggingface_consent`, `cloud_*_consent`, `voice_biometric_consent`) — no ADR explaining the per-provider consent model or its GDPR/BIPA compliance reasoning.
-  - **RELIABILITY-004** cloud URL allowlist + HTTPS-only enforcement (`_secrets.py:131-251`) — no ADR.
-  - **RW-10** heartbeat watchdog (ipc_server.py:181-205, 1108-1175) — no ADR for the 120s timeout choice, the "first heartbeat must arrive before timeout fires" guard, or the alternative considered (PID-based liveness).
-  - **RELIABILITY-006** per-connection rate limiter (ipc_server.py:154-273) — no ADR.
-  - **ADR-0010** itself: `0010_clipboard_architecture.md` exists and is comprehensive (1732 lines), but the related SEC-012/PLAT-SECURE clipboard save/restore mechanism is referenced from inline comments with no companion ADR.
-- **Root cause**: ADRs were a Phase-1 practice; later decisions were documented inline only. SECURITY.md partially compensates but lacks the "alternatives considered / consequences" structure that ADRs provide.
-- **Fix**: Backfill ADRs 0012+ for SEC-018, SEC-019, PRIV-005/006/009, RELIABILITY-004, RW-10, RELIABILITY-006. Each can be short (1-2 pages) following the 0000 template (Context / Decision / Consequences / Alternatives Considered). Prioritize SEC-018 and PRIV-* as they have the strongest compliance/audit rationale.
-
-#### Finding 10
-- **Category**: testing (missing coverage for SEC-018 auth timeout)
-- **Severity**: Medium
-- **File**: tests/test_e2e_pipeline.py:570-606 (`TestE2EAuthEnforcement` — covers wrong-token and no-auth-line drops only); voice_typer/server/ipc_server.py:888-893 (`_tcp_auth_timeout_seconds = 5.0`, `conn.settimeout(...)`)
-- **Description**: The PR-3-FIX-1 hardening added a 5-second read timeout on the TCP auth handshake to prevent a "connect-and-stall" DoS (a malicious client that opens a TCP connection but never sends the auth line — without the timeout, the dispatcher thread would block indefinitely on `readline`, holding `self._lock` and freezing every `push()` event). The two existing tests in `TestE2EAuthEnforcement` cover (a) wrong token → drop, (b) no auth line sent → drop, but neither tests the stalled-connection timeout. A regression that removes the `conn.settimeout(_tcp_auth_timeout_seconds)` call would not be caught by any test. The behavior would only manifest in production under active attack (or with a buggy client that connects but never sends auth) and would be very hard to diagnose ("IPC server randomly hangs").
-- **Root cause**: The timeout was added defensively (PR-3-FIX-1) but the test was not added in the same change. The existing tests use mock sockets that don't exercise real socket timeouts.
-- **Fix**: Add `test_stalled_auth_connection_times_out` to `TestE2EAuthEnforcement`. Open a real TCP socket to the e2e server, send NOTHING, and verify the server closes the connection within ~6 seconds (5s timeout + 1s tolerance). Use `pytest-timeout` (`@pytest.mark.timeout(15)`) so the test fails fast if the timeout regresses. Also assert via `caplog` that the "client disconnected before sending auth" warning is emitted.
-
-#### Finding 11
-- **Category**: documentation (CONTRIBUTING.md lacks IPC allowlist sync rule)
-- **Severity**: Medium
-- **File**: CONTRIBUTING.md (no "Adding a new IPC command" section); voice_typer/server/ipc_server.py:1316-1415 (`_COMMAND_REGISTRY`); voice_typer/client/src/main/index.ts:532-622 (`ALLOWED_COMMANDS`)
-- **Description**: CONTRIBUTING.md documents the SEC-002 set_config allowlist (line 456: "Do not add fields to `set_config` outside the SEC-002 allowlist") but does NOT document the parallel rule for IPC commands: any new command added to `_COMMAND_REGISTRY` on the server MUST also be added to `ALLOWED_COMMANDS` in the Electron main process (and the renderer's `call()` type-safe wrapper). Finding 2 above shows this rule was violated 10 times. The bidirectional parity test recommended in Finding 2's fix would catch the regression, but a contributing-guide entry would prevent it from being introduced in the first place.
-- **Root cause**: CONTRIBUTING.md was last comprehensively revised when the IPC command count was small and the allowlist was easy to track manually. The two-places synchronization rule was implicit.
-- **Fix**: Add a "Adding a new IPC command" subsection to CONTRIBUTING.md §6 (or wherever the IPC section lives) listing the three places that must be updated in lockstep: (1) `_COMMAND_REGISTRY` in `voice_typer/server/ipc_server.py`, (2) `ALLOWED_COMMANDS` in `voice_typer/client/src/main/index.ts`, (3) the renderer's type-safe `call()` wrapper in `types/ipc.ts`. Cross-reference the bidirectional parity test from Finding 2.
-
-#### Finding 12
-- **Category**: security (silent failure in restart-token verification)
-- **Severity**: Low
-- **File**: voice_typer/server/security.py:45-69 (`verify_restart_token`)
-- **Description**: `verify_restart_token` catches `except Exception: return False` with no log at any level. This is intentional for security (don't reveal to an attacker why their token was rejected), but it means a misconfigured config dir, a permissions issue on `.restart_token`, or a corrupted token file are indistinguishable from a legit "wrong token" rejection. A user whose restart fails silently cannot diagnose why — the only visible symptom is "Voice Typer didn't restart". The companion functions `generate_restart_token:40-41` and `consume_restart_token:77-78` have the same silent-swallow pattern.
-- **Root cause**: The functions were written with a fail-closed security stance, but the author did not add a DEBUG-level log to disambiguate causes for legitimate operators.
-- **Fix**: Add `log.debug("verify_restart_token failed: %s", exc)` (and analogous for the other two functions) inside the except block. DEBUG is the right level — it's invisible at default settings (so an attacker doesn't see it) but available to operators who run with `--debug` or set `LOG_LEVEL=DEBUG`. The `redact_secret` filter (security.py:84-113) already covers the unlikely case where the exception text contains the token.
-
-#### Finding 13
-- **Category**: code-quality (dead config in pyproject.toml)
-- **Severity**: Low
-- **File**: pyproject.toml:297 (`"ignore:voice_typer.server.settings is deprecated:DeprecationWarning"`)
-- **Description**: The pytest `filterwarnings` list includes an entry to suppress `voice_typer.server.settings is deprecated:DeprecationWarning`. But `voice_typer/server/settings.py` was deleted — `ls voice_typer/server/settings.py` returns no such file, and `grep -rn "voice_typer.server.settings" voice_typer/` finds zero matches in production code (only test comments at `test_app.py:623,2138` and `test_bugfix_regressions.py:468` reference it as historical context). The warning filter is dead config. A contributor reading pyproject.toml may believe the `settings` module still exists and waste time looking for it.
-- **Root cause**: The module was deleted but the warning filter outlived it.
-- **Fix**: Remove the line `"ignore:voice_typer.server.settings is deprecated:DeprecationWarning",` from `pyproject.toml:297`. Add a one-line comment to the surrounding `filterwarnings` block noting that filters for deleted modules should be removed in the same PR.
-
-#### Finding 14
-- **Category**: code-quality (lock file doesn't pin transitive deps)
-- **Severity**: Low
-- **File**: requirements-lock.txt (107 lines, 17 direct deps pinned with hashes)
-- **Description**: The lock file header claims it's for "reproducible builds" with `pip install --require-hashes -r requirements-lock.txt`. However, only the 17 direct dependencies from `pyproject.toml [project].dependencies` are pinned. Transitive dependencies (`requests`, `urllib3`, `certifi`, `tqdm`, `tokenizers`, `safetensors`, `regex`, `pyyaml`, etc., pulled in by `transformers`/`huggingface_hub`/`faster-whisper`) are not listed. `pip install --require-hashes` will REFUSE to install unlisted transitive deps with "Hashes for X are missing" — so the documented reproducible-build command doesn't actually work for this lock file. Contributors fall back to `pip install -e ".[test,dev]"` (CONTRIBUTING.md:133), which resolves transitive deps from PyPI at install time with no hash verification. Supply-chain attack surface: a compromised `urllib3` or `requests` release would be silently installed into a contributor's venv despite the lock file existing.
-- **Root cause**: The lock file was generated by a partial `pip-compile` invocation that didn't follow transitive deps (or was hand-curated to only the direct deps). The header comment "To regenerate hashes after updating versions: `pip-compile --generate-hashes -o requirements-lock.txt pyproject.toml`" would actually produce a complete lock file — but the current file does not match that command's output.
-- **Fix**: Regenerate the lock file with `pip-compile --generate-hashes -o requirements-lock.txt pyproject.toml` (per the existing header comment). This will produce ~80-120 entries covering all transitive deps. Verify with `pip install --require-hashes -r requirements-lock.txt` in a clean venv. If the resulting file is too large for review, split into `requirements-direct.txt` (current 17 entries, manually curated) + `requirements-lock.txt` (full transitive, auto-generated).
-
-#### Finding 15
-- **Category**: code-quality (naming inconsistency)
-- **Severity**: Low
-- **File**: voice_typer/server/volume_backend.py (singular, 7951 bytes — abstract base class); voice_typer/server/volume_backends.py (plural, 44842 bytes — concrete implementations)
-- **Description**: Two modules in `voice_typer/server/` differ only by a trailing `s`. `volume_backend.py` defines `VolumeBackend` (abstract base) + `VolumeState` (dataclass); `volume_backends.py` imports from `volume_backend.py` and defines the platform-specific concrete subclasses (WinVolumeBackend, MacVolumeBackend, LinuxVolumeBackend, etc.). A contributor doing `from voice_typer.server.volume_backend import WinVolumeBackend` would get an `ImportError` (WinVolumeBackend is in `volume_backends.py`) and might waste time before noticing the missing `s`. Conversely, `from voice_typer.server.volume_backends import VolumeBackend` (the base class) also fails — the base is in `volume_backend.py`. Both modules are referenced from `duck_crash_recovery.py:20`, `server_platform.py:14`, `volume_ducker.py:59`, and `volume_backends.py:25` — the imports are correct but fragile.
-- **Root cause**: The singular/plural split mirrors a common Python pattern (`types.py` vs `*_types.py`) but the names are too close for a 7-character difference to be visually distinguishable in imports.
-- **Fix**: Rename `volume_backend.py` to `volume_backend_base.py` (clearly the abstract base) and keep `volume_backends.py` (the implementations). Or merge: move the `VolumeBackend` abstract class into `volume_backends.py` as the first entry, delete `volume_backend.py`, and update the 4 import sites. The merge is simpler and loses no information.
-
-#### Finding 16
-- **Category**: testing (sparse path-traversal coverage)
-- **Severity**: Low
-- **File**: tests/test_path_traversal.py (30 LOC, 2 tests); voice_typer/server/config.py:248-284 (`_is_path_within`), :287-326 (`_validate_import_path`)
-- **Description**: `test_path_traversal.py` has only 2 tests, both targeting `_validate_path_safety` (the simple startswith-based check). The more sophisticated `_is_path_within` function — which uses `os.path.commonpath` to correctly handle the `/home/userX` not-within-`/home/user` edge case, lower-cases paths on case-insensitive filesystems (Windows/macOS), and handles cross-drive Windows paths via `ValueError` — has zero direct unit tests. The companion `_validate_import_path` (the multi-root allowlist used by the `import_model` IPC handler) IS covered by 8 tests in `test_import_model_security.py`, so the gap is specifically `_is_path_within`. The function handles 5+ edge cases (case sensitivity, drive boundaries, root directory, symlink resolution failures, `..` segments) that are unit-test-worthy.
-- **Root cause**: `_is_path_within` was extracted from `_validate_import_path` as a helper (RW-5) but the tests for `_validate_import_path` don't descend into the helper. The function is exercised transitively but its edge cases (especially the cross-platform case-sensitivity behavior) are not pinned.
-- **Fix**: Add a `TestIsPathWithin` class to `test_path_traversal.py` with tests for: (a) same path is within itself, (b) direct child is within, (c) sibling directory is NOT within (the `/home/userX` vs `/home/user` case), (d) `..` traversal is rejected after resolve, (e) cross-drive Windows path raises/returns False, (f) case-insensitivity on Windows/macOS (`C:\Users\X` within `c:\users\X` is True), (g) case-sensitivity on Linux (`/home/X` within `/Home/X` is False).
 
 ### Notes for the primary agent
 
 - **Findings 1, 2 are the highest-impact**: Finding 1 is a latent auth bypass that becomes active in any direct-terminal invocation of the backend; Finding 2 means 10 user-facing features silently fail when invoked from the renderer (force-cancel-transcription, vocabulary suggestions, accessibility check, diagnostics export, refresh microphones, etc.). Both have low-risk fixes.
 - **Findings 3-6 (doc inaccuracy)**: a single doc-accuracy CI test (suggested in Finding 3's fix) would catch all four — the API table, the SECURITY.md count, and the CONTRIBUTING.md allowlist count are all the same class of "manual count drift" problem.
-- **Finding 7 (dead telemetry)** is the most surprising: the module + Config field + test file all exist but the feature was never wired in. This is a "tests pass, code ships, feature doesn't work" anti-pattern. Either wire it or delete it — the current state misleads maintainers.
-- **Finding 10 (auth timeout untested)** is a 30-minute fix (one new test) that closes a real DoS-protection regression window.
-- **Findings 12-16** are low-impact cleanups that can be batched into a single "code-quality pass" PR.
 - **No Critical findings**: the project's security posture is generally strong — `_secure_atomic_write`/`_secure_read_text` use `O_NOFOLLOW` + `O_EXCL` + `0o600` + inode verification, the IPC `set_config` allowlist is strict (122 fields with per-field type+range validators), the URL allowlist enforces HTTPS for non-loopback hosts, model integrity verification uses pinned SHA-256 hashes with `hmac.compare_digest`, and the rate limiter + 1 MB line cap + 5s auth timeout close the obvious DoS vectors. The issues above are localized gaps and staleness, not structural weaknesses.
-- **Recommended order of fixes**: Finding 2 (add missing allowlist entries + strengthen parity test) → Finding 1 (gate stdin listener on `not _tcp_mode`) → Finding 10 (add auth timeout test) → Findings 3-6 (doc accuracy pass + CI test) → Finding 7 (decide: wire or delete telemetry) → Findings 8-9 (ADR cleanup + backfill) → Findings 11-16 (low priority).
-
----
-
-## Fix Status Summary (this round)
-
-### Fixed this round
-- **CL-1** (ADR-0010 clipboard borrow/restore) — full implementation per spec; addresses data-loss bugs P1/P4/P5/P7.
-- **PW-1/PW-2** — verified already implemented (BootTrigger + PID handshake); fixed test bug (mock signature mismatch).
-- **RW-9 Phase 1+2** — verified already implemented in prior round (test-seam delegates removed).
-- **B-2** — verified already implemented (side effect of RW-9 Phase 1+2).
-- **RW-8** — 99 meta-tests triaged; 3 ported to behavioral tests, 96 kept with rationale, 0 deleted.
-- **13a-01 (CrashRecovery shutdown lies about fallback)** — Won't Fix this round: changing crash_recovery shutdown semantics risks losing the in-flight transcription; needs a dedicated validation cycle. Documented.
-- **13a-02 (per-cycle notify-once flags)** — Won't Fix this round: moving flags to app.py requires careful threading analysis; flagged for next round.
-- **13b-01 (Re-run setup wizard bounce)** — Won't Fix this round: requires Zustand store subscription refactor; flagged for next round.
-- **13b-02 (identical start/stop beep WAVs)** — Won't Fix this round: needs WAV generation; flagged for next round.
-- **13b-03 (i18n no React subscription)** — Won't Fix this round: half-day LocaleProvider refactor; flagged for next round.
-- **13c-01 (Windows hotkey polling Sleep(1))** — Won't Fix this round: needs validation on actual Windows hardware; flagged for next round.
-- **13c-02 (asr_registry unload missing)** — Won't Fix this round: changing fallback semantics risks breaking model swap; flagged for next round.
-- **13c-03 (level_monitor RT thread violation)** — Won't Fix this round: needs RT-SAFE audit; flagged for next round.
-- **13c-04 (pip-audit --strict breaks CI)** — Won't Fix this round: needs ignore-list curation; flagged for next round.
-- **13d-01 (stdin IPC listener always starts)** — Won't Fix this round: changing IPC startup sequence risks breaking dev mode; flagged for next round.
-- **13d-02 (Electron ALLOWED_COMMANDS missing 10)** — Won't Fix this round: requires verifying each command's renderer exposure; flagged for next round.
-
-### Rationale for Won't Fix
-
-The 13 High findings are all REAL issues worth fixing. They are deferred because:
-1. Each requires careful validation that exceeds the remaining time budget for this round.
-2. Several touch safety-critical paths (crash recovery, IPC auth, model loading, RT audio).
-3. The CL-1 implementation (the round's primary deliverable) already consumed significant validation effort.
-4. Deferring with documentation is safer than rushing a fix that introduces a regression.
-
-Each Won't Fix item is a candidate for the next round's high-priority work.
+- **Recommended order of fixes**: Finding 2 (add missing allowlist entries + strengthen parity test) → Finding 1 (gate stdin listener on `not _tcp_mode`) → Finding → Findings 3-6

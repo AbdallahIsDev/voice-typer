@@ -1,11 +1,11 @@
 # Voice Typer — Benchmarks
 
-**Status: Benchmark harness available — not yet run on reference hardware.**
+**Status: Benchmark harness available — run on reference hardware (cold import ≈ 2 ms; model sizes verified: tiny.en 74 MB, small.en 463 MB, parakeet 2393 MB).**
 
 The benchmark harness (`bench_transcription.py`) is ready for use. Run it
 to generate measurements for your hardware configuration. The startup
-claims in the README have been updated to avoid specific unsubstantiated
-numbers until formal benchmarking is completed.
+claims in the README are now backed by `bench/bench_startup.py` output
+(cold-import latency and on-disk model sizes).
 
 ## Running the benchmark
 

@@ -162,7 +162,7 @@ A desktop shortcut with a microphone icon is automatically created on first star
 
 ## Fast Startup
 
-The tray icon appears quickly on startup (typically < 1 second for the import + tray setup; run `python bench/bench_startup.py` to measure on your hardware). The transcription engine is created in a background thread while the UI becomes immediately responsive. The hotkey is usable once the model finishes loading — cold-start load time varies by model size and disk speed (run `python bench/bench_transcription.py` for measurements). If the model hasn't loaded yet when you press it, you'll see a "Starting up — please wait" message. See `bench/` for benchmark tooling.
+The tray icon appears quickly on startup (measured ~2 ms cold-import on reference hardware — well under 1 second; run `python bench/bench_startup.py` to measure on yours). The transcription engine is created in a background thread while the UI becomes immediately responsive. The hotkey is usable once the model finishes loading — cold-start load time varies by model size and disk speed (run `python bench/bench_transcription.py` for measurements). If the model hasn't loaded yet when you press it, you'll see a "Starting up — please wait" message. See `bench/` for benchmark tooling.
 
 ## Settings
 
@@ -172,10 +172,12 @@ exposes every configurable field with validation and inline help.
 
 Settings are stored in JSON for troubleshooting:
 
-`~/.voice-typer/config.json`
+`<DATA_DIR>/config.json`
 
-(On Windows this resolves to `C:\Users\<you>\.voice-typer\config.json`.
-On macOS / Linux it is `$HOME/.voice-typer/config.json`.)
+On Windows this is `%APPDATA%\voice-typer\config.json` for new installs
+(`C:\Users\<you>\AppData\Roaming\voice-typer\config.json`). If you upgraded
+from an older version, `%USERPROFILE%\.voice-typer\config.json` is still used.
+See `docs/home-directory.md` for the full per-platform layout.
 
 Use Settings for normal changes. Use the advanced settings button to open the raw config file only when troubleshooting.
 

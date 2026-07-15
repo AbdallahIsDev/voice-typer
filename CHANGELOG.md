@@ -5,7 +5,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
 
 ## [Unreleased] - 2026-06-30
 
-### Added — Zero-Command Hotkey Architecture (ADR 0006)
+### Added — Zero-Command Hotkey Architecture (ADR 0008)
 
 - **Gap 1: Cross-platform CI build pipeline** — GitHub Actions `build.yml` now
   compiles all 3 native binaries (Swift on macOS, C on Windows, C on Linux)
@@ -51,7 +51,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
 ## [Unreleased - earlier native-hotkey work] - 2026-06-30
 
 The entries below describe the earlier NATIVE-001 work that the
-Zero-Command Hotkey Architecture (ADR 0006) section above builds on.
+Zero-Command Hotkey Architecture (ADR 0008) section above builds on.
 Both roll up into the same unreleased release; the section heading is
 distinct to avoid duplicating the `## [Unreleased]` header.
 
