@@ -208,23 +208,6 @@ def _secure_read_text(path: Path, *, encoding: str = "utf-8") -> str:
             return content
 
 
-def _legacy_config_dir() -> Path | None:
-    """Get the legacy platform-specific config directory, if different from new one.
-
-    NEW-DEAD-017: This function is never called in production code.
-    Kept for backward compatibility with external scripts that may
-    import it.
-    """
-    if is_windows():
-        base = os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")
-    elif is_macos():
-        base = Path.home() / "Library" / "Application Support"
-    else:
-        base = os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")
-    legacy = Path(base) / "voice-typer"
-    return legacy if legacy != _config_dir() else None
-
-
 def _validate_path_safety(path: Path, parent: Path) -> Path:
     """Resolve and validate that path stays within parent directory.
 
@@ -531,6 +514,16 @@ class Config:
     # and was reset to default. The IPC layer can surface these to
     # the renderer so the user knows their config was corrected.
     last_load_warnings: list | None = None
+
+    # RW-01: marks that plaintext API keys in config.json have been
+    # migrated to the OS keychain (via credential_store). When False
+    # (or absent, for legacy config files), Config.load() calls
+    # ``credential_store.migrate_secrets_to_keyring()`` once to move
+    # any plaintext keys to keyring and replace them with
+    # ``keyring://<provider>`` reference tokens. The flag is then set
+    # to True so the migration doesn't run again on every launch
+    # (idempotent — see credential_store.migrate_secrets_to_keyring).
+    secrets_migrated: bool = False
 
     # Hotkey
     # NATIVE-001 / FIX-HOTKEY-ARCHITECTURE: default hotkey is now
@@ -943,6 +936,16 @@ class Config:
         config.json as a symlink to ~/.bashrc would previously have
         their target overwritten via os.replace. O_NOFOLLOW refuses to
         follow symlinks on open, so the write fails instead.
+
+        RW-01: API key fields are routed through ``credential_store``
+        before serialization. When a usable keyring backend is
+        available, the secret is stored in the OS keychain and the
+        on-disk field is replaced with a ``"keyring://<provider>"``
+        reference token (so config.json contains no plaintext secrets).
+        When keyring is unavailable, the plaintext value is written to
+        config.json (with ``0o600`` perms via ``_secure_atomic_write``)
+        — preserving the pre-RW-01 behavior so users on headless
+        Linux without ``gnome-keyring-daemon`` aren't blocked.
         """
         try:
             path = _config_dir()
@@ -953,7 +956,37 @@ class Config:
                 except OSError as e:
                     log.warning("[CONFIG] Failed to chmod config dir: %s", e)
             config_file = path / "config.json"
-            content = json.dumps(asdict(self), indent=2)
+            data = asdict(self)
+            # RW-01: route API key fields through credential_store.
+            # See module docstring in credential_store.py for the full
+            # design. We only call store_secret when keyring is
+            # available, to avoid double-writes (store_secret itself
+            # falls back to writing config.json on keyring failure,
+            # which would race with our _secure_atomic_write below).
+            try:
+                from voice_typer.server import credential_store
+
+                if credential_store.is_keyring_available():
+                    for provider, field_name in credential_store.PROVIDER_TO_CONFIG_FIELD.items():
+                        value = data.get(field_name, "")
+                        if value and not value.startswith(credential_store.KEYRING_REF_PREFIX):
+                            # Real value in memory — push to keyring, then
+                            # replace the on-disk field with a reference.
+                            credential_store.store_secret(provider, value)
+                            data[field_name] = f"{credential_store.KEYRING_REF_PREFIX}{provider}"
+                        # If value is empty or already a reference token,
+                        # leave it as-is (the redacted IPC view in
+                        # _sanitize_config_for_ipc will hide it anyway).
+                # else: keyring unavailable — leave plaintext in `data`;
+                # _secure_atomic_write enforces 0o600 on POSIX.
+            except Exception as e:
+                # Don't let credential_store issues break config save —
+                # fall through to writing whatever we have in `data`.
+                log.warning(
+                    "[CONFIG] credential_store routing failed: %s — writing config with current api_key values",
+                    e,
+                )
+            content = json.dumps(data, indent=2)
             _secure_atomic_write(config_file, content)
             return True
         except (OSError, PermissionError) as e:
@@ -1147,6 +1180,65 @@ class Config:
                         "to disk."
                     )
 
+                # RW-01: credential_store integration.
+                # 1. If secrets haven't been migrated yet, run the
+                #    one-time migration (plaintext → keyring). This
+                #    modifies config.json on disk but NOT our in-memory
+                #    `data` dict — the in-memory dict still has the
+                #    plaintext values (which is what we want, so the
+                #    constructed Config instance has real values for
+                #    cloud_engines / llm_polish to use).
+                # 2. Set the in-memory flag so the constructed Config
+                #    carries it forward (and the next save() persists it).
+                # 3. Resolve any ``keyring://<provider>`` reference
+                #    tokens to real values via credential_store.load_secret.
+                #    This handles the case where migration was done in a
+                #    prior session (config.json on disk has references,
+                #    real values live in keychain).
+                try:
+                    from voice_typer.server import credential_store
+
+                    if not data.get("secrets_migrated", False):
+                        migrated_count = credential_store.migrate_secrets_to_keyring()
+                        if migrated_count > 0:
+                            log.info(
+                                "[CONFIG] RW-01: migrated %d plaintext API key(s) to OS keychain",
+                                migrated_count,
+                            )
+                    # Always set the flag in-memory so the constructed
+                    # Config (and the next save()) carries it forward,
+                    # even if migration was a no-op (already migrated
+                    # or no keys to migrate).
+                    data["secrets_migrated"] = True
+
+                    # Resolve keyring:// references to real values.
+                    for provider, field_name in credential_store.PROVIDER_TO_CONFIG_FIELD.items():
+                        value = data.get(field_name, "")
+                        if isinstance(value, str) and value.startswith(credential_store.KEYRING_REF_PREFIX):
+                            real_value = credential_store.load_secret(provider)
+                            if real_value:
+                                data[field_name] = real_value
+                            else:
+                                # Reference points to keyring but keyring
+                                # has nothing — secret is lost (e.g. user
+                                # wiped their keychain). Clear the field
+                                # so the renderer shows "not configured"
+                                # instead of leaking the reference token.
+                                log.warning(
+                                    "[CONFIG] RW-01: %s field has keyring:// reference "
+                                    "but keyring returned no value — clearing (secret lost)",
+                                    field_name,
+                                )
+                                data[field_name] = ""
+                except Exception as e:
+                    # Don't let credential_store issues break config
+                    # load — fall through with whatever values we have.
+                    log.warning(
+                        "[CONFIG] RW-01: credential_store integration failed: %s — "
+                        "continuing with config.json values as-is",
+                        e,
+                    )
+
                 # H1: Validate non-numeric fields before construction
                 data = cls._validate_non_numeric_fields(data)
                 # NEW-CQ-016: extract load warnings before construction
@@ -1279,6 +1371,10 @@ class Config:
             "fix_grammar_basics",
             # P5: vocabulary automation master toggle.
             "vocabulary_automation_enabled",
+            # RW-01: secrets_migrated is a bool flag gate for the
+            # one-time plaintext → keyring migration in
+            # credential_store.migrate_secrets_to_keyring().
+            "secrets_migrated",
         }
         str_fields = {
             "hotkey",

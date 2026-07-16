@@ -34,8 +34,12 @@ process can connect to the IPC port without this token.
 ### Command Allowlist (SEC-019)
 
 The Electron main process enforces an allowlist of IPC commands. The renderer
-cannot invoke arbitrary commands — only the ~35 commands in `ALLOWED_COMMANDS`
-are forwarded to the Python backend.
+cannot invoke arbitrary commands — only the **69** commands listed in
+`ALLOWED_COMMANDS` (a `Set` defined at
+`voice_typer/client/src/main/index.ts`) are forwarded to the Python backend.
+The authoritative count is enforced by CI (see
+`tests/test_security_doc_command_count.py`); update the count there if entries
+are added or removed.
 
 ### Secret Redaction (SEC-003)
 
